@@ -22,6 +22,7 @@
 - Ratings remain normalized for simulation; UI display maps ratings to a 0-99 percentile scale by default using `data/players_normalized.csv` (fallback `data/players.csv`).
 - Player profile Overall rating displays a 1-5 star scale.
 - Full roster tables include an OVR column after player name.
+- Splash music initializes after the splash screen shows; pygame audio is opt-in to avoid startup hangs.
 - Latest locked config snapshot: `tmp/config_backups/physics_sim_config_locked_20251231_030700.py`.
 - Latest KPI/long-run artifacts:
   - `tmp/long_term_runs/hr_tune_pass_20251230_215043`
@@ -60,6 +61,8 @@
 - `PB_GAME_ENGINE=physics` (default; legacy archived).
 - `PB_PERSIST_STATS=0/1` to skip or persist per-game stats.
 - `PB_RATING_DISPLAY=raw|scale_99|stars` to control UI rating display (default `scale_99`).
+- `NEXGEN_SPLASH_MUSIC=0` to disable splash audio.
+- `NEXGEN_AUDIO_BACKEND=pygame` to opt into pygame audio playback.
 
 ## Data Defaults
 - Use normalized players by default if available.

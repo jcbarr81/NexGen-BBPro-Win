@@ -112,7 +112,13 @@ class SplashScreen(QWidget):
         self._music_player = None
         self._audio_output = None
         self._music_backend: str | None = None
-        self._setup_music()
+        self._music_started = False
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._music_started:
+            self._music_started = True
+            QTimer.singleShot(0, self._setup_music)
 
     def _build_sponsor_bar(self) -> QWidget:
         from PyQt6.QtWidgets import QHBoxLayout
@@ -168,6 +174,11 @@ class SplashScreen(QWidget):
     # ------------------------------------------------------------------
     # Music helpers
     def _setup_music(self) -> None:
+        disable_music = os.environ.get("NEXGEN_SPLASH_MUSIC", "").strip().lower()
+        if disable_music in {"0", "false", "no", "off"}:
+            logger.info("Splash music disabled via NEXGEN_SPLASH_MUSIC.")
+            return
+
         base = get_base_dir()
         candidates = [
             base / "assets" / "splash_music.ogg",
@@ -182,9 +193,8 @@ class SplashScreen(QWidget):
             return
 
         last_error: Optional[Exception] = None
-        prefer_pygame = self._running_in_wsl() or (
-            os.environ.get("NEXGEN_AUDIO_BACKEND", "").strip().lower() == "pygame"
-        )
+        backend = os.environ.get("NEXGEN_AUDIO_BACKEND", "").strip().lower()
+        prefer_pygame = backend == "pygame"
 
         def _try_qt() -> bool:
             nonlocal last_error
@@ -283,19 +293,19 @@ class SplashScreen(QWidget):
             if _try_pygame() or _try_qt():
                 return
         else:
-            if _try_qt() or _try_pygame():
+            if _try_qt():
                 return
 
         if last_error is not None:
             logger.info(
                 "Splash music disabled; no working audio backend (%s). "
-                "Install Qt multimedia dependencies or pygame for audio playback.",
+                "Install Qt multimedia dependencies or set NEXGEN_AUDIO_BACKEND=pygame.",
                 last_error,
             )
         else:
             logger.info(
                 "Splash music disabled; no audio backend available. "
-                "Install Qt multimedia dependencies or pygame for audio playback."
+                "Install Qt multimedia dependencies or set NEXGEN_AUDIO_BACKEND=pygame."
             )
 
     def _stop_music(self) -> None:
