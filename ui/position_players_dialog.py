@@ -18,6 +18,7 @@ from models.base_player import BasePlayer
 from models.roster import Roster
 from utils.pitcher_role import get_role
 from utils.rating_display import (
+    overall_rating,
     rating_display_details,
     rating_display_text,
     rating_display_value,
@@ -38,6 +39,7 @@ RETRO_BORDER = "#3a5f3a"
 COLUMNS = [
     "NO.",
     "Player Name",
+    "OVR",
     "AGE",
     "SLOT",
     "POSN",
@@ -49,7 +51,7 @@ COLUMNS = [
     "AS",
 ]
 
-RATING_COLUMNS = {"CH", "PH", "SP", "FA", "AS"}
+RATING_COLUMNS = {"OVR", "CH", "PH", "SP", "FA", "AS"}
 
 
 class NumberDelegate(QtWidgets.QStyledItemDelegate):
@@ -64,7 +66,7 @@ class NumberDelegate(QtWidgets.QStyledItemDelegate):
         header = index.model().headerData(
             index.column(), QtCore.Qt.Orientation.Horizontal
         )
-        is_numeric_col = header in {"NO.", "AGE", "CH", "PH", "SP", "FA", "AS"}
+        is_numeric_col = header in {"NO.", "OVR", "AGE", "CH", "PH", "SP", "FA", "AS"}
         opt = QtWidgets.QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
         if is_numeric_col:
@@ -304,7 +306,7 @@ class RosterTable(QtWidgets.QTableWidget):
                     item.setData(QtCore.Qt.ItemDataRole.UserRole, pid)
                 self.setItem(r, c, item)
 
-        widths = [50, 220, 50, 60, 60, 40, 60, 60, 60, 60, 60]
+        widths = [50, 220, 50, 50, 60, 60, 40, 60, 60, 60, 60, 60]
         for i, w in enumerate(widths):
             self.setColumnWidth(i, w)
 
@@ -474,6 +476,7 @@ class PositionPlayersDialog(QtWidgets.QDialog):
                     [
                         seq,
                         f"{p.last_name}, {p.first_name}",
+                        overall_rating(p),
                         age,
                         slot,
                         p.primary_position,

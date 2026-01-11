@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt
 from models.base_player import BasePlayer
 from models.roster import Roster
 from utils.pitcher_role import get_display_role, get_role
+from utils.rating_display import overall_rating
 from ui.player_profile_dialog import PlayerProfileDialog
 
 # Reuse the existing retro roster tables for consistent look/feel
@@ -74,6 +75,7 @@ class PlayerBrowserDialog(QDialog):
                 rows.append([
                     seq,
                     f"{p.last_name}, {p.first_name}",
+                    overall_rating(p),
                     age,
                     slot,
                     p.primary_position,
@@ -102,6 +104,7 @@ class PlayerBrowserDialog(QDialog):
                 rows.append([
                     seq,
                     f"{p.last_name}, {p.first_name}",
+                    overall_rating(p),
                     slot,
                     display_role,
                     getattr(p, "bats", ""),

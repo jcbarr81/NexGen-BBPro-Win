@@ -16,7 +16,7 @@ from ui.player_profile_dialog import PlayerProfileDialog
 from models.base_player import BasePlayer
 from models.roster import Roster
 from utils.pitcher_role import get_display_role, get_role
-from utils.rating_display import rating_display_text, rating_display_value
+from utils.rating_display import overall_rating, rating_display_text, rating_display_value
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +35,7 @@ PITCH_RATINGS = ["fb", "sl", "cu", "cb", "si", "scb", "kn"]
 COLUMNS = [
     "NO.",
     "Player Name",
+    "OVR",
     "SLOT",
     "ROLE",
     "B",
@@ -53,6 +54,7 @@ COLUMNS = [
 ]
 
 RATING_COLUMNS = {
+    "OVR",
     "AS",
     "EN",
     "CO",
@@ -82,6 +84,7 @@ class NumberDelegate(QtWidgets.QStyledItemDelegate):
         )
         is_numeric_col = header in {
             "NO.",
+            "OVR",
             "AS",
             "EN",
             "CO",
@@ -275,6 +278,7 @@ class RosterTable(QtWidgets.QTableWidget):
         widths = [
             50,
             220,
+            50,
             60,
             60,
             40,
@@ -441,6 +445,7 @@ class PitchersDialog(QtWidgets.QDialog):
                     [
                         seq,
                         f"{p.last_name}, {p.first_name}",
+                        overall_rating(p),
                         slot,
                         display_role,
                         p.bats,

@@ -21,6 +21,7 @@
 - Pitcher roster UIs (full roster/pitchers dialogs) display `preferred_pitching_role` instead of the `role` field.
 - Ratings remain normalized for simulation; UI display maps ratings to a 0-99 percentile scale by default using `data/players_normalized.csv` (fallback `data/players.csv`).
 - Player profile Overall rating displays a 1-5 star scale.
+- Full roster tables include an OVR column after player name.
 - Latest locked config snapshot: `tmp/config_backups/physics_sim_config_locked_20251231_030700.py`.
 - Latest KPI/long-run artifacts:
   - `tmp/long_term_runs/hr_tune_pass_20251230_215043`

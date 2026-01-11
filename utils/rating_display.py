@@ -20,12 +20,41 @@ _ABBREV_MAP = {
     "co": "control",
     "mo": "movement",
     "mv": "movement",
+    "ovr": "overall",
 }
 
 _PITCH_KEYS = {"fb", "sl", "cu", "cb", "si", "scb", "kn"}
 _HITTER_KEYS = {key for key in Player._rating_fields if not key.startswith("pot_")}
 _PITCHER_KEYS = {key for key in Pitcher._rating_fields if not key.startswith("pot_")}
-_ALL_KEYS = _HITTER_KEYS | _PITCHER_KEYS
+_EXTRA_KEYS = {"overall"}
+_ALL_KEYS = _HITTER_KEYS | _PITCHER_KEYS | _EXTRA_KEYS
+
+_HITTER_OVERALL_KEYS = (
+    "ch",
+    "ph",
+    "sp",
+    "pl",
+    "vl",
+    "sc",
+    "fa",
+    "arm",
+    "gf",
+)
+_PITCHER_OVERALL_KEYS = (
+    "endurance",
+    "control",
+    "movement",
+    "hold_runner",
+    "arm",
+    "fa",
+    "fb",
+    "cu",
+    "cb",
+    "sl",
+    "si",
+    "scb",
+    "kn",
+)
 
 POSITION_BUCKETS = ("C", "1B", "2B", "3B", "SS", "OF")
 
@@ -44,14 +73,47 @@ def _rating_source_path() -> Path:
     return base_dir / "data" / "players.csv"
 
 
+def overall_rating(player: object) -> int:
+    is_pitcher = bool(
+        getattr(player, "is_pitcher", False)
+        or str(getattr(player, "primary_position", "")).upper() == "P"
+    )
+    keys = _PITCHER_OVERALL_KEYS if is_pitcher else _HITTER_OVERALL_KEYS
+    values: List[float] = []
+    for key in keys:
+        raw = getattr(player, key, 0)
+        try:
+            values.append(float(raw or 0))
+        except (TypeError, ValueError):
+            values.append(0.0)
+    if not values:
+        return 0
+    avg = sum(values) / len(values)
+    return max(0, min(99, int(round(avg))))
+
+
+def _overall_from_row(row: Dict[str, object], keys: Tuple[str, ...]) -> Optional[int]:
+    values: List[float] = []
+    for key in keys:
+        raw = row.get(key)
+        try:
+            values.append(float(raw or 0))
+        except (TypeError, ValueError):
+            values.append(0.0)
+    if not values:
+        return None
+    avg = sum(values) / len(values)
+    return max(0, min(99, int(round(avg))))
+
+
 @lru_cache(maxsize=1)
 def _load_distributions() -> Dict[str, Dict[str, Dict[str, List[int]]]]:
     distributions = {
-        "hitters": {key: [] for key in _HITTER_KEYS},
-        "pitchers": {key: [] for key in _PITCHER_KEYS},
+        "hitters": {key: [] for key in _HITTER_KEYS | _EXTRA_KEYS},
+        "pitchers": {key: [] for key in _PITCHER_KEYS | _EXTRA_KEYS},
         "all": {key: [] for key in _ALL_KEYS},
         "hitters_by_bucket": {
-            bucket: {key: [] for key in _HITTER_KEYS}
+            bucket: {key: [] for key in _HITTER_KEYS | _EXTRA_KEYS}
             for bucket in POSITION_BUCKETS
         },
     }
@@ -92,6 +154,18 @@ def _load_distributions() -> Dict[str, Dict[str, Dict[str, List[int]]]]:
                     if pos_bucket:
                         distributions["hitters_by_bucket"][pos_bucket][key].append(
                             rating
+                        )
+            overall_keys = _PITCHER_OVERALL_KEYS if is_pitcher else _HITTER_OVERALL_KEYS
+            overall_val = _overall_from_row(row, overall_keys)
+            if overall_val is not None:
+                distributions["all"]["overall"].append(overall_val)
+                if is_pitcher:
+                    distributions["pitchers"]["overall"].append(overall_val)
+                else:
+                    distributions["hitters"]["overall"].append(overall_val)
+                    if pos_bucket:
+                        distributions["hitters_by_bucket"][pos_bucket]["overall"].append(
+                            overall_val
                         )
 
     for group in distributions.values():
