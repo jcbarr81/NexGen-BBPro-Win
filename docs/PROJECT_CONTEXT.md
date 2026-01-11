@@ -8,6 +8,7 @@
 - Legacy engine is guarded; use `PB_ALLOW_LEGACY_ENGINE=1` to run it intentionally.
 - Park factors are disabled for now to keep stats stable; revisit later.
 - Injury history should be logged per season and shown in player profiles (date + description only).
+- UI rating display should use position-based percentiles with a logistic curve, showing Top % at position (avg) context.
 
 ## Current State
 - Physics engine is the default engine in `playbalance/game_runner.py`.
@@ -65,6 +66,7 @@
 - Park factors remain deferred; re-enable and validate later.
 - Injury rates are currently low due to trigger gating; revisit if desired.
 - Pitcher role display uses `players.csv` role field; all pitchers currently have `role=RP`, so roster UI shows only RPs even when `preferred_pitching_role` or `data/rosters/*_pitching.csv` indicates SP.
+- Implement position-based logistic display mapping with Top % at position context in roster views.
 
 ## Do Not Change (unless revisiting tuning)
 - HR scale and non-HR XBH lift are locked.
