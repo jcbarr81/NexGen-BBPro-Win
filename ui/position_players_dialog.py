@@ -274,6 +274,7 @@ class RosterTable(QtWidgets.QTableWidget):
                             display_value = rating_display_value(
                                 val,
                                 key=column,
+                                position=row[pos_index],
                                 is_pitcher=False,
                             )
                             tooltip = None
@@ -408,7 +409,7 @@ class PositionPlayersDialog(QtWidgets.QDialog):
         layout.addWidget(self.header)
 
         rows = self._build_rows()
-        self.table = RosterTable(rows)
+        self.table = RosterTable(rows, use_position_context=True)
         self.table.itemDoubleClicked.connect(self._open_player_profile)
 
         header = self.table.horizontalHeader()
@@ -498,13 +499,22 @@ class PositionPlayersDialog(QtWidgets.QDialog):
             )
         else:
             ch_display = rating_display_text(
-                getattr(p, "ch", 0), key="CH", is_pitcher=False
+                getattr(p, "ch", 0),
+                key="CH",
+                position=getattr(p, "primary_position", None),
+                is_pitcher=False,
             )
             ph_display = rating_display_text(
-                getattr(p, "ph", 0), key="PH", is_pitcher=False
+                getattr(p, "ph", 0),
+                key="PH",
+                position=getattr(p, "primary_position", None),
+                is_pitcher=False,
             )
             sp_display = rating_display_text(
-                getattr(p, "sp", 0), key="SP", is_pitcher=False
+                getattr(p, "sp", 0),
+                key="SP",
+                position=getattr(p, "primary_position", None),
+                is_pitcher=False,
             )
             core = f"CH:{ch_display} PH:{ph_display} SP:{sp_display}"
         label = (

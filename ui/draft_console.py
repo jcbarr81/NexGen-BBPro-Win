@@ -446,13 +446,13 @@ class DraftConsole(QDialog):
             pos = p.get("primary_position", "?")
             is_pitcher = bool(p.get("is_pitcher")) or str(p.get("primary_position", "")).upper() == "P"
             chphsp = (
-                f"{rating_display_text(p.get('ch', 0), key='CH', is_pitcher=is_pitcher)}"
-                f"/{rating_display_text(p.get('ph', 0), key='PH', is_pitcher=is_pitcher)}"
-                f"/{rating_display_text(p.get('sp', 0), key='SP', is_pitcher=is_pitcher)}"
+                f"{rating_display_text(p.get('ch', 0), key='CH', position=pos, is_pitcher=is_pitcher)}"
+                f"/{rating_display_text(p.get('ph', 0), key='PH', position=pos, is_pitcher=is_pitcher)}"
+                f"/{rating_display_text(p.get('sp', 0), key='SP', position=pos, is_pitcher=is_pitcher)}"
             )
             armfa = (
-                f"{rating_display_text(p.get('arm', 0), key='AS', is_pitcher=is_pitcher)}"
-                f"/{rating_display_text(p.get('fa', 0), key='FA', is_pitcher=is_pitcher)}"
+                f"{rating_display_text(p.get('arm', 0), key='AS', position=pos, is_pitcher=is_pitcher)}"
+                f"/{rating_display_text(p.get('fa', 0), key='FA', position=pos, is_pitcher=is_pitcher)}"
             )
             age = self._age_from_birthdate(str(p.get("birthdate", "")))
             ovr = str(self._overall_rating(p))
@@ -465,9 +465,9 @@ class DraftConsole(QDialog):
             self.table.setItem(r, 6, QTableWidgetItem(chphsp))
             self.table.setItem(r, 7, QTableWidgetItem(armfa))
             encomo = (
-                f"{rating_display_text(p.get('endurance', 0), key='EN', is_pitcher=True)}"
-                f"/{rating_display_text(p.get('control', 0), key='CO', is_pitcher=True)}"
-                f"/{rating_display_text(p.get('movement', 0), key='MO', is_pitcher=True)}"
+                f"{rating_display_text(p.get('endurance', 0), key='EN', position=pos, is_pitcher=True)}"
+                f"/{rating_display_text(p.get('control', 0), key='CO', position=pos, is_pitcher=True)}"
+                f"/{rating_display_text(p.get('movement', 0), key='MO', position=pos, is_pitcher=True)}"
                 if is_pitcher
                 else ""
             )

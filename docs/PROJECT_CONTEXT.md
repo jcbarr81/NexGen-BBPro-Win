@@ -8,7 +8,7 @@
 - Legacy engine is guarded; use `PB_ALLOW_LEGACY_ENGINE=1` to run it intentionally.
 - Park factors are disabled for now to keep stats stable; revisit later.
 - Injury history should be logged per season and shown in player profiles (date + description only).
-- UI rating display should use position-based percentiles with a logistic curve (k=6), showing Top % at position (avg) context on a 35-99 display scale.
+- UI rating display should use position-based percentiles with a logistic curve (k=6), showing Top % at position (avg) context on a 35-99 display scale across UI views.
 
 ## Current State
 - Physics engine is the default engine in `playbalance/game_runner.py`.
@@ -20,6 +20,7 @@
 - No Hall of Fame system implemented.
 - Pitcher roster UIs (full roster/pitchers dialogs) display `preferred_pitching_role` instead of the `role` field.
 - Ratings remain normalized for simulation; UI display maps ratings to a 0-99 percentile scale by default using `data/players_normalized.csv` (fallback `data/players.csv`).
+- Player profile Overall rating displays a 1-5 star scale.
 - Latest locked config snapshot: `tmp/config_backups/physics_sim_config_locked_20251231_030700.py`.
 - Latest KPI/long-run artifacts:
   - `tmp/long_term_runs/hr_tune_pass_20251230_215043`

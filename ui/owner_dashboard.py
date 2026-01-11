@@ -1132,13 +1132,22 @@ class OwnerDashboard(QMainWindow):
             
         else:
             ch_display = rating_display_text(
-                getattr(p, "ch", 0), key="CH", is_pitcher=False
+                getattr(p, "ch", 0),
+                key="CH",
+                position=getattr(p, "primary_position", None),
+                is_pitcher=False,
             )
             ph_display = rating_display_text(
-                getattr(p, "ph", 0), key="PH", is_pitcher=False
+                getattr(p, "ph", 0),
+                key="PH",
+                position=getattr(p, "primary_position", None),
+                is_pitcher=False,
             )
             sp_display = rating_display_text(
-                getattr(p, "sp", 0), key="SP", is_pitcher=False
+                getattr(p, "sp", 0),
+                key="SP",
+                position=getattr(p, "primary_position", None),
+                is_pitcher=False,
             )
             core = f"CH:{ch_display} PH:{ph_display} SP:{sp_display}"
         label = f"{p.first_name} {p.last_name} ({age}) - {role or p.primary_position} | {core}"

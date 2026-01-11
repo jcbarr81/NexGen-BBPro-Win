@@ -701,7 +701,10 @@ class PlayerProfileDialog(QDialog):
         _layout_add_widget(layout, QLabel(f"Positions: {pos_label}"), 3, 0, 1, 2)
 
         gf_display = rating_display_text(
-            getattr(self.player, "gf", "?"), key="GF", is_pitcher=False
+            getattr(self.player, "gf", "?"),
+            key="GF",
+            position=getattr(self.player, "primary_position", None),
+            is_pitcher=False,
         )
         _layout_add_widget(
             layout, QLabel(f"Groundball/Flyball: {gf_display}"), 4, 0, 1, 2
@@ -725,12 +728,21 @@ class PlayerProfileDialog(QDialog):
         if not isinstance(overall_val, (int, float)):
             overall_val = self._estimate_overall_rating()
 
-        overall_label = QLabel(str(int(round(overall_val))) if isinstance(overall_val, (int, float)) else str(overall_val))
+        overall_label = QLabel(self._format_overall_stars(overall_val))
         _safe_call(overall_label, "setObjectName", "OverallValue")
         _set_alignment(overall_label, "AlignCenter")
         _layout_add_widget(layout, overall_label)
 
         return wrapper
+
+    def _format_overall_stars(self, value: Any) -> str:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        rating = max(0, min(99, int(round(numeric))))
+        stars = max(1, min(5, (rating // 20) + 1))
+        return "*" * stars
 
     def _build_fielding_block(self) -> QWidget:
         wrapper = QFrame()
@@ -772,19 +784,28 @@ class PlayerProfileDialog(QDialog):
             (
                 "Fielding",
                 rating_display_text(
-                    getattr(self.player, "fa", "?"), key="FA", is_pitcher=False
+                    getattr(self.player, "fa", "?"),
+                    key="FA",
+                    position=getattr(self.player, "primary_position", None),
+                    is_pitcher=False,
                 ),
             ),
             (
                 "Arm",
                 rating_display_text(
-                    getattr(self.player, "arm", "?"), key="AS", is_pitcher=False
+                    getattr(self.player, "arm", "?"),
+                    key="AS",
+                    position=getattr(self.player, "primary_position", None),
+                    is_pitcher=False,
                 ),
             ),
             (
                 "Speed",
                 rating_display_text(
-                    getattr(self.player, "sp", "?"), key="SP", is_pitcher=False
+                    getattr(self.player, "sp", "?"),
+                    key="SP",
+                    position=getattr(self.player, "primary_position", None),
+                    is_pitcher=False,
                 ),
             ),
         ]
@@ -1160,7 +1181,7 @@ class PlayerProfileDialog(QDialog):
             value = getattr(player, "overall", None)
             if not isinstance(value, (int, float)):
                 value = self._estimate_overall_rating() if player is self.player else getattr(player, "overall", "--")
-            return f"{int(value)}" if isinstance(value, (int, float)) else str(value)
+            return self._format_overall_stars(value)
         if metric_id == "avg":
             ab = safe("ab")
             hits = safe("h")
@@ -1178,16 +1199,36 @@ class PlayerProfileDialog(QDialog):
             return str(int(rbi)) if isinstance(rbi, (int, float)) else "--"
         if metric_id == "speed":
             value = getattr(player, "sp", getattr(player, "speed", "--"))
-            return rating_display_text(value, key="SP", is_pitcher=False)
+            return rating_display_text(
+                value,
+                key="SP",
+                position=getattr(player, "primary_position", None),
+                is_pitcher=False,
+            )
         if metric_id == "power":
             value = getattr(player, "ph", getattr(player, "power", "--"))
-            return rating_display_text(value, key="PH", is_pitcher=False)
+            return rating_display_text(
+                value,
+                key="PH",
+                position=getattr(player, "primary_position", None),
+                is_pitcher=False,
+            )
         if metric_id == "contact":
             value = getattr(player, "ch", getattr(player, "contact", "--"))
-            return rating_display_text(value, key="CH", is_pitcher=False)
+            return rating_display_text(
+                value,
+                key="CH",
+                position=getattr(player, "primary_position", None),
+                is_pitcher=False,
+            )
         if metric_id == "defense":
             value = getattr(player, "fa", getattr(player, "defense", "--"))
-            return rating_display_text(value, key="FA", is_pitcher=False)
+            return rating_display_text(
+                value,
+                key="FA",
+                position=getattr(player, "primary_position", None),
+                is_pitcher=False,
+            )
         if metric_id == "era":
             outs = safe("outs")
             ip = outs / 3 if outs else 0
@@ -1740,7 +1781,10 @@ class ComparisonSelectorDialog(QDialog):
             if others:
                 _layout_add_widget(layout, QLabel("Other: " + ", ".join(others)))
             gf_display = rating_display_text(
-                getattr(self.player, "gf", "?"), key="GF", is_pitcher=False
+                getattr(self.player, "gf", "?"),
+                key="GF",
+                position=getattr(self.player, "primary_position", None),
+                is_pitcher=False,
             )
             _layout_add_widget(layout, QLabel(f"GF: {gf_display}"))
 
@@ -1764,8 +1808,16 @@ class ComparisonSelectorDialog(QDialog):
         for col, (label, key, value) in enumerate(ratings):
             header = QLabel(label)
             _set_alignment(header, "AlignCenter")
+            position = None
+            if not self._is_pitcher:
+                position = getattr(self.player, "primary_position", None)
             value_label = QLabel(
-                rating_display_text(value, key=key, is_pitcher=self._is_pitcher)
+                rating_display_text(
+                    value,
+                    key=key,
+                    position=position,
+                    is_pitcher=self._is_pitcher,
+                )
             )
             _set_alignment(value_label, "AlignCenter")
             _layout_add_widget(grid, header, 0, col)

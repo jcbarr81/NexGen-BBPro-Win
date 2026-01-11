@@ -125,7 +125,12 @@ class FreeAgencyWindow(QDialog):
             # rough overall score proxy
             rating = int(getattr(p, 'ch', 50))
             is_pitcher = bool(getattr(p, "is_pitcher", False)) or str(pos).upper() == "P"
-            rating_display = rating_display_text(rating, key="CH", is_pitcher=is_pitcher)
+            rating_display = rating_display_text(
+                rating,
+                key="CH",
+                position=pos,
+                is_pitcher=is_pitcher,
+            )
             self.table.setItem(r, 0, QTableWidgetItem(name))
             self.table.setItem(r, 1, QTableWidgetItem(str(pos)))
             self.table.setItem(r, 2, QTableWidgetItem(str(age)))
