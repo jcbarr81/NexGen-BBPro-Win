@@ -43,7 +43,7 @@ class PlayerBrowserDialog(QDialog):
 
         # Position players tab ------------------------------------------
         pos_rows = self._build_position_rows()
-        self.pos_table = PosRosterTable(pos_rows)
+        self.pos_table = PosRosterTable(pos_rows, use_position_context=True)
         self.pos_table.itemDoubleClicked.connect(self._open_player_profile)
 
         # Pitchers tab ---------------------------------------------------

@@ -101,7 +101,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 178.5,
-          "available_pitches": 81.5
+          "available_pitches": 178.5
         },
         "P3852": {
           "available_on": null,
@@ -157,7 +157,7 @@
           ],
           "last_role": "CL",
           "max_pitches": 64.80000000000001,
-          "available_pitches": 40.536000000000016
+          "available_pitches": 64.80000000000001
         },
         "P1722": {
           "available_on": "2026-07-15",
@@ -226,7 +226,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 66.15,
-          "available_pitches": 40.71600000000002
+          "available_pitches": 66.15
         },
         "P4970": {
           "available_on": "2026-07-18",
@@ -257,7 +257,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 16.524
+          "available_pitches": 68.85000000000001
         },
         "P7532": {
           "available_on": "2026-07-15",
@@ -309,7 +309,7 @@
           ],
           "last_role": "SU",
           "max_pitches": 64.80000000000001,
-          "available_pitches": 42.80000000000001
+          "available_pitches": 64.80000000000001
         },
         "P3663": {
           "available_on": "2026-07-13",
@@ -409,7 +409,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 67.5,
-          "available_pitches": 37.800000000000004
+          "available_pitches": 67.5
         },
         "P5260": {
           "available_on": "2026-07-15",
@@ -440,7 +440,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 67.5,
-          "available_pitches": 54.5
+          "available_pitches": 67.5
         },
         "P1352": {
           "available_on": "2026-07-11",
@@ -632,7 +632,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 67.5,
-          "available_pitches": 64.8
+          "available_pitches": 67.5
         },
         "P5806": {
           "available_on": "2026-07-18",
@@ -663,7 +663,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 67.5,
-          "available_pitches": 16.2
+          "available_pitches": 67.5
         },
         "P2976": {
           "available_on": null,
@@ -703,7 +703,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 67.5,
-          "available_pitches": 0.0
+          "available_pitches": 67.5
         },
         "P8214": {
           "available_on": "2026-07-17",
@@ -734,7 +734,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 33.048
+          "available_pitches": 68.85000000000001
         },
         "P7484": {
           "available_on": "2026-07-13",
@@ -848,7 +848,7 @@
           ],
           "last_role": "SU",
           "max_pitches": 67.5,
-          "available_pitches": 52.5
+          "available_pitches": 67.5
         },
         "P8028": {
           "available_on": "2026-07-15",
@@ -900,7 +900,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 70.2,
-          "available_pitches": 28.936000000000014
+          "available_pitches": 70.2
         },
         "P2964": {
           "available_on": "2026-07-10",
@@ -969,7 +969,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 48.78000000000006
+          "available_pitches": 68.85000000000001
         },
         "P7664": {
           "available_on": "2026-06-13",
@@ -1265,7 +1265,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 171.5,
-          "available_pitches": 114.66
+          "available_pitches": 171.5
         },
         "P2877": {
           "available_on": null,
@@ -1305,7 +1305,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 33.048
+          "available_pitches": 68.85000000000001
         },
         "P2510": {
           "available_on": "2026-07-15",
@@ -1357,7 +1357,7 @@
           ],
           "last_role": "SU",
           "max_pitches": 66.15,
-          "available_pitches": 53.150000000000006
+          "available_pitches": 66.15
         },
         "P8144": {
           "available_on": "2026-07-19",
@@ -1388,7 +1388,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 66.15,
-          "available_pitches": 0.0
+          "available_pitches": 66.15
         },
         "P8321": {
           "available_on": null,
@@ -1518,7 +1518,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 66.15,
-          "available_pitches": 64.67200000000001
+          "available_pitches": 66.15
         },
         "P9835": {
           "available_on": "2026-07-15",
@@ -1556,7 +1556,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 70.2,
-          "available_pitches": 46.2
+          "available_pitches": 70.2
         },
         "P9893": {
           "available_on": "2026-07-13",
@@ -1640,7 +1640,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 178.5,
-          "available_pitches": 131.5
+          "available_pitches": 178.5
         },
         "P2549": {
           "available_on": "2026-07-13",
@@ -1804,7 +1804,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 56.37400000000001
+          "available_pitches": 68.85000000000001
         },
         "P1052": {
           "available_on": "2026-05-04",
@@ -1859,7 +1859,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 66.15,
-          "available_pitches": 63.504000000000005
+          "available_pitches": 66.15
         },
         "P1460": {
           "available_on": "2026-07-16",
@@ -1890,7 +1890,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 50.544
+          "available_pitches": 70.2
         },
         "P6298": {
           "available_on": "2026-07-15",
@@ -1928,7 +1928,7 @@
           ],
           "last_role": "CL",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 50.85000000000001
+          "available_pitches": 68.85000000000001
         },
         "P2470": {
           "available_on": "2026-07-07",
@@ -1976,7 +1976,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 33.696
+          "available_pitches": 70.2
         },
         "P2187": {
           "available_on": "2026-07-18",
@@ -2021,7 +2021,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 70.2,
-          "available_pitches": 0.0
+          "available_pitches": 70.2
         },
         "P3116": {
           "available_on": "2026-07-01",
@@ -2062,7 +2062,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 19.278000000000006
+          "available_pitches": 68.85000000000001
         },
         "P2434": {
           "available_on": "2026-05-18",
@@ -2122,7 +2122,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 66.096
+          "available_pitches": 68.85000000000001
         },
         "P6896": {
           "available_on": "2026-07-15",
@@ -2153,7 +2153,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 50.544
+          "available_pitches": 70.2
         },
         "P7985": {
           "available_on": "2026-07-16",
@@ -2184,7 +2184,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 33.696
+          "available_pitches": 70.2
         },
         "P5297": {
           "available_on": "2026-07-16",
@@ -2222,7 +2222,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 24.85000000000001
+          "available_pitches": 68.85000000000001
         },
         "P8880": {
           "available_on": "2026-07-18",
@@ -2253,7 +2253,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 16.848
+          "available_pitches": 70.2
         },
         "P8117": {
           "available_on": "2026-07-15",
@@ -2298,7 +2298,7 @@
           ],
           "last_role": "CL",
           "max_pitches": 67.5,
-          "available_pitches": 55.5
+          "available_pitches": 67.5
         },
         "P5081": {
           "available_on": "2026-07-15",
@@ -2350,7 +2350,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 66.15,
-          "available_pitches": 41.61000000000001
+          "available_pitches": 66.15
         },
         "P6270": {
           "available_on": "2026-07-19",
@@ -2381,7 +2381,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 0.0
+          "available_pitches": 70.2
         },
         "P3010": {
           "available_on": null,
@@ -2672,7 +2672,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 16.524
+          "available_pitches": 68.85000000000001
         },
         "P6239": {
           "available_on": "2026-07-15",
@@ -2696,7 +2696,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 67.5,
-          "available_pitches": 55.400000000000006
+          "available_pitches": 67.5
         },
         "P2815": {
           "available_on": null,
@@ -2736,7 +2736,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 0.0
+          "available_pitches": 68.85000000000001
         },
         "P6871": {
           "available_on": "2026-07-16",
@@ -2767,7 +2767,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 50.544
+          "available_pitches": 70.2
         },
         "P1040": {
           "available_on": "2026-07-17",
@@ -2798,7 +2798,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 33.696
+          "available_pitches": 70.2
         },
         "P2894": {
           "available_on": null,
@@ -2872,7 +2872,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 66.15,
-          "available_pitches": 52.19400000000002
+          "available_pitches": 66.15
         },
         "P6106": {
           "available_on": "2026-07-13",
@@ -2903,7 +2903,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 66.096
+          "available_pitches": 68.85000000000001
         },
         "P6042": {
           "available_on": "2026-07-15",
@@ -2948,7 +2948,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 44.85000000000001
+          "available_pitches": 68.85000000000001
         },
         "P2144": {
           "available_on": "2026-07-13",
@@ -3038,7 +3038,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 67.5,
-          "available_pitches": 50.5
+          "available_pitches": 67.5
         },
         "P5758": {
           "available_on": "2026-07-13",
@@ -3184,7 +3184,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 16.524
+          "available_pitches": 68.85000000000001
         },
         "P3165": {
           "available_on": "2026-07-19",
@@ -3215,7 +3215,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 0.0
+          "available_pitches": 68.85000000000001
         },
         "P8902": {
           "available_on": "2026-07-14",
@@ -3246,7 +3246,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 66.096
+          "available_pitches": 68.85000000000001
         },
         "P5311": {
           "available_on": "2026-07-14",
@@ -3291,7 +3291,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 67.5,
-          "available_pitches": 62.400000000000006
+          "available_pitches": 67.5
         },
         "P9380": {
           "available_on": null,
@@ -3383,7 +3383,7 @@
           ],
           "last_role": "SU",
           "max_pitches": 67.5,
-          "available_pitches": 53.5
+          "available_pitches": 67.5
         },
         "P6010": {
           "available_on": null,
@@ -3458,7 +3458,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 50.544
+          "available_pitches": 70.2
         },
         "P4869": {
           "available_on": "2026-07-17",
@@ -3489,7 +3489,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 33.696
+          "available_pitches": 70.2
         },
         "P8338": {
           "available_on": "2026-07-15",
@@ -3513,7 +3513,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 67.5,
-          "available_pitches": 53.5
+          "available_pitches": 67.5
         },
         "P5603": {
           "available_on": "2026-05-17",
@@ -3606,7 +3606,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 52.39000000000003
+          "available_pitches": 68.85000000000001
         },
         "P6119": {
           "available_on": "2026-07-09",
@@ -3666,7 +3666,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 49.572
+          "available_pitches": 68.85000000000001
         },
         "P5389": {
           "available_on": "2026-07-17",
@@ -3697,7 +3697,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 33.048
+          "available_pitches": 68.85000000000001
         },
         "P4570": {
           "available_on": "2026-07-18",
@@ -3728,7 +3728,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 16.524
+          "available_pitches": 68.85000000000001
         },
         "P7286": {
           "available_on": "2026-07-18",
@@ -3759,7 +3759,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 0.0
+          "available_pitches": 68.85000000000001
         },
         "P6457": {
           "available_on": "2026-07-13",
@@ -3821,7 +3821,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 66.096
+          "available_pitches": 68.85000000000001
         },
         "P8105": {
           "available_on": "2026-07-15",
@@ -3845,7 +3845,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 56.85000000000001
+          "available_pitches": 68.85000000000001
         },
         "P6567": {
           "available_on": "2026-07-12",
@@ -3909,7 +3909,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 66.15,
-          "available_pitches": 31.150000000000006
+          "available_pitches": 66.15
         },
         "P8410": {
           "available_on": null,
@@ -3949,7 +3949,7 @@
           ],
           "last_role": "LR",
           "max_pitches": 70.2,
-          "available_pitches": 36.2
+          "available_pitches": 70.2
         },
         "P8968": {
           "available_on": "2026-07-13",
@@ -4046,7 +4046,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 70.2,
-          "available_pitches": 26.856000000000005
+          "available_pitches": 70.2
         },
         "P2346": {
           "available_on": "2026-07-13",
@@ -4185,7 +4185,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 50.544
+          "available_pitches": 70.2
         },
         "P7269": {
           "available_on": "2026-07-16",
@@ -4216,7 +4216,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 33.696
+          "available_pitches": 70.2
         },
         "P1445": {
           "available_on": "2026-07-17",
@@ -4247,7 +4247,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 16.524
+          "available_pitches": 68.85000000000001
         },
         "P9486": {
           "available_on": null,
@@ -4287,7 +4287,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 67.5,
-          "available_pitches": 64.8
+          "available_pitches": 67.5
         },
         "P6059": {
           "available_on": null,
@@ -4379,7 +4379,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 47.85000000000001
+          "available_pitches": 68.85000000000001
         },
         "P4798": {
           "available_on": "2026-07-15",
@@ -4410,7 +4410,7 @@
           ],
           "last_role": "LR",
           "max_pitches": 70.2,
-          "available_pitches": 46.896
+          "available_pitches": 70.2
         },
         "P9747": {
           "available_on": null,
@@ -4556,7 +4556,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 0.0
+          "available_pitches": 68.85000000000001
         },
         "P7583": {
           "available_on": "2026-07-08",
@@ -4878,7 +4878,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 67.5,
-          "available_pitches": 16.2
+          "available_pitches": 67.5
         },
         "P7631": {
           "available_on": "2026-07-18",
@@ -4909,7 +4909,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 67.5,
-          "available_pitches": 0.0
+          "available_pitches": 67.5
         },
         "P5998": {
           "available_on": "2026-07-14",
@@ -4940,7 +4940,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 67.5,
-          "available_pitches": 64.8
+          "available_pitches": 67.5
         },
         "P4752": {
           "available_on": "2026-07-13",
@@ -5034,7 +5034,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 49.572
+          "available_pitches": 68.85000000000001
         },
         "P7514": {
           "available_on": "2026-05-27",
@@ -5210,7 +5210,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 70.2,
-          "available_pitches": 19.656000000000002
+          "available_pitches": 70.2
         },
         "P4605": {
           "available_on": "2026-07-16",
@@ -5234,7 +5234,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 70.2,
-          "available_pitches": 34.2
+          "available_pitches": 70.2
         },
         "P1092": {
           "available_on": "2026-07-17",
@@ -5258,7 +5258,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 70.2,
-          "available_pitches": 39.312000000000005
+          "available_pitches": 70.2
         },
         "P3982": {
           "available_on": "2026-06-14",
@@ -5335,7 +5335,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 50.544
+          "available_pitches": 70.2
         },
         "P4563": {
           "available_on": "2026-07-12",
@@ -5408,7 +5408,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 70.2,
-          "available_pitches": 33.696
+          "available_pitches": 70.2
         },
         "P2239": {
           "available_on": "2026-07-14",
@@ -5439,7 +5439,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 67.5,
-          "available_pitches": 64.8
+          "available_pitches": 67.5
         },
         "P6363": {
           "available_on": "2026-07-15",
@@ -5463,7 +5463,7 @@
           ],
           "last_role": "SU",
           "max_pitches": 66.15,
-          "available_pitches": 54.150000000000006
+          "available_pitches": 66.15
         },
         "P2519": {
           "available_on": "2026-07-18",
@@ -5494,7 +5494,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 16.524
+          "available_pitches": 68.85000000000001
         },
         "P8398": {
           "available_on": "2026-07-13",
@@ -5624,7 +5624,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 0.0
+          "available_pitches": 68.85000000000001
         },
         "P3259": {
           "available_on": "2026-07-15",
@@ -5648,7 +5648,7 @@
           ],
           "last_role": "CL",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 55.85000000000001
+          "available_pitches": 68.85000000000001
         },
         "P3326": {
           "available_on": "2026-07-14",
@@ -5693,7 +5693,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 66.15,
-          "available_pitches": 38.13200000000001
+          "available_pitches": 66.15
         },
         "P3335": {
           "available_on": "2026-07-14",
@@ -5745,7 +5745,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 70.2,
-          "available_pitches": 58.968
+          "available_pitches": 70.2
         },
         "P5948": {
           "available_on": "2026-06-20",
@@ -5887,7 +5887,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 49.572
+          "available_pitches": 68.85000000000001
         },
         "P2322": {
           "available_on": "2026-07-17",
@@ -5918,7 +5918,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 67.5,
-          "available_pitches": 16.2
+          "available_pitches": 67.5
         },
         "P5175": {
           "available_on": "2026-07-14",
@@ -5949,7 +5949,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 64.80000000000001,
-          "available_pitches": 62.208000000000006
+          "available_pitches": 64.80000000000001
         },
         "P7061": {
           "available_on": null,
@@ -5989,7 +5989,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 67.5,
-          "available_pitches": 0.0
+          "available_pitches": 67.5
         },
         "P7262": {
           "available_on": "2026-07-15",
@@ -6027,7 +6027,7 @@
           ],
           "last_role": "SU",
           "max_pitches": 67.5,
-          "available_pitches": 43.5
+          "available_pitches": 67.5
         },
         "P2534": {
           "available_on": "2026-06-06",
@@ -6096,7 +6096,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 44.85000000000001
+          "available_pitches": 68.85000000000001
         },
         "P5584": {
           "available_on": "2026-07-15",
@@ -6141,7 +6141,7 @@
           ],
           "last_role": "LR",
           "max_pitches": 70.2,
-          "available_pitches": 52.048
+          "available_pitches": 70.2
         },
         "P3889": {
           "available_on": "2026-07-17",
@@ -6158,7 +6158,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 38.55600000000001
+          "available_pitches": 68.85000000000001
         },
         "P8816": {
           "available_on": "2026-07-15",
@@ -6189,7 +6189,7 @@
           ],
           "last_role": "SP",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 34.89800000000001
+          "available_pitches": 68.85000000000001
         },
         "P7239": {
           "available_on": "2026-07-07",
@@ -6299,7 +6299,7 @@
           ],
           "last_role": "MR",
           "max_pitches": 68.85000000000001,
-          "available_pitches": 42.85000000000001
+          "available_pitches": 68.85000000000001
         },
         "P4318": {
           "available_on": "2026-07-03",

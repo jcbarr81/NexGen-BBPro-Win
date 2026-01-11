@@ -17,7 +17,11 @@ from ui.player_profile_dialog import PlayerProfileDialog
 from models.base_player import BasePlayer
 from models.roster import Roster
 from utils.pitcher_role import get_role
-from utils.rating_display import rating_display_text, rating_display_value
+from utils.rating_display import (
+    rating_display_details,
+    rating_display_text,
+    rating_display_value,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -201,11 +205,18 @@ class RosterTable(QtWidgets.QTableWidget):
     """Table displaying the team's position players."""
     hidden_columns: set[int] = set()
 
-    def __init__(self, rows: List[List], parent: QtWidgets.QWidget | None = None):
+    def __init__(
+        self,
+        rows: List[List],
+        parent: QtWidgets.QWidget | None = None,
+        *,
+        use_position_context: bool = False,
+    ):
         super().__init__(parent)
         self.setColumnCount(len(COLUMNS))
         self.setHorizontalHeaderLabels(COLUMNS)
         self.setRowCount(len(rows))
+        pos_index = COLUMNS.index("POSN")
         for r, row in enumerate(rows):
             *data, pid = row
             for c, val in enumerate(data):
@@ -220,18 +231,59 @@ class RosterTable(QtWidgets.QTableWidget):
                 else:
                     align_left = column in {"Player Name", "POSN", "B"}
                     display_value = None
+                    sort_value = val if column in RATING_COLUMNS else None
                     if column in RATING_COLUMNS:
-                        display_value = rating_display_value(
-                            val,
-                            key=column,
-                            is_pitcher=False,
-                        )
+                        if use_position_context:
+                            position = row[pos_index]
+                            (
+                                display_rating,
+                                top_pct,
+                                avg_rating,
+                                bucket,
+                            ) = rating_display_details(
+                                val,
+                                key=column,
+                                position=position,
+                                is_pitcher=False,
+                                curve="logistic",
+                                curve_k=6.0,
+                            )
+                            display_value = str(display_rating)
+                            if top_pct is not None:
+                                display_value = f"{display_value} ({top_pct}%)"
+                                avg_text = (
+                                    "--"
+                                    if avg_rating is None
+                                    else str(int(round(avg_rating)))
+                                )
+                                bucket_label = bucket or position or "ALL"
+                                tooltip = (
+                                    f"Top {top_pct}% {bucket_label} "
+                                    f"(avg {avg_text})"
+                                )
+                            else:
+                                tooltip = None
+                            sort_value = (
+                                display_rating
+                                if isinstance(display_rating, (int, float))
+                                else None
+                            )
+                        else:
+                            display_value = rating_display_value(
+                                val,
+                                key=column,
+                                is_pitcher=False,
+                            )
+                            tooltip = None
                     item = NumericItem(
                         val,
                         align_left=align_left,
                         display_value=display_value,
-                        sort_value=val if column in RATING_COLUMNS else None,
+                        sort_value=sort_value,
                     )
+                    if column in RATING_COLUMNS and use_position_context:
+                        if tooltip:
+                            item.setToolTip(tooltip)
                 if c == 0:
                     item.setData(QtCore.Qt.ItemDataRole.UserRole, pid)
                 self.setItem(r, c, item)

@@ -3,9 +3,10 @@ from __future__ import annotations
 from bisect import bisect_left
 import csv
 from functools import lru_cache
+import math
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from models.pitcher import Pitcher
 from models.player import Player
@@ -26,6 +27,14 @@ _HITTER_KEYS = {key for key in Player._rating_fields if not key.startswith("pot_
 _PITCHER_KEYS = {key for key in Pitcher._rating_fields if not key.startswith("pot_")}
 _ALL_KEYS = _HITTER_KEYS | _PITCHER_KEYS
 
+POSITION_BUCKETS = ("C", "1B", "2B", "3B", "SS", "OF")
+
+_POSITION_MAP = {
+    "LF": "OF",
+    "CF": "OF",
+    "RF": "OF",
+}
+
 
 def _rating_source_path() -> Path:
     base_dir = get_base_dir()
@@ -36,11 +45,15 @@ def _rating_source_path() -> Path:
 
 
 @lru_cache(maxsize=1)
-def _load_distributions() -> Dict[str, Dict[str, List[int]]]:
+def _load_distributions() -> Dict[str, Dict[str, Dict[str, List[int]]]]:
     distributions = {
         "hitters": {key: [] for key in _HITTER_KEYS},
         "pitchers": {key: [] for key in _PITCHER_KEYS},
         "all": {key: [] for key in _ALL_KEYS},
+        "hitters_by_bucket": {
+            bucket: {key: [] for key in _HITTER_KEYS}
+            for bucket in POSITION_BUCKETS
+        },
     }
     path = _rating_source_path()
     if not path.exists():
@@ -55,6 +68,11 @@ def _load_distributions() -> Dict[str, Dict[str, List[int]]]:
                 "yes",
             }
             keys = _PITCHER_KEYS if is_pitcher else _HITTER_KEYS
+            pos_bucket = None
+            if not is_pitcher:
+                pos_bucket = _normalize_position_bucket(
+                    row.get("primary_position")
+                )
             for key in keys:
                 raw = row.get(key)
                 if raw in (None, ""):
@@ -71,10 +89,19 @@ def _load_distributions() -> Dict[str, Dict[str, List[int]]]:
                     distributions["pitchers"][key].append(rating)
                 else:
                     distributions["hitters"][key].append(rating)
+                    if pos_bucket:
+                        distributions["hitters_by_bucket"][pos_bucket][key].append(
+                            rating
+                        )
 
     for group in distributions.values():
-        for values in group.values():
-            values.sort()
+        if group:
+            for values in group.values():
+                if isinstance(values, dict):
+                    for inner in values.values():
+                        inner.sort()
+                else:
+                    values.sort()
     return distributions
 
 
@@ -103,8 +130,43 @@ def _percentile(values: List[int], value: float) -> Optional[float]:
     return idx / (len(values) - 1)
 
 
-def _select_distribution(key: str, is_pitcher: Optional[bool]) -> List[int]:
+def _normalize_position_bucket(position: Optional[str]) -> Optional[str]:
+    if not position:
+        return None
+    token = str(position).strip().upper()
+    token = _POSITION_MAP.get(token, token)
+    if token in POSITION_BUCKETS:
+        return token
+    return None
+
+
+def _average(values: List[int]) -> Optional[float]:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def _logistic_curve(pct: float, k: float) -> float:
+    pct = max(0.0, min(1.0, pct))
+    raw = 1.0 / (1.0 + math.exp(-k * (pct - 0.5)))
+    min_val = 1.0 / (1.0 + math.exp(k * 0.5))
+    max_val = 1.0 / (1.0 + math.exp(-k * 0.5))
+    if max_val == min_val:
+        return pct
+    return (raw - min_val) / (max_val - min_val)
+
+
+def _select_distribution(
+    key: str,
+    is_pitcher: Optional[bool],
+    *,
+    position_bucket: Optional[str] = None,
+) -> List[int]:
     distributions = _load_distributions()
+    if is_pitcher is False and position_bucket:
+        values = distributions["hitters_by_bucket"].get(position_bucket, {}).get(key, [])
+        if values:
+            return values
     if is_pitcher is True:
         values = distributions["pitchers"].get(key, [])
     elif is_pitcher is False:
@@ -148,44 +210,96 @@ def get_display_mode(override: Optional[str] = None) -> str:
     return _normalize_mode(os.getenv(DISPLAY_ENV, "scale_99"))
 
 
-def rating_display_value(
+def rating_display_details(
     value: object,
     *,
     key: Optional[str] = None,
+    position: Optional[str] = None,
     is_pitcher: Optional[bool] = None,
     mode: Optional[str] = None,
-) -> object:
+    curve: Optional[str] = None,
+    curve_k: float = 6.0,
+) -> Tuple[object, Optional[int], Optional[float], Optional[str]]:
     try:
         numeric = float(value)
     except (TypeError, ValueError):
-        return "" if value is None else str(value)
+        return ("" if value is None else str(value)), None, None, None
 
     display_mode = get_display_mode(mode)
     normalized_key = _normalize_key(key)
     if display_mode == "raw" or not normalized_key:
-        return int(round(numeric))
+        return int(round(numeric)), None, None, None
 
     if normalized_key in _PITCH_KEYS and numeric <= 0:
-        return 0
+        return 0, None, None, None
 
-    values = _select_distribution(normalized_key, is_pitcher)
+    bucket = _normalize_position_bucket(position) if is_pitcher is False else None
+    values = _select_distribution(
+        normalized_key,
+        is_pitcher,
+        position_bucket=bucket,
+    )
     pct = _percentile(values, numeric)
+    avg = _average(values)
     if pct is None:
-        return int(round(numeric))
+        return int(round(numeric)), None, avg, bucket
+
+    adj_pct = pct
+    if curve == "logistic":
+        adj_pct = _logistic_curve(pct, curve_k)
 
     if display_mode == "stars":
         stars = min(5, max(1, int(pct * 5) + 1))
-        return "*" * stars
+        top_pct = int(round((1.0 - pct) * 100))
+        top_pct = max(1, min(99, top_pct))
+        return "*" * stars, top_pct, avg, bucket
 
-    scaled = int(round(pct * 99))
-    return max(0, min(99, scaled))
+    scaled = int(round(adj_pct * 99))
+    top_pct = int(round((1.0 - pct) * 100))
+    top_pct = max(1, min(99, top_pct))
+    return max(0, min(99, scaled)), top_pct, avg, bucket
+
+
+def rating_display_value(
+    value: object,
+    *,
+    key: Optional[str] = None,
+    position: Optional[str] = None,
+    is_pitcher: Optional[bool] = None,
+    mode: Optional[str] = None,
+    curve: Optional[str] = None,
+    curve_k: float = 6.0,
+) -> object:
+    display_value, _top_pct, _avg, _bucket = rating_display_details(
+        value,
+        key=key,
+        position=position,
+        is_pitcher=is_pitcher,
+        mode=mode,
+        curve=curve,
+        curve_k=curve_k,
+    )
+    return display_value
 
 
 def rating_display_text(
     value: object,
     *,
     key: Optional[str] = None,
+    position: Optional[str] = None,
     is_pitcher: Optional[bool] = None,
     mode: Optional[str] = None,
+    curve: Optional[str] = None,
+    curve_k: float = 6.0,
 ) -> str:
-    return str(rating_display_value(value, key=key, is_pitcher=is_pitcher, mode=mode))
+    return str(
+        rating_display_value(
+            value,
+            key=key,
+            position=position,
+            is_pitcher=is_pitcher,
+            mode=mode,
+            curve=curve,
+            curve_k=curve_k,
+        )
+    )
