@@ -161,9 +161,10 @@ def _select_distribution(
     is_pitcher: Optional[bool],
     *,
     position_bucket: Optional[str] = None,
+    use_position_bucket: bool = False,
 ) -> List[int]:
     distributions = _load_distributions()
-    if is_pitcher is False and position_bucket:
+    if is_pitcher is False and position_bucket and use_position_bucket:
         values = distributions["hitters_by_bucket"].get(position_bucket, {}).get(key, [])
         if values:
             return values
@@ -221,6 +222,7 @@ def rating_display_details(
     curve_k: float = 6.0,
     display_min: int = 35,
     display_max: int = 99,
+    use_position_bucket: bool = False,
 ) -> Tuple[object, Optional[int], Optional[float], Optional[str]]:
     try:
         numeric = float(value)
@@ -240,6 +242,7 @@ def rating_display_details(
         normalized_key,
         is_pitcher,
         position_bucket=bucket,
+        use_position_bucket=use_position_bucket,
     )
     pct = _percentile(values, numeric)
     avg = _average(values)
@@ -279,6 +282,7 @@ def rating_display_value(
     curve_k: float = 6.0,
     display_min: int = 35,
     display_max: int = 99,
+    use_position_bucket: bool = False,
 ) -> object:
     display_value, _top_pct, _avg, _bucket = rating_display_details(
         value,
@@ -290,6 +294,7 @@ def rating_display_value(
         curve_k=curve_k,
         display_min=display_min,
         display_max=display_max,
+        use_position_bucket=use_position_bucket,
     )
     return display_value
 
@@ -305,6 +310,7 @@ def rating_display_text(
     curve_k: float = 6.0,
     display_min: int = 35,
     display_max: int = 99,
+    use_position_bucket: bool = False,
 ) -> str:
     return str(
         rating_display_value(
@@ -317,5 +323,6 @@ def rating_display_text(
             curve_k=curve_k,
             display_min=display_min,
             display_max=display_max,
+            use_position_bucket=use_position_bucket,
         )
     )

@@ -237,9 +237,9 @@ class RosterTable(QtWidgets.QTableWidget):
                             position = row[pos_index]
                             (
                                 display_rating,
-                                top_pct,
-                                avg_rating,
-                                bucket,
+                                _top_pct,
+                                _avg_rating,
+                                _bucket,
                             ) = rating_display_details(
                                 val,
                                 key=column,
@@ -249,6 +249,19 @@ class RosterTable(QtWidgets.QTableWidget):
                                 curve_k=6.0,
                                 display_min=35,
                                 display_max=99,
+                            )
+                            (
+                                _display_context,
+                                top_pct,
+                                avg_rating,
+                                bucket,
+                            ) = rating_display_details(
+                                val,
+                                key=column,
+                                position=position,
+                                is_pitcher=False,
+                                curve=None,
+                                use_position_bucket=True,
                             )
                             display_value = str(display_rating)
                             if top_pct is not None:
