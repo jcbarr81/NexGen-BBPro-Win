@@ -13,6 +13,7 @@ from typing import Dict, List
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 from ui.player_profile_dialog import PlayerProfileDialog
+from ui.star_rating import star_pixmap
 
 from models.base_player import BasePlayer
 from models.roster import Roster
@@ -69,6 +70,29 @@ class NumberDelegate(QtWidgets.QStyledItemDelegate):
         is_numeric_col = header in {"NO.", "OVR", "AGE", "CH", "PH", "SP", "FA", "AS"}
         opt = QtWidgets.QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
+        if header == "OVR":
+            opt.text = ""
+            style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
+            style.drawControl(
+                QtWidgets.QStyle.ControlElement.CE_ItemViewItem,
+                opt,
+                painter,
+                opt.widget,
+            )
+            value = index.data(QtCore.Qt.ItemDataRole.EditRole)
+            if value is None:
+                value = index.data(QtCore.Qt.ItemDataRole.DisplayRole)
+            pix = star_pixmap(
+                value,
+                min_rating=35.0,
+                max_rating=99.0,
+                size=9,
+            )
+            if pix is not None:
+                x = option.rect.x() + (option.rect.width() - pix.width()) // 2
+                y = option.rect.y() + (option.rect.height() - pix.height()) // 2
+                painter.drawPixmap(x, y, pix)
+            return
         if is_numeric_col:
             opt.displayAlignment = (
                 QtCore.Qt.AlignmentFlag.AlignRight
@@ -234,6 +258,7 @@ class RosterTable(QtWidgets.QTableWidget):
                     align_left = column in {"Player Name", "POSN", "B"}
                     display_value = None
                     sort_value = val if column in RATING_COLUMNS else None
+                    tooltip = None
                     if column in RATING_COLUMNS:
                         if use_position_context:
                             position = row[pos_index]
@@ -265,19 +290,32 @@ class RosterTable(QtWidgets.QTableWidget):
                                 curve=None,
                                 use_position_bucket=True,
                             )
-                            display_value = str(display_rating)
+                            if column == "OVR":
+                                display_rating = rating_display_value(
+                                    val,
+                                    key=column,
+                                    position=position,
+                                    is_pitcher=False,
+                                    mode="scale_99",
+                                    curve="logistic",
+                                    curve_k=6.0,
+                                    display_min=35,
+                                    display_max=99,
+                                )
+                            if column == "OVR":
+                                display_value = display_rating
+                            else:
+                                display_value = str(display_rating)
                             if top_pct is not None:
-                                display_value = f"{display_value} ({top_pct}%)"
                                 avg_text = (
                                     "--"
                                     if avg_rating is None
                                     else str(int(round(avg_rating)))
                                 )
                                 bucket_label = bucket or position or "ALL"
-                                tooltip = (
-                                    f"Top {top_pct}% {bucket_label} "
-                                    f"(avg {avg_text})"
-                                )
+                                tooltip = f"Top {top_pct}% {bucket_label} (avg {avg_text})"
+                                if column != "OVR":
+                                    display_value = f"{display_value} ({top_pct}%)"
                             else:
                                 tooltip = None
                             sort_value = (
@@ -286,12 +324,24 @@ class RosterTable(QtWidgets.QTableWidget):
                                 else None
                             )
                         else:
-                            display_value = rating_display_value(
-                                val,
-                                key=column,
-                                position=row[pos_index],
-                                is_pitcher=False,
-                            )
+                            if column == "OVR":
+                                display_rating = rating_display_value(
+                                    val,
+                                    key=column,
+                                    position=row[pos_index],
+                                    is_pitcher=False,
+                                    mode="scale_99",
+                                )
+                                display_value = display_rating
+                                sort_value = display_rating
+                            else:
+                                display_rating = rating_display_value(
+                                    val,
+                                    key=column,
+                                    position=row[pos_index],
+                                    is_pitcher=False,
+                                )
+                                display_value = display_rating
                             tooltip = None
                     item = NumericItem(
                         val,

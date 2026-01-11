@@ -222,7 +222,7 @@ def generate_player_avatars(
     out_dir:
         Directory where avatar images will be written.
     progress_callback:
-        Optional callable to receive progress percentage updates.
+        Optional callable to receive progress updates as ``(done, total)``.
     initial_creation:
         When ``True`` all existing player avatars in ``out_dir`` are deleted
         before generation (the ``Template`` folder is preserved).  When
@@ -257,16 +257,24 @@ def generate_player_avatars(
         for pid in ids:
             player_team_pairs.append((pid, team_id))
 
-    total = len(player_team_pairs) or 1
+    total = len(player_team_pairs)
+
+    def _report_progress(done: int) -> None:
+        if progress_callback is not None:
+            progress_callback(done, total)
+
+    if progress_callback is not None:
+        _report_progress(0)
+
     for idx, (pid, team_id) in enumerate(player_team_pairs, start=1):
         player = players.get(pid)
         if not player:
+            _report_progress(idx)
             continue
 
         out_file = out_path / f"{pid}.png"
         if not initial_creation and out_file.exists():
-            if progress_callback is not None:
-                progress_callback(int(idx / total * 100))
+            _report_progress(idx)
             continue
 
         ethnicity = player.ethnicity or _infer_ethnicity(
@@ -275,6 +283,7 @@ def generate_player_avatars(
         template = _select_template(ethnicity, player.facial_hair)
         img = cv2.imread(str(template), cv2.IMREAD_UNCHANGED)
         if img is None:
+            _report_progress(idx)
             continue
 
         colors = _team_colors(team_id)
@@ -289,8 +298,7 @@ def generate_player_avatars(
 
         cv2.imwrite(str(out_file), img)
 
-        if progress_callback is not None:
-            progress_callback(int(idx / total * 100))
+        _report_progress(idx)
 
     return str(out_path)
 

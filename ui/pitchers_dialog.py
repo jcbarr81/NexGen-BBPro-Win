@@ -12,6 +12,7 @@ from typing import Dict, List
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 from ui.player_profile_dialog import PlayerProfileDialog
+from ui.star_rating import star_pixmap
 
 from models.base_player import BasePlayer
 from models.roster import Roster
@@ -100,6 +101,29 @@ class NumberDelegate(QtWidgets.QStyledItemDelegate):
         }
         opt = QtWidgets.QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
+        if header == "OVR":
+            opt.text = ""
+            style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
+            style.drawControl(
+                QtWidgets.QStyle.ControlElement.CE_ItemViewItem,
+                opt,
+                painter,
+                opt.widget,
+            )
+            value = index.data(QtCore.Qt.ItemDataRole.EditRole)
+            if value is None:
+                value = index.data(QtCore.Qt.ItemDataRole.DisplayRole)
+            pix = star_pixmap(
+                value,
+                min_rating=35.0,
+                max_rating=99.0,
+                size=9,
+            )
+            if pix is not None:
+                x = option.rect.x() + (option.rect.width() - pix.width()) // 2
+                y = option.rect.y() + (option.rect.height() - pix.height()) // 2
+                painter.drawPixmap(x, y, pix)
+            return
         if is_numeric_col:
             opt.displayAlignment = (
                 QtCore.Qt.AlignmentFlag.AlignRight
@@ -259,17 +283,25 @@ class RosterTable(QtWidgets.QTableWidget):
                 else:
                     align_left = column in {"Player Name", "ROLE", "B"}
                     display_value = None
+                    sort_value = val if column in RATING_COLUMNS else None
+                    display_rating = None
                     if column in RATING_COLUMNS:
-                        display_value = rating_display_value(
+                        display_rating = rating_display_value(
                             val,
                             key=column,
                             is_pitcher=True,
+                            mode="scale_99" if column == "OVR" else None,
                         )
+                        if column == "OVR":
+                            display_value = display_rating
+                            sort_value = display_rating
+                        else:
+                            display_value = display_rating
                     item = NumericItem(
                         val,
                         align_left=align_left,
                         display_value=display_value,
-                        sort_value=val if column in RATING_COLUMNS else None,
+                        sort_value=sort_value,
                     )
                 if c == 0:
                     item.setData(QtCore.Qt.ItemDataRole.UserRole, pid)

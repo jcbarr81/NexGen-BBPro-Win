@@ -22,6 +22,7 @@ try:
         QGridLayout,
     )
     from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QPixmap
 except Exception:  # pragma: no cover - lightweight stubs for headless tests
     class _Signal:
         def __init__(self):
@@ -53,6 +54,9 @@ except Exception:  # pragma: no cover - lightweight stubs for headless tests
 
         def text(self) -> str:
             return self._text
+
+        def setPixmap(self, *a, **k):
+            pass
 
         class _Font:
             def setPointSize(self, *a, **k):
@@ -98,6 +102,12 @@ except Exception:  # pragma: no cover - lightweight stubs for headless tests
         def text(self):
             return self._text
 
+        def setText(self, text: str) -> None:
+            self._text = str(text)
+
+        def setData(self, *_args, **_kwargs) -> None:
+            return None
+
     class QTableWidget:
         def __init__(self, *a, **k):
             pass
@@ -122,6 +132,9 @@ except Exception:  # pragma: no cover - lightweight stubs for headless tests
             pass
 
         def setItem(self, *a, **k):
+            pass
+
+        def setCellWidget(self, *a, **k):
             pass
 
         def resizeColumnsToContents(self, *a, **k):
@@ -192,22 +205,35 @@ except Exception:  # pragma: no cover - lightweight stubs for headless tests
     class Qt:
         class AlignmentFlag:
             AlignHCenter = 0
+        class ItemDataRole:
+            DisplayRole = 0
+            EditRole = 2
 
-from playbalance.draft_pool import generate_draft_pool, save_draft_pool, load_draft_pool
+    class QPixmap:
+        def __init__(self, *a, **k):
+            pass
+
+        def isNull(self):
+            return False
+
+from datetime import datetime
+from types import SimpleNamespace
+
 from playbalance.draft_config import load_draft_config
+from playbalance.draft_pool import generate_draft_pool, load_draft_pool, save_draft_pool
 from services.draft_state import (
+    append_result,
     compute_order_from_season_stats,
     initialize_state,
     load_state,
     save_state,
-    append_result,
 )
 from services.season_progress_flags import ProgressUpdateError, mark_draft_completed
-from utils.news_logger import log_news_event
-from utils.team_loader import load_teams
+from ui.star_rating import star_label, star_pixmap
 from utils.exceptions import DraftRosterError
-from utils.rating_display import rating_display_text
-from datetime import datetime
+from utils.news_logger import log_news_event
+from utils.rating_display import overall_rating, rating_display_text, rating_display_value
+from utils.team_loader import load_teams
 
 
 class DraftConsole(QDialog):
@@ -427,16 +453,82 @@ class DraftConsole(QDialog):
 
     def _overall_rating(self, p: dict) -> int:
         try:
-            is_pitcher = bool(p.get("is_pitcher")) or str(p.get("primary_position", "")).upper() == "P"
-            if is_pitcher:
-                core = [int(p.get("endurance", 0) or 0), int(p.get("control", 0) or 0), int(p.get("movement", 0) or 0)]
-            else:
-                core = [int(p.get("ch", 0) or 0), int(p.get("ph", 0) or 0), int(p.get("sp", 0) or 0)]
-            avg = sum(core) / max(1, len(core))
-            ovr = int(round(20 + 0.6 * avg))  # map 0-100 -> 20-80
-            return max(20, min(80, ovr))
+            is_pitcher = bool(p.get("is_pitcher")) or str(
+                p.get("primary_position", "")
+            ).upper() == "P"
+            payload = dict(p)
+            payload["is_pitcher"] = is_pitcher
+            if not payload.get("primary_position"):
+                hint = "P" if is_pitcher else ""
+                payload["primary_position"] = hint
+            player = SimpleNamespace(**payload)
+            return overall_rating(player)
         except Exception:
-            return 20
+            return 0
+
+    def _overall_display_value(self, p: dict) -> float | None:
+        if not p:
+            return None
+        is_pitcher = bool(p.get("is_pitcher")) or str(
+            p.get("primary_position", "")
+        ).upper() == "P"
+        raw = self._overall_rating(p)
+        display = rating_display_value(
+            raw,
+            key="OVR",
+            position=p.get("primary_position"),
+            is_pitcher=is_pitcher,
+            mode="scale_99",
+        )
+        try:
+            return float(display)
+        except (TypeError, ValueError):
+            return None
+
+    def _set_ovr_cell(
+        self,
+        table: QTableWidget,
+        row: int,
+        col: int,
+        display_value: float | None,
+        *,
+        size: int = 9,
+    ) -> None:
+        item = QTableWidgetItem("")
+        if display_value is not None:
+            item.setData(Qt.ItemDataRole.EditRole, float(display_value))
+        table.setItem(row, col, item)
+        if display_value is None:
+            return
+        star = star_label(
+            display_value,
+            min_rating=35.0,
+            max_rating=99.0,
+            size=size,
+            fixed_size=False,
+        )
+        table.setCellWidget(row, col, star)
+
+    def _set_preview_ovr(self, display_value: float | None) -> None:
+        label = self._pv_values.get("ovr")
+        if label is None:
+            return
+        if display_value is None:
+            label.setPixmap(QPixmap())
+            label.setText("")
+            return
+        pix = star_pixmap(
+            display_value,
+            min_rating=35.0,
+            max_rating=99.0,
+            size=14,
+        )
+        if pix is None:
+            label.setPixmap(QPixmap())
+            label.setText("")
+            return
+        label.setPixmap(pix)
+        label.setText("")
 
     def _populate_table(self, rows: list[dict]) -> None:
         self.table.setRowCount(len(rows))
@@ -455,12 +547,12 @@ class DraftConsole(QDialog):
                 f"/{rating_display_text(p.get('fa', 0), key='FA', position=pos, is_pitcher=is_pitcher)}"
             )
             age = self._age_from_birthdate(str(p.get("birthdate", "")))
-            ovr = str(self._overall_rating(p))
             self.table.setItem(r, 0, QTableWidgetItem(p.get("player_id", "")))
             self.table.setItem(r, 1, QTableWidgetItem(name))
             self.table.setItem(r, 2, QTableWidgetItem(age))
             self.table.setItem(r, 3, QTableWidgetItem(pos))
-            self.table.setItem(r, 4, QTableWidgetItem(ovr))
+            display_ovr = self._overall_display_value(p)
+            self._set_ovr_cell(self.table, r, 4, display_ovr)
             self.table.setItem(r, 5, QTableWidgetItem(bt))
             self.table.setItem(r, 6, QTableWidgetItem(chphsp))
             self.table.setItem(r, 7, QTableWidgetItem(armfa))
@@ -793,38 +885,47 @@ class DraftConsole(QDialog):
                 pname = f"{pr.get('first_name','')} {pr.get('last_name','')}".strip()
                 player = f"{pos} {pname}".strip()
                 age = self._age_from_birthdate(str(pr.get("birthdate", "")))
-                ovr = str(self._overall_rating(pr))
+                display_ovr = self._overall_display_value(pr)
             else:
                 player = pid
                 age = ""
-                ovr = ""
+                display_ovr = None
             self.board.setItem(i, 0, QTableWidgetItem(str(pick_no)))
             self.board.setItem(i, 1, QTableWidgetItem(team))
             self.board.setItem(i, 2, QTableWidgetItem(player))
             self.board.setItem(i, 3, QTableWidgetItem(age))
-            self.board.setItem(i, 4, QTableWidgetItem(ovr))
+            self._set_ovr_cell(self.board, i, 4, display_ovr)
         self.board.resizeColumnsToContents()
 
     def _update_preview_from_selection(self) -> None:
         row = self.table.currentRow()
         if row < 0:
-            for v in self._pv_values.values():
-                v.setText("")
+            for key, v in self._pv_values.items():
+                if key == "ovr":
+                    v.setPixmap(QPixmap())
+                    v.setText("")
+                else:
+                    v.setText("")
             return
         pid = self.table.item(row, 0).text() if self.table.item(row, 0) else ""
         name = self.table.item(row, 1).text() if self.table.item(row, 1) else ""
         age = self.table.item(row, 2).text() if self.table.item(row, 2) else ""
         pos = self.table.item(row, 3).text() if self.table.item(row, 3) else ""
-        ovr = self.table.item(row, 4).text() if self.table.item(row, 4) else ""
         bt = self.table.item(row, 5).text() if self.table.item(row, 5) else ""
         hit = self.table.item(row, 6).text() if self.table.item(row, 6) else ""
         df = self.table.item(row, 7).text() if self.table.item(row, 7) else ""
         pit = self.table.item(row, 8).text() if self.table.item(row, 8) else ""
+        pr = None
+        if pid:
+            try:
+                pr = getattr(self, "_pool_index", {}).get(pid)
+            except Exception:
+                pr = None
         self._pv_values["id"].setText(pid)
         self._pv_values["name"].setText(name)
         self._pv_values["age"].setText(age)
         self._pv_values["pos"].setText(pos)
-        self._pv_values["ovr"].setText(ovr)
+        self._set_preview_ovr(self._overall_display_value(pr) if pr else None)
         self._pv_values["bt"].setText(bt)
         self._pv_values["hit"].setText(hit)
         self._pv_values["def"].setText(df)

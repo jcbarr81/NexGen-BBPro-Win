@@ -217,7 +217,8 @@ from models.base_player import BasePlayer
 from utils.stats_persistence import load_stats
 from utils.path_utils import get_base_dir
 from utils.player_loader import load_players_from_csv
-from utils.rating_display import rating_display_text
+from utils.rating_display import rating_display_text, rating_display_value
+from .star_rating import star_label, star_pixmap, star_text
 from .components import Card, section_title
 
 
@@ -727,8 +728,15 @@ class PlayerProfileDialog(QDialog):
         overall_val = overall if overall is not None else getattr(self.player, 'overall', None)
         if not isinstance(overall_val, (int, float)):
             overall_val = self._estimate_overall_rating()
+        display_val = self._overall_display_value(overall_val, self.player)
+        star_source = display_val if display_val is not None else overall_val
 
-        overall_label = QLabel(self._format_overall_stars(overall_val))
+        overall_label = star_label(
+            star_source,
+            min_rating=35.0,
+            max_rating=99.0,
+            size=18,
+        )
         _safe_call(overall_label, "setObjectName", "OverallValue")
         _set_alignment(overall_label, "AlignCenter")
         _layout_add_widget(layout, overall_label)
@@ -736,13 +744,56 @@ class PlayerProfileDialog(QDialog):
         return wrapper
 
     def _format_overall_stars(self, value: Any) -> str:
+        display_val = self._overall_display_value(value, self.player)
+        star_source = display_val if display_val is not None else value
+        fallback = star_text(star_source, min_rating=35.0, max_rating=99.0)
+        return fallback if fallback is not None else str(value)
+
+    def _apply_overall_star_label(self, label: QLabel, player: Any) -> None:
+        value = getattr(player, "overall", None) if player is not None else None
+        if not isinstance(value, (int, float)):
+            value = (
+                self._estimate_overall_rating()
+                if player is self.player
+                else getattr(player, "overall", None)
+            )
+        display_val = self._overall_display_value(value, player)
+        star_source = display_val if display_val is not None else value
+        pix = star_pixmap(
+            star_source,
+            min_rating=35.0,
+            max_rating=99.0,
+            size=14,
+        )
+        if pix is not None:
+            label.setPixmap(pix)
+            label.setText("")
+            _set_alignment(label, "AlignCenter")
+            return
+        label.setPixmap(QPixmap())
+        label.setText(self._format_overall_stars(value))
+
+    def _overall_display_value(self, value: Any, player: Any) -> Optional[float]:
+        if not isinstance(value, (int, float)):
+            return None
+        if player is self.player:
+            is_pitcher = self._is_pitcher
+        else:
+            is_pitcher = bool(
+                getattr(player, "is_pitcher", False)
+                or str(getattr(player, "primary_position", "")).upper() == "P"
+            )
+        display_val = rating_display_value(
+            value,
+            key="OVR",
+            position=getattr(player, "primary_position", None),
+            is_pitcher=is_pitcher,
+            mode="scale_99",
+        )
         try:
-            numeric = float(value)
+            return float(display_val)
         except (TypeError, ValueError):
-            return str(value)
-        rating = max(0, min(99, int(round(numeric))))
-        stars = max(1, min(5, (rating // 20) + 1))
-        return "*" * stars
+            return None
 
     def _build_fielding_block(self) -> QWidget:
         wrapper = QFrame()
@@ -1465,8 +1516,22 @@ class PlayerProfileDialog(QDialog):
             if not labels:
                 continue
             primary_label, compare_label = labels
+            if metric_id == "overall":
+                self._apply_overall_star_label(primary_label, self.player)
+                if has_compare:
+                    self._apply_overall_star_label(
+                        compare_label, self._comparison_player
+                    )
+                else:
+                    compare_label.setPixmap(QPixmap())
+                    compare_label.setText("--")
+                continue
             primary_label.setText(self._metric_value(self.player, metric_id))
-            compare_label.setText(self._metric_value(self._comparison_player, metric_id) if has_compare else "--")
+            compare_label.setText(
+                self._metric_value(self._comparison_player, metric_id)
+                if has_compare
+                else "--"
+            )
         if self._comparison_panel is not None:
             if has_compare:
                 self._comparison_panel.show()

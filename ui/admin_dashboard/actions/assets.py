@@ -298,14 +298,94 @@ def generate_player_avatars_action(
             "Generating player avatars in background...",
         )
 
+    progress_state: dict[str, object] = {
+        "dialog": None,
+        "done": 0,
+        "total": 0,
+        "completed": False,
+    }
+
+    if parent is not None:
+        dialog = QProgressDialog(
+            "Generating player avatars...", None, 0, 1, parent
+        )
+        dialog.setWindowTitle("Generating Player Avatars")
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setCancelButton(None)
+        dialog.setMinimumDuration(0)
+        dialog.setAutoClose(False)
+        dialog.setAutoReset(False)
+        dialog.setValue(0)
+        dialog.show()
+        progress_state["dialog"] = dialog
+
+    def update_label() -> None:
+        dialog = progress_state.get("dialog")
+        if dialog is None:
+            return
+        done = int(progress_state.get("done", 0) or 0)
+        total = int(progress_state.get("total", 0) or 0)
+        completed = bool(progress_state.get("completed"))
+        label = "Generating player avatars..."
+        if total > 0:
+            clamped_done = max(0, min(done, total))
+            percent = int(round(clamped_done / total * 100))
+            if completed:
+                percent = 100
+            status_text = (
+                "Player avatars generated!"
+                if completed
+                else "Generating player avatars..."
+            )
+            label = f"{status_text} ({clamped_done}/{total} - {percent}%)"
+        elif completed:
+            label = "Player avatars generated!"
+        dialog.setLabelText(label)
+
+    def close_progress() -> None:
+        dialog = progress_state.get("dialog")
+        if dialog is not None:
+            dialog.reset()
+            dialog.close()
+        progress_state["dialog"] = None
+        progress_state["completed"] = False
+        progress_state["done"] = 0
+        progress_state["total"] = 0
+
+    def progress_cb(done: int, total: int) -> None:
+        progress_state["done"] = done
+        progress_state["total"] = total
+        progress_state["completed"] = total > 0 and done >= total
+
+        def update() -> None:
+            dialog = progress_state.get("dialog")
+            if dialog is not None:
+                if total > 0:
+                    clamped_total = max(1, total)
+                    clamped_done = max(0, min(done, clamped_total))
+                    if (
+                        dialog.minimum() != 0
+                        or dialog.maximum() != clamped_total
+                    ):
+                        dialog.setRange(0, clamped_total)
+                    dialog.setValue(clamped_done)
+                else:
+                    if dialog.minimum() != 0 or dialog.maximum() != 0:
+                        dialog.setRange(0, 0)
+                    dialog.setValue(0)
+            update_label()
+
+        _schedule(update)
+
     def worker() -> None:
         try:
             out_dir = generate_player_avatars(
-                progress_callback=None,
+                progress_callback=progress_cb,
                 initial_creation=initial,
             )
         except Exception as exc:
             def fail() -> None:
+                close_progress()
                 if parent is not None:
                     QMessageBox.warning(
                         parent,
@@ -321,6 +401,25 @@ def generate_player_avatars_action(
             _schedule(fail)
         else:
             def success() -> None:
+                progress_state["completed"] = True
+                dialog = progress_state.get("dialog")
+                if dialog is not None:
+                    total = int(
+                        progress_state.get("total", dialog.maximum()) or 0
+                    )
+                    progress_state["done"] = max(
+                        total, int(progress_state.get("done", total) or 0)
+                    )
+                    if total > 0:
+                        dialog.setRange(0, max(1, total))
+                        dialog.setValue(max(1, total))
+                    else:
+                        dialog.setRange(0, 0)
+                        dialog.setValue(0)
+                    update_label()
+                    QTimer.singleShot(1200, close_progress)
+                else:
+                    close_progress()
                 if parent is not None:
                     QMessageBox.information(
                         parent,

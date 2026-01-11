@@ -17,9 +17,12 @@
 - Season rollover archives stats/standings/playoffs/awards into `data/careers/<season_id>/` and updates `data/career_index.json` plus career ledgers in `data/careers/career_players.json` and `data/careers/career_teams.json`.
 - Awards (MVP, CY_YOUNG) are generated during rollover via `playbalance/awards_manager.py` and stored in `data/careers/<season_id>/awards.json`.
 - League history viewer is available from the Team Dashboard (League Hub) and Admin Dashboard, showing archived seasons and awards.
+- Admin Dashboard utilities show a modal progress dialog when generating player avatars (count/percent updates until completion).
 - No Hall of Fame system implemented.
 - Pitcher roster UIs (full roster/pitchers dialogs) display `preferred_pitching_role` instead of the `role` field.
 - Ratings remain normalized for simulation; UI display maps ratings to a 0-99 percentile scale by default using `data/players_normalized.csv` (fallback `data/players.csv`).
+- Roster OVR is the simple average of core ratings (hitters: CH/PH/SP/PL/VL/SC/FA/ARM/GF; pitchers: EN/CO/MO/HOLD/ARM/FA plus pitch ratings); display values are percentile-based with a logistic curve (k=6) in `utils/rating_display.py`.
+- Player profile Overall and OVR columns (rosters + draft console) render star icons (1-5 in 0.5 increments) using `assets/full_star.png` and `assets/half_star.png`.
 - Player profile Overall rating displays a 1-5 star scale.
 - Full roster tables include an OVR column after player name.
 - Splash music initializes after the splash screen shows; pygame audio is opt-in to avoid startup hangs.
