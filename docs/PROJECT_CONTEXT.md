@@ -8,7 +8,7 @@
 - Legacy engine is guarded; use `PB_ALLOW_LEGACY_ENGINE=1` to run it intentionally.
 - Park factors are disabled for now to keep stats stable; revisit later.
 - Injury history should be logged per season and shown in player profiles (date + description only).
-- UI rating display should use position-based percentiles with a logistic curve (k=6), showing Top % at position (avg) context.
+- UI rating display should use position-based percentiles with a logistic curve (k=6), showing Top % at position (avg) context on a 35-99 display scale.
 
 ## Current State
 - Physics engine is the default engine in `playbalance/game_runner.py`.

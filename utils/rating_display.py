@@ -219,6 +219,8 @@ def rating_display_details(
     mode: Optional[str] = None,
     curve: Optional[str] = None,
     curve_k: float = 6.0,
+    display_min: int = 35,
+    display_max: int = 99,
 ) -> Tuple[object, Optional[int], Optional[float], Optional[str]]:
     try:
         numeric = float(value)
@@ -254,10 +256,16 @@ def rating_display_details(
         top_pct = max(1, min(99, top_pct))
         return "*" * stars, top_pct, avg, bucket
 
-    scaled = int(round(adj_pct * 99))
+    scale_span = max(1, display_max - display_min)
+    scaled = int(round(display_min + adj_pct * scale_span))
     top_pct = int(round((1.0 - pct) * 100))
     top_pct = max(1, min(99, top_pct))
-    return max(0, min(99, scaled)), top_pct, avg, bucket
+    return (
+        max(display_min, min(display_max, scaled)),
+        top_pct,
+        avg,
+        bucket,
+    )
 
 
 def rating_display_value(
@@ -269,6 +277,8 @@ def rating_display_value(
     mode: Optional[str] = None,
     curve: Optional[str] = None,
     curve_k: float = 6.0,
+    display_min: int = 35,
+    display_max: int = 99,
 ) -> object:
     display_value, _top_pct, _avg, _bucket = rating_display_details(
         value,
@@ -278,6 +288,8 @@ def rating_display_value(
         mode=mode,
         curve=curve,
         curve_k=curve_k,
+        display_min=display_min,
+        display_max=display_max,
     )
     return display_value
 
@@ -291,6 +303,8 @@ def rating_display_text(
     mode: Optional[str] = None,
     curve: Optional[str] = None,
     curve_k: float = 6.0,
+    display_min: int = 35,
+    display_max: int = 99,
 ) -> str:
     return str(
         rating_display_value(
@@ -301,5 +315,7 @@ def rating_display_text(
             mode=mode,
             curve=curve,
             curve_k=curve_k,
+            display_min=display_min,
+            display_max=display_max,
         )
     )

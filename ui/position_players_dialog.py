@@ -247,6 +247,8 @@ class RosterTable(QtWidgets.QTableWidget):
                                 is_pitcher=False,
                                 curve="logistic",
                                 curve_k=6.0,
+                                display_min=35,
+                                display_max=99,
                             )
                             display_value = str(display_rating)
                             if top_pct is not None:
