@@ -1,0 +1,57 @@
+# Installer exclude list (repo-relative globs)
+#
+# Always exclude (dev artifacts, large generated assets, or secrets)
+__pycache__/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/*.log
+.venv/
+*.bak
+_tmp_*.py
+_slice*.txt
+results.json
+swing_diag.json
+swing_diag_small.json
+data_snapshot.tgz
+league_foul_rate_by_count_2024.csv
+config.ini
+
+# Large generated avatars (keep images/avatars/default.png and Template/)
+images/avatars/P*.png
+
+# Dev/test content
+Docs/
+docs/
+tests/
+Tmp/
+tmp/
+scripts/
+
+# Runtime output/state (safe to regenerate on first run)
+data/boxscores/
+data/season_history/
+data/injury_reports/
+data/careers/
+data/season_stats.json
+data/season_stats.json.lock
+data/standings.json
+data/season_progress.json
+data/champions.csv
+data/news_feed.txt
+data/news_feed.jsonl
+data/trades_pending.csv
+data/transactions.csv
+data/pitcher_recovery.json
+data/draft_pool_*.csv
+data/draft_pool_*.json
+data/draft_state_*.json
+data/draft_results_*.csv
+data/rosters_locked/
+
+# Optional: park preview images (can be regenerated via scripts)
+images/parks/
+
+# Optional: unused buttons folder (no references found)
+images/buttons/

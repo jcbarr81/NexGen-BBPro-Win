@@ -8,10 +8,14 @@ import PyInstaller.__main__
 
 def main() -> None:
     """Run PyInstaller to create a standalone executable."""
-    # Avatar images drastically increase bundle size and are generated on demand,
-    # so skip them when packaging the executable.
-    data_dirs = ["data", "logo", "assets"]
-    icon_path = os.path.join("logo", "UBL.ico")
+    # Bundle only the minimal runtime assets needed for UI and boxscores.
+    # Large generated avatar PNGs are excluded; a default avatar + templates
+    # are included so users can regenerate on demand.
+    data_dirs = ["data", "logo", "assets", "samples"]
+    data_files = [
+        (os.path.join("images", "avatars", "default.png"), os.path.join("images", "avatars")),
+        (os.path.join("images", "avatars", "Template"), os.path.join("images", "avatars", "Template")),
+    ]
     # --noconsole prevents a console window from appearing when the app runs
     params = [
         "main.py",
@@ -19,11 +23,11 @@ def main() -> None:
         "--name",
         "NexGen-BBPro",
         "--noconsole",
-        "--icon",
-        icon_path,
     ]
     for d in data_dirs:
         params += ["--add-data", f"{d}{os.pathsep}{d}"]
+    for src, dest in data_files:
+        params += ["--add-data", f"{src}{os.pathsep}{dest}"]
     PyInstaller.__main__.run(params)
 
 

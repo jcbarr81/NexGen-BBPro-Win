@@ -2,7 +2,7 @@ import os
 import sys
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QGuiApplication
+from PyQt6.QtGui import QGuiApplication, QFont
 from PyQt6.QtWidgets import QApplication
 
 from ui.splash_screen import SplashScreen
@@ -35,8 +35,43 @@ def _show_splash_window(window: SplashScreen, app: QApplication) -> None:
     window.activateWindow()
 
 
+def _normalize_app_font(app: QApplication) -> None:
+    """Ensure the app has a valid point-size font to avoid Qt warnings."""
+    try:
+        font = app.font()
+    except Exception:
+        return
+    try:
+        point_size = int(font.pointSize())
+    except Exception:
+        point_size = -1
+    if point_size > 0:
+        return
+
+    try:
+        pixel_size = int(font.pixelSize())
+    except Exception:
+        pixel_size = -1
+
+    if pixel_size > 0:
+        screen = app.primaryScreen()
+        try:
+            dpi = float(screen.logicalDotsPerInch()) if screen else 96.0
+        except Exception:
+            dpi = 96.0
+        if dpi <= 0:
+            dpi = 96.0
+        point_size = max(1, int(round(pixel_size * 72.0 / dpi)))
+    else:
+        point_size = 12
+
+    font.setPointSize(point_size)
+    app.setFont(font)
+
+
 def main():
     app = QApplication(sys.argv)
+    _normalize_app_font(app)
     app.setStyleSheet(DARK_QSS)
     install_version_badge(app)
     splash = SplashScreen()

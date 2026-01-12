@@ -115,19 +115,23 @@ def _load_baseball_pixmap(size: int = 20) -> QPixmap:
 
 def _load_nav_icon(name: str, size: int = 22) -> QIcon:
     """Load a sidebar navigation icon by filename."""
+    safe_size = int(size)
+    if safe_size <= 0:
+        return QIcon()
     source = _ICON_DIR / name
     icon = QIcon(str(source))
     if icon.isNull():
-        placeholder = QPixmap(size, size)
+        placeholder = QPixmap(safe_size, safe_size)
         placeholder.fill(Qt.GlobalColor.transparent)
         painter = QPainter(placeholder)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, on=True)
         painter.setBrush(QColor("#3b2810"))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(0, 0, size, size, size * 0.3, size * 0.3)
+        painter.drawRoundedRect(0, 0, safe_size, safe_size, safe_size * 0.3, safe_size * 0.3)
         painter.setPen(QColor("#fffdf0"))
         font = QFont()
-        font.setPointSize(int(size * 0.4))
+        point_size = max(1, int(round(safe_size * 0.4)))
+        font.setPointSize(point_size)
         font.setBold(True)
         painter.setFont(font)
         label = name
@@ -142,7 +146,7 @@ def _load_nav_icon(name: str, size: int = 22) -> QIcon:
         painter.end()
         icon = QIcon(placeholder)
     else:
-        base_pixmap = icon.pixmap(size, size)
+        base_pixmap = icon.pixmap(safe_size, safe_size)
         if not base_pixmap.isNull():
             tinted = QPixmap(base_pixmap.size())
             tinted.setDevicePixelRatio(base_pixmap.devicePixelRatio())
