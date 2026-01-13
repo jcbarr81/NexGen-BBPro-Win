@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 from services.transaction_log import record_transaction, reset_player_cache
 from utils.exceptions import DraftRosterError
+from utils.news_logger import log_news_event
 from utils.path_utils import get_base_dir
 from utils.roster_loader import load_roster, save_roster
 
@@ -255,6 +256,26 @@ def _prospect_name(pool_row: Dict[str, Any], players_index: Dict[str, Dict[str, 
     return pid
 
 
+def _safe_positive_int(value: Any) -> int | None:
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return None
+    return result if result > 0 else None
+
+
+def _pick_suffix(round_value: Any, overall_value: Any) -> str:
+    rnd = _safe_positive_int(round_value)
+    overall = _safe_positive_int(overall_value)
+    if rnd and overall:
+        return f" (R{rnd}, #{overall})"
+    if rnd:
+        return f" (R{rnd})"
+    if overall:
+        return f" (#{overall})"
+    return ""
+
+
 def commit_draft_results(
     year: int,
     *,
@@ -289,6 +310,7 @@ def commit_draft_results(
                     compliance_issues.append(note)
             else:
                 failures.append(note or f"{tid}: unable to assign {pid}")
+            player_name = _prospect_name(pool_row, players_index, pid)
             detail = f"Drafted in {year} Amateur Draft"
             if compliance and note:
                 detail += f" ({note})"
@@ -299,10 +321,25 @@ def commit_draft_results(
                     action="draft",
                     team_id=tid,
                     player_id=pid,
-                    player_name=_prospect_name(pool_row, players_index, pid),
+                    player_name=player_name,
                     to_level="LOW",
                     details=detail,
                     season_date=season_date,
+                )
+            except Exception:
+                pass
+            try:
+                pos = str(pool_row.get("primary_position", "")).strip()
+                if pos:
+                    player_label = f"{pos} {player_name}".strip()
+                else:
+                    player_label = player_name or pid
+                pick_suffix = _pick_suffix(row.get("round"), row.get("overall_pick"))
+                log_news_event(
+                    f"{tid} drafted {player_label}{pick_suffix}.",
+                    category="draft",
+                    team_id=tid,
+                    file_path=DATA / "news_feed.txt",
                 )
             except Exception:
                 pass

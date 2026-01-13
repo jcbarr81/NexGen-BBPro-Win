@@ -15,7 +15,7 @@ import bcrypt
 
 from utils.path_utils import get_base_dir
 from ui.theme import DARK_QSS
-from ui.window_utils import show_on_top
+from ui.window_utils import show_on_top, untrack_on_top
 from ui.version_badge import install_version_badge
 
 # Determine the path to the users file in a cross-platform way
@@ -127,18 +127,32 @@ class LoginWindow(QWidget):
 
     def dashboard_closed(self, event):
         """Handle a dashboard being closed by returning focus to the splash."""
+        if self.dashboard is not None:
+            try:
+                untrack_on_top(self.dashboard)
+            except Exception:
+                pass
         if self.splash:
             # Restore the splash screen when the dashboard closes.
             self.splash.show()
             self.splash.raise_()
             self.splash.activateWindow()
             self.splash.login_button.setEnabled(True)
+            if getattr(self.splash, "login_window", None) is self:
+                self.splash.login_window = None
+        self.dashboard = None
         event.accept()
 
     def closeEvent(self, event):
         """Ensure the splash button is re-enabled if login is cancelled."""
+        try:
+            untrack_on_top(self)
+        except Exception:
+            pass
         if self.dashboard is None and self.splash:
             self.splash.login_button.setEnabled(True)
+            if getattr(self.splash, "login_window", None) is self:
+                self.splash.login_window = None
         event.accept()
 
     def _ensure_maximized(self) -> None:

@@ -1,13 +1,16 @@
 import os
 import sys
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QGuiApplication, QFont
+from PyQt6.QtCore import Qt, QTimer, qInstallMessageHandler
+from PyQt6.QtGui import QGuiApplication, QFont, QIcon
 from PyQt6.QtWidgets import QApplication
 
 from ui.splash_screen import SplashScreen
 from ui.theme import DARK_QSS
 from ui.version_badge import install_version_badge
+from utils.path_utils import get_base_dir
+
+_PREV_QT_HANDLER = None
 
 
 def _show_splash_window(window: SplashScreen, app: QApplication) -> None:
@@ -42,9 +45,9 @@ def _normalize_app_font(app: QApplication) -> None:
     except Exception:
         return
     try:
-        point_size = int(font.pointSize())
+        point_size = float(font.pointSizeF())
     except Exception:
-        point_size = -1
+        point_size = -1.0
     if point_size > 0:
         return
 
@@ -61,16 +64,57 @@ def _normalize_app_font(app: QApplication) -> None:
             dpi = 96.0
         if dpi <= 0:
             dpi = 96.0
-        point_size = max(1, int(round(pixel_size * 72.0 / dpi)))
+        point_size = max(1.0, (pixel_size * 72.0 / dpi))
     else:
-        point_size = 12
+        point_size = 12.0
 
-    font.setPointSize(point_size)
+    font.setPointSizeF(point_size)
     app.setFont(font)
 
 
+def _apply_app_icon(app: QApplication) -> None:
+    icon_path = get_base_dir() / "logo" / "NexGen.png"
+    if not icon_path.exists():
+        return
+    try:
+        app.setWindowIcon(QIcon(str(icon_path)))
+    except Exception:
+        pass
+
+
+def _install_qt_warning_filter() -> None:
+    """Suppress noisy Qt font warnings while preserving other log output."""
+    global _PREV_QT_HANDLER
+
+    def _handler(mode, context, message):
+        if "QFont::setPointSize" in message:
+            return
+        if _PREV_QT_HANDLER is not None:
+            _PREV_QT_HANDLER(mode, context, message)
+            return
+        sys.stderr.write(f"{message}\n")
+
+    _PREV_QT_HANDLER = qInstallMessageHandler(_handler)
+
+
+def _set_windows_app_id() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes  # type: ignore
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "NexGen.BBPro"
+        )
+    except Exception:
+        pass
+
+
 def main():
+    _install_qt_warning_filter()
+    _set_windows_app_id()
     app = QApplication(sys.argv)
+    _apply_app_icon(app)
     _normalize_app_font(app)
     app.setStyleSheet(DARK_QSS)
     install_version_badge(app)

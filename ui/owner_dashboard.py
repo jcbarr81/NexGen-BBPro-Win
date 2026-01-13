@@ -99,6 +99,7 @@ from .league_leaders_window import LeagueLeadersWindow
 from .league_history_window import LeagueHistoryWindow
 from .news_window import NewsWindow
 from .season_progress_window import SeasonProgressWindow
+from .draft_console import DraftConsole
 from .player_browser_dialog import PlayerBrowserDialog
 from .injury_center_window import InjuryCenterWindow
 from .depth_chart_dialog import DepthChartDialog
@@ -1039,6 +1040,124 @@ class OwnerDashboard(QMainWindow):
             win.activateWindow()
         except Exception:
             pass
+
+    def open_draft_console(self) -> None:
+        available, cur_date, draft_date, completed = self._draft_availability_details()
+        if completed:
+            QMessageBox.information(
+                self,
+                "Draft Console",
+                "Draft already completed for this season.",
+            )
+            return
+        if not available:
+            if cur_date and draft_date:
+                message = (
+                    f"Draft Day: {draft_date}. Current date: {cur_date}. "
+                    "Draft Console opens on Draft Day."
+                )
+            else:
+                message = (
+                    "Draft timing unavailable. Ensure schedule and season progress "
+                    "exist before opening the Draft Console."
+                )
+            QMessageBox.information(self, "Draft Console", message)
+            return
+
+        if not draft_date:
+            year = self._current_season_year()
+            draft_date = self._compute_draft_date_for_year(year)
+        try:
+            dlg = DraftConsole(draft_date, self)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Draft Console",
+                f"Unable to open Draft Console: {exc}",
+            )
+            return
+        dlg.exec()
+
+    def _compute_draft_date_for_year(self, year: int) -> str:
+        import datetime as _dt
+
+        d = _dt.date(year, 7, 1)
+        while d.weekday() != 1:
+            d += _dt.timedelta(days=1)
+        d += _dt.timedelta(days=14)
+        return d.isoformat()
+
+    def _current_season_year(self) -> int:
+        try:
+            import csv as _csv
+
+            sched = get_base_dir() / "data" / "schedule.csv"
+            if sched.exists():
+                with sched.open(newline="") as fh:
+                    r = _csv.DictReader(fh)
+                    first = next(r, None)
+                    if first and first.get("date"):
+                        return int(str(first["date"]).split("-")[0])
+        except Exception:
+            pass
+
+        date_str = get_current_sim_date()
+        if date_str:
+            try:
+                return int(str(date_str).split("-")[0])
+            except Exception:
+                pass
+
+        from datetime import date as _date
+
+        return _date.today().year
+
+    def _draft_availability_details(
+        self,
+    ) -> tuple[bool, str | None, str | None, bool]:
+        import csv as _csv
+        import json as _json
+        from datetime import date as _date
+
+        base = get_base_dir() / "data"
+        sched = base / "schedule.csv"
+        prog = base / "season_progress.json"
+        if not sched.exists() or not prog.exists():
+            return (False, None, None, False)
+
+        try:
+            with prog.open("r", encoding="utf-8") as fh:
+                progress = _json.load(fh)
+        except Exception:
+            progress = {}
+
+        cur_date = get_current_sim_date()
+        if not cur_date:
+            try:
+                with sched.open(newline="") as fh:
+                    rows = list(_csv.DictReader(fh))
+                first = next((r for r in rows if r.get("date")), None)
+                cur_date = str(first.get("date")) if first else ""
+            except Exception:
+                cur_date = ""
+        if not cur_date:
+            return (False, None, None, False)
+
+        year = int(cur_date.split("-")[0])
+        draft_date = self._compute_draft_date_for_year(year)
+        done = (
+            set(progress.get("draft_completed_years", []))
+            if isinstance(progress, dict)
+            else set()
+        )
+        completed = year in done
+        try:
+            y1, m1, d1 = [int(x) for x in cur_date.split("-")]
+            y2, m2, d2 = [int(x) for x in draft_date.split("-")]
+            available = (not completed) and (_date(y1, m1, d1) >= _date(y2, m2, d2))
+        except Exception:
+            available = False
+        return (available, cur_date, draft_date, completed)
 
     def open_team_stats_window(self, tab: str = "team") -> None:
         """Open the team statistics window with the specified default tab."""

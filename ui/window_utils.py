@@ -39,6 +39,14 @@ def remove_on_top(window) -> None:
         pass
 
 
+def untrack_on_top(window) -> None:
+    """Stop tracking *window* without changing flags or visibility."""
+    try:
+        _tracked_windows.remove(window)
+    except KeyError:
+        pass
+
+
 def set_all_on_top(enable: bool) -> None:
     """Toggle the on-top flag for all tracked windows."""
     for win in list(_tracked_windows):

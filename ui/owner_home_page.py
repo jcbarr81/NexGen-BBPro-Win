@@ -191,6 +191,7 @@ class OwnerHomePage(QWidget):
                     ("League Leaders", self._dashboard.open_league_leaders_window),
                     ("League Standings", self._dashboard.open_standings_window),
                     ("Team Schedule", self._dashboard.open_team_schedule_window),
+                    ("Draft Console", self._dashboard.open_draft_console),
                 ],
             ),
         ]
