@@ -79,9 +79,23 @@ class OwnerHomePage(QWidget):
         self._layout_mode: str | None = None
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 24, 24, 24)
-        root.setSpacing(24)
-        root.setAlignment(Qt.AlignmentFlag.AlignTop)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+
+        scroll_body = QWidget()
+        scroll_layout = QVBoxLayout(scroll_body)
+        scroll_layout.setContentsMargins(24, 24, 24, 24)
+        scroll_layout.setSpacing(24)
+        scroll_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self._content = QWidget()
         self._content.setSizePolicy(
@@ -98,7 +112,10 @@ class OwnerHomePage(QWidget):
         self._grid.setHorizontalSpacing(24)
         self._grid.setVerticalSpacing(24)
         content_layout.addLayout(self._grid)
-        root.addWidget(self._content, alignment=Qt.AlignmentFlag.AlignHCenter)
+        scroll_layout.addWidget(self._content, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        self._scroll.setWidget(scroll_body)
+        root.addWidget(self._scroll)
 
         # Metrics card ----------------------------------------------------
         self.metrics_card = Card()
@@ -192,6 +209,7 @@ class OwnerHomePage(QWidget):
                     ("League Standings", self._dashboard.open_standings_window),
                     ("Team Schedule", self._dashboard.open_team_schedule_window),
                     ("Draft Console", self._dashboard.open_draft_console),
+                    ("Playoffs Viewer", self._dashboard.open_playoffs_window),
                 ],
             ),
         ]
@@ -304,7 +322,7 @@ class OwnerHomePage(QWidget):
             self.news_card,
         ]
         self._layout_mode = None
-        self._apply_layout_mode("wide")
+        self._update_layout_mode()
 
     # ------------------------------------------------------------------
     # Public API
@@ -682,8 +700,26 @@ class OwnerHomePage(QWidget):
             self._grid.setRowStretch(len(self._cards) - 1, 1)
 
     def _update_layout_mode(self) -> None:
-        # Force the wide layout for now so the dashboard always shows two columns.
-        self._apply_layout_mode("wide")
+        available = None
+        try:
+            viewport = self._scroll.viewport()
+            if viewport is not None:
+                available = viewport.width()
+        except Exception:
+            available = None
+        if not available:
+            try:
+                available = self.width()
+            except Exception:
+                available = 0
+        content_width = max(0, int(available) - 48)
+        if content_width >= 1200:
+            mode = "wide"
+        elif content_width >= 960:
+            mode = "medium"
+        else:
+            mode = "narrow"
+        self._apply_layout_mode(mode)
 
     def _place_card(
         self,

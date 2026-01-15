@@ -6,13 +6,37 @@
     "created_at": "2026-01-12T01:03:22Z"
   },
   "current": {
-    "season_id": "usabl-2026",
-    "league_year": 2026,
-    "sequence": 1,
-    "started_on": "2026-04-01",
+    "season_id": "usabl-2027",
+    "league_year": 2027,
+    "sequence": 2,
+    "started_on": null,
     "metadata": {},
     "rollover_complete": false,
-    "created_at": "2026-01-12T01:03:22Z"
+    "created_at": "2026-01-15T03:41:22Z"
   },
-  "seasons": []
+  "seasons": [
+    {
+      "season_id": "usabl-2026",
+      "league_year": 2026,
+      "sequence": 1,
+      "started_on": "2026-04-01",
+      "metadata": {},
+      "rollover_complete": true,
+      "created_at": "2026-01-12T01:03:22Z",
+      "archived_on": "2026-01-15T03:41:22Z",
+      "ended_on": "2026-10-28",
+      "artifacts": {
+        "stats": "data/careers/usabl-2026/stats.json",
+        "standings": "data/careers/usabl-2026/standings.json",
+        "schedule": "data/careers/usabl-2026/schedule.csv",
+        "progress": "data/careers/usabl-2026/season_progress.json",
+        "history": "data/careers/usabl-2026/history",
+        "playoffs": "data/careers/usabl-2026/playoffs_2026.json",
+        "transactions": "data/careers/usabl-2026/transactions.csv",
+        "draft": "data/careers/usabl-2026/draft",
+        "awards": "data/careers/usabl-2026/awards.json",
+        "metadata": "data/careers/usabl-2026/metadata.json"
+      }
+    }
+  ]
 }

@@ -433,7 +433,31 @@ class DraftConsole(QDialog):
             self._compute_order()
             if not self.state.get("order"):
                 return
+        total_picks = self.DRAFT_ROUNDS * len(self.state["order"])
+        overall = int(self.state.get("overall_pick", 1))
+        remaining = max(0, total_picks - (overall - 1))
+        if remaining <= 0:
+            self._update_status_round()
+            QMessageBox.information(self, "Draft", "Draft is already complete.")
+            return
+        if len(self.pool) < remaining:
+            QMessageBox.warning(
+                self,
+                "Draft",
+                (
+                    f"Draft pool has {len(self.pool)} players for {remaining} remaining picks. "
+                    "Generate a larger pool or reduce the number of rounds."
+                ),
+            )
+            return
         while not self._is_complete():
+            if not self.pool:
+                QMessageBox.warning(
+                    self,
+                    "Draft",
+                    "Draft pool exhausted before the draft completed.",
+                )
+                break
             self._auto_pick_current()
         QMessageBox.information(self, "Draft Complete", "Auto-draft of all rounds complete.")
         # Keep the console open so the commissioner can review and commit
@@ -497,6 +521,8 @@ class DraftConsole(QDialog):
         item = QTableWidgetItem("")
         if display_value is not None:
             item.setData(Qt.ItemDataRole.EditRole, float(display_value))
+            item.setText("")
+            item.setData(Qt.ItemDataRole.DisplayRole, "")
         table.setItem(row, col, item)
         if display_value is None:
             return

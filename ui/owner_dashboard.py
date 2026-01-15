@@ -106,6 +106,7 @@ from .depth_chart_dialog import DepthChartDialog
 from .tutorial_dialog import TutorialDialog, TutorialStep
 from .training_focus_dialog import TrainingFocusDialog
 from .ui_template import _load_baseball_pixmap, _load_nav_icon
+from .playoffs_window import PlayoffsWindow
 from utils.roster_loader import load_roster
 from utils.player_loader import load_players_from_csv
 from utils.free_agent_finder import find_free_agents
@@ -155,6 +156,7 @@ class OwnerDashboard(QMainWindow):
         self.resize(1100, 720)
         self._admin_window = None
         self._season_progress_window: Optional[SeasonProgressWindow] = None
+        self._playoffs_win = None
 
         central = QWidget()
         root = QHBoxLayout(central)
@@ -891,11 +893,64 @@ class OwnerDashboard(QMainWindow):
         """Update status bar and metrics when the sim date advances."""
 
         try:
+            self._reload_team_data()
+        except Exception:
+            pass
+        try:
             self._update_status_bar()
         except Exception:
             pass
         try:
             self._update_header_context()
+        except Exception:
+            pass
+        try:
+            self._refresh_active_page()
+        except Exception:
+            pass
+
+    def _refresh_active_page(self) -> None:
+        page = None
+        key = self._nav_controller.current_key
+        if key is not None:
+            page = self.pages.get(key)
+        if page is None:
+            try:
+                page = self.stack.currentWidget()
+            except Exception:
+                page = None
+        if page is None:
+            return
+        refresh = getattr(page, "refresh", None)
+        if callable(refresh):
+            refresh()
+
+    def _reload_team_data(self) -> None:
+        try:
+            cache_clear = getattr(load_players_from_csv, "cache_clear", None)
+            if callable(cache_clear):
+                cache_clear("data/players.csv")
+        except Exception:
+            pass
+        try:
+            cache_clear = getattr(load_roster, "cache_clear", None)
+            if callable(cache_clear):
+                cache_clear(team_id=self.team_id, roster_dir="data/rosters")
+        except Exception:
+            pass
+        try:
+            self.players = {
+                p.player_id: p for p in load_players_from_csv("data/players.csv")
+            }
+        except Exception:
+            pass
+        try:
+            self.roster = load_roster(self.team_id)
+        except Exception:
+            pass
+        try:
+            teams = load_teams()
+            self.team = next((t for t in teams if t.team_id == self.team_id), None)
         except Exception:
             pass
 
@@ -1016,11 +1071,19 @@ class OwnerDashboard(QMainWindow):
 
         def _refresh_after_progress() -> None:
             try:
+                self._reload_team_data()
+            except Exception:
+                pass
+            try:
                 self._update_status_bar()
             except Exception:
                 pass
             try:
                 self._update_header_context()
+            except Exception:
+                pass
+            try:
+                self._refresh_active_page()
             except Exception:
                 pass
 
@@ -1186,6 +1249,29 @@ class OwnerDashboard(QMainWindow):
     def open_news_window(self) -> None:
         try:
             show_on_top(NewsWindow(self))
+        except Exception:
+            pass
+
+    def open_playoffs_window(self) -> None:
+        existing = getattr(self, "_playoffs_win", None)
+        try:
+            if existing is not None and existing.isVisible():
+                existing.raise_()
+                existing.activateWindow()
+                return
+        except Exception:
+            self._playoffs_win = None
+
+        try:
+            self._playoffs_win = PlayoffsWindow(
+                self,
+                run_async=self._context.run_async,
+                show_toast=self._context.show_toast,
+                register_cleanup=self._context.register_cleanup,
+            )
+            self._playoffs_win.show()
+            self._playoffs_win.raise_()
+            self._playoffs_win.activateWindow()
         except Exception:
             pass
 

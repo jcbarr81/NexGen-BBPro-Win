@@ -6,8 +6,7 @@ from typing import Any, Callable, Optional
 """Playoffs viewer window.
 
 Displays the current bracket (rounds, series, and game results). This window
-is read-only and provides a Refresh button to reload state from disk. Control
-actions (simulate round/remaining) are handled from Season Progress for now.
+provides refresh and simulation controls for stepping through the playoffs.
 """
 
 from services.season_progress_flags import (
@@ -245,6 +244,9 @@ class PlayoffsWindow(QDialog):
         self.title = QLabel("Current Bracket")
         header.addWidget(self.title)
         header.addStretch()
+        self.sim_game_btn = QPushButton("Simulate Day")
+        self.sim_game_btn.clicked.connect(self._simulate_game)
+        header.addWidget(self.sim_game_btn)
         self.sim_round_btn = QPushButton("Simulate Round")
         self.sim_round_btn.clicked.connect(self._simulate_round)
         header.addWidget(self.sim_round_btn)
@@ -393,6 +395,7 @@ class PlayoffsWindow(QDialog):
         if not self._bracket:
             self.cv.addWidget(QLabel("No playoffs bracket found."))
             try:
+                self.sim_game_btn.setEnabled(False)
                 self.sim_round_btn.setEnabled(False)
                 self.sim_all_btn.setEnabled(False)
             except Exception:
@@ -486,6 +489,7 @@ class PlayoffsWindow(QDialog):
         # Enable/disable simulate buttons if champion decided
         try:
             done = bool(getattr(self._bracket, 'champion', None))
+            self.sim_game_btn.setEnabled(not done)
             self.sim_round_btn.setEnabled(not done)
             self.sim_all_btn.setEnabled(not done)
         except Exception:
@@ -493,11 +497,28 @@ class PlayoffsWindow(QDialog):
 
     # ------------------------------------------------------------------
     # Simulation helpers
+    def _simulate_game(self) -> None:
+        self._simulate_game_async()
+
     def _simulate_round(self) -> None:
         self._simulate_round_async()
 
     def _simulate_all(self) -> None:
         self._simulate_all_async()
+
+    def _simulate_game_async(self) -> None:
+        if self._active_future is not None:
+            QMessageBox.information(
+                self,
+                "Simulation Running",
+                "Playoff simulation already in progress. Please wait for it to finish.",
+            )
+            return
+        payload = {
+            "title": "Simulating next playoff game...",
+            "worker": self._simulate_game_work,
+        }
+        self._run_playoff_worker(payload)
 
     def _simulate_round_async(self) -> None:
         if self._active_future is not None:
@@ -574,6 +595,27 @@ class PlayoffsWindow(QDialog):
             "bracket": bracket,
         }
 
+    def _simulate_game_work(self) -> dict[str, Any]:
+        from playbalance.playoffs import simulate_next_game, save_bracket
+
+        bracket = self._load_bracket_for_sim()
+        if not bracket:
+            return {"status": "error", "message": "No playoff bracket available."}
+        try:
+            bracket = simulate_next_game(bracket)
+        except Exception as exc:
+            return {"status": "error", "message": f"Failed simulating game: {exc}"}
+        try:
+            save_bracket(bracket)
+        except Exception:
+            pass
+        self._bracket = bracket
+        return {
+            "status": "success",
+            "message": "Simulated next playoff game.",
+            "bracket": bracket,
+        }
+
     def _simulate_all_work(self) -> dict[str, Any]:
         from playbalance.playoffs import simulate_playoffs, save_bracket
 
@@ -635,7 +677,7 @@ class PlayoffsWindow(QDialog):
         self.refresh(bracket=bracket)
 
     def _set_sim_buttons_enabled(self, enabled: bool) -> None:
-        for btn in (self.sim_round_btn, self.sim_all_btn):
+        for btn in (self.sim_game_btn, self.sim_round_btn, self.sim_all_btn):
             try:
                 btn.setEnabled(enabled)
             except Exception:

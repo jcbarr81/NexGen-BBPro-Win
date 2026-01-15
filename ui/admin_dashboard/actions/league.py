@@ -200,7 +200,6 @@ def reset_season_to_opening_day(
 
     def worker() -> Tuple[str, str]:
         progress = data_root / "season_progress.json"
-        standings = data_root / "standings.json"
         stats_file = data_root / "season_stats.json"
         history_dir = data_root / "season_history"
         notes: list[str] = []
@@ -270,7 +269,7 @@ def reset_season_to_opening_day(
             raise RuntimeError(f"Failed resetting progress: {exc}") from exc
 
         try:
-            save_standings({}, base_path=standings)
+            save_standings({})
         except Exception:
             pass
 
@@ -325,6 +324,16 @@ def reset_season_to_opening_day(
                             lock.unlink()
                         if bak.exists():
                             bak.unlink()
+                        candidate.unlink()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        try:
+            for candidate in data_root.glob("playoffs_summary_*.md"):
+                try:
+                    if candidate.exists():
                         candidate.unlink()
                 except Exception:
                     pass

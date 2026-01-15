@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import QDialog, QLabel, QVBoxLayout, QGridLayout, QComboBox, QPushButton, QMessageBox
 import csv
 
-from utils.pitcher_role import get_role
+from utils.pitcher_role import get_display_role, get_role
 from utils.pitching_autofill import autofill_pitching_staff
 from utils.path_utils import get_base_dir
 
@@ -54,9 +54,9 @@ class PitchingEditor(QDialog):
             with path.open(newline='', encoding="utf-8") as f:
                 for row in csv.DictReader(f):
                     pid = row["player_id"].strip()
-                    # Show the pitcher's role (SP/RP) instead of raw "P" when possible
-                    role = get_role(row)
-                    display_pos = role or row["primary_position"]
+                    # Show the same role label used in the roster views.
+                    display_role = get_display_role(row)
+                    display_pos = display_role or row["primary_position"]
                     name = f"{row['first_name']} {row['last_name']} ({display_pos})"
                     players[pid] = {
                         "name": name,

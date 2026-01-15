@@ -1280,7 +1280,7 @@ def simulate_playoffs(bracket: PlayoffBracket, *, simulate_game=None, persist_cb
 
 
 def simulate_next_game(bracket: PlayoffBracket, *, simulate_game=None, persist_cb=None) -> PlayoffBracket:
-    """Simulate only the next pending playoff game."""
+    """Simulate the next playoff day (one game per active series in the round)."""
 
     year = bracket.year or _get_year_from_schedule()
 
@@ -1314,16 +1314,18 @@ def simulate_next_game(bracket: PlayoffBracket, *, simulate_game=None, persist_c
                     bracket.runner_up = m.low.team_id if champ_id == m.high.team_id else m.high.team_id
                     persist()
             continue
-        idx = pendings[0]
-        progressed = _simulate_next_series_game(
-            rnd.matchups[idx],
-            year=year,
-            round_name=rnd.name,
-            series_index=idx,
-            simulate_game=simulate_game,
-        )
-        if progressed:
-            persist()
+        progressed_any = False
+        for idx in pendings:
+            progressed = _simulate_next_series_game(
+                rnd.matchups[idx],
+                year=year,
+                round_name=rnd.name,
+                series_index=idx,
+                simulate_game=simulate_game,
+            )
+            if progressed:
+                progressed_any = True
+                persist()
         if all(m.winner for m in rnd.matchups):
             if rnd.name in champ_round_names and rnd.matchups:
                 champ_id = rnd.matchups[0].winner
