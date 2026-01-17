@@ -699,6 +699,22 @@ class TeamStatsWindow(QDialog):
         headers = ["CATEGORY", "VALUE"]
         table = QTableWidget(len(_TEAM_COLUMNS), len(headers))
         self._configure_table(table, headers)
+        try:
+            horiz = table.horizontalHeader()
+        except Exception:
+            horiz = None
+        if horiz is not None:
+            resize_mode = getattr(QHeaderView, 'ResizeMode', SimpleNamespace(ResizeToContents=None))
+            try:
+                if resize_mode.ResizeToContents is not None:
+                    horiz.setSectionResizeMode(0, resize_mode.ResizeToContents)
+                    horiz.setSectionResizeMode(1, resize_mode.ResizeToContents)
+            except Exception:
+                pass
+            try:
+                horiz.setStretchLastSection(False)
+            except Exception:
+                pass
         # Prevent the table from reordering rows while we populate cells.
         # With sorting enabled, Qt may re-sort after each setItem call which
         # can misalign category/value pairs and leave many cells blank.

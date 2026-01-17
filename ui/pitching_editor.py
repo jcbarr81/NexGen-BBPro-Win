@@ -1,4 +1,5 @@
 from PyQt6.QtWidgets import QDialog, QLabel, QVBoxLayout, QGridLayout, QComboBox, QPushButton, QMessageBox
+from PyQt6.QtCore import QEvent
 import csv
 
 from utils.pitcher_role import get_display_role, get_role
@@ -24,6 +25,7 @@ class PitchingEditor(QDialog):
         for i, role in enumerate(self.roles):
             label = QLabel(role)
             dropdown = QComboBox()
+            dropdown.installEventFilter(self)
             for pid, pdata in self.players_dict.items():
                 if pid in self.act_ids and get_role(pdata):
                     dropdown.addItem(pdata["name"], userData=pid)
@@ -45,7 +47,33 @@ class PitchingEditor(QDialog):
         clear_btn.clicked.connect(self.clear_staff)
         layout.addWidget(clear_btn)
 
+        self._baseline = []
         self.load_pitching_staff()
+
+    def _player_lookup(self):
+        cache = getattr(self, "_player_lookup_cache", None)
+        if cache is None:
+            try:
+                from utils.player_loader import load_players_from_csv
+                cache = {
+                    p.player_id: p for p in load_players_from_csv("data/players.csv")
+                }
+            except Exception:
+                cache = {}
+            self._player_lookup_cache = cache
+        return cache
+
+    def _open_player_profile(self, player_id):
+        if not player_id:
+            return
+        player = self._player_lookup().get(player_id)
+        if player is None:
+            return
+        try:
+            from ui.player_profile_dialog import PlayerProfileDialog
+            PlayerProfileDialog(player, self).exec()
+        except Exception:
+            pass
 
     def load_players_dict(self):
         path = get_base_dir() / "data" / "players.csv"
@@ -83,7 +111,7 @@ class PitchingEditor(QDialog):
             player_id = dropdown.currentData()
             if player_id in used_ids:
                 QMessageBox.warning(self, "Validation Error", f"{self.players_dict[player_id]['name']} is assigned to multiple roles.")
-                return
+                return False
             if player_id:
                 used_ids.add(player_id)
         path = get_base_dir() / "data" / "rosters" / f"{self.team_id}_pitching.csv"
@@ -99,9 +127,12 @@ class PitchingEditor(QDialog):
                     player_id = dropdown.currentData()
                     if player_id:
                         writer.writerow([player_id, role])
+            self._refresh_baseline()
             QMessageBox.information(self, "Saved", "Pitching staff saved successfully.")
+            return True
         except PermissionError as exc:
             QMessageBox.warning(self, "Permission Denied", f"Cannot save to {path}.\n{exc}")
+            return False
 
     def load_pitching_staff(self):
         path = get_base_dir() / "data" / "rosters" / f"{self.team_id}_pitching.csv"
@@ -116,6 +147,7 @@ class PitchingEditor(QDialog):
                                 if dropdown.itemData(i) == player_id:
                                     dropdown.setCurrentIndex(i)
                                     break
+        self._refresh_baseline()
 
     def autofill_staff(self):
         available = [
@@ -137,3 +169,46 @@ class PitchingEditor(QDialog):
     def clear_staff(self):
         for dropdown in self.pitcher_dropdowns.values():
             dropdown.setCurrentIndex(-1)
+
+    def eventFilter(self, obj, event):  # noqa: N802 - Qt signature
+        if event.type() == QEvent.Type.MouseButtonDblClick:
+            if isinstance(obj, QComboBox):
+                self._open_player_profile(obj.currentData())
+                return True
+        return super().eventFilter(obj, event)
+
+    def _snapshot_staff(self):
+        snapshot = []
+        for role in self.roles:
+            dropdown = self.pitcher_dropdowns.get(role)
+            snapshot.append((role, dropdown.currentData() if dropdown else None))
+        return snapshot
+
+    def _refresh_baseline(self):
+        self._baseline = self._snapshot_staff()
+
+    def _has_unsaved_changes(self) -> bool:
+        return self._snapshot_staff() != getattr(self, "_baseline", [])
+
+    def closeEvent(self, event):  # noqa: N802 - Qt signature
+        if not self._has_unsaved_changes():
+            super().closeEvent(event)
+            return
+
+        choice = QMessageBox.question(
+            self,
+            "Unsaved Changes",
+            "You have unsaved pitching staff changes. Save before closing?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if choice == QMessageBox.StandardButton.Save:
+            if self.save_pitching_staff():
+                super().closeEvent(event)
+            else:
+                event.ignore()
+        elif choice == QMessageBox.StandardButton.Discard:
+            super().closeEvent(event)
+        else:
+            event.ignore()

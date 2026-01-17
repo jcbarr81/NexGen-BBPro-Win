@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QMessageBox, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import QMessageBox, QPushButton, QVBoxLayout, QHBoxLayout
 
 from ...components import Card, section_title
 from ..actions.league import regenerate_schedule_action
@@ -21,10 +21,22 @@ class UtilitiesPage(DashboardPage):
         card.layout().addWidget(section_title("Utilities"))
 
         self.generate_logos_button = QPushButton("Generate Team Logos")
-        card.layout().addWidget(self.generate_logos_button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self.logo_tutorial_button = QPushButton("Logo Tutorial")
+        logos_row = QHBoxLayout()
+        logos_row.addStretch(1)
+        logos_row.addWidget(self.generate_logos_button)
+        logos_row.addWidget(self.logo_tutorial_button)
+        logos_row.addStretch(1)
+        card.layout().addLayout(logos_row)
 
         self.generate_avatars_button = QPushButton("Generate Player Avatars")
-        card.layout().addWidget(self.generate_avatars_button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self.avatar_tutorial_button = QPushButton("Avatar Tutorial")
+        avatars_row = QHBoxLayout()
+        avatars_row.addStretch(1)
+        avatars_row.addWidget(self.generate_avatars_button)
+        avatars_row.addWidget(self.avatar_tutorial_button)
+        avatars_row.addStretch(1)
+        card.layout().addLayout(avatars_row)
 
         self.regenerate_schedule_button = QPushButton("Regenerate Regular Season Schedule")
         self.regenerate_schedule_button.setEnabled(False)

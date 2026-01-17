@@ -29,6 +29,14 @@ class SchedulePage(QWidget):
         btn_leaders.clicked.connect(dashboard.open_league_leaders_window)
         card.layout().addWidget(btn_leaders)
 
+        btn_draft_results = QPushButton("Draft Results", objectName="Primary")
+        btn_draft_results.clicked.connect(dashboard.open_draft_results_window)
+        card.layout().addWidget(btn_draft_results)
+
+        btn_playoffs = QPushButton("Playoffs Viewer", objectName="Primary")
+        btn_playoffs.clicked.connect(dashboard.open_playoffs_window)
+        card.layout().addWidget(btn_playoffs)
+
         btn_history = QPushButton("League History", objectName="Primary")
         btn_history.clicked.connect(dashboard.open_league_history_window)
         card.layout().addWidget(btn_history)

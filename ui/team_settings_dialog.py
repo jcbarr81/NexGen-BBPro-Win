@@ -58,10 +58,15 @@ class TeamSettingsDialog(QDialog):
             self.stadium_combo.setCurrentText(team.stadium)
         stadium_row.addWidget(self.stadium_combo)
 
-        browse_btn = QPushButton("Browse MLB Parks…")
+        browse_btn = QPushButton("Browse MLB Parks...")
         browse_btn.clicked.connect(self._open_park_selector)
         stadium_row.addWidget(browse_btn)
         layout.addLayout(stadium_row)
+
+        self.stadium_label = QLabel()
+        self._update_stadium_label(self.stadium_combo.currentText())
+        self.stadium_combo.currentTextChanged.connect(self._update_stadium_label)
+        layout.addWidget(self.stadium_label)
 
         # Action buttons
         btn_row = QHBoxLayout()
@@ -99,4 +104,11 @@ class TeamSettingsDialog(QDialog):
         if dlg.exec() == dlg.DialogCode.Accepted and dlg.selected_name:
             # Set the chosen park NAME as the stadium string
             self.stadium_combo.setCurrentText(dlg.selected_name)
+
+    def _update_stadium_label(self, text: str) -> None:
+        name = (text or "").strip()
+        if name:
+            self.stadium_label.setText(f"Current MLB park: {name}")
+        else:
+            self.stadium_label.setText("Current MLB park: Not set")
 

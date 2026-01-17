@@ -1093,6 +1093,58 @@ def bounded_potential(actual, age):
     return max(10, min(99, pot))
 
 
+_DRAFT_RATING_KEYS = (
+    "ch",
+    "ph",
+    "sp",
+    "eye",
+    "gf",
+    "pl",
+    "vl",
+    "sc",
+    "fa",
+    "arm",
+    "endurance",
+    "control",
+    "movement",
+    "hold_runner",
+    "fb",
+    "cu",
+    "cb",
+    "sl",
+    "si",
+    "scb",
+    "kn",
+)
+_DRAFT_MIN_RATING = 20
+
+
+def _draft_rating_scale(age: int) -> float:
+    if age <= 18:
+        return 0.75
+    if age == 19:
+        return 0.8
+    if age == 20:
+        return 0.84
+    if age == 21:
+        return 0.88
+    return 0.9
+
+
+def _apply_draft_rating_scale(player: Dict[str, Any], age: int) -> None:
+    """Reduce draft ratings so young players start below their potentials."""
+
+    scale = _draft_rating_scale(age)
+    for key in _DRAFT_RATING_KEYS:
+        value = player.get(key)
+        if not isinstance(value, (int, float)):
+            continue
+        if value <= 0:
+            continue
+        scaled = int(round(value * scale))
+        player[key] = max(_DRAFT_MIN_RATING, min(99, scaled))
+
+
 def roll_dice(base: int, count: int, faces: int) -> int:
     """Return ``base`` plus the total from rolling ``count`` ``faces``-sided dice."""
 
@@ -1962,6 +2014,8 @@ def generate_player(
         if pitcher_archetype == "closer":
             player["cl"] = max(player["cl"], 65)
             player["gf"] = max(player["gf"], 55)
+        if for_draft:
+            _apply_draft_rating_scale(player, age)
         _apply_player_defaults(player)
         return player
 
@@ -2083,6 +2137,8 @@ def generate_player(
             player.setdefault(key, 0)
         _maybe_add_pitching(player, age, throws)
         player["pot_fielding"] = generate_fielding_potentials(primary_pos, player["other_positions"])
+        if for_draft:
+            _apply_draft_rating_scale(player, age)
         _apply_player_defaults(player)
         return player
 

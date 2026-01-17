@@ -123,6 +123,7 @@ class LeagueRolloverService:
         artifacts: Dict[str, str] = {}
 
         stats_payload = self._archive_stats(season_dir, artifacts)
+        players_path = self._archive_file(_DATA_DIR / "players.csv", season_dir / "players.csv", artifacts, "players")
         standings_path = self._archive_file(_STANDINGS_PATH, season_dir / "standings.json", artifacts, "standings")
         schedule_path = self._archive_file(_SCHEDULE_PATH, season_dir / "schedule.csv", artifacts, "schedule")
         progress_path = self._archive_file(_PROGRESS_PATH, season_dir / "season_progress.json", artifacts, "progress")
@@ -130,6 +131,7 @@ class LeagueRolloverService:
         playoffs_path = self._archive_playoffs(season_dir, artifacts, league_year)
         champions_path = self._archive_file(_DATA_DIR / "champions.csv", season_dir / "champions.csv", artifacts, "champions")
         transactions_path = self._archive_file(_TRANSACTIONS_PATH, season_dir / "transactions.csv", artifacts, "transactions")
+        self._archive_file(_DATA_DIR / "special_events.json", season_dir / "special_events.json", artifacts, "special_events")
         self._archive_draft_assets(season_dir, artifacts, league_year)
 
         awards_path = self._archive_awards(season_dir, stats_payload, artifacts)
@@ -150,6 +152,7 @@ class LeagueRolloverService:
                 "playoffs": _relative(playoffs_path) if playoffs_path else None,
                 "transactions": _relative(_TRANSACTIONS_PATH) if transactions_path else None,
                 "champions": _relative(_DATA_DIR / "champions.csv") if champions_path else None,
+                "players": _relative(_DATA_DIR / "players.csv") if players_path else None,
             },
         }
         metadata_path = season_dir / "metadata.json"
@@ -383,6 +386,18 @@ class LeagueRolloverService:
                 pitcher_recovery_path.unlink()
             except OSError:
                 pass
+
+        try:
+            from services.special_events import reset_special_events
+
+            reset_special_events()
+        except Exception:
+            events_path = _DATA_DIR / "special_events.json"
+            if events_path.exists():
+                try:
+                    events_path.unlink()
+                except OSError:
+                    pass
 
         self._reset_transactions_file()
         self._reset_progress_file()

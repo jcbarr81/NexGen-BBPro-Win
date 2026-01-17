@@ -74,6 +74,9 @@ from .playoffs_window import PlayoffsWindow
 from .free_agency_window import FreeAgencyWindow
 from .news_window import NewsWindow
 from .injury_center_window import InjuryCenterWindow
+from .injury_settings_dialog import InjurySettingsDialog
+from .avatar_tutorial_dialog import AvatarTutorialDialog
+from .logo_tutorial_dialog import LogoTutorialDialog
 from .league_history_window import LeagueHistoryWindow
 from .owner_dashboard import OwnerDashboard
 from utils.trade_utils import load_trades
@@ -82,6 +85,23 @@ from utils.team_loader import load_teams
 from utils.path_utils import get_base_dir
 from utils.sim_date import get_current_sim_date
 from ui.version_badge import enable_version_badge
+
+_OPEN_OWNER_DASHBOARDS: list[OwnerDashboard] = []
+
+
+def _track_owner_dashboard(dashboard: OwnerDashboard) -> None:
+    _OPEN_OWNER_DASHBOARDS.append(dashboard)
+
+    def _remove(*_args, dash=dashboard) -> None:
+        try:
+            _OPEN_OWNER_DASHBOARDS.remove(dash)
+        except ValueError:
+            pass
+
+    try:
+        dashboard.destroyed.connect(_remove)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +283,7 @@ class MainWindow(QMainWindow):
             lp.exhibition_button.clicked.connect(self.open_exhibition_dialog)
             lp.playbalance_button.clicked.connect(self.open_playbalance_editor)
             lp.injury_center_button.clicked.connect(self.open_injury_center)
+            lp.injury_settings_button.clicked.connect(self.open_injury_settings)
             lp.free_agency_hub_button.clicked.connect(self.open_free_agency)
             lp.season_progress_button.clicked.connect(self.open_season_progress)
             lp.playoffs_view_button.clicked.connect(self.open_playoffs_window)
@@ -290,7 +311,9 @@ class MainWindow(QMainWindow):
         util = self.pages.get("utils")
         if isinstance(util, UtilitiesPage):
             util.generate_logos_button.clicked.connect(self.generate_team_logos)
+            util.logo_tutorial_button.clicked.connect(self.open_logo_tutorial)
             util.generate_avatars_button.clicked.connect(self.generate_player_avatars)
+            util.avatar_tutorial_button.clicked.connect(self.open_avatar_tutorial)
 
         # default page
         try:
@@ -466,8 +489,23 @@ class MainWindow(QMainWindow):
         generate_team_logos_action(self._context, self)
 
 
+    def open_logo_tutorial(self) -> None:
+        try:
+            dialog = LogoTutorialDialog(self)
+            dialog.exec()
+        except Exception:
+            pass
+
+
     def generate_player_avatars(self) -> None:
         generate_player_avatars_action(self._context, self)
+
+    def open_avatar_tutorial(self) -> None:
+        try:
+            dialog = AvatarTutorialDialog(self)
+            dialog.exec()
+        except Exception:
+            pass
 
 
     def open_add_user(self) -> None:
@@ -525,6 +563,11 @@ class MainWindow(QMainWindow):
             dashboard = OwnerDashboard(team_id)
             show_on_top(dashboard)
             self.team_dashboards.append(dashboard)
+            _track_owner_dashboard(dashboard)
+            try:
+                self.close()
+            except Exception:
+                pass
 
     def set_all_lineups(self) -> None:
         set_all_lineups_action(self._context, self)
@@ -607,6 +650,13 @@ class MainWindow(QMainWindow):
         try:
             win = InjuryCenterWindow(self)
             win.show()
+        except Exception:
+            pass
+
+    def open_injury_settings(self) -> None:
+        try:
+            dialog = InjurySettingsDialog(self)
+            dialog.exec()
         except Exception:
             pass
 

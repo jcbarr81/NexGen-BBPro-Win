@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from pathlib import Path
+import json
 import sys
 import csv
 import math
@@ -14,6 +15,10 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from services.injury_manager import disabled_list_days_remaining, disabled_list_label
 from services.training_history import load_player_training_history
 from services.injury_history import load_player_injury_history
+from services.record_book import player_record_entries
+from services.special_events import load_player_special_events
+from services.transaction_log import load_transactions
+from playbalance.season_context import SeasonContext
 
 try:
     from PyQt6.QtCore import Qt, QPointF, QRectF
@@ -77,6 +82,7 @@ try:
         QFrame,
         QGridLayout,
         QTabWidget,
+        QScrollArea,
         QTableWidget,
         QTableWidgetItem,
         QHeaderView,
@@ -201,10 +207,11 @@ except ImportError:  # pragma: no cover - test stubs
         QFrame,
         QGridLayout,
         QTabWidget,
+        QScrollArea,
         QTableWidget,
         QWidget,
         QAbstractItemView,
-    ) = (_QtDummy,) * 10
+    ) = (_QtDummy,) * 11
 
     class QTableWidgetItem(_QtDummy):
         pass
@@ -530,6 +537,81 @@ _PITCHER_RATING_LABELS: Dict[str, str] = {
     "hold_runner": "HR",
 }
 
+_HITTER_RATING_HISTORY: List[Tuple[str, str]] = [
+    ("overall", "OVR"),
+    ("ch", "CH"),
+    ("ph", "PH"),
+    ("sp", "SP"),
+    ("pl", "PL"),
+    ("vl", "VL"),
+    ("sc", "SC"),
+    ("fa", "FA"),
+    ("arm", "AS"),
+    ("gf", "GF"),
+]
+
+_PITCHER_RATING_HISTORY: List[Tuple[str, str]] = [
+    ("overall", "OVR"),
+    ("endurance", "EN"),
+    ("control", "CO"),
+    ("movement", "MO"),
+    ("hold_runner", "HR"),
+    ("arm", "AS"),
+    ("fa", "FA"),
+    ("fb", "FB"),
+    ("cu", "CU"),
+    ("cb", "CB"),
+    ("sl", "SL"),
+    ("si", "SI"),
+    ("scb", "SCB"),
+    ("kn", "KN"),
+]
+
+_HITTER_OVERALL_KEYS: Tuple[str, ...] = (
+    "ch",
+    "ph",
+    "sp",
+    "pl",
+    "vl",
+    "sc",
+    "fa",
+    "arm",
+    "gf",
+)
+_PITCHER_OVERALL_KEYS: Tuple[str, ...] = (
+    "endurance",
+    "control",
+    "movement",
+    "hold_runner",
+    "arm",
+    "fa",
+    "fb",
+    "cu",
+    "cb",
+    "sl",
+    "si",
+    "scb",
+    "kn",
+)
+
+_LEADER_CATEGORIES: Dict[bool, List[Tuple[str, str, bool]]] = {
+    False: [
+        ("avg", "AVG", True),
+        ("hr", "HR", True),
+        ("rbi", "RBI", True),
+        ("sb", "SB", True),
+        ("obp", "OBP", True),
+        ("ops", "OPS", True),
+    ],
+    True: [
+        ("era", "ERA", False),
+        ("whip", "WHIP", False),
+        ("w", "W", True),
+        ("so", "SO", True),
+        ("sv", "SV", True),
+    ],
+}
+
 
 class PlayerProfileDialog(QDialog):
     """Display player information, ratings and stats using themed cards."""
@@ -589,27 +671,47 @@ class PlayerProfileDialog(QDialog):
         _layout_add_widget(root, self._comparison_panel)
         self._comparison_panel.hide()
 
+        tabs = QTabWidget()
+        _safe_call(tabs, "setObjectName", "ProfileTabs")
+
         overview = self._build_overview_section()
-        if overview is not None:
-            _layout_add_widget(root, overview)
-
         insights = self._build_insights_section()
-        if insights is not None:
-            _layout_add_widget(root, insights)
-
         injuries = self._build_injury_history_section()
-        if injuries is not None:
-            _layout_add_widget(root, injuries)
+        overview_tab = self._build_tab_container(
+            (overview, insights, injuries),
+            empty_message="No additional profile details available.",
+        )
+        tabs.addTab(overview_tab, "Overview")
 
         stats_history = self._collect_stats_history()
-        _layout_add_widget(root, self._build_stats_section(stats_history))
+        stats_tab = self._build_tab_container((self._build_stats_section(stats_history),))
+        tabs.addTab(stats_tab, "Stats")
 
+        ledger = self._build_career_ledger_section()
+        ledger_tab = self._build_tab_container(
+            (ledger,),
+            empty_message="Career ledger unavailable.",
+        )
+        tabs.addTab(ledger_tab, "Career")
+
+        _layout_add_widget(root, tabs)
         _layout_add_stretch(root)
+        close_row = QWidget()
+        close_layout = QHBoxLayout(close_row)
+        _safe_set_margins(close_layout, 0, 0, 0, 0)
+        _safe_set_spacing(close_layout, 0)
+        _layout_add_stretch(close_layout)
+        close_button = QPushButton("Close")
+        try:
+            close_button.clicked.connect(self.close)
+        except Exception:
+            pass
+        _layout_add_widget(close_layout, close_button)
+        _layout_add_widget(root, close_row)
         self.setLayout(root)
         self._update_comparison_panel()
-        # Size policy: provide a generous default width so headers and row titles
-        # are visible without manual column resizing, but still allow the user to
-        # resize the window larger if desired.
+            # Size policy: keep a comfortable default so the dialog fits smaller
+            # screens; tabs and scrolling handle overflow content.
         # Size policy: robust against test stubs without real Qt widgets
         try:
             self.adjustSize()
@@ -619,12 +721,19 @@ class PlayerProfileDialog(QDialog):
             h_attr = getattr(hint, "height", 0)
             w = int(w_attr() if callable(w_attr) else w_attr or 0)
             h = int(h_attr() if callable(h_attr) else h_attr or 0)
-            min_w = max(w, 1200)
-            min_h = max(h, 720)
+            min_w = max(min(w, 980), 900)
+            min_h = max(min(h, 640), 560)
             self.setMinimumSize(min_w, min_h)
             self.resize(min_w, min_h)
         except Exception:
             # Fallback in headless test stubs
+            pass
+        try:
+            if hasattr(Qt, "WindowState") and hasattr(self, "setWindowState"):
+                self.setWindowState(Qt.WindowState.WindowMaximized)
+            else:
+                _safe_call(self, "showMaximized")
+        except Exception:
             pass
 
     # ------------------------------------------------------------------
@@ -1565,241 +1674,6 @@ class PlayerProfileDialog(QDialog):
         return total_bases / ab
 
 
-class SprayChartWidget(QWidget):
-    """Draw a simple spray chart using normalized hit locations."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._points: List[Dict[str, float]] = []
-        self.setMinimumHeight(220)
-
-    def set_points(self, points: List[Dict[str, float]] | None) -> None:
-        self._points = points or []
-        self.update()
-
-    def paintEvent(self, event) -> None:  # type: ignore[override]
-        painter = QPainter(self)
-        try:
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        except Exception:
-            pass
-        rect = self.rect().adjusted(20, 20, -20, -20)
-        home_x = rect.left() + rect.width() / 2
-        home_y = rect.bottom()
-
-        painter.setPen(QPen(QColor("#adb5bd"), 2))
-        painter.drawLine(int(home_x), int(home_y), rect.left(), rect.top())
-        painter.drawLine(int(home_x), int(home_y), rect.right(), rect.top())
-
-        arc_rect = QRectF(rect.left(), rect.top() - rect.height(), rect.width(), rect.height() * 2)
-        painter.drawArc(arc_rect, 0, 180 * 16)
-
-        color_map = {
-            "1B": QColor("#51cf66"),
-            "2B": QColor("#339af0"),
-            "3B": QColor("#fcc419"),
-            "HR": QColor("#fa5252"),
-        }
-
-        radius_x = rect.width() / 2
-        radius_y = rect.height()
-        for point in self._points:
-            x_norm = float(point.get("x", 0))
-            y_norm = float(point.get("y", 0))
-            kind = str(point.get("kind", "1B"))
-            color = color_map.get(kind, QColor("#868e96"))
-            x = home_x + x_norm * radius_x
-            y = home_y - y_norm * radius_y
-            painter.setBrush(QBrush(color))
-            painter.setPen(QPen(color))
-            painter.drawEllipse(QPointF(x, y), 5, 5)
-
-        if not self._points:
-            painter.setPen(QPen(QColor("#868e96")))
-            painter.drawText(
-                self.rect(),
-                Qt.AlignmentFlag.AlignCenter,
-                "No batted ball data available.",
-            )
-        painter.end()
-
-
-class RollingStatsWidget(QWidget):
-    """Line chart displaying rolling metrics such as AVG/OPS or ERA/WHIP."""
-
-    palette = [
-        QColor("#228be6"),
-        QColor("#f76707"),
-        QColor("#12b886"),
-        QColor("#fa5252"),
-    ]
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._dates: List[str] = []
-        self._series: Dict[str, List[float]] = {}
-        self.setMinimumHeight(220)
-
-    def update_series(self, data: Dict[str, Any]) -> None:
-        self._dates = list(data.get("dates", []))
-        raw_series = data.get("series", {}) or {}
-        self._series = {label: list(values) for label, values in raw_series.items()}
-        self.update()
-
-    def paintEvent(self, event) -> None:  # type: ignore[override]
-        painter = QPainter(self)
-        try:
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        except Exception:
-            pass
-        rect = self.rect().adjusted(20, 20, -20, -40)
-
-        values: List[float] = []
-        for series in self._series.values():
-            values.extend(float(v) for v in series)
-        values = [v for v in values if v or v == 0.0]
-
-        if not self._dates or not values:
-            painter.setPen(QPen(QColor("#868e96")))
-            painter.drawText(
-                self.rect(),
-                Qt.AlignmentFlag.AlignCenter,
-                "No rolling data available.",
-            )
-            painter.end()
-            return
-
-        min_val = min(values)
-        max_val = max(values)
-        if abs(max_val - min_val) < 0.001:
-            max_val += 0.5
-            min_val -= 0.5
-
-        painter.setPen(QPen(QColor("#adb5bd")))
-        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
-        painter.drawLine(rect.bottomLeft(), rect.topLeft())
-
-        step = rect.width() / max(1, len(self._dates) - 1)
-
-        def map_y(value: float) -> float:
-            if max_val == min_val:
-                return rect.bottom()
-            ratio = (value - min_val) / (max_val - min_val)
-            return rect.bottom() - ratio * rect.height()
-
-        for idx, (label, series) in enumerate(self._series.items()):
-            if not series:
-                continue
-            points = [
-                QPointF(rect.left() + index * step, map_y(float(value)))
-                for index, value in enumerate(series)
-            ]
-            pen = QPen(self.palette[idx % len(self.palette)], 2)
-            painter.setPen(pen)
-            painter.drawPolyline(QPolygonF(points))
-            painter.setPen(QPen(self.palette[idx % len(self.palette)]))
-            painter.drawText(
-                rect.left() + 8 + idx * 90,
-                rect.top() - 8,
-                f"{label}",
-            )
-
-        painter.setPen(QPen(QColor("#495057")))
-        painter.drawText(
-            rect.left(),
-            rect.bottom() + 18,
-            self._dates[0],
-        )
-        if len(self._dates) > 1:
-            painter.drawText(
-                rect.right() - 60,
-                rect.bottom() + 18,
-                self._dates[-1],
-            )
-        painter.end()
-
-
-class ComparisonSelectorDialog(QDialog):
-    """Simple selector to choose a comparison player from the league."""
-
-    def __init__(self, pool: Dict[str, Any], exclude_id: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Select Comparison Player")
-        self._players = [
-            player for pid, player in pool.items() if pid and pid != exclude_id
-        ]
-        self._players.sort(
-            key=lambda p: (
-                str(getattr(p, "last_name", "")).lower(),
-                str(getattr(p, "first_name", "")).lower(),
-            )
-        )
-        self._selected: Any | None = None
-
-        layout = QVBoxLayout(self)
-        _layout_add_widget(layout, QLabel("Search by name or player ID"))
-
-        self.search_edit = QLineEdit()
-        _layout_add_widget(layout, self.search_edit)
-
-        self.list_widget = QListWidget()
-        _layout_add_widget(layout, self.list_widget)
-
-        button_row = QHBoxLayout()
-        _layout_add_stretch(button_row)
-        self.compare_button = QPushButton("Compare")
-        self.cancel_button = QPushButton("Cancel")
-        _layout_add_widget(button_row, self.compare_button)
-        _layout_add_widget(button_row, self.cancel_button)
-        layout.addLayout(button_row)
-
-        self.search_edit.textChanged.connect(self._apply_filter)
-        self.compare_button.clicked.connect(self._accept_selection)
-        self.cancel_button.clicked.connect(self.reject)
-        self.list_widget.itemDoubleClicked.connect(lambda *_: self._accept_selection())
-
-        self._apply_filter("")
-
-    def _apply_filter(self, text: str) -> None:
-        query = text.strip().lower()
-        self.list_widget.clear()
-        for player in self._players:
-            label = self._display_label(player)
-            if query and query not in label.lower():
-                continue
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, player)
-            self.list_widget.addItem(item)
-        if self.list_widget.count() > 0:
-            self.list_widget.setCurrentRow(0)
-
-    def _display_label(self, player: Any) -> str:
-        name = " ".join(
-            part
-            for part in (
-                str(getattr(player, "first_name", "")).strip(),
-                str(getattr(player, "last_name", "")).strip(),
-            )
-            if part
-        )
-        pid = getattr(player, "player_id", "--")
-        pos = getattr(player, "primary_position", "?")
-        return f"{name or pid} ({pos}) [{pid}]"
-
-    def _accept_selection(self) -> None:
-        item = self.list_widget.currentItem()
-        if item is None:
-            return
-        player = item.data(Qt.ItemDataRole.UserRole)
-        if player is None:
-            return
-        self._selected = player
-        self.accept()
-
-    @property
-    def selected_player(self) -> Any | None:
-        return self._selected
-
     def _build_identity_panel(self) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
@@ -1963,7 +1837,7 @@ class ComparisonSelectorDialog(QDialog):
             for idx in range(len(headers)):
                 total_width += table.columnWidth(idx)
             total_width += (table.frameWidth() * 2) + 24
-            table.setMinimumWidth(total_width)
+            table.setMinimumWidth(min(total_width, 900))
             if hasattr(table.horizontalHeader(), "setStretchLastSection"):
                 table.horizontalHeader().setStretchLastSection(False)
         except Exception:
@@ -2018,6 +1892,13 @@ class ComparisonSelectorDialog(QDialog):
             chip.setMinimumWidth(90)
             chip.setMargin(4)
             _layout_add_widget(layout, chip)
+        leader_chip = QLabel("* League Leader")
+        _safe_call(leader_chip, "setObjectName", "StatChip")
+        _safe_call(leader_chip, "setProperty", "variant", "leader")
+        _set_alignment(leader_chip, "AlignCenter")
+        leader_chip.setMinimumWidth(110)
+        leader_chip.setMargin(4)
+        _layout_add_widget(layout, leader_chip)
         _layout_add_stretch(layout)
         return footer
 
@@ -2123,6 +2004,443 @@ class ComparisonSelectorDialog(QDialog):
         _layout_add_widget(layout, tabs)
         _layout_add_widget(layout, self._build_stat_key_footer())
         return card
+
+    def _build_career_ledger_section(self) -> Card | None:
+        card = Card()
+        layout = card.layout()
+        if layout is None:
+            return None
+        _layout_add_widget(layout, section_title("Career Ledger"))
+        tabs = QTabWidget()
+        _safe_call(tabs, "setObjectName", "CareerLedgerTabs")
+        tabs.addTab(self._build_ratings_history_tab(), "Ratings")
+        tabs.addTab(self._build_awards_tab(), "Awards")
+        tabs.addTab(self._build_records_events_tab(), "Records & Events")
+        tabs.addTab(self._build_transactions_tab(), "Transactions")
+        tabs.addTab(self._build_transactions_tab(trade_only=True), "Trades")
+        _layout_add_widget(layout, tabs)
+        return card
+
+    def _build_ratings_history_tab(self) -> QWidget:
+        rows = self._collect_ratings_history()
+        if not rows:
+            return self._build_empty_tab("Ratings history unavailable.")
+
+        fields = _PITCHER_RATING_HISTORY if self._is_pitcher else _HITTER_RATING_HISTORY
+        table = QTableWidget(len(rows), len(fields) + 1)
+        table.setHorizontalHeaderLabels(["Year"] + [label for _, label in fields])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setAlternatingRowColors(True)
+        header = table.horizontalHeader()
+        try:
+            header.setStretchLastSection(False)
+            for idx in range(len(fields) + 1):
+                header.setSectionResizeMode(idx, QHeaderView.ResizeMode.ResizeToContents)
+        except Exception:
+            pass
+
+        for row_idx, (label, data) in enumerate(rows):
+            year_item = QTableWidgetItem(str(label))
+            _set_text_alignment(year_item, "AlignLeft", "AlignVCenter")
+            table.setItem(row_idx, 0, year_item)
+            for col_idx, (key, _label) in enumerate(fields, start=1):
+                raw = data.get(key)
+                text = "--"
+                if raw is not None and raw != "":
+                    try:
+                        text = str(int(float(raw)))
+                    except (TypeError, ValueError):
+                        text = str(raw)
+                item = QTableWidgetItem(text)
+                _set_text_alignment(item, "AlignRight", "AlignVCenter")
+                table.setItem(row_idx, col_idx, item)
+
+        try:
+            table.resizeColumnsToContents()
+        except Exception:
+            pass
+
+        wrapper = QWidget()
+        wrapper_layout = QVBoxLayout(wrapper)
+        _safe_set_margins(wrapper_layout, 0, 0, 0, 0)
+        _safe_set_spacing(wrapper_layout, 6)
+        _layout_add_widget(wrapper_layout, table)
+        if len(rows) <= 1:
+            note = QLabel(
+                "Historical rating snapshots will appear after season rollover."
+            )
+            _safe_call(note, "setWordWrap", True)
+            _layout_add_widget(wrapper_layout, note)
+        _layout_add_stretch(wrapper_layout)
+        return wrapper
+
+    def _build_awards_tab(self) -> QWidget:
+        entries = self._collect_awards_history()
+        if not entries:
+            return self._build_empty_tab("No awards recorded.")
+
+        table = QTableWidget(len(entries), 3)
+        table.setHorizontalHeaderLabels(["Year", "Award", "Detail"])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setAlternatingRowColors(True)
+        header = table.horizontalHeader()
+        try:
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        except Exception:
+            pass
+
+        for row_idx, entry in enumerate(entries):
+            table.setItem(row_idx, 0, QTableWidgetItem(str(entry.get("year", "--"))))
+            table.setItem(row_idx, 1, QTableWidgetItem(str(entry.get("award", "--"))))
+            table.setItem(row_idx, 2, QTableWidgetItem(str(entry.get("detail", "--"))))
+
+        try:
+            table.resizeColumnsToContents()
+        except Exception:
+            pass
+        return table
+
+    def _build_records_events_tab(self) -> QWidget:
+        player_id = str(getattr(self.player, "player_id", "") or "").strip()
+        records: List[Dict[str, Any]] = []
+        events: List[Dict[str, Any]] = []
+        if player_id:
+            try:
+                records = player_record_entries(player_id)
+            except Exception:
+                records = []
+            try:
+                events = load_player_special_events(player_id, limit=25)
+            except Exception:
+                events = []
+
+        wrapper = QWidget()
+        layout = QVBoxLayout(wrapper)
+        _safe_set_margins(layout, 0, 0, 0, 0)
+        _safe_set_spacing(layout, 10)
+
+        record_label = QLabel("Records")
+        _layout_add_widget(layout, record_label)
+
+        if records:
+            records.sort(
+                key=lambda item: (item.get("scope") != "career", str(item.get("label") or "")),
+            )
+            table = QTableWidget(len(records), 3)
+            table.setHorizontalHeaderLabels(["Record", "Value", "Season"])
+            table.verticalHeader().setVisible(False)
+            table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+            table.setAlternatingRowColors(True)
+            header = table.horizontalHeader()
+            try:
+                header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+                header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+            except Exception:
+                pass
+
+            for row_idx, entry in enumerate(records):
+                holder = entry.get("holder", {}) if isinstance(entry, dict) else {}
+                value_text = entry.get("value_text") or entry.get("value") or "--"
+                season_label = holder.get("season_label") if isinstance(holder, dict) else None
+                if not season_label:
+                    season_label = "Career" if entry.get("scope") == "career" else "-"
+                table.setItem(row_idx, 0, QTableWidgetItem(str(entry.get("label") or "--")))
+                table.setItem(row_idx, 1, QTableWidgetItem(str(value_text)))
+                table.setItem(row_idx, 2, QTableWidgetItem(str(season_label)))
+            try:
+                table.resizeColumnsToContents()
+            except Exception:
+                pass
+            _layout_add_widget(layout, table)
+        else:
+            _layout_add_widget(layout, QLabel("No record book entries yet."))
+
+        events_label = QLabel("Special Events")
+        _layout_add_widget(layout, events_label)
+
+        if events:
+            table = QTableWidget(len(events), 4)
+            table.setHorizontalHeaderLabels(["Season", "Date", "Event", "Detail"])
+            table.verticalHeader().setVisible(False)
+            table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+            table.setAlternatingRowColors(True)
+            header = table.horizontalHeader()
+            try:
+                header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+                header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+            except Exception:
+                pass
+
+            for row_idx, entry in enumerate(events):
+                season_id = entry.get("season_id") or ""
+                league_year = entry.get("league_year")
+                season_label = ""
+                if league_year:
+                    season_label = f"{int(league_year):04d}" if str(league_year).isdigit() else str(league_year)
+                if not season_label and season_id:
+                    season_label = self._format_season_label(str(season_id))
+                date_val = str(entry.get("date") or "--")
+                event_label = str(entry.get("label") or entry.get("type") or "--")
+                detail = str(entry.get("detail") or "").strip()
+                if not detail:
+                    team_id = str(entry.get("team_id") or "").strip()
+                    opp_id = str(entry.get("opponent_id") or "").strip()
+                    if team_id and opp_id:
+                        detail = f"{team_id} vs {opp_id}"
+                    elif team_id:
+                        detail = team_id
+                table.setItem(row_idx, 0, QTableWidgetItem(season_label or "--"))
+                table.setItem(row_idx, 1, QTableWidgetItem(date_val))
+                table.setItem(row_idx, 2, QTableWidgetItem(event_label))
+                table.setItem(row_idx, 3, QTableWidgetItem(detail or "--"))
+            try:
+                table.resizeColumnsToContents()
+            except Exception:
+                pass
+            _layout_add_widget(layout, table)
+        else:
+            _layout_add_widget(layout, QLabel("No special events recorded yet."))
+
+        _layout_add_stretch(layout)
+        return wrapper
+
+    def _build_transactions_tab(self, *, trade_only: bool = False) -> QWidget:
+        entries = self._collect_transactions(trade_only=trade_only)
+        if not entries:
+            message = "No trade history recorded." if trade_only else "No transactions recorded."
+            return self._build_empty_tab(message)
+
+        table = QTableWidget(len(entries), 7)
+        table.setHorizontalHeaderLabels(
+            ["Date", "Team", "Action", "From", "To", "Counterparty", "Details"]
+        )
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setAlternatingRowColors(True)
+        header = table.horizontalHeader()
+        try:
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+        except Exception:
+            pass
+
+        for row_idx, entry in enumerate(entries):
+            date_val = str(entry.get("season_date") or entry.get("timestamp") or "").strip()
+            if " " in date_val:
+                date_val = date_val.split(" ", 1)[0]
+            action = str(entry.get("action") or "").replace("_", " ").title()
+            table.setItem(row_idx, 0, QTableWidgetItem(date_val or "--"))
+            table.setItem(row_idx, 1, QTableWidgetItem(str(entry.get("team_id") or "--")))
+            table.setItem(row_idx, 2, QTableWidgetItem(action or "--"))
+            table.setItem(row_idx, 3, QTableWidgetItem(str(entry.get("from_level") or "")))
+            table.setItem(row_idx, 4, QTableWidgetItem(str(entry.get("to_level") or "")))
+            table.setItem(row_idx, 5, QTableWidgetItem(str(entry.get("counterparty") or "")))
+            table.setItem(row_idx, 6, QTableWidgetItem(str(entry.get("details") or "")))
+
+        try:
+            table.resizeColumnsToContents()
+        except Exception:
+            pass
+        return table
+
+    def _build_tab_container(
+        self,
+        widgets: Iterable[QWidget | None],
+        *,
+        empty_message: str | None = None,
+    ) -> QWidget:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        _safe_set_margins(layout, 0, 0, 0, 0)
+        _safe_set_spacing(layout, 12)
+        added = False
+        for widget in widgets:
+            if widget is None:
+                continue
+            _layout_add_widget(layout, widget)
+            added = True
+        if not added and empty_message:
+            label = QLabel(empty_message)
+            _safe_call(label, "setWordWrap", True)
+            _layout_add_widget(layout, label)
+        _layout_add_stretch(layout)
+
+        scroll = QScrollArea()
+        _safe_call(scroll, "setWidgetResizable", True)
+        _safe_call(scroll, "setWidget", container)
+        return scroll
+
+    def _build_empty_tab(self, message: str) -> QWidget:
+        wrapper = QWidget()
+        layout = QVBoxLayout(wrapper)
+        _safe_set_margins(layout, 12, 12, 12, 12)
+        _safe_set_spacing(layout, 8)
+        label = QLabel(message)
+        _safe_call(label, "setWordWrap", True)
+        _layout_add_widget(layout, label)
+        _layout_add_stretch(layout)
+        return wrapper
+
+    def _collect_ratings_history(self) -> List[Tuple[str, Dict[str, Any]]]:
+        player_id = str(getattr(self.player, "player_id", "") or "").strip()
+        if not player_id:
+            return []
+        entries: List[Tuple[str, Dict[str, Any]]] = []
+        seen_years: set[int] = set()
+
+        try:
+            ctx = SeasonContext.load()
+            seasons = list(ctx.seasons)
+        except Exception:
+            seasons = []
+
+        for season in seasons:
+            if not isinstance(season, dict):
+                continue
+            season_id = str(season.get("season_id", "") or "").strip()
+            if not season_id:
+                continue
+            league_year = season.get("league_year")
+            try:
+                year_val = (
+                    int(league_year)
+                    if league_year is not None
+                    else PlayerProfileDialog._season_year_from_id(season_id)
+                )
+            except Exception:
+                year_val = PlayerProfileDialog._season_year_from_id(season_id)
+            artifacts = season.get("artifacts") or {}
+            path = None
+            if isinstance(artifacts, dict):
+                path = _resolve_artifact_path(artifacts.get("players"))
+            if path is None:
+                path = get_base_dir() / "data" / "careers" / season_id / "players.csv"
+            row = _load_player_row_from_csv(path, player_id)
+            if row:
+                ratings = _ratings_from_row(row, is_pitcher=self._is_pitcher)
+                if ratings:
+                    label = f"{year_val:04d}" if year_val > 0 else season_id
+                    entries.append((label, ratings))
+                    if year_val > 0:
+                        seen_years.add(year_val)
+
+        current_year = self._current_season_year()
+        current_ratings = _ratings_from_player(self.player, is_pitcher=self._is_pitcher)
+        if current_ratings:
+            label = f"{current_year:04d}" if current_year else "Current"
+            if current_year and current_year in seen_years:
+                entries = [
+                    entry
+                    for entry in entries
+                    if _extract_year_from_label(entry[0]) != current_year
+                ]
+            entries.append((label, current_ratings))
+
+        entries.sort(
+            key=lambda item: (_extract_year_from_label(item[0]) or -1),
+            reverse=True,
+        )
+        return entries
+
+    def _collect_awards_history(self) -> List[Dict[str, str]]:
+        player_id = str(getattr(self.player, "player_id", "") or "").strip()
+        if not player_id:
+            return []
+        entries: List[Dict[str, str]] = []
+        try:
+            ctx = SeasonContext.load()
+            seasons = list(ctx.seasons)
+        except Exception:
+            seasons = []
+        full_name = f"{self.player.first_name} {self.player.last_name}".strip()
+
+        for season in seasons:
+            if not isinstance(season, dict):
+                continue
+            season_id = str(season.get("season_id", "") or "").strip()
+            if not season_id:
+                continue
+            league_year = season.get("league_year")
+            try:
+                year_val = int(league_year) if league_year is not None else self._season_year_from_id(season_id)
+            except Exception:
+                year_val = self._season_year_from_id(season_id)
+            artifacts = season.get("artifacts") or {}
+            path = None
+            if isinstance(artifacts, dict):
+                path = _resolve_artifact_path(artifacts.get("awards"))
+            if path is None:
+                path = get_base_dir() / "data" / "careers" / season_id / "awards.json"
+            if path is None or not path.exists():
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            awards = payload.get("awards", {}) if isinstance(payload, dict) else {}
+            if not isinstance(awards, dict):
+                continue
+            for award_name, info in awards.items():
+                if not isinstance(info, dict):
+                    continue
+                award_pid = str(info.get("player_id") or "").strip()
+                award_name_raw = str(award_name or "").strip()
+                award_name_clean = award_name_raw.replace("_", " ").title()
+                if award_pid and award_pid != player_id:
+                    continue
+                if not award_pid and full_name:
+                    award_player_name = str(info.get("player_name") or "").strip()
+                    if award_player_name and award_player_name != full_name:
+                        continue
+                detail = str(info.get("metric") or "").strip()
+                entries.append(
+                    {
+                        "year": f"{year_val:04d}" if year_val > 0 else season_id,
+                        "award": award_name_clean or award_name_raw,
+                        "detail": detail or "-",
+                    }
+                )
+
+        entries.sort(key=lambda entry: str(entry.get("year", "")), reverse=True)
+        return entries
+
+    def _collect_transactions(self, *, trade_only: bool = False) -> List[Dict[str, str]]:
+        player_id = str(getattr(self.player, "player_id", "") or "").strip()
+        if not player_id:
+            return []
+        try:
+            rows = load_transactions(limit=None)
+        except Exception:
+            rows = []
+        filtered = [row for row in rows if row.get("player_id") == player_id]
+        if trade_only:
+            filtered = [
+                row
+                for row in filtered
+                if str(row.get("action", "")).lower().startswith("trade")
+            ]
+        filtered.sort(
+            key=lambda row: row.get("season_date") or row.get("timestamp") or "",
+            reverse=True,
+        )
+        return filtered
 
     # ------------------------------------------------------------------
     def _collect_ratings(self) -> List[Tuple[str, str, Any]]:
@@ -2454,12 +2772,248 @@ class ComparisonSelectorDialog(QDialog):
         except Exception:
             return "?"
 
+class SprayChartWidget(QWidget):
+    """Draw a simple spray chart using normalized hit locations."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._points: List[Dict[str, float]] = []
+        self.setMinimumHeight(220)
+
+    def set_points(self, points: List[Dict[str, float]] | None) -> None:
+        self._points = points or []
+        self.update()
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        painter = QPainter(self)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        except Exception:
+            pass
+        rect = self.rect().adjusted(20, 20, -20, -20)
+        home_x = rect.left() + rect.width() / 2
+        home_y = rect.bottom()
+
+        painter.setPen(QPen(QColor("#adb5bd"), 2))
+        painter.drawLine(int(home_x), int(home_y), rect.left(), rect.top())
+        painter.drawLine(int(home_x), int(home_y), rect.right(), rect.top())
+
+        arc_rect = QRectF(rect.left(), rect.top() - rect.height(), rect.width(), rect.height() * 2)
+        painter.drawArc(arc_rect, 0, 180 * 16)
+
+        color_map = {
+            "1B": QColor("#51cf66"),
+            "2B": QColor("#339af0"),
+            "3B": QColor("#fcc419"),
+            "HR": QColor("#fa5252"),
+        }
+
+        radius_x = rect.width() / 2
+        radius_y = rect.height()
+        for point in self._points:
+            x_norm = float(point.get("x", 0))
+            y_norm = float(point.get("y", 0))
+            kind = str(point.get("kind", "1B"))
+            color = color_map.get(kind, QColor("#868e96"))
+            x = home_x + x_norm * radius_x
+            y = home_y - y_norm * radius_y
+            painter.setBrush(QBrush(color))
+            painter.setPen(QPen(color))
+            painter.drawEllipse(QPointF(x, y), 5, 5)
+
+        if not self._points:
+            painter.setPen(QPen(QColor("#868e96")))
+            painter.drawText(
+                self.rect(),
+                Qt.AlignmentFlag.AlignCenter,
+                "No batted ball data available.",
+            )
+        painter.end()
+
+
+class RollingStatsWidget(QWidget):
+    """Line chart displaying rolling metrics such as AVG/OPS or ERA/WHIP."""
+
+    palette = [
+        QColor("#228be6"),
+        QColor("#f76707"),
+        QColor("#12b886"),
+        QColor("#fa5252"),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._dates: List[str] = []
+        self._series: Dict[str, List[float]] = {}
+        self.setMinimumHeight(220)
+
+    def update_series(self, data: Dict[str, Any]) -> None:
+        self._dates = list(data.get("dates", []))
+        raw_series = data.get("series", {}) or {}
+        self._series = {label: list(values) for label, values in raw_series.items()}
+        self.update()
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        painter = QPainter(self)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        except Exception:
+            pass
+        rect = self.rect().adjusted(20, 20, -20, -40)
+
+        values: List[float] = []
+        for series in self._series.values():
+            values.extend(float(v) for v in series)
+        values = [v for v in values if v or v == 0.0]
+
+        if not self._dates or not values:
+            painter.setPen(QPen(QColor("#868e96")))
+            painter.drawText(
+                self.rect(),
+                Qt.AlignmentFlag.AlignCenter,
+                "No rolling data available.",
+            )
+            painter.end()
+            return
+
+        min_val = min(values)
+        max_val = max(values)
+        if abs(max_val - min_val) < 0.001:
+            max_val += 0.5
+            min_val -= 0.5
+
+        painter.setPen(QPen(QColor("#adb5bd")))
+        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+        painter.drawLine(rect.bottomLeft(), rect.topLeft())
+
+        step = rect.width() / max(1, len(self._dates) - 1)
+
+        def map_y(value: float) -> float:
+            if max_val == min_val:
+                return rect.bottom()
+            ratio = (value - min_val) / (max_val - min_val)
+            return rect.bottom() - ratio * rect.height()
+
+        for idx, (label, series) in enumerate(self._series.items()):
+            if not series:
+                continue
+            points = [
+                QPointF(rect.left() + index * step, map_y(float(value)))
+                for index, value in enumerate(series)
+            ]
+            pen = QPen(self.palette[idx % len(self.palette)], 2)
+            painter.setPen(pen)
+            painter.drawPolyline(QPolygonF(points))
+            painter.setPen(QPen(self.palette[idx % len(self.palette)]))
+            painter.drawText(
+                rect.left() + 8 + idx * 90,
+                rect.top() - 8,
+                f"{label}",
+            )
+
+        painter.setPen(QPen(QColor("#495057")))
+        painter.drawText(
+            rect.left(),
+            rect.bottom() + 18,
+            self._dates[0],
+        )
+        if len(self._dates) > 1:
+            painter.drawText(
+                rect.right() - 60,
+                rect.bottom() + 18,
+                self._dates[-1],
+            )
+        painter.end()
+
+
+class ComparisonSelectorDialog(QDialog):
+    """Simple selector to choose a comparison player from the league."""
+
+    def __init__(self, pool: Dict[str, Any], exclude_id: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Select Comparison Player")
+        self._players = [
+            player for pid, player in pool.items() if pid and pid != exclude_id
+        ]
+        self._players.sort(
+            key=lambda p: (
+                str(getattr(p, "last_name", "")).lower(),
+                str(getattr(p, "first_name", "")).lower(),
+            )
+        )
+        self._selected: Any | None = None
+
+        layout = QVBoxLayout(self)
+        _layout_add_widget(layout, QLabel("Search by name or player ID"))
+
+        self.search_edit = QLineEdit()
+        _layout_add_widget(layout, self.search_edit)
+
+        self.list_widget = QListWidget()
+        _layout_add_widget(layout, self.list_widget)
+
+        button_row = QHBoxLayout()
+        _layout_add_stretch(button_row)
+        self.compare_button = QPushButton("Compare")
+        self.cancel_button = QPushButton("Cancel")
+        _layout_add_widget(button_row, self.compare_button)
+        _layout_add_widget(button_row, self.cancel_button)
+        layout.addLayout(button_row)
+
+        self.search_edit.textChanged.connect(self._apply_filter)
+        self.compare_button.clicked.connect(self._accept_selection)
+        self.cancel_button.clicked.connect(self.reject)
+        self.list_widget.itemDoubleClicked.connect(lambda *_: self._accept_selection())
+
+        self._apply_filter("")
+
+    def _apply_filter(self, text: str) -> None:
+        query = text.strip().lower()
+        self.list_widget.clear()
+        for player in self._players:
+            label = self._display_label(player)
+            if query and query not in label.lower():
+                continue
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, player)
+            self.list_widget.addItem(item)
+        if self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+
+    def _display_label(self, player: Any) -> str:
+        name = " ".join(
+            part
+            for part in (
+                str(getattr(player, "first_name", "")).strip(),
+                str(getattr(player, "last_name", "")).strip(),
+            )
+            if part
+        )
+        pid = getattr(player, "player_id", "--")
+        pos = getattr(player, "primary_position", "?")
+        return f"{name or pid} ({pos}) [{pid}]"
+
+    def _accept_selection(self) -> None:
+        item = self.list_widget.currentItem()
+        if item is None:
+            return
+        player = item.data(Qt.ItemDataRole.UserRole)
+        if player is None:
+            return
+        self._selected = player
+        self.accept()
+
+    @property
+    def selected_player(self) -> Any | None:
+        return self._selected
 
 # ---------------------------------------------------------------------------
 # Enhanced stat helpers
 # ---------------------------------------------------------------------------
 
 _PLAYER_TEAM_CACHE: Dict[str, str] | None = None
+_PLAYER_TYPE_CACHE: Dict[str, bool] | None = None
+_SEASON_STATS_CACHE: Dict[int, Dict[str, Any]] = {}
 _ORIGINAL_METHODS: Dict[str, Any] = {}
 
 
@@ -2495,6 +3049,309 @@ def _lookup_player_team(player_id: str) -> Optional[str]:
                     continue
         _PLAYER_TEAM_CACHE = mapping
     return _PLAYER_TEAM_CACHE.get(player_id)
+
+
+def _resolve_artifact_path(value: object) -> Optional[Path]:
+    if not value:
+        return None
+    candidate = Path(str(value))
+    if not candidate.is_absolute():
+        candidate = get_base_dir() / candidate
+    return candidate
+
+
+def _coerce_int(value: Any) -> Optional[int]:
+    if value in ("", None):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _rating_fields(is_pitcher: bool) -> List[Tuple[str, str]]:
+    return _PITCHER_RATING_HISTORY if is_pitcher else _HITTER_RATING_HISTORY
+
+
+def _overall_from_ratings(values: Dict[str, Any], is_pitcher: bool) -> Optional[int]:
+    keys = _PITCHER_OVERALL_KEYS if is_pitcher else _HITTER_OVERALL_KEYS
+    numeric: List[float] = []
+    for key in keys:
+        raw = values.get(key)
+        try:
+            numeric.append(float(raw))
+        except (TypeError, ValueError):
+            continue
+    if not numeric:
+        return None
+    return max(0, min(99, int(round(sum(numeric) / len(numeric)))))
+
+
+def _ratings_from_row(row: Dict[str, Any], *, is_pitcher: bool) -> Dict[str, Any]:
+    values: Dict[str, Any] = {}
+    for key, _label in _rating_fields(is_pitcher):
+        if key == "overall":
+            continue
+        raw = row.get(key)
+        val = _coerce_int(raw)
+        if val is not None:
+            values[key] = val
+    overall = _overall_from_ratings(values, is_pitcher)
+    if overall is None:
+        overall = _coerce_int(row.get("overall"))
+    if overall is not None:
+        values["overall"] = overall
+    return values
+
+
+def _ratings_from_player(player: Any, *, is_pitcher: bool) -> Dict[str, Any]:
+    values: Dict[str, Any] = {}
+    for key, _label in _rating_fields(is_pitcher):
+        if key == "overall":
+            continue
+        raw = getattr(player, key, None)
+        val = _coerce_int(raw)
+        if val is not None:
+            values[key] = val
+    overall = _overall_from_ratings(values, is_pitcher)
+    if overall is None:
+        overall = _coerce_int(getattr(player, "overall", None))
+    if overall is not None:
+        values["overall"] = overall
+    return values
+
+
+def _load_player_row_from_csv(path: Optional[Path], player_id: str) -> Optional[Dict[str, Any]]:
+    if path is None or not player_id:
+        return None
+    if not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8", newline="") as fh:
+            reader = csv.DictReader(fh)
+            for row in reader:
+                if str(row.get("player_id", "")).strip() == player_id:
+                    return row
+    except Exception:
+        return None
+    return None
+
+
+def _player_type_map() -> Dict[str, bool]:
+    global _PLAYER_TYPE_CACHE
+    if _PLAYER_TYPE_CACHE is None:
+        try:
+            players = load_players_from_csv("data/players.csv")
+        except Exception:
+            players = []
+        mapping: Dict[str, bool] = {}
+        for player in players:
+            is_pitcher = bool(
+                getattr(player, "is_pitcher", False)
+                or str(getattr(player, "primary_position", "")).upper() == "P"
+            )
+            mapping[getattr(player, "player_id", "")] = is_pitcher
+        _PLAYER_TYPE_CACHE = mapping
+    return _PLAYER_TYPE_CACHE
+
+
+def _is_pitcher_stats(stats: Dict[str, Any]) -> Optional[bool]:
+    if not stats:
+        return None
+    for key in ("ip", "outs", "era", "sv", "bs", "gs", "w", "l"):
+        if key in stats:
+            return True
+    return None
+
+
+def _season_stats_payload_for_year(year: int, *, current_year: Optional[int] = None) -> Dict[str, Any]:
+    if year in _SEASON_STATS_CACHE:
+        return _SEASON_STATS_CACHE[year]
+
+    payload: Dict[str, Any] = {}
+    if current_year is not None and year == current_year:
+        try:
+            payload = load_stats()
+        except Exception:
+            payload = {}
+        _SEASON_STATS_CACHE[year] = payload
+        return payload
+
+    target_path: Optional[Path] = None
+    try:
+        ctx = SeasonContext.load()
+        for season in list(ctx.seasons):
+            if not isinstance(season, dict):
+                continue
+            season_id = str(season.get("season_id", "") or "").strip()
+            league_year = season.get("league_year")
+            if not season_id:
+                continue
+            try:
+                year_val = int(league_year) if league_year is not None else self._season_year_from_id(season_id)
+            except Exception:
+                year_val = self._season_year_from_id(season_id)
+            if year_val != year:
+                continue
+            artifacts = season.get("artifacts") or {}
+            if isinstance(artifacts, dict):
+                target_path = _resolve_artifact_path(artifacts.get("stats"))
+            if target_path is None:
+                target_path = get_base_dir() / "data" / "careers" / season_id / "stats.json"
+            break
+    except Exception:
+        target_path = None
+
+    if target_path is None:
+        careers_dir = get_base_dir() / "data" / "careers"
+        if careers_dir.exists():
+            for candidate in careers_dir.glob(f"*-{year}/stats.json"):
+                target_path = candidate
+                break
+
+    if target_path and target_path.exists():
+        try:
+            payload = json.loads(target_path.read_text(encoding="utf-8"))
+        except Exception:
+            payload = {}
+
+    _SEASON_STATS_CACHE[year] = payload
+    return payload
+
+
+def _leader_value(stats: Dict[str, Any], key: str) -> Optional[float]:
+    if not stats:
+        return None
+
+    def _float(raw: Any) -> Optional[float]:
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    if key == "avg":
+        ab = _float(stats.get("ab"))
+        hits = _float(stats.get("h"))
+        if not ab:
+            return None
+        return hits / ab if hits is not None else None
+    if key == "obp":
+        ab = _float(stats.get("ab")) or 0.0
+        hits = _float(stats.get("h")) or 0.0
+        bb = _float(stats.get("bb")) or 0.0
+        hbp = _float(stats.get("hbp")) or 0.0
+        sf = _float(stats.get("sf")) or 0.0
+        denom = ab + bb + hbp + sf
+        if denom <= 0:
+            return None
+        return (hits + bb + hbp) / denom
+    if key == "ops":
+        ab = _float(stats.get("ab")) or 0.0
+        if ab <= 0:
+            return None
+        hits = _float(stats.get("h")) or 0.0
+        doubles = _float(stats.get("b2", stats.get("2b"))) or 0.0
+        triples = _float(stats.get("b3", stats.get("3b"))) or 0.0
+        homers = _float(stats.get("hr")) or 0.0
+        singles = max(hits - doubles - triples - homers, 0.0)
+        total_bases = singles + (2 * doubles) + (3 * triples) + (4 * homers)
+        slg = total_bases / ab if ab else None
+        obp = _leader_value(stats, "obp")
+        if slg is None or obp is None:
+            return None
+        return obp + slg
+    if key == "era":
+        outs = _float(stats.get("outs"))
+        ip = _float(stats.get("ip"))
+        if ip is None:
+            ip = outs / 3 if outs else None
+        if not ip:
+            return None
+        er = _float(stats.get("er")) or 0.0
+        return (er * 9.0) / ip
+    if key == "whip":
+        outs = _float(stats.get("outs"))
+        ip = _float(stats.get("ip"))
+        if ip is None:
+            ip = outs / 3 if outs else None
+        if not ip:
+            return None
+        hits = _float(stats.get("h")) or 0.0
+        walks = _float(stats.get("bb")) or 0.0
+        return (hits + walks) / ip
+    if key == "so":
+        value = _float(stats.get("so"))
+        if value is None:
+            value = _float(stats.get("k"))
+        return value
+    if key == "w":
+        value = _float(stats.get("w"))
+        if value is None:
+            value = _float(stats.get("wins"))
+        return value
+    return _float(stats.get(key))
+
+
+def _leader_labels_for_year(
+    dialog: "PlayerProfileDialog",
+    year: int,
+    player_stats: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    cache = getattr(dialog, "_leader_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(dialog, "_leader_cache", cache)
+    if year in cache:
+        return cache[year]
+
+    labels: List[str] = []
+    current_year = _current_season_year_value(dialog)
+    payload = _season_stats_payload_for_year(year, current_year=current_year)
+    stats_map = payload.get("players", {}) if isinstance(payload, dict) else {}
+    if not isinstance(stats_map, dict) or not stats_map:
+        cache[year] = labels
+        return labels
+    player_id = getattr(dialog.player, "player_id", "")
+    if player_stats is None:
+        player_stats = stats_map.get(player_id, {})
+    if not isinstance(player_stats, dict) or not player_stats:
+        cache[year] = labels
+        return labels
+
+    type_map = _player_type_map()
+    categories = _LEADER_CATEGORIES[bool(dialog._is_pitcher)]
+    for key, label, descending in categories:
+        best: Optional[float] = None
+        for pid, stats in stats_map.items():
+            if not isinstance(stats, dict):
+                continue
+            is_pitcher = type_map.get(pid)
+            if is_pitcher is None:
+                is_pitcher = _is_pitcher_stats(stats)
+            if is_pitcher is None:
+                continue
+            if bool(is_pitcher) != bool(dialog._is_pitcher):
+                continue
+            val = _leader_value(stats, key)
+            if val is None:
+                continue
+            if best is None:
+                best = val
+            else:
+                if descending and val > best:
+                    best = val
+                elif not descending and val < best:
+                    best = val
+        if best is None:
+            continue
+        player_val = _leader_value(player_stats, key)
+        if player_val is None:
+            continue
+        if abs(player_val - best) <= 1e-6:
+            labels.append(label)
+
+    cache[year] = labels
+    return labels
 
 
 def _extract_year_from_label(label: Any) -> Optional[int]:
@@ -2793,7 +3650,18 @@ def _create_stats_table(self: PlayerProfileDialog, rows: List[Tuple[str, Dict[st
             display_label = raw_label
         row_role = _row_role(raw_label)
 
+        leader_labels: List[str] = []
+        year_hint = _extract_year_from_label(display_label)
+        if year_hint is not None and row_role != "career" and isinstance(data, dict):
+            leader_labels = _leader_labels_for_year(self, year_hint, data)
+            if leader_labels:
+                display_label = f"{display_label}*"
+
         year_item = _stat_item(self, display_label, align_left=True)
+        if leader_labels:
+            year_item.setToolTip(
+                "League leader: " + ", ".join(sorted(set(leader_labels)))
+            )
         year_item.setData(Qt.ItemDataRole.UserRole, row_role)
         table.setItem(row_idx, 0, year_item)
 
@@ -2809,7 +3677,7 @@ def _create_stats_table(self: PlayerProfileDialog, rows: List[Tuple[str, Dict[st
         total_width = table.verticalHeader().width() + (table.frameWidth() * 2) + 24
         for idx in range(len(headers)):
             total_width += table.columnWidth(idx)
-        table.setMinimumWidth(total_width)
+        table.setMinimumWidth(min(total_width, 900))
         if hasattr(table.horizontalHeader(), "setStretchLastSection"):
             table.horizontalHeader().setStretchLastSection(False)
     except Exception:
@@ -2916,6 +3784,13 @@ def _build_stats_section(self: PlayerProfileDialog, rows: List[Tuple[str, Dict[s
             chip.setMinimumWidth(90)
             chip.setMargin(4)
             _layout_add_widget(footer_layout, chip)
+        leader_chip = QLabel("* League Leader")
+        _safe_call(leader_chip, "setObjectName", "StatChip")
+        _safe_call(leader_chip, "setProperty", "variant", "leader")
+        _set_alignment(leader_chip, "AlignCenter")
+        leader_chip.setMinimumWidth(110)
+        leader_chip.setMargin(4)
+        _layout_add_widget(footer_layout, leader_chip)
         _layout_add_stretch(footer_layout)
     _layout_add_widget(layout, footer)
     return card

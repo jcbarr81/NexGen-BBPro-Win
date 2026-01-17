@@ -124,6 +124,24 @@ def create_league_action(
         return
 
     QMessageBox.information(parent, "League Created", "New league generated.")
+    try:
+        reminder = QMessageBox(parent)
+        reminder.setWindowTitle("Draft Settings Reminder")
+        reminder.setIcon(QMessageBox.Icon.Information)
+        reminder.setText(
+            "Before the season starts, review Draft Settings (rounds, pool size, seed)."
+        )
+        open_btn = reminder.addButton(
+            "Open Draft Settings", QMessageBox.ButtonRole.ActionRole
+        )
+        reminder.addButton("Not Now", QMessageBox.ButtonRole.RejectRole)
+        reminder.exec()
+        if reminder.clickedButton() == open_btn:
+            open_settings = getattr(parent, "open_draft_settings", None)
+            if callable(open_settings):
+                open_settings()
+    except Exception:
+        pass
     for callback in refresh_callbacks or ():
         try:
             callback()

@@ -4,7 +4,7 @@ import csv
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 from types import SimpleNamespace
 
 try:
@@ -28,6 +28,7 @@ try:
         QTableWidgetItem,
         QTextEdit,
         QVBoxLayout,
+        QTabWidget,
     )
 except ImportError:  # pragma: no cover - test stubs
     class _QtDummy:
@@ -43,7 +44,7 @@ except ImportError:  # pragma: no cover - test stubs
 
             return _dummy
 
-    QDialog = QHeaderView = QLabel = QTableWidget = QTableWidgetItem = QTextEdit = QVBoxLayout = _QtDummy
+    QDialog = QHeaderView = QLabel = QTableWidget = QTableWidgetItem = QTextEdit = QVBoxLayout = QTabWidget = _QtDummy
 
     class QHeaderView:  # type: ignore[too-many-ancestors]
         class ResizeMode:
@@ -51,7 +52,10 @@ except ImportError:  # pragma: no cover - test stubs
             ResizeToContents = None
 
 from playbalance.season_context import SeasonContext
+from services.record_book import league_record_book
+from services.special_events import load_special_events
 from utils.path_utils import get_base_dir
+from utils.team_loader import load_teams
 from .components import Card, ensure_layout, section_title
 
 
@@ -91,6 +95,54 @@ def _display(value: object, default: str = "-") -> str:
         return default
     text = str(value).strip()
     return text or default
+
+
+def _team_labels() -> Dict[str, str]:
+    labels: Dict[str, str] = {}
+    try:
+        teams = load_teams()
+    except Exception:
+        return labels
+    for team in teams:
+        tid = str(getattr(team, "team_id", "") or "").strip()
+        name = f"{getattr(team, 'city', '')} {getattr(team, 'name', '')}".strip()
+        if tid:
+            labels[tid] = name or tid
+    return labels
+
+
+def _holder_label(holder: Dict[str, Any]) -> str:
+    name = str(holder.get("name") or holder.get("team_name") or holder.get("team_id") or holder.get("player_id") or "")
+    season_label = str(holder.get("season_label") or "").strip()
+    if season_label:
+        return f"{name} ({season_label})"
+    return name
+
+
+def _record_book_text(book: Dict[str, List[Dict[str, Any]]]) -> str:
+    sections = (
+        ("Batting Records", book.get("batting", [])),
+        ("Pitching Records", book.get("pitching", [])),
+        ("Team Records", book.get("team", [])),
+    )
+    lines: List[str] = []
+    for title, records in sections:
+        lines.append(f"{title}:")
+        if not records:
+            lines.append("  (none)")
+            lines.append("")
+            continue
+        for entry in records:
+            holders = entry.get("holders", []) if isinstance(entry, dict) else []
+            holder_text = ", ".join(
+                [_holder_label(holder) for holder in holders if isinstance(holder, dict)]
+            )
+            if not holder_text:
+                holder_text = "-"
+            value_text = str(entry.get("value_text") or entry.get("value") or "-")
+            lines.append(f"  {entry.get('label', '-')}: {holder_text} - {value_text}")
+        lines.append("")
+    return "\n".join(lines).strip()
 
 
 def _load_awards(path: Path | None) -> Dict[str, Any]:
@@ -211,24 +263,16 @@ class LeagueHistoryWindow(QDialog):
         self._entries = _load_history_entries()
         self._entry_map = {entry.season_id: entry for entry in self._entries}
 
+        table_card = Card()
+        table_layout = ensure_layout(table_card)
+        table_layout.addWidget(section_title("Archived Seasons"))
         if not self._entries:
-            empty_card = Card()
-            empty_layout = ensure_layout(empty_card)
-            empty_layout.addWidget(section_title("League History"))
             message = QLabel(
                 "No archived seasons yet. Finish a season to populate league history."
             )
             if callable(getattr(message, "setWordWrap", None)):
                 message.setWordWrap(True)
-            empty_layout.addWidget(message)
-            empty_layout.addStretch()
-            layout.addWidget(empty_card)
-            layout.addStretch()
-            return
-
-        table_card = Card()
-        table_layout = ensure_layout(table_card)
-        table_layout.addWidget(section_title("Archived Seasons"))
+            table_layout.addWidget(message)
 
         self.table = QTableWidget(len(self._entries), 6)
         self.table.setHorizontalHeaderLabels(
@@ -265,19 +309,43 @@ class LeagueHistoryWindow(QDialog):
         details_card = Card()
         details_layout = ensure_layout(details_card)
         details_layout.addWidget(section_title("Season Details"))
-        self.details = QTextEdit()
+        self.details_tabs = QTabWidget()
+        self.details_summary = QTextEdit()
+        self.details_record_book = QTextEdit()
         try:
-            self.details.setReadOnly(True)
+            self.details_summary.setReadOnly(True)
+            self.details_record_book.setReadOnly(True)
         except Exception:
             pass
-        details_layout.addWidget(self.details)
+        self.details_events = QTableWidget(0, 4)
+        self.details_events.setHorizontalHeaderLabels(
+            ["Date", "Player", "Event", "Team"]
+        )
+        try:
+            self.details_events.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            self.details_events.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+            self.details_events.verticalHeader().setVisible(False)
+            header = self.details_events.horizontalHeader()
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        except Exception:
+            pass
+        self.details_tabs.addTab(self.details_summary, "Summary")
+        self.details_tabs.addTab(self.details_record_book, "Record Book")
+        self.details_tabs.addTab(self.details_events, "Special Events")
+        details_layout.addWidget(self.details_tabs)
         layout.addWidget(details_card)
         layout.addStretch()
 
-        try:
-            self.table.selectRow(0)
-        except Exception:
-            pass
+        if self._entries:
+            try:
+                self.table.selectRow(0)
+            except Exception:
+                pass
+        self._record_book_cache: Dict[str, List[Dict[str, Any]]] | None = None
+        self._team_labels = _team_labels()
         self._refresh_details()
 
     def _populate_table(self) -> None:
@@ -320,11 +388,25 @@ class LeagueHistoryWindow(QDialog):
 
     def _refresh_details(self) -> None:
         entry = self._current_entry()
+        if self._record_book_cache is None:
+            try:
+                self._record_book_cache = league_record_book()
+            except Exception:
+                self._record_book_cache = {}
+        record_text = _record_book_text(self._record_book_cache or {})
+        try:
+            self.details_record_book.setPlainText(
+                record_text or "Record book unavailable."
+            )
+        except Exception:
+            pass
+
         if entry is None:
             try:
-                self.details.setPlainText("Select a season to view details.")
+                self.details_summary.setPlainText("Select a season to view details.")
             except Exception:
                 pass
+            self._populate_events([])
             return
 
         lines = [
@@ -349,9 +431,45 @@ class LeagueHistoryWindow(QDialog):
             lines.append("  (none)")
         text = "\n".join(lines)
         try:
-            self.details.setPlainText(text)
+            self.details_summary.setPlainText(text)
         except Exception:
             pass
+        self._populate_events(self._load_events_for_entry(entry))
+
+    def _load_events_for_entry(self, entry: SeasonHistoryEntry) -> list[Dict[str, Any]]:
+        path = _resolve_path(entry.artifacts.get("special_events"))
+        if path is None:
+            candidate = get_base_dir() / "data" / "careers" / entry.season_id / "special_events.json"
+            if candidate.exists():
+                path = candidate
+        if path is None or not path.exists():
+            return []
+        try:
+            return load_special_events(path=path, limit=200)
+        except Exception:
+            return []
+
+    def _populate_events(self, events: list[Dict[str, Any]]) -> None:
+        try:
+            self.details_events.setRowCount(len(events))
+        except Exception:
+            return
+        for row, event in enumerate(events):
+            date_val = str(event.get("date") or "").strip() or "--"
+            player = str(event.get("player_name") or event.get("player_id") or "--")
+            label = str(event.get("label") or event.get("type") or "--")
+            detail = str(event.get("detail") or "").strip()
+            event_text = label if not detail else f"{label} - {detail}"
+            team_id = str(event.get("team_id") or "").strip()
+            opp_id = str(event.get("opponent_id") or "").strip()
+            team_label = self._team_labels.get(team_id, team_id or "--")
+            opp_label = self._team_labels.get(opp_id, opp_id)
+            if opp_label:
+                team_label = f"{team_label} vs {opp_label}"
+            self.details_events.setItem(row, 0, QTableWidgetItem(date_val))
+            self.details_events.setItem(row, 1, QTableWidgetItem(player))
+            self.details_events.setItem(row, 2, QTableWidgetItem(event_text))
+            self.details_events.setItem(row, 3, QTableWidgetItem(team_label))
 
 
 __all__ = ["LeagueHistoryWindow"]

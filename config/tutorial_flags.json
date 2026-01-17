@@ -18,5 +18,8 @@
   "dashboard_overview_tutorial_BUF": true,
   "dashboard_overview_tutorial_PIT": true,
   "dashboard_overview_tutorial_MIN": true,
-  "depth_chart_tutorial_done_BUF": true
+  "depth_chart_tutorial_done_BUF": true,
+  "dashboard_overview_tutorial_DET": true,
+  "depth_chart_tutorial_done_DET": true,
+  "dashboard_overview_tutorial_OKL": true
 }

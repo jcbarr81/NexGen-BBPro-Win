@@ -10,9 +10,10 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QGroupBox,
     QListWidget,
+    QListWidgetItem,
 )
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtCore import Qt, QPropertyAnimation
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEvent
 import csv
 from pathlib import Path
 
@@ -118,6 +119,7 @@ class LineupEditor(QDialog):
         for i in range(9):
             spot = QLabel(str(i + 1))
             player_dropdown = QComboBox()
+            player_dropdown.installEventFilter(self)
             pos_dropdown = QComboBox()
             pos_dropdown.addItems(["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"])
             pos_dropdown.currentIndexChanged.connect(lambda _, i=i: (self.update_player_dropdown(i), self.update_overlay_label(i), self.update_bench_display()))
@@ -145,6 +147,7 @@ class LineupEditor(QDialog):
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
         right_panel.addWidget(self.bench_display)
+        self.bench_display.itemDoubleClicked.connect(self._open_bench_player_profile)
 
         save_button = QPushButton("Save Lineup")
         save_button.clicked.connect(self.save_lineup)
@@ -162,6 +165,7 @@ class LineupEditor(QDialog):
 
         self.view_selector.currentIndexChanged.connect(self.switch_view)
         self.current_view = "vs LHP"
+        self._baseline = []
         self.load_lineup()
         self.update_bench_display()
 
@@ -188,23 +192,23 @@ class LineupEditor(QDialog):
 
             if not player_id:
                 QMessageBox.warning(self, "Validation Error", f"Lineup slot {i + 1} is empty.")
-                return
+                return False
 
             pdata = self.players_dict.get(player_id)
             if not pdata:
                 QMessageBox.warning(self, "Validation Error", f"Player ID {player_id} not found.")
-                return
+                return False
 
             if position == "DH":
                 if pdata.get("is_pitcher"):
                     QMessageBox.warning(self, "Validation Error", f"{pdata['name']} cannot be the DH.")
-                    return
+                    return False
             else:
                 primary = pdata.get("primary_position")
                 others = pdata.get("other_positions", [])
                 if position != primary and position not in others:
                     QMessageBox.warning(self, "Validation Error", f"{pdata['name']} is not eligible to play {position}.")
-                    return
+                    return False
 
         filename = Path(self.get_lineup_filename())
         filename.parent.mkdir(parents=True, exist_ok=True)
@@ -220,7 +224,9 @@ class LineupEditor(QDialog):
                 if position in self.position_labels:
                     self.position_labels[position].setText(self.players_dict.get(player_id, {}).get("name", ""))
 
+        self._refresh_baseline()
         QMessageBox.information(self, "Lineup Saved", "Lineup saved successfully.")
+        return True
 
     def load_players_dict(self):
         players_file = get_base_dir() / "data" / "players.csv"
@@ -281,28 +287,27 @@ class LineupEditor(QDialog):
         for lbl in self.position_labels.values():
             lbl.setText("")
         filename = self.get_lineup_filename()
-        if not Path(filename).exists():
-            return
-
-        with Path(filename).open("r", newline='', encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                try:
-                    i = int(row.get("order", 0)) - 1
-                except (TypeError, ValueError):
-                    continue
-                if not 0 <= i < 9:
-                    continue
-                player_id = row.get("player_id", "").strip()
-                position = row.get("position", "").strip()
-                self.position_dropdowns[i].setCurrentText(position)
-                self.update_player_dropdown(i)
-                for index in range(self.player_dropdowns[i].count()):
-                    if self.player_dropdowns[i].itemData(index) == player_id:
-                        self.player_dropdowns[i].setCurrentIndex(index)
-                        if position in self.position_labels:
-                            self.position_labels[position].setText(self.players_dict.get(player_id, {}).get("name", ""))
-                        break
+        if Path(filename).exists():
+            with Path(filename).open("r", newline='', encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    try:
+                        i = int(row.get("order", 0)) - 1
+                    except (TypeError, ValueError):
+                        continue
+                    if not 0 <= i < 9:
+                        continue
+                    player_id = row.get("player_id", "").strip()
+                    position = row.get("position", "").strip()
+                    self.position_dropdowns[i].setCurrentText(position)
+                    self.update_player_dropdown(i)
+                    for index in range(self.player_dropdowns[i].count()):
+                        if self.player_dropdowns[i].itemData(index) == player_id:
+                            self.player_dropdowns[i].setCurrentIndex(index)
+                            if position in self.position_labels:
+                                self.position_labels[position].setText(self.players_dict.get(player_id, {}).get("name", ""))
+                            break
+        self._refresh_baseline()
 
     def update_bench_display(self):
         used_ids = {self.player_dropdowns[i].currentData() for i in range(9)}
@@ -312,17 +317,21 @@ class LineupEditor(QDialog):
         # endurance/role fields.
         bench_players = sorted(
             [
-                pdata["name"]
+                (pdata["name"], pid)
                 for pid, pdata in self.players_dict.items()
                 if pid in self.act_level_ids
                 and pid not in used_ids
                 and not pdata.get("is_pitcher", False)
-            ]
+            ],
+            key=lambda item: item[0],
         )
 
         self.bench_display.clear()
         if bench_players:
-            self.bench_display.addItems(bench_players)
+            for name, pid in bench_players:
+                item = QListWidgetItem(name)
+                item.setData(Qt.ItemDataRole.UserRole, pid)
+                self.bench_display.addItem(item)
         else:
             self.bench_display.addItem("(none)")
 
@@ -373,3 +382,76 @@ class LineupEditor(QDialog):
                     dropdown.addItem(pdata["name"], userData=pid)
             elif selected_pos == primary or selected_pos in others:
                 dropdown.addItem(pdata["name"], userData=pid)
+
+    def _player_lookup(self):
+        cache = getattr(self, "_player_lookup_cache", None)
+        if cache is None:
+            try:
+                from utils.player_loader import load_players_from_csv
+                cache = {
+                    p.player_id: p for p in load_players_from_csv("data/players.csv")
+                }
+            except Exception:
+                cache = {}
+            self._player_lookup_cache = cache
+        return cache
+
+    def _open_player_profile(self, player_id):
+        if not player_id:
+            return
+        player = self._player_lookup().get(player_id)
+        if player is None:
+            return
+        try:
+            from ui.player_profile_dialog import PlayerProfileDialog
+            PlayerProfileDialog(player, self).exec()
+        except Exception:
+            pass
+
+    def _open_bench_player_profile(self, item):
+        player_id = item.data(Qt.ItemDataRole.UserRole)
+        self._open_player_profile(player_id)
+
+    def eventFilter(self, obj, event):  # noqa: N802 - Qt signature
+        if event.type() == QEvent.Type.MouseButtonDblClick:
+            if isinstance(obj, QComboBox):
+                self._open_player_profile(obj.currentData())
+                return True
+        return super().eventFilter(obj, event)
+
+    def _snapshot_lineup(self):
+        snapshot = []
+        for i in range(9):
+            player_id = self.player_dropdowns[i].currentData()
+            position = self.position_dropdowns[i].currentText()
+            snapshot.append((player_id, position))
+        return snapshot
+
+    def _refresh_baseline(self):
+        self._baseline = self._snapshot_lineup()
+
+    def _has_unsaved_changes(self) -> bool:
+        return self._snapshot_lineup() != getattr(self, "_baseline", [])
+
+    def closeEvent(self, event):  # noqa: N802 - Qt signature
+        if not self._has_unsaved_changes():
+            super().closeEvent(event)
+            return
+
+        choice = QMessageBox.question(
+            self,
+            "Unsaved Changes",
+            "You have unsaved lineup changes. Save before closing?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if choice == QMessageBox.StandardButton.Save:
+            if self.save_lineup():
+                super().closeEvent(event)
+            else:
+                event.ignore()
+        elif choice == QMessageBox.StandardButton.Discard:
+            super().closeEvent(event)
+        else:
+            event.ignore()

@@ -127,16 +127,19 @@ class LoginWindow(QWidget):
 
     def dashboard_closed(self, event):
         """Handle a dashboard being closed by returning focus to the splash."""
+        suppress_splash = False
         if self.dashboard is not None:
             try:
                 untrack_on_top(self.dashboard)
             except Exception:
                 pass
+            suppress_splash = getattr(self.dashboard, "_suppress_splash_on_close", False)
         if self.splash:
-            # Restore the splash screen when the dashboard closes.
-            self.splash.show()
-            self.splash.raise_()
-            self.splash.activateWindow()
+            if not suppress_splash:
+                # Restore the splash screen when the dashboard closes.
+                self.splash.show()
+                self.splash.raise_()
+                self.splash.activateWindow()
             self.splash.login_button.setEnabled(True)
             if getattr(self.splash, "login_window", None) is self:
                 self.splash.login_window = None

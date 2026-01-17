@@ -3,6 +3,7 @@ import os
 from typing import Optional
 
 from PyQt6.QtWidgets import (
+    QApplication,
     QWidget,
     QLabel,
     QPushButton,
@@ -113,6 +114,7 @@ class SplashScreen(QWidget):
         self._audio_output = None
         self._music_backend: str | None = None
         self._music_started = False
+        self._closing_all = False
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -413,3 +415,29 @@ class SplashScreen(QWidget):
         if event.type() == QEvent.Type.WindowStateChange:
             set_all_on_top(not self.isMinimized())
         super().changeEvent(event)
+
+    def closeEvent(self, event):  # noqa: N802 - Qt signature
+        if self._closing_all:
+            event.accept()
+            return
+        self._closing_all = True
+        self._stop_music()
+
+        login = getattr(self, "login_window", None)
+        if login is not None:
+            try:
+                dashboard = getattr(login, "dashboard", None)
+                if dashboard is not None:
+                    dashboard.close()
+            except Exception:
+                pass
+            try:
+                login.close()
+            except Exception:
+                pass
+
+        app = QApplication.instance()
+        if app is not None:
+            app.closeAllWindows()
+            app.quit()
+        event.accept()

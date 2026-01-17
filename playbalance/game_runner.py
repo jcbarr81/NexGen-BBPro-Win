@@ -27,6 +27,8 @@ from utils.player_writer import save_players_to_csv
 from utils.team_loader import load_teams
 from services.injury_manager import place_on_injury_list
 from services.injury_history import record_injury_event
+from services.injury_settings import get_injury_tuning_overrides
+from services.physics_tuning_settings import get_physics_tuning_overrides
 from utils.news_logger import log_news_event
 from utils.pitcher_role import get_role
 from utils.path_utils import get_base_dir
@@ -979,6 +981,18 @@ def _run_physics_game(
 
     usage_state, game_day = _physics_usage_context(date_token)
 
+    tuning_overrides: Dict[str, Any] = {}
+    try:
+        tuning_overrides.update(get_physics_tuning_overrides())
+    except Exception:
+        pass
+    try:
+        tuning_overrides.update(get_injury_tuning_overrides())
+    except Exception:
+        pass
+    if not tuning_overrides:
+        tuning_overrides = None
+
     result = simulate_game(
         away_lineup=away_lineup,
         home_lineup=home_lineup,
@@ -992,6 +1006,7 @@ def _run_physics_game(
         home_pitcher_roles=home_roles,
         park_name=park_name,
         seed=seed,
+        tuning_overrides=tuning_overrides,
         usage_state=usage_state,
         game_day=game_day,
     )
@@ -1067,6 +1082,19 @@ def _run_physics_game(
             home_team=home_state.team,
             away_team=away_state.team,
         )
+
+    try:
+        from services.special_events import record_game_special_events
+
+        record_game_special_events(
+            metadata=metadata,
+            home_id=home_id,
+            away_id=away_id,
+            players_lookup=dict(players_lookup),
+            game_date=date_token,
+        )
+    except Exception:
+        pass
 
     if tracker and date_token:
         def _states_from_lines(lines: list[dict[str, Any]]) -> list[SimpleNamespace]:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import importlib
+import json
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -82,6 +83,7 @@ from .roster_page import RosterPage
 from .transactions_page import TransactionsPage
 from .schedule_page import SchedulePage
 from .team_page import TeamPage
+from .team_records_page import TeamRecordsPage
 from .owner_home_page import OwnerHomePage
 from .lineup_editor import LineupEditor
 from .pitching_editor import PitchingEditor
@@ -100,6 +102,7 @@ from .league_history_window import LeagueHistoryWindow
 from .news_window import NewsWindow
 from .season_progress_window import SeasonProgressWindow
 from .draft_console import DraftConsole
+from .draft_results_dialog import DraftResultsDialog
 from .player_browser_dialog import PlayerBrowserDialog
 from .injury_center_window import InjuryCenterWindow
 from .depth_chart_dialog import DepthChartDialog
@@ -120,6 +123,23 @@ from ui.dashboard_core import DashboardContext, NavigationController, PageRegist
 from ui.window_utils import show_on_top
 from ui.version_badge import enable_version_badge
 from ui.sim_date_bus import sim_date_bus
+
+_OPEN_ADMIN_WINDOWS: list[object] = []
+
+
+def _track_admin_window(window: object) -> None:
+    _OPEN_ADMIN_WINDOWS.append(window)
+
+    def _remove(*_args, win=window) -> None:
+        try:
+            _OPEN_ADMIN_WINDOWS.remove(win)
+        except ValueError:
+            pass
+
+    try:
+        window.destroyed.connect(_remove)  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 
 class OwnerDashboard(QMainWindow):
@@ -204,16 +224,25 @@ class OwnerDashboard(QMainWindow):
         self.btn_home = NavButton("  Dashboard")
         self.btn_roster = NavButton("  Roster")
         self.btn_team = NavButton("  Team")
+        self.btn_records = NavButton("  Records & Leaders")
         self.btn_transactions = NavButton("  Moves & Trades")
         self.btn_league = NavButton("  League Hub")
 
-        for b in (self.btn_home, self.btn_roster, self.btn_team, self.btn_transactions, self.btn_league):
+        for b in (
+            self.btn_home,
+            self.btn_roster,
+            self.btn_team,
+            self.btn_records,
+            self.btn_transactions,
+            self.btn_league,
+        ):
             side.addWidget(b)
 
         self.nav_buttons = {
             "home": self.btn_home,
             "roster": self.btn_roster,
             "team": self.btn_team,
+            "records": self.btn_records,
             "transactions": self.btn_transactions,
             "league": self.btn_league,
         }
@@ -223,6 +252,7 @@ class OwnerDashboard(QMainWindow):
             "home": "nav_dashboard.svg",
             "roster": "nav_roster.svg",
             "team": "nav_team.svg",
+            "records": "nav_team.svg",
             "transactions": "nav_transactions.svg",
             "league": "nav_league.svg",
         }
@@ -230,6 +260,7 @@ class OwnerDashboard(QMainWindow):
             "home": "Overview and quick actions",
             "roster": "Roster management and player tools",
             "team": "Team schedule and stats",
+            "records": "Team records and leaders",
             "transactions": "Transactions, trades, and movement",
             "league": "League schedule, standings, and stats",
         }
@@ -250,6 +281,9 @@ class OwnerDashboard(QMainWindow):
         self.btn_settings = NavButton("  Toggle Theme")
         self.btn_settings.clicked.connect(lambda: _toggle_theme(self.statusBar()))
         side.addWidget(self.btn_settings)
+        self.btn_admin_panel = NavButton("  Admin Panel")
+        self.btn_admin_panel.clicked.connect(self._prompt_admin_dashboard)
+        side.addWidget(self.btn_admin_panel)
 
         # Header
         header = QFrame()
@@ -302,6 +336,7 @@ class OwnerDashboard(QMainWindow):
         self.btn_home.clicked.connect(lambda: self._go("home"))
         self.btn_roster.clicked.connect(lambda: self._go("roster"))
         self.btn_team.clicked.connect(lambda: self._go("team"))
+        self.btn_records.clicked.connect(lambda: self._go("records"))
         self.btn_transactions.clicked.connect(lambda: self._go("transactions"))
         self.btn_league.clicked.connect(lambda: self._go("league"))
         self._go("home")
@@ -330,6 +365,10 @@ class OwnerDashboard(QMainWindow):
             QTimer.singleShot(400, self._maybe_auto_show_tutorials)
         else:
             self._maybe_auto_show_tutorials()
+        if QTimer:
+            QTimer.singleShot(600, self._maybe_notify_playoff_berth)
+        else:
+            self._maybe_notify_playoff_berth()
 
     def _build_menu(self) -> None:
         menu_bar = self.menuBar()
@@ -798,13 +837,20 @@ class OwnerDashboard(QMainWindow):
             )
             return
 
+        _track_admin_window(self._admin_window)
         show_on_top(self._admin_window)
+        self._suppress_splash_on_close = True
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def _register_pages(self) -> None:
         factories: Dict[str, Callable[[DashboardContext], QWidget]] = {
             "home": lambda ctx: OwnerHomePage(self),
             "roster": lambda ctx: RosterPage(self),
             "team": lambda ctx: TeamPage(self),
+            "records": lambda ctx: TeamRecordsPage(self),
             "transactions": lambda ctx: TransactionsPage(self),
             "league": lambda ctx: SchedulePage(self),
         }
@@ -908,6 +954,10 @@ class OwnerDashboard(QMainWindow):
             self._refresh_active_page()
         except Exception:
             pass
+        try:
+            self._maybe_notify_playoff_berth()
+        except Exception:
+            pass
 
     def _refresh_active_page(self) -> None:
         page = None
@@ -930,6 +980,86 @@ class OwnerDashboard(QMainWindow):
             cache_clear = getattr(load_players_from_csv, "cache_clear", None)
             if callable(cache_clear):
                 cache_clear("data/players.csv")
+        except Exception:
+            pass
+
+    def _maybe_notify_playoff_berth(self) -> None:
+        if not getattr(self, "team_id", None):
+            return
+        try:
+            from playbalance.playoffs import load_bracket
+        except Exception:
+            return
+        try:
+            bracket = load_bracket()
+        except Exception:
+            return
+        if bracket is None:
+            return
+        seeds = getattr(bracket, "seeds_by_league", {}) or {}
+        if not seeds:
+            return
+        year = int(getattr(bracket, "year", 0) or 0)
+        if year <= 0:
+            return
+        cur_date = get_current_sim_date()
+        if cur_date:
+            try:
+                cur_year = int(str(cur_date).split("-")[0])
+                if cur_year != year:
+                    return
+            except Exception:
+                pass
+        in_playoffs = False
+        for league_seeds in seeds.values():
+            for team in league_seeds or []:
+                if getattr(team, "team_id", "") == self.team_id:
+                    in_playoffs = True
+                    break
+            if in_playoffs:
+                break
+        if not in_playoffs:
+            return
+
+        progress_path = get_base_dir() / "data" / "season_progress.json"
+        progress: Dict[str, Any] = {}
+        try:
+            if progress_path.exists():
+                progress = json.loads(progress_path.read_text(encoding="utf-8") or "{}")
+        except Exception:
+            progress = {}
+        notified = progress.get("playoffs_berth_notified", {})
+        if not isinstance(notified, dict):
+            notified = {}
+        year_key = str(year)
+        notified_teams = notified.get(year_key, [])
+        if not isinstance(notified_teams, list):
+            notified_teams = []
+        if self.team_id in notified_teams:
+            return
+
+        team_name = None
+        if getattr(self, "team", None) is not None:
+            try:
+                label = f"{self.team.city} {self.team.name}".strip()
+                team_name = label if label.strip() else None
+            except Exception:
+                team_name = None
+        message_team = team_name or self.team_id
+        QMessageBox.information(
+            self,
+            "Playoff Berth",
+            f"Congratulations! {message_team} have clinched a postseason spot.",
+        )
+
+        notified_teams = [tid for tid in notified_teams if tid]
+        if self.team_id not in notified_teams:
+            notified_teams.append(self.team_id)
+        notified[year_key] = notified_teams
+        progress["playoffs_berth_notified"] = notified
+        try:
+            progress_path.parent.mkdir(parents=True, exist_ok=True)
+            progress_path.write_text(json.dumps(progress, indent=2), encoding="utf-8")
         except Exception:
             pass
         try:
@@ -1140,6 +1270,9 @@ class OwnerDashboard(QMainWindow):
             )
             return
         dlg.exec()
+
+    def open_draft_results_window(self) -> None:
+        show_on_top(DraftResultsDialog(self))
 
     def _compute_draft_date_for_year(self, year: int) -> str:
         import datetime as _dt
@@ -1374,6 +1507,18 @@ class OwnerDashboard(QMainWindow):
             metrics = {}
         self._latest_metrics = metrics
         return metrics
+
+    def get_draft_notice(self) -> Dict[str, object]:
+        available, cur_date, draft_date, _completed = self._draft_availability_details()
+        if not available:
+            return {"visible": False}
+        if draft_date and cur_date:
+            message = f"Draft is ready. Draft Day: {draft_date}. Current date: {cur_date}."
+        elif draft_date:
+            message = f"Draft is ready. Draft Day: {draft_date}."
+        else:
+            message = "Draft is ready."
+        return {"visible": True, "message": message}
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         for callback in list(self._cleanup_callbacks):

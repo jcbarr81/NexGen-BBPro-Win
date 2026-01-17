@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 )
 
 from playbalance.team_name_generator import random_team
+from ui.window_utils import untrack_on_top
 
 
 class TeamEntryDialog(QDialog):
@@ -84,6 +85,15 @@ class TeamEntryDialog(QDialog):
                     QMessageBox.warning(self, "Error", "All fields must be filled.")
                     return
         self.accept()
+        self.deleteLater()
+
+    def accept(self) -> None:  # type: ignore[override]
+        untrack_on_top(self)
+        super().accept()
+
+    def reject(self) -> None:  # type: ignore[override]
+        untrack_on_top(self)
+        super().reject()
 
     def get_structure(self):
         structure = {}

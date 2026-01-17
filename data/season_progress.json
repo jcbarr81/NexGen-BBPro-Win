@@ -1,11 +1,9 @@
 {
   "preseason_done": {
-    "free_agency": false,
-    "training_camp": false,
-    "schedule": false
+    "free_agency": true,
+    "training_camp": true,
+    "schedule": true
   },
   "sim_index": 0,
-  "playoffs_done": false,
-  "draft_completed_years": [],
-  "auto_activate_dl": true
+  "playoffs_done": false
 }

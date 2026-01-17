@@ -26,20 +26,22 @@ def load_users(file_path: str | Path = "data/users.txt") -> List[Dict[str, str]]
     if not file_path.exists():
         return users
 
+    users_by_name: Dict[str, Dict[str, str]] = {}
     with file_path.open("r") as f:
         for line in f:
             parts = line.strip().split(",")
             if len(parts) != 4:
                 continue
             username, password, role, team_id = parts
-            users.append(
-                {
-                    "username": username,
-                    "password": password,
-                    "role": role,
-                    "team_id": team_id,
-                }
-            )
+            if username in users_by_name:
+                users_by_name.pop(username, None)
+            users_by_name[username] = {
+                "username": username,
+                "password": password,
+                "role": role,
+                "team_id": team_id,
+            }
+    users.extend(users_by_name.values())
     return users
 
 

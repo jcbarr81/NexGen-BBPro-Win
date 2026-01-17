@@ -19,6 +19,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from data.ballparks import BALLPARKS
+from utils.path_utils import get_base_dir
+
 
 @dataclass
 class Park:
@@ -28,7 +31,25 @@ class Park:
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return get_base_dir()
+
+
+def _park_config_path() -> Path:
+    root = _project_root()
+    primary = root / "data" / "parks" / "ParkConfig.csv"
+    if primary.exists():
+        return primary
+    return root / "data" / "ballparks" / "ParkConfig.csv"
+
+
+def _fallback_parks() -> List[Park]:
+    return [Park(park_id="", name=name, year=0) for name in sorted(BALLPARKS)]
+
+
+def _park_label(park: Park) -> str:
+    if park.year and park.year > 0:
+        return f"{park.name} ({park.year})"
+    return park.name
 
 
 def _load_latest_parks(csv_path: Optional[Path] = None) -> List[Park]:
@@ -39,40 +60,46 @@ def _load_latest_parks(csv_path: Optional[Path] = None) -> List[Park]:
     park, the most recent year is selected.
     """
 
-    root = _project_root()
-    path = csv_path or (root / "data" / "parks" / "ParkConfig.csv")
+    path = csv_path or _park_config_path()
+    if not path.exists():
+        return _fallback_parks()
     latest: Dict[str, Park] = {}
-    with path.open("r", newline="", encoding="utf-8") as fh:
-        reader = csv.DictReader(fh)
-        for row in reader:
-            park_id = (row.get("parkID") or row.get("ParkID") or "").strip()
-            name = (row.get("NAME") or row.get("Name") or "").strip()
-            try:
-                year = int(row.get("Year") or 0)
-            except Exception:
-                continue
-            if not park_id or not name:
-                continue
-
-            # Count any numeric dimension fields in this row (e.g., LF_Dim, CF_Dim, etc.)
-            has_dim = False
-            for k, v in row.items():
-                if not k or not k.endswith("_Dim"):
-                    continue
+    try:
+        with path.open("r", newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            for row in reader:
+                park_id = (row.get("parkID") or row.get("ParkID") or "").strip()
+                name = (row.get("NAME") or row.get("Name") or "").strip()
                 try:
-                    if v is not None and str(v).strip() != "" and float(str(v)):
-                        has_dim = True
-                        break
+                    year = int(row.get("Year") or 0)
                 except Exception:
                     continue
-            if not has_dim:
-                # Skip rows without any dimension data
-                continue
+                if not park_id or not name:
+                    continue
 
-            p = Park(park_id=park_id, name=name, year=year)
-            # Keep the most recent qualifying row per park
-            if park_id not in latest or year > latest[park_id].year:
-                latest[park_id] = p
+                # Count any numeric dimension fields in this row (e.g., LF_Dim, CF_Dim, etc.)
+                has_dim = False
+                for k, v in row.items():
+                    if not k or not k.endswith("_Dim"):
+                        continue
+                    try:
+                        if v is not None and str(v).strip() != "" and float(str(v)):
+                            has_dim = True
+                            break
+                    except Exception:
+                        continue
+                if not has_dim:
+                    # Skip rows without any dimension data
+                    continue
+
+                p = Park(park_id=park_id, name=name, year=year)
+                # Keep the most recent qualifying row per park
+                if park_id not in latest or year > latest[park_id].year:
+                    latest[park_id] = p
+    except Exception:
+        return _fallback_parks()
+    if not latest:
+        return _fallback_parks()
     return sorted(latest.values(), key=lambda p: p.name)
 
 
@@ -92,7 +119,7 @@ class ParkSelectorDialog(QDialog):
         filter_row = QHBoxLayout()
         filter_row.addWidget(QLabel("Filter:"))
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("Type to filter by name…")
+        self.filter_edit.setPlaceholderText("Type to filter by name")
         self.filter_edit.textChanged.connect(self._apply_filter)
         filter_row.addWidget(self.filter_edit)
         root.addLayout(filter_row)
@@ -102,7 +129,7 @@ class ParkSelectorDialog(QDialog):
 
         self.list = QListWidget()
         for p in self._parks:
-            item = QListWidgetItem(f"{p.name} ({p.year})")
+            item = QListWidgetItem(_park_label(p))
             item.setData(Qt.ItemDataRole.UserRole, p)
             self.list.addItem(item)
         self.list.currentItemChanged.connect(self._update_preview)
@@ -135,7 +162,7 @@ class ParkSelectorDialog(QDialog):
         text = (text or "").lower()
         self.list.clear()
         for p in self._parks:
-            label = f"{p.name} ({p.year})"
+            label = _park_label(p)
             if text in p.name.lower():
                 item = QListWidgetItem(label)
                 item.setData(Qt.ItemDataRole.UserRole, p)
@@ -146,7 +173,12 @@ class ParkSelectorDialog(QDialog):
             return
         p: Park = item.data(Qt.ItemDataRole.UserRole)
         self.selected_name = p.name
-        self.selected_park_id = p.park_id
+        self.selected_park_id = p.park_id or None
+
+        if not p.park_id or p.year <= 0:
+            self.preview.setPixmap(QPixmap())
+            self.preview.setText(f"{p.name}\n(No preview available)")
+            return
 
         # Try to show a generated image if present
         img_path = _project_root() / "images" / "parks" / f"{p.park_id}_{p.year}.png"
@@ -155,7 +187,7 @@ class ParkSelectorDialog(QDialog):
             try:
                 from scripts import generate_park_diagrams as gen
                 # Load all parks, filter to this one, and render
-                parks = gen.load_parks(_project_root() / "data" / "parks" / "ParkConfig.csv")
+                parks = gen.load_parks(_park_config_path())
                 parks = [r for r in parks if r.park_id == p.park_id and r.year == p.year]
                 if parks:
                     img_path.parent.mkdir(parents=True, exist_ok=True)

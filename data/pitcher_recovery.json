@@ -1,0 +1,6287 @@
+{
+  "teams": {
+    "OKL": {
+      "rotation": [
+        "P9646",
+        "P3149",
+        "P7012",
+        "P9119",
+        "P2418"
+      ],
+      "next_index": 4,
+      "pitchers": {
+        "P9646": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-10",
+          "last_pitches": 103,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 93,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 35,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 35.2
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 103,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 50.544
+        },
+        "P5860": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P7708": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P3481": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P7372": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P4201": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-13",
+          "last_pitches": 23,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 36,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 32.85000000000001
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 26,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 39.89800000000001
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 30,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 38.85000000000001
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 36,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 32.85000000000001
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 47,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 18.89800000000001
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 23,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 28.946000000000012
+            }
+          ],
+          "last_role": "LR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 28.946000000000012
+        },
+        "P1132": {
+          "available_on": "2026-06-15",
+          "last_used": "2026-06-13",
+          "last_pitches": 24,
+          "recent": [
+            {
+              "date": "2026-06-05",
+              "pitches": 27,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 41.85000000000001
+            },
+            {
+              "date": "2026-06-13",
+              "pitches": 24,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 44.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P3149": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-11",
+          "last_pitches": 49,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 91,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 49,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 21.200000000000003
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 54.896
+        },
+        "P9119": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-13",
+          "last_pitches": 40,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 43,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 25.85000000000001
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 105,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 40,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 28.85000000000001
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 28.85000000000001
+        },
+        "P7202": {
+          "available_on": "2026-07-12",
+          "last_used": "2026-07-10",
+          "last_pitches": 16,
+          "recent": [
+            {
+              "date": "2026-07-07",
+              "pitches": 15,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.5
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.5
+            }
+          ],
+          "last_role": "SU",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P7012": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-12",
+          "last_pitches": 90,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 92,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 90,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 16.848
+        },
+        "P6509": {
+          "available_on": "2026-07-12",
+          "last_used": "2026-07-11",
+          "last_pitches": 10,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 20,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.5
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 7,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 60.5
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 11,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 56.5
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 27,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 40.5
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 10,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 57.5
+            }
+          ],
+          "last_role": "CL",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P2418": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-08",
+          "last_pitches": 91,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 82,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 91,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 64.8
+        },
+        "P1786": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-13",
+          "last_pitches": 65,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 77,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 86,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 19,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 20.312000000000005
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 20,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 39.62400000000001
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 45,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 25.200000000000003
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 65,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 0.0
+        },
+        "P1716": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-12",
+          "last_pitches": 55,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 47,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 22,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 16.55600000000001
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 55,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 13.850000000000009
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 33.128000000000014
+        },
+        "P9935": {
+          "available_on": "2026-07-10",
+          "last_used": "2026-07-08",
+          "last_pitches": 14,
+          "recent": [
+            {
+              "date": "2026-07-08",
+              "pitches": 14,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.150000000000006
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P9576": {
+          "available_on": "2026-07-10",
+          "last_used": "2026-07-08",
+          "last_pitches": 16,
+          "recent": [
+            {
+              "date": "2026-07-08",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.5
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P7176": {
+          "available_on": "2026-07-12",
+          "last_used": "2026-07-10",
+          "last_pitches": 23,
+          "recent": [
+            {
+              "date": "2026-07-10",
+              "pitches": 23,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 45.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P1308": {
+          "available_on": "2026-06-02",
+          "last_used": "2026-05-27",
+          "last_pitches": 103,
+          "recent": [
+            {
+              "date": "2026-05-27",
+              "pitches": 103,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P4921": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-13",
+          "last_pitches": 30,
+          "recent": [
+            {
+              "date": "2026-07-13",
+              "pitches": 30,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 38.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 38.85000000000001
+        }
+      }
+    },
+    "DET": {
+      "rotation": [
+        "P5207",
+        "P9558",
+        "P1258",
+        "P4448",
+        "P4819"
+      ],
+      "next_index": 4,
+      "pitchers": {
+        "P4448": {
+          "available_on": "2026-07-19",
+          "last_used": "2026-07-13",
+          "last_pitches": 99,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 101,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 0.0
+        },
+        "P8917": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P9237": {
+          "available_on": "2026-06-14",
+          "last_used": "2026-06-10",
+          "last_pitches": 65,
+          "recent": [
+            {
+              "date": "2026-06-01",
+              "pitches": 50,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 16.150000000000006
+            },
+            {
+              "date": "2026-06-10",
+              "pitches": 65,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 1.1500000000000057
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P6439": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P5207": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-10",
+          "last_pitches": 89,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 105,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 91,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 89,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 50.544
+        },
+        "P5811": {
+          "available_on": "2026-07-03",
+          "last_used": "2026-07-01",
+          "last_pitches": 22,
+          "recent": [
+            {
+              "date": "2026-06-17",
+              "pitches": 17,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 30.946000000000012
+            },
+            {
+              "date": "2026-06-20",
+              "pitches": 45,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 18.994000000000014
+            },
+            {
+              "date": "2026-06-22",
+              "pitches": 4,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 48.042000000000016
+            },
+            {
+              "date": "2026-06-25",
+              "pitches": 38,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 30.85000000000001
+            },
+            {
+              "date": "2026-06-27",
+              "pitches": 27,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 36.89800000000001
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 22,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 46.85000000000001
+            }
+          ],
+          "last_role": "LR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P6588": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-13",
+          "last_pitches": 2,
+          "recent": [
+            {
+              "date": "2026-07-08",
+              "pitches": 12,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 55.5
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 10,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 57.5
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 2,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 65.5
+            }
+          ],
+          "last_role": "SU",
+          "max_pitches": 67.5,
+          "available_pitches": 65.5
+        },
+        "P5575": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-13",
+          "last_pitches": 12,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 13,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 54.5
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 20,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.5
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 20,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.5
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 15,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.5
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 9,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 58.5
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 12,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 55.5
+            }
+          ],
+          "last_role": "CL",
+          "max_pitches": 67.5,
+          "available_pitches": 55.5
+        },
+        "P4819": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-08",
+          "last_pitches": 103,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 20,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 48.85000000000001
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 103,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 66.096
+        },
+        "P2467": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-13",
+          "last_pitches": 33,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 19,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 49.85000000000001
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 26,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 42.85000000000001
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 26,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 42.85000000000001
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 25,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 43.85000000000001
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 33,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 35.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 35.85000000000001
+        },
+        "P3403": {
+          "available_on": "2026-07-07",
+          "last_used": "2026-07-02",
+          "last_pitches": 92,
+          "recent": [
+            {
+              "date": "2026-06-18",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-06-21",
+              "pitches": 71,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-06-23",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 20.55600000000001
+            },
+            {
+              "date": "2026-06-26",
+              "pitches": 74,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-06-28",
+              "pitches": 88,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 92,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P9558": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-11",
+          "last_pitches": 98,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 80,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 93,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 33.696
+        },
+        "P1258": {
+          "available_on": "2026-07-18",
+          "last_used": "2026-07-12",
+          "last_pitches": 102,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 95,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 102,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 102,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 16.848
+        },
+        "P6489": {
+          "available_on": "2026-07-04",
+          "last_used": "2026-07-02",
+          "last_pitches": 19,
+          "recent": [
+            {
+              "date": "2026-06-20",
+              "pitches": 83,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-06-25",
+              "pitches": 9,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 57.150000000000006
+            },
+            {
+              "date": "2026-06-28",
+              "pitches": 13,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 53.150000000000006
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 19,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.150000000000006
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P2939": {
+          "available_on": "2026-06-17",
+          "last_used": "2026-06-16",
+          "last_pitches": 3,
+          "recent": [
+            {
+              "date": "2026-06-16",
+              "pitches": 3,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 61.80000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P6652": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-10",
+          "last_pitches": 34,
+          "recent": [
+            {
+              "date": "2026-07-05",
+              "pitches": 90,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 68,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 34,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 5.312000000000005
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 64.28000000000002
+        },
+        "P2444": {
+          "available_on": "2026-06-13",
+          "last_used": "2026-06-12",
+          "last_pitches": 6,
+          "recent": [
+            {
+              "date": "2026-06-12",
+              "pitches": 6,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 58.80000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P7992": {
+          "available_on": "2026-05-25",
+          "last_used": "2026-05-22",
+          "last_pitches": 37,
+          "recent": [
+            {
+              "date": "2026-05-08",
+              "pitches": 7,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 61.85000000000001
+            },
+            {
+              "date": "2026-05-14",
+              "pitches": 36,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 32.85000000000001
+            },
+            {
+              "date": "2026-05-17",
+              "pitches": 32,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 36.85000000000001
+            },
+            {
+              "date": "2026-05-22",
+              "pitches": 37,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 31.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        }
+      }
+    },
+    "ELP": {
+      "rotation": [
+        "P5749",
+        "P4544",
+        "P3511",
+        "P5171",
+        "P6443"
+      ],
+      "next_index": 4,
+      "pitchers": {
+        "P7270": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P6443": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-08",
+          "last_pitches": 83,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 87,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 83,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 66.15,
+          "available_pitches": 63.504000000000005
+        },
+        "P3870": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P3511": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-12",
+          "last_pitches": 91,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 89,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 50,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 17.5
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 91,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 16.2
+        },
+        "P9302": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-11",
+          "last_pitches": 27,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 21,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 45.150000000000006
+            },
+            {
+              "date": "2026-06-30",
+              "pitches": 14,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.150000000000006
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 19,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.150000000000006
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 9,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 57.150000000000006
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 27,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 39.150000000000006
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P5171": {
+          "available_on": "2026-07-19",
+          "last_used": "2026-07-13",
+          "last_pitches": 106,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 54,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 13.5
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 102,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 106,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 0.0
+        },
+        "P5553": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-13",
+          "last_pitches": 1,
+          "recent": [
+            {
+              "date": "2026-07-07",
+              "pitches": 23,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.2
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 1,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 69.2
+            }
+          ],
+          "last_role": "SU",
+          "max_pitches": 70.2,
+          "available_pitches": 69.2
+        },
+        "P2030": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-13",
+          "last_pitches": 14,
+          "recent": [
+            {
+              "date": "2026-07-08",
+              "pitches": 11,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 53.80000000000001
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 48.80000000000001
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 14,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 50.80000000000001
+            }
+          ],
+          "last_role": "CL",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 50.80000000000001
+        },
+        "P5749": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-10",
+          "last_pitches": 45,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 90,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 102,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 45,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 23.85000000000001
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P4544": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-11",
+          "last_pitches": 99,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 85,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 106,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 33.048
+        },
+        "P4915": {
+          "available_on": "2026-06-15",
+          "last_used": "2026-06-13",
+          "last_pitches": 21,
+          "recent": [
+            {
+              "date": "2026-06-13",
+              "pitches": 21,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 46.5
+            }
+          ],
+          "last_role": "LR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P3816": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-10",
+          "last_pitches": 70,
+          "recent": [
+            {
+              "date": "2026-07-10",
+              "pitches": 70,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 56.7
+        },
+        "P2694": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P8447": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-12",
+          "last_pitches": 31,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 63,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 5.8500000000000085
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 74,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 79,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 26,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 12.556000000000012
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 31,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 37.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 57.128000000000014
+        },
+        "P4500": {
+          "available_on": "2026-07-04",
+          "last_used": "2026-06-30",
+          "last_pitches": 59,
+          "recent": [
+            {
+              "date": "2026-06-16",
+              "pitches": 41,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-06-18",
+              "pitches": 12,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 26.55600000000001
+            },
+            {
+              "date": "2026-06-30",
+              "pitches": 59,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 9.850000000000009
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P9383": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-11",
+          "last_pitches": 24,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 4,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 60.80000000000001
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 46.80000000000001
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 46.80000000000001
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 24,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 40.80000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P5757": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-10",
+          "last_pitches": 46,
+          "recent": [
+            {
+              "date": "2026-07-07",
+              "pitches": 23,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 44.5
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 46,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 21.5
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P6227": {
+          "available_on": "2026-06-18",
+          "last_used": "2026-06-16",
+          "last_pitches": 21,
+          "recent": [
+            {
+              "date": "2026-06-16",
+              "pitches": 21,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 43.80000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        }
+      }
+    },
+    "IND": {
+      "rotation": [
+        "P2554",
+        "P1337",
+        "P4825",
+        "P8295",
+        "P2435"
+      ],
+      "next_index": 4,
+      "pitchers": {
+        "P2554": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-10",
+          "last_pitches": 98,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 93,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 50.544
+        },
+        "P7766": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P3245": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P1337": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-11",
+          "last_pitches": 70,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 95,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 70,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.20000000000000284
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 33.896
+        },
+        "P4825": {
+          "available_on": "2026-07-18",
+          "last_used": "2026-07-12",
+          "last_pitches": 100,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 106,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 16.848
+        },
+        "P3943": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P5703": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P7228": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-12",
+          "last_pitches": 11,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 9,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 59.85000000000001
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 13,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 55.85000000000001
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 14,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 54.85000000000001
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 11,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 57.85000000000001
+            }
+          ],
+          "last_role": "CL",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P9344": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-12",
+          "last_pitches": 28,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.85000000000001
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 21,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.85000000000001
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 34,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 34.85000000000001
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 13,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 55.85000000000001
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 11,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 57.85000000000001
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 28,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 40.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 60.128000000000014
+        },
+        "P8295": {
+          "available_on": "2026-07-19",
+          "last_used": "2026-07-13",
+          "last_pitches": 100,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 67,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 3.200000000000003
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 0.0
+        },
+        "P2435": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-08",
+          "last_pitches": 97,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 66.096
+        },
+        "P1909": {
+          "available_on": "2026-07-10",
+          "last_used": "2026-07-07",
+          "last_pitches": 28,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 26,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 44.2
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 36,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 34.2
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 28,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 42.2
+            }
+          ],
+          "last_role": "LR",
+          "max_pitches": 70.2,
+          "available_pitches": 70.2
+        },
+        "P4635": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-13",
+          "last_pitches": 19,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 50.150000000000006
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 21,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 45.150000000000006
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 26,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 40.150000000000006
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 11,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 55.150000000000006
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 15,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.150000000000006
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 19,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.150000000000006
+            }
+          ],
+          "last_role": "SU",
+          "max_pitches": 66.15,
+          "available_pitches": 47.150000000000006
+        },
+        "P6413": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-12",
+          "last_pitches": 42,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 5,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 61.150000000000006
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 6,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 60.150000000000006
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 51,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 15.150000000000006
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 6,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 60.150000000000006
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 42,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 24.150000000000006
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 42.67200000000001
+        },
+        "P1424": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-13",
+          "last_pitches": 20,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 42,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 26.85000000000001
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 9,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 56.40600000000002
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 35,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 33.85000000000001
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 20,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 48.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 48.85000000000001
+        },
+        "P3840": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-11",
+          "last_pitches": 66,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 33,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 37.2
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 66,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 4.200000000000003
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 43.51200000000001
+        },
+        "P8332": {
+          "available_on": "2026-06-14",
+          "last_used": "2026-06-13",
+          "last_pitches": 3,
+          "recent": [
+            {
+              "date": "2026-06-13",
+              "pitches": 3,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 65.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P1885": {
+          "available_on": "2026-07-06",
+          "last_used": "2026-07-03",
+          "last_pitches": 31,
+          "recent": [
+            {
+              "date": "2026-06-22",
+              "pitches": 53,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 15.850000000000009
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 31,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 37.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        }
+      }
+    },
+    "MIL": {
+      "rotation": [
+        "P5545",
+        "P4662",
+        "P8331",
+        "P9439",
+        "P2888"
+      ],
+      "next_index": 4,
+      "pitchers": {
+        "P2888": {
+          "available_on": "2026-07-12",
+          "last_used": "2026-07-08",
+          "last_pitches": 55,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 95,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 55,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 11.150000000000006
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P6049": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P8331": {
+          "available_on": "2026-07-18",
+          "last_used": "2026-07-12",
+          "last_pitches": 100,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 63,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 4.5
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 16.2
+        },
+        "P5545": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-10",
+          "last_pitches": 93,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 103,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 26,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 44.2
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 93,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 50.544
+        },
+        "P4662": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-11",
+          "last_pitches": 98,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 43,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 27.200000000000003
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 46,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 24.200000000000003
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 33.696
+        },
+        "P7643": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-11",
+          "last_pitches": 11,
+          "recent": [
+            {
+              "date": "2026-07-07",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.85000000000001
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 11,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 57.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P3413": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P2101": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-12",
+          "last_pitches": 27,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 102,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 31,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 27.968000000000004
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 32,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 7.312000000000005
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 82,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 27,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 12.312000000000005
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 31.968000000000007
+        },
+        "P9439": {
+          "available_on": "2026-07-19",
+          "last_used": "2026-07-13",
+          "last_pitches": 113,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 113,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 0.0
+        },
+        "P2152": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-12",
+          "last_pitches": 6,
+          "recent": [
+            {
+              "date": "2026-07-06",
+              "pitches": 17,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.80000000000001
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 6,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 58.80000000000001
+            }
+          ],
+          "last_role": "CL",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P8364": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-13",
+          "last_pitches": 18,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 12,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.80000000000001
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 8,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 56.80000000000001
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 22,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 42.80000000000001
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 46.80000000000001
+            }
+          ],
+          "last_role": "SU",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 46.80000000000001
+        },
+        "P2385": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-11",
+          "last_pitches": 54,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 33,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 30.52799999999999
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 29,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 35.22399999999999
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 23,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 45.91999999999999
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.2
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 28,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 42.2
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 54,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 16.200000000000003
+            }
+          ],
+          "last_role": "LR",
+          "max_pitches": 70.2,
+          "available_pitches": 49.896
+        },
+        "P5101": {
+          "available_on": "2026-05-07",
+          "last_used": "2026-05-03",
+          "last_pitches": 67,
+          "recent": [
+            {
+              "date": "2026-05-03",
+              "pitches": 67,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 1.8500000000000085
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P2695": {
+          "available_on": "2026-07-10",
+          "last_used": "2026-07-08",
+          "last_pitches": 14,
+          "recent": [
+            {
+              "date": "2026-07-06",
+              "pitches": 20,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 46.150000000000006
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 14,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.150000000000006
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P5146": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-08",
+          "last_pitches": 102,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 35,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 35.2
+            },
+            {
+              "date": "2026-06-30",
+              "pitches": 72,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 95,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 102,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 70.2
+        },
+        "P7104": {
+          "available_on": "2026-04-18",
+          "last_used": "2026-04-14",
+          "last_pitches": 52,
+          "recent": [
+            {
+              "date": "2026-04-14",
+              "pitches": 52,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 16.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P7510": {
+          "available_on": "2026-05-03",
+          "last_used": "2026-04-29",
+          "last_pitches": 68,
+          "recent": [
+            {
+              "date": "2026-04-29",
+              "pitches": 68,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.8500000000000085
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P7239": {
+          "available_on": "2026-06-29",
+          "last_used": "2026-06-28",
+          "last_pitches": 5,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 5,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 61.150000000000006
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        }
+      }
+    },
+    "LOS": {
+      "rotation": [
+        "P1552",
+        "P7504",
+        "P3342",
+        "P9166",
+        "P6752"
+      ],
+      "next_index": 4,
+      "pitchers": {
+        "P9992": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P1552": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-10",
+          "last_pitches": 92,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 101,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 101,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 92,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 48.599999999999994
+        },
+        "P7504": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-11",
+          "last_pitches": 95,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 95,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 32.4
+        },
+        "P3652": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P3342": {
+          "available_on": "2026-07-18",
+          "last_used": "2026-07-12",
+          "last_pitches": 99,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 101,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 16.2
+        },
+        "P6995": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P8707": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-12",
+          "last_pitches": 8,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 14,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 54.85000000000001
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 50.85000000000001
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 10,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 58.85000000000001
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 8,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 60.85000000000001
+            }
+          ],
+          "last_role": "SU",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P6707": {
+          "available_on": "2026-07-01",
+          "last_used": "2026-06-28",
+          "last_pitches": 36,
+          "recent": [
+            {
+              "date": "2026-06-15",
+              "pitches": 37,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 33.2
+            },
+            {
+              "date": "2026-06-18",
+              "pitches": 49,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 21.200000000000003
+            },
+            {
+              "date": "2026-06-22",
+              "pitches": 35,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 35.2
+            },
+            {
+              "date": "2026-06-28",
+              "pitches": 36,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 34.2
+            }
+          ],
+          "last_role": "LR",
+          "max_pitches": 70.2,
+          "available_pitches": 70.2
+        },
+        "P6752": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-08",
+          "last_pitches": 82,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 82,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 66.15,
+          "available_pitches": 63.504000000000005
+        },
+        "P6105": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-12",
+          "last_pitches": 29,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 19,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 48.5
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 13,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 54.5
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 10,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 57.5
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 49.5
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 17,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 50.5
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 29,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 38.5
+            }
+          ],
+          "last_role": "CL",
+          "max_pitches": 67.5,
+          "available_pitches": 60.1
+        },
+        "P2490": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P8522": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P9166": {
+          "available_on": "2026-07-19",
+          "last_used": "2026-07-13",
+          "last_pitches": 98,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 104,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 0.0
+        },
+        "P2929": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-13",
+          "last_pitches": 50,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 15,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 23.668000000000035
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 29,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 39.85000000000001
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 56,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 12.850000000000009
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 67,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 52,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 50,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 0.0
+        },
+        "P5286": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-12",
+          "last_pitches": 26,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 10,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 56.150000000000006
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 40,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 26.150000000000006
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 19,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.150000000000006
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 56,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 10.150000000000006
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 26,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 40.150000000000006
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 58.67200000000001
+        },
+        "P8457": {
+          "available_on": "2026-06-15",
+          "last_used": "2026-06-11",
+          "last_pitches": 54,
+          "recent": [
+            {
+              "date": "2026-06-08",
+              "pitches": 57,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 10.5
+            },
+            {
+              "date": "2026-06-11",
+              "pitches": 54,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P2142": {
+          "available_on": "2026-05-04",
+          "last_used": "2026-05-02",
+          "last_pitches": 20,
+          "recent": [
+            {
+              "date": "2026-04-24",
+              "pitches": 4,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 60.80000000000001
+            },
+            {
+              "date": "2026-05-02",
+              "pitches": 20,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 44.80000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P2353": {
+          "available_on": "2026-05-29",
+          "last_used": "2026-05-28",
+          "last_pitches": 10,
+          "recent": [
+            {
+              "date": "2026-05-16",
+              "pitches": 78,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-05-19",
+              "pitches": 21,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 35.7
+            },
+            {
+              "date": "2026-05-24",
+              "pitches": 37,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 30.5
+            },
+            {
+              "date": "2026-05-28",
+              "pitches": 10,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 57.5
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P8481": {
+          "available_on": "2026-06-26",
+          "last_used": "2026-06-22",
+          "last_pitches": 63,
+          "recent": [
+            {
+              "date": "2026-06-16",
+              "pitches": 45,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 25.200000000000003
+            },
+            {
+              "date": "2026-06-22",
+              "pitches": 63,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 7.200000000000003
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 70.2
+        },
+        "P8092": {
+          "available_on": "2026-05-16",
+          "last_used": "2026-05-12",
+          "last_pitches": 54,
+          "recent": [
+            {
+              "date": "2026-05-12",
+              "pitches": 54,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 12.150000000000006
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        }
+      }
+    },
+    "BAL": {
+      "rotation": [
+        "P8611",
+        "P7395",
+        "P4179",
+        "P5164",
+        "P2770"
+      ],
+      "next_index": 4,
+      "pitchers": {
+        "P2302": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P7900": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-12",
+          "last_pitches": 11,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 5,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 61.150000000000006
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 11,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 55.150000000000006
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P6021": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-10",
+          "last_pitches": 30,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 20,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 44.80000000000001
+            },
+            {
+              "date": "2026-06-27",
+              "pitches": 13,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.80000000000001
+            },
+            {
+              "date": "2026-06-28",
+              "pitches": 10,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 54.80000000000001
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 20,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 44.80000000000001
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 7,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 57.80000000000001
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 15,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 49.80000000000001
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 30,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 34.80000000000001
+            }
+          ],
+          "last_role": "CL",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P8611": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-10",
+          "last_pitches": 100,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 89,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 102,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 50.544
+        },
+        "P9406": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P2770": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-08",
+          "last_pitches": 99,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 62,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 5.5
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 64.8
+        },
+        "P5512": {
+          "available_on": "2026-07-04",
+          "last_used": "2026-07-02",
+          "last_pitches": 14,
+          "recent": [
+            {
+              "date": "2026-06-20",
+              "pitches": 34,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 34.85000000000001
+            },
+            {
+              "date": "2026-06-26",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.85000000000001
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 14,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 54.85000000000001
+            }
+          ],
+          "last_role": "LR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P5164": {
+          "available_on": "2026-07-19",
+          "last_used": "2026-07-13",
+          "last_pitches": 104,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 104,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 0.0
+        },
+        "P7395": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-11",
+          "last_pitches": 96,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 96,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 33.696
+        },
+        "P5807": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-13",
+          "last_pitches": 32,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 24,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 42.150000000000006
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 48.150000000000006
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 12,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 54.150000000000006
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 15,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.150000000000006
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 19,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.150000000000006
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 32,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 34.150000000000006
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 34.150000000000006
+        },
+        "P4179": {
+          "available_on": "2026-07-18",
+          "last_used": "2026-07-12",
+          "last_pitches": 112,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 109,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 112,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 16.848
+        },
+        "P4679": {
+          "available_on": "2026-06-27",
+          "last_used": "2026-06-25",
+          "last_pitches": 24,
+          "recent": [
+            {
+              "date": "2026-06-17",
+              "pitches": 6,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 58.80000000000001
+            },
+            {
+              "date": "2026-06-21",
+              "pitches": 8,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 56.80000000000001
+            },
+            {
+              "date": "2026-06-25",
+              "pitches": 24,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 40.80000000000001
+            }
+          ],
+          "last_role": "SU",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P7017": {
+          "available_on": "2026-07-07",
+          "last_used": "2026-07-05",
+          "last_pitches": 18,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 51,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 15.150000000000006
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 48.150000000000006
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P7016": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-13",
+          "last_pitches": 39,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 8,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 62.2
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 2,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 56.968
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 45,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 25.200000000000003
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 36,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 28.512000000000015
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 39,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 28.824000000000026
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 28.824000000000026
+        },
+        "P6505": {
+          "available_on": "2026-07-09",
+          "last_used": "2026-07-07",
+          "last_pitches": 13,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 58,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 12.200000000000003
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 37,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 2.3120000000000047
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 13,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 48.280000000000015
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 70.2
+        },
+        "P7448": {
+          "available_on": "2026-06-23",
+          "last_used": "2026-06-20",
+          "last_pitches": 37,
+          "recent": [
+            {
+              "date": "2026-06-10",
+              "pitches": 72,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-06-20",
+              "pitches": 37,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 33.2
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 70.2
+        },
+        "P9053": {
+          "available_on": "2026-05-09",
+          "last_used": "2026-05-08",
+          "last_pitches": 10,
+          "recent": [
+            {
+              "date": "2026-05-08",
+              "pitches": 10,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 60.2
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 70.2
+        },
+        "P7052": {
+          "available_on": "2026-05-12",
+          "last_used": "2026-05-09",
+          "last_pitches": 34,
+          "recent": [
+            {
+              "date": "2026-05-09",
+              "pitches": 34,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 34.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        }
+      }
+    },
+    "MEM": {
+      "rotation": [
+        "P1979",
+        "P5450",
+        "P2149",
+        "P7352",
+        "P6179"
+      ],
+      "next_index": 4,
+      "pitchers": {
+        "P6179": {
+          "available_on": "2026-07-12",
+          "last_used": "2026-07-08",
+          "last_pitches": 70,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 91,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 64,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 2.1500000000000057
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 70,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 66.15,
+          "available_pitches": 63.504000000000005
+        },
+        "P1774": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P7352": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-13",
+          "last_pitches": 61,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 109,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 61,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 6.5
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 6.5
+        },
+        "P7328": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-13",
+          "last_pitches": 18,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 17,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.85000000000001
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 21,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.85000000000001
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.85000000000001
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 25,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 43.85000000000001
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 50.85000000000001
+            }
+          ],
+          "last_role": "SU",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 50.85000000000001
+        },
+        "P9536": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-13",
+          "last_pitches": 30,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 24,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 43.5
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 31,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 36.5
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 36,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 31.5
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 42,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 25.5
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 30,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 37.5
+            }
+          ],
+          "last_role": "LR",
+          "max_pitches": 67.5,
+          "available_pitches": 37.5
+        },
+        "P1979": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-10",
+          "last_pitches": 61,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 104,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 82,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 61,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 9.200000000000003
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 59.744
+        },
+        "P3720": {
+          "available_on": "2026-06-17",
+          "last_used": "2026-06-13",
+          "last_pitches": 51,
+          "recent": [
+            {
+              "date": "2026-06-13",
+              "pitches": 51,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 13.800000000000011
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P5313": {
+          "available_on": "2026-06-27",
+          "last_used": "2026-06-25",
+          "last_pitches": 12,
+          "recent": [
+            {
+              "date": "2026-06-13",
+              "pitches": 19,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 45.80000000000001
+            },
+            {
+              "date": "2026-06-25",
+              "pitches": 12,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.80000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P5245": {
+          "available_on": "2026-07-07",
+          "last_used": "2026-07-05",
+          "last_pitches": 15,
+          "recent": [
+            {
+              "date": "2026-06-23",
+              "pitches": 7,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 57.80000000000001
+            },
+            {
+              "date": "2026-06-25",
+              "pitches": 19,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 45.80000000000001
+            },
+            {
+              "date": "2026-06-27",
+              "pitches": 13,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.80000000000001
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 13,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.80000000000001
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 21,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 43.80000000000001
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 15,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 49.80000000000001
+            }
+          ],
+          "last_role": "CL",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P4771": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P5450": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-11",
+          "last_pitches": 28,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 107,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 88,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 28,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 42.2
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 70.2
+        },
+        "P2149": {
+          "available_on": "2026-07-18",
+          "last_used": "2026-07-12",
+          "last_pitches": 103,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 47,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 23.200000000000003
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 103,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 16.848
+        },
+        "P3402": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-13",
+          "last_pitches": 28,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 22,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 48.2
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 10,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 60.2
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 28,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 42.2
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 27,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 43.2
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 14,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 56.2
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 28,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 42.2
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 42.2
+        },
+        "P7435": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-11",
+          "last_pitches": 93,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 5,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 65.2
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 81,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 13,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 26.312000000000005
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 33,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 37.2
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 93,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 39.312000000000005
+        },
+        "P6336": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-12",
+          "last_pitches": 29,
+          "recent": [
+            {
+              "date": "2026-07-06",
+              "pitches": 36,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 31.5
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 11,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 56.5
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 29,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 38.5
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 57.400000000000006
+        },
+        "P5914": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-11",
+          "last_pitches": 18,
+          "recent": [
+            {
+              "date": "2026-07-11",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 49.5
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P9370": {
+          "available_on": "2026-06-24",
+          "last_used": "2026-06-21",
+          "last_pitches": 34,
+          "recent": [
+            {
+              "date": "2026-06-15",
+              "pitches": 68,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.8500000000000085
+            },
+            {
+              "date": "2026-06-18",
+              "pitches": 70,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-06-21",
+              "pitches": 34,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 4.556000000000012
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P7546": {
+          "available_on": "2026-04-24",
+          "last_used": "2026-04-22",
+          "last_pitches": 16,
+          "recent": [
+            {
+              "date": "2026-04-22",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.5
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P4619": {
+          "available_on": "2026-06-18",
+          "last_used": "2026-06-16",
+          "last_pitches": 23,
+          "recent": [
+            {
+              "date": "2026-06-16",
+              "pitches": 23,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 44.5
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        }
+      }
+    },
+    "SAN": {
+      "rotation": [
+        "P5130",
+        "P6096",
+        "P2420",
+        "P2290",
+        "P4370"
+      ],
+      "next_index": 4,
+      "pitchers": {
+        "P7498": {
+          "available_on": "2026-07-07",
+          "last_used": "2026-07-05",
+          "last_pitches": 17,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 7,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 57.80000000000001
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 17,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.80000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P5130": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-10",
+          "last_pitches": 101,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 91,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 23,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.2
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 101,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 50.544
+        },
+        "P1121": {
+          "available_on": "2026-07-05",
+          "last_used": "2026-07-03",
+          "last_pitches": 21,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 49.5
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 22,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 45.5
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 21,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 46.5
+            }
+          ],
+          "last_role": "LR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P4580": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-13",
+          "last_pitches": 10,
+          "recent": [
+            {
+              "date": "2026-07-03",
+              "pitches": 26,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 38.80000000000001
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 31,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 28.536000000000016
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 17,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 32.27200000000002
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 46.80000000000001
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 13,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.80000000000001
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 10,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 54.80000000000001
+            }
+          ],
+          "last_role": "CL",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 54.80000000000001
+        },
+        "P6096": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-11",
+          "last_pitches": 88,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 92,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 88,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 33.696
+        },
+        "P1333": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-12",
+          "last_pitches": 61,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 25,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 39.80000000000001
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 25,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 39.80000000000001
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 61,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 3.8000000000000114
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 21.944000000000017
+        },
+        "P2290": {
+          "available_on": "2026-07-18",
+          "last_used": "2026-07-13",
+          "last_pitches": 93,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 92,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 101,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 93,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 0.0
+        },
+        "P2420": {
+          "available_on": "2026-07-18",
+          "last_used": "2026-07-12",
+          "last_pitches": 102,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 102,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 70.2,
+          "available_pitches": 16.848
+        },
+        "P4370": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-08",
+          "last_pitches": 99,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 106,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 66.15,
+          "available_pitches": 63.504000000000005
+        },
+        "P7909": {
+          "available_on": "2026-07-08",
+          "last_used": "2026-07-07",
+          "last_pitches": 9,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 22,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 45.5
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 28,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 39.5
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 9,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 58.5
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P5306": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P5682": {
+          "available_on": "2026-07-10",
+          "last_used": "2026-07-08",
+          "last_pitches": 15,
+          "recent": [
+            {
+              "date": "2026-06-25",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 50.150000000000006
+            },
+            {
+              "date": "2026-06-27",
+              "pitches": 3,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 63.150000000000006
+            },
+            {
+              "date": "2026-06-30",
+              "pitches": 21,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 45.150000000000006
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 22,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 44.150000000000006
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 15,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.150000000000006
+            }
+          ],
+          "last_role": "SU",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P4859": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P6565": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-13",
+          "last_pitches": 46,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 21,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 49.2
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 27,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 43.2
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 57,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 13.200000000000003
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 25,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 45.2
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 46,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 24.200000000000003
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 24.200000000000003
+        },
+        "P9928": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-11",
+          "last_pitches": 52,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 68,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 2.200000000000003
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 86,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 38,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 32.2
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 52,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 18.200000000000003
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 57.512000000000015
+        },
+        "P7727": {
+          "available_on": "2026-05-30",
+          "last_used": "2026-05-24",
+          "last_pitches": 101,
+          "recent": [
+            {
+              "date": "2026-05-24",
+              "pitches": 101,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        }
+      }
+    },
+    "DAL": {
+      "rotation": [
+        "P1273",
+        "P7347",
+        "P8370",
+        "P9562",
+        "P5490"
+      ],
+      "next_index": 4,
+      "pitchers": {
+        "P1273": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-10",
+          "last_pitches": 99,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 92,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 49.572
+        },
+        "P5173": {
+          "available_on": "2026-07-12",
+          "last_used": "2026-07-10",
+          "last_pitches": 15,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 17,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 49.150000000000006
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 6,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 60.150000000000006
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 15,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.150000000000006
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P9562": {
+          "available_on": "2026-07-19",
+          "last_used": "2026-07-13",
+          "last_pitches": 97,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 109,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 0.0
+        },
+        "P5490": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-08",
+          "last_pitches": 88,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 88,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 64.8
+        },
+        "P7347": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-11",
+          "last_pitches": 102,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 96,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 102,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 33.048
+        },
+        "P8370": {
+          "available_on": "2026-07-18",
+          "last_used": "2026-07-12",
+          "last_pitches": 100,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 16.524
+        },
+        "P6352": {
+          "available_on": "2026-07-11",
+          "last_used": "2026-07-08",
+          "last_pitches": 31,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 47,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 21.85000000000001
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 31,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 37.85000000000001
+            }
+          ],
+          "last_role": "LR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P2534": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P8767": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-11",
+          "last_pitches": 12,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 7,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 61.85000000000001
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 17,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.85000000000001
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.85000000000001
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.85000000000001
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.85000000000001
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 12,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 56.85000000000001
+            }
+          ],
+          "last_role": "CL",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P5536": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-12",
+          "last_pitches": 21,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 28,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 40.85000000000001
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 7,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 61.85000000000001
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 15,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 53.85000000000001
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 8,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 60.85000000000001
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 21,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 67.12800000000001
+        },
+        "P5576": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-13",
+          "last_pitches": 24,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 19,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 48.5
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 19,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 48.5
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 32,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 35.5
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 5,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 62.5
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 24,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 43.5
+            }
+          ],
+          "last_role": "SU",
+          "max_pitches": 67.5,
+          "available_pitches": 43.5
+        },
+        "P1591": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-13",
+          "last_pitches": 23,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 4,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 64.85000000000001
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 23,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 45.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 45.85000000000001
+        },
+        "P2519": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-12",
+          "last_pitches": 28,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 6,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 61.5
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 73,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 41,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 8,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 48.7
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 28,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 39.5
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 58.400000000000006
+        },
+        "P7969": {
+          "available_on": "2026-06-29",
+          "last_used": "2026-06-28",
+          "last_pitches": 4,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 4,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 64.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P7661": {
+          "available_on": "2026-06-07",
+          "last_used": "2026-06-05",
+          "last_pitches": 12,
+          "recent": [
+            {
+              "date": "2026-05-24",
+              "pitches": 29,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 38.5
+            },
+            {
+              "date": "2026-05-29",
+              "pitches": 42,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 25.5
+            },
+            {
+              "date": "2026-06-05",
+              "pitches": 12,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 55.5
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        }
+      }
+    },
+    "SAN1": {
+      "rotation": [
+        "P6748",
+        "P5412",
+        "P1364",
+        "P8301",
+        "P2312"
+      ],
+      "next_index": 4,
+      "pitchers": {
+        "P1364": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-12",
+          "last_pitches": 84,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 103,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 84,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 66.15,
+          "available_pitches": 15.876000000000001
+        },
+        "P8301": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-13",
+          "last_pitches": 37,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 101,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 37,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 27.80000000000001
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 27.80000000000001
+        },
+        "P6748": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-10",
+          "last_pitches": 99,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 91,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 99,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 49.572
+        },
+        "P5412": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-11",
+          "last_pitches": 93,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 93,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 32.4
+        },
+        "P5699": {
+          "available_on": "2026-07-04",
+          "last_used": "2026-07-02",
+          "last_pitches": 23,
+          "recent": [
+            {
+              "date": "2026-07-02",
+              "pitches": 23,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.2
+            }
+          ],
+          "last_role": "LR",
+          "max_pitches": 70.2,
+          "available_pitches": 70.2
+        },
+        "P5946": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P8451": {
+          "available_on": "2026-07-12",
+          "last_used": "2026-07-10",
+          "last_pitches": 17,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 17,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.85000000000001
+            },
+            {
+              "date": "2026-06-28",
+              "pitches": 6,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 62.85000000000001
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 25,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 43.85000000000001
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 50.85000000000001
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 13,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 55.85000000000001
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 17,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P6097": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-11",
+          "last_pitches": 23,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 7,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 57.80000000000001
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 10,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 54.80000000000001
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 18,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 46.80000000000001
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 23,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 41.80000000000001
+            }
+          ],
+          "last_role": "CL",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P2312": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-08",
+          "last_pitches": 81,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 96,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 86,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 81,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 62.208000000000006
+        },
+        "P3178": {
+          "available_on": "2026-07-16",
+          "last_used": "2026-07-12",
+          "last_pitches": 51,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 26,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 44.2
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 110,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 61,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 94,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 51,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 7.9680000000000035
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 27.624000000000006
+        },
+        "P2493": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P4973": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P6507": {
+          "available_on": "2026-07-03",
+          "last_used": "2026-06-30",
+          "last_pitches": 30,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 30,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 37.5
+            }
+          ],
+          "last_role": "SU",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P7470": {
+          "available_on": "2026-07-11",
+          "last_used": "2026-07-07",
+          "last_pitches": 46,
+          "recent": [
+            {
+              "date": "2026-06-23",
+              "pitches": 8,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 59.5
+            },
+            {
+              "date": "2026-06-27",
+              "pitches": 38,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 29.5
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 46,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 21.5
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 46,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 21.5
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P4471": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-13",
+          "last_pitches": 63,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 32,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 38.2
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 5,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 65.2
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 24,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 46.2
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 2,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 68.2
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 63,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 7.200000000000003
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 7.200000000000003
+        },
+        "P1893": {
+          "available_on": "2026-05-29",
+          "last_used": "2026-05-26",
+          "last_pitches": 39,
+          "recent": [
+            {
+              "date": "2026-05-13",
+              "pitches": 1,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 67.85000000000001
+            },
+            {
+              "date": "2026-05-26",
+              "pitches": 39,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 29.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        }
+      }
+    },
+    "AUS": {
+      "rotation": [
+        "P8130",
+        "P4239",
+        "P8299",
+        "P3410",
+        "P8359"
+      ],
+      "next_index": 4,
+      "pitchers": {
+        "P8130": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-10",
+          "last_pitches": 61,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 93,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 52,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 16.85000000000001
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 61,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 7.8500000000000085
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 57.42200000000001
+        },
+        "P8299": {
+          "available_on": "2026-07-18",
+          "last_used": "2026-07-12",
+          "last_pitches": 97,
+          "recent": [
+            {
+              "date": "2026-06-30",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 98,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 16.2
+        },
+        "P3410": {
+          "available_on": "2026-07-19",
+          "last_used": "2026-07-13",
+          "last_pitches": 100,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 92,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 36,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 31.5
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 100,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 0.0
+        },
+        "P4239": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-11",
+          "last_pitches": 63,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 87,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 93,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 63,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 5.8500000000000085
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 38.89800000000001
+        },
+        "P8359": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-08",
+          "last_pitches": 103,
+          "recent": [
+            {
+              "date": "2026-06-26",
+              "pitches": 97,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 94,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 103,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "SP",
+          "max_pitches": 67.5,
+          "available_pitches": 64.8
+        },
+        "P9930": {
+          "available_on": "2026-07-17",
+          "last_used": "2026-07-13",
+          "last_pitches": 63,
+          "recent": [
+            {
+              "date": "2026-07-02",
+              "pitches": 33,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 31.80000000000001
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 93,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 51,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 3.4320000000000164
+            },
+            {
+              "date": "2026-07-13",
+              "pitches": 63,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 0.0
+        },
+        "P5873": {
+          "available_on": "2026-06-23",
+          "last_used": "2026-06-20",
+          "last_pitches": 42,
+          "recent": [
+            {
+              "date": "2026-06-20",
+              "pitches": 42,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 25.5
+            }
+          ],
+          "last_role": "LR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P9716": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P7058": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-12",
+          "last_pitches": 6,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 14,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.150000000000006
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 17,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 49.150000000000006
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 50.150000000000006
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 6,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 60.150000000000006
+            }
+          ],
+          "last_role": "SU",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P4646": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 66.15,
+          "available_pitches": 66.15
+        },
+        "P5730": {
+          "available_on": "2026-07-15",
+          "last_used": "2026-07-12",
+          "last_pitches": 26,
+          "recent": [
+            {
+              "date": "2026-06-28",
+              "pitches": 15,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.5
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 42,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 25.5
+            },
+            {
+              "date": "2026-07-07",
+              "pitches": 20,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.5
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 29,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 38.5
+            },
+            {
+              "date": "2026-07-12",
+              "pitches": 26,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 41.5
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 60.400000000000006
+        },
+        "P8798": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-11",
+          "last_pitches": 20,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 13,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 55.85000000000001
+            },
+            {
+              "date": "2026-07-01",
+              "pitches": 25,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 43.85000000000001
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 19,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 49.85000000000001
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 52.85000000000001
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 20,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 48.85000000000001
+            }
+          ],
+          "last_role": "CL",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P2615": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P3445": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-11",
+          "last_pitches": 45,
+          "recent": [
+            {
+              "date": "2026-06-27",
+              "pitches": 24,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 46.2
+            },
+            {
+              "date": "2026-06-30",
+              "pitches": 51,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 19.200000000000003
+            },
+            {
+              "date": "2026-07-02",
+              "pitches": 7,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 51.512000000000015
+            },
+            {
+              "date": "2026-07-05",
+              "pitches": 73,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-08",
+              "pitches": 8,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 50.968
+            },
+            {
+              "date": "2026-07-11",
+              "pitches": 45,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 25.200000000000003
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 64.51200000000001
+        },
+        "P2025": {
+          "available_on": "2026-05-05",
+          "last_used": "2026-05-04",
+          "last_pitches": 5,
+          "recent": [
+            {
+              "date": "2026-05-04",
+              "pitches": 5,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 63.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P2513": {
+          "available_on": "2026-07-13",
+          "last_used": "2026-07-10",
+          "last_pitches": 34,
+          "recent": [
+            {
+              "date": "2026-07-01",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 54.2
+            },
+            {
+              "date": "2026-07-03",
+              "pitches": 85,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-06",
+              "pitches": 44,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 0.0
+            },
+            {
+              "date": "2026-07-10",
+              "pitches": 34,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 24.968000000000004
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 70.2
+        },
+        "P9986": {
+          "available_on": "2026-07-05",
+          "last_used": "2026-07-03",
+          "last_pitches": 21,
+          "recent": [
+            {
+              "date": "2026-07-03",
+              "pitches": 21,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 47.85000000000001
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 68.85000000000001,
+          "available_pitches": 68.85000000000001
+        },
+        "P8968": {
+          "available_on": "2026-07-14",
+          "last_used": "2026-07-12",
+          "last_pitches": 25,
+          "recent": [
+            {
+              "date": "2026-07-12",
+              "pitches": 25,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 45.2
+            }
+          ],
+          "last_role": "MR",
+          "max_pitches": 70.2,
+          "available_pitches": 64.85600000000001
+        }
+      }
+    }
+  }
+}

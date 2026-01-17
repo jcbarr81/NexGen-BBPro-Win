@@ -140,6 +140,12 @@ except Exception:  # pragma: no cover - lightweight stubs for headless tests
         def resizeColumnsToContents(self, *a, **k):
             pass
 
+        def setSortingEnabled(self, *a, **k):
+            pass
+
+        def sortItems(self, *a, **k):
+            pass
+
         def item(self, *a, **k):
             return None
 
@@ -151,6 +157,25 @@ except Exception:  # pragma: no cover - lightweight stubs for headless tests
 
         def setRowHidden(self, *a, **k):
             pass
+
+        class _HH:
+            def setSectionsClickable(self, *a, **k):
+                pass
+
+            def setSortIndicatorShown(self, *a, **k):
+                pass
+
+            def sortIndicatorSection(self, *a, **k):
+                return 0
+
+            def sortIndicatorOrder(self, *a, **k):
+                return 0
+
+            def setSortIndicator(self, *a, **k):
+                pass
+
+        def horizontalHeader(self):
+            return QTableWidget._HH()
 
     class QHBoxLayout:
         def __init__(self, *a, **k):
@@ -208,6 +233,9 @@ except Exception:  # pragma: no cover - lightweight stubs for headless tests
         class ItemDataRole:
             DisplayRole = 0
             EditRole = 2
+        class SortOrder:
+            AscendingOrder = 0
+            DescendingOrder = 1
 
     class QPixmap:
         def __init__(self, *a, **k):
@@ -234,6 +262,23 @@ from utils.exceptions import DraftRosterError
 from utils.news_logger import log_news_event
 from utils.rating_display import overall_rating, rating_display_text, rating_display_value
 from utils.team_loader import load_teams
+
+
+class _DraftSortItem(QTableWidgetItem):
+    def __init__(self, text: str = "", sort_value: float | int | None = None) -> None:
+        super().__init__(text)
+        self._sort_value = sort_value
+
+    def __lt__(self, other) -> bool:  # type: ignore[override]
+        if isinstance(other, _DraftSortItem):
+            left = self._sort_value
+            right = other._sort_value
+            if left is None:
+                left = float("-inf")
+            if right is None:
+                right = float("-inf")
+            return left < right
+        return super().__lt__(other)
 
 
 class DraftConsole(QDialog):
@@ -311,6 +356,17 @@ class DraftConsole(QDialog):
             self.table.itemDoubleClicked.connect(self._open_profile_from_selection)
         except Exception:
             pass
+        try:
+            header = self.table.horizontalHeader()
+            header.setSectionsClickable(True)
+            header.setSortIndicatorShown(True)
+        except Exception:
+            pass
+        try:
+            self.table.setSortingEnabled(True)
+        except Exception:
+            pass
+        self._sort_initialized = False
         left.addWidget(self.table, 1)
         sr = QHBoxLayout()
         sr.addWidget(QLabel("Search:"))
@@ -518,11 +574,8 @@ class DraftConsole(QDialog):
         *,
         size: int = 9,
     ) -> None:
-        item = QTableWidgetItem("")
-        if display_value is not None:
-            item.setData(Qt.ItemDataRole.EditRole, float(display_value))
-            item.setText("")
-            item.setData(Qt.ItemDataRole.DisplayRole, "")
+        sort_value = display_value if display_value is not None else None
+        item = _DraftSortItem("", sort_value=sort_value)
         table.setItem(row, col, item)
         if display_value is None:
             return
@@ -557,6 +610,20 @@ class DraftConsole(QDialog):
         label.setText("")
 
     def _populate_table(self, rows: list[dict]) -> None:
+        sort_col = None
+        sort_order = None
+        if getattr(self, "_sort_initialized", False):
+            try:
+                header = self.table.horizontalHeader()
+                sort_col = header.sortIndicatorSection()
+                sort_order = header.sortIndicatorOrder()
+            except Exception:
+                sort_col = None
+                sort_order = None
+        try:
+            self.table.setSortingEnabled(False)
+        except Exception:
+            pass
         self.table.setRowCount(len(rows))
         for r, p in enumerate(rows):
             name = f"{p.get('first_name','')} {p.get('last_name','')}".strip()
@@ -573,9 +640,21 @@ class DraftConsole(QDialog):
                 f"/{rating_display_text(p.get('fa', 0), key='FA', position=pos, is_pitcher=is_pitcher)}"
             )
             age = self._age_from_birthdate(str(p.get("birthdate", "")))
+            age_val = None
+            try:
+                if age:
+                    age_val = int(age)
+            except Exception:
+                age_val = None
             self.table.setItem(r, 0, QTableWidgetItem(p.get("player_id", "")))
             self.table.setItem(r, 1, QTableWidgetItem(name))
-            self.table.setItem(r, 2, QTableWidgetItem(age))
+            age_item = _DraftSortItem(age, sort_value=age_val)
+            if age_val is not None:
+                try:
+                    age_item.setData(Qt.ItemDataRole.DisplayRole, int(age_val))
+                except Exception:
+                    pass
+            self.table.setItem(r, 2, age_item)
             self.table.setItem(r, 3, QTableWidgetItem(pos))
             display_ovr = self._overall_display_value(p)
             self._set_ovr_cell(self.table, r, 4, display_ovr)
@@ -591,6 +670,27 @@ class DraftConsole(QDialog):
             )
             self.table.setItem(r, 8, QTableWidgetItem(encomo))
         self.table.resizeColumnsToContents()
+        try:
+            self.table.setSortingEnabled(True)
+        except Exception:
+            pass
+        if sort_col is None or int(sort_col) < 0:
+            sort_col = 4
+            sort_order = getattr(getattr(Qt, "SortOrder", None), "DescendingOrder", None)
+        try:
+            header = self.table.horizontalHeader()
+            if sort_order is not None:
+                header.setSortIndicator(int(sort_col), sort_order)
+        except Exception:
+            pass
+        try:
+            if sort_order is None:
+                self.table.sortItems(int(sort_col))
+            else:
+                self.table.sortItems(int(sort_col), sort_order)
+        except Exception:
+            pass
+        self._sort_initialized = True
         # Maintain preview after refresh
         self._update_preview_from_selection()
 

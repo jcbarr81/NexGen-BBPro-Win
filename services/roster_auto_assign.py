@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple, Set
 
+from playbalance.aging import calculate_age
 from utils.path_utils import get_base_dir
 from utils.player_loader import load_players_from_csv
 from utils.team_loader import load_teams
@@ -29,6 +30,10 @@ from utils.pitcher_role import get_role
 ACTIVE_MAX = 25
 AAA_MAX = 15
 LOW_MAX = 10
+AAA_MIN_PITCHERS = 4
+AAA_MIN_HITTERS = 4
+PROSPECT_AGE_CUTOFF = 21
+PROSPECT_BONUS_PER_YEAR = 1.5
 
 # Defensive positions that must be represented by at least one
 # eligible player on the Active (ACT) roster to allow a legal lineup.
@@ -106,6 +111,34 @@ def _overall_score(p) -> float:
     return max(0.0, min(99.0, float(avg)))
 
 
+def _player_age(player: object) -> int | None:
+    birthdate = getattr(player, "birthdate", None)
+    if not birthdate:
+        return None
+    try:
+        return calculate_age(str(birthdate))
+    except Exception:
+        return None
+
+
+def _age_bonus(age: int | None) -> float:
+    if age is None or age >= PROSPECT_AGE_CUTOFF:
+        return 0.0
+    return float(PROSPECT_AGE_CUTOFF - age) * PROSPECT_BONUS_PER_YEAR
+
+
+def _active_sort_key(player: object) -> tuple[float, int]:
+    age = _player_age(player)
+    age_value = age if age is not None else 99
+    return (_overall_score(player), -age_value)
+
+
+def _prospect_sort_key(player: object) -> tuple[float, int]:
+    age = _player_age(player)
+    age_value = age if age is not None else 99
+    return (_overall_score(player) + _age_bonus(age), -age_value)
+
+
 def _pitcher_score(p) -> float:
     # Preserve a role-aware score for tie-breaks and staff shaping
     endurance = float(getattr(p, "endurance", 0))
@@ -151,8 +184,8 @@ def _pick_active_roster(
 
     # Sort by overall to align with UI/user expectations; use role-aware
     # pitcher score only for shaping the staff (e.g., guaranteeing SPs)
-    hitters_sorted = sorted(hitters, key=_overall_score, reverse=True)
-    pitchers_sorted = sorted(pitchers, key=_overall_score, reverse=True)
+    hitters_sorted = sorted(hitters, key=_active_sort_key, reverse=True)
+    pitchers_sorted = sorted(pitchers, key=_active_sort_key, reverse=True)
 
     # Build the pitching staff: at least 5 SPs if available, then best remaining
     sps = [p for p in pitchers_sorted if get_role(p) == "SP"]
@@ -233,6 +266,51 @@ def _pick_active_roster(
     return act_ids, rest_hitters, rest_pitchers
 
 
+def _pick_minor_rosters(
+    hitters: List[object],
+    pitchers: List[object],
+) -> Tuple[List[str], List[str]]:
+    hitters_sorted = sorted(hitters, key=_prospect_sort_key, reverse=True)
+    pitchers_sorted = sorted(pitchers, key=_prospect_sort_key, reverse=True)
+
+    total = len(hitters_sorted) + len(pitchers_sorted)
+    if total == 0:
+        return [], []
+
+    if hitters_sorted and pitchers_sorted:
+        ratio = len(pitchers_sorted) / total
+        min_pitchers = min(AAA_MIN_PITCHERS, len(pitchers_sorted))
+        min_hitters = min(AAA_MIN_HITTERS, len(hitters_sorted))
+        target_pitchers = int(round(AAA_MAX * ratio))
+        target_pitchers = max(min_pitchers, min(target_pitchers, AAA_MAX - min_hitters))
+    elif pitchers_sorted:
+        target_pitchers = min(AAA_MAX, len(pitchers_sorted))
+    else:
+        target_pitchers = 0
+
+    target_pitchers = min(target_pitchers, len(pitchers_sorted))
+    target_hitters = min(AAA_MAX - target_pitchers, len(hitters_sorted))
+
+    while target_hitters + target_pitchers < AAA_MAX:
+        if len(hitters_sorted) > target_hitters:
+            target_hitters += 1
+            continue
+        if len(pitchers_sorted) > target_pitchers:
+            target_pitchers += 1
+            continue
+        break
+
+    aaa_players = hitters_sorted[:target_hitters] + pitchers_sorted[:target_pitchers]
+    aaa_players = sorted(aaa_players, key=_overall_score, reverse=True)
+    aaa_ids = [getattr(p, "player_id") for p in aaa_players][:AAA_MAX]
+
+    aaa_set = set(aaa_ids)
+    remainder = [p for p in hitters_sorted + pitchers_sorted if getattr(p, "player_id") not in aaa_set]
+    remainder = sorted(remainder, key=_overall_score, reverse=True)
+    low_ids = [getattr(p, "player_id") for p in remainder][:LOW_MAX]
+    return aaa_ids, low_ids
+
+
 def auto_assign_team(team_id: str, *, players_file: str = "data/players.csv", roster_dir: str = "data/rosters") -> None:
     base = get_base_dir()
     players = {p.player_id: p for p in load_players_from_csv(players_file)}
@@ -246,23 +324,8 @@ def auto_assign_team(team_id: str, *, players_file: str = "data/players.csv", ro
     # Choose Active roster
     act_ids, rest_hitters, rest_pitchers = _pick_active_roster(buckets.hitters, buckets.pitchers)
 
-    # Next best to AAA (cap 15)
-    remainder = rest_hitters + rest_pitchers
-    aaa_ids: List[str] = []
-    for p in sorted(remainder, key=_overall_score, reverse=True):
-        if len(aaa_ids) >= AAA_MAX:
-            break
-        aaa_ids.append(getattr(p, "player_id"))
-
-    # Remaining to Low (cap 10)
-    low_ids: List[str] = []
-    for p in remainder:
-        pid = getattr(p, "player_id")
-        if pid in act_ids or pid in aaa_ids:
-            continue
-        if len(low_ids) >= LOW_MAX:
-            break
-        low_ids.append(pid)
+    # Balance minors so AAA isn't stacked with only hitters or pitchers.
+    aaa_ids, low_ids = _pick_minor_rosters(rest_hitters, rest_pitchers)
 
     # Preserve injured players on DL/IR: keep existing DL/IR and move any newly
     # identified injured players from the org pool to DL if they aren't already there.

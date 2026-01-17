@@ -179,6 +179,31 @@ class OwnerHomePage(QWidget):
         self.quick_actions_card = Card()
         self.quick_actions_card.setMinimumHeight(180)
         self.quick_actions_card.layout().addWidget(section_title("Quick Actions"))
+        self.draft_notice = QWidget()
+        draft_layout = QHBoxLayout(self.draft_notice)
+        draft_layout.setContentsMargins(12, 10, 12, 10)
+        draft_layout.setSpacing(12)
+        self.draft_notice_label = QLabel("Draft is ready.")
+        self.draft_notice_label.setWordWrap(True)
+        self.draft_notice_label.setStyleSheet(
+            "font-weight: 700; color: #c3521f;"
+        )
+        self.draft_notice_button = QPushButton(
+            "Open Draft Console", objectName="Primary"
+        )
+        self.draft_notice_button.clicked.connect(
+            self._dashboard.open_draft_console
+        )
+        draft_layout.addWidget(self.draft_notice_label, 1)
+        draft_layout.addWidget(
+            self.draft_notice_button, alignment=Qt.AlignmentFlag.AlignRight
+        )
+        self.draft_notice.setStyleSheet(
+            "background-color: rgba(195, 82, 31, 0.12); "
+            "border: 1px solid #c3521f; border-radius: 10px;"
+        )
+        self.draft_notice.setVisible(False)
+        self.quick_actions_card.layout().addWidget(self.draft_notice)
         self.quick_buttons: list[QPushButton] = []
 
         button_groups = [
@@ -435,6 +460,7 @@ class OwnerHomePage(QWidget):
             self._news_lines = []
 
         self._update_news_display()
+        self._update_draft_notice()
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
@@ -626,6 +652,18 @@ class OwnerHomePage(QWidget):
             self.news_toggle.setText(
                 "Hide full feed" if self.news_toggle.isChecked() else "View all"
             )
+
+    def _update_draft_notice(self) -> None:
+        notice = {}
+        getter = getattr(self._dashboard, "get_draft_notice", None)
+        if callable(getter):
+            notice = getter() or {}
+        visible = bool(notice.get("visible"))
+        self.draft_notice.setVisible(visible)
+        if not visible:
+            return
+        message = notice.get("message") or "Draft is ready."
+        self.draft_notice_label.setText(str(message))
 
     def _arrange_quick_actions(self, columns: int) -> None:
         narrow = columns == 1
