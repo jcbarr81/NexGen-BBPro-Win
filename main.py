@@ -1,5 +1,8 @@
 import os
 import sys
+import logging
+import traceback
+from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, qInstallMessageHandler
 from PyQt6.QtGui import QGuiApplication, QFont, QIcon
@@ -11,6 +14,87 @@ from ui.version_badge import install_version_badge
 from utils.path_utils import get_base_dir
 
 _PREV_QT_HANDLER = None
+_LOG_FILE_HANDLE = None
+
+
+def _startup_log_dir() -> Path:
+    base_dir = get_base_dir()
+    candidates = [
+        base_dir / "data" / "logs",
+        base_dir / "logs",
+    ]
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            return candidate
+        except OSError:
+            continue
+    local_app = os.environ.get("LOCALAPPDATA")
+    if local_app:
+        fallback = Path(local_app) / "NexGen-BBPro" / "logs"
+        try:
+            fallback.mkdir(parents=True, exist_ok=True)
+            return fallback
+        except OSError:
+            pass
+    return Path.cwd()
+
+
+def _configure_startup_logging() -> None:
+    global _LOG_FILE_HANDLE
+
+    log_dir = _startup_log_dir()
+    log_path = log_dir / "startup.log"
+
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+    try:
+        import faulthandler
+
+        _LOG_FILE_HANDLE = open(log_path, "a", encoding="utf-8")
+        faulthandler.enable(_LOG_FILE_HANDLE)
+    except Exception:
+        _LOG_FILE_HANDLE = None
+
+    logging.info("Startup log initialized at %s", log_path)
+    logging.info("CWD=%s", Path.cwd())
+    logging.info("EXE=%s", sys.executable)
+    logging.info("ARGV=%s", sys.argv)
+    logging.info("MEIPASS=%s", getattr(sys, "_MEIPASS", None))
+    logging.info("BASE_DIR=%s", get_base_dir())
+
+    try:
+        os.chdir(get_base_dir())
+        logging.info("CWD set to %s", Path.cwd())
+    except OSError:
+        logging.warning("Unable to set CWD to base dir", exc_info=True)
+
+    def _excepthook(exc_type, exc, tb):
+        if exc_type is SystemExit:
+            return
+        logging.error("Unhandled exception: %s", exc, exc_info=(exc_type, exc, tb))
+        traceback.print_exception(exc_type, exc, tb)
+
+    sys.excepthook = _excepthook
+
+    try:
+        import threading
+
+        def _thread_hook(args):
+            logging.error(
+                "Unhandled thread exception: %s",
+                args.exc_value,
+                exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+            )
+
+        threading.excepthook = _thread_hook  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 
 def _show_splash_window(window: SplashScreen, app: QApplication) -> None:
@@ -89,10 +173,19 @@ def _install_qt_warning_filter() -> None:
     def _handler(mode, context, message):
         if "QFont::setPointSize" in message:
             return
+        try:
+            logging.info("Qt: %s", message)
+        except Exception:
+            pass
         if _PREV_QT_HANDLER is not None:
             _PREV_QT_HANDLER(mode, context, message)
             return
-        sys.stderr.write(f"{message}\n")
+        stream = sys.stderr
+        if stream is not None and hasattr(stream, "write"):
+            try:
+                stream.write(f"{message}\n")
+            except Exception:
+                pass
 
     _PREV_QT_HANDLER = qInstallMessageHandler(_handler)
 
@@ -111,16 +204,21 @@ def _set_windows_app_id() -> None:
 
 
 def main():
+    _configure_startup_logging()
     _install_qt_warning_filter()
     _set_windows_app_id()
-    app = QApplication(sys.argv)
-    _apply_app_icon(app)
-    _normalize_app_font(app)
-    app.setStyleSheet(DARK_QSS)
-    install_version_badge(app)
-    splash = SplashScreen()
-    _show_splash_window(splash, app)
-    sys.exit(app.exec())
+    try:
+        app = QApplication(sys.argv)
+        _apply_app_icon(app)
+        _normalize_app_font(app)
+        app.setStyleSheet(DARK_QSS)
+        install_version_badge(app)
+        splash = SplashScreen()
+        _show_splash_window(splash, app)
+        sys.exit(app.exec())
+    except Exception:
+        logging.exception("Fatal startup failure")
+        raise
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 from PyQt6.QtCore import Qt
+import logging
 import sys
 import importlib
 
@@ -20,6 +21,7 @@ from ui.version_badge import install_version_badge
 
 # Determine the path to the users file in a cross-platform way
 USER_FILE = get_base_dir() / "data" / "users.txt"
+logger = logging.getLogger(__name__)
 
 class LoginWindow(QWidget):
     def __init__(self, splash=None):
@@ -55,33 +57,41 @@ class LoginWindow(QWidget):
         self._ensure_maximized()
 
     def handle_login(self):
-        username = self.username_input.text()
-        password = self.password_input.text()
+        try:
+            username = self.username_input.text()
+            password = self.password_input.text()
 
-        if not USER_FILE.exists():
-            QMessageBox.critical(self, "Error", "User file not found.")
-            return
+            if not USER_FILE.exists():
+                QMessageBox.critical(self, "Error", "User file not found.")
+                return
 
-        with USER_FILE.open("r") as f:
-            for line in f:
-                parts = line.strip().split(",")
-                if len(parts) != 4:
-                    continue
-                file_user, file_pass, role, team_id = parts
-                if file_user != username:
-                    continue
-                hashed_match = False
-                try:
-                    hashed_match = bcrypt.checkpw(
-                        password.encode("utf-8"), file_pass.encode("utf-8")
-                    )
-                except ValueError:
+            with USER_FILE.open("r") as f:
+                for line in f:
+                    parts = line.strip().split(",")
+                    if len(parts) != 4:
+                        continue
+                    file_user, file_pass, role, team_id = parts
+                    if file_user != username:
+                        continue
                     hashed_match = False
-                if hashed_match or password == file_pass:
-                    self.accept_login(role, team_id)
-                    return
+                    try:
+                        hashed_match = bcrypt.checkpw(
+                            password.encode("utf-8"), file_pass.encode("utf-8")
+                        )
+                    except ValueError:
+                        hashed_match = False
+                    if hashed_match or password == file_pass:
+                        self.accept_login(role, team_id)
+                        return
 
-        QMessageBox.warning(self, "Login Failed", "Invalid username or password.")
+            QMessageBox.warning(self, "Login Failed", "Invalid username or password.")
+        except Exception:
+            logger.exception("Login handler failed")
+            QMessageBox.critical(
+                self,
+                "Error",
+                "Login failed due to an unexpected error. See startup.log for details.",
+            )
 
     def accept_login(self, role, team_id):
         if role == "admin":

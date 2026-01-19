@@ -250,8 +250,9 @@ def generate_player_avatars(
                 shutil.rmtree(item)
 
     # Collect all player IDs across rosters
+    team_colors = _load_team_color_map()
     player_team_pairs = []
-    for team_id in _TEAM_COLOR_MAP:
+    for team_id in team_colors:
         roster = load_roster(team_id)
         ids = roster.act + roster.aaa + roster.low + roster.dl + roster.ir
         for pid in ids:
@@ -265,6 +266,8 @@ def generate_player_avatars(
 
     if progress_callback is not None:
         _report_progress(0)
+    if not player_team_pairs:
+        return str(out_path)
 
     for idx, (pid, team_id) in enumerate(player_team_pairs, start=1):
         player = players.get(pid)
@@ -303,15 +306,29 @@ def generate_player_avatars(
     return str(out_path)
 
 
-# Preload team colors once to avoid repeated file reads.
-# Mapping: team_id -> {"primary": color, "secondary": color}
-_TEAM_COLOR_MAP: Dict[str, Dict[str, str]] = {
-    t.team_id: {
-        "primary": t.primary_color,
-        "secondary": t.secondary_color,
+_TEAM_COLOR_MAP: Dict[str, Dict[str, str]] = {}
+_TEAM_COLOR_MAP_LOADED = False
+
+
+def _load_team_color_map() -> Dict[str, Dict[str, str]]:
+    """Return team color mapping when available, otherwise an empty map."""
+    global _TEAM_COLOR_MAP_LOADED, _TEAM_COLOR_MAP
+    if _TEAM_COLOR_MAP_LOADED:
+        return _TEAM_COLOR_MAP
+    _TEAM_COLOR_MAP_LOADED = True
+    try:
+        teams = load_teams("data/teams.csv")
+    except Exception:
+        _TEAM_COLOR_MAP = {}
+        return _TEAM_COLOR_MAP
+    _TEAM_COLOR_MAP = {
+        t.team_id: {
+            "primary": t.primary_color,
+            "secondary": t.secondary_color,
+        }
+        for t in teams
     }
-    for t in load_teams("data/teams.csv")
-}
+    return _TEAM_COLOR_MAP
 
 
 # Preload ethnicity data from names.csv for quick lookups.
@@ -319,16 +336,30 @@ _TEAM_COLOR_MAP: Dict[str, Dict[str, str]] = {
 _NAME_ETHNICITY_FULL: Dict[Tuple[str, str], Counter[str]] = defaultdict(Counter)
 # Mapping: individual name -> Counter of ethnicities
 _NAME_ETHNICITY_SINGLE: Dict[str, Counter[str]] = defaultdict(Counter)
+_NAME_ETHNICITY_LOADED = False
 
-with Path("data/names.csv").open(newline="", encoding="utf-8") as f:
-    reader = csv.DictReader(f)
-    for row in reader:
-        ethnicity = row["ethnicity"]
-        first = row["first_name"].strip().lower()
-        last = row["last_name"].strip().lower()
-        _NAME_ETHNICITY_FULL[(first, last)][ethnicity] += 1
-        _NAME_ETHNICITY_SINGLE[first][ethnicity] += 1
-        _NAME_ETHNICITY_SINGLE[last][ethnicity] += 1
+
+def _ensure_name_ethnicity_loaded() -> None:
+    global _NAME_ETHNICITY_LOADED
+    if _NAME_ETHNICITY_LOADED:
+        return
+    _NAME_ETHNICITY_LOADED = True
+    try:
+        with Path("data/names.csv").open(newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                ethnicity = row.get("ethnicity")
+                first = (row.get("first_name") or "").strip().lower()
+                last = (row.get("last_name") or "").strip().lower()
+                if not ethnicity or not (first or last):
+                    continue
+                _NAME_ETHNICITY_FULL[(first, last)][ethnicity] += 1
+                if first:
+                    _NAME_ETHNICITY_SINGLE[first][ethnicity] += 1
+                if last:
+                    _NAME_ETHNICITY_SINGLE[last][ethnicity] += 1
+    except OSError:
+        return
 
 
 def _infer_ethnicity(name: str) -> str:
@@ -343,6 +374,7 @@ def _infer_ethnicity(name: str) -> str:
     if not parts:
         return "unspecified"
 
+    _ensure_name_ethnicity_loaded()
     first, last = parts[0], parts[-1]
 
     scores: Counter[str] = Counter()
@@ -357,7 +389,7 @@ def _infer_ethnicity(name: str) -> str:
 
 
 def _team_colors(team_id: str) -> Dict[str, str]:
-    return _TEAM_COLOR_MAP.get(
+    return _load_team_color_map().get(
         team_id, {"primary": "#000000", "secondary": "#ffffff"}
     )
 
