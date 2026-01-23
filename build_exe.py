@@ -61,6 +61,7 @@ def main() -> None:
         "samples",
         "config",
         os.path.join("ui", "icons"),
+        os.path.join("images", "parks"),
     ]
     data_files = [
         ("VERSION", "."),

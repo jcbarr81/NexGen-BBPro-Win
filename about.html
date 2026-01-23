@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>About | NexGen BBPro</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;600&family=Teko:wght@500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink: #0b1623;
+        --ink-soft: #243145;
+        --accent: #d0602e;
+        --accent-2: #f2b43c;
+        --surface: rgba(255, 255, 255, 0.78);
+        --edge: rgba(11, 22, 35, 0.12);
+        --shadow: 0 24px 60px rgba(11, 22, 35, 0.18);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        font-family: "IBM Plex Sans", sans-serif;
+        background:
+          radial-gradient(1000px 520px at 12% -10%, #fff2d6 0%, transparent 60%),
+          radial-gradient(900px 520px at 92% 5%, #e2f0ff 0%, transparent 55%),
+          linear-gradient(180deg, #f7f1e7 0%, #f2f5f7 100%);
+        min-height: 100vh;
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family: "Teko", sans-serif;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        margin: 0 0 0.35em 0;
+      }
+
+      p {
+        margin: 0 0 1em 0;
+        line-height: 1.6;
+        color: var(--ink-soft);
+      }
+
+      .backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+      }
+
+      .orb {
+        position: absolute;
+        border-radius: 999px;
+        filter: blur(0.5px);
+        opacity: 0.85;
+      }
+
+      .orb.one {
+        width: 320px;
+        height: 320px;
+        background: radial-gradient(circle at 30% 30%, #f2b43c, #d0602e);
+        top: -140px;
+        right: 8%;
+      }
+
+      .orb.two {
+        width: 220px;
+        height: 220px;
+        background: radial-gradient(circle at 40% 40%, #0b1623, #1f3a54);
+        bottom: 8%;
+        left: -90px;
+        opacity: 0.25;
+      }
+
+      .orb.three {
+        width: 180px;
+        height: 180px;
+        background: radial-gradient(circle at 50% 50%, #c8e3ff, #7aa6d6);
+        top: 48%;
+        right: -60px;
+        opacity: 0.35;
+      }
+
+      .page {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 36px 24px 80px;
+      }
+
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .brand {
+        font-family: "Teko", sans-serif;
+        font-size: 30px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .brand span {
+        color: var(--accent);
+      }
+
+      .nav a {
+        text-decoration: none;
+        color: var(--ink);
+        font-weight: 600;
+        border-bottom: 2px solid transparent;
+      }
+
+      .nav a:hover {
+        border-bottom-color: var(--accent);
+      }
+
+      .hero {
+        margin-top: 50px;
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+        gap: 36px;
+        align-items: center;
+      }
+
+      .eyebrow {
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.25em;
+        color: var(--accent);
+        font-size: 12px;
+      }
+
+      .hero h1 {
+        font-size: clamp(42px, 6vw, 74px);
+        line-height: 0.95;
+      }
+
+      .hero .lead {
+        font-size: 18px;
+        max-width: 520px;
+      }
+
+      .cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 24px;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 12px 22px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        font-weight: 600;
+        text-decoration: none;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .btn.primary {
+        background: var(--ink);
+        color: #fff;
+        box-shadow: 0 14px 30px rgba(11, 22, 35, 0.25);
+      }
+
+      .btn.secondary {
+        background: transparent;
+        color: var(--ink);
+        border-color: var(--ink);
+      }
+
+      .btn:hover {
+        transform: translateY(-2px);
+      }
+
+      .hero-card {
+        background: var(--surface);
+        border: 1px solid var(--edge);
+        border-radius: 24px;
+        padding: 24px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(10px);
+      }
+
+      .hero-card h3 {
+        font-size: 22px;
+      }
+
+      .hero-card ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 12px;
+      }
+
+      .hero-card li {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        color: var(--ink-soft);
+        font-size: 15px;
+      }
+
+      .hero-card .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        margin-top: 6px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        flex-shrink: 0;
+      }
+
+      .section {
+        margin-top: 80px;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 32px;
+      }
+
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--edge);
+        border-radius: 20px;
+        padding: 28px;
+        box-shadow: 0 18px 40px rgba(11, 22, 35, 0.12);
+        backdrop-filter: blur(8px);
+      }
+
+      .features {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 20px;
+      }
+
+      .feature-card {
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid var(--edge);
+        border-radius: 18px;
+        padding: 22px;
+        min-height: 170px;
+        box-shadow: 0 14px 28px rgba(11, 22, 35, 0.1);
+        animation: rise 0.7s ease both;
+        animation-delay: var(--delay, 0s);
+      }
+
+      .feature-card h3 {
+        font-size: 20px;
+      }
+
+      .highlight {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+        gap: 28px;
+        align-items: center;
+        background: linear-gradient(120deg, #0b1623 0%, #1f2f45 100%);
+        border-radius: 24px;
+        padding: 28px;
+        color: #fff;
+      }
+
+      .highlight p {
+        color: rgba(255, 255, 255, 0.78);
+      }
+
+      .highlight .badge {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(242, 180, 60, 0.18);
+        color: var(--accent-2);
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .cta-band {
+        margin-top: 72px;
+        background: var(--surface);
+        border: 1px solid var(--edge);
+        border-radius: 22px;
+        padding: 32px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        gap: 20px;
+        box-shadow: 0 20px 50px rgba(11, 22, 35, 0.14);
+      }
+
+      .cta-band h2 {
+        font-size: clamp(28px, 4vw, 40px);
+      }
+
+      footer {
+        margin-top: 60px;
+        text-align: center;
+        color: rgba(11, 22, 35, 0.55);
+        font-size: 13px;
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (max-width: 960px) {
+        .hero,
+        .split,
+        .highlight {
+          grid-template-columns: 1fr;
+        }
+
+        .features {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 640px) {
+        .features {
+          grid-template-columns: 1fr;
+        }
+
+        .nav {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="backdrop" aria-hidden="true">
+      <span class="orb one"></span>
+      <span class="orb two"></span>
+      <span class="orb three"></span>
+    </div>
+
+    <div class="page">
+      <nav class="nav">
+        <div class="brand">NexGen <span>BBPro</span></div>
+        <a href="#features">See features</a>
+      </nav>
+
+      <header class="hero">
+        <div>
+          <div class="eyebrow">About the game</div>
+          <h1>Build a dynasty and feel every pitch.</h1>
+          <p class="lead">
+            NexGen BBPro is a full-season baseball management sim powered by a
+            tuned physics engine. Run the front office, shape your roster, and
+            guide a league from opening day to a championship with the depth
+            serious baseball fans expect.
+          </p>
+          <div class="cta-row">
+            <a class="btn primary" href="#">Get NexGen BBPro</a>
+            <a class="btn secondary" href="#features">Explore the league</a>
+          </div>
+        </div>
+        <aside class="hero-card">
+          <h3>At a glance</h3>
+          <ul>
+            <li><span class="dot"></span>Physics-driven outcomes tuned for realistic seasons</li>
+            <li><span class="dot"></span>Drafts, trades, and roster control across levels</li>
+            <li><span class="dot"></span>MLB-style playoffs with bracket viewing</li>
+            <li><span class="dot"></span>AI-generated team logos and player avatars</li>
+          </ul>
+        </aside>
+      </header>
+
+      <section class="section split">
+        <div class="panel">
+          <h2>What it is</h2>
+          <p>
+            NexGen BBPro is a league-first baseball sim where strategy and
+            realism meet. You are not just managing a lineup, you are steering
+            a living league with draft classes, injuries, awards, history, and
+            every decision that shapes a franchise.
+          </p>
+        </div>
+        <div class="panel">
+          <h2>Why it feels real</h2>
+          <p>
+            The simulation engine is built to keep long-run stats grounded,
+            while still delivering dramatic game-to-game swings. Pitcher usage,
+            contact quality, and defensive outcomes all matter, so smart roster
+            construction pays off over a full season.
+          </p>
+        </div>
+      </section>
+
+      <section class="section" id="features">
+        <h2>Core features</h2>
+        <div class="features">
+          <div class="feature-card" style="--delay: 0s;">
+            <h3>Physics-based simulation</h3>
+            <p>
+              A tuned physics engine drives every pitch, ball in play, and
+              outcome to keep league stats believable over the long haul.
+            </p>
+          </div>
+          <div class="feature-card" style="--delay: 0.08s;">
+            <h3>Full franchise control</h3>
+            <p>
+              Set lineups, manage rotations, move players across levels, and
+              balance your roster with built-in validation.
+            </p>
+          </div>
+          <div class="feature-card" style="--delay: 0.16s;">
+            <h3>Draft day drama</h3>
+            <p>
+              Run an amateur draft with a live console, AI picks, and persistent
+              results that shape your pipeline.
+            </p>
+          </div>
+          <div class="feature-card" style="--delay: 0.24s;">
+            <h3>Trades and free agents</h3>
+            <p>
+              Propose trades, review deals, and fill roster gaps with a
+              lightweight free agent flow.
+            </p>
+          </div>
+          <div class="feature-card" style="--delay: 0.32s;">
+            <h3>Playoffs and history</h3>
+            <p>
+              MLB-style postseason series, a bracket viewer, champions log, and
+              awards keep your league story moving.
+            </p>
+          </div>
+          <div class="feature-card" style="--delay: 0.4s;">
+            <h3>League identity</h3>
+            <p>
+              Customize team colors, generate AI logos and avatars, and watch
+              your league build its own look and legacy.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section highlight">
+        <div>
+          <span class="badge">League first design</span>
+          <h2>Run the league, not just the game</h2>
+          <p>
+            NexGen BBPro blends owner tools and admin power so a whole baseball
+            universe stays connected. Track standings, follow league leaders,
+            simulate to key milestones, and step into the postseason with a
+            clear picture of how you got there.
+          </p>
+        </div>
+        <div>
+          <p>
+            The result is a season that feels earned. Every roster move,
+            strategy tweak, and draft pick has a visible impact on how your
+            league evolves.
+          </p>
+        </div>
+      </section>
+
+      <section class="cta-band">
+        <div>
+          <h2>Ready to build your baseball legacy?</h2>
+          <p>
+            Lead your franchise, tell the story of a league, and own the season
+            from first pitch to final out.
+          </p>
+        </div>
+        <a class="btn primary" href="#">Get NexGen BBPro</a>
+      </section>
+
+      <footer>Ultimate Baseball League Simulation - NexGen BBPro</footer>
+    </div>
+  </body>
+</html>
