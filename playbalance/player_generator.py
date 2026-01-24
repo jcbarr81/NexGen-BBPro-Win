@@ -1116,6 +1116,31 @@ _DRAFT_RATING_KEYS = (
     "scb",
     "kn",
 )
+_DRAFT_HITTER_KEYS = {
+    "ch",
+    "ph",
+    "sp",
+    "eye",
+    "gf",
+    "pl",
+    "vl",
+    "sc",
+    "fa",
+    "arm",
+}
+_DRAFT_PITCHER_KEYS = {
+    "endurance",
+    "control",
+    "movement",
+    "hold_runner",
+    "fb",
+    "cu",
+    "cb",
+    "sl",
+    "si",
+    "scb",
+    "kn",
+}
 _DRAFT_MIN_RATING = 20
 
 
@@ -1135,13 +1160,17 @@ def _apply_draft_rating_scale(player: Dict[str, Any], age: int) -> None:
     """Reduce draft ratings so young players start below their potentials."""
 
     scale = _draft_rating_scale(age)
+    # Add a small draft-only variance so CH/PH don't collapse to identical values.
+    hit_jitter = random.uniform(0.92, 1.08)
+    pitch_jitter = random.uniform(0.92, 1.08)
     for key in _DRAFT_RATING_KEYS:
         value = player.get(key)
         if not isinstance(value, (int, float)):
             continue
         if value <= 0:
             continue
-        scaled = int(round(value * scale))
+        jitter = hit_jitter if key in _DRAFT_HITTER_KEYS else pitch_jitter
+        scaled = int(round(value * scale * jitter))
         player[key] = max(_DRAFT_MIN_RATING, min(99, scaled))
 
 

@@ -135,9 +135,10 @@ def _rating_profile(selection: str | None = None) -> str:
 
 
 def _draft_birthdate(year: int) -> str:
+    age = random.randint(17, 21)
     month = random.randint(1, 12)
     day = random.randint(1, 28)
-    return f"{year - 18}-{month:02d}-{day:02d}"
+    return f"{year - age}-{month:02d}-{day:02d}"
 
 
 def _coerce_list(value: object) -> List[str]:
@@ -318,7 +319,7 @@ def generate_draft_pool(
                 player = pg.generate_player(
                     is_pitcher=True,
                     for_draft=True,
-                    age_range=(18, 18),
+                    age_range=(17, 21),
                     pitcher_archetype=archetype,
                     rating_profile=profile,
                 )
@@ -326,10 +327,12 @@ def generate_draft_pool(
                 player = pg.generate_player(
                     is_pitcher=False,
                     for_draft=True,
-                    age_range=(18, 18),
+                    age_range=(17, 21),
                     primary_position=pos,
                     rating_profile=profile,
                 )
+            if player.get("birthdate"):
+                birthdate = str(player.get("birthdate"))
             pool.append(
                 _prospect_from_player(
                     player=player,

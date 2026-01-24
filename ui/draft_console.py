@@ -244,7 +244,11 @@ except Exception:  # pragma: no cover - lightweight stubs for headless tests
         def isNull(self):
             return False
 
+
+
+from bisect import bisect_left
 from datetime import datetime
+import math
 from types import SimpleNamespace
 
 from playbalance.draft_config import load_draft_config
@@ -257,10 +261,10 @@ from services.draft_state import (
     save_state,
 )
 from services.season_progress_flags import ProgressUpdateError, mark_draft_completed
-from ui.star_rating import star_label, star_pixmap
+from ui.star_rating import star_label, star_pixmap, star_text
 from utils.exceptions import DraftRosterError
 from utils.news_logger import log_news_event
-from utils.rating_display import overall_rating, rating_display_text, rating_display_value
+from utils.rating_display import overall_rating
 from utils.team_loader import load_teams
 
 
@@ -282,6 +286,55 @@ class _DraftSortItem(QTableWidgetItem):
 
 
 class DraftConsole(QDialog):
+    _DRAFT_DISPLAY_KEY_MAP = {
+        "AS": "arm",
+        "ARM": "arm",
+        "CH": "ch",
+        "CO": "control",
+        "EN": "endurance",
+        "FA": "fa",
+        "GF": "gf",
+        "MO": "movement",
+        "OVR": "overall",
+        "PH": "ph",
+        "PL": "pl",
+        "SC": "sc",
+        "SP": "sp",
+        "VL": "vl",
+    }
+    _DRAFT_PITCH_KEYS = {"fb", "sl", "cu", "cb", "si", "scb", "kn"}
+    _DRAFT_HITTER_KEYS = (
+        "overall",
+        "ch",
+        "ph",
+        "sp",
+        "eye",
+        "gf",
+        "pl",
+        "vl",
+        "sc",
+        "fa",
+        "arm",
+    )
+    _DRAFT_PITCHER_KEYS = (
+        "overall",
+        "endurance",
+        "control",
+        "movement",
+        "hold_runner",
+        "arm",
+        "fa",
+        "fb",
+        "cu",
+        "cb",
+        "sl",
+        "si",
+        "scb",
+        "kn",
+    )
+    _DRAFT_DISPLAY_MIN = 35
+    _DRAFT_DISPLAY_MAX = 99
+    _DRAFT_CURVE_K = 6.0
     def __init__(self, draft_date: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Amateur Draft — Commissioner's Console")
@@ -301,6 +354,10 @@ class DraftConsole(QDialog):
         self.assignment_failures: list[str] = []
         self.assignment_summary: dict[str, object] = {}
         self.last_assignment_error: DraftRosterError | None = None
+        self._draft_display_dist: dict[str, dict[str, list[int]]] | None = (
+            None
+        )
+        self._draft_overall_values: list[int] | None = None
         self.banner = QLabel(f"Draft Day: {draft_date}")
         bfont = self.banner.font()
         bfont.setPointSize(max(bfont.pointSize() + 2, 12))
@@ -442,6 +499,7 @@ class DraftConsole(QDialog):
             self.status.setText(f"Draft pool loaded ({len(self.pool)} players).")
             # Build an index for lookup by ID
             self._pool_index = {str(p.get("player_id", "")): p for p in self.pool}
+            self._build_display_distributions(self.pool)
             self._populate_table(self.pool)
         self.state = load_state(self.year) or {}
         self._order_names = {t.team_id: f"{t.city} {t.name}" for t in load_teams()}
@@ -467,6 +525,7 @@ class DraftConsole(QDialog):
         save_draft_pool(self.year, pool)
         self.pool = [p.__dict__ for p in pool]
         self._pool_index = {str(p.get("player_id", "")): p for p in self.pool}
+        self._build_display_distributions(self.pool)
         self.status.setText(f"Draft pool generated ({len(pool)} players).")
         self._populate_table(self.pool)
 
@@ -519,6 +578,131 @@ class DraftConsole(QDialog):
         # Keep the console open so the commissioner can review and commit
         # results; do not close the dialog automatically here.
 
+    def _normalize_draft_key(self, key: str | None) -> str | None:
+        if not key:
+            return None
+        token = str(key).strip().upper()
+        return self._DRAFT_DISPLAY_KEY_MAP.get(token, token.lower())
+
+    def _draft_percentile(self, values: list[int], value: float) -> float | None:
+        if not values:
+            return None
+        if len(values) == 1:
+            return 1.0
+        idx = bisect_left(values, value)
+        if idx <= 0:
+            return 0.0
+        if idx >= len(values) - 1:
+            return 1.0
+        return idx / (len(values) - 1)
+
+    def _draft_logistic(self, pct: float) -> float:
+        pct = max(0.0, min(1.0, pct))
+        k = self._DRAFT_CURVE_K
+        raw = 1.0 / (1.0 + math.exp(-k * (pct - 0.5)))
+        min_val = 1.0 / (1.0 + math.exp(k * 0.5))
+        max_val = 1.0 / (1.0 + math.exp(-k * 0.5))
+        if max_val == min_val:
+            return pct
+        return (raw - min_val) / (max_val - min_val)
+
+    def _build_display_distributions(self, pool: list[dict]) -> None:
+        dist = {
+            "hitters": {key: [] for key in self._DRAFT_HITTER_KEYS},
+            "pitchers": {key: [] for key in self._DRAFT_PITCHER_KEYS},
+        }
+        overall_all: list[int] = []
+        if not pool:
+            self._draft_display_dist = dist
+            self._draft_overall_values = []
+            return
+        for p in pool:
+            is_pitcher = bool(p.get("is_pitcher")) or str(
+                p.get("primary_position", "")
+            ).upper() == "P"
+            group = "pitchers" if is_pitcher else "hitters"
+            keys = self._DRAFT_PITCHER_KEYS if is_pitcher else self._DRAFT_HITTER_KEYS
+            for key in keys:
+                if key == "overall":
+                    continue
+                raw = p.get(key)
+                if raw in (None, ""):
+                    continue
+                try:
+                    value = float(raw)
+                except (TypeError, ValueError):
+                    continue
+                if key in self._DRAFT_PITCH_KEYS and value <= 0:
+                    continue
+                dist[group][key].append(int(round(value)))
+            overall_val = int(self._overall_rating(p))
+            dist[group]["overall"].append(overall_val)
+            overall_all.append(overall_val)
+        for group in dist.values():
+            for values in group.values():
+                values.sort()
+        self._draft_display_dist = dist
+        overall_all.sort()
+        self._draft_overall_values = overall_all
+
+    def _draft_display_value(
+        self,
+        value: object,
+        *,
+        key: str | None = None,
+        is_pitcher: bool | None = None,
+    ) -> object:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return "" if value is None else str(value)
+
+        normalized_key = self._normalize_draft_key(key)
+        if not normalized_key:
+            return int(round(numeric))
+        if normalized_key in self._DRAFT_PITCH_KEYS and numeric <= 0:
+            return 0
+        dist = self._draft_display_dist
+        if not dist:
+            return int(round(numeric))
+        group = "pitchers" if is_pitcher else "hitters"
+        values = dist.get(group, {}).get(normalized_key, [])
+        pct = self._draft_percentile(values, numeric)
+        if pct is None:
+            return int(round(numeric))
+        adj_pct = self._draft_logistic(pct)
+        span = self._DRAFT_DISPLAY_MAX - self._DRAFT_DISPLAY_MIN
+        scaled = int(round(self._DRAFT_DISPLAY_MIN + adj_pct * span))
+        return max(self._DRAFT_DISPLAY_MIN, min(self._DRAFT_DISPLAY_MAX, scaled))
+
+    def _draft_display_text(
+        self,
+        value: object,
+        *,
+        key: str | None = None,
+        is_pitcher: bool | None = None,
+    ) -> str:
+        return str(self._draft_display_value(value, key=key, is_pitcher=is_pitcher))
+
+    def _draft_star_value(self, raw_value: float) -> float | None:
+        values = self._draft_overall_values or []
+        pct = self._draft_percentile(values, raw_value)
+        if pct is None:
+            return None
+        span = self._DRAFT_DISPLAY_MAX - self._DRAFT_DISPLAY_MIN
+        scaled = self._DRAFT_DISPLAY_MIN + pct * span
+        return max(self._DRAFT_DISPLAY_MIN, min(self._DRAFT_DISPLAY_MAX, scaled))
+
+    @staticmethod
+    def _raw_rating_text(value: object) -> str:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return "--"
+        if numeric <= 0:
+            return "--"
+        return str(int(round(numeric)))
+
     # UI helpers
     def _age_from_birthdate(self, birthdate: str | None) -> str:
         if not birthdate or not self.draft_date:
@@ -553,13 +737,9 @@ class DraftConsole(QDialog):
             p.get("primary_position", "")
         ).upper() == "P"
         raw = self._overall_rating(p)
-        display = rating_display_value(
-            raw,
-            key="OVR",
-            position=p.get("primary_position"),
-            is_pitcher=is_pitcher,
-            mode="scale_99",
-        )
+        display = self._draft_star_value(raw)
+        if display is None:
+            display = self._draft_display_value(raw, key="OVR", is_pitcher=is_pitcher)
         try:
             return float(display)
         except (TypeError, ValueError):
@@ -604,7 +784,12 @@ class DraftConsole(QDialog):
         )
         if pix is None:
             label.setPixmap(QPixmap())
-            label.setText("")
+            fallback = star_text(
+                display_value,
+                min_rating=35.0,
+                max_rating=99.0,
+            )
+            label.setText(fallback if fallback is not None else "")
             return
         label.setPixmap(pix)
         label.setText("")
@@ -631,13 +816,13 @@ class DraftConsole(QDialog):
             pos = p.get("primary_position", "?")
             is_pitcher = bool(p.get("is_pitcher")) or str(p.get("primary_position", "")).upper() == "P"
             chphsp = (
-                f"{rating_display_text(p.get('ch', 0), key='CH', position=pos, is_pitcher=is_pitcher)}"
-                f"/{rating_display_text(p.get('ph', 0), key='PH', position=pos, is_pitcher=is_pitcher)}"
-                f"/{rating_display_text(p.get('sp', 0), key='SP', position=pos, is_pitcher=is_pitcher)}"
+                f"{self._raw_rating_text(p.get('ch', 0))}"
+                f"/{self._raw_rating_text(p.get('ph', 0))}"
+                f"/{self._raw_rating_text(p.get('sp', 0))}"
             )
             armfa = (
-                f"{rating_display_text(p.get('arm', 0), key='AS', position=pos, is_pitcher=is_pitcher)}"
-                f"/{rating_display_text(p.get('fa', 0), key='FA', position=pos, is_pitcher=is_pitcher)}"
+                f"{self._raw_rating_text(p.get('arm', 0))}"
+                f"/{self._raw_rating_text(p.get('fa', 0))}"
             )
             age = self._age_from_birthdate(str(p.get("birthdate", "")))
             age_val = None
@@ -662,9 +847,9 @@ class DraftConsole(QDialog):
             self.table.setItem(r, 6, QTableWidgetItem(chphsp))
             self.table.setItem(r, 7, QTableWidgetItem(armfa))
             encomo = (
-                f"{rating_display_text(p.get('endurance', 0), key='EN', position=pos, is_pitcher=True)}"
-                f"/{rating_display_text(p.get('control', 0), key='CO', position=pos, is_pitcher=True)}"
-                f"/{rating_display_text(p.get('movement', 0), key='MO', position=pos, is_pitcher=True)}"
+                f"{self._raw_rating_text(p.get('endurance', 0))}"
+                f"/{self._raw_rating_text(p.get('control', 0))}"
+                f"/{self._raw_rating_text(p.get('movement', 0))}"
                 if is_pitcher
                 else ""
             )

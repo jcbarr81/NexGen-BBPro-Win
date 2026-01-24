@@ -25,6 +25,8 @@ P1 - CORE UX + LEAGUE FLOW
 - [x] Player dialog opens maximized with a bottom-right close button
 - [x] Make league leaders look more like the team stats pages
 - [x] Dashboard console doesn't have any sorting enabled
+- [x] Draft pool ratings display now uses draft-pool percentiles so prospects no longer show identical ratings
+- [x] Draft pool ages now span 17-21 (HS + college mix) and birthdates match generated ages
 - [ ] Autosave + crash recovery for key league/roster changes
 - [ ] Clear dirty-state indicators across editors and dashboards
 - [ ] Background task progress indicators for long-running sims/exports

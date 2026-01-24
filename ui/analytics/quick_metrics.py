@@ -592,25 +592,39 @@ def _collect_recent_performers(
 
     snapshots = _load_recent_snapshots(base_dir, window=window)
     if len(snapshots) < 2:
-        result["note"] = "Recent stat history unavailable."
-        return result
+        snapshots = []
 
-    start_players = snapshots[0].get("players", {}) or {}
-    end_players = snapshots[-1].get("players", {}) or {}
-    if not isinstance(start_players, Mapping) or not isinstance(end_players, Mapping):
-        result["note"] = "Recent stat history unavailable."
-        return result
+    start_players: Mapping[str, Any] = {}
+    end_players: Mapping[str, Any] = {}
+    if snapshots:
+        start_players = snapshots[0].get("players", {}) or {}
+        end_players = snapshots[-1].get("players", {}) or {}
+        if not isinstance(start_players, Mapping) or not isinstance(end_players, Mapping):
+            start_players = {}
+            end_players = {}
 
-    start_date = str(snapshots[0].get("date") or "")
-    end_date = str(snapshots[-1].get("date") or "")
-    if start_date and end_date:
-        result["range"] = {"start": start_date, "end": end_date}
+    start_date = ""
+    end_date = ""
+    if snapshots:
+        start_date = str(snapshots[0].get("date") or "")
+        end_date = str(snapshots[-1].get("date") or "")
+        if start_date and end_date:
+            result["range"] = {"start": start_date, "end": end_date}
 
     candidate_ids = _team_player_ids(roster)
     if not candidate_ids:
         result["note"] = "No roster data available."
         return result
 
+    try:
+        season_stats = _load_season_stats(base_dir / "data" / "season_stats.json")
+        current_players = season_stats.get("players", {}) or {}
+        if not isinstance(current_players, Mapping):
+            current_players = {}
+    except Exception:
+        current_players = {}
+
+    used_current = False
     min_ab = 8.0
     min_ip = 3.0
     hitters: list[Dict[str, Any]] = []
@@ -621,7 +635,16 @@ def _collect_recent_performers(
             continue
         start_stats = start_players.get(pid, {}) or {}
         end_stats = end_players.get(pid, {}) or {}
-        if not isinstance(start_stats, Mapping) or not isinstance(end_stats, Mapping):
+        if current_players and (not end_stats or not isinstance(end_stats, Mapping)):
+            fallback = current_players.get(pid, {}) or {}
+            if isinstance(fallback, Mapping) and fallback:
+                end_stats = fallback
+                used_current = True
+        if not isinstance(start_stats, Mapping):
+            start_stats = {}
+        if not isinstance(end_stats, Mapping):
+            end_stats = {}
+        if not start_stats and not end_stats:
             continue
 
         if _is_pitcher_type(player):
@@ -714,6 +737,12 @@ def _collect_recent_performers(
 
     if not hitters and not pitchers:
         result["note"] = "Recent performance samples unavailable."
+    elif used_current:
+        note = "Using season-to-date stats for missing history snapshots."
+        if result.get("note"):
+            result["note"] = f"{result['note']} {note}"
+        else:
+            result["note"] = note
     return result
 
 
