@@ -14,6 +14,8 @@ from services.season_progress_flags import (
     mark_playoffs_completed,
 )
 from services.unified_data_service import get_unified_data_service
+from playbalance.season_manager import SeasonManager, SeasonPhase
+from utils.sim_date import get_current_sim_date
 
 try:
     from PyQt6.QtWidgets import (
@@ -664,6 +666,7 @@ class PlayoffsWindow(QDialog):
         bracket = result.get("bracket")
         if bracket is not None:
             self._bracket = bracket
+            self._sync_season_phase_for_playoffs(bracket)
             champion = getattr(bracket, "champion", None)
             if champion:
                 try:
@@ -675,6 +678,69 @@ class PlayoffsWindow(QDialog):
                             f"Playoffs completed but progress file could not be updated: {exc}",
                         )
         self.refresh(bracket=bracket)
+
+    def _sync_season_phase_for_playoffs(self, bracket: object | None = None) -> None:
+        """Ensure season_state reflects that playoffs are underway."""
+        br = bracket or getattr(self, "_bracket", None)
+        if br is None:
+            return
+        # Verify the bracket belongs to the current season year when possible.
+        current_year = None
+        try:
+            cur_date = get_current_sim_date()
+            if cur_date:
+                current_year = int(str(cur_date).split("-")[0])
+        except Exception:
+            current_year = None
+        if current_year is None:
+            try:
+                from playbalance.season_context import SeasonContext
+
+                ctx = SeasonContext.load()
+                current = ctx.current if isinstance(ctx.current, dict) else {}
+                raw = current.get("league_year")
+                current_year = int(raw) if raw is not None else None
+            except Exception:
+                current_year = None
+        try:
+            bracket_year = int(getattr(br, "year", 0) or 0)
+        except Exception:
+            bracket_year = 0
+        if bracket_year:
+            if current_year is None or bracket_year != current_year:
+                return
+
+        progressed = False
+        try:
+            if getattr(br, "champion", None):
+                progressed = True
+            else:
+                for rnd in list(getattr(br, "rounds", []) or []):
+                    for matchup in list(getattr(rnd, "matchups", []) or []):
+                        if getattr(matchup, "winner", None):
+                            progressed = True
+                            break
+                        for game in list(getattr(matchup, "games", []) or []):
+                            if getattr(game, "result", None):
+                                progressed = True
+                                break
+                        if progressed:
+                            break
+                    if progressed:
+                        break
+        except Exception:
+            progressed = False
+
+        if not progressed:
+            return
+        try:
+            manager = SeasonManager()
+            if manager.phase in {SeasonPhase.PLAYOFFS, SeasonPhase.OFFSEASON}:
+                return
+            manager.phase = SeasonPhase.PLAYOFFS
+            manager.save()
+        except Exception:
+            pass
 
     def _set_sim_buttons_enabled(self, enabled: bool) -> None:
         for btn in (self.sim_game_btn, self.sim_round_btn, self.sim_all_btn):

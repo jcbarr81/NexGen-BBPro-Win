@@ -568,7 +568,20 @@ def regenerate_schedule_action(
         QMessageBox.warning(parent, "No Teams", "No teams found to schedule.")
         return
 
-    start = date(date.today().year, 4, 1)
+    start_year: Optional[int] = None
+    try:
+        from playbalance.season_context import SeasonContext as _SeasonContext
+
+        ctx = _SeasonContext.load()
+        current = ctx.current if isinstance(ctx.current, dict) else {}
+        raw_year = current.get("league_year")
+        if raw_year is not None:
+            start_year = int(raw_year)
+    except Exception:
+        start_year = None
+    if start_year is None:
+        start_year = date.today().year
+    start = date(start_year, 4, 1)
     schedule_path = data_root / "schedule.csv"
 
     try:

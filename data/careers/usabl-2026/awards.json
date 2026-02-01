@@ -1,0 +1,15 @@
+{
+  "awards": {
+    "MVP": {
+      "player_id": "P3547",
+      "player_name": "Rudolf Alfero",
+      "metric": 0.9993267882187938
+    },
+    "CY_YOUNG": {
+      "player_id": "P2260",
+      "player_name": "Xavier Green",
+      "metric": 2.5105263157894737
+    }
+  },
+  "generated_at": "2026-01-27T06:29:00Z"
+}

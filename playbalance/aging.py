@@ -101,6 +101,24 @@ def _resolve_sim_date() -> date | None:
         except ValueError:
             return None
         return date(year, 7, 1)
+    try:
+        from utils.sim_date import get_current_sim_date
+
+        sim_date = get_current_sim_date()
+        if sim_date:
+            return date.fromisoformat(sim_date.strip())
+    except Exception:
+        pass
+    try:
+        from playbalance.season_context import SeasonContext
+
+        ctx = SeasonContext.load()
+        current = ctx.current if isinstance(ctx.current, dict) else {}
+        year = current.get("league_year")
+        if year is not None:
+            return date(int(year), 7, 1)
+    except Exception:
+        pass
     return None
 
 

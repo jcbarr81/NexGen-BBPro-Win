@@ -182,9 +182,10 @@ from playbalance.orchestrator import (
 )
 from playbalance.game_runner import simulate_game_scores
 from utils.team_loader import load_teams
-from utils.roster_loader import load_roster
+from utils.roster_loader import load_roster, save_roster
 from utils.lineup_loader import load_lineup
 from utils.player_loader import load_players_from_csv
+from utils.player_writer import save_players_to_csv
 from utils.pitcher_role import get_role
 from utils.sim_date import get_current_sim_date
 from ui.sim_date_bus import notify_sim_date_changed
@@ -656,6 +657,136 @@ class SeasonProgressWindow(QDialog):
     def _on_engine_toggle(self, checked: bool) -> None:
         return
 
+    def _season_context_years(self) -> tuple[Optional[int], Optional[int]]:
+        """Return (current league year, last archived year) from season context."""
+        try:
+            from playbalance.season_context import SeasonContext as _SeasonContext
+
+            ctx = _SeasonContext.load()
+            current = ctx.current if isinstance(ctx.current, dict) else {}
+            raw_current = current.get("league_year")
+            current_year = int(raw_current) if raw_current is not None else None
+            last_year = None
+            seasons = getattr(ctx, "seasons", None) or []
+            if seasons:
+                try:
+                    raw_last = seasons[-1].get("league_year")
+                    last_year = int(raw_last) if raw_last is not None else None
+                except Exception:
+                    last_year = None
+            return current_year, last_year
+        except Exception:
+            return None, None
+
+    def _resolve_current_league_year(self) -> Optional[int]:
+        """Return the best-known league year for schedule generation."""
+        current_year, _ = self._season_context_years()
+        if current_year is not None:
+            return current_year
+        try:
+            return self._season_year_hint or self._infer_schedule_year()
+        except Exception:
+            return None
+
+    def _resolve_next_league_year(self) -> int:
+        """Return the upcoming season year when leaving the offseason."""
+        current_year, last_year = self._season_context_years()
+        if current_year is not None:
+            if last_year is not None and current_year <= last_year:
+                return last_year + 1
+            if last_year is None:
+                return current_year + 1
+            return current_year
+        try:
+            base_year = self._season_year_hint or self._infer_schedule_year()
+        except Exception:
+            base_year = None
+        if base_year is None:
+            base_year = date.today().year
+        return base_year + 1
+
+    def _apply_offseason_aging(
+        self,
+        target_year: Optional[int],
+        players: Optional[Dict[str, object]] = None,
+    ) -> int:
+        """Age players, retire older players, and persist updated rosters."""
+        prev_sim_year = os.environ.get("PB_SIM_YEAR")
+        prev_sim_date = os.environ.get("PB_SIM_DATE")
+        override_env = False
+        if target_year:
+            os.environ["PB_SIM_YEAR"] = str(target_year)
+            os.environ.pop("PB_SIM_DATE", None)
+            override_env = True
+
+        players_path = DATA_DIR / "players.csv"
+        retired_ids: set[str] = set()
+        try:
+            if isinstance(players, dict) and players:
+                retired_local = age_and_retire(players)
+                retired_ids.update(p.player_id for p in retired_local)
+        except Exception:
+            pass
+        try:
+            loaded = load_players_from_csv(players_path)
+            csv_players = {p.player_id: p for p in loaded}
+            retired = age_and_retire(csv_players)
+            retired_ids.update(p.player_id for p in retired)
+
+            if retired_ids:
+                roster_dir = DATA_DIR / "rosters"
+                try:
+                    teams = load_teams(TEAMS_FILE)
+                except Exception:
+                    teams = []
+                for team in teams:
+                    team_id = getattr(team, "team_id", None) or getattr(team, "abbreviation", None)
+                    if not team_id:
+                        continue
+                    try:
+                        roster = load_roster(team_id, roster_dir=roster_dir)
+                    except Exception:
+                        continue
+                    roster.act = [pid for pid in roster.act if pid not in retired_ids]
+                    roster.aaa = [pid for pid in roster.aaa if pid not in retired_ids]
+                    roster.low = [pid for pid in roster.low if pid not in retired_ids]
+                    roster.dl = [pid for pid in roster.dl if pid not in retired_ids]
+                    roster.ir = [pid for pid in roster.ir if pid not in retired_ids]
+                    roster.dl_tiers = {
+                        pid: tier
+                        for pid, tier in (roster.dl_tiers or {}).items()
+                        if pid not in retired_ids
+                    }
+                    try:
+                        save_roster(team_id, roster)
+                    except Exception:
+                        pass
+
+            try:
+                save_players_to_csv(csv_players.values(), players_path)
+            except Exception:
+                return len(retired_ids)
+            try:
+                load_players_from_csv.cache_clear()
+            except Exception:
+                pass
+            try:
+                load_roster.cache_clear()
+            except Exception:
+                pass
+        finally:
+            if override_env:
+                if prev_sim_year is None:
+                    os.environ.pop("PB_SIM_YEAR", None)
+                else:
+                    os.environ["PB_SIM_YEAR"] = prev_sim_year
+                if prev_sim_date is None:
+                    os.environ.pop("PB_SIM_DATE", None)
+                else:
+                    os.environ["PB_SIM_DATE"] = prev_sim_date
+
+        return len(retired_ids)
+
     def _infer_schedule_year(self) -> Optional[int]:
         """Best-effort inference of the active season year from schedule data."""
 
@@ -703,6 +834,58 @@ class SeasonProgressWindow(QDialog):
         if flag != self._playoffs_done or flag != self._loaded_playoffs_done:
             self._playoffs_done = flag
             self._loaded_playoffs_done = flag
+
+    def _sync_phase_with_playoffs(self, bracket: object | None = None) -> None:
+        """If a playoff bracket has started, ensure the season phase matches."""
+        if self.manager.phase in {SeasonPhase.PLAYOFFS, SeasonPhase.OFFSEASON}:
+            return
+        br = bracket
+        if br is None:
+            try:
+                from playbalance.playoffs import load_bracket as _load_bracket
+
+                br = _load_bracket()
+            except Exception:
+                br = None
+        if br is None:
+            return
+        try:
+            bracket_year = int(getattr(br, "year", 0) or 0)
+        except Exception:
+            bracket_year = 0
+        current_year = self._resolve_current_league_year()
+        if bracket_year:
+            if current_year is None or bracket_year != current_year:
+                return
+            return
+
+        progressed = False
+        try:
+            if getattr(br, "champion", None):
+                progressed = True
+            else:
+                for rnd in list(getattr(br, "rounds", []) or []):
+                    for matchup in list(getattr(rnd, "matchups", []) or []):
+                        if getattr(matchup, "winner", None):
+                            progressed = True
+                            break
+                        for game in list(getattr(matchup, "games", []) or []):
+                            if getattr(game, "result", None):
+                                progressed = True
+                                break
+                        if progressed:
+                            break
+                    if progressed:
+                        break
+        except Exception:
+            progressed = False
+        if not progressed:
+            return
+        try:
+            self.manager.phase = SeasonPhase.PLAYOFFS
+            self.manager.save()
+        except Exception:
+            pass
 
     def _draft_completed_for_current_year(self) -> bool:
         """Return True when the current season's draft is recorded complete."""
@@ -846,6 +1029,29 @@ class SeasonProgressWindow(QDialog):
             self._executor = None
         super().closeEvent(event)
 
+    def showEvent(self, event) -> None:  # pragma: no cover - Qt signature
+        try:
+            super().showEvent(event)
+        except Exception:
+            pass
+        self._reload_manager_phase()
+        self._update_ui()
+
+    def focusInEvent(self, event) -> None:  # pragma: no cover - Qt signature
+        try:
+            super().focusInEvent(event)
+        except Exception:
+            pass
+        self._reload_manager_phase()
+        self._update_ui()
+
+    def _reload_manager_phase(self) -> None:
+        """Reload season phase from disk to capture external updates."""
+        try:
+            self.manager.load()
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # UI helpers
     # ------------------------------------------------------------------
@@ -860,9 +1066,10 @@ class SeasonProgressWindow(QDialog):
             Optional in-memory playoff bracket to reuse when refreshing the
             playoffs view to avoid stale disk reads after background updates.
         """
+        self._sync_playoffs_flag_from_disk()
+        self._sync_phase_with_playoffs(bracket)
         phase_name = self.manager.phase.name.replace("_", " ").title()
         self.phase_label.setText(f"Current Phase: {phase_name}")
-        self._sync_playoffs_flag_from_disk()
         # Update current date indicator from simulator schedule
         try:
             if self.simulator and getattr(self.simulator, "dates", None):
@@ -1441,20 +1648,36 @@ class SeasonProgressWindow(QDialog):
 
         if opening_day:
             opening_done = current_index > 0 or phase in {
-                SeasonPhase.REGULAR_SEASON,
-                SeasonPhase.PLAYOFFS,
                 SeasonPhase.AMATEUR_DRAFT,
+                SeasonPhase.PLAYOFFS,
                 SeasonPhase.OFFSEASON,
             }
             opening_active = (
-                phase == SeasonPhase.PRESEASON
-                and self._preseason_done.get("schedule")
+                phase == SeasonPhase.REGULAR_SEASON
+                and current_index == 0
                 and not opening_done
             )
             add_event(
                 "Regular Season • Opening Day",
                 resolve_status(opening_done, opening_active),
                 f"Scheduled for {opening_day}",
+            )
+        else:
+            missing_detail = (
+                "Generate the schedule to set Opening Day."
+                if not self._preseason_done.get("schedule")
+                else "Schedule data missing; regenerate to set Opening Day."
+            )
+            opening_done = phase in {
+                SeasonPhase.AMATEUR_DRAFT,
+                SeasonPhase.PLAYOFFS,
+                SeasonPhase.OFFSEASON,
+            }
+            opening_active = phase == SeasonPhase.REGULAR_SEASON
+            add_event(
+                "Regular Season • Opening Day",
+                resolve_status(opening_done, opening_active),
+                missing_detail,
             )
 
         if mid_date:
@@ -1545,9 +1768,10 @@ class SeasonProgressWindow(QDialog):
                 detail = "Awaiting championship record."
             else:
                 detail = "Final series underway."
+            championship_done = bool(champion) or playoffs_done_effective
             add_event(
                 "Postseason • Championship",
-                resolve_status(bool(champion), playoffs_active and not champion),
+                resolve_status(championship_done, playoffs_active and not champion),
                 detail,
             )
 
@@ -1558,10 +1782,17 @@ class SeasonProgressWindow(QDialog):
         """Advance to the next phase and update the display."""
         self._playoffs_override_done = False
         if self.manager.phase == SeasonPhase.OFFSEASON:
-            players = getattr(self.manager, "players", {})
-            retired = age_and_retire(players)
-            self.notes_label.setText(f"Retired Players: {len(retired)}")
-            season_manager.TRADE_DEADLINE = date(date.today().year + 1, 7, 31)
+            next_year = self._resolve_next_league_year()
+            retired_count = self._apply_offseason_aging(
+                next_year,
+                getattr(self.manager, "players", None),
+            )
+            self.notes_label.setText(f"Retired Players: {retired_count}")
+            season_manager.TRADE_DEADLINE = date(next_year, 7, 31)
+            try:
+                self._draft_date = self._compute_draft_date(f"{next_year}-04-01")
+            except Exception:
+                self._draft_date = None
             self.manager.phase = SeasonPhase.PRESEASON
             self.manager.save()
             self._preseason_done = {
@@ -1578,8 +1809,8 @@ class SeasonProgressWindow(QDialog):
                 draft_date=self._draft_date,
                 after_game=self._record_game,
             )
-            self._season_year_hint = self._infer_schedule_year()
-            note = f"Retired Players: {len(retired)}"
+            self._season_year_hint = self._infer_schedule_year() or next_year
+            note = f"Retired Players: {retired_count}"
         elif self.manager.phase == SeasonPhase.REGULAR_SEASON:
             # If the regular season is complete, skip the Amateur Draft phase
             # and proceed directly to the Playoffs. The draft is handled as an
@@ -1780,7 +2011,8 @@ class SeasonProgressWindow(QDialog):
             self._update_ui("No teams available to generate schedule.")
             return
 
-        start = date(date.today().year, 4, 1)
+        schedule_year = self._resolve_current_league_year() or date.today().year
+        start = date(schedule_year, 4, 1)
         schedule = generate_mlb_schedule(teams, start)
         save_schedule(schedule, SCHEDULE_FILE)
         first_date = (

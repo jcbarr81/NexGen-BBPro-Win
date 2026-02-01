@@ -192,6 +192,108 @@ def _load_champion(path: Path | None, league_year: str) -> tuple[str, str, str]:
     )
 
 
+def _final_round_from_bracket(bracket: object) -> object | None:
+    try:
+        rounds = list(getattr(bracket, "rounds", []) or [])
+    except Exception:
+        rounds = []
+    if not rounds:
+        return None
+
+    def _is_final(name: str) -> bool:
+        tokens = [
+            t.lower()
+            for t in str(name or "").replace("-", " ").replace("_", " ").split()
+            if t
+        ]
+        finals = {"ws", "world", "worlds", "final", "finals", "championship"}
+        return any(t in finals for t in tokens)
+
+    finals = [r for r in rounds if _is_final(getattr(r, "name", ""))]
+    if finals:
+        return finals[-1]
+    return rounds[-1]
+
+
+def _series_result_from_bracket(bracket: object) -> str:
+    try:
+        champ = getattr(bracket, "champion", None)
+        if not champ:
+            return ""
+        final_round = _final_round_from_bracket(bracket)
+        if final_round is None:
+            return ""
+        matchups = list(getattr(final_round, "matchups", []) or [])
+        if not matchups:
+            return ""
+        matchup = matchups[0]
+        wins_c = 0
+        wins_o = 0
+        for game in list(getattr(matchup, "games", []) or []):
+            res = str(getattr(game, "result", "") or "")
+            if "-" not in res:
+                continue
+            try:
+                home_score, away_score = map(int, res.split("-", 1))
+            except Exception:
+                continue
+            if home_score > away_score:
+                winner = getattr(game, "home", "")
+            elif away_score > home_score:
+                winner = getattr(game, "away", "")
+            else:
+                continue
+            if winner == champ:
+                wins_c += 1
+            else:
+                wins_o += 1
+        return f"{wins_c}-{wins_o}" if (wins_c or wins_o) else ""
+    except Exception:
+        return ""
+
+
+def _load_champion_from_bracket(path: Path | None, league_year: str) -> tuple[str, str, str]:
+    if not league_year or path is None or not path.exists():
+        return "", "", ""
+    try:
+        from playbalance.playoffs import load_bracket
+    except Exception:
+        return "", "", ""
+    try:
+        bracket = load_bracket(path=path)
+    except Exception:
+        bracket = None
+    if bracket is None:
+        return "", "", ""
+    try:
+        bracket_year = int(getattr(bracket, "year", 0) or 0)
+    except Exception:
+        bracket_year = 0
+    if bracket_year and str(bracket_year) != league_year.strip():
+        return "", "", ""
+
+    champion = str(getattr(bracket, "champion", "") or "").strip()
+    runner_up = str(getattr(bracket, "runner_up", "") or "").strip()
+    series_result = _series_result_from_bracket(bracket)
+
+    if champion and not runner_up:
+        try:
+            final_round = _final_round_from_bracket(bracket)
+            matchups = list(getattr(final_round, "matchups", []) or []) if final_round else []
+            if matchups:
+                matchup = matchups[0]
+                high = getattr(matchup, "high", None)
+                low = getattr(matchup, "low", None)
+                high_id = getattr(high, "team_id", None) if high else None
+                low_id = getattr(low, "team_id", None) if low else None
+                if high_id and low_id:
+                    runner_up = low_id if champion == high_id else high_id
+        except Exception:
+            pass
+
+    return champion, runner_up, series_result
+
+
 def _season_artifacts(season: Dict[str, Any], season_id: str) -> Dict[str, str]:
     artifacts = season.get("artifacts")
     if isinstance(artifacts, dict) and artifacts:
@@ -229,6 +331,15 @@ def _load_history_entries() -> list[SeasonHistoryEntry]:
         awards = _load_awards(_resolve_path(artifacts.get("awards")))
         champions_path = _resolve_path(artifacts.get("champions"))
         champion, runner_up, series_result = _load_champion(champions_path, league_year)
+        if not (champion and runner_up and series_result):
+            playoffs_path = _resolve_path(artifacts.get("playoffs"))
+            b_champ, b_runner, b_series = _load_champion_from_bracket(playoffs_path, league_year)
+            if not champion and b_champ:
+                champion = b_champ
+            if not runner_up and b_runner:
+                runner_up = b_runner
+            if not series_result and b_series:
+                series_result = b_series
         entries.append(
             SeasonHistoryEntry(
                 season_id=season_id,
