@@ -2,49 +2,9 @@
   "season_id": "usabl-2026",
   "events": [
     {
-      "date": "2026-04-27",
-      "player_id": "P5257",
-      "team_id": "CHA",
-      "description": "Day-to-day shoulder bruise",
-      "trigger": "hit_by_pitch",
-      "severity": "minor",
-      "days": 2,
-      "dl_tier": "none"
-    },
-    {
-      "date": "2026-04-27",
-      "player_id": "P6177",
-      "team_id": "MIL",
-      "description": "Day-to-day shoulder bruise",
-      "trigger": "hit_by_pitch",
-      "severity": "minor",
-      "days": 2,
-      "dl_tier": "none"
-    },
-    {
-      "date": "2026-05-21",
-      "player_id": "P4866",
-      "team_id": "BAL",
-      "description": "Day-to-day shoulder bruise",
-      "trigger": "hit_by_pitch",
-      "severity": "minor",
-      "days": 2,
-      "dl_tier": "none"
-    },
-    {
-      "date": "2026-06-12",
-      "player_id": "P8557",
-      "team_id": "NEW",
-      "description": "Day-to-day shoulder bruise",
-      "trigger": "hit_by_pitch",
-      "severity": "minor",
-      "days": 2,
-      "dl_tier": "none"
-    },
-    {
-      "date": "2026-06-20",
-      "player_id": "P8811",
-      "team_id": "WAS",
+      "date": "2026-04-02",
+      "player_id": "P5916",
+      "team_id": "ALB",
       "description": "Day-to-day shoulder bruise",
       "trigger": "hit_by_pitch",
       "severity": "minor",
@@ -52,18 +12,58 @@
       "dl_tier": "none"
     },
     {
-      "date": "2026-07-05",
-      "player_id": "P3102",
-      "team_id": "BOS",
+      "date": "2026-04-04",
+      "player_id": "P8481",
+      "team_id": "SEA",
       "description": "Day-to-day shoulder bruise",
       "trigger": "hit_by_pitch",
+      "severity": "minor",
+      "days": 2,
+      "dl_tier": "none"
+    },
+    {
+      "date": "2026-04-23",
+      "player_id": "P5724",
+      "team_id": "NEW",
+      "description": "Day-to-day shoulder bruise",
+      "trigger": "collision",
+      "severity": "minor",
+      "days": 2,
+      "dl_tier": "none"
+    },
+    {
+      "date": "2026-05-08",
+      "player_id": "P5398",
+      "team_id": "SAN1",
+      "description": "Day-to-day shoulder bruise",
+      "trigger": "collision",
       "severity": "minor",
       "days": 1,
       "dl_tier": "none"
     },
     {
-      "date": "2026-07-21",
-      "player_id": "P2982",
+      "date": "2026-06-16",
+      "player_id": "P4120",
+      "team_id": "BOS",
+      "description": "Day-to-day shoulder bruise",
+      "trigger": "hit_by_pitch",
+      "severity": "minor",
+      "days": 2,
+      "dl_tier": "none"
+    },
+    {
+      "date": "2026-07-06",
+      "player_id": "P2466",
+      "team_id": "SEA",
+      "description": "Day-to-day shoulder bruise",
+      "trigger": "collision",
+      "severity": "minor",
+      "days": 2,
+      "dl_tier": "none"
+    },
+    {
+      "date": "2026-07-07",
+      "player_id": "P9477",
       "team_id": "ALB",
       "description": "Day-to-day shoulder bruise",
       "trigger": "hit_by_pitch",
@@ -72,9 +72,9 @@
       "dl_tier": "none"
     },
     {
-      "date": "2026-08-28",
-      "player_id": "P7151",
-      "team_id": "BOS",
+      "date": "2026-07-22",
+      "player_id": "P8736",
+      "team_id": "SAN1",
       "description": "Day-to-day shoulder bruise",
       "trigger": "collision",
       "severity": "minor",
@@ -82,9 +82,29 @@
       "dl_tier": "none"
     },
     {
-      "date": "2026-09-18",
-      "player_id": "P5265",
-      "team_id": "WAS",
+      "date": "2026-08-07",
+      "player_id": "P1715",
+      "team_id": "ELP",
+      "description": "Day-to-day shoulder bruise",
+      "trigger": "collision",
+      "severity": "minor",
+      "days": 1,
+      "dl_tier": "none"
+    },
+    {
+      "date": "2026-08-29",
+      "player_id": "P3302",
+      "team_id": "SAN1",
+      "description": "Day-to-day shoulder bruise",
+      "trigger": "hit_by_pitch",
+      "severity": "minor",
+      "days": 3,
+      "dl_tier": "none"
+    },
+    {
+      "date": "2026-09-11",
+      "player_id": "P4911",
+      "team_id": "NEW",
       "description": "Day-to-day shoulder bruise",
       "trigger": "collision",
       "severity": "minor",
@@ -92,21 +112,31 @@
       "dl_tier": "none"
     },
     {
-      "date": "2026-09-27",
-      "player_id": "P4577",
-      "team_id": "SAN",
-      "description": "Moderate oblique strain",
-      "trigger": "collision",
-      "severity": "moderate",
-      "days": 7,
-      "dl_tier": "dl15"
-    },
-    {
-      "date": "2026-10-15",
-      "player_id": "P3772",
+      "date": "2026-09-15",
+      "player_id": "P4200",
       "team_id": "CHA",
       "description": "Day-to-day shoulder bruise",
       "trigger": "hit_by_pitch",
+      "severity": "minor",
+      "days": 2,
+      "dl_tier": "none"
+    },
+    {
+      "date": "2026-10-02",
+      "player_id": "P8908",
+      "team_id": "OKL",
+      "description": "Day-to-day shoulder bruise",
+      "trigger": "hit_by_pitch",
+      "severity": "minor",
+      "days": 3,
+      "dl_tier": "none"
+    },
+    {
+      "date": "2026-10-14",
+      "player_id": "P6479",
+      "team_id": "OKL",
+      "description": "Day-to-day shoulder bruise",
+      "trigger": "collision",
       "severity": "minor",
       "days": 2,
       "dl_tier": "none"

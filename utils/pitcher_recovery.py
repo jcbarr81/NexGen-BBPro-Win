@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import copy
 import csv
 from datetime import date, datetime, timedelta
 import json

@@ -3,235 +3,235 @@
   "round": 3,
   "overall_pick": 37,
   "order": [
-    "CHA",
     "BOS",
-    "BAL",
-    "LOS",
-    "MEM",
-    "NEW",
     "ALB",
-    "WAS",
-    "MIL",
+    "SAN1",
     "SAN",
-    "COL",
-    "PHO"
+    "ELP",
+    "OKL",
+    "MEM",
+    "SEA",
+    "CHA",
+    "NEW",
+    "DAL",
+    "LAS"
   ],
   "selected": [
     {
       "round": 1,
       "overall_pick": 1,
+      "team_id": "BOS",
+      "player_id": "D20260072"
+    },
+    {
+      "round": 1,
+      "overall_pick": 2,
+      "team_id": "ALB",
+      "player_id": "D20260065"
+    },
+    {
+      "round": 1,
+      "overall_pick": 3,
+      "team_id": "SAN1",
+      "player_id": "D20260014"
+    },
+    {
+      "round": 1,
+      "overall_pick": 4,
+      "team_id": "SAN",
+      "player_id": "D20260018"
+    },
+    {
+      "round": 1,
+      "overall_pick": 5,
+      "team_id": "ELP",
+      "player_id": "D20260006"
+    },
+    {
+      "round": 1,
+      "overall_pick": 6,
+      "team_id": "OKL",
+      "player_id": "D20260039"
+    },
+    {
+      "round": 1,
+      "overall_pick": 7,
+      "team_id": "MEM",
+      "player_id": "D20260004"
+    },
+    {
+      "round": 1,
+      "overall_pick": 8,
+      "team_id": "SEA",
+      "player_id": "D20260047"
+    },
+    {
+      "round": 1,
+      "overall_pick": 9,
       "team_id": "CHA",
       "player_id": "D20260040"
     },
     {
       "round": 1,
-      "overall_pick": 2,
-      "team_id": "BOS",
-      "player_id": "D20260027"
-    },
-    {
-      "round": 1,
-      "overall_pick": 3,
-      "team_id": "BAL",
-      "player_id": "D20260036"
-    },
-    {
-      "round": 1,
-      "overall_pick": 4,
-      "team_id": "LOS",
-      "player_id": "D20260042"
-    },
-    {
-      "round": 1,
-      "overall_pick": 5,
-      "team_id": "MEM",
-      "player_id": "D20260041"
-    },
-    {
-      "round": 1,
-      "overall_pick": 6,
-      "team_id": "NEW",
-      "player_id": "D20260008"
-    },
-    {
-      "round": 1,
-      "overall_pick": 7,
-      "team_id": "ALB",
-      "player_id": "D20260007"
-    },
-    {
-      "round": 1,
-      "overall_pick": 8,
-      "team_id": "WAS",
-      "player_id": "D20260003"
-    },
-    {
-      "round": 1,
-      "overall_pick": 9,
-      "team_id": "MIL",
-      "player_id": "D20260005"
-    },
-    {
-      "round": 1,
       "overall_pick": 10,
-      "team_id": "SAN",
-      "player_id": "D20260038"
+      "team_id": "NEW",
+      "player_id": "D20260070"
     },
     {
       "round": 1,
       "overall_pick": 11,
-      "team_id": "COL",
-      "player_id": "D20260026"
+      "team_id": "DAL",
+      "player_id": "D20260008"
     },
     {
       "round": 1,
       "overall_pick": 12,
-      "team_id": "PHO",
-      "player_id": "D20260006"
+      "team_id": "LAS",
+      "player_id": "D20260038"
     },
     {
       "round": 2,
       "overall_pick": 13,
-      "team_id": "CHA",
-      "player_id": "D20260018"
+      "team_id": "BOS",
+      "player_id": "D20260005"
     },
     {
       "round": 2,
       "overall_pick": 14,
-      "team_id": "BOS",
-      "player_id": "D20260014"
+      "team_id": "ALB",
+      "player_id": "D20260058"
     },
     {
       "round": 2,
       "overall_pick": 15,
-      "team_id": "BAL",
-      "player_id": "D20260029"
-    },
-    {
-      "round": 2,
-      "overall_pick": 16,
-      "team_id": "LOS",
-      "player_id": "D20260024"
-    },
-    {
-      "round": 2,
-      "overall_pick": 17,
-      "team_id": "MEM",
-      "player_id": "D20260021"
-    },
-    {
-      "round": 2,
-      "overall_pick": 18,
-      "team_id": "NEW",
-      "player_id": "D20260033"
-    },
-    {
-      "round": 2,
-      "overall_pick": 19,
-      "team_id": "ALB",
+      "team_id": "SAN1",
       "player_id": "D20260019"
     },
     {
       "round": 2,
+      "overall_pick": 16,
+      "team_id": "SAN",
+      "player_id": "D20260041"
+    },
+    {
+      "round": 2,
+      "overall_pick": 17,
+      "team_id": "ELP",
+      "player_id": "D20260036"
+    },
+    {
+      "round": 2,
+      "overall_pick": 18,
+      "team_id": "OKL",
+      "player_id": "D20260010"
+    },
+    {
+      "round": 2,
+      "overall_pick": 19,
+      "team_id": "MEM",
+      "player_id": "D20260007"
+    },
+    {
+      "round": 2,
       "overall_pick": 20,
-      "team_id": "WAS",
-      "player_id": "D20260043"
+      "team_id": "SEA",
+      "player_id": "D20260051"
     },
     {
       "round": 2,
       "overall_pick": 21,
-      "team_id": "MIL",
-      "player_id": "D20260039"
+      "team_id": "CHA",
+      "player_id": "D20260046"
     },
     {
       "round": 2,
       "overall_pick": 22,
-      "team_id": "SAN",
-      "player_id": "D20260015"
+      "team_id": "NEW",
+      "player_id": "D20260063"
     },
     {
       "round": 2,
       "overall_pick": 23,
-      "team_id": "COL",
-      "player_id": "D20260035"
+      "team_id": "DAL",
+      "player_id": "D20260067"
     },
     {
       "round": 2,
       "overall_pick": 24,
-      "team_id": "PHO",
-      "player_id": "D20260032"
+      "team_id": "LAS",
+      "player_id": "D20260015"
     },
     {
       "round": 3,
       "overall_pick": 25,
-      "team_id": "CHA",
-      "player_id": "D20260001"
+      "team_id": "BOS",
+      "player_id": "D20260029"
     },
     {
       "round": 3,
       "overall_pick": 26,
-      "team_id": "BOS",
-      "player_id": "D20260002"
+      "team_id": "ALB",
+      "player_id": "D20260061"
     },
     {
       "round": 3,
       "overall_pick": 27,
-      "team_id": "BAL",
-      "player_id": "D20260004"
-    },
-    {
-      "round": 3,
-      "overall_pick": 28,
-      "team_id": "LOS",
-      "player_id": "D20260016"
-    },
-    {
-      "round": 3,
-      "overall_pick": 29,
-      "team_id": "MEM",
-      "player_id": "D20260044"
-    },
-    {
-      "round": 3,
-      "overall_pick": 30,
-      "team_id": "NEW",
-      "player_id": "D20260020"
-    },
-    {
-      "round": 3,
-      "overall_pick": 31,
-      "team_id": "ALB",
-      "player_id": "D20260010"
-    },
-    {
-      "round": 3,
-      "overall_pick": 32,
-      "team_id": "WAS",
+      "team_id": "SAN1",
       "player_id": "D20260030"
     },
     {
       "round": 3,
+      "overall_pick": 28,
+      "team_id": "SAN",
+      "player_id": "D20260021"
+    },
+    {
+      "round": 3,
+      "overall_pick": 29,
+      "team_id": "ELP",
+      "player_id": "D20260057"
+    },
+    {
+      "round": 3,
+      "overall_pick": 30,
+      "team_id": "OKL",
+      "player_id": "D20260064"
+    },
+    {
+      "round": 3,
+      "overall_pick": 31,
+      "team_id": "MEM",
+      "player_id": "D20260071"
+    },
+    {
+      "round": 3,
+      "overall_pick": 32,
+      "team_id": "SEA",
+      "player_id": "D20260052"
+    },
+    {
+      "round": 3,
       "overall_pick": 33,
-      "team_id": "MIL",
-      "player_id": "D20260028"
+      "team_id": "CHA",
+      "player_id": "D20260042"
     },
     {
       "round": 3,
       "overall_pick": 34,
-      "team_id": "SAN",
-      "player_id": "D20260011"
+      "team_id": "NEW",
+      "player_id": "D20260001"
     },
     {
       "round": 3,
       "overall_pick": 35,
-      "team_id": "COL",
-      "player_id": "D20260037"
+      "team_id": "DAL",
+      "player_id": "D20260024"
     },
     {
       "round": 3,
       "overall_pick": 36,
-      "team_id": "PHO",
-      "player_id": "D20260045"
+      "team_id": "LAS",
+      "player_id": "D20260026"
     }
   ],
   "seed": 2026

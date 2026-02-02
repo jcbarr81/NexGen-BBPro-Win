@@ -9,7 +9,6 @@ C extensions such as ``bcrypt`` are available; GUI-focused modules like
 from __future__ import annotations
 
 from collections import Counter
-from copy import deepcopy
 from datetime import date
 from pathlib import Path
 import argparse
@@ -40,6 +39,7 @@ from playbalance.simulation import (
 )
 from playbalance.state import PitcherState
 from utils.lineup_loader import build_default_game_state
+from utils.safe_copy import deepcopy
 from utils.path_utils import get_base_dir
 from utils.team_loader import load_teams
 from playbalance.sim_config import load_tuned_playbalance_config

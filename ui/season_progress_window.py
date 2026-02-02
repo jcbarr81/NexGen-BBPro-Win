@@ -238,8 +238,8 @@ class SeasonProgressWindow(QDialog):
         super().__init__(parent)
         try:
             self.setWindowTitle("Season Progress")
-            self.setMinimumSize(420, 640)
-            self.resize(420, 640)
+            self.setMinimumSize(420, 820)
+            self.resize(420, 820)
         except Exception:  # pragma: no cover - harmless in headless tests
             pass
 
@@ -1386,8 +1386,59 @@ class SeasonProgressWindow(QDialog):
             done_enabled,
             tooltip,
         )
+        self._update_next_phase_tip()
         # Timeline reflects updated status after any UI refresh.
         self._refresh_timeline(bracket=playoffs_bracket)
+
+    def _update_next_phase_tip(self) -> None:
+        button = getattr(self, "next_button", None)
+        if button is None:
+            return
+        next_label = self._next_phase_label()
+        if not next_label:
+            return
+        base_tip = f"Next phase: {next_label}."
+        try:
+            enabled = button.isEnabled()
+        except Exception:
+            enabled = True
+        if enabled:
+            tip = base_tip
+        else:
+            try:
+                existing = button.toolTip()
+            except Exception:
+                existing = ""
+            tip = f"{base_tip} {existing}".strip() if existing else base_tip
+        try:
+            button.setToolTip(tip)
+        except Exception:
+            pass
+
+    def _next_phase_label(self) -> str:
+        phase = getattr(self.manager, "phase", None)
+        if phase is None:
+            return ""
+        if phase == SeasonPhase.OFFSEASON:
+            next_phase = SeasonPhase.PRESEASON
+        elif phase == SeasonPhase.PRESEASON:
+            next_phase = SeasonPhase.REGULAR_SEASON
+        elif phase == SeasonPhase.REGULAR_SEASON:
+            try:
+                season_done = self.simulator._index >= len(self.simulator.dates)
+            except Exception:
+                season_done = False
+            next_phase = (
+                SeasonPhase.PLAYOFFS if season_done else SeasonPhase.AMATEUR_DRAFT
+            )
+        else:
+            try:
+                next_phase = phase.next()
+            except Exception:
+                next_phase = None
+        if next_phase is None:
+            return ""
+        return next_phase.name.replace("_", " ").title()
 
     def _set_simulation_status(self, text: str | None) -> None:
         """Show or hide the simulation status label."""
@@ -1758,6 +1809,59 @@ class SeasonProgressWindow(QDialog):
         except Exception:
             champion = None
 
+        def _is_final_round(name: str) -> bool:
+            tokens = [
+                t.lower()
+                for t in str(name or "").replace("-", " ").replace("_", " ").split()
+                if t
+            ]
+            final_tokens = {"ws", "world", "worlds", "final", "finals", "championship"}
+            return any(t in final_tokens for t in tokens)
+
+        def _final_round(br) -> object | None:
+            rounds = list(getattr(br, "rounds", []) or [])
+            finals = [r for r in rounds if _is_final_round(getattr(r, "name", ""))]
+            if finals:
+                return finals[-1]
+            return rounds[-1] if rounds else None
+
+        def _matchup_started(matchup: object) -> bool:
+            if getattr(matchup, "winner", None):
+                return True
+            for key in ("games", "results", "scores", "series"):
+                value = getattr(matchup, key, None)
+                if value:
+                    return True
+            for key in (
+                "high_wins",
+                "low_wins",
+                "wins_high",
+                "wins_low",
+                "home_wins",
+                "away_wins",
+            ):
+                value = getattr(matchup, key, None)
+                try:
+                    if int(value) > 0:
+                        return True
+                except Exception:
+                    continue
+            return False
+
+        def _final_started(br) -> bool:
+            final_round = _final_round(br)
+            matchups = list(getattr(final_round, "matchups", []) or []) if final_round else []
+            if not matchups:
+                return False
+            return any(_matchup_started(m) for m in matchups)
+
+        championship_started = False
+        if playoff_bracket is not None:
+            try:
+                championship_started = _final_started(playoff_bracket)
+            except Exception:
+                championship_started = False
+
         if champion or playoffs_done_effective or playoffs_active:
             if champion:
                 detail = (
@@ -1766,12 +1870,17 @@ class SeasonProgressWindow(QDialog):
                 )
             elif playoffs_done_effective:
                 detail = "Awaiting championship record."
-            else:
+            elif championship_started:
                 detail = "Final series underway."
+            else:
+                detail = "Awaiting final round."
             championship_done = bool(champion) or playoffs_done_effective
+            championship_active = (
+                playoffs_active and championship_started and not championship_done
+            )
             add_event(
                 "Postseason • Championship",
-                resolve_status(championship_done, playoffs_active and not champion),
+                resolve_status(championship_done, championship_active),
                 detail,
             )
 

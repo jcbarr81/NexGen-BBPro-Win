@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import logging
-import copy
 from collections import defaultdict
 from pathlib import Path
 from threading import RLock
 from typing import Any, Callable, Dict, Iterable, Optional, Tuple, TypeVar
 
 from utils import path_utils
+from utils.safe_copy import deepcopy
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -201,7 +201,7 @@ class UnifiedDataService:
             payload = document
         else:
             payload = cached
-        return copy.deepcopy(payload)
+        return deepcopy(payload)
 
     def update_document(
         self,
@@ -213,7 +213,7 @@ class UnifiedDataService:
         """Update cached document, emitting an event for subscribers."""
 
         resolved = self._resolve_path(file_path)
-        snapshot = copy.deepcopy(document)
+        snapshot = deepcopy(document)
         with self._lock:
             self._document_cache[resolved] = snapshot
         self.events.publish(f"{topic}.updated", {"path": resolved})

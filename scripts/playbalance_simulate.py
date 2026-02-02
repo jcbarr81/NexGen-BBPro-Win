@@ -18,7 +18,6 @@ Enable PerfTune profiling with ``--perftune`` and analyze the results with
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import multiprocessing as mp
 import os
@@ -58,6 +57,7 @@ from playbalance.diagnostics.batter_decision import BatterDecisionTracker
 from playbalance.diagnostics.pitch_intent import PitchIntentTracker
 from playbalance.diagnostics.pitch_survival import PitchSurvivalTracker
 from utils.lineup_loader import build_default_game_state
+from utils.safe_copy import deepcopy
 from utils.team_loader import load_teams
 
 try:  # pragma: no cover - optional dependency
@@ -194,7 +194,7 @@ def _enable_sim_diagnostics(
 def clone_team_state(team_id: str) -> TeamState:
     """Return a fresh ``TeamState`` cloned from the baseline."""
 
-    return copy.deepcopy(BASE_STATES[team_id])
+    return deepcopy(BASE_STATES[team_id])
 
 
 def _simulate_game(args: tuple[str, str, int]) -> np.ndarray:
