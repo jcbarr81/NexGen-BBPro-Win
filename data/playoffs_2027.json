@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "year": 2027,
+  "champion": null,
+  "runner_up": null,
+  "seeds": {
+    "LEAGUE": [
+      {
+        "team_id": "NEW",
+        "seed": 1,
+        "league": "LEAGUE",
+        "wins": 95,
+        "run_diff": 85
+      },
+      {
+        "team_id": "DAL",
+        "seed": 2,
+        "league": "LEAGUE",
+        "wins": 91,
+        "run_diff": 49
+      },
+      {
+        "team_id": "SAN",
+        "seed": 3,
+        "league": "LEAGUE",
+        "wins": 79,
+        "run_diff": 32
+      },
+      {
+        "team_id": "SEA",
+        "seed": 4,
+        "league": "LEAGUE",
+        "wins": 88,
+        "run_diff": 14
+      }
+    ]
+  },
+  "rounds": [
+    {
+      "name": "LEAGUE DS",
+      "matchups": [
+        {
+          "high": {
+            "team_id": "NEW",
+            "seed": 1,
+            "league": "LEAGUE",
+            "wins": 95,
+            "run_diff": 85
+          },
+          "low": {
+            "team_id": "SEA",
+            "seed": 4,
+            "league": "LEAGUE",
+            "wins": 88,
+            "run_diff": 14
+          },
+          "config": {
+            "length": 5,
+            "pattern": [
+              2,
+              2,
+              1
+            ]
+          },
+          "games": [],
+          "winner": null
+        },
+        {
+          "high": {
+            "team_id": "DAL",
+            "seed": 2,
+            "league": "LEAGUE",
+            "wins": 91,
+            "run_diff": 49
+          },
+          "low": {
+            "team_id": "SAN",
+            "seed": 3,
+            "league": "LEAGUE",
+            "wins": 79,
+            "run_diff": 32
+          },
+          "config": {
+            "length": 5,
+            "pattern": [
+              2,
+              2,
+              1
+            ]
+          },
+          "games": [],
+          "winner": null
+        }
+      ],
+      "plan": []
+    },
+    {
+      "name": "LEAGUE CS",
+      "matchups": [],
+      "plan": [
+        {
+          "series_key": "cs",
+          "sources": [
+            {
+              "kind": "winner",
+              "league": null,
+              "seed": null,
+              "source_round": "LEAGUE DS",
+              "slot": 0
+            },
+            {
+              "kind": "winner",
+              "league": null,
+              "seed": null,
+              "source_round": "LEAGUE DS",
+              "slot": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Final",
+      "matchups": [],
+      "plan": []
+    }
+  ]
+}

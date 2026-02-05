@@ -7,4 +7,5 @@
 ## Development guidelines
 - Use `rg` for searching the repository.
 - Follow PEP8 style guidelines.
+- Increment versoin in VERSION file for every change that is made
 

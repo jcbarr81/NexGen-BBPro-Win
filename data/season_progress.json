@@ -4,10 +4,15 @@
     "training_camp": true,
     "schedule": true
   },
-  "sim_index": 162,
+  "sim_index": 163,
   "playoffs_done": false,
-  "auto_activate_dl": true,
   "draft_completed_years": [
-    2026
-  ]
+    2027
+  ],
+  "auto_activate_dl": true,
+  "playoffs_berth_notified": {
+    "2027": [
+      "SEA"
+    ]
+  }
 }

@@ -342,6 +342,93 @@ def _aggregate_history_rows(
     return [(label, payload[2]) for label, payload in ordered]
 
 
+_CAREER_RATE_KEYS = {
+    "avg",
+    "obp",
+    "slg",
+    "ops",
+    "era",
+    "whip",
+    "babip",
+    "fip",
+    "k9",
+    "bb9",
+    "hr9",
+}
+
+
+def _sum_stat_rows(
+    rows: Iterable[Dict[str, Any]],
+    *,
+    is_pitcher: bool,
+) -> Dict[str, Any]:
+    totals: Dict[str, Any] = {}
+    for data in rows:
+        if not isinstance(data, dict):
+            continue
+        for key, value in data.items():
+            if key in _CAREER_RATE_KEYS:
+                continue
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, (int, float)):
+                totals[key] = totals.get(key, 0) + value
+
+    if is_pitcher:
+        outs = totals.get("outs")
+        ip = totals.get("ip")
+        if (ip is None or ip == 0) and outs:
+            totals["ip"] = outs / 3
+            ip = totals["ip"]
+        if ip:
+            er = totals.get("er", 0)
+            totals["era"] = (er * 9) / ip
+            walks_hits = totals.get("bb", 0) + totals.get("h", 0)
+            totals["whip"] = walks_hits / ip if ip else 0.0
+    else:
+        ab = totals.get("ab", 0)
+        h = totals.get("h", 0)
+        bb = totals.get("bb", 0)
+        hbp = totals.get("hbp", 0)
+        sf = totals.get("sf", 0)
+        doubles = totals.get("2b", totals.get("b2", 0))
+        triples = totals.get("3b", totals.get("b3", 0))
+        hr = totals.get("hr", 0)
+        if ab:
+            totals["avg"] = h / ab
+            singles = h - doubles - triples - hr
+            total_bases = singles + (2 * doubles) + (3 * triples) + (4 * hr)
+            totals["slg"] = total_bases / ab
+        denom = ab + bb + hbp + sf
+        if denom:
+            totals["obp"] = (h + bb + hbp) / denom
+        if "obp" in totals and "slg" in totals:
+            totals["ops"] = totals["obp"] + totals["slg"]
+
+    _round_stat_values(totals)
+    return totals
+
+
+class _SortableTableItem(QTableWidgetItem):
+    def __lt__(self, other: "QTableWidgetItem") -> bool:  # type: ignore[override]
+        try:
+            sort_role = Qt.ItemDataRole.UserRole + 1  # type: ignore[operator]
+        except Exception:
+            sort_role = None
+        if sort_role is not None:
+            try:
+                left = self.data(sort_role)
+                right = other.data(sort_role)
+            except Exception:
+                left = right = None
+            if left is not None and right is not None:
+                try:
+                    return float(left) < float(right)
+                except Exception:
+                    return str(left) < str(right)
+        return super().__lt__(other)
+
+
 def _safe_set_hspacing(layout: Any, value: int) -> None:
     _safe_call(layout, "setHorizontalSpacing", value)
 
@@ -1791,6 +1878,7 @@ class PlayerProfileDialog(QDialog):
         table.setAlternatingRowColors(True)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setSortingEnabled(False)
         try:
             table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
             table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -1821,8 +1909,20 @@ class PlayerProfileDialog(QDialog):
             else:
                 row_role = "history"
 
-            year_item = self._stat_item(label_text, align_left=True)
+            year_item = _SortableTableItem()
+            _set_text_alignment(year_item, "AlignLeft", "AlignVCenter")
+            year_item.setData(Qt.ItemDataRole.DisplayRole, label_text)
             year_item.setData(Qt.ItemDataRole.UserRole, row_role)
+            try:
+                sort_key = _year_from_token(label_text)
+            except Exception:
+                sort_key = None
+            if sort_key is None:
+                sort_key = -1 if row_role == "career" else 0
+            try:
+                year_item.setData(Qt.ItemDataRole.UserRole + 1, sort_key)
+            except Exception:
+                pass
             table.setItem(row_idx, 0, year_item)
 
             for col_idx, key in enumerate(columns, start=1):
@@ -1831,6 +1931,10 @@ class PlayerProfileDialog(QDialog):
                 item.setData(Qt.ItemDataRole.UserRole, row_role)
                 table.setItem(row_idx, col_idx, item)
         table.setSortingEnabled(True)
+        try:
+            table.sortItems(0, Qt.SortOrder.DescendingOrder)
+        except Exception:
+            pass
         try:
             table.resizeColumnsToContents()
             total_width = table.verticalHeader().width()
@@ -2045,14 +2149,27 @@ class PlayerProfileDialog(QDialog):
             year_item = QTableWidgetItem(str(label))
             _set_text_alignment(year_item, "AlignLeft", "AlignVCenter")
             table.setItem(row_idx, 0, year_item)
+            position = None
+            if not self._is_pitcher:
+                position = getattr(self.player, "primary_position", None)
             for col_idx, (key, _label) in enumerate(fields, start=1):
                 raw = data.get(key)
                 text = "--"
                 if raw is not None and raw != "":
                     try:
-                        text = str(int(float(raw)))
+                        text = rating_display_text(
+                            raw,
+                            key=key,
+                            position=position,
+                            is_pitcher=self._is_pitcher,
+                        )
                     except (TypeError, ValueError):
-                        text = str(raw)
+                        text = rating_display_text(
+                            raw,
+                            key=key,
+                            position=position,
+                            is_pitcher=self._is_pitcher,
+                        )
                 item = QTableWidgetItem(text)
                 _set_text_alignment(item, "AlignRight", "AlignVCenter")
                 table.setItem(row_idx, col_idx, item)
@@ -2355,7 +2472,7 @@ class PlayerProfileDialog(QDialog):
 
         entries.sort(
             key=lambda item: (_extract_year_from_label(item[0]) or -1),
-            reverse=True,
+            reverse=False,
         )
         return entries
 
@@ -2542,9 +2659,9 @@ class PlayerProfileDialog(QDialog):
                 pass
             rows.append((f"{current_year:04d}", season))
 
+        history_rows: list[tuple[Tuple[int, str], str, Dict[str, Any]]] = []
         history_map = getattr(self.player, "career_history", {}) or {}
         if isinstance(history_map, dict):
-            history_rows: list[tuple[Tuple[int, str], str, Dict[str, Any]]] = []
             for season_id, raw_stats in history_map.items():
                 data = self._stats_to_dict(raw_stats, is_pitcher)
                 if not data:
@@ -2555,7 +2672,17 @@ class PlayerProfileDialog(QDialog):
                 history_rows.sort(key=lambda item: item[0], reverse=True)
                 rows.extend((label, data) for _, label, data in history_rows)
 
-        career = self._stats_to_dict(getattr(self.player, "career_stats", {}), is_pitcher)
+        career_components: list[Dict[str, Any]] = []
+        if season:
+            career_components.append(season)
+        if history_rows:
+            for _, label, data in history_rows:
+                if season:
+                    year_token = _year_from_token(label)
+                    if year_token is not None and year_token == current_year:
+                        continue
+                career_components.append(data)
+        career = _sum_stat_rows(career_components, is_pitcher=is_pitcher)
         if career:
             rows.append(("Career", career))
         if rows:
@@ -4059,13 +4186,16 @@ if not hasattr(PlayerProfileDialog, '_collect_stats_history'):
             except Exception:
                 year_label = "Season"
             rows.append((year_label, season))
-        if rows:
-            return rows
+        career_components: list[Dict[str, Any]] = []
+        if season:
+            career_components.append(season)
 
         history_entries = getattr(self, "_history_override", []) or []
         aggregated = _aggregate_history_rows(self, history_entries, is_pitcher=is_pitcher)
         if aggregated:
-            return aggregated
+            for _, data in aggregated:
+                career_components.append(data)
+            rows.extend(aggregated)
 
         fallback_entries: list[Dict[str, Any]] = []
         loader = getattr(self, "_load_history", None)
@@ -4086,9 +4216,11 @@ if not hasattr(PlayerProfileDialog, '_collect_stats_history'):
             )
         aggregated = _aggregate_history_rows(self, fallback_entries, is_pitcher=is_pitcher)
         if aggregated:
-            return aggregated
+            for _, data in aggregated:
+                career_components.append(data)
+            rows.extend(aggregated)
 
-        career = self._stats_to_dict(getattr(self.player, "career_stats", {}), is_pitcher)
+        career = _sum_stat_rows(career_components, is_pitcher=is_pitcher)
         if career:
             rows.append(("Career", career))
         return rows

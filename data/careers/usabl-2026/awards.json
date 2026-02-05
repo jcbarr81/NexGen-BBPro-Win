@@ -1,0 +1,15 @@
+{
+  "awards": {
+    "MVP": {
+      "player_id": "P5054",
+      "player_name": "Pedro Ramirez",
+      "metric": 1.0744345459463114
+    },
+    "CY_YOUNG": {
+      "player_id": "P3786",
+      "player_name": "Alexis Hadsall",
+      "metric": 2.6517857142857144
+    }
+  },
+  "generated_at": "2026-02-03T02:51:51Z"
+}
