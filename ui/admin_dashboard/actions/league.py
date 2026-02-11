@@ -11,8 +11,10 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
     QDialog,
     QInputDialog,
+    QLineEdit,
     QMessageBox,
     QWidget,
+    QProgressDialog,
 )
 
 try:  # PyQt6.sip is optional depending on packaging
@@ -20,14 +22,24 @@ try:  # PyQt6.sip is optional depending on packaging
 except Exception:  # pragma: no cover - defensive import
     sip = None  # type: ignore
 
-from playbalance.league_creator import create_league
-from playbalance.schedule_generator import generate_mlb_schedule, save_schedule
+from playbalance.league_creator import create_league, MAX_LEAGUE_TEAMS
+from playbalance.schedule_generator import save_schedule
+from services.league_presets import (
+    generate_schedule_from_template,
+    record_league_metadata,
+)
 from playbalance.season_manager import SeasonManager, SeasonPhase
 
 from ui.team_entry_dialog import TeamEntryDialog
+from ui.league_preset_dialogs import (
+    LeagueSetupChoiceDialog,
+    select_quickstart_preset,
+    select_rule_preset,
+    select_schedule_template,
+)
 from ui.window_utils import ensure_on_top
 from utils.news_logger import log_news_event
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.player_writer import save_players_to_csv
 from utils.roster_loader import load_roster, save_roster
@@ -36,6 +48,15 @@ from utils.pitcher_recovery import PitcherRecoveryTracker
 from utils.stats_persistence import reset_stats
 from utils.team_loader import load_teams
 from services.standings_repository import save_standings
+from services.league_presets import (
+    apply_rule_preset,
+    build_quickstart_structure,
+    get_quickstart_preset,
+    get_rule_preset,
+    get_schedule_template,
+    record_league_metadata,
+)
+from utils.league_settings import configure_league_settings
 
 from ..context import DashboardContext
 
@@ -82,46 +103,201 @@ def create_league_action(
     if confirm != QMessageBox.StandardButton.Yes:
         return
 
+    setup_dialog = LeagueSetupChoiceDialog(parent)
+    if setup_dialog.exec() != QDialog.DialogCode.Accepted:
+        return
+    setup_choice = setup_dialog.choice or "custom"
+
     league_name, ok = QInputDialog.getText(parent, "League Name", "Enter league name:")
     if not ok or not league_name:
         return
     league_name = league_name.strip()
 
-    div_text, ok = QInputDialog.getText(
+    owner_league = False
+    commissioner_password: str | None = None
+    owner_choice = QMessageBox.question(
         parent,
-        "Divisions",
-        "Enter division names separated by commas:",
+        "Owner League?",
+        "Is this a multi-owner league? (Requires commissioner password for admin actions)",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
     )
-    if not ok or not div_text:
-        return
+    if owner_choice == QMessageBox.StandardButton.Yes:
+        owner_league = True
+        password, ok = QInputDialog.getText(
+            parent,
+            "Commissioner Password",
+            "Set commissioner password:",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok:
+            return
+        password = password.strip()
+        if not password:
+            QMessageBox.warning(
+                parent,
+                "Commissioner Password",
+                "Commissioner password is required for owner leagues.",
+            )
+            return
+        confirm, ok = QInputDialog.getText(
+            parent,
+            "Confirm Password",
+            "Confirm commissioner password:",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok:
+            return
+        if password != confirm.strip():
+            QMessageBox.warning(
+                parent,
+                "Commissioner Password",
+                "Passwords do not match.",
+            )
+            return
+        commissioner_password = password
 
-    divisions = [d.strip() for d in div_text.split(",") if d.strip()]
-    if not divisions:
-        return
+    if setup_choice == "quickstart":
+        quickstart_id = select_quickstart_preset(parent)
+        if not quickstart_id:
+            return
+        preset = get_quickstart_preset(quickstart_id)
+        if preset is None:
+            QMessageBox.warning(parent, "Preset Error", "Unable to load quick-start preset.")
+            return
+        default_schedule_id = preset.schedule_template_id or "mlb_162"
+        chosen_schedule_id = select_schedule_template(
+            parent,
+            default_id=default_schedule_id,
+        )
+        if not chosen_schedule_id:
+            return
+        total_teams = len(preset.divisions) * preset.teams_per_division
+        rule_preset = get_rule_preset(preset.rule_preset_id)
+        schedule_template = get_schedule_template(chosen_schedule_id)
+        rule_label = (
+            rule_preset.name
+            if rule_preset is not None
+            else preset.rule_preset_id or "None"
+        )
+        schedule_label = (
+            schedule_template.name
+            if schedule_template is not None
+            else chosen_schedule_id or "None"
+        )
+        summary_lines = [
+            f"League name: {league_name}",
+            f"Quick-Start preset: {preset.name}",
+            f"Teams: {total_teams} ({preset.teams_per_division} per division)",
+            "Divisions: " + ", ".join(preset.divisions),
+            f"Rule preset: {rule_label}",
+            f"Schedule template: {schedule_label}",
+            "",
+            "Continue?",
+        ]
+        confirm = QMessageBox.question(
+            parent,
+            "Confirm Quick-Start Setup",
+            "\n".join(summary_lines),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            structure = build_quickstart_structure(preset)
+        except ValueError as exc:
+            QMessageBox.warning(parent, "Preset Error", str(exc))
+            return
+    else:
+        div_text, ok = QInputDialog.getText(
+            parent,
+            "Divisions",
+            "Enter division names separated by commas:",
+        )
+        if not ok or not div_text:
+            return
 
-    teams_per_div, ok = QInputDialog.getInt(
-        parent,
-        "Teams",
-        "Teams per division:",
-        2,
-        1,
-        20,
-    )
-    if not ok:
-        return
+        divisions = [d.strip() for d in div_text.split(",") if d.strip()]
+        if not divisions:
+            return
 
-    dialog = TeamEntryDialog(divisions, teams_per_div, parent)
-    ensure_on_top(dialog)
-    if dialog.exec() != QDialog.DialogCode.Accepted:
-        return
+        teams_per_div, ok = QInputDialog.getInt(
+            parent,
+            "Teams",
+            "Teams per division:",
+            2,
+            1,
+            20,
+        )
+        if not ok:
+            return
+        total_teams = len(divisions) * teams_per_div
+        if total_teams > MAX_LEAGUE_TEAMS:
+            QMessageBox.warning(
+                parent,
+                "Too Many Teams",
+                (
+                    f"This setup would create {total_teams} teams, but the current limit "
+                    f"is {MAX_LEAGUE_TEAMS}. Reduce divisions or teams per division."
+                ),
+            )
+            return
 
-    structure = dialog.get_structure()
-    data_dir = get_base_dir() / "data"
+        dialog = TeamEntryDialog(divisions, teams_per_div, parent)
+        ensure_on_top(dialog)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        structure = dialog.get_structure()
+    data_dir = get_data_dir()
     try:
         create_league(str(data_dir), structure, league_name)
+    except ValueError as exc:
+        QMessageBox.warning(parent, "League Size Error", str(exc))
+        return
     except OSError as exc:
         QMessageBox.critical(parent, "Error", f"Failed to purge existing league: {exc}")
         return
+
+    rule_preset_id: Optional[str] = None
+    schedule_template_id: Optional[str] = None
+    quickstart_id: Optional[str] = None
+
+    if setup_choice == "quickstart":
+        quickstart_id = preset.preset_id if preset is not None else None
+        rule_preset_id = preset.rule_preset_id if preset is not None else None
+        schedule_template_id = chosen_schedule_id if preset is not None else None
+        if rule_preset_id:
+            apply_rule_preset(rule_preset_id)
+    else:
+        chosen_rule = select_rule_preset(parent, include_none=True)
+        if chosen_rule and chosen_rule != "__none__":
+            rule_preset_id = chosen_rule
+            apply_rule_preset(chosen_rule)
+
+        chosen_schedule = select_schedule_template(parent, default_id="mlb_162")
+        if chosen_schedule:
+            schedule_template_id = chosen_schedule
+
+    try:
+        record_league_metadata(
+            quickstart_preset_id=quickstart_id,
+            rule_preset_id=rule_preset_id,
+            schedule_template_id=schedule_template_id,
+        )
+    except Exception:
+        pass
+
+    try:
+        configure_league_settings(
+            mode="owner_league" if owner_league else "single_player",
+            commissioner_password=commissioner_password,
+        )
+    except Exception as exc:
+        QMessageBox.warning(
+            parent,
+            "League Settings",
+            f"Unable to save league settings: {exc}",
+        )
 
     QMessageBox.information(parent, "League Created", "New league generated.")
     try:
@@ -172,7 +348,7 @@ def reset_season_to_opening_day(
     if confirm != QMessageBox.StandardButton.Yes:
         return
 
-    data_root = get_base_dir() / "data"
+    data_root = get_data_dir()
     sched = data_root / "schedule.csv"
     purge_box = (
         QMessageBox.question(
@@ -212,6 +388,25 @@ def reset_season_to_opening_day(
             "Cannot reset: schedule.csv not found. Generate a schedule first.",
         )
         return
+
+    progress_dialog: Optional[QProgressDialog] = None
+    try:
+        progress_dialog = QProgressDialog("Resetting league...", None, 0, 0, parent)
+        progress_dialog.setWindowTitle("Resetting League")
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setAutoClose(False)
+        progress_dialog.setAutoReset(False)
+        progress_dialog.setCancelButton(None)
+        try:
+            from PyQt6.QtCore import Qt as _Qt
+
+            if hasattr(_Qt, "WindowModality"):
+                progress_dialog.setWindowModality(_Qt.WindowModality.NonModal)
+        except Exception:
+            pass
+        progress_dialog.show()
+    except Exception:
+        progress_dialog = None
 
     if context.show_toast:
         context.show_toast("info", "Resetting league in background...")
@@ -496,6 +691,11 @@ def reset_season_to_opening_day(
             kind, message = "error", str(exc)
 
         def finish() -> None:
+            if progress_dialog is not None:
+                try:
+                    progress_dialog.close()
+                except Exception:
+                    pass
             dialog_parent = _alive_widget(parent)
             if dialog_parent is not None:
                 if kind == "success":
@@ -552,7 +752,7 @@ def regenerate_schedule_action(
     if confirm != QMessageBox.StandardButton.Yes:
         return
 
-    data_root = get_base_dir() / "data"
+    data_root = get_data_dir()
     teams_path = data_root / "teams.csv"
     try:
         teams = [team.team_id for team in load_teams(teams_path)]
@@ -566,6 +766,31 @@ def regenerate_schedule_action(
 
     if not teams:
         QMessageBox.warning(parent, "No Teams", "No teams found to schedule.")
+        return
+    if len(teams) > MAX_LEAGUE_TEAMS:
+        QMessageBox.warning(
+            parent,
+            "Too Many Teams",
+            (
+                f"This league has {len(teams)} teams, but schedule generation is limited "
+                f"to {MAX_LEAGUE_TEAMS}. Reduce the league size before regenerating."
+            ),
+        )
+        return
+
+    default_template_id = "mlb_162"
+    try:
+        from playbalance.season_context import SeasonContext as _SeasonContext
+
+        ctx = _SeasonContext.load()
+        metadata = ctx.current.get("metadata", {}) if isinstance(ctx.current, dict) else {}
+        preset_value = metadata.get("schedule_template_id")
+        if isinstance(preset_value, str) and preset_value:
+            default_template_id = preset_value
+    except Exception:
+        pass
+    template_id = select_schedule_template(parent, default_id=default_template_id)
+    if not template_id:
         return
 
     start_year: Optional[int] = None
@@ -581,11 +806,16 @@ def regenerate_schedule_action(
         start_year = None
     if start_year is None:
         start_year = date.today().year
-    start = date(start_year, 4, 1)
     schedule_path = data_root / "schedule.csv"
 
     try:
-        schedule = generate_mlb_schedule(teams, start)
+        schedule = generate_schedule_from_template(
+            template_id,
+            teams,
+            year=start_year,
+        )
+        if not schedule:
+            raise RuntimeError("Schedule generation failed for the selected template.")
         save_schedule(schedule, schedule_path)
     except Exception as exc:
         QMessageBox.critical(parent, "Schedule Generation Failed", str(exc))
@@ -610,6 +840,11 @@ def regenerate_schedule_action(
         log_news_event(
             f"Admin regenerated regular season schedule ({len(schedule)} games)"
         )
+    except Exception:
+        pass
+
+    try:
+        record_league_metadata(schedule_template_id=template_id)
     except Exception:
         pass
 

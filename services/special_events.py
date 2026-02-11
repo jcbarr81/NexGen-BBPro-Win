@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from playbalance.season_context import SeasonContext
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.sim_date import get_current_sim_date
+from utils.news_logger import log_news_event
 
 __all__ = [
     "SPECIAL_EVENTS_PATH",
@@ -20,7 +21,7 @@ __all__ = [
     "reset_special_events",
 ]
 
-SPECIAL_EVENTS_PATH = get_base_dir() / "data" / "special_events.json"
+SPECIAL_EVENTS_PATH = get_data_dir() / "special_events.json"
 _VERSION = 1
 
 
@@ -164,7 +165,7 @@ def load_player_special_events(
     if not player_id:
         return []
     events = load_special_events(player_id=player_id)
-    careers_dir = get_base_dir() / "data" / "careers"
+    careers_dir = get_data_dir() / "careers"
     if careers_dir.exists():
         for path in sorted(careers_dir.glob("*/special_events.json")):
             events.extend(load_special_events(path=path, player_id=player_id))
@@ -392,4 +393,22 @@ def record_game_special_events(
 
     if events:
         record_special_events(events)
+        for event in events:
+            try:
+                message = _format_event_message(event)
+                team_id = event.get("team_id")
+                log_news_event(message, category="special_event", team_id=team_id)
+            except Exception:
+                pass
     return events
+
+
+def _format_event_message(event: Dict[str, Any]) -> str:
+    detail = str(event.get("detail") or "").strip()
+    if detail:
+        return detail
+    label = str(event.get("label") or event.get("type") or "Special Event")
+    name = str(event.get("player_name") or event.get("player_id") or "").strip()
+    if name:
+        return f"{name}: {label}"
+    return label

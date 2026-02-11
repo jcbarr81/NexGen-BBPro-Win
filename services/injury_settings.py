@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, MutableMapping
 
 from playbalance.season_context import SeasonContext
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
 __all__ = [
     "InjurySettings",
@@ -21,7 +21,7 @@ __all__ = [
 ]
 
 VERSION = 1
-SETTINGS_PATH = get_base_dir() / "data" / "injury_settings.json"
+SETTINGS_PATH = get_data_dir() / "injury_settings.json"
 
 LEVEL_OPTIONS: Dict[str, Dict[str, float]] = {
     "off": {"injuries_enabled": 0.0, "injury_rate_scale": 0.0},

@@ -7,12 +7,13 @@ from typing import Any, Dict, Iterable
 from models.player import Player
 from models.pitcher import Pitcher
 from playbalance.season_context import CAREER_DATA_DIR
-from utils.path_utils import get_base_dir as _get_base_dir
+from utils.path_utils import get_base_dir as _get_base_dir, get_data_dir as _get_data_dir
 from utils.stats_persistence import load_stats
 from services.unified_data_service import get_unified_data_service
 
-# Backwards compatibility: tests patch this attribute directly.
+# Backwards compatibility: tests patch these attributes directly.
 get_base_dir = _get_base_dir
+get_data_dir = _get_data_dir
 
 
 def _required_int(row, key):
@@ -76,7 +77,7 @@ def _file_token(path: Path) -> tuple[int, int] | None:
 
 def _stats_payload() -> Dict[str, Any]:
     global _STATS_CACHE, _STATS_TOKEN
-    stats_path = get_base_dir() / "data" / "season_stats.json"
+    stats_path = get_data_dir() / "season_stats.json"
     token = _file_token(stats_path)
     with _CACHE_LOCK:
         if _STATS_CACHE is None or token != _STATS_TOKEN:

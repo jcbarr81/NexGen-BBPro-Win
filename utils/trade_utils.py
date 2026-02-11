@@ -3,7 +3,7 @@ from datetime import date
 from pathlib import Path
 
 from models.trade import Trade
-from utils.path_utils import get_base_dir
+from utils.path_utils import resolve_app_path
 from playbalance.season_manager import TRADE_DEADLINE
 
 
@@ -13,9 +13,9 @@ def _today() -> date:
 
 def _resolve(file_path: str | Path) -> Path:
     path = Path(file_path)
-    if not path.is_absolute():
-        path = get_base_dir() / path
-    return path
+    if path.is_absolute():
+        return path
+    return resolve_app_path(path)
 
 
 def load_trades(file_path: str | Path = "data/trades_pending.csv"):

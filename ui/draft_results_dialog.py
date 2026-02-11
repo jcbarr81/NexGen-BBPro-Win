@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .components import Card, section_title
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.team_loader import load_teams
 
@@ -29,7 +29,7 @@ class DraftResultsDialog(QDialog):
         self.setWindowTitle("Draft Results")
         self.setMinimumSize(900, 600)
 
-        self._base_dir = get_base_dir()
+        self._data_dir = get_data_dir()
         self._results_paths = self._discover_results()
         self._team_map = self._load_team_map()
         self._player_lookup_cache: Dict[str, object] | None = None
@@ -64,7 +64,7 @@ class DraftResultsDialog(QDialog):
 
     def _discover_results(self) -> dict[int, Path]:
         results: dict[int, Path] = {}
-        data_dir = self._base_dir / "data"
+        data_dir = self._data_dir
         for path in data_dir.glob("draft_results_*.csv"):
             year = self._parse_year(path)
             if year is not None:
@@ -135,7 +135,7 @@ class DraftResultsDialog(QDialog):
             results_path.parent / f"draft_pool_{year}.csv",
             results_path.parent / f"draft_pool_{year}.json",
         ]
-        data_dir = self._base_dir / "data"
+        data_dir = self._data_dir
         candidates.extend(
             [
                 data_dir / f"draft_pool_{year}.csv",

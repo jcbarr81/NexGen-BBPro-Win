@@ -11,10 +11,10 @@ from typing import Dict, Any, Iterable
 
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
 
-BASE = get_base_dir()
+BASE = get_data_dir()
 
 # Simple org target counts — tune as needed
 POSITION_TARGETS: Dict[str, int] = {
@@ -45,7 +45,7 @@ def _is_sp(p: Any) -> bool:
 
 def compute_team_needs(team_id: str) -> Dict[str, float]:
     """Return need scores per position plus 'SP' and 'RP' in [0, 1]."""
-    players = {p.player_id: p for p in load_players_from_csv(str(BASE / "data" / "players.csv"))}
+    players = {p.player_id: p for p in load_players_from_csv(str(BASE / "players.csv"))}
     try:
         roster = load_roster(team_id)
         ids: list[str] = roster.act + roster.aaa + roster.low
@@ -96,4 +96,3 @@ def score_prospect(p: Dict[str, Any], needs: Dict[str, float]) -> int:
 
 
 __all__ = ["compute_team_needs", "score_prospect"]
-

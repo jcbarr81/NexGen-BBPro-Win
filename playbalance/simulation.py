@@ -33,7 +33,7 @@ from playbalance.fielding_ai import FieldingAI
 from playbalance.field_geometry import DEFAULT_POSITIONS, Stadium, FIRST_BASE, SECOND_BASE
 from utils.park_utils import stadium_from_name, park_factor_for_name
 from playbalance.state import PitcherState
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_base_dir, get_data_dir
 from utils.putout_probabilities import load_putout_probabilities
 from utils.stats_persistence import save_stats
 from services.injury_simulator import InjurySimulator
@@ -271,10 +271,9 @@ class GameSimulation:
         self._current_inning_number: int | None = None
         self._pending_batter_decision: dict[str, Any] | None = None
         self.pitch_distance_histogram: dict[int, int] = defaultdict(int)
-        base = get_base_dir()
+        data_dir = get_data_dir()
         data_path = (
-            base
-            / "data"
+            data_dir
             / "MLB_avg"
             / "Average_Putouts_per_Game_by_Position__Last_5_Years_.csv"
         )
@@ -4168,7 +4167,7 @@ def save_boxscore_html(game_type: str, html: str, game_id: str | None = None) ->
         Full path of the written file.
     """
 
-    base = get_base_dir() / "data" / "boxscores" / game_type
+    base = get_data_dir() / "boxscores" / game_type
     base.mkdir(parents=True, exist_ok=True)
     if game_id is None:
         game_id = datetime.now().strftime("%Y%m%d_%H%M%S")

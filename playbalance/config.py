@@ -14,6 +14,7 @@ from typing import Any, Dict
 import json
 
 from .pbini_loader import load_pbini
+from utils.path_utils import get_data_dir, resolve_app_path
 
 
 @dataclass
@@ -84,24 +85,19 @@ def load_config(
     different from the repository location.
     """
 
-    base_dir = Path(__file__).resolve().parents[1]
     if pbini_path is None:
-        pbini_path = base_dir / "playbalance" / "PBINI.txt"
+        pbini_path = resolve_app_path("playbalance/PBINI.txt")
     else:
-        pbini_path = Path(pbini_path)
-        if not pbini_path.is_absolute():
-            pbini_path = base_dir / pbini_path
+        pbini_path = resolve_app_path(pbini_path)
 
     sections = load_pbini(pbini_path)
     # Preserve the original keys to ensure coverage after overrides are merged.
     pbini_keys = {sect: set(vals.keys()) for sect, vals in sections.items()}
 
     if overrides_path is None:
-        overrides_path = base_dir / "data" / "playbalance_overrides.json"
+        overrides_path = get_data_dir() / "playbalance_overrides.json"
     else:
-        overrides_path = Path(overrides_path)
-        if not overrides_path.is_absolute():
-            overrides_path = base_dir / overrides_path
+        overrides_path = resolve_app_path(overrides_path)
 
     if overrides_path.exists():
         try:

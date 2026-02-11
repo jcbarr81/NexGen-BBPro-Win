@@ -5,12 +5,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.league_benchmarks import load_league_benchmarks
 
 from .pbini_loader import load_pbini
 
-DATA_DIR = get_base_dir() / "data"
+DATA_DIR = get_data_dir()
 _OVERRIDE_PATH = DATA_DIR / "playbalance_overrides.json"
 
 # MLB averages used to derive strike-based foul rates from all pitches.

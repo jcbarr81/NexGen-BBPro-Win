@@ -160,6 +160,7 @@ from playbalance.aging_model import age_and_retire
 from playbalance.season_manager import SeasonManager, SeasonPhase
 from playbalance.training_camp import run_training_camp
 from playbalance.player_development import TrainingWeights
+from playbalance.league_creator import MAX_LEAGUE_TEAMS
 from services.free_agency import list_unsigned_players
 from services.dl_automation import DLAutomationSummary, process_disabled_lists
 from services.season_progress_flags import (
@@ -169,7 +170,15 @@ from services.season_progress_flags import (
 from services.training_settings import load_training_settings
 from playbalance.season_simulator import SeasonSimulator
 from ui.draft_console import DraftConsole
-from playbalance.schedule_generator import generate_mlb_schedule, save_schedule
+from playbalance.schedule_generator import save_schedule
+from services.league_presets import (
+    generate_schedule_from_template,
+    get_schedule_template,
+    record_league_metadata,
+)
+from services.hall_of_fame import update_hall_of_fame
+from services.record_notifications import consume_record_notifications
+from services.timeline_feed import build_timeline_feed
 from utils.exceptions import DraftRosterError
 from playbalance.simulation import save_boxscore_html
 from utils.news_logger import log_news_event
@@ -193,9 +202,12 @@ from utils.pitcher_role import get_role
 from utils.sim_date import get_current_sim_date
 from ui.sim_date_bus import notify_sim_date_changed
 from ui.training_focus_dialog import TrainingFocusDialog
+from ui.league_preset_dialogs import select_schedule_template
 
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+from utils.path_utils import get_data_dir
+
+DATA_DIR = get_data_dir()
 TEAMS_FILE = DATA_DIR / "teams.csv"
 SCHEDULE_FILE = DATA_DIR / "schedule.csv"
 PROGRESS_FILE = DATA_DIR / "season_progress.json"
@@ -335,6 +347,20 @@ class SeasonProgressWindow(QDialog):
         self.timeline.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         layout.addWidget(self.timeline)
 
+        self.feed_label = QLabel("Timeline Feed")
+        self.feed_label.setStyleSheet("font-weight: 600;")
+        layout.addWidget(self.feed_label)
+
+        self.feed_list = QListWidget()
+        self.feed_list.setMouseTracking(True)
+        self.feed_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        try:
+            self.feed_list.setWordWrap(True)
+            self.feed_list.setMaximumHeight(220)
+        except Exception:
+            pass
+        layout.addWidget(self.feed_list)
+
         # Actions available during the preseason
         self.free_agency_button = QPushButton("List Unsigned Players")
         self.free_agency_button.clicked.connect(self._show_free_agents)
@@ -347,6 +373,10 @@ class SeasonProgressWindow(QDialog):
         self.training_focus_button = QPushButton("Training Focus...")
         self.training_focus_button.clicked.connect(self._open_training_focus_dialog)
         layout.addWidget(self.training_focus_button)
+
+        self.schedule_template_label = QLabel()
+        self.schedule_template_label.setWordWrap(True)
+        layout.addWidget(self.schedule_template_label)
 
         self.generate_schedule_button = QPushButton("Generate Schedule")
         self.generate_schedule_button.clicked.connect(self._generate_schedule)
@@ -1225,6 +1255,30 @@ class SeasonProgressWindow(QDialog):
     # ------------------------------------------------------------------
     # UI helpers
     # ------------------------------------------------------------------
+    def _update_schedule_template_label(self) -> None:
+        label = "Schedule Template: MLB 162 (default)"
+        template_id: Optional[str] = None
+        try:
+            from playbalance.season_context import SeasonContext as _SeasonContext
+
+            ctx = _SeasonContext.load()
+            metadata = ctx.current.get("metadata", {}) if isinstance(ctx.current, dict) else {}
+            value = metadata.get("schedule_template_id")
+            if isinstance(value, str) and value:
+                template_id = value
+        except Exception:
+            template_id = None
+        if template_id:
+            template = get_schedule_template(template_id)
+            if template is not None:
+                label = f"Schedule Template: {template.name}"
+            else:
+                label = f"Schedule Template: {template_id}"
+        try:
+            self.schedule_template_label.setText(label)
+        except Exception:
+            pass
+
     def _update_ui(self, note: str | None = None, *, bracket: object | None = None) -> None:
         """Refresh the label and notes for the current phase.
 
@@ -1268,6 +1322,9 @@ class SeasonProgressWindow(QDialog):
         self.free_agency_button.setVisible(is_preseason)
         self.training_camp_button.setVisible(is_preseason)
         self.training_focus_button.setVisible(is_preseason)
+        self.schedule_template_label.setVisible(is_preseason)
+        if is_preseason:
+            self._update_schedule_template_label()
         self.generate_schedule_button.setVisible(is_preseason)
         self.remaining_label.setVisible(is_regular or is_playoffs)
         self.simulate_day_button.setVisible(is_regular or is_playoffs)
@@ -1289,6 +1346,7 @@ class SeasonProgressWindow(QDialog):
                 pass
         playoffs_bracket = bracket
         draft_locked = bool(self._draft_blocked)
+        self._refresh_timeline_feed()
         if is_regular:
             self.simulate_day_button.setText("Simulate Day")
             mid_remaining = self.simulator.remaining_days()
@@ -1747,6 +1805,25 @@ class SeasonProgressWindow(QDialog):
                 message = note
                 if self._show_toast:
                     self._show_toast("info", message)
+        try:
+            events = consume_record_notifications()
+        except Exception:
+            events = []
+        if events:
+            lines = []
+            for event in events[:10]:
+                detail = str(event.get("detail") or event.get("label") or "Record updated")
+                lines.append(detail)
+            if len(events) > 10:
+                lines.append(f"...and {len(events) - 10} more")
+            try:
+                QMessageBox.information(
+                    self,
+                    "Records Updated",
+                    "\n".join(lines) if lines else "New records were set.",
+                )
+            except Exception:
+                pass
         self.manager.rollover_result = None
         return message
 
@@ -2072,6 +2149,43 @@ class SeasonProgressWindow(QDialog):
         if timeline.count() == 0:
             add_event("Timeline data unavailable", "pending")
 
+    def _refresh_timeline_feed(self) -> None:
+        feed = getattr(self, "feed_list", None)
+        if feed is None:
+            return
+        try:
+            feed.clear()
+        except Exception:
+            return
+        entries = []
+        try:
+            entries = build_timeline_feed(limit=12)
+        except Exception:
+            entries = []
+        if not entries:
+            try:
+                feed.addItem(QListWidgetItem("No milestones recorded yet."))
+            except Exception:
+                pass
+            return
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            date_val = str(entry.get("date") or "").strip() or "--"
+            label = str(entry.get("label") or "Milestone")
+            text = f"{date_val} • {label}"
+            item = QListWidgetItem(text)
+            detail = str(entry.get("detail") or "").strip()
+            if detail:
+                try:
+                    item.setToolTip(detail)
+                except Exception:
+                    pass
+            try:
+                feed.addItem(item)
+            except Exception:
+                pass
+
     def _next_phase(self) -> None:
         """Advance to the next phase and update the display."""
         self._playoffs_override_done = False
@@ -2081,7 +2195,23 @@ class SeasonProgressWindow(QDialog):
                 next_year,
                 getattr(self.manager, "players", None),
             )
-            self.notes_label.setText(f"Retired Players: {retired_count}")
+            hof_note = None
+            try:
+                hof_result = update_hall_of_fame(current_year=next_year)
+                added = hof_result.get("added", []) if isinstance(hof_result, dict) else []
+                if added:
+                    names = ", ".join(
+                        [entry.get("player_name", "") for entry in added[:5] if entry.get("player_name")]
+                    )
+                    if names:
+                        suffix = "..." if len(added) > 5 else ""
+                        hof_note = f"Hall of Fame inductees: {names}{suffix}"
+            except Exception:
+                hof_note = None
+            base_note = f"Retired Players: {retired_count}"
+            if hof_note:
+                base_note = f"{base_note}\n{hof_note}"
+            self.notes_label.setText(base_note)
             season_manager.TRADE_DEADLINE = date(next_year, 7, 31)
             try:
                 self._draft_date = self._compute_draft_date(f"{next_year}-04-01")
@@ -2104,7 +2234,7 @@ class SeasonProgressWindow(QDialog):
                 after_game=self._record_game,
             )
             self._season_year_hint = self._infer_schedule_year() or next_year
-            note = f"Retired Players: {retired_count}"
+            note = base_note
         elif self.manager.phase == SeasonPhase.REGULAR_SEASON:
             # If the regular season is complete, skip the Amateur Draft phase
             # and proceed directly to the Playoffs. The draft is handled as an
@@ -2271,7 +2401,7 @@ class SeasonProgressWindow(QDialog):
         allocations: dict[str, TrainingWeights] = {}
         for pid in players.keys():
             team_id = team_lookup.get(pid)
-            allocations[pid] = settings.for_team(team_id)
+            allocations[pid] = settings.for_player(str(pid), team_id)
         return allocations
 
     def _player_team_lookup(
@@ -2304,10 +2434,38 @@ class SeasonProgressWindow(QDialog):
         if not teams:
             self._update_ui("No teams available to generate schedule.")
             return
+        if len(teams) > MAX_LEAGUE_TEAMS:
+            self._update_ui(
+                f"League size exceeds the {MAX_LEAGUE_TEAMS}-team limit. "
+                "Reduce league size before generating a schedule."
+            )
+            return
+
+        default_template_id = "mlb_162"
+        try:
+            from playbalance.season_context import SeasonContext as _SeasonContext
+
+            ctx = _SeasonContext.load()
+            metadata = ctx.current.get("metadata", {}) if isinstance(ctx.current, dict) else {}
+            preset_value = metadata.get("schedule_template_id")
+            if isinstance(preset_value, str) and preset_value:
+                default_template_id = preset_value
+        except Exception:
+            pass
+
+        template_id = select_schedule_template(self, default_id=default_template_id)
+        if not template_id:
+            return
 
         schedule_year = self._resolve_current_league_year() or date.today().year
-        start = date(schedule_year, 4, 1)
-        schedule = generate_mlb_schedule(teams, start)
+        schedule = generate_schedule_from_template(
+            template_id,
+            teams,
+            year=schedule_year,
+        )
+        if not schedule:
+            self._update_ui("Schedule generation failed for the selected template.")
+            return
         save_schedule(schedule, SCHEDULE_FILE)
         first_date = (
             str(schedule[0].get("date") or "").strip()
@@ -2340,6 +2498,10 @@ class SeasonProgressWindow(QDialog):
         self._season_year_hint = self._infer_schedule_year()
         message = f"Schedule generated with {len(schedule)} games."
         log_news_event(f"Generated regular season schedule with {len(schedule)} games")
+        try:
+            record_league_metadata(schedule_template_id=template_id)
+        except Exception:
+            pass
         self._set_button_state(
             self.generate_schedule_button,
             False,

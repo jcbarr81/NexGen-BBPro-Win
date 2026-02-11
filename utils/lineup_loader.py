@@ -7,7 +7,7 @@ from typing import Iterable, List, Tuple
 from playbalance.simulation import TeamState
 from models.player import Player
 from models.pitcher import Pitcher
-from utils.path_utils import get_base_dir
+from utils.path_utils import resolve_app_path
 from .player_loader import load_players_from_csv
 from .roster_loader import load_roster
 from .pitcher_role import get_role
@@ -23,9 +23,7 @@ def load_lineup(team_id: str, vs: str = "lhp", lineup_dir: str | Path = "data/li
     ``P1000``.
     """
     suffix = f"vs_{vs.lower()}"
-    lineup_dir = Path(lineup_dir)
-    if not lineup_dir.is_absolute():
-        lineup_dir = get_base_dir() / lineup_dir
+    lineup_dir = resolve_app_path(lineup_dir)
     file_path = lineup_dir / f"{team_id}_{suffix}.csv"
     if not file_path.exists():
         raise FileNotFoundError(f"Lineup file not found: {file_path}")
@@ -66,9 +64,7 @@ def _load_pitching_staff(
 ) -> List[tuple[str, str]]:
     """Return ordered pitching staff entries from ``*_pitching.csv``."""
 
-    roster_path = Path(roster_dir)
-    if not roster_path.is_absolute():
-        roster_path = get_base_dir() / roster_path
+    roster_path = resolve_app_path(roster_dir)
     file_path = roster_path / f"{team_id}_pitching.csv"
     entries: List[tuple[str, str]] = []
     if not file_path.exists():
@@ -243,9 +239,7 @@ def build_default_game_state(
 
     team_obj = None
     if teams_file:
-        lookup_path = Path(teams_file)
-        if not lookup_path.is_absolute():
-            lookup_path = get_base_dir() / lookup_path
+        lookup_path = resolve_app_path(teams_file)
         team_obj = _teams_lookup(str(lookup_path)).get(team_id)
 
     state = TeamState(lineup=lineup, bench=bench, pitchers=pitchers, team=team_obj)

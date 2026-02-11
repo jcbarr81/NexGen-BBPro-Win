@@ -4,7 +4,7 @@ from pathlib import Path
 import csv
 import json
 
-from .path_utils import get_base_dir
+from .path_utils import get_data_dir
 
 
 def _infer_completed_days(
@@ -47,7 +47,7 @@ def get_current_sim_date(base_dir: Path | None = None) -> str | None:
     not yet been fully simulated.
     """
 
-    base = (base_dir or get_base_dir()) / "data"
+    base = get_data_dir() if base_dir is None else (base_dir / "data")
     sched = base / "schedule.csv"
     prog = base / "season_progress.json"
     if not sched.exists():

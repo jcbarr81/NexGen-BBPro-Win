@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_base_dir, resolve_app_path
 from utils.pitcher_role import get_role
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster
@@ -17,11 +17,7 @@ _EPOCH = date(1970, 1, 1)
 
 
 def _resolve_path(path: str | Path) -> Path:
-    base = get_base_dir()
-    resolved = Path(path)
-    if not resolved.is_absolute():
-        resolved = base / resolved
-    return resolved
+    return resolve_app_path(path)
 
 
 def _parse_date(value: str | None) -> date:

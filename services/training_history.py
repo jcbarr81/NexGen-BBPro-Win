@@ -10,15 +10,14 @@ from typing import Dict, Iterable, List, Sequence
 
 from playbalance.player_development import TrainingReport
 from playbalance.season_context import SeasonContext
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
 __all__ = [
     "record_training_session",
     "load_player_training_history",
 ]
 
-_BASE_DIR = get_base_dir()
-_REPORTS_DIR = _BASE_DIR / "data" / "training_reports"
+_REPORTS_DIR = get_data_dir() / "training_reports"
 
 
 def _utcnow() -> str:
@@ -122,4 +121,3 @@ def load_player_training_history(
     if limit > 0:
         entries = entries[:limit]
     return entries
-

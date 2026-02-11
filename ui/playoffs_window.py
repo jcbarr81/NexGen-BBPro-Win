@@ -28,6 +28,7 @@ try:
         QWidget,
         QFrame,
         QMessageBox,
+        QProgressDialog,
     )
     from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal
 except Exception:  # pragma: no cover - headless stubs for tests
@@ -70,6 +71,16 @@ except Exception:  # pragma: no cover - headless stubs for tests
         def information(*a, **k): pass
         @staticmethod
         def warning(*a, **k): pass
+    class QProgressDialog:
+        def __init__(self, *a, **k): pass
+        def setWindowTitle(self, *a, **k): pass
+        def setMinimumDuration(self, *a, **k): pass
+        def setAutoClose(self, *a, **k): pass
+        def setAutoReset(self, *a, **k): pass
+        def setCancelButton(self, *a, **k): pass
+        def setWindowModality(self, *a, **k): pass
+        def show(self): pass
+        def close(self): pass
     class QVBoxLayout:
         def __init__(self, *a, **k): pass
         def addWidget(self, *a, **k): pass
@@ -282,6 +293,7 @@ class PlayoffsWindow(QDialog):
         self._event_unsubscribes: list[Callable[[], None]] = []
         self._pending_refresh = False
         self._pending_toast_reason: Optional[str] = None
+        self._progress_dialogs: dict[str, QProgressDialog] = {}
         self._register_data_subscriptions()
         self.refresh()
 
@@ -307,7 +319,39 @@ class PlayoffsWindow(QDialog):
             except Exception:
                 pass
         self._event_unsubscribes = []
+        for key in list(self._progress_dialogs):
+            self._close_progress_dialog(key)
         super().closeEvent(event)
+
+    def _show_progress_dialog(self, key: str, title: str, message: str) -> None:
+        if key in self._progress_dialogs:
+            return
+        dialog = QProgressDialog(message, None, 0, 0, self)
+        try:
+            dialog.setWindowTitle(title)
+            dialog.setMinimumDuration(0)
+            dialog.setAutoClose(False)
+            dialog.setAutoReset(False)
+            dialog.setCancelButton(None)
+            modality = getattr(Qt, "WindowModality", None)
+            if modality is not None and hasattr(modality, "NonModal"):
+                dialog.setWindowModality(modality.NonModal)
+        except Exception:
+            pass
+        try:
+            dialog.show()
+        except Exception:
+            pass
+        self._progress_dialogs[key] = dialog
+
+    def _close_progress_dialog(self, key: str) -> None:
+        dialog = self._progress_dialogs.pop(key, None)
+        if dialog is None:
+            return
+        try:
+            dialog.close()
+        except Exception:
+            pass
 
     def _register_data_subscriptions(self) -> None:
         bus = getattr(self._data_service, "events", None)
@@ -373,7 +417,7 @@ class PlayoffsWindow(QDialog):
         if not self._bracket:
             # Lazy-generate a bracket if we're in playoffs and none exists yet.
             try:
-                from utils.path_utils import get_base_dir
+                from utils.path_utils import get_data_dir
                 from playbalance.playoffs import generate_bracket, save_bracket
                 from playbalance.playoffs_config import load_playoffs_config
                 from utils.team_loader import load_teams
@@ -553,6 +597,7 @@ class PlayoffsWindow(QDialog):
     def _run_playoff_worker(self, payload: dict[str, Any]) -> None:
         worker = payload["worker"]
         self._set_sim_buttons_enabled(False)
+        self._show_progress_dialog("playoffs_sim", "Playoff Simulation", payload["title"])
         if self._show_toast:
             self._show_toast("info", payload["title"])
         future = self._run_async(worker)
@@ -652,6 +697,7 @@ class PlayoffsWindow(QDialog):
 
     def _handle_sim_result(self, result: dict[str, Any]) -> None:
         self._set_sim_buttons_enabled(True)
+        self._close_progress_dialog("playoffs_sim")
         status = result.get("status", "error")
         message = result.get("message", "")
         if status != "success":
@@ -757,6 +803,7 @@ class PlayoffsWindow(QDialog):
                 "A summary export is already running. Please wait for it to finish.",
             )
             return
+        self._show_progress_dialog("playoffs_export", "Export Summary", "Exporting playoff summary...")
         if self._show_toast:
             self._show_toast("info", "Exporting playoff summary in background...")
 
@@ -787,7 +834,6 @@ class PlayoffsWindow(QDialog):
 
     def _export_summary_work(self) -> dict[str, Any]:
         from playbalance.playoffs import load_bracket
-        from utils.path_utils import get_base_dir
         from pathlib import Path
 
         bracket = load_bracket()
@@ -795,7 +841,7 @@ class PlayoffsWindow(QDialog):
             return {"status": "error", "message": "No playoff bracket available to export."}
         lines = _build_bracket_markdown(bracket)
         try:
-            out = Path(get_base_dir()) / "data" / f"playoffs_summary_{getattr(bracket, 'year', '')}.md"
+            out = get_data_dir() / f"playoffs_summary_{getattr(bracket, 'year', '')}.md"
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text("\n".join(lines), encoding="utf-8")
             return {"status": "success", "path": str(out)}
@@ -803,6 +849,7 @@ class PlayoffsWindow(QDialog):
             return {"status": "error", "message": f"Failed exporting summary: {exc}"}
 
     def _handle_export_result(self, result: dict[str, Any]) -> None:
+        self._close_progress_dialog("playoffs_export")
         status = result.get("status", "error")
         path = result.get("path")
         message = result.get("message", "")
@@ -838,6 +885,7 @@ class PlayoffsWindow(QDialog):
                 "Summary is already being opened. Please wait.",
             )
             return
+        self._show_progress_dialog("playoffs_open", "Open Summary", "Opening playoff summary...")
         if self._show_toast:
             self._show_toast("info", "Opening playoff summary...")
 
@@ -868,7 +916,7 @@ class PlayoffsWindow(QDialog):
 
     def _open_summary_work(self) -> dict[str, Any]:
         from playbalance.playoffs import load_bracket
-        from utils.path_utils import get_base_dir
+        from utils.path_utils import get_data_dir
         from pathlib import Path
         import os
         import sys
@@ -879,7 +927,7 @@ class PlayoffsWindow(QDialog):
             bracket = load_bracket()
             if not bracket:
                 return {"status": "error", "message": "No playoff bracket available."}
-            out = Path(get_base_dir()) / "data" / f"playoffs_summary_{getattr(bracket, 'year', '')}.md"
+            out = get_data_dir() / f"playoffs_summary_{getattr(bracket, 'year', '')}.md"
             if not out.exists():
                 export_result = self._export_summary_work()
                 if export_result.get("status") != "success":
@@ -905,6 +953,7 @@ class PlayoffsWindow(QDialog):
         return {"status": "success", "message": f"Opened summary at {target}", "path": str(target)}
 
     def _handle_open_result(self, result: dict[str, Any]) -> None:
+        self._close_progress_dialog("playoffs_open")
         status = result.get("status", "error")
         message = result.get("message", "")
         path = result.get("path")

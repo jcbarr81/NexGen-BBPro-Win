@@ -220,7 +220,7 @@ def simulate_season_average(
     """
 
     teams = [t.team_id for t in load_teams()]
-    schedule_dir = get_base_dir() / "data" / "schedules"
+    schedule_dir = get_data_dir() / "schedules"
     schedule_dir.mkdir(parents=True, exist_ok=True)
     schedule_file = schedule_dir / "2025_schedule.pkl"
     if schedule_file.exists():

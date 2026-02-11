@@ -610,9 +610,9 @@ class InjuryCenterWindow(QDialog):
         if not replaced:
             plist.append(player)
         try:
-            from utils.path_utils import get_base_dir
+            from utils.path_utils import get_data_dir
 
-            save_players_to_csv(plist, str(get_base_dir() / 'data' / 'players.csv'))
+            save_players_to_csv(plist, str(get_data_dir() / 'players.csv'))
         except Exception:
             pass
         try:

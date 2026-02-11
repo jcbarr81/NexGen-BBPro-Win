@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, List
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.sim_date import get_current_sim_date
 from services.unified_data_service import get_unified_data_service
@@ -26,7 +26,7 @@ TRANSACTION_COLUMNS = [
     "details",
 ]
 
-_TRANSACTIONS_PATH = get_base_dir() / "data" / "transactions.csv"
+_TRANSACTIONS_PATH = get_data_dir() / "transactions.csv"
 _PLAYER_NAME_CACHE: dict[str, str] | None = None
 _TRANSACTIONS_TOPIC = "transactions"
 

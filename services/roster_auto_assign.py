@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Tuple, Set
 
 from playbalance.aging import calculate_age
-from utils.path_utils import get_base_dir
 from utils.player_loader import load_players_from_csv
 from utils.team_loader import load_teams
 from utils.user_manager import load_users
@@ -312,7 +311,6 @@ def _pick_minor_rosters(
 
 
 def auto_assign_team(team_id: str, *, players_file: str = "data/players.csv", roster_dir: str = "data/rosters") -> None:
-    base = get_base_dir()
     players = {p.player_id: p for p in load_players_from_csv(players_file)}
     roster = load_roster(team_id, roster_dir)
 

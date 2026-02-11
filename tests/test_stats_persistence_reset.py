@@ -6,6 +6,7 @@ from utils.stats_persistence import load_stats, reset_stats
 
 def test_reset_stats_overwrites_payload(tmp_path, monkeypatch):
     monkeypatch.setattr(path_utils, "get_base_dir", lambda: tmp_path)
+    monkeypatch.setattr(path_utils, "get_data_dir", lambda: tmp_path / "data")
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     stats_path = data_dir / "season_stats.json"
@@ -26,6 +27,7 @@ def test_reset_stats_overwrites_payload(tmp_path, monkeypatch):
 
 def test_reset_stats_with_default_path(tmp_path, monkeypatch):
     monkeypatch.setattr(path_utils, "get_base_dir", lambda: tmp_path)
+    monkeypatch.setattr(path_utils, "get_data_dir", lambda: tmp_path / "data")
     stats_path = tmp_path / "data" / "season_stats.json"
     stats_path.parent.mkdir(parents=True, exist_ok=True)
     stats_path.write_text(

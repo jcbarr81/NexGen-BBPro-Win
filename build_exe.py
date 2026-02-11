@@ -77,7 +77,7 @@ def main() -> None:
         (os.path.join("playbalance", "draft_pool.csv"), "playbalance"),
     ]
     # --noconsole prevents a console window from appearing when the app runs.
-    # Use --onedir so runtime data stays writable in the install folder.
+    # Use --onedir to keep bundled assets together; runtime data lives in the user profile.
     params = [
         "main.py",
         "--onedir",

@@ -18,6 +18,11 @@ from services.injury_history import load_player_injury_history
 from services.record_book import player_record_entries
 from services.special_events import load_player_special_events
 from services.transaction_log import load_transactions
+from services.training_settings import (
+    load_training_settings,
+    HITTER_TRACKS,
+    PITCHER_TRACKS,
+)
 from playbalance.season_context import SeasonContext
 
 try:
@@ -222,7 +227,7 @@ except ImportError:  # pragma: no cover - test stubs
 
 from models.base_player import BasePlayer
 from utils.stats_persistence import load_stats
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_base_dir, get_data_dir, resolve_app_path
 from utils.player_loader import load_players_from_csv
 from utils.rating_display import rating_display_text, rating_display_value
 from .star_rating import star_label, star_pixmap, star_text
@@ -737,6 +742,11 @@ class PlayerProfileDialog(QDialog):
         self._stats_cache: Optional[Dict[str, Any]] = None
         self._comparison_labels: Dict[str, Tuple[Any, Any]] = {}
         self._comparison_name_label: Optional[QLabel] = None
+        self._training_focus_card: Optional[QWidget] = None
+        self._training_focus_source_label: Optional[QLabel] = None
+        self._training_focus_team_label: Optional[QLabel] = None
+        self._training_focus_hitters_label: Optional[QLabel] = None
+        self._training_focus_pitchers_label: Optional[QLabel] = None
 
         root = QVBoxLayout()
         if callable(getattr(root, "setContentsMargins", None)):
@@ -762,10 +772,11 @@ class PlayerProfileDialog(QDialog):
         _safe_call(tabs, "setObjectName", "ProfileTabs")
 
         overview = self._build_overview_section()
+        training_focus = self._build_training_focus_summary()
         insights = self._build_insights_section()
         injuries = self._build_injury_history_section()
         overview_tab = self._build_tab_container(
-            (overview, insights, injuries),
+            (overview, training_focus, insights, injuries),
             empty_message="No additional profile details available.",
         )
         tabs.addTab(overview_tab, "Overview")
@@ -1269,6 +1280,11 @@ class PlayerProfileDialog(QDialog):
         _safe_set_spacing(layout, 8)
         _layout_add_stretch(layout)
 
+        training_btn = QPushButton("Training Focus...")
+        _safe_call(training_btn, "setObjectName", "SecondaryButton")
+        training_btn.clicked.connect(self._open_training_focus_dialog)
+        _layout_add_widget(layout, training_btn)
+
         compare_btn = QPushButton("Compare...")
         _safe_call(compare_btn, "setObjectName", "SecondaryButton")
         compare_btn.clicked.connect(self._prompt_comparison_player)
@@ -1283,6 +1299,45 @@ class PlayerProfileDialog(QDialog):
         self._compare_button = compare_btn
         self._clear_compare_button = clear_btn
         return bar
+
+    def _open_training_focus_dialog(self) -> None:
+        player_id = getattr(self.player, "player_id", None)
+        if not player_id:
+            return
+        try:
+            from ui.training_focus_dialog import TrainingFocusDialog
+        except Exception:
+            return
+        player_name = f"{self.player.first_name} {self.player.last_name}".strip()
+        if not player_name:
+            player_name = str(player_id)
+        team_id = _lookup_player_team(str(player_id))
+        try:
+            dialog = TrainingFocusDialog(
+                parent=self,
+                mode="player",
+                player_id=str(player_id),
+                player_name=player_name,
+                team_id=team_id,
+            )
+        except Exception:
+            return
+        result = dialog.exec()
+        try:
+            accepted = bool(result)
+        except Exception:
+            accepted = False
+        if not accepted:
+            return
+        self._refresh_training_focus_summary()
+        message = getattr(dialog, "result_message", None)
+        if message:
+            try:
+                from PyQt6.QtWidgets import QMessageBox
+
+                QMessageBox.information(self, "Training Focus Updated", message)
+            except Exception:
+                pass
 
 
     def _load_avatar_pixmap(self) -> QPixmap:
@@ -1638,7 +1693,7 @@ class PlayerProfileDialog(QDialog):
         return points
 
     def _compute_rolling_stats(self) -> Dict[str, Any]:
-        history_dir = get_base_dir() / "data" / "season_history"
+        history_dir = get_data_dir() / "season_history"
         if not history_dir.exists():
             return {"dates": [], "series": {}}
 
@@ -1853,6 +1908,116 @@ class PlayerProfileDialog(QDialog):
         grid_widget.setLayout(grid)
         _layout_add_widget(layout, grid_widget)
         return card
+
+    def _build_training_focus_summary(self) -> Card | None:
+        player_id = getattr(self.player, "player_id", "") or ""
+        if not player_id:
+            return None
+
+        card = Card()
+        layout = card.layout()
+        if layout is None:
+            return None
+        _layout_add_widget(layout, section_title("Training Focus"))
+        self._training_focus_source_label = QLabel()
+        _layout_add_widget(layout, self._training_focus_source_label)
+
+        self._training_focus_team_label = QLabel()
+        _layout_add_widget(layout, self._training_focus_team_label)
+
+        self._training_focus_hitters_label = QLabel()
+        _safe_call(self._training_focus_hitters_label, "setWordWrap", True)
+        _layout_add_widget(layout, self._training_focus_hitters_label)
+
+        self._training_focus_pitchers_label = QLabel()
+        _safe_call(self._training_focus_pitchers_label, "setWordWrap", True)
+        _layout_add_widget(layout, self._training_focus_pitchers_label)
+
+        edit_btn = QPushButton("Edit Training Focus")
+        _safe_call(edit_btn, "setObjectName", "SecondaryButton")
+        edit_btn.clicked.connect(self._open_training_focus_dialog)
+        _layout_add_widget(layout, edit_btn)
+
+        self._training_focus_card = card
+        self._refresh_training_focus_summary()
+        return card
+
+    def _refresh_training_focus_summary(self) -> None:
+        if self._training_focus_card is None:
+            return
+        if self._training_focus_source_label is None:
+            return
+        player_id = getattr(self.player, "player_id", "") or ""
+        if not player_id:
+            return
+        try:
+            settings = load_training_settings()
+        except Exception:
+            return
+
+        team_id = _lookup_player_team(str(player_id))
+        pid = str(player_id)
+        if pid in settings.player_overrides:
+            source = "Player"
+        elif team_id and str(team_id) in settings.team_overrides:
+            source = "Team"
+        else:
+            source = "League"
+
+        weights = settings.for_player(pid, team_id)
+        label_map = {
+            "contact": "Contact",
+            "power": "Power",
+            "speed": "Speed",
+            "discipline": "Discipline",
+            "defense": "Defense",
+            "command": "Command",
+            "movement": "Movement",
+            "stamina": "Stamina",
+            "velocity": "Velocity",
+            "hold": "Hold",
+            "pitch_lab": "Pitch Lab",
+        }
+
+        def _line(keys, values) -> str:
+            parts: List[str] = []
+            for key in keys:
+                if key not in values:
+                    continue
+                label = label_map.get(key, key.replace("_", " ").title())
+                parts.append(f"{label} {int(values[key])}%")
+            return ", ".join(parts)
+
+        hitters_line = _line(HITTER_TRACKS, weights.hitters)
+        pitchers_line = _line(PITCHER_TRACKS, weights.pitchers)
+
+        self._training_focus_source_label.setText(
+            f"Current source: {source} default"
+        )
+        if self._training_focus_team_label is not None:
+            if team_id:
+                self._training_focus_team_label.setText(f"Team: {team_id}")
+                _safe_call(self._training_focus_team_label, "setVisible", True)
+            else:
+                _safe_call(self._training_focus_team_label, "setVisible", False)
+
+        if self._training_focus_hitters_label is not None:
+            if hitters_line:
+                self._training_focus_hitters_label.setText(
+                    f"Hitters: {hitters_line}"
+                )
+                _safe_call(self._training_focus_hitters_label, "setVisible", True)
+            else:
+                _safe_call(self._training_focus_hitters_label, "setVisible", False)
+
+        if self._training_focus_pitchers_label is not None:
+            if pitchers_line:
+                self._training_focus_pitchers_label.setText(
+                    f"Pitchers: {pitchers_line}"
+                )
+                _safe_call(self._training_focus_pitchers_label, "setVisible", True)
+            else:
+                _safe_call(self._training_focus_pitchers_label, "setVisible", False)
 
     def _create_stats_table(self, rows: List[Tuple[str, Dict[str, Any]]], columns: List[str]) -> QTableWidget:
         table = QTableWidget(len(rows), len(columns) + 1)
@@ -2448,7 +2613,7 @@ class PlayerProfileDialog(QDialog):
             if isinstance(artifacts, dict):
                 path = _resolve_artifact_path(artifacts.get("players"))
             if path is None:
-                path = get_base_dir() / "data" / "careers" / season_id / "players.csv"
+                path = get_data_dir() / "careers" / season_id / "players.csv"
             row = _load_player_row_from_csv(path, player_id)
             if row:
                 ratings = _ratings_from_row(row, is_pitcher=self._is_pitcher)
@@ -2504,7 +2669,7 @@ class PlayerProfileDialog(QDialog):
             if isinstance(artifacts, dict):
                 path = _resolve_artifact_path(artifacts.get("awards"))
             if path is None:
-                path = get_base_dir() / "data" / "careers" / season_id / "awards.json"
+                path = get_data_dir() / "careers" / season_id / "awards.json"
             if path is None or not path.exists():
                 continue
             try:
@@ -2760,7 +2925,7 @@ class PlayerProfileDialog(QDialog):
         to the calendar year on error.
         """
         try:
-            data_dir = Path(__file__).resolve().parents[1] / "data"
+            data_dir = get_data_dir()
             sched = data_dir / "schedule.csv"
             prog = data_dir / "season_progress.json"
             if not sched.exists():
@@ -3156,7 +3321,7 @@ def _lookup_player_team(player_id: str) -> Optional[str]:
     global _PLAYER_TEAM_CACHE
     if _PLAYER_TEAM_CACHE is None:
         mapping: Dict[str, str] = {}
-        roster_dir = get_base_dir() / "data" / "rosters"
+        roster_dir = get_data_dir() / "rosters"
         if roster_dir.exists():
             for path in sorted(roster_dir.glob("*.csv")):
                 stem = path.stem
@@ -3182,9 +3347,9 @@ def _resolve_artifact_path(value: object) -> Optional[Path]:
     if not value:
         return None
     candidate = Path(str(value))
-    if not candidate.is_absolute():
-        candidate = get_base_dir() / candidate
-    return candidate
+    if candidate.is_absolute():
+        return candidate
+    return resolve_app_path(candidate)
 
 
 def _coerce_int(value: Any) -> Optional[int]:
@@ -3324,13 +3489,13 @@ def _season_stats_payload_for_year(year: int, *, current_year: Optional[int] = N
             if isinstance(artifacts, dict):
                 target_path = _resolve_artifact_path(artifacts.get("stats"))
             if target_path is None:
-                target_path = get_base_dir() / "data" / "careers" / season_id / "stats.json"
+                target_path = get_data_dir() / "careers" / season_id / "stats.json"
             break
     except Exception:
         target_path = None
 
     if target_path is None:
-        careers_dir = get_base_dir() / "data" / "careers"
+        careers_dir = get_data_dir() / "careers"
         if careers_dir.exists():
             for candidate in careers_dir.glob(f"*-{year}/stats.json"):
                 target_path = candidate
@@ -3568,7 +3733,7 @@ def _compute_oba(stats: Dict[str, Any]) -> Optional[float]:
 
 def _current_season_year_value(dialog: PlayerProfileDialog) -> Optional[int]:
     try:
-        data_dir = Path(__file__).resolve().parents[1] / "data"
+        data_dir = get_data_dir()
         sched = data_dir / "schedule.csv"
         prog = data_dir / "season_progress.json"
         if not sched.exists():

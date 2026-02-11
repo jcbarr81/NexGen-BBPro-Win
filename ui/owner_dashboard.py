@@ -70,6 +70,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QInputDialog,
     QMessageBox,
+    QFileDialog,
     QLineEdit,
     QStackedWidget,
     QStatusBar,
@@ -108,6 +109,7 @@ from .injury_center_window import InjuryCenterWindow
 from .depth_chart_dialog import DepthChartDialog
 from .tutorial_dialog import TutorialDialog, TutorialStep
 from .training_focus_dialog import TrainingFocusDialog
+from .change_request_export_dialog import ChangeRequestExportDialog
 from .ui_template import _load_baseball_pixmap, _load_nav_icon
 from .playoffs_window import PlayoffsWindow
 from utils.roster_loader import load_roster
@@ -116,8 +118,9 @@ from utils.free_agent_finder import find_free_agents
 from utils.pitcher_role import get_role
 from utils.rating_display import rating_display_text
 from utils.team_loader import load_teams, save_team_settings
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_base_dir, get_data_dir
 from utils.sim_date import get_current_sim_date
+from utils.league_settings import is_owner_league, verify_commissioner_password
 from ui.analytics import gather_owner_quick_metrics
 from ui.dashboard_core import DashboardContext, NavigationController, PageRegistry
 from ui.window_utils import show_on_top
@@ -355,6 +358,14 @@ class OwnerDashboard(QMainWindow):
             "lineup": f"lineup_strategy_tutorial_{team_id}",
             "overview": f"dashboard_overview_tutorial_{team_id}",
             "training_camp": f"training_camp_tutorial_{team_id}",
+            "player_training": f"player_training_focus_tutorial_{team_id}",
+            "draft": f"draft_console_tutorial_{team_id}",
+            "trades": f"trade_workflow_tutorial_{team_id}",
+            "free_agency": f"free_agency_tutorial_{team_id}",
+            "team_settings": f"team_settings_tutorial_{team_id}",
+            "schedule": f"schedule_tutorial_{team_id}",
+            "league_hub": f"league_hub_tutorial_{team_id}",
+            "reports": f"reports_exports_tutorial_{team_id}",
             "admin": "admin_tools_tutorial",
         }
         self._tutorial_flags = self._load_tutorial_flags()
@@ -376,6 +387,9 @@ class OwnerDashboard(QMainWindow):
         admin_action = QAction("Open Admin Dashboard", self)
         admin_action.triggered.connect(self._prompt_admin_dashboard)
         file_menu.addAction(admin_action)
+        import_snapshot_action = QAction("Import League Snapshot...", self)
+        import_snapshot_action.triggered.connect(self.import_league_snapshot)
+        file_menu.addAction(import_snapshot_action)
         file_menu.addSeparator()
         quit_action = QAction("Quit", self)
         quit_action.triggered.connect(self.close)
@@ -431,6 +445,40 @@ class OwnerDashboard(QMainWindow):
         training_action = QAction("Training Camp & Development", self)
         training_action.triggered.connect(lambda: self.show_training_camp_tutorial(force=True))
         tutorials_menu.addAction(training_action)
+
+        player_training_action = QAction("Individual Training Focus", self)
+        player_training_action.triggered.connect(
+            lambda: self.show_player_training_focus_tutorial(force=True)
+        )
+        tutorials_menu.addAction(player_training_action)
+
+        draft_action = QAction("Draft Console Guide", self)
+        draft_action.triggered.connect(lambda: self.show_draft_console_tutorial(force=True))
+        tutorials_menu.addAction(draft_action)
+
+        trades_action = QAction("Trades & Transactions", self)
+        trades_action.triggered.connect(lambda: self.show_trades_tutorial(force=True))
+        tutorials_menu.addAction(trades_action)
+
+        free_agency_action = QAction("Free Agency Basics", self)
+        free_agency_action.triggered.connect(lambda: self.show_free_agency_tutorial(force=True))
+        tutorials_menu.addAction(free_agency_action)
+
+        team_settings_action = QAction("Team Settings", self)
+        team_settings_action.triggered.connect(lambda: self.show_team_settings_tutorial(force=True))
+        tutorials_menu.addAction(team_settings_action)
+
+        schedule_action = QAction("Schedule & Calendar", self)
+        schedule_action.triggered.connect(lambda: self.show_schedule_tutorial(force=True))
+        tutorials_menu.addAction(schedule_action)
+
+        league_action = QAction("League Hub Tour", self)
+        league_action.triggered.connect(lambda: self.show_league_hub_tutorial(force=True))
+        tutorials_menu.addAction(league_action)
+
+        reports_action = QAction("Reports & Exports", self)
+        reports_action.triggered.connect(lambda: self.show_reports_tutorial(force=True))
+        tutorials_menu.addAction(reports_action)
 
         admin_action = QAction("Admin Tools Overview", self)
         admin_action.triggered.connect(lambda: self.show_admin_tools_tutorial(force=True))
@@ -653,7 +701,7 @@ class OwnerDashboard(QMainWindow):
                 "Customize Focus Budgets",
                 "<p>Before running camp you can tailor hitter and pitcher allocations."
                 " Use the <b>Training Focus</b> button on the Roster page or the <b>Training Focus…</b> button in"
-                " the Season Progress window to split training time across tracks. League defaults are used when"
+                " the Season Progress window to split training time across tracks. You can also override individual players from their profile or the roster tables. League defaults are used when"
                 " a team hasn't set its own mix.</p>",
             ),
             TutorialStep(
@@ -673,6 +721,249 @@ class OwnerDashboard(QMainWindow):
             ),
         ]
         self._run_tutorial(self._tutorial_keys["training_camp"], "Training Camp & Development", steps, force=force)
+
+    def show_player_training_focus_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Where to Find It",
+                "<p>Open any player profile and click <b>Training Focus...</b> in the header actions. "
+                "You can also open it from roster tables by right-clicking a player or double-clicking "
+                "the new <b>FOCUS</b> column.</p>",
+            ),
+            TutorialStep(
+                "Focus Sources",
+                "<p>Each player uses one of three sources:</p>"
+                "<ul>"
+                "<li><b>Player</b> = custom allocations set just for this player.</li>"
+                "<li><b>Team</b> = team-wide allocations from the owner dashboard.</li>"
+                "<li><b>League</b> = league defaults from Season Progress.</li>"
+                "</ul>",
+            ),
+            TutorialStep(
+                "Bulk Updates",
+                "<p>Select multiple players in the roster tables, right-click, and choose "
+                "<b>Apply Training Focus to Selected</b>. This writes the same allocations "
+                "to each chosen player.</p>",
+            ),
+            TutorialStep(
+                "Reverting",
+                "<p>Use <b>Use Team Default</b> (or <b>Use League Default</b> for free agents) "
+                "to clear a player override. They immediately fall back to team or league settings.</p>",
+            ),
+        ]
+        self._run_tutorial(
+            self._tutorial_keys["player_training"],
+            "Individual Training Focus",
+            steps,
+            force=force,
+        )
+
+    def show_draft_console_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Open the Draft Room",
+                "<p>Commissioners can open the Draft Console from the Admin tools when the draft window is active."
+                " Owners can review draft pools from League pages or the draft results history.</p>",
+            ),
+            TutorialStep(
+                "Draft Board Flow",
+                "<p>Each pick advances in order. Use manual selection or the auto-pick button to speed through."
+                " The console logs picks with round, overall, and team IDs.</p>",
+            ),
+            TutorialStep(
+                "Prospect Details",
+                "<p>Double-click a prospect to open their profile. Compare ratings, age, and potential before"
+                " committing a pick.</p>",
+            ),
+            TutorialStep(
+                "Results & History",
+                "<p>Draft results are stored per season and are viewable from the league history screens."
+                " Export reports if you want to share picks with owners.</p>",
+            ),
+        ]
+        self._run_tutorial(
+            self._tutorial_keys["draft"],
+            "Draft Console Guide",
+            steps,
+            force=force,
+        )
+
+    def show_trades_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Trade Dialog",
+                "<p>Open <b>Trades</b> from the dashboard to propose offers. Select a partner, add players,"
+                " and include draft picks when enabled.</p>",
+            ),
+            TutorialStep(
+                "Pending Queue",
+                "<p>Submitted offers appear in the pending queue. Owners can accept, reject, or counter based"
+                " on roster needs.</p>",
+            ),
+            TutorialStep(
+                "Roster Impact",
+                "<p>After a trade completes, review depth charts and lineups. Promotions or demotions may be"
+                " needed if a level exceeds roster limits.</p>",
+            ),
+            TutorialStep(
+                "Audit Trail",
+                "<p>Every transaction is written to the transactions log and news feed so the league can audit"
+                " what changed and when.</p>",
+            ),
+        ]
+        self._run_tutorial(
+            self._tutorial_keys["trades"],
+            "Trades & Transactions",
+            steps,
+            force=force,
+        )
+
+    def show_free_agency_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Review the Pool",
+                "<p>Open <b>Free Agency</b> from the roster actions to browse unsigned players."
+                " Use the filters to sort by position and overall.</p>",
+            ),
+            TutorialStep(
+                "Signing Players",
+                "<p>Select a free agent, review their ratings, and commit the signing. The roster limit rules"
+                " still apply, so make room if needed.</p>",
+            ),
+            TutorialStep(
+                "Depth Chart Updates",
+                "<p>After a signing, update depth charts or lineups so the simulator knows where to use the"
+                " new player.</p>",
+            ),
+            TutorialStep(
+                "League Visibility",
+                "<p>Free agent moves appear in the news feed and transactions window for transparency.</p>",
+            ),
+        ]
+        self._run_tutorial(
+            self._tutorial_keys["free_agency"],
+            "Free Agency Basics",
+            steps,
+            force=force,
+        )
+
+    def show_team_settings_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Access Team Settings",
+                "<p>Use the <b>View</b> menu to open <b>Team Settings</b>. This is where you manage branding,"
+                " stadium, and team metadata.</p>",
+            ),
+            TutorialStep(
+                "Branding Options",
+                "<p>Update team name, city, colors, and logos. If you change logos, refresh any open windows"
+                " to see the new artwork.</p>",
+            ),
+            TutorialStep(
+                "Stadium & Park Factors",
+                "<p>Pick a home park that matches your roster strategy. Park settings are reflected in sim"
+                " outputs and stats.</p>",
+            ),
+            TutorialStep(
+                "Save & Verify",
+                "<p>Click save before closing the dialog. Reopen the dashboard to verify the new branding"
+                " and color palette applied correctly.</p>",
+            ),
+        ]
+        self._run_tutorial(
+            self._tutorial_keys["team_settings"],
+            "Team Settings",
+            steps,
+            force=force,
+        )
+
+    def show_schedule_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Team Schedule",
+                "<p>Open <b>Team Schedule</b> from the dashboard to see upcoming games, results, and home/away"
+                " splits.</p>",
+            ),
+            TutorialStep(
+                "League Calendar",
+                "<p>The League schedule view shows every matchup. It is useful for spotting doubleheaders or"
+                " long road trips.</p>",
+            ),
+            TutorialStep(
+                "Generating Schedules",
+                "<p>Commissioners can generate a new schedule from Admin Tools. Do this once per season and"
+                " before running simulations.</p>",
+            ),
+            TutorialStep(
+                "Tracking Dates",
+                "<p>The sim date controls what appears as current. Use the progress window to advance the"
+                " season safely.</p>",
+            ),
+        ]
+        self._run_tutorial(
+            self._tutorial_keys["schedule"],
+            "Schedule & Calendar",
+            steps,
+            force=force,
+        )
+
+    def show_league_hub_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Standings Snapshot",
+                "<p>The League hub surfaces standings by division and league. Use it to track playoff races"
+                " and seed positions.</p>",
+            ),
+            TutorialStep(
+                "Leaders & Records",
+                "<p>Open the Leaders and Records pages for seasonal highs, milestones, and record book context."
+                " These views help narrative building and award discussions.</p>",
+            ),
+            TutorialStep(
+                "League History",
+                "<p>Use the History screen to review past seasons, playoff results, and award winners.</p>",
+            ),
+            TutorialStep(
+                "Quick Navigation",
+                "<p>The League sidebar links to stats, standings, leaders, and history. Keep it open while"
+                " scouting other teams.</p>",
+            ),
+        ]
+        self._run_tutorial(
+            self._tutorial_keys["league_hub"],
+            "League Hub Tour",
+            steps,
+            force=force,
+        )
+
+    def show_reports_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Export Options",
+                "<p>Admins can export league reports to CSV or PDF from the Admin utilities page.</p>",
+            ),
+            TutorialStep(
+                "What Gets Exported",
+                "<p>Exports include standings, team stats, leaderboards, and record books so owners can"
+                " share snapshots offline.</p>",
+            ),
+            TutorialStep(
+                "Where Files Go",
+                "<p>Choose a destination folder when prompted. Keep exports in a shared drive if the league"
+                " uses a common file hub.</p>",
+            ),
+            TutorialStep(
+                "Best Practices",
+                "<p>Run exports after major milestones like the All-Star break, playoffs, or season end for"
+                " clean archival snapshots.</p>",
+            ),
+        ]
+        self._run_tutorial(
+            self._tutorial_keys["reports"],
+            "Reports & Exports",
+            steps,
+            force=force,
+        )
 
     def _open_training_focus_dialog(self) -> None:
         team_label = getattr(self.team, "name", self.team_id)
@@ -775,10 +1066,28 @@ class OwnerDashboard(QMainWindow):
             )
             return
 
+        if is_owner_league():
+            comm_password, ok = QInputDialog.getText(
+                self,
+                "Commissioner Access",
+                "Enter commissioner password:",
+                QLineEdit.EchoMode.Password,
+            )
+            if not ok:
+                return
+            comm_password = comm_password.strip()
+            if not verify_commissioner_password(comm_password):
+                QMessageBox.warning(
+                    self,
+                    "Commissioner Access",
+                    "Incorrect commissioner password.",
+                )
+                return
+
         self._open_admin_dashboard()
 
     def _validate_admin_password(self, password: str) -> bool:
-        user_file = get_base_dir() / "data" / "users.txt"
+        user_file = get_data_dir() / "users.txt"
         if not user_file.exists():
             raise FileNotFoundError(user_file)
 
@@ -1021,7 +1330,7 @@ class OwnerDashboard(QMainWindow):
         if not in_playoffs:
             return
 
-        progress_path = get_base_dir() / "data" / "season_progress.json"
+        progress_path = get_data_dir() / "season_progress.json"
         progress: Dict[str, Any] = {}
         try:
             if progress_path.exists():
@@ -1095,6 +1404,12 @@ class OwnerDashboard(QMainWindow):
 
     def open_training_focus_dialog(self) -> None:
         self._open_training_focus_dialog()
+
+    def open_change_request_export_dialog(self) -> None:
+        try:
+            show_on_top(ChangeRequestExportDialog(self.team_id, self))
+        except Exception:
+            pass
 
     def open_position_players_dialog(self) -> None:
         show_on_top(PositionPlayersDialog(self.players, self.roster))
@@ -1287,7 +1602,7 @@ class OwnerDashboard(QMainWindow):
         try:
             import csv as _csv
 
-            sched = get_base_dir() / "data" / "schedule.csv"
+            sched = get_data_dir() / "schedule.csv"
             if sched.exists():
                 with sched.open(newline="") as fh:
                     r = _csv.DictReader(fh)
@@ -1315,7 +1630,7 @@ class OwnerDashboard(QMainWindow):
         import json as _json
         from datetime import date as _date
 
-        base = get_base_dir() / "data"
+        base = get_data_dir()
         sched = base / "schedule.csv"
         prog = base / "season_progress.json"
         if not sched.exists() or not prog.exists():
@@ -1434,6 +1749,35 @@ class OwnerDashboard(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Team Settings", f"Failed to update settings: {e}")
 
+    def import_league_snapshot(self) -> None:
+        from services.league_snapshot import import_league_snapshot
+
+        start_dir = get_data_dir() / "exports"
+        if not start_dir.exists():
+            start_dir = get_data_dir()
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import League Snapshot",
+            str(start_dir),
+            "League Snapshot (*.zip)",
+        )
+        if not path:
+            return
+        result = import_league_snapshot(Path(path))
+        status = result.get("status")
+        if status != "success":
+            message = result.get("message", "Import failed.")
+            QMessageBox.warning(self, "Import League Snapshot", str(message))
+            return
+        backup = result.get("backup_path", "")
+        QMessageBox.information(
+            self,
+            "Import Complete",
+            "League snapshot imported successfully.\n"
+            f"Backup saved at:\n{backup}\n\n"
+            "Please restart the app to load updated league data.",
+        )
+
     def open_team_injury_center(self) -> None:
         try:
             self._injury_window = InjuryCenterWindow(self, team_filter=self.team_id)
@@ -1499,7 +1843,7 @@ class OwnerDashboard(QMainWindow):
         try:
             metrics = gather_owner_quick_metrics(
                 self.team_id,
-                base_path=self.context.base_path,
+                base_path=get_data_dir(),
                 roster=self.roster,
                 players=self.players,
             )

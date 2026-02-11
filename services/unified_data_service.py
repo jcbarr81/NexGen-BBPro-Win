@@ -74,9 +74,7 @@ class UnifiedDataService:
     # -- Shared helpers -----------------------------------------------------
 
     def _resolve_path(self, path: Path | str) -> Path:
-        candidate = Path(path)
-        if not candidate.is_absolute():
-            candidate = path_utils.get_base_dir() / candidate
+        candidate = path_utils.resolve_app_path(path)
         return candidate.resolve(strict=False)
 
     # -- Player access ------------------------------------------------------

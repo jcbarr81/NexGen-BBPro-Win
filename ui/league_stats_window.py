@@ -56,11 +56,11 @@ except ImportError:  # pragma: no cover - test stubs
             Stretch = None
             ResizeToContents = None
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.stats_persistence import load_stats as _load_season_stats
 
-DATA_DIR = get_base_dir() / "data"
+DATA_DIR = get_data_dir()
 PLAYERS_FILE = DATA_DIR / "players.csv"
 STATS_FILE = DATA_DIR / "season_stats.json"
 

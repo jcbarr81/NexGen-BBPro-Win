@@ -48,6 +48,7 @@ from .admin_dashboard.actions import (
     auto_reassign_rosters as auto_reassign_rosters_action,
     create_league_action,
     edit_user_action,
+    export_reports_action,
     generate_player_avatars_action,
     generate_team_logos_action,
     reset_season_to_opening_day,
@@ -75,14 +76,16 @@ from .free_agency_window import FreeAgencyWindow
 from .news_window import NewsWindow
 from .injury_center_window import InjuryCenterWindow
 from .injury_settings_dialog import InjurySettingsDialog
+from .hall_of_fame_settings_dialog import HallOfFameSettingsDialog
 from .avatar_tutorial_dialog import AvatarTutorialDialog
 from .logo_tutorial_dialog import LogoTutorialDialog
 from .league_history_window import LeagueHistoryWindow
+from .change_requests_window import ChangeRequestsWindow
 from .owner_dashboard import OwnerDashboard
 from utils.trade_utils import load_trades
 from utils.player_loader import load_players_from_csv
 from utils.team_loader import load_teams
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.sim_date import get_current_sim_date
 from ui.version_badge import enable_version_badge
 
@@ -122,7 +125,7 @@ class MainWindow(QMainWindow):
         self._cleanup_callbacks: list[Callable[[], None]] = []
         self._executor = ThreadPoolExecutor(max_workers=4)
         self._context = DashboardContext(
-            base_path=get_base_dir(),
+            base_path=get_data_dir(),
             run_async=lambda work: self._executor.submit(work),
             register_cleanup=self._cleanup_callbacks.append,
         )
@@ -279,6 +282,8 @@ class MainWindow(QMainWindow):
         lp = self.pages.get("league")
         if isinstance(lp, LeaguePage):
             lp.review_button.clicked.connect(self.open_trade_review)
+            if getattr(lp, "change_requests_button", None) is not None:
+                lp.change_requests_button.clicked.connect(self.open_change_requests_window)
             lp.create_league_button.clicked.connect(self.open_create_league)
             lp.exhibition_button.clicked.connect(self.open_exhibition_dialog)
             lp.playbalance_button.clicked.connect(self.open_playbalance_editor)
@@ -289,6 +294,8 @@ class MainWindow(QMainWindow):
             lp.playoffs_view_button.clicked.connect(self.open_playoffs_window)
             lp.reset_opening_day_button.clicked.connect(self.reset_to_opening_day)
             lp.league_history_button.clicked.connect(self.open_league_history)
+            if getattr(lp, "hall_of_fame_settings_button", None) is not None:
+                lp.hall_of_fame_settings_button.clicked.connect(self.open_hall_of_fame_settings)
         dp = self.pages.get("draft")
         if isinstance(dp, DraftPage):
             dp.view_draft_pool_button.clicked.connect(self.open_draft_pool)
@@ -314,6 +321,8 @@ class MainWindow(QMainWindow):
             util.logo_tutorial_button.clicked.connect(self.open_logo_tutorial)
             util.generate_avatars_button.clicked.connect(self.generate_player_avatars)
             util.avatar_tutorial_button.clicked.connect(self.open_avatar_tutorial)
+            if getattr(util, "export_reports_button", None) is not None:
+                util.export_reports_button.clicked.connect(self.export_reports)
 
         # default page
         try:
@@ -507,6 +516,9 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def export_reports(self) -> None:
+        export_reports_action(self._context, self)
+
 
     def open_add_user(self) -> None:
         refresh = None
@@ -535,7 +547,7 @@ class MainWindow(QMainWindow):
 
 
     def open_team_dashboard(self) -> None:
-        teams = load_teams(get_base_dir() / "data" / "teams.csv")
+        teams = load_teams(get_data_dir() / "teams.csv")
         team_ids = [t.team_id for t in teams]
         if not team_ids:
             QMessageBox.information(self, "No Teams", "No teams available.")
@@ -660,6 +672,13 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def open_hall_of_fame_settings(self) -> None:
+        try:
+            dialog = HallOfFameSettingsDialog(self)
+            dialog.exec()
+        except Exception:
+            pass
+
     def open_news_window(self) -> None:
         try:
             win = NewsWindow(self)
@@ -693,6 +712,12 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def open_change_requests_window(self) -> None:
+        try:
+            show_on_top(ChangeRequestsWindow(self))
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Amateur Draft helpers
     # ------------------------------------------------------------------
@@ -707,9 +732,9 @@ class MainWindow(QMainWindow):
     def _current_season_year(self) -> int:
         # Heuristic: attempt to read from schedule.csv if present; else use today
         try:
-            from utils.path_utils import get_base_dir
+            from utils.path_utils import get_data_dir
             import csv as _csv
-            sched = get_base_dir() / "data" / "schedule.csv"
+            sched = get_data_dir() / "schedule.csv"
             if sched.exists():
                 with sched.open(newline="") as fh:
                     r = _csv.DictReader(fh)
@@ -747,8 +772,8 @@ class MainWindow(QMainWindow):
         """Open a simple viewer for current season's draft results CSV, if present."""
         import csv as _csv
         year = self._current_season_year()
-        from utils.path_utils import get_base_dir as _gb
-        p = _gb() / "data" / f"draft_results_{year}.csv"
+        from utils.path_utils import get_data_dir as _gd
+        p = _gd() / f"draft_results_{year}.csv"
         if not p.exists():
             QMessageBox.information(self, "Draft Results", f"No draft results found for {year}.")
             return
@@ -881,11 +906,11 @@ class MainWindow(QMainWindow):
             pass
 
     def _is_draft_available(self) -> bool:
-        from utils.path_utils import get_base_dir
+        from utils.path_utils import get_data_dir
         import csv as _csv
         import json as _json
         from datetime import date as _date
-        base = get_base_dir() / "data"
+        base = get_data_dir()
         sched = base / "schedule.csv"
         prog = base / "season_progress.json"
         if not sched.exists() or not prog.exists():
@@ -918,11 +943,11 @@ class MainWindow(QMainWindow):
 
     def _draft_availability_details(self) -> tuple[bool, str | None, str | None, bool]:
         """Return (available, current_date, draft_date, completed) with safe fallbacks."""
-        from utils.path_utils import get_base_dir
+        from utils.path_utils import get_data_dir
         import csv as _csv
         import json as _json
         from datetime import date as _date
-        base = get_base_dir() / "data"
+        base = get_data_dir()
         sched = base / "schedule.csv"
         prog = base / "season_progress.json"
         if not sched.exists() or not prog.exists():

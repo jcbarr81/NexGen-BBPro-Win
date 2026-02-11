@@ -6,7 +6,7 @@ from pathlib import Path
 
 try:  # Allow running as a standalone script
     from models.team import Team
-    from utils.path_utils import get_base_dir
+    from utils.path_utils import resolve_app_path
     from utils.stats_persistence import load_stats
     from playbalance.season_context import CAREER_DATA_DIR
 except ModuleNotFoundError:  # pragma: no cover - for direct script execution
@@ -14,7 +14,7 @@ except ModuleNotFoundError:  # pragma: no cover - for direct script execution
 
     sys.path.append(str(Path(__file__).resolve().parents[1]))
     from models.team import Team
-    from utils.path_utils import get_base_dir
+    from utils.path_utils import resolve_app_path
     from utils.stats_persistence import load_stats
     from playbalance.season_context import CAREER_DATA_DIR
 
@@ -25,8 +25,7 @@ def _resolve_path(file_path: str | Path) -> Path:
     path = Path(file_path)
     if path.is_absolute():
         return path
-    base = get_base_dir()
-    candidate = base / path
+    candidate = resolve_app_path(path)
     if candidate.exists():
         return candidate
     fallback_root = Path(__file__).resolve().parents[1]

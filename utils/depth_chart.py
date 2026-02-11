@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Dict, List
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
 # Order roughly mirrors the scarcity-aware lineup build sequence.
 DEPTH_CHART_POSITIONS: List[str] = [
@@ -33,7 +33,7 @@ def _normalize_position(pos: str | None) -> str:
 
 
 def _chart_dir() -> Path:
-    return get_base_dir() / "data" / "depth_charts"
+    return get_data_dir() / "depth_charts"
 
 
 def _chart_path(team_id: str) -> Path:

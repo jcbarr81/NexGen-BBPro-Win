@@ -35,6 +35,7 @@ from playbalance.state import PitcherState
 from playbalance.sim_config import load_tuned_playbalance_config
 from playbalance.benchmarks import load_benchmarks, league_average
 from utils.lineup_loader import build_default_game_state
+from utils.path_utils import get_data_dir
 
 try:  # pragma: no cover - imported for progress bar support
     from tqdm import tqdm
@@ -203,9 +204,9 @@ def simulate_games(
     if games is None:
         raise ValueError("Number of games must be provided")
 
-    base_dir = Path(__file__).resolve().parents[1]
-    players_file = base_dir / "data" / "players.csv"
-    roster_dir = base_dir / "data" / "rosters"
+    data_dir = get_data_dir()
+    players_file = data_dir / "players.csv"
+    roster_dir = data_dir / "rosters"
 
     if hasattr(cfg, "sections") and isinstance(getattr(cfg, "sections"), dict):
         sections = cfg.sections

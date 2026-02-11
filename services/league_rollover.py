@@ -12,14 +12,15 @@ import shutil
 
 from playbalance.awards_manager import AwardsManager
 from playbalance.season_context import CAREER_DATA_DIR, SeasonContext
+from services.record_notifications import update_record_notifications
 from services.transaction_log import TRANSACTION_COLUMNS, reset_player_cache as reset_transaction_cache
 from services.standings_repository import save_standings
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_base_dir, get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.sim_date import get_current_sim_date
 from utils.stats_persistence import load_stats, merge_daily_history, reset_stats
 
-_DATA_DIR = get_base_dir() / "data"
+_DATA_DIR = get_data_dir()
 _STATS_PATH = _DATA_DIR / "season_stats.json"
 _STANDINGS_PATH = _DATA_DIR / "standings.json"
 _SCHEDULE_PATH = _DATA_DIR / "schedule.csv"
@@ -122,7 +123,13 @@ class LeagueRolloverService:
         season_dir.mkdir(parents=True, exist_ok=True)
         artifacts: Dict[str, str] = {}
 
+        ended_val = ended_on or get_current_sim_date() or datetime.utcnow().date().isoformat()
         stats_payload = self._archive_stats(season_dir, artifacts)
+        self._update_career_ledgers(season_id, stats_payload)
+        try:
+            update_record_notifications(ended_on=ended_val)
+        except Exception:
+            pass
         players_path = self._archive_file(_DATA_DIR / "players.csv", season_dir / "players.csv", artifacts, "players")
         standings_path = self._archive_file(_STANDINGS_PATH, season_dir / "standings.json", artifacts, "standings")
         schedule_path = self._archive_file(_SCHEDULE_PATH, season_dir / "schedule.csv", artifacts, "schedule")
@@ -136,7 +143,6 @@ class LeagueRolloverService:
 
         awards_path = self._archive_awards(season_dir, stats_payload, artifacts)
 
-        ended_val = ended_on or get_current_sim_date() or datetime.utcnow().date().isoformat()
         metadata = {
             "season_id": season_id,
             "league_year": league_year,
@@ -159,7 +165,6 @@ class LeagueRolloverService:
         _write_json(metadata_path, metadata)
         artifacts["metadata"] = _relative(metadata_path)
 
-        self._update_career_ledgers(season_id, stats_payload)
         next_descriptor = self.context.archive_current_season(
             artifacts=artifacts,
             ended_on=ended_val,

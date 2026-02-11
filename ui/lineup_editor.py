@@ -13,19 +13,31 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
 )
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEvent
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEvent, QTimer
 import csv
 from pathlib import Path
 
 from utils.lineup_autofill import auto_fill_lineup_for_team
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_base_dir, get_data_dir
+from utils.recovery_manager import (
+    clear_recovery,
+    needs_recovery,
+    recovery_path_for_data_file,
+    write_recovery_csv,
+)
 
 class LineupEditor(QDialog):
     def __init__(self, team_id):
         self.team_id = team_id
         super().__init__()
-        self.setWindowTitle("Lineup Editor")
+        self._base_title = "Lineup Editor"
+        self.setWindowTitle(self._base_title)
         self.setMinimumSize(900, 600)
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(1500)
+        self._autosave_timer.timeout.connect(self._write_recovery)
+        self._recovery_checked_views = set()
 
         layout = QHBoxLayout()
         self.setLayout(layout)
@@ -100,6 +112,10 @@ class LineupEditor(QDialog):
         view_selector_group.setLayout(view_selector_layout)
         right_panel.addWidget(view_selector_group)
 
+        self.dirty_label = QLabel("All changes saved.")
+        self.dirty_label.setStyleSheet("color: #888888;")
+        right_panel.addWidget(self.dirty_label)
+
         # Batting Order
         order_label = QLabel("Batting Order")
         order_label.setStyleSheet("font-weight: bold; font-size: 14px;")
@@ -122,13 +138,26 @@ class LineupEditor(QDialog):
             player_dropdown.installEventFilter(self)
             pos_dropdown = QComboBox()
             pos_dropdown.addItems(["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"])
-            pos_dropdown.currentIndexChanged.connect(lambda _, i=i: (self.update_player_dropdown(i), self.update_overlay_label(i), self.update_bench_display()))
+            pos_dropdown.currentIndexChanged.connect(
+                lambda _, i=i: (
+                    self.update_player_dropdown(i),
+                    self.update_overlay_label(i),
+                    self.update_bench_display(),
+                    self._schedule_autosave(),
+                )
+            )
 
             self.order_grid.addWidget(spot, i, 0)
             self.order_grid.addWidget(player_dropdown, i, 1)
             self.order_grid.addWidget(pos_dropdown, i, 2)
 
-            player_dropdown.currentIndexChanged.connect(lambda _, i=i: (self.update_overlay_label(i), self.update_bench_display()))
+            player_dropdown.currentIndexChanged.connect(
+                lambda _, i=i: (
+                    self.update_overlay_label(i),
+                    self.update_bench_display(),
+                    self._schedule_autosave(),
+                )
+            )
 
             self.player_dropdowns.append(player_dropdown)
             self.position_dropdowns.append(pos_dropdown)
@@ -166,7 +195,7 @@ class LineupEditor(QDialog):
         self.view_selector.currentIndexChanged.connect(self.switch_view)
         self.current_view = "vs LHP"
         self._baseline = []
-        self.load_lineup()
+        self._load_lineup_with_recovery()
         self.update_bench_display()
 
     def autofill_lineup(self):
@@ -177,6 +206,7 @@ class LineupEditor(QDialog):
             return
 
         self.load_lineup()
+        clear_recovery(self.get_lineup_filename())
         self.update_bench_display()
         QMessageBox.information(
             self,
@@ -225,11 +255,12 @@ class LineupEditor(QDialog):
                     self.position_labels[position].setText(self.players_dict.get(player_id, {}).get("name", ""))
 
         self._refresh_baseline()
+        clear_recovery(self.get_lineup_filename())
         QMessageBox.information(self, "Lineup Saved", "Lineup saved successfully.")
         return True
 
     def load_players_dict(self):
-        players_file = get_base_dir() / "data" / "players.csv"
+        players_file = get_data_dir() / "players.csv"
         players = {}
         if players_file.exists():
             with players_file.open("r", encoding="utf-8") as f:
@@ -259,7 +290,7 @@ class LineupEditor(QDialog):
 
     def get_act_level_ids(self):
         act_ids = set()
-        act_roster_file = get_base_dir() / "data" / "rosters" / f"{self.team_id}.csv"
+        act_roster_file = get_data_dir() / "rosters" / f"{self.team_id}.csv"
         if act_roster_file.exists():
             with act_roster_file.open("r", encoding="utf-8") as f:
                 reader = csv.reader(f)
@@ -270,7 +301,8 @@ class LineupEditor(QDialog):
 
     def switch_view(self):
         self.current_view = self.view_selector.currentText()
-        self.load_lineup()
+        self._autosave_timer.stop()
+        self._load_lineup_with_recovery()
         self.update_bench_display()
 
     def get_lineup_filename(self):
@@ -281,14 +313,14 @@ class LineupEditor(QDialog):
         ``order,player_id,position``.
         """
         suffix = "vs_lhp" if self.current_view == "vs LHP" else "vs_rhp"
-        return get_base_dir() / "data" / "lineups" / f"{self.team_id}_{suffix}.csv"
+        return get_data_dir() / "lineups" / f"{self.team_id}_{suffix}.csv"
 
-    def load_lineup(self):
+    def load_lineup(self, source_path: Path | None = None, *, set_baseline: bool = True):
         for lbl in self.position_labels.values():
             lbl.setText("")
-        filename = self.get_lineup_filename()
-        if Path(filename).exists():
-            with Path(filename).open("r", newline='', encoding="utf-8") as f:
+        filename = Path(source_path) if source_path is not None else Path(self.get_lineup_filename())
+        if filename.exists():
+            with filename.open("r", newline='', encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     try:
@@ -307,7 +339,8 @@ class LineupEditor(QDialog):
                             if position in self.position_labels:
                                 self.position_labels[position].setText(self.players_dict.get(player_id, {}).get("name", ""))
                             break
-        self._refresh_baseline()
+        if set_baseline:
+            self._refresh_baseline()
 
     def update_bench_display(self):
         used_ids = {self.player_dropdowns[i].currentData() for i in range(9)}
@@ -367,6 +400,7 @@ class LineupEditor(QDialog):
         for lbl in self.position_labels.values():
             lbl.setText("")
         self.update_bench_display()
+        self._schedule_autosave()
 
     def update_player_dropdown(self, index):
         selected_pos = self.position_dropdowns[index].currentText()
@@ -412,6 +446,69 @@ class LineupEditor(QDialog):
         player_id = item.data(Qt.ItemDataRole.UserRole)
         self._open_player_profile(player_id)
 
+    def _prompt_recovery_choice(self, title: str, message: str) -> str:
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(title)
+        box.setText(message)
+        restore_btn = box.addButton("Restore", QMessageBox.ButtonRole.AcceptRole)
+        discard_btn = box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(restore_btn)
+        box.exec()
+        if box.clickedButton() == restore_btn:
+            return "restore"
+        if box.clickedButton() == discard_btn:
+            return "discard"
+        return "discard"
+
+    def _load_lineup_with_recovery(self) -> None:
+        view_key = self.current_view
+        if view_key in self._recovery_checked_views:
+            self.load_lineup()
+            self._set_dirty_state(self._has_unsaved_changes())
+            return
+        self._recovery_checked_views.add(view_key)
+        data_path = self.get_lineup_filename()
+        if not needs_recovery(data_path):
+            self.load_lineup()
+            self._set_dirty_state(False)
+            return
+        recovery_path = recovery_path_for_data_file(data_path)
+        choice = self._prompt_recovery_choice(
+            "Recover Lineup",
+            "Autosaved lineup changes were found from a previous session. Restore them?",
+        )
+        if choice == "restore":
+            self.load_lineup(source_path=recovery_path, set_baseline=False)
+            self._set_dirty_state(True)
+            return
+        clear_recovery(data_path)
+        self.load_lineup()
+        self._set_dirty_state(False)
+
+    def _schedule_autosave(self) -> None:
+        dirty = self._has_unsaved_changes()
+        self._set_dirty_state(dirty)
+        if not dirty:
+            clear_recovery(self.get_lineup_filename())
+            return
+        self._autosave_timer.start()
+
+    def _write_recovery(self) -> None:
+        if not self._has_unsaved_changes():
+            clear_recovery(self.get_lineup_filename())
+            return
+        rows = []
+        for i in range(9):
+            player_id = self.player_dropdowns[i].currentData() or ""
+            position = self.position_dropdowns[i].currentText()
+            rows.append((str(i + 1), str(player_id), position))
+        write_recovery_csv(
+            self.get_lineup_filename(),
+            rows,
+            header=("order", "player_id", "position"),
+        )
+
     def eventFilter(self, obj, event):  # noqa: N802 - Qt signature
         if event.type() == QEvent.Type.MouseButtonDblClick:
             if isinstance(obj, QComboBox):
@@ -429,9 +526,20 @@ class LineupEditor(QDialog):
 
     def _refresh_baseline(self):
         self._baseline = self._snapshot_lineup()
+        self._set_dirty_state(False)
 
     def _has_unsaved_changes(self) -> bool:
         return self._snapshot_lineup() != getattr(self, "_baseline", [])
+
+    def _set_dirty_state(self, dirty: bool) -> None:
+        if dirty:
+            self.dirty_label.setText("Unsaved changes.")
+            self.dirty_label.setStyleSheet("color: #e67700; font-weight: 600;")
+            self.setWindowTitle(f"{self._base_title} *")
+        else:
+            self.dirty_label.setText("All changes saved.")
+            self.dirty_label.setStyleSheet("color: #888888;")
+            self.setWindowTitle(self._base_title)
 
     def closeEvent(self, event):  # noqa: N802 - Qt signature
         if not self._has_unsaved_changes():
@@ -452,6 +560,7 @@ class LineupEditor(QDialog):
             else:
                 event.ignore()
         elif choice == QMessageBox.StandardButton.Discard:
+            clear_recovery(self.get_lineup_filename())
             super().closeEvent(event)
         else:
             event.ignore()

@@ -15,7 +15,7 @@ from datetime import datetime
 
 from playbalance.game_runner import run_single_game
 from playbalance.simulation import save_boxscore_html
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
 
 class ExhibitionGameDialog(QDialog):
@@ -30,7 +30,7 @@ class ExhibitionGameDialog(QDialog):
         self.home_combo = QComboBox()
         self.away_combo = QComboBox()
 
-        data_dir = get_base_dir() / "data"
+        data_dir = get_data_dir()
         teams = load_teams(data_dir / "teams.csv")
         self._teams: Dict[str, str] = {}
         for t in teams:

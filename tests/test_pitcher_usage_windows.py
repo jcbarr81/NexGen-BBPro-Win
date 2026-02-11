@@ -40,8 +40,8 @@ def test_rest_curve_applied_in_record_game(tmp_path):
     tracker = PitcherRecoveryTracker(path=tmp_path / "pitcher_recovery_test.json")
     team_id = "ATL"
     pid = "P6994"  # ATL closer per roster
-    players_file = get_base_dir() / "data" / "players.csv"
-    roster_dir = get_base_dir() / "data" / "rosters"
+    players_file = get_data_dir() / "players.csv"
+    roster_dir = get_data_dir() / "rosters"
 
     # Day 1: 10 pitches -> 0 days rest
     d1 = "2025-04-01"
@@ -63,8 +63,8 @@ def test_b2b_allowed_then_third_day_block(tmp_path):
     tracker = PitcherRecoveryTracker(path=tmp_path / "pitcher_recovery_test.json")
     team_id = "ATL"
     pid = "P6994"
-    players_file = get_base_dir() / "data" / "players.csv"
-    roster_dir = get_base_dir() / "data" / "rosters"
+    players_file = get_data_dir() / "players.csv"
+    roster_dir = get_data_dir() / "rosters"
 
     # Day 1: small workload (10) → 0 rest
     d1 = "2025-04-01"
@@ -85,8 +85,8 @@ def test_warmup_tax_for_closer_capped(tmp_path):
     tracker = PitcherRecoveryTracker(path=tmp_path / "pitcher_recovery_test.json")
     team_id = "ATL"
     pid = "P6994"
-    players_file = get_base_dir() / "data" / "players.csv"
-    roster_dir = get_base_dir() / "data" / "rosters"
+    players_file = get_data_dir() / "players.csv"
+    roster_dir = get_data_dir() / "rosters"
 
     d = "2025-04-01"
     # Ensure team exists
@@ -112,8 +112,8 @@ def test_closer_budget_override_allows_b2b(tmp_path):
     tracker = PitcherRecoveryTracker(path=tmp_path / "pitcher_recovery_test.json")
     team_id = "ATL"
     pid = "P6994"
-    players_file = get_base_dir() / "data" / "players.csv"
-    roster_dir = get_base_dir() / "data" / "rosters"
+    players_file = get_data_dir() / "players.csv"
+    roster_dir = get_data_dir() / "rosters"
 
     d1 = "2025-04-01"
     tracker.record_game(team_id, d1, [_dummy_state(pid, 28)], players_file, roster_dir)

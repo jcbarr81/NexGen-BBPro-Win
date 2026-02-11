@@ -6,7 +6,7 @@ from typing import Dict, Iterable, List, Tuple
 import csv
 import re
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from .models import BatterRatings, PitcherRatings
 
 
@@ -34,8 +34,13 @@ class TeamInputs:
     missing_pitchers: List[str]
 
 
-def _resolve_base_dir(base_dir: Path | None) -> Path:
-    return base_dir if base_dir is not None else get_base_dir()
+def _resolve_data_root(base_dir: Path | None) -> Path:
+    if base_dir is None:
+        return get_data_dir()
+    base = Path(base_dir)
+    if (base / "rosters").exists() and not (base / "data").exists():
+        return base
+    return base / "data"
 
 
 def _normalize_team_id(team_id: str) -> str:
@@ -50,9 +55,9 @@ def _normalize_hand(vs_hand: str) -> str:
 
 
 def load_roster_status(team_id: str, base_dir: Path | None = None) -> Dict[str, str]:
-    base = _resolve_base_dir(base_dir)
+    base = _resolve_data_root(base_dir)
     team = _normalize_team_id(team_id)
-    path = base / "data" / "rosters" / f"{team}.csv"
+    path = base / "rosters" / f"{team}.csv"
     statuses: Dict[str, str] = {}
     if not path.exists():
         return statuses
@@ -75,9 +80,9 @@ def active_roster_ids(statuses: Dict[str, str]) -> set[str]:
 def load_pitching_staff(
     team_id: str, base_dir: Path | None = None
 ) -> List[PitcherAssignment]:
-    base = _resolve_base_dir(base_dir)
+    base = _resolve_data_root(base_dir)
     team = _normalize_team_id(team_id)
-    path = base / "data" / "rosters" / f"{team}_pitching.csv"
+    path = base / "rosters" / f"{team}_pitching.csv"
     staff: List[PitcherAssignment] = []
     if not path.exists():
         return staff
@@ -96,10 +101,10 @@ def load_pitching_staff(
 def load_lineup(
     team_id: str, vs_hand: str, base_dir: Path | None = None
 ) -> List[LineupSlot]:
-    base = _resolve_base_dir(base_dir)
+    base = _resolve_data_root(base_dir)
     team = _normalize_team_id(team_id)
     hand = _normalize_hand(vs_hand)
-    path = base / "data" / "lineups" / f"{team}_vs_{hand}.csv"
+    path = base / "lineups" / f"{team}_vs_{hand}.csv"
     slots: List[LineupSlot] = []
     if not path.exists():
         return slots

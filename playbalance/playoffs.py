@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from playbalance.playoffs_config import DEFAULT_PLAYOFF_TEAMS_PER_LEAGUE
 from services.standings_repository import load_standings
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
 
 SCHEMA_VERSION = 1
@@ -273,7 +273,7 @@ class PlayoffBracket:
 
 
 def _bracket_path(year: int | None = None) -> Path:
-    base = get_base_dir() / "data"
+    base = get_data_dir()
     if year:
         return base / f"playoffs_{year}.json"
     return base / "playoffs.json"
@@ -320,7 +320,7 @@ def load_bracket(path: Optional[Path] = None, *, year: Optional[int] = None) -> 
                 inferred_year = None
             if inferred_year:
                 candidates.append(_bracket_path(inferred_year))
-        base = get_base_dir() / "data"
+        base = get_data_dir()
         try:
             matches = list(base.glob("playoffs_*.json"))
         except Exception:
@@ -398,7 +398,7 @@ def _get_year_from_schedule() -> int:
     from datetime import date
     import csv
 
-    sched = get_base_dir() / "data" / "schedule.csv"
+    sched = get_data_dir() / "schedule.csv"
     try:
         if sched.exists():
             with sched.open(newline="", encoding="utf-8") as fh:

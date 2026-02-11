@@ -73,10 +73,10 @@ def _set_style(widget: Any, style: str) -> None:
 
 from .stat_helpers import format_number, top_players
 from utils.player_loader import load_players_from_csv
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.stats_persistence import load_stats as _load_season_stats
 
-DATA_DIR = get_base_dir() / "data"
+DATA_DIR = get_data_dir()
 PLAYERS_FILE = DATA_DIR / "players.csv"
 
 RETRO_GREEN = "#0f3b19"
@@ -489,8 +489,7 @@ class LeagueLeadersWindow(QDialog):
             if not pid:
                 return
             from pathlib import Path
-            from utils.path_utils import get_base_dir
-            players = {p.player_id: p for p in load_players_from_csv(str(get_base_dir() / 'data' / 'players.csv'))}
+            players = {p.player_id: p for p in load_players_from_csv(str(get_data_dir() / 'players.csv'))}
             player = players.get(pid)
             if not player:
                 return

@@ -13,10 +13,12 @@ from typing import Dict, List
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 from ui.player_profile_dialog import PlayerProfileDialog
+from ui.training_focus_dialog import TrainingFocusDialog
 from ui.star_rating import star_pixmap
 
 from models.base_player import BasePlayer
 from models.roster import Roster
+from services.training_settings import load_training_settings, set_player_training_weights
 from utils.pitcher_role import get_role
 from utils.rating_display import (
     overall_rating,
@@ -43,6 +45,7 @@ COLUMNS = [
     "OVR",
     "AGE",
     "SLOT",
+    "FOCUS",
     "POSN",
     "B",
     "CH",
@@ -53,6 +56,16 @@ COLUMNS = [
 ]
 
 RATING_COLUMNS = {"OVR", "CH", "PH", "SP", "FA", "AS"}
+FOCUS_COLUMN = COLUMNS.index("FOCUS")
+
+
+def _focus_label(settings, player_id: str, team_id: str | None) -> str:
+    pid = str(player_id)
+    if pid in settings.player_overrides:
+        return "Player"
+    if team_id and str(team_id) in settings.team_overrides:
+        return "Team"
+    return "League"
 
 
 class NumberDelegate(QtWidgets.QStyledItemDelegate):
@@ -255,7 +268,7 @@ class RosterTable(QtWidgets.QTableWidget):
                         | QtCore.Qt.AlignmentFlag.AlignVCenter
                     )
                 else:
-                    align_left = column in {"Player Name", "POSN", "B"}
+                    align_left = column in {"Player Name", "POSN", "B", "FOCUS"}
                     display_value = None
                     sort_value = val if column in RATING_COLUMNS else None
                     tooltip = None
@@ -356,13 +369,19 @@ class RosterTable(QtWidgets.QTableWidget):
                     item.setData(QtCore.Qt.ItemDataRole.UserRole, pid)
                 self.setItem(r, c, item)
 
-        widths = [50, 220, 50, 50, 60, 60, 40, 60, 60, 60, 60, 60]
+        widths = [50, 220, 50, 50, 60, 70, 60, 40, 60, 60, 60, 60, 60]
         for i, w in enumerate(widths):
             self.setColumnWidth(i, w)
 
         self.verticalHeader().setVisible(False)
         self.setShowGrid(True)
         self.setAlternatingRowColors(False)
+        self.setSelectionBehavior(
+            QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection
+        )
 
         self.setStyleSheet(
             f"QTableWidget {{ background:{RETRO_GREEN_TABLE}; color:{RETRO_TEXT};"
@@ -476,6 +495,10 @@ class PositionPlayersDialog(QtWidgets.QDialog):
         rows = self._build_rows()
         self.table = RosterTable(rows, use_position_context=True)
         self.table.itemDoubleClicked.connect(self._open_player_profile)
+        self.table.setContextMenuPolicy(
+            QtCore.Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.table.customContextMenuRequested.connect(self._show_training_menu)
 
         header = self.table.horizontalHeader()
         header.setContextMenuPolicy(
@@ -506,11 +529,105 @@ class PositionPlayersDialog(QtWidgets.QDialog):
         self.columns_menu.exec(header.mapToGlobal(pos))
 
     # ------------------------------------------------------------------
+    # Training focus helpers
+    def _show_training_menu(self, pos: QtCore.QPoint) -> None:
+        row = self.table.rowAt(pos.y())
+        if row >= 0:
+            selection = self.table.selectionModel()
+            if selection is None or not selection.isRowSelected(row, QtCore.QModelIndex()):
+                self.table.selectRow(row)
+        player_ids = self._selected_player_ids()
+        if not player_ids:
+            return
+        menu = QtWidgets.QMenu(self)
+        edit_action = menu.addAction("Training Focus...")
+        bulk_action = menu.addAction("Apply Training Focus to Selected...")
+        edit_action.setEnabled(len(player_ids) == 1)
+
+        action = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if action == edit_action and len(player_ids) == 1:
+            self._open_training_focus(player_ids[0])
+        elif action == bulk_action:
+            self._apply_bulk_training_focus(player_ids)
+
+    def _selected_player_ids(self) -> List[str]:
+        selection = self.table.selectionModel()
+        if selection is None:
+            return []
+        rows = selection.selectedRows()
+        player_ids: List[str] = []
+        for index in rows:
+            pid = self._player_id_for_row(index.row())
+            if pid:
+                player_ids.append(pid)
+        return player_ids
+
+    def _player_id_for_row(self, row: int) -> str:
+        pid_item = self.table.item(row, 0)
+        if not pid_item:
+            return ""
+        pid = pid_item.data(QtCore.Qt.ItemDataRole.UserRole)
+        return str(pid) if pid else ""
+
+    def _open_training_focus(self, player_id: str) -> None:
+        player = self.players.get(player_id)
+        if not player:
+            return
+        player_name = f"{player.first_name} {player.last_name}".strip()
+        dialog = TrainingFocusDialog(
+            parent=self,
+            mode="player",
+            player_id=str(player_id),
+            player_name=player_name,
+            team_id=self.roster.team_id,
+        )
+        if dialog.exec():
+            self._refresh_focus_column([player_id])
+
+    def _apply_bulk_training_focus(self, player_ids: List[str]) -> None:
+        if not player_ids:
+            return
+        label = f"Apply these allocations to {len(player_ids)} players."
+        dialog = TrainingFocusDialog(
+            parent=self,
+            mode="bulk",
+            team_id=self.roster.team_id,
+            bulk_label=label,
+        )
+        if not dialog.exec():
+            return
+        weights = dialog.result_weights
+        if not weights:
+            return
+        hitters, pitchers = weights
+        for pid in player_ids:
+            set_player_training_weights(pid, hitters, pitchers)
+        self._refresh_focus_column(player_ids)
+
+    def _refresh_focus_column(self, player_ids: List[str] | None = None) -> None:
+        settings = load_training_settings()
+        target = {str(pid) for pid in player_ids} if player_ids else None
+        for row in range(self.table.rowCount()):
+            pid = self._player_id_for_row(row)
+            if not pid:
+                continue
+            if target is not None and pid not in target:
+                continue
+            label = _focus_label(settings, pid, self.roster.team_id)
+            item = self.table.item(row, FOCUS_COLUMN)
+            if item is None:
+                item = NumericItem(label, align_left=True, display_value=label)
+                self.table.setItem(row, FOCUS_COLUMN, item)
+            else:
+                item.setData(QtCore.Qt.ItemDataRole.DisplayRole, label)
+
+    # ------------------------------------------------------------------
     # Data helpers
     def _build_rows(self) -> List[List]:
         """Create table rows for all non-pitchers across roster levels."""
 
         rows: List[List] = []
+        settings = load_training_settings()
         seq = 1
         for slot, ids in (
             ("ACT", self.roster.act),
@@ -522,6 +639,7 @@ class PositionPlayersDialog(QtWidgets.QDialog):
                 if not p or get_role(p):
                     continue
                 age = self._calculate_age(p.birthdate)
+                focus_label = _focus_label(settings, pid, self.roster.team_id)
                 rows.append(
                     [
                         seq,
@@ -529,6 +647,7 @@ class PositionPlayersDialog(QtWidgets.QDialog):
                         overall_rating(p),
                         age,
                         slot,
+                        focus_label,
                         p.primary_position,
                         p.bats,
                         getattr(p, "ch", 0),
@@ -606,6 +725,11 @@ class PositionPlayersDialog(QtWidgets.QDialog):
         """Open the player profile dialog for the selected table row."""
 
         row = item.row()
+        if item.column() == FOCUS_COLUMN:
+            pid = self._player_id_for_row(row)
+            if pid:
+                self._open_training_focus(pid)
+            return
         pid_item = self.table.item(row, 0)
         if not pid_item:
             return

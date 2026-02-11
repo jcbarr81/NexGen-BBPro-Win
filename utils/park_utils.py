@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from playbalance.field_geometry import Stadium
 
 
@@ -22,27 +22,27 @@ class ParkInfo:
 
 
 def _park_config_path() -> Path:
-    base = get_base_dir()
-    primary = base / "data" / "parks" / "ParkConfig.csv"
+    base = get_data_dir()
+    primary = base / "parks" / "ParkConfig.csv"
     if primary.exists():
         return primary
-    return base / "data" / "ballparks" / "ParkConfig.csv"
+    return base / "ballparks" / "ParkConfig.csv"
 
 
 def _park_factors_path() -> Path:
-    base = get_base_dir()
-    primary = base / "data" / "parks" / "ParkFactors.csv"
+    base = get_data_dir()
+    primary = base / "parks" / "ParkFactors.csv"
     if primary.exists():
         return primary
-    return base / "data" / "ballparks" / "ParkFactors.csv"
+    return base / "ballparks" / "ParkFactors.csv"
 
 
 def _parks_master_path() -> Path:
-    base = get_base_dir()
-    primary = base / "data" / "parks" / "Parks.csv"
+    base = get_data_dir()
+    primary = base / "parks" / "Parks.csv"
     if primary.exists():
         return primary
-    return base / "data" / "ballparks" / "Parks.csv"
+    return base / "ballparks" / "Parks.csv"
 
 
 def _norm(s: str) -> str:

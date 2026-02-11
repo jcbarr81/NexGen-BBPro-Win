@@ -17,7 +17,7 @@ import random
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import resolve_app_path
 
 
 CATALOG_PATH = "data/injury_catalog.json"
@@ -131,9 +131,7 @@ def _bootstrap_catalog_file(path: Path) -> Dict[str, Any]:
 def load_injury_catalog(path: str = CATALOG_PATH) -> Dict[str, Any]:
     """Load and cache the injury catalog JSON file."""
 
-    catalog_path = Path(path)
-    if not catalog_path.is_absolute():
-        catalog_path = get_base_dir() / catalog_path
+    catalog_path = resolve_app_path(path)
     try:
         with catalog_path.open("r", encoding="utf-8") as fh:
             return json.load(fh)

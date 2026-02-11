@@ -1,0 +1,38 @@
+[
+  {
+    "id": "mlb_162",
+    "name": "MLB 162",
+    "description": "Full-length season with an All-Star break.",
+    "games_per_team": 162,
+    "start_month": 4,
+    "start_day": 1,
+    "include_all_star_break": true
+  },
+  {
+    "id": "balanced_120",
+    "name": "Balanced 120",
+    "description": "Mid-length season with an All-Star break.",
+    "games_per_team": 120,
+    "start_month": 4,
+    "start_day": 1,
+    "include_all_star_break": true
+  },
+  {
+    "id": "compact_84",
+    "name": "Compact 84",
+    "description": "Shorter season that still includes a midseason break.",
+    "games_per_team": 84,
+    "start_month": 4,
+    "start_day": 1,
+    "include_all_star_break": true
+  },
+  {
+    "id": "short_48",
+    "name": "Short 48",
+    "description": "Short season without an All-Star break.",
+    "games_per_team": 48,
+    "start_month": 4,
+    "start_day": 1,
+    "include_all_star_break": false
+  }
+]

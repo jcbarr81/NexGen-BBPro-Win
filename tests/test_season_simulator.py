@@ -95,7 +95,8 @@ def test_fallback_does_not_overwrite_detailed_stats(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     monkeypatch.setattr("utils.path_utils.get_base_dir", lambda: base)
-    monkeypatch.setattr("utils.stats_persistence.get_base_dir", lambda: base)
+    monkeypatch.setattr("utils.path_utils.get_data_dir", lambda: data_dir)
+    monkeypatch.setattr("utils.stats_persistence.get_data_dir", lambda: data_dir)
 
     _persist_daily_totals({"AAA": {"g": 1, "w": 1, "l": 0, "r": 5, "ra": 3}})
 
@@ -116,7 +117,8 @@ def test_fallback_accumulates_when_only_basic_keys(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     monkeypatch.setattr("utils.path_utils.get_base_dir", lambda: base)
-    monkeypatch.setattr("utils.stats_persistence.get_base_dir", lambda: base)
+    monkeypatch.setattr("utils.path_utils.get_data_dir", lambda: data_dir)
+    monkeypatch.setattr("utils.stats_persistence.get_data_dir", lambda: data_dir)
 
     day_totals = {"AAA": {"g": 1, "w": 1, "l": 0, "r": 6, "ra": 2}}
     _persist_daily_totals(day_totals)

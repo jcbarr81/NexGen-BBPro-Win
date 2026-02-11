@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QInputDialog,
     QVBoxLayout,
     QMessageBox,
 )
@@ -14,13 +15,14 @@ import importlib
 
 import bcrypt
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
+from utils.league_settings import is_owner_league, verify_commissioner_password
 from ui.theme import DARK_QSS
 from ui.window_utils import show_on_top, untrack_on_top
 from ui.version_badge import install_version_badge
 
 # Determine the path to the users file in a cross-platform way
-USER_FILE = get_base_dir() / "data" / "users.txt"
+USER_FILE = get_data_dir() / "users.txt"
 logger = logging.getLogger(__name__)
 
 class LoginWindow(QWidget):
@@ -95,6 +97,23 @@ class LoginWindow(QWidget):
 
     def accept_login(self, role, team_id):
         if role == "admin":
+            if is_owner_league():
+                password, ok = QInputDialog.getText(
+                    self,
+                    "Commissioner Access",
+                    "Enter commissioner password:",
+                    QLineEdit.EchoMode.Password,
+                )
+                if not ok:
+                    return
+                password = password.strip()
+                if not verify_commissioner_password(password):
+                    QMessageBox.warning(
+                        self,
+                        "Commissioner Access",
+                        "Incorrect commissioner password.",
+                    )
+                    return
             mod = importlib.import_module("ui.admin_dashboard")
             dash_cls = getattr(mod, "AdminDashboard", None) or getattr(
                 mod, "MainWindow", None

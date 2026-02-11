@@ -11,7 +11,7 @@ from pathlib import Path
 import json
 from typing import Dict, Any
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
 
 DEFAULTS: Dict[str, Any] = {
@@ -22,7 +22,7 @@ DEFAULTS: Dict[str, Any] = {
 
 
 def _config_path() -> Path:
-    return get_base_dir() / "data" / "draft_config.json"
+    return get_data_dir() / "draft_config.json"
 
 
 def load_draft_config() -> Dict[str, Any]:

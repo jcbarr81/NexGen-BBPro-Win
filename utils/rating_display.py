@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Tuple
 
 from models.pitcher import Pitcher
 from models.player import Player
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
 DISPLAY_ENV = "PB_RATING_DISPLAY"
 
@@ -66,11 +66,11 @@ _POSITION_MAP = {
 
 
 def _rating_source_path() -> Path:
-    base_dir = get_base_dir()
-    normalized = base_dir / "data" / "players_normalized.csv"
+    base_dir = get_data_dir()
+    normalized = base_dir / "players_normalized.csv"
     if normalized.exists():
         return normalized
-    return base_dir / "data" / "players.csv"
+    return base_dir / "players.csv"
 
 
 def overall_rating(player: object) -> int:

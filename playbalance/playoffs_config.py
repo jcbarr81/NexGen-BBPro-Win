@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import json
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
 
 DEFAULT_PLAYOFF_TEAMS_PER_LEAGUE = 6
@@ -158,7 +158,7 @@ class PlayoffsConfig:
 
 
 def _config_path() -> Path:
-    return get_base_dir() / "data" / "playoffs_config.json"
+    return get_data_dir() / "playoffs_config.json"
 
 
 def load_playoffs_config(path: Optional[Path] = None) -> PlayoffsConfig:

@@ -15,8 +15,11 @@ def _prepare_base(tmp_path: Path, monkeypatch) -> Path:
     rosters = data / "rosters"
     rosters.mkdir(parents=True)
     monkeypatch.setattr("utils.path_utils.get_base_dir", lambda: tmp_path)
+    monkeypatch.setattr("utils.path_utils.get_data_dir", lambda: data)
     monkeypatch.setattr("utils.roster_loader.get_base_dir", lambda: tmp_path)
+    monkeypatch.setattr("utils.roster_loader.get_data_dir", lambda: data)
     monkeypatch.setattr("utils.player_loader.get_base_dir", lambda: tmp_path)
+    monkeypatch.setattr("utils.player_loader.get_data_dir", lambda: data)
     monkeypatch.setattr(draft_assignment, "BASE", tmp_path)
     monkeypatch.setattr(draft_assignment, "DATA", data)
     import services.transaction_log as tx

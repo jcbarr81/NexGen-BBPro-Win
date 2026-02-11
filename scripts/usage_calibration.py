@@ -258,8 +258,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Simulate a schedule and summarize pitcher usage by role.")
     ap.add_argument("--schedule", type=str, required=True, help="CSV with columns: date,home,away")
     ap.add_argument("--seed", type=int, default=1234)
-    ap.add_argument("--players_file", type=str, default=str(get_base_dir() / "data" / "players.csv"))
-    ap.add_argument("--roster_dir", type=str, default=str(get_base_dir() / "data" / "rosters"))
+    ap.add_argument("--players_file", type=str, default=str(get_data_dir() / "players.csv"))
+    ap.add_argument("--roster_dir", type=str, default=str(get_data_dir() / "rosters"))
     args = ap.parse_args()
 
     schedule_path = Path(args.schedule)
@@ -277,7 +277,7 @@ def main() -> None:
     # Load season stats and summarize by role
     roster_roles = _role_map_from_rosters(Path(args.roster_dir))
     # Prefer shard-based appearance counting for more realistic G/IP
-    shards_dir = get_base_dir() / "data" / "season_history"
+    shards_dir = get_data_dir() / "season_history"
     summary = _summarize_appearances_from_shards(shards_dir, roster_roles)
     if not summary:
         # Fallback to raw season totals

@@ -8,7 +8,7 @@ import os
 from typing import Tuple, Dict
 
 from .playbalance_config import PlayBalanceConfig
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_base_dir, get_data_dir
 
 # Scaling factor applied to outs on balls in play to tune the simulated
 # batting average on balls in play (BABIP). Values below ``1`` decrease outs
@@ -127,6 +127,7 @@ def load_tuned_playbalance_config(
     """
 
     base = get_base_dir()
+    data_dir = get_data_dir()
     cfg = PlayBalanceConfig.from_file(base / "playbalance" / "PBINI.txt")
 
     if babip_scale_param is not None:
@@ -134,7 +135,7 @@ def load_tuned_playbalance_config(
     if baserunning_aggression is not None:
         cfg.baserunningAggression = baserunning_aggression
 
-    csv_path = base / "data" / "MLB_avg" / "mlb_avg_boxscore_2020_2024_both_teams.csv"
+    csv_path = data_dir / "MLB_avg" / "mlb_avg_boxscore_2020_2024_both_teams.csv"
     with csv_path.open(newline="") as f:
         row = next(csv.DictReader(f))
 
@@ -146,7 +147,7 @@ def load_tuned_playbalance_config(
     cfg.hitHRProb = max(0, 100 - cfg.hit1BProb - cfg.hit2BProb - cfg.hit3BProb)
 
     if apply_benchmarks:
-        bench_path = base / "data" / "MLB_avg" / "mlb_league_benchmarks_2025_filled.csv"
+        bench_path = data_dir / "MLB_avg" / "mlb_league_benchmarks_2025_filled.csv"
         with bench_path.open(newline="") as bf:
             benchmarks = {r["metric_key"]: float(r["value"]) for r in csv.DictReader(bf)}
 
@@ -374,7 +375,7 @@ def load_tuned_playbalance_config(
         cfg.hbpBaseChance = max(0.0, float(cfg.get("hbpBaseChance", 0.0)))
         cfg.hbpBatterStepOutChance = min(max(cfg.get("hbpBatterStepOutChance", 0), 0), 2)
 
-        overrides_path = base / "data" / "playbalance_overrides.json"
+        overrides_path = data_dir / "playbalance_overrides.json"
         if overrides_path.exists():
             try:
                 with overrides_path.open("r", encoding="utf-8") as ovf:

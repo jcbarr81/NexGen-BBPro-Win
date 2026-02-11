@@ -27,9 +27,9 @@ P1 - CORE UX + LEAGUE FLOW
 - [x] Dashboard console doesn't have any sorting enabled
 - [x] Draft pool ratings display now uses draft-pool percentiles so prospects no longer show identical ratings
 - [x] Draft pool ages now span 17-21 (HS + college mix) and birthdates match generated ages
-- [ ] Autosave + crash recovery for key league/roster changes
-- [ ] Clear dirty-state indicators across editors and dashboards
-- [ ] Background task progress indicators for long-running sims/exports
+- [x] Autosave + crash recovery for key league/roster changes
+- [x] Clear dirty-state indicators across editors and dashboards
+- [x] Background task progress indicators for long-running sims/exports
 
 ==========
 P2 - ADMIN + LONGER-TERM
@@ -38,29 +38,29 @@ P2 - ADMIN + LONGER-TERM
 - [x] Tutorial on creating player avatars
 - [x] Tutorial on team logo generation
 - [x] Revisit the ability to edit "playbalance". Make it easy to use and make sure that it has descriptions on fields and is able to be saved and changed from year to year
-- [ ] Season progress, lets work on the timeline display
+- [x] Season progress, lets work on the timeline display
 - [x] When creating players for the draft too many elite players are being created. Young players should have lower ratings and progress over time according to their potential ratings
 - [x] Value young players more and don't cut or release them
 - [x] Records and special events need to be tracked and displayed
-- [ ] Eventually add individual training focus per player
-- [ ] Develop workflow for online leagues so that owners can make changes and then either send updates or upload them automtically
+- [x] Eventually add individual training focus per player
+- [x] Develop workflow for online leagues so that owners can make changes and then either send updates or upload them automtically
 - [ ] Add support for multiple leagues
 - [ ] Further refine the UI with a better scheme and/or graphics
 - [ ] Develop salary and free agency system
 - [ ] Test and futher develop trading workflow, ensure trading of draft picks is enabled and tracked
-- [ ] Add Hall of Fame feature
-- [ ] Records, special event notifcations
+- [x] Add Hall of Fame feature
+- [x] Records, special event notifcations
 - [ ] AI team strategy profiles (rebuild/contend) with role-based roster targets
 - [ ] Smarter prospect protection logic and promotion/option handling
 - [ ] Scouting system with fog-of-war ratings and scouting budgets
 - [ ] Draft enhancements: late bloomers, varied class strength, draft-day storylines
 - [ ] Team budgets, market sizes, and financial rules tied to roster decisions
-- [ ] Season timeline feed for milestones, awards, records, and special events
+- [x] Season timeline feed for milestones, awards, records, and special events
 - [ ] Expanded analytics dashboards (advanced metrics, filters, comparisons)
 - [ ] Career arc views and year-over-year comparisons for players/teams
-- [ ] Export reports to CSV/PDF for league history and analytics
-- [ ] Rule presets, schedule templates, and quick-start league setups
-- [ ] Online league tooling: change requests, approval queues, sync/audit log
+- [x] Export reports to CSV/PDF for league history and analytics
+- [x] Rule presets, schedule templates, and quick-start league setups
+- [x] Online league tooling: change requests, approval queues, sync/audit log
 - [ ] Multi-league management: league switcher + per-league settings isolation
 - [ ] Optional shared player pools across leagues
 

@@ -13,7 +13,7 @@ from services.injury_manager import (
 )
 from services.roster_auto_assign import ACTIVE_MAX, AAA_MAX, LOW_MAX
 from utils.news_logger import log_news_event
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.player_writer import save_players_to_csv
 from utils.roster_loader import load_roster
@@ -151,7 +151,7 @@ def process_disabled_lists(
             pass
 
     if mutated_players:
-        dest_path = get_base_dir() / "data" / "players.csv"
+        dest_path = get_data_dir() / "players.csv"
         save_players_to_csv(players, str(dest_path))
         try:
             load_players_from_csv.cache_clear()  # type: ignore[attr-defined]

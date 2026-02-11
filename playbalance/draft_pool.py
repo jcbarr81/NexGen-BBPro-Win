@@ -24,13 +24,13 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Dict, Iterable, List
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from playbalance import player_generator as pg
 
 
-BASE = get_base_dir()
-NAMES = BASE / "data" / "names.csv"
-PLAYERS = BASE / "data" / "players.csv"
+BASE = get_data_dir()
+NAMES = BASE / "names.csv"
+PLAYERS = BASE / "players.csv"
 
 
 @dataclass
@@ -349,7 +349,7 @@ def generate_draft_pool(
 
 
 def save_draft_pool(year: int, prospects: List[DraftProspect]) -> None:
-    base = BASE / "data"
+    base = BASE
     base.mkdir(parents=True, exist_ok=True)
     csv_path = base / f"draft_pool_{year}.csv"
     json_path = base / f"draft_pool_{year}.json"
@@ -379,7 +379,7 @@ def save_draft_pool(year: int, prospects: List[DraftProspect]) -> None:
 
 
 def load_draft_pool(year: int) -> List[Dict[str, object]]:
-    json_path = BASE / "data" / f"draft_pool_{year}.json"
+    json_path = BASE / f"draft_pool_{year}.json"
     if not json_path.exists():
         return []
     try:

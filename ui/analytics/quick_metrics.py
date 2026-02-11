@@ -8,7 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_base_dir, get_data_dir
 from utils.pitcher_recovery import PitcherRecoveryTracker
 from utils.pitcher_role import get_role
 from utils.sim_date import get_current_sim_date
@@ -21,6 +21,20 @@ except Exception:  # pragma: no cover - optional dependency in some test harness
     _load_playbalance_config = None  # type: ignore
 
 DATE_FMT = "%Y-%m-%d"
+
+
+def _resolve_data_dir(base_dir: Path | None) -> Path:
+    if base_dir is None:
+        return get_data_dir()
+    base = Path(base_dir)
+    try:
+        if base.resolve() == get_base_dir().resolve():
+            return get_data_dir()
+    except Exception:
+        pass
+    if (base / "rosters").exists() and not (base / "data").exists():
+        return base
+    return base / "data"
 
 
 @dataclass
@@ -53,7 +67,7 @@ def gather_owner_quick_metrics(
     """Collect lightweight metrics plus bullpen/matchup insights for owners."""
 
     base_dir = get_base_dir() if base_path is None else Path(base_path)
-    data_dir = base_dir / "data"
+    data_dir = _resolve_data_dir(base_dir)
 
     standings_normalized = load_standings(base_path=data_dir)
     team_standings = standings_normalized.get(team_id, {})
@@ -317,8 +331,8 @@ def _compute_bullpen_readiness(
         tracker = PitcherRecoveryTracker.instance()
         tracker.ensure_team(
             team_id,
-            base_dir / "data" / "players.csv",
-            base_dir / "data" / "rosters",
+            _resolve_data_dir(base_dir) / "players.csv",
+            _resolve_data_dir(base_dir) / "rosters",
         )
         entry = tracker.data.get("teams", {}).get(team_id, {})
         statuses = entry.get("pitchers", {}) or {}
@@ -451,7 +465,7 @@ def _collect_trend_data(
     *,
     window: int,
 ) -> Dict[str, Any]:
-    history_dir = base_dir / "data" / "season_history"
+    history_dir = _resolve_data_dir(base_dir) / "season_history"
     snapshots = sorted(history_dir.glob("*.json"))
     trend_points = []
     for path in snapshots[-max(window, 4) :]:
@@ -518,7 +532,7 @@ def _team_player_ids(roster: Any | None) -> list[str]:
 
 
 def _load_recent_snapshots(base_dir: Path, *, window: int) -> list[Mapping[str, Any]]:
-    history_dir = base_dir / "data" / "season_history"
+    history_dir = _resolve_data_dir(base_dir) / "season_history"
     snapshots = sorted(history_dir.glob("*.json")) if history_dir.exists() else []
     entries: list[Mapping[str, Any]] = []
     for path in snapshots[-max(window, 2) :]:
@@ -535,7 +549,7 @@ def _load_recent_snapshots(base_dir: Path, *, window: int) -> list[Mapping[str, 
         return entries
 
     try:
-        stats_payload = _load_season_stats(base_dir / "data" / "season_stats.json")
+        stats_payload = _load_season_stats(_resolve_data_dir(base_dir) / "season_stats.json")
     except Exception:
         return []
     history = stats_payload.get("history", [])
@@ -617,7 +631,7 @@ def _collect_recent_performers(
         return result
 
     try:
-        season_stats = _load_season_stats(base_dir / "data" / "season_stats.json")
+        season_stats = _load_season_stats(_resolve_data_dir(base_dir) / "season_stats.json")
         current_players = season_stats.get("players", {}) or {}
         if not isinstance(current_players, Mapping):
             current_players = {}
@@ -747,7 +761,7 @@ def _collect_recent_performers(
 
 
 def _load_team_metadata(base_dir: Path) -> Dict[str, Dict[str, str]]:
-    path = base_dir / "data" / "teams.csv"
+    path = _resolve_data_dir(base_dir) / "teams.csv"
     if not path.exists():
         return {}
     metadata: Dict[str, Dict[str, str]] = {}
@@ -872,7 +886,7 @@ def _collect_team_leaders(
         return batting, pitching, meta
 
     try:
-        stats_payload = _load_season_stats(base_dir / "data" / "season_stats.json")
+        stats_payload = _load_season_stats(_resolve_data_dir(base_dir) / "season_stats.json")
     except Exception:
         stats_payload = {}
     raw_player_stats = (
@@ -1066,7 +1080,7 @@ def _calibration_summary(base_dir: Path) -> Dict[str, Any]:
     try:
         cfg = _load_playbalance_config(
             pbini_path=base_dir / "playbalance" / "PBINI.txt",
-            overrides_path=base_dir / "data" / "playbalance_overrides.json",
+            overrides_path=_resolve_data_dir(base_dir) / "playbalance_overrides.json",
         )
         pb = cfg.sections.get("PlayBalance")
         if pb is None:

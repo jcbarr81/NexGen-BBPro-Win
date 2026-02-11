@@ -7,14 +7,13 @@ from typing import Any, Dict
 from services.transaction_log import record_transaction, reset_player_cache
 from utils.exceptions import DraftRosterError
 from utils.news_logger import log_news_event
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.roster_loader import load_roster, save_roster
 
 LOW_MAX = 10
 
 
-BASE = get_base_dir()
-DATA = BASE / "data"
+DATA = get_data_dir()
 
 
 def _players_csv_path() -> Path:

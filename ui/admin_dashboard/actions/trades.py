@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 from services.transaction_log import record_transaction
 from ui.window_utils import show_on_top
 from utils.news_logger import log_news_event
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster
 from utils.team_loader import load_teams
@@ -102,7 +102,7 @@ def review_pending_trades(
                         break
 
             def save_roster(roster) -> None:
-                path = get_base_dir() / "data" / "rosters" / f"{roster.team_id}.csv"
+                path = get_data_dir() / "rosters" / f"{roster.team_id}.csv"
                 with path.open("w", newline="") as file:
                     writer = csv.DictWriter(file, fieldnames=["player_id", "level"])
                     writer.writeheader()

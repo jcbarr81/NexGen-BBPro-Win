@@ -55,7 +55,7 @@ except ImportError:  # pragma: no cover - fallback for stubbed tests
 
 from utils.team_loader import load_teams
 from utils.standings_utils import default_record
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.sim_date import get_current_sim_date
 from services.standings_repository import load_standings
 from services.unified_data_service import get_unified_data_service
@@ -105,7 +105,7 @@ class StandingsWindow(QDialog):
         if not hasattr(self, "viewer"):
             return
 
-        base_dir = get_base_dir()
+        base_dir = get_data_dir()
         league_name, umbrella_name = self._load_league_names(base_dir)
 
         teams = load_teams()
@@ -250,7 +250,7 @@ class StandingsWindow(QDialog):
     def _load_league_names(base_dir) -> tuple[str, str]:
         league_name = "League"
         league_alias = "USABL"
-        league_path = base_dir / "data" / "league.txt"
+        league_path = base_dir / "league.txt"
         lines: list[str] = []
         try:
             with league_path.open(encoding="utf-8") as fh:
@@ -262,7 +262,7 @@ class StandingsWindow(QDialog):
             if len(lines) > 1 and lines[1]:
                 league_alias = lines[1]
 
-        alias_path = base_dir / "data" / "league_alias.txt"
+        alias_path = base_dir / "league_alias.txt"
         if alias_path.exists():
             try:
                 with alias_path.open(encoding="utf-8") as fh:

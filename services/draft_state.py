@@ -6,13 +6,12 @@ import random
 from pathlib import Path
 from typing import Dict, List, Tuple, Any
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 import os
 import time
 
 
-BASE = get_base_dir()
-STATE_DIR = BASE / "data"
+STATE_DIR = get_data_dir()
 
 
 def _state_path(year: int) -> Path:
@@ -43,7 +42,7 @@ def compute_order_from_season_stats(seed: int | None = None) -> List[str]:
     Worst winning percentage first; tie‑breakers by run differential (asc),
     then a deterministic random using the provided seed.
     """
-    stats_path = BASE / "data" / "season_stats.json"
+    stats_path = STATE_DIR / "season_stats.json"
     try:
         data = json.loads(stats_path.read_text(encoding="utf-8"))
     except Exception:

@@ -31,7 +31,7 @@ from services.injury_settings import get_injury_tuning_overrides
 from services.physics_tuning_settings import get_physics_tuning_overrides
 from utils.news_logger import log_news_event
 from utils.pitcher_role import get_role
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir, resolve_app_path
 
 LineupEntry = Tuple[str, str]
 
@@ -222,7 +222,7 @@ def _log_bullpen_status(team_id: str, state: TeamState, date_token: str | None) 
         )
     if not lines:
         return
-    path = get_base_dir() / "tmp" / "bullpen_status.log"
+    path = get_data_dir() / "tmp" / "bullpen_status.log"
     path.parent.mkdir(parents=True, exist_ok=True)
     header = f"{date_token or 'undated'} team={team_id}"
     with path.open("a", encoding="utf-8") as handle:
@@ -910,10 +910,9 @@ def _run_physics_game(
     from physics_sim.engine import simulate_game
     from physics_sim.outputs import serialize_game_result
 
-    base_dir = get_base_dir()
     players_path = Path(players_file)
     if not players_path.is_absolute():
-        players_path = base_dir / players_path
+        players_path = resolve_app_path(players_path)
 
     batters_by_id, pitchers_by_id = load_players_by_id(players_path)
 

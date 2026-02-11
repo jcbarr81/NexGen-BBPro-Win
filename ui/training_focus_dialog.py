@@ -138,6 +138,8 @@ from services.training_settings import (
     HITTER_TRACKS,
     PITCHER_TRACKS,
     load_training_settings,
+    set_player_training_weights,
+    clear_player_training_weights,
     set_team_training_weights,
     clear_team_training_weights,
     update_league_training_defaults,
@@ -169,19 +171,44 @@ class TrainingFocusDialog(QDialog):
         *,
         team_id: Optional[str] = None,
         team_name: Optional[str] = None,
+        player_id: Optional[str] = None,
+        player_name: Optional[str] = None,
         mode: str = "team",
+        bulk_label: Optional[str] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._mode = mode if mode in {"team", "league"} else ("team" if team_id else "league")
-        self._team_id = team_id if self._mode == "team" else None
+        if mode not in {"team", "league", "player", "bulk"}:
+            if player_id:
+                mode = "player"
+            elif team_id:
+                mode = "team"
+            else:
+                mode = "league"
+        if mode == "player" and not player_id:
+            mode = "team" if team_id else "league"
+        if mode == "bulk":
+            player_id = None
+        self._mode = mode
+        self._team_id = (
+            team_id if self._mode in {"team", "player", "bulk"} else None
+        )
+        self._player_id = player_id if self._mode == "player" else None
+        self._player_name = player_name or player_id or "Player"
         self._team_name = team_name or team_id or "Team"
+        self._bulk_label = bulk_label
         self._result_message: Optional[str] = None
+        self._result_weights: Optional[tuple[Dict[str, int], Dict[str, int]]] = None
         self._settings = load_training_settings()
         self._team_override_active = (
             self._mode == "team"
             and self._team_id is not None
             and self._team_id in self._settings.team_overrides
+        )
+        self._player_override_active = (
+            self._mode == "player"
+            and self._player_id is not None
+            and self._player_id in self._settings.player_overrides
         )
 
         self.hitter_spins: Dict[str, QSpinBox] = {}
@@ -195,11 +222,14 @@ class TrainingFocusDialog(QDialog):
 
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
-        title = (
-            f"{self._team_name} Training Focus"
-            if self._mode == "team"
-            else "League Training Focus"
-        )
+        if self._mode == "team":
+            title = f"{self._team_name} Training Focus"
+        elif self._mode == "player":
+            title = f"{self._player_name} Training Focus"
+        elif self._mode == "bulk":
+            title = "Bulk Training Focus"
+        else:
+            title = "League Training Focus"
         self.setWindowTitle(title)
 
         root = QVBoxLayout(self)
@@ -211,7 +241,7 @@ class TrainingFocusDialog(QDialog):
         intro.setWordWrap(True)
         root.addWidget(intro)
 
-        if self._mode == "team":
+        if self._mode in {"team", "player", "bulk"}:
             self.status_label = QLabel()
             self.status_label.setWordWrap(True)
             root.addWidget(self.status_label)
@@ -238,8 +268,13 @@ class TrainingFocusDialog(QDialog):
         self.save_button.clicked.connect(self._on_save_clicked)
         button_box.rejected.connect(self.reject)
 
-        if self._mode == "team" and self._team_id:
-            self.use_default_button = QPushButton("Use League Default")
+        if self._mode in {"team", "player"} and (self._team_id or self._player_id):
+            default_label = (
+                "Use Team Default"
+                if self._mode == "player" and self._team_id
+                else "Use League Default"
+            )
+            self.use_default_button = QPushButton(default_label)
             button_box.addButton(
                 self.use_default_button, QDialogButtonBox.ButtonRole.ResetRole
             )
@@ -283,6 +318,22 @@ class TrainingFocusDialog(QDialog):
                     self.status_label.setText("Custom allocation active for this team.")
                 else:
                     self.status_label.setText("Currently using league default allocations.")
+        elif self._mode == "player":
+            weights = self._settings.for_player(self._player_id, self._team_id)
+            if self.status_label is not None:
+                if self._player_override_active:
+                    self.status_label.setText(
+                        "Custom allocation active for this player."
+                    )
+                elif self._team_id and self._team_id in self._settings.team_overrides:
+                    self.status_label.setText("Currently using team default allocations.")
+                else:
+                    self.status_label.setText("Currently using league default allocations.")
+        elif self._mode == "bulk":
+            weights = self._settings.for_team(self._team_id)
+            if self.status_label is not None:
+                label = self._bulk_label or "Apply these allocations to the selected players."
+                self.status_label.setText(label)
         else:
             weights = self._settings.defaults
 
@@ -338,6 +389,17 @@ class TrainingFocusDialog(QDialog):
                 self._result_message = f"{self._team_name} training focus saved."
                 if self.status_label is not None:
                     self.status_label.setText("Custom allocation active for this team.")
+            elif self._mode == "player" and self._player_id:
+                set_player_training_weights(self._player_id, hitters, pitchers)
+                self._player_override_active = True
+                self._result_message = f"{self._player_name} training focus saved."
+                if self.status_label is not None:
+                    self.status_label.setText(
+                        "Custom allocation active for this player."
+                    )
+            elif self._mode == "bulk":
+                self._result_weights = (hitters, pitchers)
+                self._result_message = "Training focus ready to apply."
             else:
                 update_league_training_defaults(hitters, pitchers)
                 self._result_message = "League training focus defaults saved."
@@ -348,15 +410,36 @@ class TrainingFocusDialog(QDialog):
         self.accept()
 
     def _on_use_default_clicked(self) -> None:
-        if not self._team_id:
+        if self._mode == "team":
+            if not self._team_id:
+                return
+            clear_team_training_weights(self._team_id)
+            self._team_override_active = False
+            self._result_message = (
+                f"{self._team_name} reverted to the league training focus."
+            )
+            if self.status_label is not None:
+                self.status_label.setText(
+                    "Currently using league default allocations."
+                )
+        elif self._mode == "player":
+            if not self._player_id:
+                return
+            clear_player_training_weights(self._player_id)
+            self._player_override_active = False
+            default_label = "team" if self._team_id else "league"
+            self._result_message = (
+                f"{self._player_name} reverted to the {default_label} training focus."
+            )
+            if self.status_label is not None:
+                if self._team_id and self._team_id in self._settings.team_overrides:
+                    self.status_label.setText("Currently using team default allocations.")
+                else:
+                    self.status_label.setText(
+                        "Currently using league default allocations."
+                    )
+        else:
             return
-        clear_team_training_weights(self._team_id)
-        self._team_override_active = False
-        self._result_message = (
-            f"{self._team_name} reverted to the league training focus."
-        )
-        if self.status_label is not None:
-            self.status_label.setText("Currently using league default allocations.")
         self._sync_use_default_button()
         self.accept()
 
@@ -365,9 +448,17 @@ class TrainingFocusDialog(QDialog):
     def result_message(self) -> Optional[str]:
         return self._result_message
 
+    @property
+    def result_weights(self) -> Optional[tuple[Dict[str, int], Dict[str, int]]]:
+        return self._result_weights
+
     def _sync_use_default_button(self) -> None:
         if self.use_default_button is not None:
             try:
-                self.use_default_button.setEnabled(self._team_override_active)
+                if self._mode == "player":
+                    active = self._player_override_active
+                else:
+                    active = self._team_override_active
+                self.use_default_button.setEnabled(active)
             except Exception:
                 pass

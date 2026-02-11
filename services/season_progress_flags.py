@@ -8,9 +8,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
-PROGRESS_PATH = get_base_dir() / "data" / "season_progress.json"
+PROGRESS_PATH = get_data_dir() / "season_progress.json"
 
 
 class ProgressUpdateError(RuntimeError):

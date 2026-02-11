@@ -7,7 +7,7 @@ from typing import Optional
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from utils.lineup_autofill import auto_fill_lineup_for_team
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.pitcher_role import get_role
 from utils.pitching_autofill import autofill_pitching_staff
 from utils.player_loader import load_players_from_csv
@@ -25,7 +25,7 @@ def set_all_lineups(
 ) -> None:
     """Auto-fill batting orders for every team in the current league."""
 
-    data_dir = get_base_dir() / "data"
+    data_dir = get_data_dir()
     teams = load_teams(data_dir / "teams.csv")
     errors: list[str] = []
     for team in teams:
@@ -58,7 +58,7 @@ def set_all_pitching_roles(
 ) -> None:
     """Assign pitching roles for all clubs based on current rosters."""
 
-    data_dir = get_base_dir() / "data"
+    data_dir = get_data_dir()
     players_file = data_dir / "players.csv"
     if not players_file.exists():
         if parent is not None:
@@ -134,7 +134,7 @@ def auto_reassign_rosters(
     if parent is None:
         return
 
-    data_dir = get_base_dir() / "data"
+    data_dir = get_data_dir()
     players = {p.player_id: p for p in load_players_from_csv(data_dir / "players.csv")}
     teams = load_teams(data_dir / "teams.csv")
     issues: list[str] = []

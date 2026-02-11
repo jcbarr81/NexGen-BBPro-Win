@@ -22,8 +22,12 @@ except ImportError:  # pragma: no cover - test stubs
 try:
     from PyQt6.QtWidgets import (
         QDialog,
+        QHBoxLayout,
         QHeaderView,
+        QInputDialog,
         QLabel,
+        QMessageBox,
+        QPushButton,
         QTableWidget,
         QTableWidgetItem,
         QTextEdit,
@@ -45,6 +49,7 @@ except ImportError:  # pragma: no cover - test stubs
             return _dummy
 
     QDialog = QHeaderView = QLabel = QTableWidget = QTableWidgetItem = QTextEdit = QVBoxLayout = QTabWidget = _QtDummy
+    QHBoxLayout = QInputDialog = QMessageBox = QPushButton = _QtDummy
 
     class QHeaderView:  # type: ignore[too-many-ancestors]
         class ResizeMode:
@@ -52,9 +57,17 @@ except ImportError:  # pragma: no cover - test stubs
             ResizeToContents = None
 
 from playbalance.season_context import SeasonContext
+from services.hall_of_fame import (
+    add_manual_inductee,
+    list_candidates,
+    list_inductees,
+    load_hall_of_fame,
+    remove_inductee,
+    update_hall_of_fame,
+)
 from services.record_book import league_record_book
 from services.special_events import load_special_events
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir, resolve_app_path
 from utils.team_loader import load_teams
 from .components import Card, ensure_layout, section_title
 
@@ -86,7 +99,7 @@ def _resolve_path(path_str: str | None) -> Path | None:
         return None
     candidate = Path(path_str)
     if not candidate.is_absolute():
-        candidate = get_base_dir() / candidate
+        candidate = resolve_app_path(candidate)
     return candidate
 
 
@@ -302,7 +315,7 @@ def _season_artifacts(season: Dict[str, Any], season_id: str) -> Dict[str, str]:
             for key, value in artifacts.items()
             if value
         }
-    meta_path = get_base_dir() / "data" / "careers" / season_id / "metadata.json"
+    meta_path = get_data_dir() / "careers" / season_id / "metadata.json"
     payload = _read_json(meta_path, {})
     meta_artifacts = payload.get("artifacts", {})
     if isinstance(meta_artifacts, dict) and meta_artifacts:
@@ -448,6 +461,46 @@ class LeagueHistoryWindow(QDialog):
         self.details_tabs.addTab(self.details_events, "Special Events")
         details_layout.addWidget(self.details_tabs)
         layout.addWidget(details_card)
+
+        hof_card = Card()
+        hof_layout = ensure_layout(hof_card)
+        hof_layout.addWidget(section_title("Hall of Fame"))
+
+        self.hof_summary = QLabel()
+        try:
+            self.hof_summary.setWordWrap(True)
+        except Exception:
+            pass
+        hof_layout.addWidget(self.hof_summary)
+
+        hof_controls = QHBoxLayout()
+        self.hof_refresh_button = QPushButton("Refresh Inductions")
+        self.hof_add_button = QPushButton("Add Manual Inductee")
+        self.hof_remove_button = QPushButton("Remove Selected")
+        hof_controls.addWidget(self.hof_refresh_button)
+        hof_controls.addWidget(self.hof_add_button)
+        hof_controls.addWidget(self.hof_remove_button)
+        hof_layout.addLayout(hof_controls)
+
+        self.hof_table = QTableWidget(0, 6)
+        self.hof_table.setHorizontalHeaderLabels(
+            ["Inducted", "Player", "Pos", "Score", "Last Season", "Source"]
+        )
+        try:
+            self.hof_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            self.hof_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+            self.hof_table.verticalHeader().setVisible(False)
+            header = self.hof_table.horizontalHeader()
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        except Exception:
+            pass
+        hof_layout.addWidget(self.hof_table)
+        layout.addWidget(hof_card)
         layout.addStretch()
 
         if self._entries:
@@ -458,6 +511,14 @@ class LeagueHistoryWindow(QDialog):
         self._record_book_cache: Dict[str, List[Dict[str, Any]]] | None = None
         self._team_labels = _team_labels()
         self._refresh_details()
+        self._refresh_hall_of_fame()
+
+        try:
+            self.hof_refresh_button.clicked.connect(self._refresh_hall_of_fame)
+            self.hof_add_button.clicked.connect(self._add_manual_inductee)
+            self.hof_remove_button.clicked.connect(self._remove_selected_inductee)
+        except Exception:
+            pass
 
     def _populate_table(self) -> None:
         for row, entry in enumerate(self._entries):
@@ -550,7 +611,7 @@ class LeagueHistoryWindow(QDialog):
     def _load_events_for_entry(self, entry: SeasonHistoryEntry) -> list[Dict[str, Any]]:
         path = _resolve_path(entry.artifacts.get("special_events"))
         if path is None:
-            candidate = get_base_dir() / "data" / "careers" / entry.season_id / "special_events.json"
+            candidate = get_data_dir() / "careers" / entry.season_id / "special_events.json"
             if candidate.exists():
                 path = candidate
         if path is None or not path.exists():
@@ -581,6 +642,115 @@ class LeagueHistoryWindow(QDialog):
             self.details_events.setItem(row, 1, QTableWidgetItem(player))
             self.details_events.setItem(row, 2, QTableWidgetItem(event_text))
             self.details_events.setItem(row, 3, QTableWidgetItem(team_label))
+
+    def _refresh_hall_of_fame(self) -> None:
+        try:
+            update_hall_of_fame()
+        except Exception:
+            pass
+        payload = load_hall_of_fame()
+        settings = payload.get("settings", {}) if isinstance(payload, dict) else {}
+        min_years = settings.get("min_years_retired", 5)
+        threshold = settings.get("score_threshold", 120.0)
+        inductees = list_inductees()
+        summary = (
+            f"Minimum years retired: {min_years} • "
+            f"Score threshold: {threshold} • "
+            f"Inductees: {len(inductees)}"
+        )
+        try:
+            self.hof_summary.setText(summary)
+        except Exception:
+            pass
+        try:
+            self.hof_table.setRowCount(len(inductees))
+        except Exception:
+            return
+        for row, entry in enumerate(inductees):
+            inducted_year = str(entry.get("inducted_year", "--"))
+            player_name = str(entry.get("player_name", "--"))
+            position = str(entry.get("position", "--"))
+            score = entry.get("score", "--")
+            last_year = str(entry.get("last_season_year", "--"))
+            source = str(entry.get("source", "auto")).title()
+            item = QTableWidgetItem(inducted_year)
+            try:
+                item.setData(Qt.ItemDataRole.UserRole, entry.get("player_id", ""))
+            except Exception:
+                pass
+            self.hof_table.setItem(row, 0, item)
+            self.hof_table.setItem(row, 1, QTableWidgetItem(player_name))
+            self.hof_table.setItem(row, 2, QTableWidgetItem(position or "--"))
+            self.hof_table.setItem(row, 3, QTableWidgetItem(str(score)))
+            self.hof_table.setItem(row, 4, QTableWidgetItem(last_year))
+            self.hof_table.setItem(row, 5, QTableWidgetItem(source))
+
+    def _add_manual_inductee(self) -> None:
+        candidates = list_candidates()
+        if not candidates:
+            QMessageBox.information(self, "Hall of Fame", "No retired players found.")
+            return
+        options = []
+        by_label: Dict[str, str] = {}
+        for candidate in candidates:
+            eligible = "Eligible" if candidate.eligible else f"Eligible {candidate.eligible_year}"
+            label = (
+                f"{candidate.player_name} ({candidate.last_season_year}) "
+                f"- Score {candidate.score:.1f} - {eligible}"
+            )
+            options.append(label)
+            by_label[label] = candidate.player_id
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Add Hall of Fame Inductee",
+            "Select a retired player to induct:",
+            options,
+            0,
+            False,
+        )
+        if not ok or not choice:
+            return
+        player_id = by_label.get(choice)
+        if not player_id:
+            return
+        try:
+            add_manual_inductee(player_id)
+        except Exception as exc:
+            QMessageBox.warning(self, "Hall of Fame", f"Unable to add inductee: {exc}")
+            return
+        self._refresh_hall_of_fame()
+
+    def _remove_selected_inductee(self) -> None:
+        try:
+            row = self.hof_table.currentRow()
+        except Exception:
+            row = -1
+        if row < 0:
+            return
+        item = self.hof_table.item(row, 0)
+        if item is None:
+            return
+        player_id = None
+        try:
+            player_id = item.data(Qt.ItemDataRole.UserRole)
+        except Exception:
+            player_id = None
+        if not player_id:
+            return
+        confirm = QMessageBox.question(
+            self,
+            "Remove Inductee",
+            "Remove the selected player from the Hall of Fame?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            remove_inductee(str(player_id))
+        except Exception as exc:
+            QMessageBox.warning(self, "Hall of Fame", f"Unable to remove inductee: {exc}")
+            return
+        self._refresh_hall_of_fame()
 
 
 __all__ = ["LeagueHistoryWindow"]

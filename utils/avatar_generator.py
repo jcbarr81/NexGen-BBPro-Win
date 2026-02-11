@@ -19,9 +19,11 @@ except Exception:  # pragma: no cover - environment without Pillow
 try:  # Allow running as a standalone script
     from utils.openai_client import client
     from utils.team_loader import load_teams
+    from utils.path_utils import resolve_app_path
 except ModuleNotFoundError:  # pragma: no cover - for direct script execution
     from openai_client import client
     from team_loader import load_teams
+    from path_utils import resolve_app_path
 
 
 # Hair color to hex mapping used for template recoloring
@@ -345,7 +347,8 @@ def _ensure_name_ethnicity_loaded() -> None:
         return
     _NAME_ETHNICITY_LOADED = True
     try:
-        with Path("data/names.csv").open(newline="", encoding="utf-8") as f:
+        names_path = resolve_app_path("data/names.csv")
+        with names_path.open(newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 ethnicity = row.get("ethnicity")

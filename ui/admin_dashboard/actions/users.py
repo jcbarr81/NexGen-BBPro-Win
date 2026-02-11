@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.window_utils import show_on_top
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.team_loader import load_teams
 from utils.user_manager import add_user, load_users, update_user
 
@@ -57,7 +57,7 @@ def add_user_action(
     layout.addWidget(QLabel("Team:"))
     layout.addWidget(team_combo)
 
-    data_dir = get_base_dir() / "data"
+    data_dir = get_data_dir()
     teams = load_teams(data_dir / "teams.csv")
     team_combo.addItem("None", "")
     for team in teams:
@@ -121,7 +121,7 @@ def edit_user_action(
     dialog = QDialog(parent)
     dialog.setWindowTitle("Edit User")
 
-    data_dir = get_base_dir() / "data"
+    data_dir = get_data_dir()
     users = load_users(data_dir / "users.txt")
     if not users:
         QMessageBox.information(parent, "No Users", "No users available.")

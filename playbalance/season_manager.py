@@ -8,7 +8,7 @@ import os
 import shutil
 from datetime import date
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir, resolve_app_path
 from services.league_rollover import LeagueRolloverService, RolloverResult
 
 
@@ -37,8 +37,7 @@ class SeasonManager:
     """Manage the current season phase and persist it to disk."""
 
     def __init__(self, path: str | Path | None = None, *, enable_rollover: bool = True) -> None:
-        base_dir = get_base_dir()
-        self.path = Path(path) if path is not None else base_dir / "data" / "season_state.json"
+        self.path = Path(path) if path is not None else get_data_dir() / "season_state.json"
         self.phase = SeasonPhase.PRESEASON
         self.rollover_result: RolloverResult | None = None
         self.enable_rollover = enable_rollover
@@ -117,10 +116,9 @@ class SeasonManager:
             directory is used.
         """
 
-        base_dir = get_base_dir()
-        roster_path = Path(roster_dir) if roster_dir is not None else base_dir / "data" / "rosters"
+        roster_path = Path(roster_dir) if roster_dir is not None else get_data_dir() / "rosters"
         if not roster_path.is_absolute():
-            roster_path = base_dir / roster_path
+            roster_path = resolve_app_path(roster_path)
         if not roster_path.exists():
             return
 

@@ -127,7 +127,12 @@ def generate_schedule(teams: Iterable[str], start_date: date) -> List[Dict[str, 
 
 
 def generate_mlb_schedule(
-    teams: Iterable[str], start_date: date, games_per_team: int = 162
+    teams: Iterable[str],
+    start_date: date,
+    games_per_team: int = 162,
+    *,
+    include_all_star_break: bool = True,
+    all_star_break_days: int = 6,
 ) -> List[Dict[str, str]]:
     """Generate a full 162-game schedule for each team.
 
@@ -146,6 +151,10 @@ def generate_mlb_schedule(
     games_per_team:
         Total number of games each team should play.  Defaults to ``162`` to
         mirror the length of a Major League Baseball season.
+    include_all_star_break:
+        When True, inserts a midseason break before the second half.
+    all_star_break_days:
+        Number of days to pause for the All-Star break.
 
     Returns
     -------
@@ -159,7 +168,13 @@ def generate_mlb_schedule(
         return []
 
     series_plan = _build_series_plan(teams_list, games_per_team)
-    return _build_series_schedule(teams_list, series_plan, start_date)
+    return _build_series_schedule(
+        teams_list,
+        series_plan,
+        start_date,
+        include_all_star_break=include_all_star_break,
+        all_star_break_days=all_star_break_days,
+    )
 
 
 def _series_order(teams: List[str]) -> List[tuple[str, str]]:
@@ -290,6 +305,9 @@ def _build_series_schedule(
     teams: List[str],
     plan: List[Series],
     start_date: date,
+    *,
+    include_all_star_break: bool = True,
+    all_star_break_days: int = 6,
 ) -> List[Dict[str, str]]:
     """Expand a series plan into a day-by-day schedule."""
 
@@ -349,11 +367,12 @@ def _build_series_schedule(
         current += timedelta(days=round_length)
 
         if (
-            not all_star_inserted
+            include_all_star_break
+            and not all_star_inserted
             and games_scheduled >= total_games / 2
             and _series_remaining(queues)
         ):
-            current += timedelta(days=6)
+            current += timedelta(days=all_star_break_days)
             all_star_inserted = True
 
         if _series_remaining(queues):

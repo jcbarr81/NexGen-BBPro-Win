@@ -10,16 +10,16 @@ import csv
 from pathlib import Path
 from typing import Dict, List
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import resolve_app_path
 from utils.roster_loader import load_roster, save_roster
 
 
 def _resolve_path(path: str | Path) -> Path:
     """Return an absolute path based on project root."""
     path = Path(path)
-    if not path.is_absolute():
-        path = get_base_dir() / path
-    return path
+    if path.is_absolute():
+        return path
+    return resolve_app_path(path)
 
 
 def load_draft_pool(pool_path: str | Path = "playbalance/draft_pool.csv") -> List[dict]:

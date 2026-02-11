@@ -15,8 +15,9 @@ except Exception:  # pragma: no cover - tests provide stub
             UserRole = 0
 
 from .boxscore_window import BoxScoreWindow
+from utils.path_utils import get_data_dir
 
-SCHEDULE_FILE = Path(__file__).resolve().parents[1] / "data" / "schedule.csv"
+SCHEDULE_FILE = get_data_dir() / "schedule.csv"
 
 
 class ScheduleWindow(QDialog):

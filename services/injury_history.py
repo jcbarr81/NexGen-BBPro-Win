@@ -8,15 +8,14 @@ from pathlib import Path
 from typing import Dict, List, Mapping
 
 from playbalance.season_context import SeasonContext
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
 __all__ = [
     "record_injury_event",
     "load_player_injury_history",
 ]
 
-_BASE_DIR = get_base_dir()
-_REPORTS_DIR = _BASE_DIR / "data" / "injury_reports"
+_REPORTS_DIR = get_data_dir() / "injury_reports"
 
 
 def _season_path(season_id: str) -> Path:

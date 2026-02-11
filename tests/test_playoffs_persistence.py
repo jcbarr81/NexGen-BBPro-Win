@@ -57,7 +57,8 @@ def test_load_bracket_prefers_latest_year(tmp_path: Path, monkeypatch):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     monkeypatch.setattr("utils.path_utils.get_base_dir", lambda: tmp_path)
-    monkeypatch.setattr(playoffs_module, "get_base_dir", lambda: tmp_path)
+    monkeypatch.setattr("utils.path_utils.get_data_dir", lambda: data_dir)
+    monkeypatch.setattr(playoffs_module, "get_data_dir", lambda: data_dir)
 
     older = playoffs_module.PlayoffBracket(year=2024)
     newer = playoffs_module.PlayoffBracket(year=2025)

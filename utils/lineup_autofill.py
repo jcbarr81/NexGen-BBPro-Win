@@ -5,7 +5,7 @@ import random
 from pathlib import Path
 from typing import Dict
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import resolve_app_path
 from utils.roster_loader import load_roster
 from utils.player_loader import load_players_from_csv
 from utils.depth_chart import depth_order_for_position, load_depth_chart
@@ -31,16 +31,9 @@ def auto_fill_lineup_for_team(
     - Return the 9-player lineup used.
     """
 
-    base = get_base_dir()
-    players_path = Path(players_file)
-    if not players_path.is_absolute():
-        players_path = base / players_path
-    roster_root = Path(roster_dir)
-    if not roster_root.is_absolute():
-        roster_root = base / roster_root
-    lineup_root = Path(lineup_dir)
-    if not lineup_root.is_absolute():
-        lineup_root = base / lineup_root
+    players_path = resolve_app_path(players_file)
+    roster_root = resolve_app_path(roster_dir)
+    lineup_root = resolve_app_path(lineup_dir)
 
     players: Dict[str, object] = {p.player_id: p for p in load_players_from_csv(str(players_path))}
     roster = load_roster(team_id, roster_root)

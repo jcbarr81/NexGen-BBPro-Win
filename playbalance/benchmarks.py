@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Dict
 import csv
 
+from utils.path_utils import get_data_dir, resolve_app_path
 
-BASE_DIR = Path(__file__).resolve().parents[1]
-BENCHMARK_CSV = BASE_DIR / "data" / "MLB_avg" / "mlb_league_benchmarks_2025_filled.csv"
+
+BENCHMARK_CSV = get_data_dir() / "MLB_avg" / "mlb_league_benchmarks_2025_filled.csv"
 
 
 def load_benchmarks(path: str | Path = BENCHMARK_CSV) -> Dict[str, float]:
@@ -25,7 +26,7 @@ def load_benchmarks(path: str | Path = BENCHMARK_CSV) -> Dict[str, float]:
     """
     path = Path(path)
     if not path.is_absolute():
-        path = BASE_DIR / path
+        path = resolve_app_path(path)
     benchmarks: Dict[str, float] = {}
     with path.open(newline="") as fh:
         reader = csv.DictReader(fh)

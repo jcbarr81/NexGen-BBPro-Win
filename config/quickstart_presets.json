@@ -1,0 +1,38 @@
+[
+  {
+    "id": "mlb_30",
+    "name": "MLB Style 30",
+    "description": "Six divisions, 30 teams, MLB-style schedule.",
+    "divisions": ["AL East", "AL Central", "AL West", "NL East", "NL Central", "NL West"],
+    "teams_per_division": 5,
+    "rule_preset_id": "mlb_standard",
+    "schedule_template_id": "mlb_162"
+  },
+  {
+    "id": "regional_20",
+    "name": "Regional 20",
+    "description": "Four divisions, 20 teams, balanced schedule.",
+    "divisions": ["North", "South", "East", "West"],
+    "teams_per_division": 5,
+    "rule_preset_id": "mlb_standard",
+    "schedule_template_id": "balanced_120"
+  },
+  {
+    "id": "indy_12",
+    "name": "Indy 12",
+    "description": "Three divisions, 12 teams, compact season.",
+    "divisions": ["North", "South", "West"],
+    "teams_per_division": 4,
+    "rule_preset_id": "mlb_standard",
+    "schedule_template_id": "compact_84"
+  },
+  {
+    "id": "college_8",
+    "name": "College 8",
+    "description": "Two divisions, 8 teams, short season.",
+    "divisions": ["East", "West"],
+    "teams_per_division": 4,
+    "rule_preset_id": "mlb_standard",
+    "schedule_template_id": "short_48"
+  }
+]

@@ -52,6 +52,7 @@ class RosterPage(QWidget):
         self._dashboard = dashboard
         self._depth_lists: dict[str, DepthChartListWidget] = {}
         self._depth_dirty = False
+        self._depth_title = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -104,12 +105,18 @@ class RosterPage(QWidget):
         btn_training.clicked.connect(self._dashboard.open_training_focus_dialog)
         card.layout().addWidget(btn_training)
 
+        btn_change_request = QPushButton("Submit Change Request", objectName="Primary")
+        btn_change_request.setToolTip("Export roster/lineup changes for commissioner approval")
+        btn_change_request.clicked.connect(self._dashboard.open_change_request_export_dialog)
+        card.layout().addWidget(btn_change_request)
+
         card.layout().addStretch()
         return card
 
     def _build_depth_chart_card(self) -> Card:
         card = Card()
-        card.layout().addWidget(section_title("Depth Chart Priorities"))
+        self._depth_title = section_title("Depth Chart Priorities")
+        card.layout().addWidget(self._depth_title)
         hint = QLabel("Drag players to change their priority. Use the full Depth Chart dialog to add or remove players.")
         hint.setWordWrap(True)
         card.layout().addWidget(hint)
@@ -128,7 +135,7 @@ class RosterPage(QWidget):
         self.save_depth_btn = QPushButton("Save Depth Chart", objectName="Primary")
         self.save_depth_btn.clicked.connect(self._save_depth_chart)
         controls.addWidget(self.save_depth_btn, 0, Qt.AlignmentFlag.AlignLeft)
-        self.depth_status = QLabel("")
+        self.depth_status = QLabel("All changes saved.")
         self.depth_status.setStyleSheet("color: #888888;")
         controls.addWidget(self.depth_status, 1)
         controls.addStretch()
@@ -186,8 +193,7 @@ class RosterPage(QWidget):
             for pid in entries:
                 widget.addItem(self._make_player_item(pid, players, level_map))
             widget.blockSignals(False)
-        self.depth_status.setText("Loaded.")
-        self.depth_status.setStyleSheet("color: #888888;")
+        self._set_depth_dirty(False)
 
     def _load_chart(self) -> dict[str, list[str]]:
         try:
@@ -228,9 +234,20 @@ class RosterPage(QWidget):
         return item
 
     def _on_depth_chart_changed(self) -> None:
-        self._depth_dirty = True
-        self.depth_status.setText("Not saved")
-        self.depth_status.setStyleSheet("color: #e67700;")
+        self._set_depth_dirty(True)
+
+    def _set_depth_dirty(self, dirty: bool) -> None:
+        self._depth_dirty = dirty
+        if dirty:
+            self.depth_status.setText("Unsaved changes.")
+            self.depth_status.setStyleSheet("color: #e67700; font-weight: 600;")
+            if self._depth_title is not None:
+                self._depth_title.setText("Depth Chart Priorities *")
+        else:
+            self.depth_status.setText("All changes saved.")
+            self.depth_status.setStyleSheet("color: #888888;")
+            if self._depth_title is not None:
+                self._depth_title.setText("Depth Chart Priorities")
 
     def _entries_with_fallback(
         self,
@@ -312,6 +329,4 @@ class RosterPage(QWidget):
             self.depth_status.setText(f"Failed to save: {exc}")
             self.depth_status.setStyleSheet("color: #c92a2a;")
             return
-        self._depth_dirty = False
-        self.depth_status.setText("Depth chart saved.")
-        self.depth_status.setStyleSheet("color: #2f9e44;")
+        self._set_depth_dirty(False)

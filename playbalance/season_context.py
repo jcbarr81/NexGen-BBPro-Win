@@ -45,7 +45,7 @@ from typing import Any, Dict, Iterable, Optional
 import json
 import re
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
 __all__ = [
     "CAREER_DATA_DIR",
@@ -54,8 +54,8 @@ __all__ = [
     "slugify_league_id",
 ]
 
-CAREER_DATA_DIR = get_base_dir() / "data" / "careers"
-CAREER_INDEX_PATH = get_base_dir() / "data" / "career_index.json"
+CAREER_DATA_DIR = get_data_dir() / "careers"
+CAREER_INDEX_PATH = get_data_dir() / "career_index.json"
 _DEFAULT_VERSION = 1
 
 

@@ -2,10 +2,10 @@ from datetime import datetime
 from pathlib import Path
 import json
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
-NEWS_FILE = get_base_dir() / "data" / "news_feed.txt"
-NEWS_JSONL = get_base_dir() / "data" / "news_feed.jsonl"
+NEWS_FILE = get_data_dir() / "news_feed.txt"
+NEWS_JSONL = get_data_dir() / "news_feed.jsonl"
 
 _MOJIBAKE_REPLACEMENTS: dict[str, str] = {
     "â€”": " - ",

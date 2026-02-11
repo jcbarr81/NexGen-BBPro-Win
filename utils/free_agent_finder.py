@@ -1,16 +1,14 @@
 import csv
 from pathlib import Path
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import resolve_app_path
 
 
 def find_free_agents(players, roster_dir: str | Path = "data/rosters"):
     """Return a list of Player/Pitcher objects not assigned to any roster."""
     assigned_ids = set()
 
-    roster_dir = Path(roster_dir)
-    if not roster_dir.is_absolute():
-        roster_dir = get_base_dir() / roster_dir
+    roster_dir = resolve_app_path(roster_dir)
 
     for filename in roster_dir.iterdir():
         if filename.suffix == ".csv":

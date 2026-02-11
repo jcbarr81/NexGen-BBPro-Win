@@ -3,15 +3,15 @@ from typing import List, Dict, Optional
 
 import bcrypt
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import resolve_app_path
 
 def _resolve(path: str | Path) -> Path:
     p = Path(path)
     if not p.is_absolute():
         cwd_path = Path.cwd() / p
-        if cwd_path.exists() or not (get_base_dir() / p).exists():
+        if cwd_path.exists():
             return cwd_path
-        p = get_base_dir() / p
+        p = resolve_app_path(p)
     return p
 
 

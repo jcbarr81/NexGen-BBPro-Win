@@ -19,8 +19,9 @@ from PyQt6.QtWidgets import (
 )
 
 from .boxscore_window import BoxScoreWindow
+from utils.path_utils import get_data_dir
 
-SCHEDULE_FILE = Path(__file__).resolve().parents[1] / "data" / "schedule.csv"
+SCHEDULE_FILE = get_data_dir() / "schedule.csv"
 
 
 class TeamScheduleWindow(QDialog):

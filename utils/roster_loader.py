@@ -7,8 +7,9 @@ from pathlib import Path
 from typing import Dict, List
 
 from models.roster import Roster
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir, resolve_app_path
 from .player_loader import load_players_from_csv
+from .roster_io import write_roster_csv
 from services.unified_data_service import get_unified_data_service
 
 # Teams should field exactly 25 players on the active roster.
@@ -21,8 +22,7 @@ _PLACEHOLDER_LOAD_WARNING_EMITTED = False
 
 
 def _placeholder_registry_path() -> Path:
-    base = get_base_dir()
-    return base / "data" / "rosters" / "_placeholder_registry.json"
+    return get_data_dir() / "rosters" / "_placeholder_registry.json"
 
 
 class _PlaceholderPool:
@@ -98,7 +98,7 @@ class _PlaceholderPool:
             pass
 
     def _hydrate_from_rosters(self) -> None:
-        roster_dir = get_base_dir() / "data" / "rosters"
+        roster_dir = get_data_dir() / "rosters"
         if not roster_dir.exists():
             return
         updated = False
@@ -487,7 +487,7 @@ def load_roster(team_id, roster_dir: str | Path = "data/rosters"):
     def _loader(tid: str, resolved_dir: Path):
         real_dir = resolved_dir
         if not real_dir.is_absolute():
-            real_dir = get_base_dir() / real_dir
+            real_dir = resolve_app_path(real_dir)
         real_dir = real_dir.resolve(strict=False)
         return _load_roster_from_storage(tid, real_dir)
 
@@ -497,34 +497,13 @@ def load_roster(team_id, roster_dir: str | Path = "data/rosters"):
 
 def save_roster(team_id, roster: Roster):
     roster_dir = Path("data") / "rosters"
-    filepath = get_base_dir() / roster_dir / f"{team_id}.csv"
+    filepath = get_data_dir() / "rosters" / f"{team_id}.csv"
     try:
         if filepath.exists():
             filepath.chmod(0o644)
     except Exception:
         pass
-    with filepath.open(mode="w", newline="") as f:
-        writer = csv.writer(f)
-        for level, group in [
-            ("ACT", roster.act),
-            ("AAA", roster.aaa),
-            ("LOW", roster.low),
-        ]:
-            for player_id in group:
-                writer.writerow([player_id, level])
-
-        ir_ids = set(roster.ir)
-        for player_id in roster.dl:
-            tier = (roster.dl_tiers or {}).get(player_id, "dl15")
-            if tier == "dl15":
-                writer.writerow([player_id, "DL15"])
-            else:
-                if player_id not in ir_ids:
-                    writer.writerow([player_id, "IR"])
-
-        for player_id in roster.ir:
-            writer.writerow([player_id, "IR"])
-
+    write_roster_csv(roster, filepath)
 
     service = get_unified_data_service()
     service.update_roster(str(team_id), roster_dir, roster)

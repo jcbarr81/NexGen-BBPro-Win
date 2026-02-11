@@ -188,8 +188,7 @@ def simulate_halfseason_average(
     cfg = PlayBalanceConfig.from_file(get_base_dir() / "playbalance" / "PBINI.txt")
 
     csv_path = (
-        get_base_dir()
-        / "data"
+        get_data_dir()
         / "MLB_avg"
         / "mlb_avg_boxscore_2020_2024_both_teams.csv"
     )

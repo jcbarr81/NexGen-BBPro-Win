@@ -3,7 +3,7 @@
 [Setup]
 AppId={{1e5875ae-6b82-4c87-8172-ceafc7d08661}}
 AppName=NexGen BBPro
-AppVersion=4.3.10
+AppVersion=4.3.45
 AppPublisher=NexGen BBPro
 DefaultDirName={pf}\NexGen-BBPro
 DefaultGroupName=NexGen BBPro
@@ -21,12 +21,10 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; Flags: unchecked
 
 [Dirs]
 Name: "{app}\config"; Permissions: users-modify
-Name: "{app}\data"; Permissions: users-modify
 Name: "{app}\images\avatars"; Permissions: users-modify
 Name: "{app}\images\parks"; Permissions: users-modify
 Name: "{app}\logo\teams"; Permissions: users-modify
 Name: "{app}\_internal\config"; Permissions: users-modify
-Name: "{app}\_internal\data"; Permissions: users-modify
 Name: "{app}\_internal\images\avatars"; Permissions: users-modify
 Name: "{app}\_internal\images\parks"; Permissions: users-modify
 Name: "{app}\_internal\logo\teams"; Permissions: users-modify

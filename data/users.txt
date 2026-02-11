@@ -1,2 +1,1 @@
 admin,pass,admin,
-jbarr,R+Tu/uYoRQelbsnV6qSrIiHlANK4LzPXGfVQAw2W/8rP/8KzDzYp9f+V+Xu/xGYm,owner,SEA

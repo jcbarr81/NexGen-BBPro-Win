@@ -45,6 +45,13 @@ class LeaguePage(DashboardPage):
         self.review_button.setToolTip("Approve or reject pending trades")
         ops.layout().addWidget(self.review_button, alignment=Qt.AlignmentFlag.AlignHCenter)
 
+        self.change_requests_button = QPushButton("Change Requests")
+        self.change_requests_button.setToolTip("Import and approve owner change requests")
+        ops.layout().addWidget(
+            self.change_requests_button,
+            alignment=Qt.AlignmentFlag.AlignHCenter,
+        )
+
         self.create_league_button = QPushButton("Create League")
         self.create_league_button.setToolTip("Generate a new league structure (destructive)")
         ops.layout().addWidget(self.create_league_button, alignment=Qt.AlignmentFlag.AlignHCenter)
@@ -72,6 +79,10 @@ class LeaguePage(DashboardPage):
         self.league_history_button = QPushButton("League History")
         self.league_history_button.setToolTip("Browse archived seasons and awards")
         history.layout().addWidget(self.league_history_button, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        self.hall_of_fame_settings_button = QPushButton("Hall of Fame Settings")
+        self.hall_of_fame_settings_button.setToolTip("Adjust Hall of Fame eligibility and scoring thresholds")
+        history.layout().addWidget(self.hall_of_fame_settings_button, alignment=Qt.AlignmentFlag.AlignHCenter)
         history.layout().addStretch()
 
         layout.addWidget(control)

@@ -10,16 +10,15 @@ try:
 except Exception:  # pragma: no cover - optional dependency for CLI usage
     pd = None
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
 # Constants
-BASE_DIR = get_base_dir()
-NAME_PATH = BASE_DIR / "data" / "names.csv"
-PLAYER_PATH = BASE_DIR / "data" / "players.csv"
-NORMALIZED_PLAYER_PATH = BASE_DIR / "data" / "players_normalized.csv"
+BASE_DIR = get_data_dir()
+NAME_PATH = BASE_DIR / "names.csv"
+PLAYER_PATH = BASE_DIR / "players.csv"
+NORMALIZED_PLAYER_PATH = BASE_DIR / "players_normalized.csv"
 POSITION_AVERAGE_PATH = (
     BASE_DIR
-    / "data"
     / "MLB_avg"
     / "mlb_position_averages_2021-2025YTD.csv"
 )

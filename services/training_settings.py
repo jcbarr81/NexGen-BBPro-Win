@@ -9,7 +9,7 @@ from typing import Dict, Mapping, MutableMapping, Tuple
 
 from playbalance.player_development import TrainingWeights
 from playbalance.season_context import SeasonContext
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 
 __all__ = [
     "TrainingSettings",
@@ -18,6 +18,8 @@ __all__ = [
     "load_training_settings",
     "save_training_settings",
     "get_training_weights",
+    "set_player_training_weights",
+    "clear_player_training_weights",
     "set_team_training_weights",
     "clear_team_training_weights",
     "update_league_training_defaults",
@@ -26,8 +28,8 @@ __all__ = [
     "PITCHER_TRACKS",
 ]
 
-VERSION = 1
-SETTINGS_PATH = get_base_dir() / "data" / "training_settings.json"
+VERSION = 2
+SETTINGS_PATH = get_data_dir() / "training_settings.json"
 MIN_PERCENT = 5
 
 HITTER_TRACKS: Tuple[str, ...] = ("contact", "power", "speed", "discipline", "defense")
@@ -63,11 +65,23 @@ class TrainingSettings:
     league_id: str
     defaults: TrainingWeights
     team_overrides: Dict[str, TrainingWeights] = field(default_factory=dict)
+    player_overrides: Dict[str, TrainingWeights] = field(default_factory=dict)
 
     def for_team(self, team_id: str | None) -> TrainingWeights:
         if team_id and team_id in self.team_overrides:
             return self.team_overrides[team_id]
         return self.defaults
+
+    def for_player(
+        self,
+        player_id: str | None,
+        team_id: str | None = None,
+    ) -> TrainingWeights:
+        if player_id:
+            pid = str(player_id)
+            if pid in self.player_overrides:
+                return self.player_overrides[pid]
+        return self.for_team(team_id)
 
 
 def load_training_settings() -> TrainingSettings:
@@ -96,7 +110,24 @@ def load_training_settings() -> TrainingSettings:
             )
             overrides[str(key)] = weights
 
-    return TrainingSettings(league_id=league_id, defaults=defaults, team_overrides=overrides)
+    players: Dict[str, TrainingWeights] = {}
+    player_block = data.get("players", {})
+    if isinstance(player_block, Mapping):
+        for key, value in player_block.items():
+            weights = _coerce_weights(
+                value,
+                fallback_hitters=defaults.hitters,
+                fallback_pitchers=defaults.pitchers,
+                strict=False,
+            )
+            players[str(key)] = weights
+
+    return TrainingSettings(
+        league_id=league_id,
+        defaults=defaults,
+        team_overrides=overrides,
+        player_overrides=players,
+    )
 
 
 def save_training_settings(settings: TrainingSettings) -> None:
@@ -107,6 +138,10 @@ def save_training_settings(settings: TrainingSettings) -> None:
     leagues[settings.league_id] = {
         "defaults": _weights_to_dict(settings.defaults),
         "teams": {team_id: _weights_to_dict(weights) for team_id, weights in settings.team_overrides.items()},
+        "players": {
+            player_id: _weights_to_dict(weights)
+            for player_id, weights in settings.player_overrides.items()
+        },
     }
     payload["version"] = VERSION
     _write_payload(payload)
@@ -117,6 +152,37 @@ def get_training_weights(team_id: str | None) -> TrainingWeights:
 
     settings = load_training_settings()
     return settings.for_team(team_id)
+
+
+def set_player_training_weights(
+    player_id: str,
+    hitters: Mapping[str, float],
+    pitchers: Mapping[str, float],
+) -> TrainingWeights:
+    """Persist a player-specific override; raise ``ValueError`` on invalid data."""
+
+    if not player_id:
+        raise ValueError("player_id is required")
+    settings = load_training_settings()
+    weights = _coerce_weights(
+        {"hitters": hitters, "pitchers": pitchers},
+        fallback_hitters=settings.defaults.hitters,
+        fallback_pitchers=settings.defaults.pitchers,
+        strict=True,
+    )
+    settings.player_overrides[str(player_id)] = weights
+    save_training_settings(settings)
+    return weights
+
+
+def clear_player_training_weights(player_id: str) -> None:
+    """Remove the override for ``player_id``."""
+
+    settings = load_training_settings()
+    pid = str(player_id)
+    if pid in settings.player_overrides:
+        del settings.player_overrides[pid]
+        save_training_settings(settings)
 
 
 def set_team_training_weights(

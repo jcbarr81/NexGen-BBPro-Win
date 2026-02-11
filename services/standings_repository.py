@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping
 
 from services.unified_data_service import get_unified_data_service
-from utils.path_utils import get_base_dir
+from utils.path_utils import resolve_app_path
 from utils.standings_utils import normalize_record
 
 _RELATIVE_PATH = Path("data") / "standings.json"
@@ -62,9 +62,7 @@ def save_standings(
     """Persist *standings* and refresh caches."""
 
     target = _resolve_target(base_path)
-    resolved = target
-    if not resolved.is_absolute():
-        resolved = get_base_dir() / resolved
+    resolved = resolve_app_path(target)
     resolved.parent.mkdir(parents=True, exist_ok=True)
 
     payload: Dict[str, Dict[str, Any]] = {}

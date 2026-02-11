@@ -309,6 +309,7 @@ def test_player_loader_refreshes_stats_after_reset(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     monkeypatch.setattr("utils.player_loader.get_base_dir", lambda: base_dir)
+    monkeypatch.setattr("utils.player_loader.get_data_dir", lambda: data_dir)
     monkeypatch.setattr(unified_data_service, "_SERVICE", None)
 
     first = load_players_from_csv(players_path)

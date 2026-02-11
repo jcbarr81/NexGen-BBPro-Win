@@ -184,7 +184,7 @@ def main() -> None:
     )
     print(json.dumps(summary, indent=2))
 
-    bench_path = get_base_dir() / "data" / "MLB_avg" / "mlb_league_benchmarks_2025_filled.csv"
+    bench_path = get_data_dir() / "MLB_avg" / "mlb_league_benchmarks_2025_filled.csv"
     try:
         mlb_metrics = load_league_benchmarks(bench_path)
     except FileNotFoundError:

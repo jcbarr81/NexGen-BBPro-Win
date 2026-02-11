@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from data.ballparks import BALLPARKS
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_base_dir, get_data_dir
 
 
 @dataclass
@@ -35,11 +35,11 @@ def _project_root() -> Path:
 
 
 def _park_config_path() -> Path:
-    root = _project_root()
-    primary = root / "data" / "parks" / "ParkConfig.csv"
+    data_dir = get_data_dir()
+    primary = data_dir / "parks" / "ParkConfig.csv"
     if primary.exists():
         return primary
-    return root / "data" / "ballparks" / "ParkConfig.csv"
+    return data_dir / "ballparks" / "ParkConfig.csv"
 
 
 def _fallback_parks() -> List[Park]:

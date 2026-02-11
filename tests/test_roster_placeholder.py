@@ -9,8 +9,11 @@ def _prepare_base(tmp_path: Path, monkeypatch) -> Path:
     rosters = data / "rosters"
     rosters.mkdir(parents=True)
     monkeypatch.setattr("utils.path_utils.get_base_dir", lambda: tmp_path)
+    monkeypatch.setattr("utils.path_utils.get_data_dir", lambda: data)
     monkeypatch.setattr("utils.roster_loader.get_base_dir", lambda: tmp_path)
+    monkeypatch.setattr("utils.roster_loader.get_data_dir", lambda: data)
     monkeypatch.setattr("utils.player_loader.get_base_dir", lambda: tmp_path)
+    monkeypatch.setattr("utils.player_loader.get_data_dir", lambda: data)
     load_roster.cache_clear()
     registry = rosters / "_placeholder_registry.json"
     if registry.exists():

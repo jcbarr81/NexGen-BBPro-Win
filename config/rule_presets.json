@@ -1,0 +1,39 @@
+[
+  {
+    "id": "mlb_standard",
+    "name": "MLB Standard",
+    "description": "Baseline tuning that mirrors current defaults.",
+    "physics_tuning_overrides": {}
+  },
+  {
+    "id": "high_offense",
+    "name": "High Offense",
+    "description": "Boosts run scoring with more power and balls in play.",
+    "physics_tuning_overrides": {
+      "offense_scale": 1.08,
+      "hr_scale": 1.12,
+      "babip_scale": 1.04,
+      "walk_scale": 1.05,
+      "k_scale": 0.92
+    }
+  },
+  {
+    "id": "pitcher_friendly",
+    "name": "Pitcher Friendly",
+    "description": "Suppresses offense and increases strikeouts.",
+    "physics_tuning_overrides": {
+      "offense_scale": 0.92,
+      "hr_scale": 0.88,
+      "babip_scale": 0.95,
+      "walk_scale": 0.9,
+      "k_scale": 1.08
+    }
+  },
+  {
+    "id": "low_injury_fast_sim",
+    "name": "Low Injury / Fast Sim",
+    "description": "Reduces injury frequency for faster sims.",
+    "injury_level": "low",
+    "physics_tuning_overrides": {}
+  }
+]

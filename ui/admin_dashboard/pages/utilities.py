@@ -38,6 +38,20 @@ class UtilitiesPage(DashboardPage):
         avatars_row.addStretch(1)
         card.layout().addLayout(avatars_row)
 
+        self.export_reports_button = QPushButton("Export League Reports")
+        self.export_reports_button.setToolTip("Export league history and analytics to CSV/PDF")
+        card.layout().addWidget(
+            self.export_reports_button,
+            alignment=Qt.AlignmentFlag.AlignHCenter,
+        )
+
+        self.export_snapshot_button = QPushButton("Export League Snapshot")
+        self.export_snapshot_button.setToolTip("Export a zip owners can import to sync league data")
+        card.layout().addWidget(
+            self.export_snapshot_button,
+            alignment=Qt.AlignmentFlag.AlignHCenter,
+        )
+
         self.regenerate_schedule_button = QPushButton("Regenerate Regular Season Schedule")
         self.regenerate_schedule_button.setEnabled(False)
         card.layout().addWidget(
@@ -53,12 +67,32 @@ class UtilitiesPage(DashboardPage):
         super().on_attached()
         self.regenerate_schedule_button.setEnabled(True)
         self.regenerate_schedule_button.clicked.connect(self._handle_regenerate_schedule)
+        if self.export_reports_button is not None:
+            self.export_reports_button.clicked.connect(self._handle_export_reports)
+        if self.export_snapshot_button is not None:
+            self.export_snapshot_button.clicked.connect(self._handle_export_snapshot)
 
     def _handle_regenerate_schedule(self) -> None:
         try:
             regenerate_schedule_action(self.context, self)
         except Exception as exc:  # pragma: no cover - defensive UI guard
             QMessageBox.critical(self, "Schedule Error", str(exc))
+
+    def _handle_export_reports(self) -> None:
+        from ..actions.reports import export_reports_action
+
+        try:
+            export_reports_action(self.context, self)
+        except Exception as exc:  # pragma: no cover - defensive UI guard
+            QMessageBox.critical(self, "Export Reports", str(exc))
+
+    def _handle_export_snapshot(self) -> None:
+        from ..actions.league_snapshot import export_league_snapshot_action
+
+        try:
+            export_league_snapshot_action(self.context, self)
+        except Exception as exc:  # pragma: no cover - defensive UI guard
+            QMessageBox.critical(self, "Export League Snapshot", str(exc))
 
 
 __all__ = ["UtilitiesPage"]

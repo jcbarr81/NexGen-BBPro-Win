@@ -2,6 +2,7 @@ import colorsys
 import csv
 import json
 import os
+import stat
 import random
 import shutil
 from datetime import date
@@ -20,6 +21,8 @@ from utils.lineup_loader import build_default_game_state
 from utils import roster_loader
 from playbalance.season_context import SeasonContext
 from services.standings_repository import save_standings
+
+MAX_LEAGUE_TEAMS = 40
 
 
 def _abbr(city: str, name: str, existing: set) -> str:
@@ -131,21 +134,34 @@ def _purge_old_league(base_dir: Path) -> None:
     avatars reside outside ``base_dir`` and are therefore untouched.
     """
     keep = {"names.csv", "ballparks.py", "MLB_avg"}
+
+    def _on_rm_error(func, path, _exc_info):
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except Exception:
+            pass
+
     for item in base_dir.iterdir():
         if item.name in keep:
             continue
         if item.is_dir():
-            shutil.rmtree(item, ignore_errors=True)
+            shutil.rmtree(item, onerror=_on_rm_error)
         else:
             try:
                 item.unlink()
             except OSError:
-                if item.exists():
-                    raise
+                try:
+                    os.chmod(item, stat.S_IWRITE)
+                    item.unlink()
+                except OSError:
+                    if item.exists():
+                        raise
     # Remove lingering lock files that may live alongside stats.
     lock_file = base_dir / "season_stats.json.lock"
     if lock_file.exists():
         try:
+            os.chmod(lock_file, stat.S_IWRITE)
             lock_file.unlink()
         except OSError:
             pass
@@ -314,6 +330,11 @@ def create_league(
     league_name: str,
     rating_profile: str | None = None,
 ):
+    total_teams = sum(len(teams) for teams in divisions.values())
+    if total_teams > MAX_LEAGUE_TEAMS:
+        raise ValueError(
+            f"League size {total_teams} exceeds the maximum of {MAX_LEAGUE_TEAMS} teams."
+        )
     base_dir = Path(base_dir)
     base_dir.mkdir(parents=True, exist_ok=True)
     _purge_old_league(base_dir)

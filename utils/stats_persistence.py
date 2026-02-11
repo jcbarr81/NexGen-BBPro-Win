@@ -70,16 +70,15 @@ else:  # Unix
         finally:
             fcntl.flock(file, fcntl.LOCK_UN)
 
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir, resolve_app_path
 from utils.sim_date import get_current_sim_date
 
 
 def _resolve_path(path: str | Path) -> Path:
-    base_dir = get_base_dir()
     p = Path(path)
-    if not p.is_absolute():
-        p = base_dir / p
-    return p
+    if p.is_absolute():
+        return p
+    return resolve_app_path(p)
 
 
 def _truthy_env(name: str, default: bool = False) -> bool:
@@ -90,8 +89,7 @@ def _truthy_env(name: str, default: bool = False) -> bool:
 
 
 def _season_history_dir(base_dir: Path | None = None) -> Path:
-    base = base_dir or get_base_dir()
-    d = base / "data" / "season_history"
+    d = get_data_dir() / "season_history" if base_dir is None else base_dir / "data" / "season_history"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -119,8 +117,7 @@ def write_daily_snapshot(
     and keeps per-game I/O bounded.
     """
 
-    base_dir = get_base_dir()
-    out_dir = _season_history_dir(base_dir) if shards_dir is None else _resolve_path(shards_dir)
+    out_dir = _season_history_dir() if shards_dir is None else _resolve_path(shards_dir)
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
@@ -190,7 +187,7 @@ def merge_daily_history(
     season_end: str | None = None
     try:
         import csv as _csv
-        sched_path = get_base_dir() / "data" / "schedule.csv"
+        sched_path = get_data_dir() / "schedule.csv"
         if sched_path.exists():
             with sched_path.open("r", encoding="utf-8", newline="") as _fh:
                 rows = list(_csv.DictReader(_fh))

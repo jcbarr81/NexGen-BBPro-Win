@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Dict, List
 from datetime import datetime
+from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -21,6 +22,13 @@ from PyQt6.QtWidgets import (
 from models.base_player import BasePlayer
 from models.roster import Roster
 from ui.player_profile_dialog import PlayerProfileDialog
+from utils.path_utils import get_data_dir
+from utils.recovery_manager import (
+    clear_recovery,
+    needs_recovery,
+    recovery_path_for_data_file,
+)
+from utils.roster_io import read_roster_csv, write_roster_csv
 from utils.roster_loader import save_roster
 from utils.roster_validation import missing_positions
 from services.roster_moves import cut_player as cut_player_service
@@ -45,6 +53,7 @@ class RosterListWidget(QListWidget):
         super().dropEvent(event)
         self.dialog._sync_roster_from_lists()
         self.dialog._update_counts()
+        self.dialog._schedule_autosave()
 
 class ReassignPlayersDialog(QDialog):
     """Dialog for reassigning players to different roster levels."""
@@ -55,8 +64,16 @@ class ReassignPlayersDialog(QDialog):
         super().__init__(parent)
         self.players = players
         self.roster = roster
+        self._baseline = self._snapshot_roster()
+        self._restored_from_autosave = False
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(1500)
+        self._autosave_timer.timeout.connect(self._write_recovery)
+        self._maybe_restore_recovery()
 
-        self.setWindowTitle("Reassign Players")
+        self._base_title = "Reassign Players"
+        self.setWindowTitle(self._base_title)
 
         self.lists: Dict[str, RosterListWidget] = {}
         self.labels: Dict[str, QLabel] = {}
@@ -103,6 +120,10 @@ class ReassignPlayersDialog(QDialog):
         )
         info.setWordWrap(True)
         layout.addWidget(info)
+
+        self.dirty_label = QLabel("All changes saved.")
+        self.dirty_label.setStyleSheet("color: #888888;")
+        layout.addWidget(self.dirty_label)
         layout.addLayout(columns)
         layout.addWidget(move_btn)
         layout.addWidget(cut_btn)
@@ -121,6 +142,90 @@ class ReassignPlayersDialog(QDialog):
         height = max(_calc_height(lw) for lw in self.lists.values())
         self.resize(900, height)
         self._update_counts()
+        self._set_dirty_state(self._has_unsaved_changes())
+
+    def _prompt_recovery_choice(self, title: str, message: str) -> str:
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(title)
+        box.setText(message)
+        restore_btn = box.addButton("Restore", QMessageBox.ButtonRole.AcceptRole)
+        discard_btn = box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(restore_btn)
+        box.exec()
+        if box.clickedButton() == restore_btn:
+            return "restore"
+        if box.clickedButton() == discard_btn:
+            return "discard"
+        return "discard"
+
+    def _roster_file_path(self) -> Path:
+        return get_data_dir() / "rosters" / f"{self.roster.team_id}.csv"
+
+    def _snapshot_roster(self) -> dict[str, object]:
+        return {
+            "act": list(self.roster.act),
+            "aaa": list(self.roster.aaa),
+            "low": list(self.roster.low),
+            "dl": list(self.roster.dl),
+            "ir": list(self.roster.ir),
+            "dl_tiers": dict(self.roster.dl_tiers or {}),
+        }
+
+    def _refresh_baseline(self) -> None:
+        self._baseline = self._snapshot_roster()
+        self._set_dirty_state(False)
+
+    def _has_unsaved_changes(self) -> bool:
+        return self._snapshot_roster() != (self._baseline or {})
+
+    def _set_dirty_state(self, dirty: bool) -> None:
+        if dirty:
+            self.dirty_label.setText("Unsaved changes.")
+            self.dirty_label.setStyleSheet("color: #e67700; font-weight: 600;")
+            self.setWindowTitle(f"{self._base_title} *")
+        else:
+            self.dirty_label.setText("All changes saved.")
+            self.dirty_label.setStyleSheet("color: #888888;")
+            self.setWindowTitle(self._base_title)
+
+    def _maybe_restore_recovery(self) -> None:
+        data_path = self._roster_file_path()
+        if not needs_recovery(data_path):
+            return
+        recovery_path = recovery_path_for_data_file(data_path)
+        choice = self._prompt_recovery_choice(
+            "Recover Roster",
+            "Autosaved roster changes were found from a previous session. Restore them?",
+        )
+        if choice == "restore":
+            try:
+                self.roster = read_roster_csv(recovery_path, self.roster.team_id)
+            except Exception as exc:  # pragma: no cover - UI feedback
+                QMessageBox.warning(
+                    self,
+                    "Recover Roster",
+                    f"Failed to load autosaved roster changes: {exc}",
+                )
+                return
+            self._restored_from_autosave = True
+            return
+        clear_recovery(data_path)
+
+    def _schedule_autosave(self) -> None:
+        dirty = self._has_unsaved_changes()
+        self._set_dirty_state(dirty)
+        if not dirty:
+            clear_recovery(self._roster_file_path())
+            return
+        self._autosave_timer.start()
+
+    def _write_recovery(self) -> None:
+        if not self._has_unsaved_changes():
+            clear_recovery(self._roster_file_path())
+            return
+        recovery_path = recovery_path_for_data_file(self._roster_file_path())
+        write_roster_csv(self.roster, recovery_path)
 
     def _calculate_age(self, birthdate_str: str):
         try:
@@ -231,6 +336,7 @@ class ReassignPlayersDialog(QDialog):
         self._sync_roster_from_lists()
         self._update_counts()
         self.update()
+        self._schedule_autosave()
 
     def _cut_selected_player(self) -> None:
         selection = self._resolve_selection("Cut Players")
@@ -292,6 +398,7 @@ class ReassignPlayersDialog(QDialog):
             self._sync_roster_from_lists()
             self._update_counts()
             self.update()
+            self._schedule_autosave()
             if len(successful) == 1:
                 QMessageBox.information(
                     self, "Cut Players", f"{successful[0]} was released."
@@ -366,5 +473,7 @@ class ReassignPlayersDialog(QDialog):
             QMessageBox.critical(self, "Save Failed", str(exc))
             return
 
+        clear_recovery(self._roster_file_path())
+        self._refresh_baseline()
         QMessageBox.information(self, "Roster Saved", "Roster saved successfully.")
 
