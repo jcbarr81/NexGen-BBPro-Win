@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 from ...components import Card, section_title
 from .base import DashboardPage
 
+from utils.path_utils import get_data_dir
 from utils.user_manager import load_users
 
 
@@ -64,7 +65,7 @@ class UsersPage(DashboardPage):
     def _populate(self) -> None:
         needle = self.search.text().strip().lower()
         try:
-            users = load_users()
+            users = load_users(get_data_dir() / "users.txt")
         except Exception:
             users = []
         rows = []

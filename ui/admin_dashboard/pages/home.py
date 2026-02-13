@@ -9,7 +9,7 @@ from .base import DashboardPage
 
 
 class AdminHomePage(DashboardPage):
-    """Landing view with league overview metrics and quick admin actions."""
+    """Landing view with league overview and priority actions."""
 
     def __init__(self, dashboard, parent=None):
         super().__init__(parent)
@@ -36,7 +36,7 @@ class AdminHomePage(DashboardPage):
 
         # Key dates/status ------------------------------------------------
         status_card = Card()
-        status_card.layout().addWidget(section_title("Key Dates"))
+        status_card.layout().addWidget(section_title("Calendar & Status"))
         self.next_event_label = QLabel("Draft Day: --")
         self.next_event_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         status_card.layout().addWidget(self.next_event_label)
@@ -45,23 +45,27 @@ class AdminHomePage(DashboardPage):
 
         # Shortcuts -------------------------------------------------------
         actions = Card()
-        actions.layout().addWidget(section_title("Quick Actions"))
+        actions.layout().addWidget(section_title("Priority Queues"))
 
         review_btn = QPushButton("Review Trades", objectName="Primary")
+        review_btn.setToolTip("Open pending trade approvals")
         review_btn.clicked.connect(self._dashboard.open_trade_review)
         actions.layout().addWidget(review_btn)
 
-        progress_btn = QPushButton("Season Progress", objectName="Primary")
-        progress_btn.clicked.connect(self._dashboard.open_season_progress)
-        actions.layout().addWidget(progress_btn)
+        change_requests_btn = QPushButton("Review Change Requests", objectName="Primary")
+        change_requests_btn.setToolTip("Open owner-submitted change requests")
+        change_requests_btn.clicked.connect(self._dashboard.open_change_requests_window)
+        actions.layout().addWidget(change_requests_btn)
 
-        exhibition_btn = QPushButton("Exhibition Game", objectName="Primary")
-        exhibition_btn.clicked.connect(self._dashboard.open_exhibition_dialog)
-        actions.layout().addWidget(exhibition_btn)
+        season_btn = QPushButton("Open Season Hub", objectName="Primary")
+        season_btn.setToolTip("Go to season simulation and schedule controls")
+        season_btn.clicked.connect(lambda: self._dashboard._go("season"))
+        actions.layout().addWidget(season_btn)
 
-        create_btn = QPushButton("Create League", objectName="Primary")
-        create_btn.clicked.connect(self._dashboard.open_create_league)
-        actions.layout().addWidget(create_btn)
+        draft_btn = QPushButton("Open Draft Hub", objectName="Primary")
+        draft_btn.setToolTip("Go to draft controls and draft settings")
+        draft_btn.clicked.connect(lambda: self._dashboard._go("draft"))
+        actions.layout().addWidget(draft_btn)
 
         actions.layout().addStretch()
         layout.addWidget(actions)

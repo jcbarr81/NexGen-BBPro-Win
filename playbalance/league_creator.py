@@ -342,7 +342,7 @@ def create_league(
     rosters_dir = base_dir / "rosters"
     rosters_dir.mkdir(parents=True, exist_ok=True)
 
-    clear_users()
+    clear_users(base_dir / "users.txt")
 
     teams_path = base_dir / "teams.csv"
     players_path = base_dir / "players.csv"

@@ -3,7 +3,7 @@
 [Setup]
 AppId={{1e5875ae-6b82-4c87-8172-ceafc7d08661}}
 AppName=NexGen BBPro
-AppVersion=4.3.45
+AppVersion=4.5.19
 AppPublisher=NexGen BBPro
 DefaultDirName={pf}\NexGen-BBPro
 DefaultGroupName=NexGen BBPro
@@ -36,3 +36,7 @@ Source: "NexGen-BBPro.ico"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{autoprograms}\NexGen BBPro"; Filename: "{app}\NexGen-BBPro.exe"; WorkingDir: "{app}"; IconFilename: "{app}\NexGen-BBPro.ico"
 Name: "{autodesktop}\NexGen BBPro"; Filename: "{app}\NexGen-BBPro.exe"; Tasks: desktopicon; WorkingDir: "{app}"; IconFilename: "{app}\NexGen-BBPro.ico"
+
+
+
+

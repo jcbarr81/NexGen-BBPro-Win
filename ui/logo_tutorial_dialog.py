@@ -46,7 +46,7 @@ except Exception:  # pragma: no cover
 _BODY_HTML = """
 <h3>Generate Logos (Auto)</h3>
 <ul>
-  <li>Open <b>Admin Dashboard</b> &gt; <b>Utilities</b> &gt; <b>Generate Team Logos</b>.</li>
+  <li>Open <b>Admin Dashboard</b> &gt; <b>Assets &amp; Exports</b> &gt; <b>Generate Team Logos</b>.</li>
   <li>Logos are written to <code>logo/teams/&lt;team_id&gt;.png</code> (team_id is lower-case).</li>
   <li>Running the generator replaces existing logos in <code>logo/teams</code>.</li>
   <li>If the OpenAI client is not configured, the legacy auto-logo generator is used.</li>

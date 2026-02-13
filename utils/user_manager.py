@@ -8,6 +8,9 @@ from utils.path_utils import resolve_app_path
 def _resolve(path: str | Path) -> Path:
     p = Path(path)
     if not p.is_absolute():
+        parts = p.parts
+        if parts and parts[0].lower() == "data":
+            return resolve_app_path(p)
         cwd_path = Path.cwd() / p
         if cwd_path.exists():
             return cwd_path

@@ -361,6 +361,7 @@ class OwnerDashboard(QMainWindow):
             "player_training": f"player_training_focus_tutorial_{team_id}",
             "draft": f"draft_console_tutorial_{team_id}",
             "trades": f"trade_workflow_tutorial_{team_id}",
+            "change_requests": f"change_requests_tutorial_{team_id}",
             "free_agency": f"free_agency_tutorial_{team_id}",
             "team_settings": f"team_settings_tutorial_{team_id}",
             "schedule": f"schedule_tutorial_{team_id}",
@@ -459,6 +460,12 @@ class OwnerDashboard(QMainWindow):
         trades_action = QAction("Trades & Transactions", self)
         trades_action.triggered.connect(lambda: self.show_trades_tutorial(force=True))
         tutorials_menu.addAction(trades_action)
+
+        change_requests_action = QAction("Owner Change Requests", self)
+        change_requests_action.triggered.connect(
+            lambda: self.show_change_request_tutorial(force=True)
+        )
+        tutorials_menu.addAction(change_requests_action)
 
         free_agency_action = QAction("Free Agency Basics", self)
         free_agency_action.triggered.connect(lambda: self.show_free_agency_tutorial(force=True))
@@ -793,27 +800,62 @@ class OwnerDashboard(QMainWindow):
             TutorialStep(
                 "Trade Dialog",
                 "<p>Open <b>Trades</b> from the dashboard to propose offers. Select a partner, add players,"
-                " and include draft picks when enabled.</p>",
+                " and include draft picks when enabled. Commissioners can disable trading,"
+                " disable draft pick trades, require commissioner approval, or cap how many"
+                " years out picks are tradable via <b>League -> Trade Settings</b>.</p>",
             ),
             TutorialStep(
                 "Pending Queue",
-                "<p>Submitted offers appear in the pending queue. Owners can accept, reject, or counter based"
-                " on roster needs.</p>",
+                "<p>Submitted offers appear in the pending queue. Owners can accept or reject based"
+                " on roster needs. If commissioner approval is off, owner acceptance executes the trade"
+                " immediately. If commissioner approval is required, owner acceptance marks the trade"
+                " for commissioner review and no assets move until final approval.</p>",
             ),
             TutorialStep(
                 "Roster Impact",
                 "<p>After a trade completes, review depth charts and lineups. Promotions or demotions may be"
-                " needed if a level exceeds roster limits.</p>",
+                " needed if a level exceeds roster limits. Draft pick ownership also updates and is honored"
+                " on draft day.</p>",
             ),
             TutorialStep(
                 "Audit Trail",
-                "<p>Every transaction is written to the transactions log and news feed so the league can audit"
-                " what changed and when.</p>",
+                "<p>Every completed trade writes player and draft-pick movement entries to the"
+                " transactions log plus a news feed event so the league can audit what changed and when.</p>",
             ),
         ]
         self._run_tutorial(
             self._tutorial_keys["trades"],
             "Trades & Transactions",
+            steps,
+            force=force,
+        )
+
+    def show_change_request_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Where to Start",
+                "<p>Go to <b>Roster</b> and click <b>Submit Change Request</b>. This opens the export dialog"
+                " used for commissioner approval workflows.</p>",
+            ),
+            TutorialStep(
+                "Choose What to Send",
+                "<p>Select the sections to include: roster, lineups, pitching staff, and depth chart. Add an"
+                " optional owner note so the commissioner knows why you made the updates.</p>",
+            ),
+            TutorialStep(
+                "Export and Deliver",
+                "<p>Click <b>Export Request</b>. The app writes a JSON bundle to your change-request outbox."
+                " Send that file to the commissioner/admin for import and review.</p>",
+            ),
+            TutorialStep(
+                "Track and Cancel",
+                "<p>The dialog lists your previously exported requests. Select one and click"
+                " <b>Export Cancel</b> if you need to withdraw it before the commissioner applies it.</p>",
+            ),
+        ]
+        self._run_tutorial(
+            self._tutorial_keys["change_requests"],
+            "Owner Change Requests",
             steps,
             force=force,
         )
@@ -1000,8 +1042,15 @@ class OwnerDashboard(QMainWindow):
             ),
             TutorialStep(
                 "Season Operations",
-                "<p>Generate schedules, run training camp, and progress playoffs from the admin tools."
+                "<p>Use the <b>Season</b> page for season flow controls: Season Progress,"
+                " exhibition games, playoffs, schedule regeneration, and Opening Day reset."
                 " Each action logs to the news feed and should be run once per phase.</p>",
+            ),
+            TutorialStep(
+                "Transactions & Settings",
+                "<p>Use <b>Transactions</b> to review pending trades, open Trade Settings,"
+                " and process owner change requests. Use <b>League Settings</b> for league creation,"
+                " tuning, and commissioner policy tools.</p>",
             ),
             TutorialStep(
                 "Training Focus",
@@ -1010,7 +1059,7 @@ class OwnerDashboard(QMainWindow):
             ),
             TutorialStep(
                 "Safety & Backups",
-                "<p>Use the backup utilities before performing destructive tasks like resetting seasons."
+                "<p>Use <b>Assets &amp; Exports</b> for report/snapshot exports before destructive tasks like season resets."
                 " Keep exports if you plan to share league files.</p>",
             ),
             TutorialStep(
@@ -1406,6 +1455,10 @@ class OwnerDashboard(QMainWindow):
         self._open_training_focus_dialog()
 
     def open_change_request_export_dialog(self) -> None:
+        try:
+            self.show_change_request_tutorial()
+        except Exception:
+            pass
         try:
             show_on_top(ChangeRequestExportDialog(self.team_id, self))
         except Exception:

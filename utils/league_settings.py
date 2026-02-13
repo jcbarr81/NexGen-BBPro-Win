@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+import base64
+import binascii
+import hashlib
+import hmac
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import bcrypt
 
@@ -54,8 +58,9 @@ def configure_league_settings(
     settings = load_league_settings(path)
     settings["mode"] = mode
     if commissioner_password is not None:
-        settings["commissioner_password"] = _hash_password(commissioner_password)
-        settings["commissioner_password_scheme"] = "bcrypt"
+        hashed, scheme = _hash_password(commissioner_password)
+        settings["commissioner_password"] = hashed
+        settings["commissioner_password_scheme"] = scheme
     elif mode != _OWNER_MODE:
         settings.pop("commissioner_password", None)
         settings.pop("commissioner_password_scheme", None)
@@ -77,17 +82,44 @@ def verify_commissioner_password(
     stored = str(payload.get("commissioner_password") or "")
     if not stored:
         return False
+    password = password.strip()
+    scheme = str(payload.get("commissioner_password_scheme") or "").strip().lower()
     try:
-        return bcrypt.checkpw(password.encode("utf-8"), stored.encode("utf-8"))
-    except ValueError:
-        return stored == password
+        if _looks_like_bcrypt_hash(stored) or scheme in {"bcrypt", ""}:
+            if bcrypt.checkpw(password.encode("utf-8"), stored.encode("utf-8")):
+                return True
+    except Exception:
+        pass
+
+    if _verify_legacy_hash(password, stored):
+        return True
+
+    return stored == password
 
 
-def _hash_password(password: str) -> str:
+def _hash_password(password: str) -> Tuple[str, str]:
     password = password.strip()
     if not password:
         raise ValueError("Commissioner password is required.")
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode()
+    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode()
+    scheme = "bcrypt" if _looks_like_bcrypt_hash(hashed) else "legacy_sha256"
+    return hashed, scheme
+
+
+def _looks_like_bcrypt_hash(value: str) -> bool:
+    return value.startswith(("$2a$", "$2b$", "$2y$", "$2x$"))
+
+
+def _verify_legacy_hash(password: str, stored: str) -> bool:
+    try:
+        raw = base64.b64decode(stored, validate=True)
+    except (binascii.Error, ValueError):
+        return False
+    if len(raw) != 48:
+        return False
+    salt, digest = raw[:16], raw[16:]
+    expected = hashlib.sha256(salt + password.encode("utf-8")).digest()
+    return hmac.compare_digest(digest, expected)
 
 
 __all__ = [

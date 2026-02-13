@@ -69,3 +69,23 @@ def test_update_team_conflict(tmp_path):
 
     with pytest.raises(ValueError):
         update_user("user1", new_team_id="ARG", file_path=str(users_file))
+
+
+def test_load_users_prefers_data_dir_for_data_prefix(tmp_path, monkeypatch):
+    cwd = tmp_path / "cwd"
+    cwd_users = cwd / "data" / "users.txt"
+    cwd_users.parent.mkdir(parents=True, exist_ok=True)
+    cwd_users.write_text("admin,pass,admin,\n")
+
+    data_root = tmp_path / "data_root"
+    data_root.mkdir(parents=True, exist_ok=True)
+    data_users = data_root / "users.txt"
+    data_users.write_text("admin,pass,admin,\nuser1,pass,owner,LAX\n")
+
+    monkeypatch.setenv("NEXGEN_DATA_DIR", str(data_root))
+    import utils.path_utils as path_utils
+    path_utils._DATA_DIR = None
+    monkeypatch.chdir(cwd)
+
+    users = load_users("data/users.txt")
+    assert any(u["username"] == "user1" for u in users)

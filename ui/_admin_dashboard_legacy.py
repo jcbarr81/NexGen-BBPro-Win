@@ -56,10 +56,13 @@ from .admin_dashboard.actions import (
     set_all_lineups as set_all_lineups_action,
     set_all_pitching_roles as set_all_pitching_roles_action,
 )
+from .admin_dashboard.actions.league import regenerate_schedule_action
 from .admin_dashboard.pages import (
     DraftPage,
-    LeaguePage,
+    LeagueSettingsPage,
+    SeasonPage,
     TeamsPage,
+    TransactionsPage,
     UsersPage,
     UtilitiesPage,
 )
@@ -77,6 +80,7 @@ from .news_window import NewsWindow
 from .injury_center_window import InjuryCenterWindow
 from .injury_settings_dialog import InjurySettingsDialog
 from .hall_of_fame_settings_dialog import HallOfFameSettingsDialog
+from .trade_settings_dialog import TradeSettingsDialog
 from .avatar_tutorial_dialog import AvatarTutorialDialog
 from .logo_tutorial_dialog import LogoTutorialDialog
 from .league_history_window import LeagueHistoryWindow
@@ -163,38 +167,46 @@ class MainWindow(QMainWindow):
         side.addWidget(brand_container)
 
         self.btn_dashboard = NavButton("  Dashboard")
-        self.btn_league = NavButton("  League")
+        self.btn_transactions = NavButton("  Transactions")
+        self.btn_season = NavButton("  Season")
+        self.btn_draft = NavButton("  Draft")
         self.btn_teams = NavButton("  Teams")
         self.btn_users = NavButton("  Users")
-        self.btn_utils = NavButton("  Utilities")
-        self.btn_draft = NavButton("  Draft")
+        self.btn_settings = NavButton("  League Settings")
+        self.btn_utils = NavButton("  Assets & Exports")
         for b in (
             self.btn_dashboard,
-            self.btn_league,
+            self.btn_transactions,
+            self.btn_season,
+            self.btn_draft,
             self.btn_teams,
             self.btn_users,
+            self.btn_settings,
             self.btn_utils,
-            self.btn_draft,
         ):
             side.addWidget(b)
         side.addStretch()
 
         self.nav_buttons = {
             "dashboard": self.btn_dashboard,
-            "league": self.btn_league,
+            "transactions": self.btn_transactions,
+            "season": self.btn_season,
+            "draft": self.btn_draft,
             "teams": self.btn_teams,
             "users": self.btn_users,
+            "settings": self.btn_settings,
             "utils": self.btn_utils,
-            "draft": self.btn_draft,
         }
         icon_size = QSize(24, 24)
         nav_tooltips = {
-            "dashboard": "League overview and quick actions",
-            "league": "Season control and operations",
+            "dashboard": "League overview and urgent queues",
+            "transactions": "Trades, approvals, and owner-change processing",
+            "season": "Season simulation, schedule, and reset controls",
+            "draft": "Amateur Draft console and settings",
             "teams": "Open team dashboards and bulk actions",
             "users": "Manage accounts and roles",
-            "utils": "Logos, avatars, and data tools",
-            "draft": "Amateur Draft console and settings",
+            "settings": "League setup and policy configuration",
+            "utils": "Asset generation and exports",
         }
         for key, button in self.nav_buttons.items():
             icon_name = _NAV_ICON_MAP.get(key)
@@ -279,23 +291,30 @@ class MainWindow(QMainWindow):
             navigation.add_listener(self._on_navigation_changed)
 
         # connect page buttons to actions
-        lp = self.pages.get("league")
-        if isinstance(lp, LeaguePage):
-            lp.review_button.clicked.connect(self.open_trade_review)
-            if getattr(lp, "change_requests_button", None) is not None:
-                lp.change_requests_button.clicked.connect(self.open_change_requests_window)
-            lp.create_league_button.clicked.connect(self.open_create_league)
-            lp.exhibition_button.clicked.connect(self.open_exhibition_dialog)
-            lp.playbalance_button.clicked.connect(self.open_playbalance_editor)
-            lp.injury_center_button.clicked.connect(self.open_injury_center)
-            lp.injury_settings_button.clicked.connect(self.open_injury_settings)
-            lp.free_agency_hub_button.clicked.connect(self.open_free_agency)
-            lp.season_progress_button.clicked.connect(self.open_season_progress)
-            lp.playoffs_view_button.clicked.connect(self.open_playoffs_window)
-            lp.reset_opening_day_button.clicked.connect(self.reset_to_opening_day)
-            lp.league_history_button.clicked.connect(self.open_league_history)
-            if getattr(lp, "hall_of_fame_settings_button", None) is not None:
-                lp.hall_of_fame_settings_button.clicked.connect(self.open_hall_of_fame_settings)
+        tx = self.pages.get("transactions")
+        if isinstance(tx, TransactionsPage):
+            tx.review_button.clicked.connect(self.open_trade_review)
+            tx.trade_settings_button.clicked.connect(self.open_trade_settings)
+            tx.change_requests_button.clicked.connect(self.open_change_requests_window)
+
+        season_page = self.pages.get("season")
+        if isinstance(season_page, SeasonPage):
+            season_page.exhibition_button.clicked.connect(self.open_exhibition_dialog)
+            season_page.season_progress_button.clicked.connect(self.open_season_progress)
+            season_page.playoffs_view_button.clicked.connect(self.open_playoffs_window)
+            season_page.regenerate_schedule_button.clicked.connect(self.regenerate_regular_season_schedule)
+            season_page.reset_opening_day_button.clicked.connect(self.reset_to_opening_day)
+            season_page.league_history_button.clicked.connect(self.open_league_history)
+
+        settings = self.pages.get("settings")
+        if isinstance(settings, LeagueSettingsPage):
+            settings.create_league_button.clicked.connect(self.open_create_league)
+            settings.playbalance_button.clicked.connect(self.open_playbalance_editor)
+            settings.injury_center_button.clicked.connect(self.open_injury_center)
+            settings.injury_settings_button.clicked.connect(self.open_injury_settings)
+            settings.free_agency_hub_button.clicked.connect(self.open_free_agency)
+            settings.hall_of_fame_settings_button.clicked.connect(self.open_hall_of_fame_settings)
+
         dp = self.pages.get("draft")
         if isinstance(dp, DraftPage):
             dp.view_draft_pool_button.clicked.connect(self.open_draft_pool)
@@ -321,8 +340,6 @@ class MainWindow(QMainWindow):
             util.logo_tutorial_button.clicked.connect(self.open_logo_tutorial)
             util.generate_avatars_button.clicked.connect(self.generate_player_avatars)
             util.avatar_tutorial_button.clicked.connect(self.open_avatar_tutorial)
-            if getattr(util, "export_reports_button", None) is not None:
-                util.export_reports_button.clicked.connect(self.export_reports)
 
         # default page
         try:
@@ -349,11 +366,13 @@ class MainWindow(QMainWindow):
     def _page_factories(self) -> Dict[str, Callable[[DashboardContext], QWidget]]:
         return {
             "dashboard": lambda ctx: AdminHomePage(self),
-            "league": self._build_dashboard_page(LeaguePage),
+            "transactions": self._build_dashboard_page(TransactionsPage),
+            "season": self._build_dashboard_page(SeasonPage),
+            "draft": self._build_dashboard_page(DraftPage),
             "teams": self._build_dashboard_page(TeamsPage),
             "users": self._build_dashboard_page(UsersPage),
+            "settings": self._build_dashboard_page(LeagueSettingsPage),
             "utils": self._build_dashboard_page(UtilitiesPage),
-            "draft": self._build_dashboard_page(DraftPage),
         }
 
     # ------------------------------------------------------------------
@@ -389,6 +408,8 @@ class MainWindow(QMainWindow):
             self._refresh_date_status()
 
     def _go(self, key: str) -> None:
+        if key == "league":
+            key = "season"
         try:
             self._navigation.set_current(key)
         except KeyError:
@@ -397,6 +418,8 @@ class MainWindow(QMainWindow):
     def _on_navigation_changed(self, key: str | None) -> None:
         if not key:
             return
+        if key == "league":
+            key = "season"
         for btn in self.nav_buttons.values():
             try:
                 btn.setChecked(False)
@@ -457,7 +480,11 @@ class MainWindow(QMainWindow):
             player_count = 0
         # Pending trades
         try:
-            pending = sum(1 for t in load_trades() if getattr(t, "status", "") == "pending")
+            pending = sum(
+                1
+                for t in load_trades()
+                if getattr(t, "status", "") in {"pending", "owner_accepted"}
+            )
         except Exception:
             pending = 0
         # Season phase (best-effort)
@@ -626,6 +653,9 @@ class MainWindow(QMainWindow):
                 pass
         reset_season_to_opening_day(self._context, self, refresh_current)
 
+    def regenerate_regular_season_schedule(self) -> None:
+        regenerate_schedule_action(self._context, self)
+
 
     def open_season_progress(self) -> None:
         win = SeasonProgressWindow(
@@ -675,6 +705,13 @@ class MainWindow(QMainWindow):
     def open_hall_of_fame_settings(self) -> None:
         try:
             dialog = HallOfFameSettingsDialog(self)
+            dialog.exec()
+        except Exception:
+            pass
+
+    def open_trade_settings(self) -> None:
+        try:
+            dialog = TradeSettingsDialog(self)
             dialog.exec()
         except Exception:
             pass
@@ -985,8 +1022,10 @@ class MainWindow(QMainWindow):
 
 __all__ = [
     "MainWindow",
-    "LeaguePage",
+    "LeagueSettingsPage",
+    "SeasonPage",
     "TeamsPage",
+    "TransactionsPage",
     "UsersPage",
     "UtilitiesPage",
 ]

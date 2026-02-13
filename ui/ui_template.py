@@ -88,7 +88,10 @@ from .version_badge import install_version_badge
 _ICON_DIR = Path(__file__).resolve().parent / "icons"
 _NAV_ICON_MAP = {
     "dashboard": "nav_dashboard.svg",
+    "transactions": "nav_league.svg",
+    "season": "nav_league.svg",
     "league": "nav_league.svg",
+    "settings": "nav_users.svg",
     "teams": "nav_teams.svg",
     "users": "nav_users.svg",
     "utils": "nav_utilities.svg",

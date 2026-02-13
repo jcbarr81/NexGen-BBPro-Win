@@ -25,6 +25,7 @@ Team owners manage their franchise through the Owner Dashboard.
 - **Position Players / Pitchers**: open detailed windows to inspect players by role.
 - **Lineups**: launch the lineup editor to set batting orders.
 - **Pitching Staff**: manage pitching roles and rotations.
+- **Submit Change Request**: export roster/lineup/pitching/depth chart updates for commissioner approval.
 - **Transactions**: view recent roster moves.
 - **Settings**: adjust team colours, logos and other options.
 
@@ -34,25 +35,51 @@ Team owners manage their franchise through the Owner Dashboard.
 - **Free Agents**: automatically sign the first available free agent.
 - **News Feed**: display the latest league news.
 
+### Tutorials
+- Open the **Tutorials** menu and run **Owner Change Requests** for a step-by-step walkthrough of exporting updates and sending the JSON bundle to the commissioner.
+- Run **Trades & Transactions** to review current trade flow behavior, including draft-pick trades and commissioner-approval mode.
+
 Unsaved roster changes are flagged with an asterisk in the window title.
 
 ## Admin Dashboard
 
 Administrators control league configuration and high-level operations.
 
-### League and User Management
-- **Create League**: generate a new league structure (overwrites current data).
- - **Reset to Opening Day**: clear current season results and standings, reset progress to day one, and set the phase to Regular Season (non-destructive to teams/rosters). You will be prompted whether to also purge saved season boxscores (`data/boxscores/season`).
-- **Add User**: create a new account with optional team assignment.
-- **Edit User**: update passwords and team associations for existing accounts.
-- **Open Team Dashboard**: launch any team's owner dashboard for direct management.
+### Dashboard Navigation
+- **Dashboard**: league overview metrics, draft timing/status, and priority queues.
+- **Transactions**: trade approvals, trade settings, and owner change-request queue.
+- **Season**: season progression, exhibition game, playoffs viewer, schedule regeneration, Opening Day reset, and league history.
+- **Draft**: draft pool access, draft console, draft settings, and draft results.
+- **Teams**: open an owner dashboard for any club and run league-wide roster/lineup automation.
+- **Users**: add/edit admin and owner accounts.
+- **League Settings**: create league, physics tuning, injury settings, Hall of Fame settings, and league operations hubs.
+- **Assets & Exports**: team logos, player avatars, league report exports, and owner snapshot zip exports.
 
-### Trade Oversight
-- **Review Trades**: approve or reject pending trades submitted by teams.
+### League Creation and Policy Setup
+- **Create League** (League Settings): generate a new league structure (overwrites current data).
+  - During creation, commissioners can set baseline trade policy:
+    - trading enabled/disabled,
+    - draft-pick trading enabled/disabled,
+    - commissioner-approval requirement for trade execution,
+    - maximum years out for tradable draft picks.
 
-### Utilities
-- **Generate Team Logos**: create logo images for all teams.
-- **Simulate Exhibition Game**: run a quick simulation between two teams.
+### Trade Oversight (Transactions)
+- **Review Pending Trades**: approve or reject pending trades submitted by teams.
+- **Open Trade Settings**: configure whether trading is enabled league-wide.
+  - Toggle all trading on/off.
+  - Allow or disallow draft-pick trades independently.
+  - Require commissioner approval before an owner-accepted trade is executed.
+  - Set the maximum number of years into the future that draft picks can be traded.
+
+When draft-pick trading is enabled, teams can include picks in offers from the
+Trade dialog. Pick ownership is tracked and used on draft day, so the team that
+owns the pick makes the selection.
+
+### Operations Highlights
+- **Reset to Opening Day** (Season): clear current season results and standings, reset progress to day one, and set the phase to Regular Season (non-destructive to teams/rosters). You will be prompted whether to also purge saved season boxscores (`data/boxscores/season`).
+- **Regenerate Season Schedule** (Season): generate a fresh regular-season schedule and clear previous results.
+- **Generate Team Logos** (Assets & Exports): create logo images for all teams.
+- **Generate Player Avatars** (Assets & Exports): create/rebuild avatar images.
 
 ### Amateur Draft
 The Amateur Draft introduces new prospects mid-season and pauses the season to conduct the draft.
@@ -114,21 +141,32 @@ existing visual style and theme.
 
 ### Admin
 - New Home page with overview metrics: Pending Trades, Teams, Players,
-  Season Phase; plus Draft Day and status. Quick Actions: Review Trades,
-  Season Progress, Exhibition Game, Create League.
-- League page grouped into:
-  - Season Control: Season Progress, Reset to Opening Day, Exhibition Game.
+  Season Phase; plus Draft Day and status. Priority Queues: Review Trades,
+  Review Change Requests, Open Season Hub, Open Draft Hub.
+- Transactions page grouped into:
+  - Trade Queue: Review Pending Trades, Open Trade Settings.
+  - Owner Change Queue: Review Change Requests.
+- Season page grouped into:
+  - Season Flow: Open Season Progress, Run Exhibition Game, Open Playoffs Viewer.
     - Season Progress: supports milestone actions - Simulate to Midseason,
       Simulate to Draft, and Simulate to Playoffs. On Draft Day the
       application switches to the Amateur Draft phase and pauses to conduct
       the draft via the Draft Console. After committing results, the season
       resumes in the Regular Season phase. See also: `docs/season_progress.md`.
-  - Operations: Review Trades, Create League, Edit Play Balance.
+  - Schedule Control: Regenerate Season Schedule, Reset to Opening Day.
+  - Archives: League History.
+- League Settings page grouped into:
+  - League Configuration: Create League.
+  - Rules & Balancing: Physics Tuning, Injury Settings, Hall of Fame Settings.
+  - Operations Hubs: Free Agency Hub, Injury Center.
 - Teams page grouped into:
   - Team Access: searchable team selector + Open Team Dashboard.
   - Bulk Actions: Set All Lineups, Set All Pitching Roles, Auto Reassign
     All Rosters, with roster size constraints noted.
-- Draft page now shows “View Draft Results” after the draft is completed.
+- Assets & Exports page grouped into:
+  - Assets: Generate Team Logos, Generate Player Avatars (+ tutorials).
+  - Exports & Sharing: Export Reports (CSV/PDF), Export Owner Snapshot Zip.
+- Draft page now shows "View Draft Results" after the draft is completed.
 - Users page shows a searchable list of users alongside Add/Edit actions.
-
 This document will evolve as new features are introduced.
+

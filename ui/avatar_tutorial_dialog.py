@@ -46,7 +46,7 @@ except Exception:  # pragma: no cover
 _BODY_HTML = """
 <h3>Generate Avatars (Auto)</h3>
 <ul>
-  <li>Open <b>Admin Dashboard</b> &gt; <b>Utilities</b> &gt; <b>Generate Player Avatars</b>.</li>
+  <li>Open <b>Admin Dashboard</b> &gt; <b>Assets &amp; Exports</b> &gt; <b>Generate Player Avatars</b>.</li>
   <li>Choose <b>Yes</b> for initial creation to rebuild all avatars (keeps only <code>Template</code> and <code>default.png</code>).</li>
   <li>Choose <b>No</b> to fill only missing avatars.</li>
   <li>Output images are written to <code>images/avatars/&lt;player_id&gt;.png</code>.</li>

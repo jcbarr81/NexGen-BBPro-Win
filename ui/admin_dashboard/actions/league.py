@@ -56,6 +56,11 @@ from services.league_presets import (
     get_schedule_template,
     record_league_metadata,
 )
+from services.trade_settings import (
+    MAX_ALLOWED_PICK_TRADE_YEARS,
+    MIN_ALLOWED_PICK_TRADE_YEARS,
+    update_trade_settings,
+)
 from utils.league_settings import configure_league_settings
 
 from ..context import DashboardContext
@@ -155,6 +160,60 @@ def create_league_action(
             )
             return
         commissioner_password = password
+
+    # Trade configuration defaults for the new league.
+    trades_enabled = True
+    draft_pick_trading_enabled = False
+    require_commissioner_approval = False
+    max_pick_trade_years = 3
+
+    trades_choice = QMessageBox.question(
+        parent,
+        "Enable Trading?",
+        "Enable team-to-team trading for this league?",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.Yes,
+    )
+    if trades_choice != QMessageBox.StandardButton.Yes:
+        trades_enabled = False
+
+    if trades_enabled:
+        pick_choice = QMessageBox.question(
+            parent,
+            "Draft Pick Trading?",
+            "Allow teams to include draft picks in trades?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        draft_pick_trading_enabled = pick_choice == QMessageBox.StandardButton.Yes
+        if draft_pick_trading_enabled:
+            max_years, ok = QInputDialog.getInt(
+                parent,
+                "Draft Pick Trade Window",
+                "Maximum years out for tradable draft picks:",
+                max_pick_trade_years,
+                MIN_ALLOWED_PICK_TRADE_YEARS,
+                MAX_ALLOWED_PICK_TRADE_YEARS,
+            )
+            if not ok:
+                return
+            max_pick_trade_years = int(max_years)
+
+        approval_default = (
+            QMessageBox.StandardButton.Yes
+            if owner_league
+            else QMessageBox.StandardButton.No
+        )
+        approval_choice = QMessageBox.question(
+            parent,
+            "Commissioner Trade Approval?",
+            "Require commissioner approval before accepted trades execute?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            approval_default,
+        )
+        require_commissioner_approval = (
+            approval_choice == QMessageBox.StandardButton.Yes
+        )
 
     if setup_choice == "quickstart":
         quickstart_id = select_quickstart_preset(parent)
@@ -297,6 +356,20 @@ def create_league_action(
             parent,
             "League Settings",
             f"Unable to save league settings: {exc}",
+        )
+
+    try:
+        update_trade_settings(
+            trades_enabled=trades_enabled,
+            draft_pick_trading_enabled=draft_pick_trading_enabled,
+            require_commissioner_approval=require_commissioner_approval,
+            max_pick_trade_years=max_pick_trade_years,
+        )
+    except Exception as exc:
+        QMessageBox.warning(
+            parent,
+            "Trade Settings",
+            f"Unable to save trade settings: {exc}",
         )
 
     QMessageBox.information(parent, "League Created", "New league generated.")

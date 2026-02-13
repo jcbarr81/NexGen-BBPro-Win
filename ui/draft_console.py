@@ -260,6 +260,7 @@ from services.draft_state import (
     load_state,
     save_state,
 )
+from services.draft_pick_ledger import get_pick_owner
 from services.season_progress_flags import ProgressUpdateError, mark_draft_completed
 from ui.star_rating import star_label, star_pixmap, star_text
 from utils.exceptions import DraftRosterError
@@ -913,8 +914,11 @@ class DraftConsole(QDialog):
         teams_count = len(self.state["order"])
         rnd = (overall - 1) // teams_count + 1
         idx = (overall - 1) % teams_count
-        team_id = self.state["order"][idx]
+        original_team = self.state["order"][idx]
+        team_id = self._current_team() or original_team
         team_name = self._order_names.get(team_id, team_id)
+        if team_id != original_team:
+            team_name = f"{team_name} (via {original_team})"
         # Clamp round for display in case a stale state overshoots config
         self.state["round"] = rnd
         disp_round = min(max(int(rnd), 1), int(self.DRAFT_ROUNDS or 1))
@@ -929,8 +933,14 @@ class DraftConsole(QDialog):
         if not self.state.get("order"):
             return None
         overall = int(self.state.get("overall_pick", 1))
-        idx = (overall - 1) % len(self.state["order"])
-        return self.state["order"][idx]
+        teams_count = len(self.state["order"])
+        idx = (overall - 1) % teams_count
+        rnd = (overall - 1) // teams_count + 1
+        original_team = self.state["order"][idx]
+        try:
+            return get_pick_owner(self.year, rnd, original_team)
+        except Exception:
+            return original_team
 
     def _score(self, p: dict) -> int:
         """Fallback score (should not be used)."""
@@ -977,7 +987,8 @@ class DraftConsole(QDialog):
         if not pid:
             return
         overall = int(self.state.get("overall_pick", 1))
-        rnd = int(self.state.get("round", 1))
+        teams_count = len(self.state.get("order", [])) or 1
+        rnd = (overall - 1) // teams_count + 1
         self.state.setdefault("selected", []).append(
             {
                 "round": rnd,

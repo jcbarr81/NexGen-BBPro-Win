@@ -47,7 +47,7 @@ P2 - ADMIN + LONGER-TERM
 - [ ] Add support for multiple leagues
 - [ ] Further refine the UI with a better scheme and/or graphics
 - [ ] Develop salary and free agency system
-- [ ] Test and futher develop trading workflow, ensure trading of draft picks is enabled and tracked
+- [x] Test and futher develop trading workflow, ensure trading of draft picks is enabled and tracked
 - [x] Add Hall of Fame feature
 - [x] Records, special event notifcations
 - [ ] AI team strategy profiles (rebuild/contend) with role-based roster targets

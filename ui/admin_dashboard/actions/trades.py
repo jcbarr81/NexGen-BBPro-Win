@@ -14,16 +14,24 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from services.draft_pick_ledger import format_pick_label, transfer_pick
+from services.trade_settings import load_trade_settings
 from services.transaction_log import record_transaction
 from ui.window_utils import show_on_top
 from utils.news_logger import log_news_event
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster
-from utils.team_loader import load_teams
 from utils.trade_utils import load_trades, save_trade
 
 from ..context import DashboardContext
+
+
+def _safe_pick_label(pick_id: str) -> str:
+    try:
+        return format_pick_label(pick_id)
+    except Exception:
+        return str(pick_id)
 
 
 def review_pending_trades(
@@ -38,7 +46,6 @@ def review_pending_trades(
 
     trades = load_trades()
     players = {p.player_id: p for p in load_players_from_csv("data/players.csv")}
-    teams = {t.team_id: t for t in load_teams("data/teams.csv")}
 
     layout = QVBoxLayout()
 
@@ -46,7 +53,7 @@ def review_pending_trades(
     trade_map = {}
 
     for trade in trades:
-        if trade.status != "pending":
+        if trade.status not in {"pending", "owner_accepted"}:
             continue
         give_names = [
             f"{pid} ({players[pid].first_name} {players[pid].last_name})"
@@ -58,9 +65,19 @@ def review_pending_trades(
             for pid in trade.receive_player_ids
             if pid in players
         ]
+        give_assets = list(give_names)
+        recv_assets = list(recv_names)
+        give_assets.extend(
+            _safe_pick_label(pick_id)
+            for pick_id in (getattr(trade, "give_pick_ids", []) or [])
+        )
+        recv_assets.extend(
+            _safe_pick_label(pick_id)
+            for pick_id in (getattr(trade, "receive_pick_ids", []) or [])
+        )
         summary = (
-            f"{trade.trade_id}: {trade.from_team} -> {trade.to_team} | "
-            f"Give: {', '.join(give_names)} | Get: {', '.join(recv_names)}"
+            f"{trade.trade_id} [{trade.status}]: {trade.from_team} -> {trade.to_team} | "
+            f"Give: {', '.join(give_assets)} | Get: {', '.join(recv_assets)}"
         )
         trade_list.addItem(summary)
         trade_map[summary] = trade
@@ -78,6 +95,21 @@ def review_pending_trades(
         incoming_from: list[tuple[str, str]] = []
 
         if accept:
+            settings = load_trade_settings()
+            if not settings.trades_enabled:
+                QMessageBox.warning(
+                    dialog,
+                    "Trading Disabled",
+                    "Trading is currently disabled by the commissioner.",
+                )
+                return
+            if settings.require_commissioner_approval and trade.status != "owner_accepted":
+                QMessageBox.warning(
+                    dialog,
+                    "Owner Acceptance Required",
+                    "This trade must be accepted by the receiving owner before commissioner approval.",
+                )
+                return
             from_roster = load_roster(trade.from_team)
             to_roster = load_roster(trade.to_team)
 
@@ -100,6 +132,14 @@ def review_pending_trades(
                         outgoing_to.append((pid, level))
                         incoming_from.append((pid, level))
                         break
+            try:
+                for pick_id in getattr(trade, "give_pick_ids", []) or []:
+                    transfer_pick(pick_id, trade.from_team, trade.to_team)
+                for pick_id in getattr(trade, "receive_pick_ids", []) or []:
+                    transfer_pick(pick_id, trade.to_team, trade.from_team)
+            except ValueError as exc:
+                QMessageBox.warning(dialog, "Trade Failed", str(exc))
+                return
 
             def save_roster(roster) -> None:
                 path = get_data_dir() / "rosters" / f"{roster.team_id}.csv"
@@ -155,6 +195,62 @@ def review_pending_trades(
                         to_level=level.upper(),
                         counterparty=trade.to_team,
                         details=f"Trade {trade.trade_id} acquired from {trade.to_team}",
+                    )
+                for pick_id in getattr(trade, "give_pick_ids", []) or []:
+                    pick_label = _safe_pick_label(pick_id)
+                    record_transaction(
+                        action="trade_out",
+                        team_id=trade.from_team,
+                        player_id=pick_id,
+                        player_name=pick_label,
+                        from_level="PICK",
+                        to_level="PICK",
+                        counterparty=trade.to_team,
+                        details=(
+                            f"Trade {trade.trade_id} sent draft pick "
+                            f"{pick_label} to {trade.to_team}"
+                        ),
+                    )
+                    record_transaction(
+                        action="trade_in",
+                        team_id=trade.to_team,
+                        player_id=pick_id,
+                        player_name=pick_label,
+                        from_level="PICK",
+                        to_level="PICK",
+                        counterparty=trade.from_team,
+                        details=(
+                            f"Trade {trade.trade_id} acquired draft pick "
+                            f"{pick_label} from {trade.from_team}"
+                        ),
+                    )
+                for pick_id in getattr(trade, "receive_pick_ids", []) or []:
+                    pick_label = _safe_pick_label(pick_id)
+                    record_transaction(
+                        action="trade_out",
+                        team_id=trade.to_team,
+                        player_id=pick_id,
+                        player_name=pick_label,
+                        from_level="PICK",
+                        to_level="PICK",
+                        counterparty=trade.from_team,
+                        details=(
+                            f"Trade {trade.trade_id} sent draft pick "
+                            f"{pick_label} to {trade.from_team}"
+                        ),
+                    )
+                    record_transaction(
+                        action="trade_in",
+                        team_id=trade.from_team,
+                        player_id=pick_id,
+                        player_name=pick_label,
+                        from_level="PICK",
+                        to_level="PICK",
+                        counterparty=trade.to_team,
+                        details=(
+                            f"Trade {trade.trade_id} acquired draft pick "
+                            f"{pick_label} from {trade.to_team}"
+                        ),
                     )
             except Exception:
                 pass

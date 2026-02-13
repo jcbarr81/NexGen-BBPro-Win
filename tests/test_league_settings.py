@@ -32,3 +32,18 @@ def test_commissioner_password(data_dir):
     assert league_settings.is_owner_league()
     assert league_settings.verify_commissioner_password("secret123")
     assert not league_settings.verify_commissioner_password("wrong")
+
+
+def test_commissioner_password_legacy_scheme_mismatch(data_dir):
+    import utils.league_settings as league_settings
+
+    legacy_hash, _scheme = league_settings._hash_password("secret123")
+    settings = {
+        "mode": "owner_league",
+        "commissioner_password": legacy_hash,
+        "commissioner_password_scheme": "bcrypt",
+    }
+    assert league_settings.verify_commissioner_password(
+        "secret123",
+        settings=settings,
+    )
