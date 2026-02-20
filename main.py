@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, qInstallMessageHandler
 from PyQt6.QtGui import QGuiApplication, QFont, QIcon
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from ui.splash_screen import SplashScreen
 from ui.theme import DARK_QSS
@@ -15,6 +15,7 @@ from utils.path_utils import get_base_dir
 
 _PREV_QT_HANDLER = None
 _LOG_FILE_HANDLE = None
+_STARTUP_MIGRATION_RESULT = None
 
 
 def _startup_log_dir() -> Path:
@@ -203,12 +204,72 @@ def _set_windows_app_id() -> None:
         pass
 
 
+def _run_startup_migration() -> None:
+    global _STARTUP_MIGRATION_RESULT
+    try:
+        from services.league_migration import migrate_legacy_layout_if_needed
+
+        result = migrate_legacy_layout_if_needed()
+        _STARTUP_MIGRATION_RESULT = result
+        logging.info("Startup migration status=%s message=%s", result.status, result.message)
+        if result.backup_path:
+            logging.info("Migration backup: %s", result.backup_path)
+        if result.validation_errors:
+            logging.warning("Migration validation warnings: %s", result.validation_errors)
+    except Exception:
+        logging.exception("Startup migration check failed unexpectedly")
+        _STARTUP_MIGRATION_RESULT = None
+
+
+def _run_startup_finance_maintenance() -> None:
+    try:
+        from services.finance_settings import ensure_financial_defaults_for_all_leagues
+
+        seeded = ensure_financial_defaults_for_all_leagues()
+        logging.info(
+            "Financial defaults ensured for %s league(s): %s",
+            len(seeded),
+            ", ".join(sorted(seeded.keys())),
+        )
+    except Exception:
+        logging.exception("Startup financial maintenance failed")
+
+
+def _show_migration_notice(app: QApplication) -> None:
+    result = _STARTUP_MIGRATION_RESULT
+    if result is None:
+        return
+    status = getattr(result, "status", "")
+    if status not in {"migrated", "failed"}:
+        return
+
+    if status == "migrated":
+        msg = (
+            "Your existing league data was migrated to the multi-league format."
+        )
+        if result.validation_errors:
+            msg += (
+                "\n\nValidation warnings:\n- " + "\n- ".join(result.validation_errors)
+            )
+        QMessageBox.information(None, "League Migration Complete", msg)
+        return
+
+    msg = str(getattr(result, "message", "Migration failed."))
+    backup_path = getattr(result, "backup_path", None)
+    if backup_path:
+        msg += f"\n\nBackup saved at:\n{backup_path}"
+    QMessageBox.warning(None, "League Migration Warning", msg)
+
+
 def main():
     _configure_startup_logging()
+    _run_startup_migration()
+    _run_startup_finance_maintenance()
     _install_qt_warning_filter()
     _set_windows_app_id()
     try:
         app = QApplication(sys.argv)
+        _show_migration_notice(app)
         _apply_app_icon(app)
         _normalize_app_font(app)
         app.setStyleSheet(DARK_QSS)

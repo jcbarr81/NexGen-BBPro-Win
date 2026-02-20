@@ -17,7 +17,9 @@ __all__ = [
     "load_player_training_history",
 ]
 
-_REPORTS_DIR = get_data_dir() / "training_reports"
+
+def _reports_dir() -> Path:
+    return get_data_dir() / "training_reports"
 
 
 def _utcnow() -> str:
@@ -25,7 +27,7 @@ def _utcnow() -> str:
 
 
 def _season_path(season_id: str) -> Path:
-    return _REPORTS_DIR / f"{season_id}.json"
+    return _reports_dir() / f"{season_id}.json"
 
 
 def _resolve_season_id() -> str:
@@ -55,7 +57,8 @@ def record_training_session(
     resolved_season = season_id or _resolve_season_id()
     timestamp = run_at or _utcnow()
 
-    _REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    reports_dir = _reports_dir()
+    reports_dir.mkdir(parents=True, exist_ok=True)
     path = _season_path(resolved_season)
     payload: Dict[str, object]
     if path.exists():
@@ -90,11 +93,12 @@ def load_player_training_history(
 
     if not player_id:
         return []
-    if not _REPORTS_DIR.exists():
+    reports_dir = _reports_dir()
+    if not reports_dir.exists():
         return []
 
     entries: List[Dict[str, object]] = []
-    for path in sorted(_REPORTS_DIR.glob("*.json")):
+    for path in sorted(reports_dir.glob("*.json")):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):

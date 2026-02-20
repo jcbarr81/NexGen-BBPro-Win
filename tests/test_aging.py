@@ -54,3 +54,19 @@ def test_age_40_declines_all():
     assert player.sp == 44
     assert player.arm == 47
     assert player.fa == 46
+
+
+def test_development_multiplier_boosts_growth_years():
+    player = _make_player(24)
+    age_player(player, development_multiplier=1.25)
+    assert player.ch > 54
+    assert player.ph > 59
+    assert player.fa > 56
+
+
+def test_development_multiplier_mitigates_decline_years():
+    player = _make_player(40)
+    age_player(player, development_multiplier=1.25)
+    assert player.ch > 44
+    assert player.ph > 46
+    assert player.sp > 44

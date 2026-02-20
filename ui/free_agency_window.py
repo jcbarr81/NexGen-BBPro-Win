@@ -60,12 +60,15 @@ except Exception:  # pragma: no cover - headless stubs for tests
     class Qt:
         class AlignmentFlag: AlignLeft = 0; AlignHCenter = 0
 
-from typing import Dict, List
+from typing import List
 import random
 
-from services.free_agency import list_unsigned_players
+from services.finance_ai import build_cpu_free_agent_bid_book
+from services.finance_settings import load_financial_settings
+from services.free_agency import list_unsigned_players_from_files
 from utils.team_loader import load_teams
 from services.contract_negotiator import evaluate_free_agent_bids
+from utils.path_utils import get_data_dir
 from utils.news_logger import log_news_event
 from utils.rating_display import rating_display_text
 
@@ -111,10 +114,9 @@ class FreeAgencyWindow(QDialog):
     # ------------------------------------------------------------------
     def _load_players(self) -> None:
         try:
-            teams = load_teams()
+            players = list_unsigned_players_from_files()
         except Exception:
-            teams = []
-        players = list_unsigned_players({}, teams)  # manager supplies maps, function tolerates {}
+            players = []
         self._players = list(players)
         self.table.setRowCount(len(self._players))
         for r, p in enumerate(self._players):
@@ -146,19 +148,41 @@ class FreeAgencyWindow(QDialog):
             self.status.setText("Select a player to simulate bids.")
             return
         player = self._players[row]
-        # Build simple bids from all teams in league using random budgets
+        data_dir = get_data_dir()
+        settings = load_financial_settings(path=data_dir / "league_financial_settings.json")
+        ai_level = settings.module_level("gm_finance_ai")
+
+        # Build strategy-aware bids from CPU teams.
         try:
-            teams = load_teams()
+            teams = load_teams(data_dir / "teams.csv")
         except Exception:
             teams = []
-        # Salary offers: base on rating ± random
-        rating = max(1, int(getattr(player, 'ch', 50)))
-        base_offer = 1000000 + rating * 25000
-        bids = {t: base_offer + random.randint(0, 250000) for t in teams}
+
+        bids = build_cpu_free_agent_bid_book(
+            player,
+            teams,
+            ai_level=ai_level,
+            data_dir=data_dir,
+        )
+        if not bids:
+            # Fallback to simple random bids to preserve legacy simulation mode.
+            rating = max(1, int(getattr(player, 'ch', 50)))
+            base_offer = 1000000 + rating * 25000
+            bids = {
+                str(getattr(team, "team_id", "") or "").strip(): base_offer + random.randint(0, 250000)
+                for team in teams
+                if str(getattr(team, "team_id", "") or "").strip()
+            }
+
         try:
             winner = evaluate_free_agent_bids(player, bids)
-            self.table.setItem(row, 5, QTableWidgetItem(f"${bids[winner]:,}"))
-            msg = f"Simulated bids for {getattr(player,'first_name','')} {getattr(player,'last_name','')}: winner {winner.team_id} at ${bids[winner]:,}."
+            winner_team_id = str(getattr(winner, "team_id", winner) or "").strip()
+            winning_offer = int(bids.get(winner_team_id, 0))
+            self.table.setItem(row, 5, QTableWidgetItem(f"${winning_offer:,}"))
+            msg = (
+                f"Simulated bids for {getattr(player,'first_name','')} {getattr(player,'last_name','')}: "
+                f"winner {winner_team_id} at ${winning_offer:,}."
+            )
             self.status.setText(msg)
             log_news_event(msg)
         except Exception:

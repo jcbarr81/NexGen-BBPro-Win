@@ -81,12 +81,20 @@ from .injury_center_window import InjuryCenterWindow
 from .injury_settings_dialog import InjurySettingsDialog
 from .hall_of_fame_settings_dialog import HallOfFameSettingsDialog
 from .trade_settings_dialog import TradeSettingsDialog
+from .financial_settings_dialog import FinancialSettingsDialog
+from .finance_stability_dialog import FinanceStabilityDialog
+from .offseason_finance_dialog import OffseasonFinanceDialog
+from .gm_finance_queue_dialog import GmFinanceQueueDialog
+from .league_manager_dialog import LeagueManagerDialog
 from .avatar_tutorial_dialog import AvatarTutorialDialog
 from .logo_tutorial_dialog import LogoTutorialDialog
 from .league_history_window import LeagueHistoryWindow
 from .change_requests_window import ChangeRequestsWindow
 from .owner_dashboard import OwnerDashboard
+from services.gm_finance_queue import summarize_queue_decisions
+from services import league_lifecycle, league_registry
 from utils.trade_utils import load_trades
+from utils.league_settings import is_owner_league, load_league_settings
 from utils.player_loader import load_players_from_csv
 from utils.team_loader import load_teams
 from utils.path_utils import get_data_dir
@@ -225,6 +233,14 @@ class MainWindow(QMainWindow):
         h.setContentsMargins(18, 10, 18, 10)
         h.addWidget(QLabel("Admin Dashboard", objectName="Title"))
         h.addStretch()
+        self._league_badge = QLabel("League: -")
+        self._league_badge.setObjectName("Scoreboard")
+        self._league_selector = QComboBox()
+        self._league_selector.setMinimumWidth(220)
+        self._league_selector.setToolTip("Switch active league")
+        self._league_selector.currentIndexChanged.connect(self._on_league_selector_changed)
+        h.addWidget(self._league_badge, alignment=Qt.AlignmentFlag.AlignVCenter)
+        h.addWidget(self._league_selector, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         self.stack = QStackedWidget()
         factories = self._page_factories()
@@ -296,6 +312,7 @@ class MainWindow(QMainWindow):
             tx.review_button.clicked.connect(self.open_trade_review)
             tx.trade_settings_button.clicked.connect(self.open_trade_settings)
             tx.change_requests_button.clicked.connect(self.open_change_requests_window)
+            tx.gm_finance_queue_button.clicked.connect(self.open_gm_finance_queue_review)
 
         season_page = self.pages.get("season")
         if isinstance(season_page, SeasonPage):
@@ -305,13 +322,17 @@ class MainWindow(QMainWindow):
             season_page.regenerate_schedule_button.clicked.connect(self.regenerate_regular_season_schedule)
             season_page.reset_opening_day_button.clicked.connect(self.reset_to_opening_day)
             season_page.league_history_button.clicked.connect(self.open_league_history)
+            season_page.offseason_finance_button.clicked.connect(self.open_offseason_finance_workflow)
 
         settings = self.pages.get("settings")
         if isinstance(settings, LeagueSettingsPage):
             settings.create_league_button.clicked.connect(self.open_create_league)
+            settings.league_manager_button.clicked.connect(self.open_league_manager)
             settings.playbalance_button.clicked.connect(self.open_playbalance_editor)
             settings.injury_center_button.clicked.connect(self.open_injury_center)
             settings.injury_settings_button.clicked.connect(self.open_injury_settings)
+            settings.financial_settings_button.clicked.connect(self.open_financial_settings)
+            settings.finance_stability_button.clicked.connect(self.open_finance_stability)
             settings.free_agency_hub_button.clicked.connect(self.open_free_agency)
             settings.hall_of_fame_settings_button.clicked.connect(self.open_hall_of_fame_settings)
 
@@ -349,6 +370,7 @@ class MainWindow(QMainWindow):
                 self._on_navigation_changed(next(iter(self.pages)))
         except Exception:
             pass
+        self._refresh_league_header()
 
     def _build_dashboard_page(self, page_cls: type[QWidget]) -> Callable[[DashboardContext], QWidget]:
         def factory(context: DashboardContext) -> QWidget:
@@ -398,6 +420,55 @@ class MainWindow(QMainWindow):
         if date_str:
             return f"{base} | Date: {date_str}"
         return base
+
+    def _refresh_league_header(self) -> None:
+        records = [
+            item
+            for item in league_registry.list_leagues()
+            if item.status != "archived"
+        ]
+        active = league_registry.get_active_league()
+        active_id = active.id if active is not None else ""
+        active_name = active.display_name if active is not None else "None"
+        self._league_badge.setText(f"League: {active_name}")
+        self.setWindowTitle(f"Admin Dashboard - {active_name}")
+
+        self._league_selector.blockSignals(True)
+        self._league_selector.clear()
+        selected_index = -1
+        for idx, record in enumerate(records):
+            self._league_selector.addItem(record.display_name, record.id)
+            if record.id == active_id:
+                selected_index = idx
+        if selected_index >= 0:
+            self._league_selector.setCurrentIndex(selected_index)
+        self._league_selector.setVisible(bool(records))
+        self._league_selector.blockSignals(False)
+
+    def _on_league_selector_changed(self, _index: int) -> None:
+        league_id = self._league_selector.currentData()
+        if not isinstance(league_id, str) or not league_id:
+            return
+        current = league_registry.get_active_league()
+        if current is not None and current.id == league_id:
+            return
+        try:
+            selected = league_lifecycle.switch_active_league(league_id)
+            self._context = self._context.with_overrides(base_path=get_data_dir())
+        except Exception as exc:
+            QMessageBox.warning(self, "League Switch", f"Unable to switch league: {exc}")
+            self._refresh_league_header()
+            return
+        self._refresh_league_header()
+        self._refresh_date_status()
+        QMessageBox.information(
+            self,
+            "League Switched",
+            (
+                f'Active league switched to "{selected.display_name}".\n'
+                "Close and reopen any already-open windows if data appears stale."
+            ),
+        )
 
     def _on_sim_date_changed(self, _value: object) -> None:
         """Refresh status and active page when the sim date advances."""
@@ -465,16 +536,17 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def get_admin_metrics(self) -> dict:
         """Return a small set of overview metrics for the Admin home page."""
+        data_dir = get_data_dir()
         # Counts
         try:
             # Match the team list shown in the Standings window, which relies
             # on load_teams(data/teams.csv).
-            teams = load_teams("data/teams.csv")
+            teams = load_teams(data_dir / "teams.csv")
             team_count = len(teams)
         except Exception:
             team_count = 0
         try:
-            players = load_players_from_csv("data/players.csv")
+            players = load_players_from_csv(data_dir / "players.csv")
             player_count = len(players)
         except Exception:
             player_count = 0
@@ -499,6 +571,15 @@ class MainWindow(QMainWindow):
             status = "Completed" if completed else ("Ready" if available else "Not yet")
         except Exception:
             draft_date, status = None, None
+        try:
+            queue_summary = summarize_queue_decisions(data_dir=data_dir)
+        except Exception:
+            queue_summary = {}
+        try:
+            league_settings = load_league_settings(data_dir / "league_settings.json")
+            queue_required = bool(is_owner_league(league_settings))
+        except Exception:
+            queue_required = False
         return {
             "teams": team_count,
             "players": player_count,
@@ -506,6 +587,12 @@ class MainWindow(QMainWindow):
             "season_phase": phase,
             "draft_day": draft_date,
             "draft_status": status,
+            "gm_queue_required": queue_required,
+            "gm_queue_total": int(queue_summary.get("total", 0) or 0),
+            "gm_queue_pending": int(queue_summary.get("pending", 0) or 0),
+            "gm_queue_approved_unapplied": int(
+                queue_summary.get("approved_unapplied", 0) or 0
+            ),
         }
 
 
@@ -634,7 +721,17 @@ class MainWindow(QMainWindow):
                 callbacks.append(home_page.refresh)
         except Exception:
             pass
+        callbacks.append(self._refresh_league_header)
         create_league_action(self._context, self, callbacks)
+
+    def open_league_manager(self) -> None:
+        try:
+            dialog = LeagueManagerDialog(self)
+            dialog.exec()
+            self._refresh_league_header()
+            self._refresh_date_status()
+        except Exception:
+            pass
 
 
     def open_exhibition_dialog(self) -> None:
@@ -716,6 +813,20 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def open_financial_settings(self) -> None:
+        try:
+            dialog = FinancialSettingsDialog(self)
+            dialog.exec()
+        except Exception:
+            pass
+
+    def open_finance_stability(self) -> None:
+        try:
+            dialog = FinanceStabilityDialog(self)
+            dialog.exec()
+        except Exception:
+            pass
+
     def open_news_window(self) -> None:
         try:
             win = NewsWindow(self)
@@ -749,9 +860,26 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def open_offseason_finance_workflow(self) -> None:
+        try:
+            dialog = OffseasonFinanceDialog(self)
+            dialog.exec()
+        except Exception:
+            pass
+
     def open_change_requests_window(self) -> None:
         try:
             show_on_top(ChangeRequestsWindow(self))
+        except Exception:
+            pass
+
+    def open_gm_finance_queue_review(self) -> None:
+        try:
+            dialog = GmFinanceQueueDialog(self)
+            dialog.exec()
+            tx = self.pages.get("transactions")
+            if tx is not None and hasattr(tx, "refresh"):
+                tx.refresh()
         except Exception:
             pass
 

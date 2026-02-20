@@ -125,3 +125,15 @@ def test_training_weights_bias_focus_selection() -> None:
     )
     plan = build_training_plan(player, weights=weights)
     assert plan.focus == "Strength & Lift"
+
+
+def test_apply_training_plan_scales_with_intensity_multiplier() -> None:
+    low_player = _hitter(player_id="p-low", ch=40, pot_ch=95, ph=40, pot_ph=95)
+    high_player = _hitter(player_id="p-high", ch=40, pot_ch=95, ph=40, pot_ph=95)
+
+    low_plan = build_training_plan(low_player)
+    high_plan = build_training_plan(high_player)
+    low_report = apply_training_plan(low_player, low_plan, intensity_multiplier=0.8)
+    high_report = apply_training_plan(high_player, high_plan, intensity_multiplier=1.25)
+
+    assert sum(high_report.changes.values()) >= sum(low_report.changes.values())

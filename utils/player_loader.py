@@ -46,9 +46,9 @@ def _optional_int_or_none(row, key):
 
 _CACHE_LOCK = RLock()
 _STATS_CACHE: Dict[str, Any] | None = None
-_STATS_TOKEN: tuple[int, int] | None = None
+_STATS_TOKEN: tuple[str, int | None, int | None] | None = None
 _CAREER_CACHE: Dict[str, Any] | None = None
-_CAREER_TOKEN: tuple[int, int] | None = None
+_CAREER_TOKEN: tuple[str, int | None, int | None] | None = None
 
 
 def _load_career_players() -> dict[str, dict]:
@@ -75,10 +75,18 @@ def _file_token(path: Path) -> tuple[int, int] | None:
     return mtime_ns, stat_result.st_size
 
 
+def _cache_token(path: Path) -> tuple[str, int | None, int | None]:
+    resolved = str(path.resolve(strict=False))
+    file_token = _file_token(path)
+    if file_token is None:
+        return resolved, None, None
+    return resolved, file_token[0], file_token[1]
+
+
 def _stats_payload() -> Dict[str, Any]:
     global _STATS_CACHE, _STATS_TOKEN
     stats_path = get_data_dir() / "season_stats.json"
-    token = _file_token(stats_path)
+    token = _cache_token(stats_path)
     with _CACHE_LOCK:
         if _STATS_CACHE is None or token != _STATS_TOKEN:
             _STATS_CACHE = load_stats(stats_path)
@@ -89,7 +97,7 @@ def _stats_payload() -> Dict[str, Any]:
 def _career_payload() -> Dict[str, dict]:
     global _CAREER_CACHE, _CAREER_TOKEN
     path = CAREER_DATA_DIR / "career_players.json"
-    token = _file_token(path)
+    token = _cache_token(path)
     with _CACHE_LOCK:
         if _CAREER_CACHE is None or token != _CAREER_TOKEN:
             _CAREER_CACHE = _load_career_players()

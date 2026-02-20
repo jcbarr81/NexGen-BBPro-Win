@@ -10,10 +10,10 @@ from typing import Any, Dict, List, Optional
 from services.record_book import league_record_book
 from services.special_events import record_special_events
 from utils.news_logger import log_news_event
-from utils.path_utils import get_data_dir
+from utils.path_utils import ActivePath, get_data_dir
 
-RECORD_SNAPSHOT_PATH = get_data_dir() / "record_book_snapshot.json"
-RECORD_PENDING_PATH = get_data_dir() / "record_notifications_pending.json"
+RECORD_SNAPSHOT_PATH = ActivePath(lambda: get_data_dir() / "record_book_snapshot.json")
+RECORD_PENDING_PATH = ActivePath(lambda: get_data_dir() / "record_notifications_pending.json")
 _VERSION = 1
 
 

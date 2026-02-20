@@ -29,7 +29,6 @@ __all__ = [
 ]
 
 VERSION = 2
-SETTINGS_PATH = get_data_dir() / "training_settings.json"
 MIN_PERCENT = 5
 
 HITTER_TRACKS: Tuple[str, ...] = ("contact", "power", "speed", "discipline", "defense")
@@ -250,9 +249,10 @@ def _resolve_league_id() -> str:
 
 
 def _load_payload() -> Dict[str, object]:
-    if SETTINGS_PATH.exists():
+    settings_path = _settings_path()
+    if settings_path.exists():
         try:
-            data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 return data
         except Exception:
@@ -261,8 +261,9 @@ def _load_payload() -> Dict[str, object]:
 
 
 def _write_payload(payload: MutableMapping[str, object]) -> None:
-    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    settings_path = _settings_path()
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def _coerce_weights(
@@ -336,3 +337,6 @@ def _weights_to_dict(weights: TrainingWeights) -> Dict[str, Dict[str, int]]:
         "hitters": {key: int(value) for key, value in weights.hitters.items()},
         "pitchers": {key: int(value) for key, value in weights.pitchers.items()},
     }
+def _settings_path() -> Path:
+    return get_data_dir() / "training_settings.json"
+

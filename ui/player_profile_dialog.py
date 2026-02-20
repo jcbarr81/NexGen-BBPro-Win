@@ -23,6 +23,11 @@ from services.training_settings import (
     HITTER_TRACKS,
     PITCHER_TRACKS,
 )
+from services.finance_budget_effects import (
+    ScoutingDisplayProfile,
+    scouting_display_profile_for_team,
+    scouting_display_value,
+)
 from playbalance.season_context import SeasonContext
 
 try:
@@ -229,7 +234,7 @@ from models.base_player import BasePlayer
 from utils.stats_persistence import load_stats
 from utils.path_utils import get_base_dir, get_data_dir, resolve_app_path
 from utils.player_loader import load_players_from_csv
-from utils.rating_display import rating_display_text, rating_display_value
+from utils.rating_display import rating_display_value
 from .star_rating import star_label, star_pixmap, star_text
 from .components import Card, section_title
 
@@ -747,6 +752,7 @@ class PlayerProfileDialog(QDialog):
         self._training_focus_team_label: Optional[QLabel] = None
         self._training_focus_hitters_label: Optional[QLabel] = None
         self._training_focus_pitchers_label: Optional[QLabel] = None
+        self._scouting_profiles: Dict[str, ScoutingDisplayProfile] = {}
 
         root = QVBoxLayout()
         if callable(getattr(root, "setContentsMargins", None)):
@@ -908,7 +914,7 @@ class PlayerProfileDialog(QDialog):
         pos_label = ', '.join(positions) if positions else '?'
         _layout_add_widget(layout, QLabel(f"Positions: {pos_label}"), 3, 0, 1, 2)
 
-        gf_display = rating_display_text(
+        gf_display = self._scouting_rating_text(
             getattr(self.player, "gf", "?"),
             key="GF",
             position=getattr(self.player, "primary_position", None),
@@ -998,9 +1004,111 @@ class PlayerProfileDialog(QDialog):
             mode="scale_99",
         )
         try:
-            return float(display_val)
+            numeric_display = float(display_val)
         except (TypeError, ValueError):
             return None
+        adjusted = self._scouting_adjusted_display_value(
+            numeric_display,
+            player=player,
+            metric_key="OVR",
+            minimum=35,
+            maximum=99,
+        )
+        try:
+            return float(adjusted)
+        except (TypeError, ValueError):
+            return numeric_display
+
+    def _resolve_player_team_id(self, player: Any) -> str:
+        if player is None:
+            return ""
+        player_id = str(getattr(player, "player_id", "") or "").strip()
+        if player_id:
+            team_id = _lookup_player_team(player_id)
+            if team_id:
+                return str(team_id).strip().upper()
+        for key in ("team_id", "team", "team_abbr"):
+            team_id = str(getattr(player, key, "") or "").strip()
+            if team_id:
+                return team_id.upper()
+        return ""
+
+    def _scouting_profile_for_player(self, player: Any) -> ScoutingDisplayProfile:
+        team_id = self._resolve_player_team_id(player)
+        cache_key = team_id or "__default__"
+        cached = self._scouting_profiles.get(cache_key)
+        if cached is not None:
+            return cached
+        try:
+            profile = scouting_display_profile_for_team(team_id or None)
+        except Exception:
+            profile = ScoutingDisplayProfile(
+                team_id=team_id,
+                scouting_multiplier=1.0,
+                confidence_score=100,
+                confidence_label="Exact",
+                max_rating_error=0,
+            )
+        self._scouting_profiles[cache_key] = profile
+        return profile
+
+    def _scouting_adjusted_display_value(
+        self,
+        value: Any,
+        *,
+        player: Any,
+        metric_key: str,
+        minimum: int = 35,
+        maximum: int = 99,
+    ) -> Any:
+        if not isinstance(value, (int, float)):
+            return value
+        team_id = self._resolve_player_team_id(player)
+        player_id = str(getattr(player, "player_id", "") or "").strip()
+        try:
+            return scouting_display_value(
+                value,
+                player_id=player_id,
+                metric_key=metric_key,
+                team_id=team_id or None,
+                minimum=minimum,
+                maximum=maximum,
+            )
+        except Exception:
+            return value
+
+    def _scouting_rating_text(
+        self,
+        value: Any,
+        *,
+        key: str,
+        player: Any | None = None,
+        position: Any = None,
+        is_pitcher: bool | None = None,
+    ) -> str:
+        target = player if player is not None else self.player
+        if is_pitcher is None:
+            is_pitcher = bool(
+                getattr(target, "is_pitcher", False)
+                or str(getattr(target, "primary_position", "")).upper() == "P"
+            )
+        position_value = position
+        if position_value is None:
+            position_value = getattr(target, "primary_position", None)
+        display_value = rating_display_value(
+            value,
+            key=key,
+            position=position_value,
+            is_pitcher=is_pitcher,
+        )
+        adjusted = self._scouting_adjusted_display_value(
+            display_value,
+            player=target,
+            metric_key=key,
+            minimum=35,
+            maximum=99,
+        )
+        return str(adjusted)
 
     def _build_fielding_block(self) -> QWidget:
         wrapper = QFrame()
@@ -1041,7 +1149,7 @@ class PlayerProfileDialog(QDialog):
         metric_pairs = [
             (
                 "Fielding",
-                rating_display_text(
+                self._scouting_rating_text(
                     getattr(self.player, "fa", "?"),
                     key="FA",
                     position=getattr(self.player, "primary_position", None),
@@ -1050,7 +1158,7 @@ class PlayerProfileDialog(QDialog):
             ),
             (
                 "Arm",
-                rating_display_text(
+                self._scouting_rating_text(
                     getattr(self.player, "arm", "?"),
                     key="AS",
                     position=getattr(self.player, "primary_position", None),
@@ -1059,7 +1167,7 @@ class PlayerProfileDialog(QDialog):
             ),
             (
                 "Speed",
-                rating_display_text(
+                self._scouting_rating_text(
                     getattr(self.player, "sp", "?"),
                     key="SP",
                     position=getattr(self.player, "primary_position", None),
@@ -1086,6 +1194,19 @@ class PlayerProfileDialog(QDialog):
         label = QLabel(summary)
         label.setWordWrap(True)
         _layout_add_widget(layout, label)
+        profile = self._scouting_profile_for_player(self.player)
+        if profile.max_rating_error <= 0:
+            scouting_text = "Scouting Confidence: Exact"
+        else:
+            scouting_text = (
+                "Scouting Confidence: "
+                f"{profile.confidence_label} ({profile.confidence_score}%) "
+                f"- Estimated range: +/-{profile.max_rating_error}"
+            )
+        confidence_label = QLabel(scouting_text)
+        confidence_label.setWordWrap(True)
+        _safe_call(confidence_label, "setProperty", "profile", "scouting-confidence")
+        _layout_add_widget(layout, confidence_label)
         status_label = self._build_injury_status_label()
         if status_label is not None:
             _layout_add_widget(layout, status_label)
@@ -1171,25 +1292,25 @@ class PlayerProfileDialog(QDialog):
         _layout_add_widget(layout, QLabel(f"Role: {role}"), 1, 1)
 
         bats = getattr(self.player, "bats", "?")
-        gf_display = rating_display_text(
+        gf_display = self._scouting_rating_text(
             getattr(self.player, "gf", "?"), key="GF", is_pitcher=True
         )
         _layout_add_widget(layout, QLabel(f"Bats: {bats}"), 2, 0)
         _layout_add_widget(layout, QLabel(f"GF: {gf_display}"), 2, 1)
 
-        control_display = rating_display_text(
+        control_display = self._scouting_rating_text(
             getattr(self.player, "control", "?"), key="CO", is_pitcher=True
         )
-        movement_display = rating_display_text(
+        movement_display = self._scouting_rating_text(
             getattr(self.player, "movement", "?"), key="MO", is_pitcher=True
         )
         _layout_add_widget(layout, QLabel(f"Control: {control_display}"), 3, 0)
         _layout_add_widget(layout, QLabel(f"Movement: {movement_display}"), 3, 1)
 
-        endurance_display = rating_display_text(
+        endurance_display = self._scouting_rating_text(
             getattr(self.player, "endurance", "?"), key="EN", is_pitcher=True
         )
-        hold_display = rating_display_text(
+        hold_display = self._scouting_rating_text(
             getattr(self.player, "hold_runner", "?"),
             key="hold_runner",
             is_pitcher=True,
@@ -1235,7 +1356,7 @@ class PlayerProfileDialog(QDialog):
             row = idx
             _layout_add_widget(layout, QLabel(label), row, 0)
             value_label = QLabel(
-                rating_display_text(value, key=key, is_pitcher=True)
+                self._scouting_rating_text(value, key=key, is_pitcher=True)
             )
             if value == max_value:
                 _safe_call(value_label, "setProperty", "highlight", True)
@@ -1501,33 +1622,37 @@ class PlayerProfileDialog(QDialog):
             return str(int(rbi)) if isinstance(rbi, (int, float)) else "--"
         if metric_id == "speed":
             value = getattr(player, "sp", getattr(player, "speed", "--"))
-            return rating_display_text(
+            return self._scouting_rating_text(
                 value,
                 key="SP",
+                player=player,
                 position=getattr(player, "primary_position", None),
                 is_pitcher=False,
             )
         if metric_id == "power":
             value = getattr(player, "ph", getattr(player, "power", "--"))
-            return rating_display_text(
+            return self._scouting_rating_text(
                 value,
                 key="PH",
+                player=player,
                 position=getattr(player, "primary_position", None),
                 is_pitcher=False,
             )
         if metric_id == "contact":
             value = getattr(player, "ch", getattr(player, "contact", "--"))
-            return rating_display_text(
+            return self._scouting_rating_text(
                 value,
                 key="CH",
+                player=player,
                 position=getattr(player, "primary_position", None),
                 is_pitcher=False,
             )
         if metric_id == "defense":
             value = getattr(player, "fa", getattr(player, "defense", "--"))
-            return rating_display_text(
+            return self._scouting_rating_text(
                 value,
                 key="FA",
+                player=player,
                 position=getattr(player, "primary_position", None),
                 is_pitcher=False,
             )
@@ -1559,16 +1684,25 @@ class PlayerProfileDialog(QDialog):
             walk = safe("bb")
             return f"{(walk * 9) / ip:.2f}"
         if metric_id == "control":
-            return rating_display_text(
-                getattr(player, "control", "--"), key="CO", is_pitcher=True
+            return self._scouting_rating_text(
+                getattr(player, "control", "--"),
+                key="CO",
+                player=player,
+                is_pitcher=True,
             )
         if metric_id == "movement":
-            return rating_display_text(
-                getattr(player, "movement", "--"), key="MO", is_pitcher=True
+            return self._scouting_rating_text(
+                getattr(player, "movement", "--"),
+                key="MO",
+                player=player,
+                is_pitcher=True,
             )
         if metric_id == "endurance":
-            return rating_display_text(
-                getattr(player, "endurance", "--"), key="EN", is_pitcher=True
+            return self._scouting_rating_text(
+                getattr(player, "endurance", "--"),
+                key="EN",
+                player=player,
+                is_pitcher=True,
             )
         return str(getattr(player, metric_id, "--"))
 
@@ -1852,7 +1986,7 @@ class PlayerProfileDialog(QDialog):
         if self._is_pitcher:
             role = getattr(self.player, 'role', '') or 'Pitcher'
             _layout_add_widget(layout, QLabel(f"Role: {role}"))
-            gf_display = rating_display_text(
+            gf_display = self._scouting_rating_text(
                 getattr(self.player, "gf", "?"), key="GF", is_pitcher=True
             )
             _layout_add_widget(layout, QLabel(f"GF: {gf_display}"))
@@ -1861,7 +1995,7 @@ class PlayerProfileDialog(QDialog):
             others = [p for p in getattr(self.player, 'other_positions', []) if p]
             if others:
                 _layout_add_widget(layout, QLabel("Other: " + ", ".join(others)))
-            gf_display = rating_display_text(
+            gf_display = self._scouting_rating_text(
                 getattr(self.player, "gf", "?"),
                 key="GF",
                 position=getattr(self.player, "primary_position", None),
@@ -1893,7 +2027,7 @@ class PlayerProfileDialog(QDialog):
             if not self._is_pitcher:
                 position = getattr(self.player, "primary_position", None)
             value_label = QLabel(
-                rating_display_text(
+                self._scouting_rating_text(
                     value,
                     key=key,
                     position=position,
@@ -2322,16 +2456,18 @@ class PlayerProfileDialog(QDialog):
                 text = "--"
                 if raw is not None and raw != "":
                     try:
-                        text = rating_display_text(
+                        text = self._scouting_rating_text(
                             raw,
                             key=key,
+                            player=self.player,
                             position=position,
                             is_pitcher=self._is_pitcher,
                         )
                     except (TypeError, ValueError):
-                        text = rating_display_text(
+                        text = self._scouting_rating_text(
                             raw,
                             key=key,
+                            player=self.player,
                             position=position,
                             is_pitcher=self._is_pitcher,
                         )
@@ -3306,6 +3442,7 @@ class ComparisonSelectorDialog(QDialog):
 _PLAYER_TEAM_CACHE: Dict[str, str] | None = None
 _PLAYER_TYPE_CACHE: Dict[str, bool] | None = None
 _SEASON_STATS_CACHE: Dict[int, Dict[str, Any]] = {}
+_PROFILE_CACHE_SCOPE_KEY: str | None = None
 _ORIGINAL_METHODS: Dict[str, Any] = {}
 
 
@@ -3317,8 +3454,23 @@ def _original(name: str) -> Any:
     return func
 
 
+def _ensure_profile_cache_scope() -> None:
+    global _PLAYER_TEAM_CACHE
+    global _PLAYER_TYPE_CACHE
+    global _SEASON_STATS_CACHE
+    global _PROFILE_CACHE_SCOPE_KEY
+    scope = str(get_data_dir().resolve(strict=False))
+    if _PROFILE_CACHE_SCOPE_KEY == scope:
+        return
+    _PROFILE_CACHE_SCOPE_KEY = scope
+    _PLAYER_TEAM_CACHE = None
+    _PLAYER_TYPE_CACHE = None
+    _SEASON_STATS_CACHE.clear()
+
+
 def _lookup_player_team(player_id: str) -> Optional[str]:
     global _PLAYER_TEAM_CACHE
+    _ensure_profile_cache_scope()
     if _PLAYER_TEAM_CACHE is None:
         mapping: Dict[str, str] = {}
         roster_dir = get_data_dir() / "rosters"
@@ -3431,6 +3583,7 @@ def _load_player_row_from_csv(path: Optional[Path], player_id: str) -> Optional[
 
 def _player_type_map() -> Dict[str, bool]:
     global _PLAYER_TYPE_CACHE
+    _ensure_profile_cache_scope()
     if _PLAYER_TYPE_CACHE is None:
         try:
             players = load_players_from_csv("data/players.csv")
@@ -3457,6 +3610,7 @@ def _is_pitcher_stats(stats: Dict[str, Any]) -> Optional[bool]:
 
 
 def _season_stats_payload_for_year(year: int, *, current_year: Optional[int] = None) -> Dict[str, Any]:
+    _ensure_profile_cache_scope()
     if year in _SEASON_STATS_CACHE:
         return _SEASON_STATS_CACHE[year]
 
@@ -3480,9 +3634,9 @@ def _season_stats_payload_for_year(year: int, *, current_year: Optional[int] = N
             if not season_id:
                 continue
             try:
-                year_val = int(league_year) if league_year is not None else self._season_year_from_id(season_id)
+                year_val = int(league_year) if league_year is not None else PlayerProfileDialog._season_year_from_id(season_id)
             except Exception:
-                year_val = self._season_year_from_id(season_id)
+                year_val = PlayerProfileDialog._season_year_from_id(season_id)
             if year_val != year:
                 continue
             artifacts = season.get("artifacts") or {}

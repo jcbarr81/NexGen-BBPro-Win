@@ -12,22 +12,24 @@ import shutil
 
 from playbalance.awards_manager import AwardsManager
 from playbalance.season_context import CAREER_DATA_DIR, SeasonContext
+from services.contracts_service import rollover_contracts_for_new_season
+from services.offseason_finance_flow import run_offseason_financial_rollover
 from services.record_notifications import update_record_notifications
 from services.transaction_log import TRANSACTION_COLUMNS, reset_player_cache as reset_transaction_cache
 from services.standings_repository import save_standings
-from utils.path_utils import get_base_dir, get_data_dir
+from utils.path_utils import ActivePath, get_base_dir, get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.sim_date import get_current_sim_date
 from utils.stats_persistence import load_stats, merge_daily_history, reset_stats
 
-_DATA_DIR = get_data_dir()
-_STATS_PATH = _DATA_DIR / "season_stats.json"
-_STANDINGS_PATH = _DATA_DIR / "standings.json"
-_SCHEDULE_PATH = _DATA_DIR / "schedule.csv"
-_PROGRESS_PATH = _DATA_DIR / "season_progress.json"
-_TRANSACTIONS_PATH = _DATA_DIR / "transactions.csv"
-_SEASON_HISTORY_DIR = _DATA_DIR / "season_history"
-_PLAYOFFS_GENERIC = _DATA_DIR / "playoffs.json"
+_DATA_DIR = ActivePath(get_data_dir)
+_STATS_PATH = ActivePath(lambda: get_data_dir() / "season_stats.json")
+_STANDINGS_PATH = ActivePath(lambda: get_data_dir() / "standings.json")
+_SCHEDULE_PATH = ActivePath(lambda: get_data_dir() / "schedule.csv")
+_PROGRESS_PATH = ActivePath(lambda: get_data_dir() / "season_progress.json")
+_TRANSACTIONS_PATH = ActivePath(lambda: get_data_dir() / "transactions.csv")
+_SEASON_HISTORY_DIR = ActivePath(lambda: get_data_dir() / "season_history")
+_PLAYOFFS_GENERIC = ActivePath(lambda: get_data_dir() / "playoffs.json")
 
 
 def _now_iso() -> str:
@@ -86,6 +88,8 @@ class RolloverResult:
     metadata_path: Optional[str] = None
     next_season: Optional[Dict[str, Any]] = None
     reason: Optional[str] = None
+    contract_rollover: Optional[Dict[str, Any]] = None
+    finance_rollover: Optional[Dict[str, Any]] = None
 
 
 class LeagueRolloverService:
@@ -170,6 +174,17 @@ class LeagueRolloverService:
             ended_on=ended_val,
             next_league_year=next_league_year,
         )
+        contract_rollover = rollover_contracts_for_new_season(
+            season_year=next_descriptor.get("league_year") if isinstance(next_descriptor, dict) else None,
+            data_dir=_DATA_DIR,
+        )
+        finance_rollover = run_offseason_financial_rollover(
+            ended_season_year=league_year if isinstance(league_year, int) else None,
+            next_season_year=next_descriptor.get("league_year") if isinstance(next_descriptor, dict) else None,
+            contract_rollover=contract_rollover,
+            data_dir=_DATA_DIR,
+            league_id=self.context.league_id,
+        )
 
         self._reset_active_state(league_year)
 
@@ -179,6 +194,8 @@ class LeagueRolloverService:
             artifacts=artifacts,
             metadata_path=_relative(metadata_path),
             next_season=next_descriptor,
+            contract_rollover=contract_rollover,
+            finance_rollover=finance_rollover,
         )
 
     # ------------------------------------------------------------------

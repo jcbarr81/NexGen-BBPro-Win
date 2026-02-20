@@ -84,7 +84,7 @@ from models.roster import Roster
 from models.base_player import BasePlayer
 from utils.roster_loader import load_roster
 from utils.player_loader import load_players_from_csv
-from utils.path_utils import get_data_dir
+from utils.path_utils import ActivePath, get_data_dir
 from utils.stats_persistence import load_stats as _load_season_stats
 try:
     # Best-effort import; not critical for headless tests
@@ -98,10 +98,10 @@ from .stat_helpers import (
     pitching_summary,
 )
 
-DATA_DIR = get_data_dir()
-PLAYERS_FILE = DATA_DIR / "players.csv"
+DATA_DIR = ActivePath(get_data_dir)
+PLAYERS_FILE = ActivePath(lambda: get_data_dir() / "players.csv")
 # Stats file path is resolved by utils.stats_persistence; keep constant for reference only
-STATS_FILE = DATA_DIR / "season_stats.json"
+STATS_FILE = ActivePath(lambda: get_data_dir() / "season_stats.json")
 
 RETRO_GREEN = "#0f3b19"
 RETRO_GREEN_DARK = "#0b2a12"

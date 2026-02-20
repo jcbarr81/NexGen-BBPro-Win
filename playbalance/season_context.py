@@ -43,19 +43,59 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 import json
+import os
 import re
 
 from utils.path_utils import get_data_dir
 
 __all__ = [
+    "get_career_data_dir",
+    "get_career_index_path",
     "CAREER_DATA_DIR",
     "CAREER_INDEX_PATH",
     "SeasonContext",
     "slugify_league_id",
 ]
 
-CAREER_DATA_DIR = get_data_dir() / "careers"
-CAREER_INDEX_PATH = get_data_dir() / "career_index.json"
+
+def get_career_data_dir() -> Path:
+    return get_data_dir() / "careers"
+
+
+def get_career_index_path() -> Path:
+    return get_data_dir() / "career_index.json"
+
+
+class _DynamicPath:
+    """Path-like wrapper that resolves to the active league directory on demand."""
+
+    def __init__(self, resolver):
+        self._resolver = resolver
+
+    def _path(self) -> Path:
+        return self._resolver()
+
+    def __fspath__(self) -> str:
+        return os.fspath(self._path())
+
+    def __str__(self) -> str:
+        return str(self._path())
+
+    def __repr__(self) -> str:
+        return repr(self._path())
+
+    def __truediv__(self, key):
+        return self._path() / key
+
+    def __getattr__(self, item):
+        return getattr(self._path(), item)
+
+    def __eq__(self, other: object) -> bool:
+        return self._path() == other
+
+
+CAREER_DATA_DIR = _DynamicPath(get_career_data_dir)
+CAREER_INDEX_PATH = _DynamicPath(get_career_index_path)
 _DEFAULT_VERSION = 1
 
 
@@ -89,14 +129,14 @@ class SeasonContext:
     """Wrapper for reading/updating ``career_index.json``."""
 
     data: Dict[str, Any] = field(default_factory=_default_payload)
-    path: Path = field(default=CAREER_INDEX_PATH)
+    path: Path = field(default_factory=get_career_index_path)
 
     # ------------------------------------------------------------------
     # Factory helpers
     # ------------------------------------------------------------------
     @classmethod
     def load(cls, path: Path | str | None = None) -> "SeasonContext":
-        resolved = Path(path) if path is not None else CAREER_INDEX_PATH
+        resolved = Path(path) if path is not None else get_career_index_path()
         if resolved.exists():
             try:
                 payload = json.loads(resolved.read_text(encoding="utf-8"))
@@ -131,13 +171,16 @@ class SeasonContext:
     def current_season_id(self) -> str | None:
         return self.current.get("season_id")
 
+    def _career_data_dir(self) -> Path:
+        return self.path.parent / "careers"
+
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
     def save(self) -> None:
         """Persist the current payload to disk."""
 
-        CAREER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        self._career_data_dir().mkdir(parents=True, exist_ok=True)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("w", encoding="utf-8") as fh:
             json.dump(self.data, fh, indent=2)
@@ -300,7 +343,7 @@ class SeasonContext:
         sid = season_id or self.current_season_id
         if not sid:
             raise RuntimeError("Season identifier unavailable.")
-        directory = CAREER_DATA_DIR / sid
+        directory = self._career_data_dir() / sid
         directory.mkdir(parents=True, exist_ok=True)
         return directory
 

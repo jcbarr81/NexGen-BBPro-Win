@@ -17,9 +17,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 VERSION_FILE = ROOT / "VERSION"
 ISS_FILE = ROOT / "packaging" / "NexGen-BBPro.iss"
 BUILD_EXE = ROOT / "build_exe.py"
+VALIDATE_RELEASE = ROOT / "scripts" / "validate_finance_release.py"
 RELEASE_NOTES_FILE = ROOT / "release_notes.md"
 DRAFT_NOTES_FILE = ROOT / "release_notes_draft.md"
 LAST_BUILD_RE = re.compile(r"^<!--\s*last_build_ref:\s*([0-9a-fA-F]+)\s*-->$")
+CHECKLIST_PASS_TOKEN = "Checklist Result: PASS"
 
 
 def read_version() -> str:
@@ -89,8 +91,26 @@ def find_iscc(explicit: str | None) -> str:
 
 
 def run_command(cmd: list[str], cwd: pathlib.Path | None = None) -> None:
-    print("Running:", " ".join(cmd))
+    print("Running:", " ".join(cmd), flush=True)
     subprocess.run(cmd, cwd=cwd or ROOT, check=True)
+
+
+def validate_ui_checklist_artifact(path: pathlib.Path, *, version: str) -> None:
+    if not path.exists():
+        raise FileNotFoundError(
+            f"UI checklist artifact not found: {path}. "
+            "Run scripts/archive_ui_checklist.py after manual checklist execution."
+        )
+    text = path.read_text(encoding="utf-8")
+    if CHECKLIST_PASS_TOKEN not in text:
+        raise ValueError(
+            f"UI checklist artifact must include '{CHECKLIST_PASS_TOKEN}'."
+        )
+    version_marker = f"v{version}"
+    if version_marker not in text and f"Version: {version}" not in text:
+        raise ValueError(
+            f"UI checklist artifact does not appear to reference release version {version}."
+        )
 
 
 def run_git(args: list[str]) -> str:
@@ -250,6 +270,38 @@ def main(argv: list[str]) -> int:
         help="Skip updating release_notes.md",
     )
     parser.add_argument(
+        "--skip-validation",
+        action="store_true",
+        help="Skip pre-build finance release validation checks.",
+    )
+    parser.add_argument(
+        "--validation-seasons",
+        type=int,
+        default=8,
+        help="Season count for strict finance stability validation.",
+    )
+    parser.add_argument(
+        "--validation-seed",
+        type=int,
+        default=42,
+        help="Seed for finance stability validation.",
+    )
+    parser.add_argument(
+        "--validation-preset",
+        default="standard",
+        help="Finance preset used during validation stability simulation.",
+    )
+    parser.add_argument(
+        "--validation-max-fa-rounds",
+        type=int,
+        default=0,
+        help="Optional cap for validation free-agency rounds (0 = auto).",
+    )
+    parser.add_argument(
+        "--validation-report-dir",
+        help="Directory for validation JSON/CSV outputs.",
+    )
+    parser.add_argument(
         "--keep-draft-notes",
         action="store_true",
         help="Do not clear release_notes_draft.md after appending its entries",
@@ -258,12 +310,59 @@ def main(argv: list[str]) -> int:
         "--iscc",
         help="Path to ISCC.exe (Inno Setup compiler)",
     )
+    parser.add_argument(
+        "--require-ui-checklist",
+        action="store_true",
+        help=(
+            "Require a manual UI/installer checklist artifact with PASS status "
+            "before building."
+        ),
+    )
+    parser.add_argument(
+        "--ui-checklist-artifact",
+        help=(
+            "Path to archived manual checklist markdown. "
+            "Used when --require-ui-checklist is enabled."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.clean:
         clean_outputs()
 
     version = read_version()
+
+    if args.require_ui_checklist:
+        if not args.ui_checklist_artifact:
+            raise ValueError(
+                "--require-ui-checklist requires --ui-checklist-artifact <path>."
+            )
+        validate_ui_checklist_artifact(
+            pathlib.Path(args.ui_checklist_artifact),
+            version=version,
+        )
+        print("Manual UI/installer checklist artifact validated.")
+
+    if not args.skip_validation:
+        validate_cmd = [
+            sys.executable,
+            str(VALIDATE_RELEASE),
+            "--seasons",
+            str(max(1, int(args.validation_seasons))),
+            "--seed",
+            str(int(args.validation_seed)),
+            "--preset",
+            str(args.validation_preset),
+        ]
+        if int(args.validation_max_fa_rounds) > 0:
+            validate_cmd.extend(
+                ["--max-fa-rounds", str(int(args.validation_max_fa_rounds))]
+            )
+        if args.validation_report_dir:
+            validate_cmd.extend(["--report-dir", str(args.validation_report_dir)])
+        run_command(validate_cmd)
+        print("Pre-build finance validation passed.")
+
     if not args.skip_iss:
         changed = update_iss_version(version)
         if changed:

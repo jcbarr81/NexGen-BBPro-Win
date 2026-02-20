@@ -14,7 +14,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from services.contracts_service import transfer_contracts
 from services.draft_pick_ledger import format_pick_label, transfer_pick
+from services.payroll_policy import (
+    evaluate_trade_payroll_impact,
+    format_payroll_policy_message,
+    record_payroll_policy_result,
+)
 from services.trade_settings import load_trade_settings
 from services.transaction_log import record_transaction
 from ui.window_utils import show_on_top
@@ -82,6 +88,35 @@ def review_pending_trades(
         trade_list.addItem(summary)
         trade_map[summary] = trade
 
+    payroll_preview = QLabel("Payroll policy preview: select a trade.")
+    payroll_preview.setWordWrap(True)
+
+    def update_payroll_preview() -> None:
+        selected = trade_list.currentItem()
+        if not selected:
+            payroll_preview.setText("Payroll policy preview: select a trade.")
+            payroll_preview.setStyleSheet("")
+            return
+        trade = trade_map.get(selected.text())
+        if trade is None:
+            payroll_preview.setText("Payroll policy preview: unable to evaluate selected trade.")
+            payroll_preview.setStyleSheet("")
+            return
+        result = evaluate_trade_payroll_impact(trade, players_by_id=players)
+        if not result.violations:
+            payroll_preview.setText("Payroll policy preview: no payroll rule issues detected.")
+            payroll_preview.setStyleSheet("color: #2fa36b;")
+            return
+        summary = format_payroll_policy_message(result).replace("\n", " ")
+        if result.allowed and result.warning:
+            payroll_preview.setText(f"Payroll policy preview (warning): {summary}")
+            payroll_preview.setStyleSheet("color: #d4a76a;")
+            return
+        payroll_preview.setText(f"Payroll policy preview (blocked): {summary}")
+        payroll_preview.setStyleSheet("color: #d45b5b;")
+
+    trade_list.currentItemChanged.connect(lambda *_args: update_payroll_preview())
+
     def process_trade(accept: bool = True) -> None:
         selected = trade_list.currentItem()
         if not selected:
@@ -110,6 +145,36 @@ def review_pending_trades(
                     "This trade must be accepted by the receiving owner before commissioner approval.",
                 )
                 return
+            policy = evaluate_trade_payroll_impact(
+                trade,
+                players_by_id=players,
+            )
+            if not policy.allowed:
+                record_payroll_policy_result(
+                    policy,
+                    action="admin_trade_approve",
+                    data_dir=get_data_dir(),
+                )
+                QMessageBox.warning(
+                    dialog,
+                    "Payroll Policy Blocked",
+                    format_payroll_policy_message(policy),
+                )
+                return
+            if policy.warning:
+                record_payroll_policy_result(
+                    policy,
+                    action="admin_trade_approve",
+                    data_dir=get_data_dir(),
+                )
+                proceed = QMessageBox.question(
+                    dialog,
+                    "Payroll Policy Warning",
+                    format_payroll_policy_message(policy) + "\n\nApprove this trade anyway?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if proceed != QMessageBox.StandardButton.Yes:
+                    return
             from_roster = load_roster(trade.from_team)
             to_roster = load_roster(trade.to_team)
 
@@ -152,6 +217,19 @@ def review_pending_trades(
 
             save_roster(from_roster)
             save_roster(to_roster)
+            try:
+                transfer_contracts(
+                    trade.give_player_ids,
+                    trade.to_team,
+                    players_by_id=players,
+                )
+                transfer_contracts(
+                    trade.receive_player_ids,
+                    trade.from_team,
+                    players_by_id=players,
+                )
+            except Exception:
+                pass
 
         trade.status = "accepted" if accept else "rejected"
         save_trade(trade)
@@ -272,8 +350,10 @@ def review_pending_trades(
     btn_layout.addWidget(reject_btn)
 
     layout.addWidget(trade_list)
+    layout.addWidget(payroll_preview)
     layout.addLayout(btn_layout)
     dialog.setLayout(layout)
+    update_payroll_preview()
     show_on_top(dialog)
 
 

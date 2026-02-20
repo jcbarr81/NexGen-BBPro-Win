@@ -140,19 +140,31 @@ def build_training_plan(
     )
 
 
-def apply_training_plan(player: BasePlayer, plan: TrainingPlan) -> TrainingReport:
+def apply_training_plan(
+    player: BasePlayer,
+    plan: TrainingPlan,
+    *,
+    intensity_multiplier: float = 1.0,
+) -> TrainingReport:
     """Apply ``plan`` to ``player`` and return a detailed report."""
 
     age = calculate_age(player.birthdate)
     tier_gain = _TIER_GAINS[plan.tier]
     adjustments = AGE_ADJUSTMENTS.get(age, {})
+    intensity = _normalize_intensity_multiplier(intensity_multiplier)
     changes: Dict[str, int] = {}
 
     if plan.focus == _TRACK_LABELS.get("pitch_lab"):
-        changes = _run_pitch_lab(player)
+        changes = _run_pitch_lab(player, intensity_multiplier=intensity)
     else:
         for attr in plan.attributes:
-            delta = _boost_attribute(player, attr, tier_gain, adjustments)
+            delta = _boost_attribute(
+                player,
+                attr,
+                tier_gain,
+                adjustments,
+                intensity_multiplier=intensity,
+            )
             if delta:
                 changes[attr] = delta
 
@@ -309,7 +321,12 @@ def _resolve_potential(player: BasePlayer, attr: str) -> int | None:
 
 
 def _boost_attribute(
-    player: BasePlayer, attr: str, base_gain: int, adjustments: Dict[str, int]
+    player: BasePlayer,
+    attr: str,
+    base_gain: int,
+    adjustments: Dict[str, int],
+    *,
+    intensity_multiplier: float = 1.0,
 ) -> int:
     current = getattr(player, attr, None)
     if current is None:
@@ -322,7 +339,8 @@ def _boost_attribute(
         room = max(0, 99 - current)
 
     bias = adjustments.get(attr, 0)
-    gain = base_gain
+    intensity = _normalize_intensity_multiplier(intensity_multiplier)
+    gain = max(1, int(round(float(base_gain) * intensity)))
     if bias > 0:
         gain += min(2, (bias + 1) // 2)
     elif bias < 0:
@@ -340,9 +358,23 @@ def _boost_attribute(
     return gain
 
 
-def _run_pitch_lab(player: BasePlayer) -> Dict[str, int]:
+def _run_pitch_lab(
+    player: BasePlayer,
+    *,
+    intensity_multiplier: float = 1.0,
+) -> Dict[str, int]:
     before = {pitch: getattr(player, pitch, 0) for pitch in PITCH_FIELDS}
     spring_training_pitch(player)  # Reuse the existing aging helper for parity.
+    intensity = _normalize_intensity_multiplier(intensity_multiplier)
+    if abs(intensity - 1.0) > 1e-6:
+        for pitch in PITCH_FIELDS:
+            old_value = int(before.get(pitch, 0) or 0)
+            current = int(getattr(player, pitch, 0) or 0)
+            gained = max(0, current - old_value)
+            if gained <= 0:
+                continue
+            scaled_gain = max(1, int(round(gained * intensity)))
+            setattr(player, pitch, min(99, old_value + scaled_gain))
     changes: Dict[str, int] = {}
     for pitch, old_value in before.items():
         new_value = getattr(player, pitch, 0)
@@ -350,3 +382,11 @@ def _run_pitch_lab(player: BasePlayer) -> Dict[str, int]:
         if delta > 0:
             changes[pitch] = delta
     return changes
+
+
+def _normalize_intensity_multiplier(value: object) -> float:
+    try:
+        numeric = float(value)
+    except Exception:
+        numeric = 1.0
+    return max(0.75, min(1.35, numeric))

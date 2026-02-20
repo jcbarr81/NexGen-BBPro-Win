@@ -11,15 +11,16 @@ import os
 import time
 
 
-STATE_DIR = get_data_dir()
+def _state_dir() -> Path:
+    return get_data_dir()
 
 
 def _state_path(year: int) -> Path:
-    return STATE_DIR / f"draft_state_{year}.json"
+    return _state_dir() / f"draft_state_{year}.json"
 
 
 def _results_path(year: int) -> Path:
-    return STATE_DIR / f"draft_results_{year}.csv"
+    return _state_dir() / f"draft_results_{year}.csv"
 
 
 def load_state(year: int) -> Dict[str, Any]:
@@ -31,7 +32,7 @@ def load_state(year: int) -> Dict[str, Any]:
 
 
 def save_state(year: int, state: Dict[str, Any]) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    _state_dir().mkdir(parents=True, exist_ok=True)
     path = _state_path(year)
     _with_lock(path.with_suffix(path.suffix + ".lock"), lambda: path.write_text(json.dumps(state, indent=2), encoding="utf-8"))
 
@@ -42,7 +43,7 @@ def compute_order_from_season_stats(seed: int | None = None) -> List[str]:
     Worst winning percentage first; tie‑breakers by run differential (asc),
     then a deterministic random using the provided seed.
     """
-    stats_path = STATE_DIR / "season_stats.json"
+    stats_path = _state_dir() / "season_stats.json"
     try:
         data = json.loads(stats_path.read_text(encoding="utf-8"))
     except Exception:

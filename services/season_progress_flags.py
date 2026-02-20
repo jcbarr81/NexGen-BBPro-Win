@@ -10,7 +10,13 @@ from typing import Any
 
 from utils.path_utils import get_data_dir
 
-PROGRESS_PATH = get_data_dir() / "season_progress.json"
+
+def _progress_path() -> Path:
+    return get_data_dir() / "season_progress.json"
+
+
+# Backward-compatible default path handle for callers that import this symbol.
+PROGRESS_PATH = _progress_path()
 
 
 class ProgressUpdateError(RuntimeError):
@@ -26,7 +32,7 @@ def mark_draft_completed(
 ) -> None:
     """Ensure ``year`` is present in ``draft_completed_years``."""
 
-    path = Path(progress_path) if progress_path is not None else PROGRESS_PATH
+    path = Path(progress_path) if progress_path is not None else _progress_path()
     year_int = int(year)
     try:
         progress = _load_progress(path, retries=retries, delay=delay)
@@ -57,7 +63,7 @@ def mark_playoffs_completed(
 ) -> None:
     """Ensure the ``playoffs_done`` flag in ``season_progress.json`` is set."""
 
-    path = Path(progress_path) if progress_path is not None else PROGRESS_PATH
+    path = Path(progress_path) if progress_path is not None else _progress_path()
     try:
         progress = _load_progress(path, retries=retries, delay=delay)
     except Exception as exc:

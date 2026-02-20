@@ -21,7 +21,10 @@ __all__ = [
 ]
 
 VERSION = 1
-SETTINGS_PATH = get_data_dir() / "injury_settings.json"
+
+
+def _settings_path() -> Path:
+    return get_data_dir() / "injury_settings.json"
 
 LEVEL_OPTIONS: Dict[str, Dict[str, float]] = {
     "off": {"injuries_enabled": 0.0, "injury_rate_scale": 0.0},
@@ -97,9 +100,10 @@ def _resolve_league_id() -> str:
 
 
 def _load_payload() -> Dict[str, object]:
-    if SETTINGS_PATH.exists():
+    settings_path = _settings_path()
+    if settings_path.exists():
         try:
-            data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 return data
         except Exception:
@@ -108,5 +112,6 @@ def _load_payload() -> Dict[str, object]:
 
 
 def _write_payload(payload: MutableMapping[str, object]) -> None:
-    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    settings_path = _settings_path()
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

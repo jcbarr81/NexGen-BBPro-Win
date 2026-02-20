@@ -11,9 +11,9 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from playbalance.season_context import SeasonContext, CAREER_DATA_DIR
 from utils.news_logger import log_news_event
-from utils.path_utils import get_data_dir, resolve_app_path
+from utils.path_utils import ActivePath, get_data_dir, resolve_app_path
 
-HALL_OF_FAME_PATH = get_data_dir() / "hall_of_fame.json"
+HALL_OF_FAME_PATH = ActivePath(lambda: get_data_dir() / "hall_of_fame.json")
 HALL_OF_FAME_VERSION = 1
 DEFAULT_MIN_YEARS_RETIRED = 5
 DEFAULT_SCORE_THRESHOLD = 120.0

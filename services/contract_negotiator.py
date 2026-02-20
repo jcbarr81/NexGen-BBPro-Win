@@ -18,7 +18,6 @@ import random
 from typing import Iterable, List, Mapping
 
 from models.player import Player
-from models.team import Team
 
 
 def find_expiring_contracts(
@@ -39,8 +38,8 @@ def find_expiring_contracts(
 
 
 def evaluate_free_agent_bids(
-    player: Player, bids: Mapping[Team, float]
-) -> Team:
+    player: Player, bids: Mapping[object, float]
+) -> object:
     """Select the winning bid for a free agent.
 
     Parameters
@@ -48,13 +47,14 @@ def evaluate_free_agent_bids(
     player:
         The free agent being bid on.
     bids:
-        Mapping of :class:`~models.team.Team` objects to salary offers.
+        Mapping of team-like keys to salary offers. Keys can be
+        :class:`~models.team.Team` objects or team-id strings.
 
     Returns
     -------
-    Team
-        The team that wins the bidding.  The player's ``team_id`` attribute
-        is updated to reflect the signing.
+    object
+        The key that wins the bidding. The player's ``team_id`` attribute
+        is updated to reflect the winning team id.
     """
 
     if not bids:
@@ -64,6 +64,7 @@ def evaluate_free_agent_bids(
     top_teams = [team for team, offer in bids.items() if offer == max_offer]
     winner = random.choice(top_teams)
 
-    player.team_id = winner.team_id
+    winner_team_id = str(getattr(winner, "team_id", winner) or "").strip()
+    player.team_id = winner_team_id
     player.salary = max_offer
     return winner

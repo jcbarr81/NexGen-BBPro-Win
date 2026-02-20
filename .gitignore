@@ -123,3 +123,5 @@ Iron8/data/
 *.log
 *.tmp
 data/news_feed.txt
+data/record_book_snapshot.json
+data/special_events.json

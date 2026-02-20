@@ -1,0 +1,8 @@
+{
+  "name": "multi_league_v1",
+  "status": "failed",
+  "failed_at": "2026-02-15T22:22:43Z",
+  "backup_path": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\system\\backups\\pre_multi_league_v1_20260215_172243.zip",
+  "league_id": "legacy-league",
+  "error": "[WinError 32] The process cannot access the file because it is being used by another process: 'C:\\\\Users\\\\james\\\\Documents\\\\Baseball-AI\\\\NexGen-BBPro\\\\data\\\\logs\\\\startup.log'"
+}

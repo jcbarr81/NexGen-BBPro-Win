@@ -21,8 +21,15 @@ __all__ = [
     "reset_special_events",
 ]
 
-SPECIAL_EVENTS_PATH = get_data_dir() / "special_events.json"
 _VERSION = 1
+
+
+def _special_events_path() -> Path:
+    return get_data_dir() / "special_events.json"
+
+
+# Backward-compatible symbol for callers that import this path directly.
+SPECIAL_EVENTS_PATH = _special_events_path()
 
 
 @dataclass(frozen=True)
@@ -108,7 +115,7 @@ def record_special_events(
     event_list = [event for event in events if isinstance(event, dict)]
     if not event_list:
         return
-    target = path or SPECIAL_EVENTS_PATH
+    target = path or _special_events_path()
     payload = _load_payload(target)
     info = _resolve_season_info()
     if not payload.get("season_id"):
@@ -136,7 +143,7 @@ def load_special_events(
     player_id: str | None = None,
     limit: int | None = None,
 ) -> List[Dict[str, Any]]:
-    payload = _load_payload(path or SPECIAL_EVENTS_PATH)
+    payload = _load_payload(path or _special_events_path())
     events = payload.get("events", [])
     if not isinstance(events, list):
         return []
@@ -176,7 +183,7 @@ def load_player_special_events(
 
 
 def reset_special_events(*, path: Path | None = None) -> None:
-    target = path or SPECIAL_EVENTS_PATH
+    target = path or _special_events_path()
     payload = {"version": _VERSION, "season_id": "", "events": []}
     _write_payload(target, payload)
 

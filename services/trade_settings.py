@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 import csv
 import json
+from pathlib import Path
 from typing import Dict, MutableMapping
 
 from playbalance.season_context import SeasonContext
@@ -27,7 +28,6 @@ __all__ = [
 ]
 
 VERSION = 1
-SETTINGS_PATH = get_data_dir() / "trade_settings.json"
 
 DEFAULT_TRADES_ENABLED = True
 DEFAULT_DRAFT_PICK_TRADING_ENABLED = False
@@ -79,13 +79,22 @@ def current_league_year() -> int:
     return date.today().year
 
 
-def load_trade_settings() -> TradeSettings:
-    payload = _load_payload()
-    league_id = _resolve_league_id()
+def load_trade_settings(
+    path: Path | str | None = None,
+    *,
+    league_id: str | None = None,
+) -> TradeSettings:
+    payload = _load_payload(path=path)
+    resolved_league_id = _normalize_league_id(league_id) or _resolve_league_id()
     leagues = payload.setdefault("leagues", {})
-    data = leagues.get(league_id, {})
+    data = leagues.get(resolved_league_id, {})
+    if not data and len(leagues) == 1:
+        # Backward-compatible fallback for payloads keyed by a previous id.
+        data = next(iter(leagues.values()), {})
+    if not isinstance(data, dict):
+        data = {}
     settings = TradeSettings(
-        league_id=league_id,
+        league_id=resolved_league_id,
         trades_enabled=bool(data.get("trades_enabled", DEFAULT_TRADES_ENABLED)),
         draft_pick_trading_enabled=bool(
             data.get(
@@ -106,18 +115,24 @@ def load_trade_settings() -> TradeSettings:
     return settings.normalized()
 
 
-def save_trade_settings(settings: TradeSettings) -> None:
-    payload = _load_payload()
+def save_trade_settings(
+    settings: TradeSettings,
+    path: Path | str | None = None,
+    *,
+    league_id: str | None = None,
+) -> None:
+    payload = _load_payload(path=path)
     leagues = payload.setdefault("leagues", {})
     normalized = settings.normalized()
-    leagues[normalized.league_id] = {
+    target_league_id = _normalize_league_id(league_id) or normalized.league_id
+    leagues[target_league_id] = {
         "trades_enabled": normalized.trades_enabled,
         "draft_pick_trading_enabled": normalized.draft_pick_trading_enabled,
         "require_commissioner_approval": normalized.require_commissioner_approval,
         "max_pick_trade_years": normalized.max_pick_trade_years,
     }
     payload["version"] = VERSION
-    _write_payload(payload)
+    _write_payload(payload, path=path)
 
 
 def update_trade_settings(
@@ -126,8 +141,10 @@ def update_trade_settings(
     draft_pick_trading_enabled: bool | None = None,
     require_commissioner_approval: bool | None = None,
     max_pick_trade_years: int | None = None,
+    path: Path | str | None = None,
+    league_id: str | None = None,
 ) -> TradeSettings:
-    settings = load_trade_settings()
+    settings = load_trade_settings(path=path, league_id=league_id)
     if trades_enabled is not None:
         settings.trades_enabled = bool(trades_enabled)
     if draft_pick_trading_enabled is not None:
@@ -136,7 +153,7 @@ def update_trade_settings(
         settings.require_commissioner_approval = bool(require_commissioner_approval)
     if max_pick_trade_years is not None:
         settings.max_pick_trade_years = _normalize_max_years(max_pick_trade_years)
-    save_trade_settings(settings)
+    save_trade_settings(settings, path=path, league_id=league_id)
     return settings.normalized()
 
 
@@ -159,10 +176,20 @@ def _resolve_league_id() -> str:
         return "league"
 
 
-def _load_payload() -> Dict[str, object]:
-    if SETTINGS_PATH.exists():
+def _normalize_league_id(value: object) -> str:
+    text = str(value or "").strip()
+    return text or "league"
+
+
+def _settings_path(path: Path | str | None = None) -> Path:
+    return Path(path) if path is not None else (get_data_dir() / "trade_settings.json")
+
+
+def _load_payload(path: Path | str | None = None) -> Dict[str, object]:
+    settings_path = _settings_path(path)
+    if settings_path.exists():
         try:
-            data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 return data
         except Exception:
@@ -170,6 +197,7 @@ def _load_payload() -> Dict[str, object]:
     return {"version": VERSION, "leagues": {}}
 
 
-def _write_payload(payload: MutableMapping[str, object]) -> None:
-    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+def _write_payload(payload: MutableMapping[str, object], path: Path | str | None = None) -> None:
+    settings_path = _settings_path(path)
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

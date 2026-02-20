@@ -19,7 +19,7 @@ from utils.player_loader import load_players_from_csv
 import utils.lineup_loader as lineup_loader
 from utils.lineup_loader import build_default_game_state
 from utils import roster_loader
-from playbalance.season_context import SeasonContext
+from playbalance.season_context import SeasonContext, slugify_league_id
 from services.standings_repository import save_standings
 
 MAX_LEAGUE_TEAMS = 40
@@ -519,8 +519,8 @@ def create_league(
     with open(league_path, "w", newline="") as f:
         f.write(league_name)
 
-    # Initialize season context for the new league.
-    ctx = SeasonContext.load()
-    ctx.ensure_league(name=league_name)
+    # Initialize season context scoped to this league data directory.
+    ctx = SeasonContext.load(path=base_dir / "career_index.json")
+    ctx.ensure_league(name=league_name, league_id=slugify_league_id(league_name))
     ctx.ensure_current_season(league_year=date.today().year)
     ctx.save()

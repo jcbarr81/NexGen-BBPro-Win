@@ -54,9 +54,20 @@ class SeasonPage(DashboardPage):
         history.layout().addWidget(self.league_history_button, alignment=Qt.AlignmentFlag.AlignHCenter)
         history.layout().addStretch()
 
+        finance = Card()
+        finance.layout().addWidget(section_title("Offseason Finance"))
+
+        self.offseason_finance_button = QPushButton("Open Offseason Finance Workflow")
+        self.offseason_finance_button.setToolTip(
+            "Review and run offseason finance tasks (snapshot, arbitration, budget reset) and align owners to Owner Ops/GM-Coach Ops finance workflows"
+        )
+        finance.layout().addWidget(self.offseason_finance_button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        finance.layout().addStretch()
+
         layout.addWidget(control)
         layout.addWidget(ops)
         layout.addWidget(history)
+        layout.addWidget(finance)
         layout.addStretch()
 
 

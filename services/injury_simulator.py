@@ -127,11 +127,23 @@ def _bootstrap_catalog_file(path: Path) -> Dict[str, Any]:
     return catalog
 
 
-@lru_cache(maxsize=4)
-def load_injury_catalog(path: str = CATALOG_PATH) -> Dict[str, Any]:
-    """Load and cache the injury catalog JSON file."""
+def _catalog_cache_key(path: Path) -> tuple[str, int | None, int | None]:
+    resolved = path.resolve(strict=False)
+    try:
+        stat_result = resolved.stat()
+    except OSError:
+        return str(resolved), None, None
+    mtime_ns = getattr(stat_result, "st_mtime_ns", None)
+    if mtime_ns is None:
+        mtime_ns = int(stat_result.st_mtime * 1_000_000_000)
+    return str(resolved), mtime_ns, stat_result.st_size
 
-    catalog_path = resolve_app_path(path)
+
+@lru_cache(maxsize=16)
+def _load_injury_catalog_cached(
+    source_key: tuple[str, int | None, int | None],
+) -> Dict[str, Any]:
+    catalog_path = Path(source_key[0])
     try:
         with catalog_path.open("r", encoding="utf-8") as fh:
             return json.load(fh)
@@ -151,6 +163,16 @@ def load_injury_catalog(path: str = CATALOG_PATH) -> Dict[str, Any]:
             exc,
         )
         return catalog
+
+
+def load_injury_catalog(path: str = CATALOG_PATH) -> Dict[str, Any]:
+    """Load and cache the injury catalog JSON file."""
+
+    catalog_path = resolve_app_path(path)
+    return _load_injury_catalog_cached(_catalog_cache_key(catalog_path))
+
+
+load_injury_catalog.cache_clear = _load_injury_catalog_cached.cache_clear  # type: ignore[attr-defined]
 
 
 @dataclass

@@ -13,19 +13,20 @@ from utils.roster_loader import load_roster, save_roster
 LOW_MAX = 10
 
 
-DATA = get_data_dir()
+def _data_dir() -> Path:
+    return get_data_dir()
 
 
 def _players_csv_path() -> Path:
-    return DATA / "players.csv"
+    return _data_dir() / "players.csv"
 
 
 def _results_path(year: int) -> Path:
-    return DATA / f"draft_results_{year}.csv"
+    return _data_dir() / f"draft_results_{year}.csv"
 
 
 def _pool_path(year: int) -> Path:
-    return DATA / f"draft_pool_{year}.csv"
+    return _data_dir() / f"draft_pool_{year}.csv"
 
 
 def _load_pool_map(year: int) -> Dict[str, Dict[str, Any]]:
@@ -338,7 +339,7 @@ def commit_draft_results(
                     f"{tid} drafted {player_label}{pick_suffix}.",
                     category="draft",
                     team_id=tid,
-                    file_path=DATA / "news_feed.txt",
+                    file_path=_data_dir() / "news_feed.txt",
                 )
             except Exception:
                 pass

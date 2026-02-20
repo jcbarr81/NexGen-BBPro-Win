@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QGraphicsOpacityEffect,
+    QMessageBox,
 )
 from PyQt6.QtGui import QPixmap, QFont, QKeySequence, QShortcut
 from PyQt6.QtCore import Qt, QEvent, QPropertyAnimation, QEasingCurve, QTimer, QUrl
@@ -26,6 +27,7 @@ except Exception as exc:  # pragma: no cover - optional dependency
     pygame = None  # type: ignore[assignment]
 
 from ui.login_window import LoginWindow
+from services import league_registry
 from utils.path_utils import get_base_dir
 from ui.window_utils import show_on_top, set_all_on_top
 from ui.version_badge import enable_version_badge
@@ -402,14 +404,85 @@ class SplashScreen(QWidget):
         return "microsoft" in contents or "wsl" in contents
 
     def open_login(self):
-        """Show the login window while keeping the splash visible."""
-        # Disable the button to prevent spawning multiple login windows
+        """Handle Start Game with a create/load league choice."""
+        # Disable the button to prevent spawning multiple windows
         self.login_button.setEnabled(False)
-        # Stop splash music when transitioning
-        self._stop_music()
+        try:
+            choice = self._prompt_start_game_choice()
+            if choice is None:
+                self.login_button.setEnabled(True)
+                return
+            if choice == "create":
+                self._create_league_from_start_flow()
+                if not self._has_available_leagues():
+                    QMessageBox.information(
+                        self,
+                        "No League Available",
+                        "No playable league exists yet. Create a league to continue.",
+                    )
+                    self.login_button.setEnabled(True)
+                    return
+            elif not self._has_available_leagues():
+                QMessageBox.information(
+                    self,
+                    "No Leagues Found",
+                    "No saved leagues were found on this device. Choose Create New League first.",
+                )
+                self.login_button.setEnabled(True)
+                return
 
-        self.login_window = LoginWindow(self)
-        show_on_top(self.login_window)
+            # Stop splash music when transitioning into login/dashboard flow.
+            self._stop_music()
+            self.login_window = LoginWindow(self)
+            show_on_top(self.login_window)
+        except Exception:
+            logger.exception("Start Game flow failed")
+            self.login_button.setEnabled(True)
+
+    def _has_available_leagues(self) -> bool:
+        try:
+            records = [
+                record
+                for record in league_registry.list_leagues()
+                if record.status != "archived"
+            ]
+            return len(records) > 0
+        except Exception:
+            return False
+
+    def _prompt_start_game_choice(self) -> str | None:
+        records_exist = self._has_available_leagues()
+        box = QMessageBox(self)
+        box.setWindowTitle("Start Game")
+        if records_exist:
+            box.setText("Choose how you want to start:")
+        else:
+            box.setText("No saved leagues were found. Create a new league to begin.")
+        load_button = box.addButton("Load Existing League", QMessageBox.ButtonRole.AcceptRole)
+        create_button = box.addButton("Create New League", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        if not records_exist:
+            load_button.setEnabled(False)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is load_button:
+            return "load"
+        if clicked is create_button:
+            return "create"
+        return None
+
+    def _create_league_from_start_flow(self) -> None:
+        from ui.dashboard_core import DashboardContext
+        from ui.admin_dashboard.actions.league import create_league_action
+
+        # Reuse existing league creation flow without opening the full admin dashboard.
+        context = DashboardContext(
+            base_path=get_base_dir(),
+            run_async=lambda worker: worker(),
+            show_toast=None,
+            register_cleanup=None,
+        )
+        create_league_action(context=context, parent=self)
 
     def changeEvent(self, event):
         if event.type() == QEvent.Type.WindowStateChange:

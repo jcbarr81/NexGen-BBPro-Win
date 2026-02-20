@@ -7,9 +7,12 @@ class DummySignal:
         self._slot = None
     def connect(self, slot):
         self._slot = slot
-    def emit(self):
+    def emit(self, *args, **kwargs):
         if self._slot:
-            self._slot()
+            try:
+                self._slot(*args, **kwargs)
+            except TypeError:
+                self._slot()
 
 class QWidget:
     def __init__(self, *args, **kwargs):
@@ -32,9 +35,17 @@ class QWidget:
         pass
     def showMaximized(self):
         pass
+    def hide(self):
+        pass
+    def setContentsMargins(self, *args, **kwargs):
+        pass
+    def setSpacing(self, *args, **kwargs):
+        pass
 
 class QLabel:
     def __init__(self, *args, **kwargs):
+        pass
+    def hide(self):
         pass
 
 class QLineEdit:
@@ -62,6 +73,32 @@ class QPushButton:
     def setEnabled(self, val):
         pass
 
+class QComboBox:
+    def __init__(self, *args, **kwargs):
+        self.currentIndexChanged = DummySignal()
+        self._items = []
+        self._index = -1
+        self._signals_blocked = False
+    def blockSignals(self, blocked):
+        self._signals_blocked = bool(blocked)
+    def clear(self):
+        self._items = []
+        self._index = -1
+    def addItem(self, text, userData=None):
+        self._items.append((text, userData))
+        if self._index < 0:
+            self._index = 0
+    def setCurrentIndex(self, index):
+        self._index = index
+        if not self._signals_blocked:
+            self.currentIndexChanged.emit(index)
+    def currentData(self):
+        if 0 <= self._index < len(self._items):
+            return self._items[self._index][1]
+        return None
+    def hide(self):
+        pass
+
 class QVBoxLayout:
     def __init__(self, *args, **kwargs):
         pass
@@ -76,6 +113,24 @@ class QVBoxLayout:
     def setSpacing(self, *args, **kwargs):
         pass
 
+class QGridLayout(QVBoxLayout):
+    pass
+
+class QHBoxLayout(QVBoxLayout):
+    pass
+
+class QScrollArea(QWidget):
+    pass
+
+class QSizePolicy:
+    pass
+
+class QToolButton(QWidget):
+    pass
+
+class QBoxLayout(QVBoxLayout):
+    pass
+
 class QMessageBox:
     @staticmethod
     def critical(*args, **kwargs):
@@ -83,6 +138,11 @@ class QMessageBox:
     @staticmethod
     def warning(*args, **kwargs):
         pass
+
+class QInputDialog:
+    @staticmethod
+    def getText(*args, **kwargs):
+        return "", False
 
 class QApplication:
     def __init__(self, *args, **kwargs):
@@ -94,8 +154,19 @@ qtwidgets.QWidget = QWidget
 qtwidgets.QLabel = QLabel
 qtwidgets.QLineEdit = QLineEdit
 qtwidgets.QPushButton = QPushButton
+qtwidgets.QComboBox = QComboBox
 qtwidgets.QVBoxLayout = QVBoxLayout
+qtwidgets.QHBoxLayout = QHBoxLayout
+qtwidgets.QGridLayout = QGridLayout
+qtwidgets.QScrollArea = QScrollArea
+qtwidgets.QSizePolicy = QSizePolicy
+qtwidgets.QToolButton = QToolButton
+qtwidgets.QBoxLayout = QBoxLayout
 qtwidgets.QMessageBox = QMessageBox
+qtwidgets.QInputDialog = QInputDialog
+def _widgets_getattr(_name):
+    return QWidget
+qtwidgets.__getattr__ = _widgets_getattr  # type: ignore[attr-defined]
 sys.modules['PyQt6'] = types.ModuleType('PyQt6')
 sys.modules['PyQt6.QtWidgets'] = qtwidgets
 
@@ -105,6 +176,15 @@ class Qt:
         AlignCenter = 0
         AlignLeft = 1
         AlignRight = 2
+        AlignHCenter = 0
+        AlignVCenter = 0
+        AlignTop = 0
+        AlignBottom = 0
+    class ToolButtonStyle:
+        ToolButtonTextBesideIcon = None
+    class ScrollBarPolicy:
+        ScrollBarAlwaysOff = 0
+        ScrollBarAsNeeded = 1
 qtcore.Qt = Qt
 sys.modules['PyQt6.QtCore'] = qtcore
 

@@ -44,7 +44,7 @@ P2 - ADMIN + LONGER-TERM
 - [x] Records and special events need to be tracked and displayed
 - [x] Eventually add individual training focus per player
 - [x] Develop workflow for online leagues so that owners can make changes and then either send updates or upload them automtically
-- [ ] Add support for multiple leagues
+- [x] Add support for multiple leagues
 - [ ] Further refine the UI with a better scheme and/or graphics
 - [ ] Develop salary and free agency system
 - [x] Test and futher develop trading workflow, ensure trading of draft picks is enabled and tracked
@@ -61,7 +61,7 @@ P2 - ADMIN + LONGER-TERM
 - [x] Export reports to CSV/PDF for league history and analytics
 - [x] Rule presets, schedule templates, and quick-start league setups
 - [x] Online league tooling: change requests, approval queues, sync/audit log
-- [ ] Multi-league management: league switcher + per-league settings isolation
+- [x] Multi-league management: league switcher + per-league settings isolation
 - [ ] Optional shared player pools across leagues
 
 ==========

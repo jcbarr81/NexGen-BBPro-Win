@@ -23,13 +23,11 @@ except Exception:  # pragma: no cover - defensive import
     sip = None  # type: ignore
 
 from playbalance.league_creator import create_league, MAX_LEAGUE_TEAMS
+from playbalance.season_context import slugify_league_id
 from playbalance.schedule_generator import save_schedule
-from services.league_presets import (
-    generate_schedule_from_template,
-    record_league_metadata,
-)
 from playbalance.season_manager import SeasonManager, SeasonPhase
 
+from services import league_registry
 from ui.team_entry_dialog import TeamEntryDialog
 from ui.league_preset_dialogs import (
     LeagueSetupChoiceDialog,
@@ -51,6 +49,7 @@ from services.standings_repository import save_standings
 from services.league_presets import (
     apply_rule_preset,
     build_quickstart_structure,
+    generate_schedule_from_template,
     get_quickstart_preset,
     get_rule_preset,
     get_schedule_template,
@@ -61,6 +60,7 @@ from services.trade_settings import (
     MIN_ALLOWED_PICK_TRADE_YEARS,
     update_trade_settings,
 )
+from services.finance_settings import ensure_financial_defaults
 from utils.league_settings import configure_league_settings
 
 from ..context import DashboardContext
@@ -96,18 +96,6 @@ def create_league_action(
     if parent is None:
         return
 
-    confirm = QMessageBox.question(
-        parent,
-        "Overwrite Existing League?",
-        (
-            "Creating a new league will overwrite the current league and "
-            "teams. Continue?"
-        ),
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-    )
-    if confirm != QMessageBox.StandardButton.Yes:
-        return
-
     setup_dialog = LeagueSetupChoiceDialog(parent)
     if setup_dialog.exec() != QDialog.DialogCode.Accepted:
         return
@@ -117,6 +105,22 @@ def create_league_action(
     if not ok or not league_name:
         return
     league_name = league_name.strip()
+    league_id = slugify_league_id(league_name)
+    existing_league = league_registry.get_league(league_id)
+
+    if existing_league is not None:
+        overwrite = QMessageBox.question(
+            parent,
+            "Overwrite Existing League?",
+            (
+                f'League "{existing_league.display_name}" already exists '
+                f'(ID: {league_id}).\n\n'
+                "Creating this league will overwrite that league's data. Continue?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if overwrite != QMessageBox.StandardButton.Yes:
+            return
 
     owner_league = False
     commissioner_password: str | None = None
@@ -307,14 +311,39 @@ def create_league_action(
             return
 
         structure = dialog.get_structure()
-    data_dir = get_data_dir()
+    target_data_dir = league_registry.get_league_data_dir(league_id, create=True)
     try:
-        create_league(str(data_dir), structure, league_name)
+        create_league(str(target_data_dir), structure, league_name)
     except ValueError as exc:
         QMessageBox.warning(parent, "League Size Error", str(exc))
         return
     except OSError as exc:
-        QMessageBox.critical(parent, "Error", f"Failed to purge existing league: {exc}")
+        QMessageBox.critical(parent, "Error", f"Failed to create league data: {exc}")
+        return
+
+    league_mode = "owner_league" if owner_league else "single_player"
+    try:
+        if existing_league is None:
+            league_registry.register_league(
+                league_id,
+                display_name=league_name,
+                mode=league_mode,
+                status="active",
+            )
+        else:
+            league_registry.update_league(
+                league_id,
+                display_name=league_name,
+                mode=league_mode,
+                status="active",
+            )
+        league_registry.set_active_league(league_id, ensure_data_dir=True)
+    except Exception as exc:
+        QMessageBox.warning(
+            parent,
+            "League Registry",
+            f"League data was created, but registry update failed: {exc}",
+        )
         return
 
     rule_preset_id: Optional[str] = None
@@ -348,8 +377,9 @@ def create_league_action(
 
     try:
         configure_league_settings(
-            mode="owner_league" if owner_league else "single_player",
+            mode=league_mode,
             commissioner_password=commissioner_password,
+            path=target_data_dir / "league_settings.json",
         )
     except Exception as exc:
         QMessageBox.warning(
@@ -364,6 +394,8 @@ def create_league_action(
             draft_pick_trading_enabled=draft_pick_trading_enabled,
             require_commissioner_approval=require_commissioner_approval,
             max_pick_trade_years=max_pick_trade_years,
+            path=target_data_dir / "trade_settings.json",
+            league_id=league_id,
         )
     except Exception as exc:
         QMessageBox.warning(
@@ -372,7 +404,23 @@ def create_league_action(
             f"Unable to save trade settings: {exc}",
         )
 
-    QMessageBox.information(parent, "League Created", "New league generated.")
+    try:
+        ensure_financial_defaults(data_dir=target_data_dir, league_id=league_id)
+    except Exception as exc:
+        QMessageBox.warning(
+            parent,
+            "Financial Settings",
+            f"Unable to initialize financial data files: {exc}",
+        )
+
+    QMessageBox.information(
+        parent,
+        "League Created",
+        (
+            f'League "{league_name}" was created and set as active.\n'
+            "Restart the app if open windows still show data from the previous league."
+        ),
+    )
     try:
         reminder = QMessageBox(parent)
         reminder.setWindowTitle("Draft Settings Reminder")

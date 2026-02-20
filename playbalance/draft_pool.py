@@ -28,9 +28,16 @@ from utils.path_utils import get_data_dir
 from playbalance import player_generator as pg
 
 
-BASE = get_data_dir()
-NAMES = BASE / "names.csv"
-PLAYERS = BASE / "players.csv"
+def _base_dir() -> Path:
+    return get_data_dir()
+
+
+def _names_path() -> Path:
+    return _base_dir() / "names.csv"
+
+
+def _players_path() -> Path:
+    return _base_dir() / "players.csv"
 
 
 @dataclass
@@ -100,7 +107,9 @@ class DraftProspect:
 
 
 def _name_source() -> List[Dict[str, str]]:
-    path = PLAYERS if PLAYERS.exists() else NAMES
+    players_path = _players_path()
+    names_path = _names_path()
+    path = players_path if players_path.exists() else names_path
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8", newline="") as fh:
@@ -349,7 +358,7 @@ def generate_draft_pool(
 
 
 def save_draft_pool(year: int, prospects: List[DraftProspect]) -> None:
-    base = BASE
+    base = _base_dir()
     base.mkdir(parents=True, exist_ok=True)
     csv_path = base / f"draft_pool_{year}.csv"
     json_path = base / f"draft_pool_{year}.json"
@@ -379,7 +388,7 @@ def save_draft_pool(year: int, prospects: List[DraftProspect]) -> None:
 
 
 def load_draft_pool(year: int) -> List[Dict[str, object]]:
-    json_path = BASE / f"draft_pool_{year}.json"
+    json_path = _base_dir() / f"draft_pool_{year}.json"
     if not json_path.exists():
         return []
     try:

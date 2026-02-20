@@ -104,3 +104,43 @@ def test_player_profile_dialog_handles_missing_positions(monkeypatch):
     dlg = ppd.PlayerProfileDialog(player)
     assert dlg is not None
     assert calls == []
+
+
+def test_player_profile_overall_display_applies_scouting_adjustment(monkeypatch):
+    monkeypatch.setattr(
+        ppd, "load_stats", lambda: {"players": {}, "teams": {}, "history": []}
+    )
+    monkeypatch.setattr(ppd, "rating_display_value", lambda *args, **kwargs: 70)
+    monkeypatch.setattr(
+        ppd,
+        "scouting_display_value",
+        lambda value, **kwargs: int(value) + 2,
+    )
+    monkeypatch.setattr(ppd, "_lookup_player_team", lambda _pid: "AAA")
+
+    player = SimpleNamespace(
+        player_id="p3",
+        first_name="Scout",
+        last_name="Target",
+        birthdate="2001-01-01",
+        height=72,
+        weight=185,
+        bats="L",
+        primary_position="CF",
+        other_positions=[],
+        gf=50,
+        overall=68,
+        ch=60,
+        ph=62,
+        sp=75,
+        pl=55,
+        vl=54,
+        sc=58,
+        fa=52,
+        arm=57,
+    )
+
+    dlg = ppd.PlayerProfileDialog(player)
+    display = dlg._overall_display_value(68, player)
+
+    assert display == 72.0

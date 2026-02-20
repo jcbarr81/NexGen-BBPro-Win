@@ -1,0 +1,125 @@
+{
+  "season_id": "league-2026",
+  "events": [
+    {
+      "date": "2025-04-01",
+      "player_id": "P1",
+      "team_id": "TST",
+      "description": "Elbow",
+      "trigger": "",
+      "severity": "",
+      "days": 12,
+      "dl_tier": "dl15"
+    },
+    {
+      "date": "2025-04-01",
+      "player_id": "P2",
+      "team_id": "TST",
+      "description": "Shoulder",
+      "trigger": "",
+      "severity": "",
+      "days": 14,
+      "dl_tier": "dl15"
+    },
+    {
+      "date": "2025-04-01",
+      "player_id": "P3",
+      "team_id": "TST",
+      "description": "Forearm (day-to-day)",
+      "trigger": "",
+      "severity": "",
+      "days": 3,
+      "dl_tier": "none"
+    },
+    {
+      "date": "2025-04-01",
+      "player_id": "P1",
+      "team_id": "TST",
+      "description": "Elbow",
+      "trigger": "",
+      "severity": "",
+      "days": 12,
+      "dl_tier": "dl15"
+    },
+    {
+      "date": "2025-04-01",
+      "player_id": "P2",
+      "team_id": "TST",
+      "description": "Shoulder",
+      "trigger": "",
+      "severity": "",
+      "days": 14,
+      "dl_tier": "dl15"
+    },
+    {
+      "date": "2025-04-01",
+      "player_id": "P3",
+      "team_id": "TST",
+      "description": "Forearm (day-to-day)",
+      "trigger": "",
+      "severity": "",
+      "days": 3,
+      "dl_tier": "none"
+    },
+    {
+      "date": "2025-04-01",
+      "player_id": "P1",
+      "team_id": "TST",
+      "description": "Elbow",
+      "trigger": "",
+      "severity": "",
+      "days": 12,
+      "dl_tier": "dl15"
+    },
+    {
+      "date": "2025-04-01",
+      "player_id": "P2",
+      "team_id": "TST",
+      "description": "Shoulder",
+      "trigger": "",
+      "severity": "",
+      "days": 14,
+      "dl_tier": "dl15"
+    },
+    {
+      "date": "2025-04-01",
+      "player_id": "P3",
+      "team_id": "TST",
+      "description": "Forearm (day-to-day)",
+      "trigger": "",
+      "severity": "",
+      "days": 3,
+      "dl_tier": "none"
+    },
+    {
+      "date": "2025-04-01",
+      "player_id": "P1",
+      "team_id": "TST",
+      "description": "Elbow",
+      "trigger": "",
+      "severity": "",
+      "days": 12,
+      "dl_tier": "dl15"
+    },
+    {
+      "date": "2025-04-01",
+      "player_id": "P2",
+      "team_id": "TST",
+      "description": "Shoulder",
+      "trigger": "",
+      "severity": "",
+      "days": 14,
+      "dl_tier": "dl15"
+    },
+    {
+      "date": "2025-04-01",
+      "player_id": "P3",
+      "team_id": "TST",
+      "description": "Forearm (day-to-day)",
+      "trigger": "",
+      "severity": "",
+      "days": 3,
+      "dl_tier": "none"
+    }
+  ]
+}

@@ -52,6 +52,7 @@ from PyQt6.QtWidgets import (
 
 from .components import Card, section_title, build_metric_row
 from .stat_helpers import format_ip
+from services.owner_finance_engine import get_team_finance_snapshot
 
 
 class OwnerHomePage(QWidget):
@@ -174,6 +175,47 @@ class OwnerHomePage(QWidget):
         readiness_row.addWidget(self.bullpen_widget, 1)
         readiness_row.addWidget(self.matchup_widget, 1)
         self.readiness_card.layout().addLayout(readiness_row)
+
+        # Finance card ---------------------------------------------------
+        self.finance_card = Card()
+        self.finance_card.setMinimumHeight(180)
+        self.finance_card.layout().addWidget(section_title("Finance Summary"))
+        self.finance_status_label = QLabel("Finance data unavailable.")
+        self.finance_status_label.setWordWrap(True)
+        self.finance_status_label.setStyleSheet("font-weight: 600;")
+        self.finance_net_label = QLabel("Projected Monthly Net: --")
+        self.finance_net_label.setWordWrap(True)
+        self.finance_net_label.setStyleSheet("font-weight: 700; color: #d4a76a;")
+        self.finance_projection_label = QLabel("")
+        self.finance_projection_label.setWordWrap(True)
+        self.finance_projection_label.setStyleSheet("color: #b8b8b8;")
+        self.finance_budget_label = QLabel("")
+        self.finance_budget_label.setWordWrap(True)
+        self.finance_budget_label.setStyleSheet("color: #9da1aa;")
+        self.finance_card.layout().addWidget(self.finance_status_label)
+        self.finance_card.layout().addWidget(self.finance_net_label)
+        self.finance_card.layout().addWidget(self.finance_projection_label)
+        self.finance_card.layout().addWidget(self.finance_budget_label)
+
+        finance_actions = QHBoxLayout()
+        finance_actions.setSpacing(10)
+        self.finance_open_button = QPushButton("Open Finance Hub", objectName="Primary")
+        open_finance = getattr(self._dashboard, "open_finance_hub", None)
+        if not callable(open_finance):
+            open_finance = getattr(self._dashboard, "open_finance_snapshot", None)
+        if callable(open_finance):
+            self.finance_open_button.clicked.connect(open_finance)
+        self.finance_tutorial_button = QPushButton("Finance Tutorial")
+        self.finance_tutorial_button.setObjectName("Secondary")
+        finance_tutorial = getattr(self._dashboard, "show_finance_snapshot_tutorial", None)
+        if callable(finance_tutorial):
+            self.finance_tutorial_button.clicked.connect(
+                lambda: finance_tutorial(force=True)
+            )
+        finance_actions.addWidget(self.finance_open_button)
+        finance_actions.addWidget(self.finance_tutorial_button)
+        finance_actions.addStretch()
+        self.finance_card.layout().addLayout(finance_actions)
 
         # Quick actions card ---------------------------------------------
         self.quick_actions_card = Card()
@@ -342,6 +384,7 @@ class OwnerHomePage(QWidget):
         self._cards = [
             self.metrics_card,
             self.readiness_card,
+            self.finance_card,
             self.quick_actions_card,
             self.performance_card,
             self.news_card,
@@ -461,6 +504,7 @@ class OwnerHomePage(QWidget):
 
         self._update_news_display()
         self._update_draft_notice()
+        self._update_finance_summary()
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
@@ -665,6 +709,60 @@ class OwnerHomePage(QWidget):
         message = notice.get("message") or "Draft is ready."
         self.draft_notice_label.setText(str(message))
 
+    @staticmethod
+    def _fmt_currency(value: int) -> str:
+        sign = "-" if value < 0 else ""
+        return f"{sign}${abs(int(value)):,}"
+
+    def _update_finance_summary(self) -> None:
+        team_id = str(getattr(self._dashboard, "team_id", "") or "").strip()
+        if not team_id:
+            self.finance_status_label.setText("Finance data unavailable.")
+            self.finance_net_label.setText("Projected Monthly Net: --")
+            self.finance_net_label.setStyleSheet("font-weight: 700; color: #d4a76a;")
+            self.finance_projection_label.setText("Team context is missing.")
+            self.finance_budget_label.setText("")
+            return
+        snapshot = get_team_finance_snapshot(team_id)
+        if snapshot is None:
+            self.finance_status_label.setText("Finance data unavailable.")
+            self.finance_net_label.setText("Projected Monthly Net: --")
+            self.finance_net_label.setStyleSheet("font-weight: 700; color: #d4a76a;")
+            self.finance_projection_label.setText(
+                "Initialize finance settings and run simulation to populate projections."
+            )
+            self.finance_budget_label.setText("")
+            return
+
+        revenue_total = sum(snapshot.projected_revenue.values())
+        expense_total = sum(snapshot.projected_expenses.values())
+        net = int(snapshot.projected_net)
+        net_word = "gain" if net >= 0 else "loss"
+        self.finance_status_label.setText(
+            (
+                f"Cash {self._fmt_currency(snapshot.cash_on_hand)} | "
+                f"Debt {self._fmt_currency(snapshot.debt)}"
+            )
+        )
+        net_color = "#2fa36b" if net > 0 else "#d45b5b" if net < 0 else "#d4a76a"
+        net_prefix = "+" if net > 0 else ""
+        self.finance_net_label.setText(
+            f"Projected Monthly Net: {net_prefix}{self._fmt_currency(net)} ({net_word})"
+        )
+        self.finance_net_label.setStyleSheet(f"font-weight: 700; color: {net_color};")
+        self.finance_projection_label.setText(
+            (
+                f"Projected Revenue {self._fmt_currency(revenue_total)} | "
+                f"Expenses {self._fmt_currency(expense_total)} "
+                f"({snapshot.preset}, {'On' if snapshot.financials_enabled else 'Off'})"
+            )
+        )
+        budgets_text = ", ".join(
+            f"{name}: {self._fmt_currency(amount)}"
+            for name, amount in snapshot.projected_budgets.items()
+        )
+        self.finance_budget_label.setText(f"Budget Targets - {budgets_text}")
+
     def _arrange_quick_actions(self, columns: int) -> None:
         narrow = columns == 1
         try:
@@ -704,9 +802,10 @@ class OwnerHomePage(QWidget):
             self._arrange_quick_actions(columns=3)
             self._place_card(self.metrics_card, 0, 0)
             self._place_card(self.quick_actions_card, 0, 1)
-            self._place_card(self.readiness_card, 1, 0)
-            self._place_card(self.news_card, 1, 1)
-            self._place_card(self.performance_card, 2, 0, 1, 2)
+            self._place_card(self.finance_card, 1, 0)
+            self._place_card(self.readiness_card, 1, 1)
+            self._place_card(self.news_card, 2, 0)
+            self._place_card(self.performance_card, 2, 1)
             self._grid.setColumnStretch(0, 3)
             self._grid.setColumnStretch(1, 2)
             self._grid.setColumnStretch(2, 0)
@@ -717,9 +816,10 @@ class OwnerHomePage(QWidget):
             self._arrange_quick_actions(columns=2)
             self._place_card(self.metrics_card, 0, 0)
             self._place_card(self.quick_actions_card, 0, 1)
-            self._place_card(self.readiness_card, 1, 0)
-            self._place_card(self.news_card, 1, 1)
-            self._place_card(self.performance_card, 2, 0, 1, 2)
+            self._place_card(self.finance_card, 1, 0)
+            self._place_card(self.readiness_card, 1, 1)
+            self._place_card(self.news_card, 2, 0)
+            self._place_card(self.performance_card, 2, 1)
             self._grid.setColumnStretch(0, 1)
             self._grid.setColumnStretch(1, 1)
             self._grid.setColumnStretch(2, 0)

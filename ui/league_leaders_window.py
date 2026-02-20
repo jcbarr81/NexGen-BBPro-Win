@@ -73,11 +73,11 @@ def _set_style(widget: Any, style: str) -> None:
 
 from .stat_helpers import format_number, top_players
 from utils.player_loader import load_players_from_csv
-from utils.path_utils import get_data_dir
+from utils.path_utils import ActivePath, get_data_dir
 from utils.stats_persistence import load_stats as _load_season_stats
 
-DATA_DIR = get_data_dir()
-PLAYERS_FILE = DATA_DIR / "players.csv"
+DATA_DIR = ActivePath(get_data_dir)
+PLAYERS_FILE = ActivePath(lambda: get_data_dir() / "players.csv")
 
 RETRO_GREEN = "#0f3b19"
 RETRO_GREEN_DARK = "#0b2a12"

@@ -5,13 +5,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict
 
-from utils.path_utils import get_data_dir
+from utils.path_utils import ActivePath, get_data_dir
 from utils.league_benchmarks import load_league_benchmarks
 
 from .pbini_loader import load_pbini
 
-DATA_DIR = get_data_dir()
-_OVERRIDE_PATH = DATA_DIR / "playbalance_overrides.json"
+DATA_DIR = ActivePath(get_data_dir)
+_OVERRIDE_PATH = ActivePath(lambda: get_data_dir() / "playbalance_overrides.json")
 
 # MLB averages used to derive strike-based foul rates from all pitches.
 # These baseline percentages are tuned to yield roughly four pitches per
@@ -836,12 +836,84 @@ _BASE_DEFAULTS = dict(_DEFAULTS)
 
 # League benchmark metrics loaded from CSV for calibration
 _BENCHMARK_PATH = (
-    DATA_DIR / "MLB_avg" / "mlb_league_benchmarks_2025_filled.csv"
+    ActivePath(
+        lambda: get_data_dir() / "MLB_avg" / "mlb_league_benchmarks_2025_filled.csv"
+    )
 )
-try:
-    _benchmarks = load_league_benchmarks(_BENCHMARK_PATH)
-except OSError:  # pragma: no cover - file may be missing in some envs
-    _benchmarks = {}
+_DEFAULTS_SCOPE: tuple[
+    tuple[str, int | None, int | None],
+    tuple[str, int | None, int | None],
+] | None = None
+
+
+def _path_token(path: Path) -> tuple[str, int | None, int | None]:
+    resolved = path.resolve(strict=False)
+    try:
+        stat_result = resolved.stat()
+    except OSError:
+        return str(resolved), None, None
+    mtime_ns = getattr(stat_result, "st_mtime_ns", None)
+    if mtime_ns is None:
+        mtime_ns = int(stat_result.st_mtime * 1_000_000_000)
+    return str(resolved), mtime_ns, stat_result.st_size
+
+
+def _read_overrides(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def _apply_benchmark_defaults(defaults: Dict[str, Any], benchmarks: Dict[str, Any]) -> None:
+    if not benchmarks:
+        return
+    defaults["ballInPlayPitchPct"] = int(
+        round(benchmarks.get("pitches_put_in_play_pct", 0.175) * 100)
+    ) - 1
+    # Disable pitch injection to let natural swing decisions set Pitches/PA
+    # Aim for MLB-like pitches per plate appearance; allow engine to
+    # inject non-decisive pitches to reach the target on average.
+    defaults["targetPitchesPerPA"] = benchmarks.get("pitches_per_pa", 4.0)
+    dp_pct = benchmarks.get("bip_double_play_pct", 0.028)
+    gb_pct = benchmarks.get("bip_gb_pct", 0.44)
+    if gb_pct:
+        # Moderate calibration bump so DP probability approaches MLB in-season.
+        base_dp = dp_pct / gb_pct
+        defaults["doublePlayProb"] = round(min(1.0, max(0.0, base_dp + 0.08)), 3)
+
+
+def _refresh_runtime_defaults(*, override_path: Path | None = None, force: bool = False) -> Dict[str, Any]:
+    global _DEFAULTS_SCOPE
+    benchmark_path = Path(_BENCHMARK_PATH)
+    resolved_override = Path(_OVERRIDE_PATH if override_path is None else override_path)
+    scope = (_path_token(benchmark_path), _path_token(resolved_override))
+    if not force and _DEFAULTS_SCOPE == scope:
+        return _read_overrides(resolved_override)
+
+    extra_defaults = {
+        key: value for key, value in _DEFAULTS.items() if key not in _BASE_DEFAULTS
+    }
+    defaults = dict(_BASE_DEFAULTS)
+    try:
+        benchmarks = load_league_benchmarks(benchmark_path)
+    except OSError:  # pragma: no cover - file may be missing in some envs
+        benchmarks = {}
+    _apply_benchmark_defaults(defaults, benchmarks)
+    overrides = _read_overrides(resolved_override)
+    defaults.update(overrides)
+    for key, value in extra_defaults.items():
+        defaults.setdefault(key, value)
+    _DEFAULTS.clear()
+    _DEFAULTS.update(defaults)
+    _DEFAULTS_SCOPE = scope
+    return overrides
 
 
 @dataclass
@@ -857,6 +929,7 @@ class PlayBalanceConfig:
     values: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        _refresh_runtime_defaults()
         if "pitchCalibrationEnabled" not in self.values:
             self.values["pitchCalibrationEnabled"] = _DEFAULTS.get(
                 "pitchCalibrationEnabled", 0
@@ -911,36 +984,26 @@ class PlayBalanceConfig:
     def load_overrides(cls, path: Path | None = None) -> Dict[str, Any]:
         """Merge overrides from ``path`` into the module defaults."""
 
-        path = _OVERRIDE_PATH if path is None else path
-        if path.exists():
-            try:
-                with path.open("r", encoding="utf-8") as fh:
-                    data = json.load(fh)
-                if isinstance(data, dict):
-                    _DEFAULTS.update(data)
-                    return data
-            except (OSError, json.JSONDecodeError):
-                pass
-        return {}
+        path = Path(_OVERRIDE_PATH if path is None else path)
+        return _refresh_runtime_defaults(override_path=path, force=True)
 
     def save_overrides(self, path: Path | None = None) -> None:
         """Persist current values to ``path`` as overrides."""
 
-        path = _OVERRIDE_PATH if path is None else path
+        path = Path(_OVERRIDE_PATH if path is None else path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as fh:
             json.dump(self.values, fh, indent=2, sort_keys=True)
-        _DEFAULTS.update(self.values)
+        _refresh_runtime_defaults(override_path=path, force=True)
 
     def reset(self, path: Path | None = None) -> None:
         """Reset configuration and remove any saved overrides."""
 
-        path = _OVERRIDE_PATH if path is None else path
+        path = Path(_OVERRIDE_PATH if path is None else path)
         self.values.clear()
-        _DEFAULTS.clear()
-        _DEFAULTS.update(_BASE_DEFAULTS)
         if path.exists():
             path.unlink()
+        _refresh_runtime_defaults(override_path=path, force=True)
 
     # ------------------------------------------------------------------
     # Convenience accessors
@@ -1093,24 +1156,7 @@ class PlayBalanceConfig:
             self.values[key] = value
 
 
-if _benchmarks:
-    _DEFAULTS["ballInPlayPitchPct"] = int(
-        round(_benchmarks.get("pitches_put_in_play_pct", 0.175) * 100)
-    ) - 1
-    # Disable pitch injection to let natural swing decisions set Pitches/PA
-    # Aim for MLB-like pitches per plate appearance; allow engine to
-    # inject non-decisive pitches to reach the target on average.
-    _DEFAULTS["targetPitchesPerPA"] = _benchmarks.get("pitches_per_pa", 4.0)
-    dp_pct = _benchmarks.get("bip_double_play_pct", 0.028)
-    gb_pct = _benchmarks.get("bip_gb_pct", 0.44)
-    if gb_pct:
-        # Moderate calibration bump so DP probability approaches MLB in-season.
-        base_dp = dp_pct / gb_pct
-        _DEFAULTS["doublePlayProb"] = round(min(1.0, max(0.0, base_dp + 0.08)), 3)
-
-# Apply overrides after incorporating league benchmark defaults so that any
-# manual tuning in ``playbalance_overrides.json`` takes precedence.
-PlayBalanceConfig.load_overrides()
+_refresh_runtime_defaults(force=True)
 
 
 __all__ = ["PlayBalanceConfig"]

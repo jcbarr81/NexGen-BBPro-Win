@@ -73,6 +73,19 @@ def _rating_source_path() -> Path:
     return base_dir / "players.csv"
 
 
+def _distribution_source_key() -> tuple[str, int | None, int | None]:
+    path = _rating_source_path()
+    resolved = path.resolve(strict=False)
+    try:
+        stat_result = resolved.stat()
+    except OSError:
+        return str(resolved), None, None
+    mtime_ns = getattr(stat_result, "st_mtime_ns", None)
+    if mtime_ns is None:
+        mtime_ns = int(stat_result.st_mtime * 1_000_000_000)
+    return str(resolved), mtime_ns, stat_result.st_size
+
+
 def overall_rating(player: object) -> int:
     is_pitcher = bool(
         getattr(player, "is_pitcher", False)
@@ -106,8 +119,10 @@ def _overall_from_row(row: Dict[str, object], keys: Tuple[str, ...]) -> Optional
     return max(0, min(99, int(round(avg))))
 
 
-@lru_cache(maxsize=1)
-def _load_distributions() -> Dict[str, Dict[str, Dict[str, List[int]]]]:
+@lru_cache(maxsize=8)
+def _load_distributions(
+    source_key: tuple[str, int | None, int | None],
+) -> Dict[str, Dict[str, Dict[str, List[int]]]]:
     distributions = {
         "hitters": {key: [] for key in _HITTER_KEYS | _EXTRA_KEYS},
         "pitchers": {key: [] for key in _PITCHER_KEYS | _EXTRA_KEYS},
@@ -117,7 +132,7 @@ def _load_distributions() -> Dict[str, Dict[str, Dict[str, List[int]]]]:
             for bucket in POSITION_BUCKETS
         },
     }
-    path = _rating_source_path()
+    path = Path(source_key[0])
     if not path.exists():
         return distributions
 
@@ -237,7 +252,7 @@ def _select_distribution(
     position_bucket: Optional[str] = None,
     use_position_bucket: bool = False,
 ) -> List[int]:
-    distributions = _load_distributions()
+    distributions = _load_distributions(_distribution_source_key())
     if is_pitcher is False and position_bucket and use_position_bucket:
         values = distributions["hitters_by_bucket"].get(position_bucket, {}).get(key, [])
         if values:

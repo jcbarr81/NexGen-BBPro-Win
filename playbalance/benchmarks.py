@@ -10,10 +10,12 @@ from pathlib import Path
 from typing import Dict
 import csv
 
-from utils.path_utils import get_data_dir, resolve_app_path
+from utils.path_utils import ActivePath, get_data_dir, resolve_app_path
 
 
-BENCHMARK_CSV = get_data_dir() / "MLB_avg" / "mlb_league_benchmarks_2025_filled.csv"
+BENCHMARK_CSV = ActivePath(
+    lambda: get_data_dir() / "MLB_avg" / "mlb_league_benchmarks_2025_filled.csv"
+)
 
 
 def load_benchmarks(path: str | Path = BENCHMARK_CSV) -> Dict[str, float]:

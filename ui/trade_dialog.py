@@ -18,15 +18,22 @@ from PyQt6.QtWidgets import (
 )
 
 from models.trade import Trade
+from services.contracts_service import transfer_contracts
 from services.draft_pick_ledger import (
     format_pick_label,
     list_team_tradable_picks,
     transfer_pick,
 )
+from services.payroll_policy import (
+    evaluate_trade_payroll_impact,
+    format_payroll_policy_message,
+    record_payroll_policy_result,
+)
 from services.trade_settings import load_trade_settings
 from services.transaction_log import record_transaction
 from services.unified_data_service import get_unified_data_service
 from utils.player_loader import load_players_from_csv
+from utils.path_utils import get_data_dir
 from utils.roster_loader import load_roster, save_roster
 from utils.team_loader import load_teams
 from utils.trade_utils import get_pending_trades, save_trade
@@ -83,11 +90,15 @@ class TradeDialog(QDialog):
         teams = [t.team_id for t in load_teams() if t.team_id != self.team_id]
         self.team_dropdown.addItems(teams)
         self.team_dropdown.currentTextChanged.connect(self._refresh_receive_list)
+        self.team_dropdown.currentTextChanged.connect(
+            lambda _value: self._update_new_trade_policy_preview()
+        )
         layout.addWidget(self.team_dropdown)
 
         layout.addWidget(QLabel("Players to Give"))
         self.give_list = QListWidget()
         self.give_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        self.give_list.itemSelectionChanged.connect(self._update_new_trade_policy_preview)
         roster = load_roster(self.team_id)
         for pid in roster.act:
             self.give_list.addItem(self._make_player_item(pid))
@@ -96,6 +107,7 @@ class TradeDialog(QDialog):
         layout.addWidget(QLabel("Players to Receive"))
         self.receive_list = QListWidget()
         self.receive_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        self.receive_list.itemSelectionChanged.connect(self._update_new_trade_policy_preview)
         layout.addWidget(self.receive_list)
         self._refresh_receive_list(self.team_dropdown.currentText())
 
@@ -120,6 +132,11 @@ class TradeDialog(QDialog):
         self.receive_pick_list.setEnabled(self.trade_settings.draft_pick_trading_enabled)
         layout.addWidget(self.receive_pick_list)
         self._refresh_pick_lists(self.team_dropdown.currentText())
+
+        self.new_trade_policy_label = QLabel("Payroll policy preview: select trade assets.")
+        self.new_trade_policy_label.setWordWrap(True)
+        layout.addWidget(self.new_trade_policy_label)
+        self._update_new_trade_policy_preview()
 
         submit_btn = QPushButton("Submit Trade")
         submit_btn.clicked.connect(self._submit_trade)
@@ -321,10 +338,12 @@ class TradeDialog(QDialog):
     def _refresh_receive_list(self, team_id: str):
         self.receive_list.clear()
         if not team_id:
+            self._update_new_trade_policy_preview()
             return
         roster = load_roster(team_id)
         for pid in roster.act:
             self.receive_list.addItem(self._make_player_item(pid))
+        self._update_new_trade_policy_preview()
 
     def _refresh_pick_lists(self, team_id: str) -> None:
         self.give_pick_list.clear()
@@ -343,6 +362,53 @@ class TradeDialog(QDialog):
             item = QListWidgetItem(format_pick_label(pick.pick_id))
             item.setData(Qt.ItemDataRole.UserRole, pick.pick_id)
             self.receive_pick_list.addItem(item)
+
+    def _build_trade_from_current_selection(self) -> Trade | None:
+        to_team = self.team_dropdown.currentText()
+        if not to_team:
+            return None
+        give_ids = [i.data(Qt.ItemDataRole.UserRole) for i in self.give_list.selectedItems()]
+        recv_ids = [i.data(Qt.ItemDataRole.UserRole) for i in self.receive_list.selectedItems()]
+        give_pick_ids = [i.data(Qt.ItemDataRole.UserRole) for i in self.give_pick_list.selectedItems()]
+        recv_pick_ids = [i.data(Qt.ItemDataRole.UserRole) for i in self.receive_pick_list.selectedItems()]
+        return Trade(
+            trade_id="preview",
+            from_team=self.team_id,
+            to_team=to_team,
+            give_player_ids=give_ids,
+            receive_player_ids=recv_ids,
+            give_pick_ids=give_pick_ids,
+            receive_pick_ids=recv_pick_ids,
+        )
+
+    def _update_new_trade_policy_preview(self) -> None:
+        label = getattr(self, "new_trade_policy_label", None)
+        if label is None:
+            return
+        trade = self._build_trade_from_current_selection()
+        if trade is None:
+            label.setText("Payroll policy preview: select a trade partner.")
+            label.setStyleSheet("")
+            return
+        if not trade.give_player_ids and not trade.receive_player_ids:
+            label.setText("Payroll policy preview: select players to evaluate payroll impact.")
+            label.setStyleSheet("")
+            return
+        result = evaluate_trade_payroll_impact(
+            trade,
+            players_by_id=self.players,
+        )
+        if not result.violations:
+            label.setText("Payroll policy preview: no payroll rule issues detected.")
+            label.setStyleSheet("color: #2fa36b;")
+            return
+        summary = format_payroll_policy_message(result).replace("\n", " ")
+        if result.allowed and result.warning:
+            label.setText(f"Payroll policy preview (warning): {summary}")
+            label.setStyleSheet("color: #d4a76a;")
+            return
+        label.setText(f"Payroll policy preview (blocked): {summary}")
+        label.setStyleSheet("color: #d45b5b;")
 
     def _submit_trade(self):
         if not self.trade_settings.trades_enabled:
@@ -382,6 +448,36 @@ class TradeDialog(QDialog):
             give_pick_ids=give_pick_ids,
             receive_pick_ids=recv_pick_ids,
         )
+        policy = evaluate_trade_payroll_impact(
+            trade,
+            players_by_id=self.players,
+        )
+        if not policy.allowed:
+            record_payroll_policy_result(
+                policy,
+                action="owner_trade_submit",
+                data_dir=get_data_dir(),
+            )
+            QMessageBox.warning(
+                self,
+                "Payroll Policy Blocked",
+                format_payroll_policy_message(policy),
+            )
+            return
+        if policy.warning:
+            record_payroll_policy_result(
+                policy,
+                action="owner_trade_submit",
+                data_dir=get_data_dir(),
+            )
+            proceed = QMessageBox.question(
+                self,
+                "Payroll Policy Warning",
+                format_payroll_policy_message(policy) + "\n\nSubmit this trade anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if proceed != QMessageBox.StandardButton.Yes:
+                return
         try:
             save_trade(trade)
         except RuntimeError as exc:
@@ -399,7 +495,14 @@ class TradeDialog(QDialog):
         layout = QVBoxLayout(widget)
 
         self.incoming_list = QListWidget()
+        self.incoming_list.currentItemChanged.connect(
+            lambda _current, _previous: self._update_incoming_policy_preview()
+        )
         layout.addWidget(self.incoming_list)
+
+        self.incoming_policy_label = QLabel("Payroll policy preview: select an incoming trade.")
+        self.incoming_policy_label.setWordWrap(True)
+        layout.addWidget(self.incoming_policy_label)
 
         btn_row = QHBoxLayout()
         accept_btn = QPushButton("Accept")
@@ -435,6 +538,37 @@ class TradeDialog(QDialog):
             )
             self.incoming_list.addItem(summary)
             self.trade_map[summary] = t
+        self._update_incoming_policy_preview()
+
+    def _update_incoming_policy_preview(self) -> None:
+        label = getattr(self, "incoming_policy_label", None)
+        if label is None:
+            return
+        selected = self.incoming_list.currentItem()
+        if selected is None:
+            label.setText("Payroll policy preview: select an incoming trade.")
+            label.setStyleSheet("")
+            return
+        trade = self.trade_map.get(selected.text())
+        if trade is None:
+            label.setText("Payroll policy preview: unable to evaluate selected trade.")
+            label.setStyleSheet("")
+            return
+        result = evaluate_trade_payroll_impact(
+            trade,
+            players_by_id=self.players,
+        )
+        if not result.violations:
+            label.setText("Payroll policy preview: no payroll rule issues detected.")
+            label.setStyleSheet("color: #2fa36b;")
+            return
+        summary = format_payroll_policy_message(result).replace("\n", " ")
+        if result.allowed and result.warning:
+            label.setText(f"Payroll policy preview (warning): {summary}")
+            label.setStyleSheet("color: #d4a76a;")
+            return
+        label.setText(f"Payroll policy preview (blocked): {summary}")
+        label.setStyleSheet("color: #d45b5b;")
 
     def _respond_to_trade(self, accept: bool):
         selected = self.incoming_list.currentItem()
@@ -469,6 +603,36 @@ class TradeDialog(QDialog):
                 )
                 self.incoming_list.takeItem(self.incoming_list.currentRow())
                 return
+            policy = evaluate_trade_payroll_impact(
+                trade,
+                players_by_id=self.players,
+            )
+            if not policy.allowed:
+                record_payroll_policy_result(
+                    policy,
+                    action="owner_trade_accept",
+                    data_dir=get_data_dir(),
+                )
+                QMessageBox.warning(
+                    self,
+                    "Payroll Policy Blocked",
+                    format_payroll_policy_message(policy),
+                )
+                return
+            if policy.warning:
+                record_payroll_policy_result(
+                    policy,
+                    action="owner_trade_accept",
+                    data_dir=get_data_dir(),
+                )
+                proceed = QMessageBox.question(
+                    self,
+                    "Payroll Policy Warning",
+                    format_payroll_policy_message(policy) + "\n\nProceed with this trade?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if proceed != QMessageBox.StandardButton.Yes:
+                    return
             trade.status = "accepted"
             try:
                 self._process_trade(trade)
@@ -509,6 +673,19 @@ class TradeDialog(QDialog):
 
         save_roster(trade.from_team, from_roster)
         save_roster(trade.to_team, to_roster)
+        try:
+            transfer_contracts(
+                trade.give_player_ids,
+                trade.to_team,
+                players_by_id=self.players,
+            )
+            transfer_contracts(
+                trade.receive_player_ids,
+                trade.from_team,
+                players_by_id=self.players,
+            )
+        except Exception:
+            pass
         try:
             for pid in trade.give_player_ids:
                 record_transaction(

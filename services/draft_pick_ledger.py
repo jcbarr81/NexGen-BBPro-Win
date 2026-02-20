@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+from pathlib import Path
 from typing import Dict, Iterable, List, MutableMapping, Tuple
 
 from playbalance.draft_config import load_draft_config
@@ -24,7 +25,10 @@ __all__ = [
 ]
 
 VERSION = 1
-LEDGER_PATH = get_data_dir() / "draft_pick_ledger.json"
+
+
+def _ledger_path() -> Path:
+    return get_data_dir() / "draft_pick_ledger.json"
 
 
 @dataclass(frozen=True)
@@ -186,9 +190,10 @@ def _resolve_league_id() -> str:
 
 
 def _load_payload() -> Dict[str, object]:
-    if LEDGER_PATH.exists():
+    path = _ledger_path()
+    if path.exists():
         try:
-            data = json.loads(LEDGER_PATH.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 return data
         except Exception:
@@ -213,6 +218,7 @@ def _league_pick_map(payload: MutableMapping[str, object], league_id: str) -> Mu
 
 
 def _write_payload(payload: MutableMapping[str, object]) -> None:
+    path = _ledger_path()
     payload["version"] = VERSION
-    LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LEDGER_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

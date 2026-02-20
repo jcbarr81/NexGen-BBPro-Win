@@ -10,17 +10,19 @@ try:
 except Exception:  # pragma: no cover - optional dependency for CLI usage
     pd = None
 
-from utils.path_utils import get_data_dir
+from utils.path_utils import ActivePath, get_data_dir
 
 # Constants
-BASE_DIR = get_data_dir()
-NAME_PATH = BASE_DIR / "names.csv"
-PLAYER_PATH = BASE_DIR / "players.csv"
-NORMALIZED_PLAYER_PATH = BASE_DIR / "players_normalized.csv"
+BASE_DIR = ActivePath(get_data_dir)
+NAME_PATH = ActivePath(lambda: get_data_dir() / "names.csv")
+PLAYER_PATH = ActivePath(lambda: get_data_dir() / "players.csv")
+NORMALIZED_PLAYER_PATH = ActivePath(lambda: get_data_dir() / "players_normalized.csv")
 POSITION_AVERAGE_PATH = (
-    BASE_DIR
-    / "MLB_avg"
-    / "mlb_position_averages_2021-2025YTD.csv"
+    ActivePath(
+        lambda: get_data_dir()
+        / "MLB_avg"
+        / "mlb_position_averages_2021-2025YTD.csv"
+    )
 )
 
 
@@ -50,10 +52,8 @@ def _load_position_averages(path: Path) -> Dict[str, Dict[str, float]]:
     return data
 
 
-POSITION_AVERAGES = _load_position_averages(POSITION_AVERAGE_PATH)
-
-if not POSITION_AVERAGES:
-    POSITION_AVERAGES = {
+def _default_position_averages() -> Dict[str, Dict[str, float]]:
+    return {
         "C": {"AVG": 0.233, "OBP": 0.302, "SLG": 0.383, "OPS": 0.685, "wRC+": 90.0},
         "1B": {"AVG": 0.251, "OBP": 0.328, "SLG": 0.427, "OPS": 0.755, "wRC+": 109.0},
         "2B": {"AVG": 0.247, "OBP": 0.313, "SLG": 0.384, "OPS": 0.698, "wRC+": 94.0},
@@ -65,6 +65,16 @@ if not POSITION_AVERAGES:
         "DH": {"AVG": 0.249, "OBP": 0.330, "SLG": 0.442, "OPS": 0.772, "wRC+": 114.0},
         "P": {"AVG": 0.108, "OBP": 0.147, "SLG": 0.137, "OPS": 0.284},
     }
+
+
+def _current_position_average_path() -> Path:
+    return Path(POSITION_AVERAGE_PATH).resolve(strict=False)
+
+
+POSITION_AVERAGES = _load_position_averages(Path(POSITION_AVERAGE_PATH))
+if not POSITION_AVERAGES:
+    POSITION_AVERAGES = _default_position_averages()
+_POSITION_AVERAGES_PATH: Path | None = _current_position_average_path()
 
 
 HITTER_RATING_KEYS = (
@@ -93,6 +103,7 @@ PITCHER_RATING_KEYS = (
 )
 PITCHER_PITCH_KEYS = ("fb", "cu", "cb", "sl", "si", "scb", "kn")
 _RATING_DISTRIBUTIONS: Optional[Dict[str, Any]] = None
+_RATING_DISTRIBUTIONS_SOURCE: Path | None = None
 
 PLAYER_CSV_DEFAULTS: Dict[str, Any] = {
     "player_id": "",
@@ -286,13 +297,18 @@ def _load_rating_distributions(path: Path) -> Dict[str, Any]:
 
 
 def _rating_distributions() -> Dict[str, Any]:
-    global _RATING_DISTRIBUTIONS
-    if _RATING_DISTRIBUTIONS is None:
-        source_path = (
-            NORMALIZED_PLAYER_PATH
-            if NORMALIZED_PLAYER_PATH.exists()
-            else PLAYER_PATH
-        )
+    global _RATING_DISTRIBUTIONS, _RATING_DISTRIBUTIONS_SOURCE
+    source_path = (
+        Path(NORMALIZED_PLAYER_PATH)
+        if Path(NORMALIZED_PLAYER_PATH).exists()
+        else Path(PLAYER_PATH)
+    ).resolve(strict=False)
+    if (
+        _RATING_DISTRIBUTIONS is None
+        or _RATING_DISTRIBUTIONS_SOURCE is None
+        or _RATING_DISTRIBUTIONS_SOURCE != source_path
+    ):
+        _RATING_DISTRIBUTIONS_SOURCE = source_path
         _RATING_DISTRIBUTIONS = _load_rating_distributions(source_path)
     return _RATING_DISTRIBUTIONS
 
@@ -1011,11 +1027,38 @@ def _build_hitter_guardrails() -> Dict[str, Dict[str, float]]:
 
 HITTER_GUARDRAILS = _build_hitter_guardrails()
 DEFAULT_HITTER_GUARDRAIL = {"contact_center": 52.0, "power_center": 52.0, "speed_center": 50.0}
+_NAME_SOURCE_PATH: Path | None = None
+
+
+def _refresh_position_averages() -> None:
+    global POSITION_AVERAGES, _POSITION_AVERAGES_PATH, HITTER_GUARDRAILS
+    current_path = _current_position_average_path()
+    if _POSITION_AVERAGES_PATH == current_path:
+        return
+    loaded = _load_position_averages(Path(POSITION_AVERAGE_PATH))
+    POSITION_AVERAGES = loaded or _default_position_averages()
+    _POSITION_AVERAGES_PATH = current_path
+    HITTER_GUARDRAILS = _build_hitter_guardrails()
+
+
+def _current_name_source_path() -> Path:
+    source = Path(PLAYER_PATH) if Path(PLAYER_PATH).exists() else Path(NAME_PATH)
+    return source.resolve(strict=False)
+
+
+def _refresh_name_pool() -> None:
+    global name_pool, used_names, _NAME_SOURCE_PATH
+    current_source = _current_name_source_path()
+    if _NAME_SOURCE_PATH == current_source:
+        return
+    name_pool = _load_name_pool()
+    used_names = set()
+    _NAME_SOURCE_PATH = current_source
 
 
 def _load_name_pool() -> Dict[str, List[Tuple[str, str]]]:
     pool: Dict[str, List[Tuple[str, str]]] = {}
-    source = PLAYER_PATH if PLAYER_PATH.exists() else NAME_PATH
+    source = Path(PLAYER_PATH) if Path(PLAYER_PATH).exists() else Path(NAME_PATH)
     if source.exists():
         with source.open(newline="") as f:
             reader = csv.DictReader(f)
@@ -1030,6 +1073,7 @@ def _load_name_pool() -> Dict[str, List[Tuple[str, str]]]:
 
 name_pool = _load_name_pool()
 used_names: Set[Tuple[str, str]] = set()
+_NAME_SOURCE_PATH = _current_name_source_path()
 
 # Age generation tables derived from the original ARR configuration.  Each
 # entry maps a player type to a ``(base, num_dice, num_sides)`` tuple used when
@@ -1043,9 +1087,10 @@ AGE_TABLES: Dict[str, Tuple[int, int, int]] = {
 
 
 def reset_name_cache():
-    global name_pool, used_names
+    global name_pool, used_names, _NAME_SOURCE_PATH
     name_pool = _load_name_pool()
     used_names = set()
+    _NAME_SOURCE_PATH = _current_name_source_path()
 
     
 # Helper Functions
@@ -1198,6 +1243,7 @@ def _generate_durability(age: int, is_pitcher: bool) -> int:
 def generate_name() -> tuple[str, str, str]:
     """Return a unique ``(first, last, ethnicity)`` tuple."""
 
+    _refresh_name_pool()
     if name_pool:
         total_names = sum(len(v) for v in name_pool.values())
         if len(used_names) >= total_names:
@@ -1495,6 +1541,7 @@ PITCH_LIST = ["fb", "si", "cu", "cb", "sl", "kn", "sc"]
 
 
 def _guardrail_for_position(position: str) -> Dict[str, float]:
+    _refresh_position_averages()
     return HITTER_GUARDRAILS.get(position, HITTER_GUARDRAILS.get("CF", DEFAULT_HITTER_GUARDRAIL))
 
 

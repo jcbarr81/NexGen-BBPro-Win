@@ -26,9 +26,12 @@ TRANSACTION_COLUMNS = [
     "details",
 ]
 
-_TRANSACTIONS_PATH = get_data_dir() / "transactions.csv"
-_PLAYER_NAME_CACHE: dict[str, str] | None = None
+_PLAYER_NAME_CACHE: dict[Path, dict[str, str]] = {}
 _TRANSACTIONS_TOPIC = "transactions"
+
+
+def _transactions_path() -> Path:
+    return get_data_dir() / "transactions.csv"
 
 
 def _ensure_path(path: Path) -> None:
@@ -40,24 +43,25 @@ def _ensure_path(path: Path) -> None:
 
 
 def _player_name(pid: str) -> str:
-    global _PLAYER_NAME_CACHE
-    if _PLAYER_NAME_CACHE is None:
+    players_path = (get_data_dir() / "players.csv").resolve(strict=False)
+    names = _PLAYER_NAME_CACHE.get(players_path)
+    if names is None:
         try:
-            players = load_players_from_csv("data/players.csv")
+            players = load_players_from_csv(str(players_path))
         except Exception:
             players = []
-        _PLAYER_NAME_CACHE = {
+        names = {
             p.player_id: f"{p.first_name} {p.last_name}".strip()
             for p in players
         }
-    return _PLAYER_NAME_CACHE.get(pid, pid)
+        _PLAYER_NAME_CACHE[players_path] = names
+    return names.get(pid, pid)
 
 
 def reset_player_cache() -> None:
     """Clear cached player name lookups (e.g., after adding new players)."""
 
-    global _PLAYER_NAME_CACHE
-    _PLAYER_NAME_CACHE = None
+    _PLAYER_NAME_CACHE.clear()
 
 
 def _read_transactions(path: Path) -> List[dict[str, str]]:
@@ -80,11 +84,12 @@ def record_transaction(
     details: str | None = None,
     season_date: str | None = None,
     timestamp: datetime | None = None,
-    path: Path = _TRANSACTIONS_PATH,
+    path: Path | None = None,
 ) -> None:
     """Append a transaction entry for *team_id* related to *player_id*."""
 
-    _ensure_path(path)
+    target_path = path or _transactions_path()
+    _ensure_path(target_path)
     stamp = timestamp or datetime.now()
     ts_str = stamp.strftime("%Y-%m-%d %H:%M:%S")
     season_val = season_date if season_date is not None else get_current_sim_date()
@@ -100,18 +105,18 @@ def record_transaction(
         "counterparty": counterparty or "",
         "details": details or "",
     }
-    with path.open("a", encoding="utf-8", newline="") as fh:
+    with target_path.open("a", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=TRANSACTION_COLUMNS)
         writer.writerow(row)
     service = get_unified_data_service()
     try:
-        cached = service.get_document(path, _read_transactions, topic=_TRANSACTIONS_TOPIC)
+        cached = service.get_document(target_path, _read_transactions, topic=_TRANSACTIONS_TOPIC)
     except Exception:
-        service.invalidate_document(path, topic=_TRANSACTIONS_TOPIC)
+        service.invalidate_document(target_path, topic=_TRANSACTIONS_TOPIC)
         return
     if not cached or cached[-1] != row:
         cached.append(dict(row))
-    service.update_document(path, cached, topic=_TRANSACTIONS_TOPIC)
+    service.update_document(target_path, cached, topic=_TRANSACTIONS_TOPIC)
 
 
 def load_transactions(
@@ -119,12 +124,13 @@ def load_transactions(
     team_id: str | None = None,
     actions: Iterable[str] | None = None,
     limit: int | None = None,
-    path: Path = _TRANSACTIONS_PATH,
+    path: Path | None = None,
 ) -> List[dict[str, str]]:
     """Return recorded transactions, optionally filtered by team/action."""
 
+    target_path = path or _transactions_path()
     service = get_unified_data_service()
-    rows = service.get_document(path, _read_transactions, topic=_TRANSACTIONS_TOPIC)
+    rows = service.get_document(target_path, _read_transactions, topic=_TRANSACTIONS_TOPIC)
     rows.sort(key=lambda row: row.get("timestamp", ""), reverse=True)
     if team_id:
         rows = [row for row in rows if row.get("team_id") == team_id]

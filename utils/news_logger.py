@@ -4,8 +4,17 @@ import json
 
 from utils.path_utils import get_data_dir
 
-NEWS_FILE = get_data_dir() / "news_feed.txt"
-NEWS_JSONL = get_data_dir() / "news_feed.jsonl"
+
+def _news_file() -> Path:
+    return get_data_dir() / "news_feed.txt"
+
+
+def _news_jsonl() -> Path:
+    return get_data_dir() / "news_feed.jsonl"
+
+
+NEWS_FILE = _news_file()
+NEWS_JSONL = _news_jsonl()
 
 _MOJIBAKE_REPLACEMENTS: dict[str, str] = {
     "â€”": " - ",
@@ -27,7 +36,13 @@ def sanitize_news_text(text: str) -> str:
     return cleaned
 
 
-def log_news_event(event: str, *, category: str | None = None, team_id: str | None = None, file_path: Path = NEWS_FILE):
+def log_news_event(
+    event: str,
+    *,
+    category: str | None = None,
+    team_id: str | None = None,
+    file_path: Path | None = None,
+):
     """Append a timestamped news event to the news feed file.
 
     Parameters
@@ -43,7 +58,7 @@ def log_news_event(event: str, *, category: str | None = None, team_id: str | No
     """
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    path = Path(file_path)
+    path = Path(file_path) if file_path is not None else _news_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     tag_cat = f" [{category}]" if category else ""
     tag_team = f" [{team_id}]" if team_id else ""
@@ -51,7 +66,13 @@ def log_news_event(event: str, *, category: str | None = None, team_id: str | No
         f.write(f"[{timestamp}]{tag_cat}{tag_team} {sanitize_news_text(event)}\n")
 
 
-def log_news_json(event: str, *, category: str | None = None, team_id: str | None = None, jsonl_path: Path = NEWS_JSONL) -> None:
+def log_news_json(
+    event: str,
+    *,
+    category: str | None = None,
+    team_id: str | None = None,
+    jsonl_path: Path | None = None,
+) -> None:
     """Append a structured news event as JSONL for programmatic consumption."""
 
     rec = {
@@ -60,7 +81,7 @@ def log_news_json(event: str, *, category: str | None = None, team_id: str | Non
         "category": category,
         "team_id": team_id,
     }
-    path = Path(jsonl_path)
+    path = Path(jsonl_path) if jsonl_path is not None else _news_jsonl()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(rec) + "\n")

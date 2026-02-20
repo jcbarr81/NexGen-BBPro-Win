@@ -112,7 +112,16 @@ from .training_focus_dialog import TrainingFocusDialog
 from .change_request_export_dialog import ChangeRequestExportDialog
 from .ui_template import _load_baseball_pixmap, _load_nav_icon
 from .playoffs_window import PlayoffsWindow
-from utils.roster_loader import load_roster
+from .free_agency_window import FreeAgencyWindow
+from services import league_registry
+from services.contracts_service import sign_free_agent_contract
+from services.contracts_service import estimate_salary_for_player
+from services.payroll_policy import (
+    evaluate_free_agent_signing,
+    format_payroll_policy_message,
+    record_payroll_policy_result,
+)
+from utils.roster_loader import load_roster, save_roster
 from utils.player_loader import load_players_from_csv
 from utils.free_agent_finder import find_free_agents
 from utils.pitcher_role import get_role
@@ -229,6 +238,7 @@ class OwnerDashboard(QMainWindow):
         self.btn_team = NavButton("  Team")
         self.btn_records = NavButton("  Records & Leaders")
         self.btn_transactions = NavButton("  Moves & Trades")
+        self.btn_finance = NavButton("  Finance")
         self.btn_league = NavButton("  League Hub")
 
         for b in (
@@ -237,6 +247,7 @@ class OwnerDashboard(QMainWindow):
             self.btn_team,
             self.btn_records,
             self.btn_transactions,
+            self.btn_finance,
             self.btn_league,
         ):
             side.addWidget(b)
@@ -247,6 +258,7 @@ class OwnerDashboard(QMainWindow):
             "team": self.btn_team,
             "records": self.btn_records,
             "transactions": self.btn_transactions,
+            "finance": self.btn_finance,
             "league": self.btn_league,
         }
 
@@ -257,6 +269,7 @@ class OwnerDashboard(QMainWindow):
             "team": "nav_team.svg",
             "records": "nav_team.svg",
             "transactions": "nav_transactions.svg",
+            "finance": "nav_utilities.svg",
             "league": "nav_league.svg",
         }
         tooltips = {
@@ -265,6 +278,7 @@ class OwnerDashboard(QMainWindow):
             "team": "Team schedule and stats",
             "records": "Team records and leaders",
             "transactions": "Transactions, trades, and movement",
+            "finance": "Owner finance projection and transaction history",
             "league": "League schedule, standings, and stats",
         }
         for key, button in self.nav_buttons.items():
@@ -300,6 +314,9 @@ class OwnerDashboard(QMainWindow):
         title.setFont(QFont(title.font().family(), 11, weight=QFont.Weight.ExtraBold))
         h.addWidget(title)
         h.addStretch()
+        self.league_badge = QLabel("League: -")
+        self.league_badge.setObjectName("Scoreboard")
+        h.addWidget(self.league_badge, alignment=Qt.AlignmentFlag.AlignRight)
         self.scoreboard = QLabel("Ready")
         self.scoreboard.setObjectName("Scoreboard")
         h.addWidget(self.scoreboard, alignment=Qt.AlignmentFlag.AlignRight)
@@ -341,8 +358,10 @@ class OwnerDashboard(QMainWindow):
         self.btn_team.clicked.connect(lambda: self._go("team"))
         self.btn_records.clicked.connect(lambda: self._go("records"))
         self.btn_transactions.clicked.connect(lambda: self._go("transactions"))
+        self.btn_finance.clicked.connect(lambda: self._go("finance"))
         self.btn_league.clicked.connect(lambda: self._go("league"))
         self._go("home")
+        self._update_league_badge()
 
         # Expose actions for tests
         self.schedule_action = QAction(self)
@@ -364,6 +383,7 @@ class OwnerDashboard(QMainWindow):
             "change_requests": f"change_requests_tutorial_{team_id}",
             "free_agency": f"free_agency_tutorial_{team_id}",
             "team_settings": f"team_settings_tutorial_{team_id}",
+            "finance_snapshot": f"finance_snapshot_tutorial_{team_id}",
             "schedule": f"schedule_tutorial_{team_id}",
             "league_hub": f"league_hub_tutorial_{team_id}",
             "reports": f"reports_exports_tutorial_{team_id}",
@@ -410,86 +430,127 @@ class OwnerDashboard(QMainWindow):
         except Exception:
             pass
 
+    def _build_tutorial_menu(self) -> None:
+        tutorials_menu = self.menuBar().addMenu("&Tutorials")
+
+        def _add_tutorial_action(
+            menu: object,
+            label: str,
+            callback: Callable[..., None],
+        ) -> None:
+            action = QAction(label, self)
+            action.triggered.connect(
+                lambda _checked=False, cb=callback: cb(force=True)
+            )
+            menu.addAction(action)  # type: ignore[attr-defined]
+
+        tutorial_categories = [
+            (
+                "Getting Started",
+                [
+                    ("Dashboard Overview", self.show_dashboard_overview_tutorial),
+                    ("League Hub Tour", self.show_league_hub_tutorial),
+                    ("Schedule & Calendar", self.show_schedule_tutorial),
+                ],
+            ),
+            (
+                "Roster & Team",
+                [
+                    ("Roster Moves Guide", self.show_roster_moves_tutorial),
+                    ("Lineup & Strategy Tutorial", self.show_lineup_strategy_tutorial),
+                    ("Pitching Staff Tutorial", self.show_pitching_staff_tutorial),
+                    ("Depth Chart Basics", self.show_depth_chart_tutorial),
+                    ("Injury Center Guide", self.show_injury_center_tutorial),
+                    ("Team Settings", self.show_team_settings_tutorial),
+                ],
+            ),
+            (
+                "Development",
+                [
+                    ("Training Camp & Development", self.show_training_camp_tutorial),
+                    (
+                        "Individual Training Focus",
+                        self.show_player_training_focus_tutorial,
+                    ),
+                    ("Draft Console Guide", self.show_draft_console_tutorial),
+                    ("Free Agency Basics", self.show_free_agency_tutorial),
+                ],
+            ),
+            (
+                "Transactions & Finance",
+                [
+                    ("Trades & Transactions", self.show_trades_tutorial),
+                    ("Owner Change Requests", self.show_change_request_tutorial),
+                    ("Finance Hub Overview", self.show_finance_snapshot_tutorial),
+                    ("Reports & Exports", self.show_reports_tutorial),
+                ],
+            ),
+            (
+                "Commissioner",
+                [
+                    ("Admin Tools Overview", self.show_admin_tools_tutorial),
+                ],
+            ),
+        ]
+
+        for category_label, entries in tutorial_categories:
+            category_menu = tutorials_menu.addMenu(category_label)
+            for action_label, callback in entries:
+                _add_tutorial_action(category_menu, action_label, callback)
+
+        owner_tools_menu = self.menuBar().addMenu("&Owner Tools")
+
+        submit_change_request_action = QAction("Submit Change Request...", self)
+        submit_change_request_action.setStatusTip(
+            "Export roster, lineup, pitching, and depth chart updates for commissioner approval"
+        )
+        submit_change_request_action.triggered.connect(self.open_change_request_export_dialog)
+        owner_tools_menu.addAction(submit_change_request_action)
+
+        lineup_editor_action = QAction("Lineup Editor...", self)
+        lineup_editor_action.setStatusTip("Open lineup editor for vs LHP and vs RHP lineups")
+        lineup_editor_action.triggered.connect(self.open_lineup_editor)
+        owner_tools_menu.addAction(lineup_editor_action)
+
+        pitching_staff_action = QAction("Pitching Staff...", self)
+        pitching_staff_action.setStatusTip("Open pitching staff roles and rotation editor")
+        pitching_staff_action.triggered.connect(self.open_pitching_editor)
+        owner_tools_menu.addAction(pitching_staff_action)
+
+        reassign_players_action = QAction("Reassign Players...", self)
+        reassign_players_action.setStatusTip("Move players across ACT/AAA/LOW roster levels")
+        reassign_players_action.triggered.connect(self.open_reassign_players_dialog)
+        owner_tools_menu.addAction(reassign_players_action)
+
+        trade_center_action = QAction("Trade Center...", self)
+        trade_center_action.setStatusTip("Open trade dialog to submit offers")
+        trade_center_action.triggered.connect(self.open_trade_dialog)
+        owner_tools_menu.addAction(trade_center_action)
+
+        free_agency_action = QAction("Free Agency Hub...", self)
+        free_agency_action.setStatusTip("Browse unsigned players and simulate free-agent bids")
+        free_agency_action.triggered.connect(self.open_free_agency_hub)
+        owner_tools_menu.addAction(free_agency_action)
+
+        finance_snapshot_action = QAction("Open Finance Hub...", self)
+        finance_snapshot_action.setStatusTip(
+            "Open the Finance hub (Owner Ops + GM/Coach Ops) for projections and queue visibility"
+        )
+        finance_snapshot_action.triggered.connect(self.open_finance_hub)
+        owner_tools_menu.addAction(finance_snapshot_action)
+
+        owner_tools_menu.addSeparator()
+
+        team_settings_tools_action = QAction("Team Settings...", self)
+        team_settings_tools_action.setStatusTip("Open team branding and stadium settings")
+        team_settings_tools_action.triggered.connect(self.open_team_settings_dialog)
+        owner_tools_menu.addAction(team_settings_tools_action)
+
         simulate_menu = self.menuBar().addMenu("&Simulate")
         self.season_progress_action = QAction("Season Progress...", self)
         self.season_progress_action.setStatusTip("Open season progress controls")
         self.season_progress_action.triggered.connect(self.open_season_progress_window)
         simulate_menu.addAction(self.season_progress_action)
-
-    def _build_tutorial_menu(self) -> None:
-        tutorials_menu = self.menuBar().addMenu("&Tutorials")
-
-        depth_action = QAction("Depth Chart Basics", self)
-        depth_action.triggered.connect(lambda: self.show_depth_chart_tutorial(force=True))
-        tutorials_menu.addAction(depth_action)
-
-        injury_action = QAction("Injury Center Guide", self)
-        injury_action.triggered.connect(lambda: self.show_injury_center_tutorial(force=True))
-        tutorials_menu.addAction(injury_action)
-
-        roster_action = QAction("Roster Moves Guide", self)
-        roster_action.triggered.connect(lambda: self.show_roster_moves_tutorial(force=True))
-        tutorials_menu.addAction(roster_action)
-
-        pitching_action = QAction("Pitching Staff Tutorial", self)
-        pitching_action.triggered.connect(lambda: self.show_pitching_staff_tutorial(force=True))
-        tutorials_menu.addAction(pitching_action)
-
-        lineup_action = QAction("Lineup & Strategy Tutorial", self)
-        lineup_action.triggered.connect(lambda: self.show_lineup_strategy_tutorial(force=True))
-        tutorials_menu.addAction(lineup_action)
-
-        overview_action = QAction("Dashboard Overview", self)
-        overview_action.triggered.connect(lambda: self.show_dashboard_overview_tutorial(force=True))
-        tutorials_menu.addAction(overview_action)
-
-        training_action = QAction("Training Camp & Development", self)
-        training_action.triggered.connect(lambda: self.show_training_camp_tutorial(force=True))
-        tutorials_menu.addAction(training_action)
-
-        player_training_action = QAction("Individual Training Focus", self)
-        player_training_action.triggered.connect(
-            lambda: self.show_player_training_focus_tutorial(force=True)
-        )
-        tutorials_menu.addAction(player_training_action)
-
-        draft_action = QAction("Draft Console Guide", self)
-        draft_action.triggered.connect(lambda: self.show_draft_console_tutorial(force=True))
-        tutorials_menu.addAction(draft_action)
-
-        trades_action = QAction("Trades & Transactions", self)
-        trades_action.triggered.connect(lambda: self.show_trades_tutorial(force=True))
-        tutorials_menu.addAction(trades_action)
-
-        change_requests_action = QAction("Owner Change Requests", self)
-        change_requests_action.triggered.connect(
-            lambda: self.show_change_request_tutorial(force=True)
-        )
-        tutorials_menu.addAction(change_requests_action)
-
-        free_agency_action = QAction("Free Agency Basics", self)
-        free_agency_action.triggered.connect(lambda: self.show_free_agency_tutorial(force=True))
-        tutorials_menu.addAction(free_agency_action)
-
-        team_settings_action = QAction("Team Settings", self)
-        team_settings_action.triggered.connect(lambda: self.show_team_settings_tutorial(force=True))
-        tutorials_menu.addAction(team_settings_action)
-
-        schedule_action = QAction("Schedule & Calendar", self)
-        schedule_action.triggered.connect(lambda: self.show_schedule_tutorial(force=True))
-        tutorials_menu.addAction(schedule_action)
-
-        league_action = QAction("League Hub Tour", self)
-        league_action.triggered.connect(lambda: self.show_league_hub_tutorial(force=True))
-        tutorials_menu.addAction(league_action)
-
-        reports_action = QAction("Reports & Exports", self)
-        reports_action.triggered.connect(lambda: self.show_reports_tutorial(force=True))
-        tutorials_menu.addAction(reports_action)
-
-        admin_action = QAction("Admin Tools Overview", self)
-        admin_action.triggered.connect(lambda: self.show_admin_tools_tutorial(force=True))
-        tutorials_menu.addAction(admin_action)
 
     def _load_tutorial_flags(self) -> dict[str, bool]:
         try:
@@ -602,8 +663,9 @@ class OwnerDashboard(QMainWindow):
         steps = [
             TutorialStep(
                 "Reassigning Players",
-                "<p>Use <b>Reassign Players</b> on the Roster page to promote/demote between ACT, AAA, and Low."
-                " The dialog enforces roster limits and highlights when a level is full.</p>",
+                "<p>Use <b>Owner Tools -> Reassign Players</b> (or the Roster page button)"
+                " to promote/demote between ACT, AAA, and Low. The dialog enforces roster limits"
+                " and highlights when a level is full.</p>",
             ),
             TutorialStep(
                 "Replacing Injured Players",
@@ -627,7 +689,8 @@ class OwnerDashboard(QMainWindow):
         steps = [
             TutorialStep(
                 "Rotation Order",
-                "<p>Open <b>Pitching Staff</b> to drag your rotation slots. "
+                "<p>Open <b>Owner Tools -> Pitching Staff</b> (or the Roster page action)"
+                " to drag your rotation slots. "
                 "The order drives which starter the simulator schedules next.</p>",
             ),
             TutorialStep(
@@ -652,7 +715,8 @@ class OwnerDashboard(QMainWindow):
         steps = [
             TutorialStep(
                 "Vs LHP/RHP Lineups",
-                "<p>The <b>Lineups</b> editor stores separate batting orders for left- and right-handed starters."
+                "<p>Open <b>Owner Tools -> Lineup Editor</b> (or the Roster page button)."
+                " The <b>Lineups</b> editor stores separate batting orders for left- and right-handed starters."
                 " Edit both tabs so the simulator always has coverage.</p>",
             ),
             TutorialStep(
@@ -685,13 +749,20 @@ class OwnerDashboard(QMainWindow):
                 " injuries, and stats.</p>",
             ),
             TutorialStep(
+                "Owner Tools Menu",
+                "<p>The top menu includes <b>Owner Tools</b> for fast access to Submit Change Request,"
+                " Lineup Editor, Pitching Staff, Reassign Players, Trade Center, Free Agency Hub, Finance Page,"
+                " and Team Settings.</p>",
+            ),
+            TutorialStep(
                 "Performers & Standings",
                 "<p>The dashboard highlights hot/cold performers from recent games and a snapshot of your division standings."
                 " Toggle \"View all\" to expand the news feed preview.</p>",
             ),
             TutorialStep(
                 "Navigation Tips",
-                "<p>The sidebar buttons switch between Dashboard, Roster, Team schedule, Moves & Trades, and League Hub."
+                "<p>The sidebar buttons switch between Dashboard, Roster, Team schedule, Moves & Trades,"
+                " Finance, and League Hub."
                 " The Tutorials menu is always available up top.</p>",
             ),
         ]
@@ -799,7 +870,8 @@ class OwnerDashboard(QMainWindow):
         steps = [
             TutorialStep(
                 "Trade Dialog",
-                "<p>Open <b>Trades</b> from the dashboard to propose offers. Select a partner, add players,"
+                "<p>Open <b>Owner Tools -> Trade Center</b> (or the dashboard Trades action) to propose offers."
+                " Select a partner, add players,"
                 " and include draft picks when enabled. Commissioners can disable trading,"
                 " disable draft pick trades, require commissioner approval, or cap how many"
                 " years out picks are tradable via <b>League -> Trade Settings</b>.</p>",
@@ -834,8 +906,8 @@ class OwnerDashboard(QMainWindow):
         steps = [
             TutorialStep(
                 "Where to Start",
-                "<p>Go to <b>Roster</b> and click <b>Submit Change Request</b>. This opens the export dialog"
-                " used for commissioner approval workflows.</p>",
+                "<p>Open <b>Owner Tools -> Submit Change Request</b> (or use the Roster page button)."
+                " This opens the export dialog used for commissioner approval workflows.</p>",
             ),
             TutorialStep(
                 "Choose What to Send",
@@ -893,8 +965,8 @@ class OwnerDashboard(QMainWindow):
         steps = [
             TutorialStep(
                 "Access Team Settings",
-                "<p>Use the <b>View</b> menu to open <b>Team Settings</b>. This is where you manage branding,"
-                " stadium, and team metadata.</p>",
+                "<p>Open <b>Owner Tools -> Team Settings</b> (or use <b>View -> Team Settings</b>)."
+                " This is where you manage branding, stadium, and team metadata.</p>",
             ),
             TutorialStep(
                 "Branding Options",
@@ -915,6 +987,69 @@ class OwnerDashboard(QMainWindow):
         self._run_tutorial(
             self._tutorial_keys["team_settings"],
             "Team Settings",
+            steps,
+            force=force,
+        )
+
+    def show_finance_snapshot_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Open Finance Hub",
+                "<p>Use the <b>Finance</b> sidebar tab or <b>Owner Tools -> Open Finance Hub</b>"
+                " to open a two-tab finance hub: <b>Owner Ops</b> and <b>GM/Coach Ops</b>.</p>",
+            ),
+            TutorialStep(
+                "Owner Ops Tab",
+                "<p><b>Owner Ops</b> breaks out projected monthly <b>Revenue</b>, <b>Expenses</b>, and"
+                " recommended <b>Budgets</b> for training, scouting, development, and facilities."
+                " When Owner Budgets is enabled, you can edit and save those budget targets directly from this tab."
+                " Training/development/facilities budget levels now influence preseason"
+                " training-camp development intensity, and development budgets now also"
+                " influence offseason aging/development outcomes."
+                " Scouting budget now also affects player-profile scouting confidence"
+                " and estimated rating uncertainty.</p>",
+            ),
+            TutorialStep(
+                "GM/Coach Ops Tab",
+                "<p><b>GM/Coach Ops</b> shows module status, payroll commitments, contract outlook,"
+                " arbitration/free-agency queue visibility, and a <b>Next Finance Actions</b>"
+                " panel so owners can follow the current phase step-by-step.</p>",
+            ),
+            TutorialStep(
+                "Quick Actions",
+                "<p>From GM/Coach Ops, use <b>Queue Recommended Arbitration</b> and"
+                " <b>Queue Recommended FA Targets</b> to store decisions, then use"
+                " <b>Open Trade Center</b> and <b>Open Free Agency Hub</b> to execute moves.</p>",
+            ),
+            TutorialStep(
+                "Contract Terms",
+                "<p>In the GM/Coach Ops contract list, select a player to manage advanced terms:"
+                " <b>Extend Contract</b>, <b>Edit Guarantees</b>, <b>Add/Edit/Remove Option</b>,"
+                " <b>Add/Edit/Remove Incentive</b>, and option decisions"
+                " (<b>Exercise Option</b> / <b>Decline Option</b>)."
+                " Advanced term actions require the GM Contracts module set to"
+                " <b>Advanced</b> or <b>MLB-Like</b>.</p>",
+            ),
+            TutorialStep(
+                "League Mode Behavior",
+                "<p>In single-player mode, recommended finance decisions are auto-approved."
+                " In multi-owner mode, those decisions are queued for commissioner review.</p>",
+            ),
+            TutorialStep(
+                "Transaction History",
+                "<p>The page includes recent finance ledger entries for your club so you can audit revenue/expense"
+                " postings as the season simulation advances.</p>",
+            ),
+            TutorialStep(
+                "Commissioner Controls",
+                "<p>Commissioners can tune the system from <b>Admin -> League Settings -> Financial System"
+                " Settings</b>. The dialog now includes projection preview and prioritized finance alerts"
+                " (cash risk, payroll threshold/floor, offseason deadlines) with explicit next steps.</p>",
+            ),
+        ]
+        self._run_tutorial(
+            self._tutorial_keys["finance_snapshot"],
+            "Finance Hub Overview",
             steps,
             force=force,
         )
@@ -1049,13 +1184,22 @@ class OwnerDashboard(QMainWindow):
             TutorialStep(
                 "Transactions & Settings",
                 "<p>Use <b>Transactions</b> to review pending trades, open Trade Settings,"
-                " and process owner change requests. Use <b>League Settings</b> for league creation,"
+                " process owner change requests, and review pending GM Finance Queue decisions."
+                " Use <b>League Settings</b> for league creation,"
                 " tuning, and commissioner policy tools.</p>",
             ),
             TutorialStep(
                 "Training Focus",
                 "<p>Use the <b>Training Focus…</b> button on Season Progress to set league-wide hitter and pitcher"
                 " allocations. Commissioners can balance defaults here before teams override them.</p>",
+            ),
+            TutorialStep(
+                "Finance Workflow",
+                "<p>Use <b>League Settings -> Financial System Settings</b> to control module levels."
+                " Use the projection preview/alerts panel to validate cash/payroll risk."
+                " Then use <b>Season -> Offseason Finance Workflow</b> to run and review contracts,"
+                " arbitration, GM queue decisions, and budgets before owners continue in the Finance hub's"
+                " <b>Owner Ops</b> and <b>GM/Coach Ops</b> tabs.</p>",
             ),
             TutorialStep(
                 "Safety & Backups",
@@ -1210,6 +1354,9 @@ class OwnerDashboard(QMainWindow):
             "team": lambda ctx: TeamPage(self),
             "records": lambda ctx: TeamRecordsPage(self),
             "transactions": lambda ctx: TransactionsPage(self),
+            "finance": lambda ctx: __import__(
+                "ui.owner_finance_page", fromlist=["OwnerFinancePage"]
+            ).OwnerFinancePage(self),
             "league": lambda ctx: SchedulePage(self),
         }
         for key, factory in factories.items():
@@ -1256,8 +1403,11 @@ class OwnerDashboard(QMainWindow):
             return
 
     def _on_nav_changed_with_tutorial(self, key: Optional[str]) -> None:
-        self._maybe_show_roster_tutorial(key)
         self._on_nav_changed(key)
+        if QTimer is not None and hasattr(QTimer, "singleShot"):
+            QTimer.singleShot(0, lambda k=key: self._maybe_show_roster_tutorial(k))
+        else:
+            self._maybe_show_roster_tutorial(key)
 
     def _on_nav_changed(self, key: Optional[str]) -> None:
         for name, btn in self.nav_buttons.items():
@@ -1275,6 +1425,10 @@ class OwnerDashboard(QMainWindow):
                 refresh()
             except Exception:
                 pass
+        try:
+            self._update_league_badge()
+        except Exception:
+            pass
         try:
             self._update_header_context()
         except Exception:
@@ -1302,6 +1456,10 @@ class OwnerDashboard(QMainWindow):
             pass
         try:
             self._update_status_bar()
+        except Exception:
+            pass
+        try:
+            self._update_league_badge()
         except Exception:
             pass
         try:
@@ -1500,19 +1658,90 @@ class OwnerDashboard(QMainWindow):
     def open_trade_dialog(self) -> None:
         show_on_top(TradeDialog(self.team_id, self))
 
+    def open_free_agency_hub(self) -> None:
+        show_on_top(FreeAgencyWindow(self))
+
+    def open_finance_hub(self) -> None:
+        self._go("finance")
+
+    def open_finance_snapshot(self) -> None:
+        # Backward-compatible alias for older callback wiring.
+        self.open_finance_hub()
+
     def open_roster_page(self) -> None:
         """Switch the main view to the roster page."""
         self._go("roster")
 
     def sign_free_agent(self) -> None:
         try:
-            free_agents = find_free_agents(self.players, self.roster)
+            free_agents = find_free_agents(self.players.values(), "data/rosters")
             if not free_agents:
                 QMessageBox.information(self, "Free Agents", "No free agents available to sign.")
                 return
-            pid = free_agents[0]
+            player = free_agents[0]
+            pid = str(getattr(player, "player_id", "") or "").strip()
+            if not pid:
+                QMessageBox.warning(self, "Free Agents", "Selected player is missing an id.")
+                return
+            if pid in self.roster.act:
+                QMessageBox.information(self, "Free Agents", f"{pid} is already on your active roster.")
+                return
+            estimated_salary = int(estimate_salary_for_player(player))
+            policy = evaluate_free_agent_signing(
+                self.team_id,
+                annual_salary=estimated_salary,
+                player=player,
+            )
+            if not policy.allowed:
+                record_payroll_policy_result(
+                    policy,
+                    action="owner_sign_free_agent",
+                    data_dir=get_data_dir(),
+                )
+                QMessageBox.warning(
+                    self,
+                    "Payroll Policy Blocked",
+                    format_payroll_policy_message(policy),
+                )
+                return
+            if policy.warning:
+                record_payroll_policy_result(
+                    policy,
+                    action="owner_sign_free_agent",
+                    data_dir=get_data_dir(),
+                )
+            player_name = f"{getattr(player, 'first_name', '')} {getattr(player, 'last_name', '')}".strip() or pid
+            summary = (
+                f"Sign {player_name} ({pid})?\n"
+                f"Estimated annual salary: ${estimated_salary:,}\n\n"
+                f"{format_payroll_policy_message(policy)}"
+            )
+            if policy.warning:
+                proceed = QMessageBox.question(
+                    self,
+                    "Payroll Policy Warning",
+                    summary + "\n\nProceed anyway?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if proceed != QMessageBox.StandardButton.Yes:
+                    return
+            else:
+                proceed = QMessageBox.question(
+                    self,
+                    "Confirm Free-Agent Signing",
+                    summary,
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if proceed != QMessageBox.StandardButton.Yes:
+                    return
             self.roster.act.append(pid)
+            save_roster(self.team_id, self.roster)
+            sign_free_agent_contract(pid, self.team_id, player=player)
             QMessageBox.information(self, "Free Agents", f"Signed free agent: {pid}")
+            try:
+                self._refresh_active_page()
+            except Exception:
+                pass
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to sign free agent: {e}")
 
@@ -1973,5 +2202,17 @@ class OwnerDashboard(QMainWindow):
                 self.btn_roster.setToolTip("Missing coverage: " + ", ".join(miss))
             else:
                 self.btn_roster.setToolTip("Defensive coverage looks good.")
+        except Exception:
+            pass
+
+    def _update_league_badge(self) -> None:
+        active = league_registry.get_active_league()
+        league_name = active.display_name if active is not None else "Unknown"
+        try:
+            self.league_badge.setText(f"League: {league_name}")
+        except Exception:
+            pass
+        try:
+            self.setWindowTitle(f"Owner Dashboard - {self.team_id} ({league_name})")
         except Exception:
             pass

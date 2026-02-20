@@ -3,7 +3,7 @@
 UBL (Ultimate Baseball League) Simulation is a Python project that models a small baseball league with a graphical interface.
 
 ## Features
-- **PyQt6 interface:** run `main.py` to launch the login window and access administrative tools.
+- **PyQt6 interface:** run `main.py` to launch the splash screen, then choose `Load Existing League` or `Create New League` before login.
 - **League management:** classes for players, teams, trades and rosters in `models/` with supporting services and UI dialogs.
 - **Game simulation:** `playbalance/simulation.py` provides a minimal engine for at-bats, pitching changes and base running.
 - **Data files:** example data lives in the `data/` directory including rosters, lineups and configuration values.
@@ -72,6 +72,10 @@ pip install bcrypt
 python main.py
 ```
 
+On the splash screen, click `Start Game` and choose one of:
+- `Load Existing League` to open the login flow for leagues already on disk.
+- `Create New League` to run guided league setup first, then proceed to login.
+
 
 ### Running tests
 Tests are located in the `tests/` directory and can be executed with:
@@ -85,6 +89,34 @@ for example:
 
 ```bash
 pytest tests/test_simulation.py::test_run_tracking_and_boxscore -q
+```
+
+### Multi-league smoke check
+
+Before release builds, run the automated multi-league isolation smoke matrix:
+
+```bash
+python scripts/smoke_multi_league.py
+```
+
+### Release validation quick commands
+
+Run the finance release quality gate (targeted finance tests, including ledger/contracts/owner-finance coverage, + multi-league finance smoke + strict stability simulation):
+
+```bash
+.\.venv2\Scripts\python.exe scripts/validate_finance_release.py --seasons 8
+```
+
+Run the release build with default pre-build validation enabled:
+
+```bash
+.\.venv2\Scripts\python.exe scripts/build_release.py --clean
+```
+
+Skip pre-build validation only when troubleshooting the build pipeline:
+
+```bash
+.\.venv2\Scripts\python.exe scripts/build_release.py --clean --skip-validation
 ```
 
 ### Season simulation script

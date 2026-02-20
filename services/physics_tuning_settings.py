@@ -6,7 +6,7 @@ import json
 from typing import Any, Dict
 
 from physics_sim.config import DEFAULT_TUNING
-from utils.path_utils import get_data_dir
+from utils.path_utils import ActivePath, get_data_dir
 
 __all__ = [
     "TUNING_OVERRIDES_PATH",
@@ -17,7 +17,7 @@ __all__ = [
     "save_physics_tuning_overrides",
 ]
 
-TUNING_OVERRIDES_PATH = get_data_dir() / "physics_tuning_overrides.json"
+TUNING_OVERRIDES_PATH = ActivePath(lambda: get_data_dir() / "physics_tuning_overrides.json")
 _NUMERIC_TYPES = (int, float)
 
 

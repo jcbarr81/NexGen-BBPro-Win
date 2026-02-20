@@ -41,6 +41,7 @@ _PHYSICS_USAGE_STATE = None
 _PHYSICS_USAGE_DAY_MAP: Dict[str, int] = {}
 _PHYSICS_USAGE_YEAR: Optional[int] = None
 _PHYSICS_USAGE_LAST_DATE: Optional[str] = None
+_PHYSICS_USAGE_LEAGUE_KEY: Optional[str] = None
 
 
 def _physics_usage_context(
@@ -48,12 +49,19 @@ def _physics_usage_context(
 ) -> tuple[object | None, int | None]:
     if not date_token:
         return None, None
-    global _PHYSICS_USAGE_STATE, _PHYSICS_USAGE_DAY_MAP, _PHYSICS_USAGE_YEAR, _PHYSICS_USAGE_LAST_DATE
+    global _PHYSICS_USAGE_STATE
+    global _PHYSICS_USAGE_DAY_MAP
+    global _PHYSICS_USAGE_YEAR
+    global _PHYSICS_USAGE_LAST_DATE
+    global _PHYSICS_USAGE_LEAGUE_KEY
+    league_key = str(get_data_dir().resolve(strict=False))
     try:
         year = int(str(date_token).split("-")[0])
     except Exception:
         year = None
     reset = _PHYSICS_USAGE_STATE is None
+    if _PHYSICS_USAGE_LEAGUE_KEY not in (None, league_key):
+        reset = True
     if year is not None and _PHYSICS_USAGE_YEAR not in (None, year):
         reset = True
     if _PHYSICS_USAGE_LAST_DATE and date_token < _PHYSICS_USAGE_LAST_DATE:
@@ -64,6 +72,7 @@ def _physics_usage_context(
         _PHYSICS_USAGE_STATE = UsageState()
         _PHYSICS_USAGE_DAY_MAP = {}
         _PHYSICS_USAGE_YEAR = year
+        _PHYSICS_USAGE_LEAGUE_KEY = league_key
     if date_token not in _PHYSICS_USAGE_DAY_MAP:
         _PHYSICS_USAGE_DAY_MAP[date_token] = len(_PHYSICS_USAGE_DAY_MAP)
     _PHYSICS_USAGE_LAST_DATE = date_token
@@ -92,11 +101,11 @@ def _env_flag(name: str, default: bool) -> bool:
     return str(val).strip().lower() in {"1", "true", "yes", "on"}
 
 
-@lru_cache(maxsize=1)
-def _teams_by_id() -> Mapping[str, Team]:
+@lru_cache(maxsize=8)
+def _teams_by_id(source_key: str) -> Mapping[str, Team]:
     """Return a cached mapping of team IDs to :class:`Team` objects."""
 
-    return {team.team_id: team for team in load_teams()}
+    return {team.team_id: team for team in load_teams(source_key)}
 
 
 def _normalize_game_date(value: str | date | None) -> str | None:
@@ -399,7 +408,8 @@ def prepare_team_state(
     state = build_default_game_state(
         team_id, players_file=players_file, roster_dir=roster_dir
     )
-    team_obj = _teams_by_id().get(team_id)
+    teams_path = str((get_data_dir() / "teams.csv").resolve(strict=False))
+    team_obj = _teams_by_id(teams_path).get(team_id)
     state.team = team_obj
     if team_obj is not None and getattr(team_obj, "season_stats", None):
         state.team_stats = dict(team_obj.season_stats)

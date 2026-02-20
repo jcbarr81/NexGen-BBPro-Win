@@ -1,4 +1,5 @@
 import importlib
+import json
 
 import pytest
 
@@ -38,3 +39,31 @@ def test_update_trade_settings_persists_and_clamps(trade_settings_module):
     assert settings.draft_pick_trading_enabled is True
     assert settings.require_commissioner_approval is True
     assert settings.max_pick_trade_years == trade_settings_module.MAX_ALLOWED_PICK_TRADE_YEARS
+
+
+def test_update_trade_settings_supports_explicit_path_and_league_id(
+    trade_settings_module,
+    tmp_path,
+):
+    settings_path = tmp_path / "custom" / "trade_settings.json"
+
+    trade_settings_module.update_trade_settings(
+        trades_enabled=False,
+        draft_pick_trading_enabled=True,
+        require_commissioner_approval=True,
+        max_pick_trade_years=4,
+        path=settings_path,
+        league_id="alpha",
+    )
+    settings = trade_settings_module.load_trade_settings(
+        path=settings_path,
+        league_id="alpha",
+    )
+    assert settings.league_id == "alpha"
+    assert settings.trades_enabled is False
+    assert settings.draft_pick_trading_enabled is True
+    assert settings.require_commissioner_approval is True
+    assert settings.max_pick_trade_years == 4
+
+    payload = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert payload["leagues"]["alpha"]["trades_enabled"] is False

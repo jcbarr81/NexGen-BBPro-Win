@@ -63,7 +63,11 @@ AGE_ADJUSTMENTS = {
 _PITCH_ATTRS = ["fb", "cu", "cb", "sl", "si", "scb", "kn"]
 
 
-def spring_training_pitch(pitcher: Pitcher) -> None:
+def spring_training_pitch(
+    pitcher: Pitcher,
+    *,
+    intensity_multiplier: float = 1.0,
+) -> None:
     """Boost one pitch by 35% to simulate spring training development.
 
     According to ARR lines 264-269, each pitcher spends 15% of training
@@ -75,7 +79,9 @@ def spring_training_pitch(pitcher: Pitcher) -> None:
         return
     pitch = random.choice(pitches)
     current = getattr(pitcher, pitch)
-    boosted = int(round(current * 1.35))
+    intensity = _normalize_development_multiplier(intensity_multiplier)
+    boost_factor = 1.0 + (0.35 * intensity)
+    boosted = int(round(current * boost_factor))
     setattr(pitcher, pitch, boosted)
 
 
@@ -122,18 +128,27 @@ def _resolve_sim_date() -> date | None:
     return None
 
 
-def age_player(player) -> None:
+def age_player(
+    player,
+    *,
+    development_multiplier: float = 1.0,
+) -> None:
     """Apply aging adjustments to ``player`` in place."""
 
     age = calculate_age(player.birthdate)
     adjustments = AGE_ADJUSTMENTS.get(age)
+    development = _normalize_development_multiplier(development_multiplier)
     if adjustments:
         for attr, change in adjustments.items():
             if hasattr(player, attr):
                 value = getattr(player, attr)
-                setattr(player, attr, max(0, value + change))
+                scaled_change = _scale_aging_change(change, development)
+                setattr(player, attr, max(0, value + scaled_change))
     if isinstance(player, Pitcher):
-        spring_training_pitch(player)
+        spring_training_pitch(
+            player,
+            intensity_multiplier=development,
+        )
 
 
 def age_players(players: Iterable) -> None:
@@ -141,3 +156,21 @@ def age_players(players: Iterable) -> None:
 
     for player in players:
         age_player(player)
+
+
+def _normalize_development_multiplier(value: object) -> float:
+    try:
+        numeric = float(value)
+    except Exception:
+        numeric = 1.0
+    return max(0.75, min(1.35, numeric))
+
+
+def _scale_aging_change(change: int, development_multiplier: float) -> int:
+    base = int(change)
+    if base == 0:
+        return 0
+    if base > 0:
+        return max(1, int(round(base * development_multiplier)))
+    decline = max(1, int(round(abs(base) / development_multiplier)))
+    return -decline

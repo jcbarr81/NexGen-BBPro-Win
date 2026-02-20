@@ -13,9 +13,6 @@ from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster
 from utils.path_utils import get_data_dir
 
-
-BASE = get_data_dir()
-
 # Simple org target counts — tune as needed
 POSITION_TARGETS: Dict[str, int] = {
     "C": 4,
@@ -45,7 +42,8 @@ def _is_sp(p: Any) -> bool:
 
 def compute_team_needs(team_id: str) -> Dict[str, float]:
     """Return need scores per position plus 'SP' and 'RP' in [0, 1]."""
-    players = {p.player_id: p for p in load_players_from_csv(str(BASE / "players.csv"))}
+    players_path = get_data_dir() / "players.csv"
+    players = {p.player_id: p for p in load_players_from_csv(str(players_path))}
     try:
         roster = load_roster(team_id)
         ids: list[str] = roster.act + roster.aaa + roster.low

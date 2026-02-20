@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (
     QApplication,
     QWidget,
+    QComboBox,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -15,15 +16,16 @@ import importlib
 
 import bcrypt
 
+from services import league_registry
 from utils.path_utils import get_data_dir
 from utils.league_settings import is_owner_league, verify_commissioner_password
 from ui.theme import DARK_QSS
 from ui.window_utils import show_on_top, untrack_on_top
 from ui.version_badge import install_version_badge
 
-# Determine the path to the users file in a cross-platform way
-USER_FILE = get_data_dir() / "users.txt"
 logger = logging.getLogger(__name__)
+USER_FILE = None  # Backward-compatible test override.
+
 
 class LoginWindow(QWidget):
     def __init__(self, splash=None):
@@ -42,11 +44,16 @@ class LoginWindow(QWidget):
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.username_input.setFocus()
 
+        self.league_label = QLabel("League:")
+        self.league_selector = QComboBox()
+        self.league_selector.currentIndexChanged.connect(self._on_league_changed)
+
         self.login_button = QPushButton("Login")
         self.login_button.setDefault(True)
         self.login_button.clicked.connect(self.handle_login)
 
         self._build_layout()
+        self._populate_league_selector()
 
         # Connect returnPressed signal to login
         self.username_input.returnPressed.connect(self.handle_login)
@@ -62,12 +69,17 @@ class LoginWindow(QWidget):
         try:
             username = self.username_input.text()
             password = self.password_input.text()
+            users_file = self._users_file_path()
 
-            if not USER_FILE.exists():
-                QMessageBox.critical(self, "Error", "User file not found.")
+            if not users_file.exists():
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    "User file not found for the selected league.",
+                )
                 return
 
-            with USER_FILE.open("r") as f:
+            with users_file.open("r") as f:
                 for line in f:
                     parts = line.strip().split(",")
                     if len(parts) != 4:
@@ -94,6 +106,65 @@ class LoginWindow(QWidget):
                 "Error",
                 "Login failed due to an unexpected error. See startup.log for details.",
             )
+
+    def _users_file_path(self):
+        if USER_FILE:
+            try:
+                from pathlib import Path
+
+                return Path(USER_FILE)
+            except Exception:
+                pass
+        return get_data_dir() / "users.txt"
+
+    def _populate_league_selector(self) -> None:
+        records = [
+            record
+            for record in league_registry.list_leagues()
+            if record.status != "archived"
+        ]
+        if not records:
+            self.league_label.hide()
+            self.league_selector.hide()
+            return
+
+        records.sort(key=lambda rec: rec.display_name.lower())
+        current_active = league_registry.get_active_league()
+        active_id = current_active.id if current_active is not None else ""
+
+        self.league_selector.blockSignals(True)
+        self.league_selector.clear()
+        active_index = 0
+        for idx, record in enumerate(records):
+            self.league_selector.addItem(record.display_name, record.id)
+            if record.id == active_id:
+                active_index = idx
+        self.league_selector.setCurrentIndex(active_index)
+        self.league_selector.blockSignals(False)
+
+        selected_id = self.league_selector.currentData()
+        if isinstance(selected_id, str) and selected_id:
+            self._set_active_league(selected_id)
+
+    def _on_league_changed(self, _index: int) -> None:
+        league_id = self.league_selector.currentData()
+        if not isinstance(league_id, str) or not league_id:
+            return
+        self._set_active_league(league_id)
+
+    def _set_active_league(self, league_id: str) -> None:
+        try:
+            league_registry.set_active_league(league_id, ensure_data_dir=True)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "League Selection",
+                f"Unable to switch to selected league: {exc}",
+            )
+            return
+        record = league_registry.get_league(league_id)
+        if record is not None:
+            self.setWindowTitle(f"UBL Login - {record.display_name}")
 
     def accept_login(self, role, team_id):
         if role == "admin":
@@ -227,6 +298,8 @@ class LoginWindow(QWidget):
 
         title_user = QLabel("Username:")
         title_pass = QLabel("Password:")
+        form.addWidget(self.league_label, alignment=Qt.AlignmentFlag.AlignLeft)
+        form.addWidget(self.league_selector)
         form.addWidget(title_user, alignment=Qt.AlignmentFlag.AlignLeft)
         form.addWidget(self.username_input)
         form.addWidget(title_pass, alignment=Qt.AlignmentFlag.AlignLeft)

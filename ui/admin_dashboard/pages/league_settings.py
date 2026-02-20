@@ -23,6 +23,10 @@ class LeagueSettingsPage(DashboardPage):
         self.create_league_button = QPushButton("Create League")
         self.create_league_button.setToolTip("Generate a new league structure (destructive)")
         setup.layout().addWidget(self.create_league_button, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        self.league_manager_button = QPushButton("League Manager")
+        self.league_manager_button.setToolTip("Switch active league and manage archive state")
+        setup.layout().addWidget(self.league_manager_button, alignment=Qt.AlignmentFlag.AlignHCenter)
         setup.layout().addStretch()
 
         rules = Card()
@@ -35,6 +39,24 @@ class LeagueSettingsPage(DashboardPage):
         self.injury_settings_button = QPushButton("Injury Settings")
         self.injury_settings_button.setToolTip("Configure injury frequency for the league")
         rules.layout().addWidget(self.injury_settings_button, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        self.financial_settings_button = QPushButton("Financial System Settings")
+        self.financial_settings_button.setToolTip(
+            "Configure global finance mode, presets, and per-module levels"
+        )
+        rules.layout().addWidget(
+            self.financial_settings_button,
+            alignment=Qt.AlignmentFlag.AlignHCenter,
+        )
+
+        self.finance_stability_button = QPushButton("Finance Stability Simulation")
+        self.finance_stability_button.setToolTip(
+            "Run multi-season financial stability simulations and export reports"
+        )
+        rules.layout().addWidget(
+            self.finance_stability_button,
+            alignment=Qt.AlignmentFlag.AlignHCenter,
+        )
 
         self.hall_of_fame_settings_button = QPushButton("Hall of Fame Settings")
         self.hall_of_fame_settings_button.setToolTip(

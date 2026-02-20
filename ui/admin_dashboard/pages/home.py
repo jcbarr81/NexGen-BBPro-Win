@@ -8,6 +8,33 @@ from ...components import Card, build_metric_row, section_title
 from .base import DashboardPage
 
 
+def _build_overview_values(metrics: dict[str, object] | None) -> dict[str, str]:
+    return {
+        "Pending Trades": (str(metrics.get("pending_trades")) if metrics else "--"),
+        "Pending GM Queue": (
+            str(metrics.get("gm_queue_pending"))
+            if metrics
+            else "--"
+        ),
+        "Teams": (str(metrics.get("teams")) if metrics else "--"),
+        "Players": (str(metrics.get("players")) if metrics else "--"),
+        "Season Phase": (str(metrics.get("season_phase")) if metrics else "--"),
+    }
+
+
+def _format_gm_queue_status(metrics: dict[str, object] | None) -> str:
+    if not metrics:
+        return "GM Finance Queue: --"
+    if not bool(metrics.get("gm_queue_required", False)):
+        return "GM Finance Queue: Single-player mode (auto-applies recommended owner actions)."
+    pending = int(metrics.get("gm_queue_pending", 0) or 0)
+    unapplied = int(metrics.get("gm_queue_approved_unapplied", 0) or 0)
+    return (
+        "GM Finance Queue: "
+        f"pending review {pending}, approved-not-applied {unapplied}."
+    )
+
+
 class AdminHomePage(DashboardPage):
     """Landing view with league overview and priority actions."""
 
@@ -25,11 +52,12 @@ class AdminHomePage(DashboardPage):
 
         self._metric_values = {
             "Pending Trades": "--",
+            "Pending GM Queue": "--",
             "Teams": "--",
             "Players": "--",
             "Season Phase": "--",
         }
-        self.metrics_row = build_metric_row(list(self._metric_values.items()), columns=4)
+        self.metrics_row = build_metric_row(list(self._metric_values.items()), columns=5)
         self.metrics_card.layout().addWidget(self.metrics_row)
         self.metrics_card.layout().addStretch()
         layout.addWidget(self.metrics_card)
@@ -57,6 +85,16 @@ class AdminHomePage(DashboardPage):
         change_requests_btn.clicked.connect(self._dashboard.open_change_requests_window)
         actions.layout().addWidget(change_requests_btn)
 
+        gm_queue_btn = QPushButton("Review GM Finance Queue", objectName="Primary")
+        gm_queue_btn.setToolTip("Open commissioner review for owner GM finance decisions")
+        gm_queue_btn.clicked.connect(self._dashboard.open_gm_finance_queue_review)
+        actions.layout().addWidget(gm_queue_btn)
+
+        self.gm_queue_status_label = QLabel("GM Finance Queue: --")
+        self.gm_queue_status_label.setWordWrap(True)
+        self.gm_queue_status_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        actions.layout().addWidget(self.gm_queue_status_label)
+
         season_btn = QPushButton("Open Season Hub", objectName="Primary")
         season_btn.setToolTip("Go to season simulation and schedule controls")
         season_btn.clicked.connect(lambda: self._dashboard._go("season"))
@@ -83,16 +121,12 @@ class AdminHomePage(DashboardPage):
         except Exception:
             metrics = None
 
-        values = {
-            "Pending Trades": (str(metrics.get("pending_trades")) if metrics else "--"),
-            "Teams": (str(metrics.get("teams")) if metrics else "--"),
-            "Players": (str(metrics.get("players")) if metrics else "--"),
-            "Season Phase": (str(metrics.get("season_phase")) if metrics else "--"),
-        }
+        values = _build_overview_values(metrics)
         self.metrics_card.layout().removeWidget(self.metrics_row)
         self.metrics_row.setParent(None)
-        self.metrics_row = build_metric_row(list(values.items()), columns=4)
+        self.metrics_row = build_metric_row(list(values.items()), columns=5)
         self.metrics_card.layout().insertWidget(1, self.metrics_row)
+        self.gm_queue_status_label.setText(_format_gm_queue_status(metrics))
 
         if metrics:
             draft_day = metrics.get("draft_day") or "--"
@@ -102,4 +136,8 @@ class AdminHomePage(DashboardPage):
             self.next_event_label.setText("Draft Day: --")
 
 
-__all__ = ["AdminHomePage"]
+__all__ = [
+    "AdminHomePage",
+    "_build_overview_values",
+    "_format_gm_queue_status",
+]

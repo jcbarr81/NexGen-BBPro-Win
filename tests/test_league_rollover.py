@@ -125,11 +125,91 @@ def test_league_rollover_archives_and_resets(sandbox, monkeypatch):
         encoding="utf-8",
     )
     _write_json(data_dir / "draft_state_2025.json", {"status": "complete"})
+    _write_json(
+        data_dir / "league_financial_settings.json",
+        {
+            "version": 1,
+            "leagues": {
+                "test": {
+                    "enabled": True,
+                    "preset": "standard",
+                    "enforcement_mode": "warn",
+                    "modules": {
+                        "owner_revenue": "advanced",
+                        "owner_market_model": "basic",
+                        "owner_budgets": "advanced",
+                        "owner_expenses": "advanced",
+                        "gm_contracts": "advanced",
+                        "gm_payroll_rules": "basic",
+                        "gm_arbitration": "basic",
+                        "gm_free_agency": "advanced",
+                        "gm_roster_cost_enforcement": "warn",
+                        "gm_finance_ai": "advanced",
+                    },
+                }
+            },
+        },
+    )
+    _write_json(
+        data_dir / "team_financials.json",
+        {
+            "version": 1,
+            "season_year": 2025,
+            "teams": {
+                "T1": {
+                    "cash_on_hand": 1_500_000,
+                    "debt": 0,
+                    "revenue": {
+                        "tickets": 100_000,
+                        "concessions": 20_000,
+                        "media": 15_000,
+                        "sponsorship": 10_000,
+                    },
+                    "expenses": {
+                        "payroll": 80_000,
+                        "training": 5_000,
+                        "scouting": 4_000,
+                        "facilities": 3_000,
+                        "operations": 6_000,
+                    },
+                    "budgets": {
+                        "training": 1_000,
+                        "scouting": 1_000,
+                        "development": 1_000,
+                        "facilities": 1_000,
+                    },
+                }
+            },
+        },
+    )
+    _write_json(
+        data_dir / "contracts.json",
+        {
+            "version": 1,
+            "players": {
+                "BAT1": {
+                    "team_id": "T1",
+                    "years_left": 2,
+                    "annual_salary": 8_000_000,
+                    "fa_year": 2027,
+                },
+                "PIT1": {
+                    "team_id": "T1",
+                    "years_left": 1,
+                    "annual_salary": 4_000_000,
+                    "fa_year": 2026,
+                },
+            },
+        },
+    )
 
     roster_dir = data_dir / "rosters"
     roster_dir.mkdir(parents=True, exist_ok=True)
     roster_file = roster_dir / "T1.csv"
-    roster_file.write_text("player_id,level\nBAT1,ACT\n", encoding="utf-8")
+    roster_file.write_text(
+        "player_id,level\nBAT1,ACT\nPIT1,AAA\n",
+        encoding="utf-8",
+    )
     try:
         roster_file.chmod(0o444)
     except PermissionError:
@@ -175,6 +255,12 @@ def test_league_rollover_archives_and_resets(sandbox, monkeypatch):
 
     assert result.status == "archived"
     assert result.season_id == "test-2025"
+    assert result.contract_rollover is not None
+    assert result.contract_rollover.get("retained") == 1
+    assert result.contract_rollover.get("expired") == 1
+    assert result.contract_rollover.get("released_from_rosters") == 1
+    assert result.finance_rollover is not None
+    assert result.finance_rollover.get("next_season_year") == 2026
 
     archive_dir = data_dir / "careers" / "test-2025"
     assert (archive_dir / "stats.json").exists()
@@ -209,3 +295,15 @@ def test_league_rollover_archives_and_resets(sandbox, monkeypatch):
     assert career_teams["teams"]["T1"]["totals"]["w"] == 98
 
     assert (roster_dir / "T1.csv").stat().st_mode & 0o200  # writable bit set
+
+    contracts_after = json.loads((data_dir / "contracts.json").read_text(encoding="utf-8"))
+    assert "BAT1" in contracts_after["players"]
+    assert contracts_after["players"]["BAT1"]["years_left"] == 1
+    assert contracts_after["players"]["BAT1"]["fa_year"] == 2027
+    assert "PIT1" not in contracts_after["players"]
+    roster_rows = (roster_dir / "T1.csv").read_text(encoding="utf-8")
+    assert "PIT1" not in roster_rows
+    finance_snapshot = data_dir / "finance_snapshots" / "2025.json"
+    assert finance_snapshot.exists()
+    financials_after = json.loads((data_dir / "team_financials.json").read_text(encoding="utf-8"))
+    assert financials_after["season_year"] == 2026

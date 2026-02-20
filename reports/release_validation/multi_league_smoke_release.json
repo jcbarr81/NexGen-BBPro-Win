@@ -1,0 +1,71 @@
+{
+  "data_root": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_jpg2ham5\\data",
+  "passed": 5,
+  "failed": 0,
+  "results": [
+    {
+      "check": "league_switch_data_isolation",
+      "status": "PASS",
+      "details": {
+        "alpha_team": "Alpha Team",
+        "beta_team": "Beta Team",
+        "alpha_player": "Aiden",
+        "beta_player": "Brady",
+        "alpha_users": [
+          "admin",
+          "owner_alpha"
+        ],
+        "beta_users": [
+          "admin",
+          "owner_beta"
+        ]
+      }
+    },
+    {
+      "check": "request_and_trade_isolation",
+      "status": "PASS",
+      "details": {
+        "alpha_requests": 1,
+        "beta_requests": 0,
+        "alpha_trades": 1,
+        "beta_trades": 0
+      }
+    },
+    {
+      "check": "draft_and_sim_side_effect_isolation",
+      "status": "PASS",
+      "details": {
+        "alpha_unchanged_schedule": true,
+        "alpha_unchanged_progress": true,
+        "beta_draft_completed_years": [
+          2031
+        ]
+      }
+    },
+    {
+      "check": "snapshot_export_isolation",
+      "status": "PASS",
+      "details": {
+        "alpha_snapshot": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_jpg2ham5\\exports\\alpha\\league_snapshot_20260219_232036.zip",
+        "beta_snapshot": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_jpg2ham5\\exports\\beta\\league_snapshot_20260219_232036.zip",
+        "alpha_manifest_league": "alpha",
+        "beta_manifest_league": "beta",
+        "alpha_marker": "Alpha",
+        "beta_marker": "Beta"
+      }
+    },
+    {
+      "check": "finance_data_isolation",
+      "status": "PASS",
+      "details": {
+        "alpha_enabled": true,
+        "beta_enabled": false,
+        "alpha_cycle_applied": true,
+        "alpha_cash": 945000,
+        "beta_cash": 0,
+        "alpha_finance_tx_count": 8,
+        "beta_finance_tx_count": 0
+      }
+    }
+  ]
+}

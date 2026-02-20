@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 import time
 import os
 
@@ -161,8 +161,14 @@ from playbalance.season_manager import SeasonManager, SeasonPhase
 from playbalance.training_camp import run_training_camp
 from playbalance.player_development import TrainingWeights
 from playbalance.league_creator import MAX_LEAGUE_TEAMS
-from services.free_agency import list_unsigned_players
+from services.free_agency import (
+    list_unsigned_players,
+    list_unsigned_players_from_files,
+    run_cpu_free_agency_market,
+)
 from services.dl_automation import DLAutomationSummary, process_disabled_lists
+from services.finance_budget_effects import training_camp_multiplier_by_player
+from services.finance_budget_effects import development_multiplier_by_player
 from services.season_progress_flags import (
     ProgressUpdateError,
     mark_draft_completed,
@@ -205,12 +211,12 @@ from ui.training_focus_dialog import TrainingFocusDialog
 from ui.league_preset_dialogs import select_schedule_template
 
 
-from utils.path_utils import get_data_dir
+from utils.path_utils import ActivePath, get_data_dir
 
-DATA_DIR = get_data_dir()
-TEAMS_FILE = DATA_DIR / "teams.csv"
-SCHEDULE_FILE = DATA_DIR / "schedule.csv"
-PROGRESS_FILE = DATA_DIR / "season_progress.json"
+DATA_DIR = ActivePath(get_data_dir)
+TEAMS_FILE = ActivePath(lambda: get_data_dir() / "teams.csv")
+SCHEDULE_FILE = ActivePath(lambda: get_data_dir() / "schedule.csv")
+PROGRESS_FILE = ActivePath(lambda: get_data_dir() / "season_progress.json")
 
 BUTTON_STYLE = """
 QPushButton {
@@ -923,14 +929,22 @@ class SeasonProgressWindow(QDialog):
         retired_ids: set[str] = set()
         try:
             if isinstance(players, dict) and players:
-                retired_local = age_and_retire(players)
+                local_development = self._resolve_development_intensity(players.keys())
+                retired_local = age_and_retire(
+                    players,
+                    development_multiplier_by_player=local_development,
+                )
                 retired_ids.update(p.player_id for p in retired_local)
         except Exception:
             pass
         try:
             loaded = load_players_from_csv(players_path)
             csv_players = {p.player_id: p for p in loaded}
-            retired = age_and_retire(csv_players)
+            csv_development = self._resolve_development_intensity(csv_players.keys())
+            retired = age_and_retire(
+                csv_players,
+                development_multiplier_by_player=csv_development,
+            )
             retired_ids.update(p.player_id for p in retired)
 
             if retired_ids:
@@ -1792,6 +1806,33 @@ class SeasonProgressWindow(QDialog):
         if status == "archived":
             season_id = getattr(result, "season_id", "season")
             message = f"Season {season_id} archived; next season prepared."
+            contract_rollover = getattr(result, "contract_rollover", None)
+            if isinstance(contract_rollover, dict):
+                retained = int(contract_rollover.get("retained", 0) or 0)
+                expired = int(contract_rollover.get("expired", 0) or 0)
+                released = int(
+                    contract_rollover.get("released_from_rosters", 0) or 0
+                )
+                message = (
+                    f"{message} Contracts carried: {retained}; contracts expired: "
+                    f"{expired}; moved to free agency: {released}."
+                )
+            finance_rollover = getattr(result, "finance_rollover", None)
+            if isinstance(finance_rollover, dict):
+                arbitration = finance_rollover.get("arbitration")
+                team_reset = finance_rollover.get("team_reset")
+                awards = 0
+                salary_delta = 0
+                teams_reset = 0
+                if isinstance(arbitration, dict):
+                    awards = int(arbitration.get("awards", 0) or 0)
+                    salary_delta = int(arbitration.get("salary_delta", 0) or 0)
+                if isinstance(team_reset, dict):
+                    teams_reset = int(team_reset.get("teams_reset", 0) or 0)
+                message = (
+                    f"{message} Offseason finance: arbitration awards {awards} "
+                    f"(payroll +${salary_delta:,}); team ledgers reset {teams_reset}."
+                )
             if self._show_toast:
                 self._show_toast("success", message)
         elif status == "error":
@@ -2291,18 +2332,37 @@ class SeasonProgressWindow(QDialog):
     # ------------------------------------------------------------------
     def _show_free_agents(self) -> None:
         """Display a simple list of unsigned players."""
-        players = getattr(self.manager, "players", {})
-        teams = getattr(self.manager, "teams", [])
-        agents = list_unsigned_players(players, teams)
+        try:
+            cpu_summary = run_cpu_free_agency_market(data_dir=get_data_dir())
+        except Exception:
+            cpu_summary = {"applied": False, "signed_players": 0, "rounds_run": 0}
+        cpu_signed = int(cpu_summary.get("signed_players", 0) or 0)
+        cpu_rounds = int(cpu_summary.get("rounds_run", 0) or 0)
+
+        try:
+            agents = list_unsigned_players_from_files()
+        except Exception:
+            players = getattr(self.manager, "players", None)
+            teams = getattr(self.manager, "teams", None)
+            if isinstance(players, Mapping) and isinstance(teams, list):
+                agents = list_unsigned_players(players, teams)
+            else:
+                agents = []
         if agents:
             names = ", ".join(f"{p.first_name} {p.last_name}" for p in agents)
-            self.notes_label.setText(f"Unsigned Players: {names}")
+            note = f"Unsigned Players: {names}"
+            if cpu_signed > 0:
+                note = f"CPU signed {cpu_signed} free agents across {cpu_rounds} round(s). {note}"
+            self.notes_label.setText(note)
             log_news_event(
                 f"Listed unsigned players: {len(agents)} available"
             )
         else:
-            self.notes_label.setText("No unsigned players available.")
-            log_news_event("No unsigned players available")
+            note = "No unsigned players available."
+            if cpu_signed > 0:
+                note = f"CPU signed {cpu_signed} free agents across {cpu_rounds} round(s). {note}"
+            self.notes_label.setText(note)
+            log_news_event(note)
 
         self._set_button_state(
             self.free_agency_button,
@@ -2313,6 +2373,8 @@ class SeasonProgressWindow(QDialog):
         message = (
             f"Unsigned Players: {names}" if agents else "No unsigned players available."
         )
+        if cpu_signed > 0:
+            message = f"CPU signed {cpu_signed} free agents across {cpu_rounds} round(s). {message}"
         self._save_progress()
         self._update_ui(message)
         total_remaining = self._remaining_regular_days()
@@ -2328,7 +2390,12 @@ class SeasonProgressWindow(QDialog):
         """Run the training camp and mark players as ready."""
         players = getattr(self.manager, "players", {})
         allocations = self._resolve_training_allocations(players)
-        reports = run_training_camp(players.values(), allocations=allocations)
+        intensity_by_player = self._resolve_training_intensity(players)
+        reports = run_training_camp(
+            players.values(),
+            allocations=allocations,
+            intensity_by_player=intensity_by_player,
+        )
         summary = self._training_highlights(reports)
         message = (
             summary
@@ -2403,6 +2470,80 @@ class SeasonProgressWindow(QDialog):
             team_id = team_lookup.get(pid)
             allocations[pid] = settings.for_player(str(pid), team_id)
         return allocations
+
+    def _resolve_training_intensity(
+        self,
+        players: Mapping[str, object],
+    ) -> dict[str, float]:
+        """Return per-player training multipliers from owner budget settings."""
+
+        if not players:
+            return {}
+        try:
+            team_lookup = self._player_team_lookup(players)
+            return training_camp_multiplier_by_player(
+                team_lookup,
+                data_dir=get_data_dir(),
+            )
+        except Exception:
+            return {}
+
+    def _resolve_development_intensity(
+        self,
+        player_ids: Iterable[str],
+    ) -> dict[str, float]:
+        """Return per-player development multipliers from owner budget settings."""
+
+        try:
+            ids = {
+                str(pid).strip()
+                for pid in player_ids  # type: ignore[operator]
+                if str(pid).strip()
+            }
+        except Exception:
+            return {}
+        if not ids:
+            return {}
+        try:
+            team_lookup = self._player_team_lookup_from_roster_files(ids)
+            return development_multiplier_by_player(
+                team_lookup,
+                data_dir=get_data_dir(),
+            )
+        except Exception:
+            return {}
+
+    def _player_team_lookup_from_roster_files(
+        self,
+        player_ids: set[str],
+    ) -> dict[str, Optional[str]]:
+        """Map player ids to team ids by scanning saved roster CSV files."""
+
+        lookup: dict[str, Optional[str]] = {pid: None for pid in player_ids}
+        if not player_ids:
+            return lookup
+        try:
+            teams = load_teams(TEAMS_FILE)
+        except Exception:
+            teams = []
+        roster_dir = DATA_DIR / "rosters"
+        for team in teams or []:
+            team_id = getattr(team, "team_id", None) or getattr(team, "abbreviation", None)
+            clean_team_id = str(team_id or "").strip()
+            if not clean_team_id:
+                continue
+            try:
+                roster = load_roster(clean_team_id, roster_dir=roster_dir)
+            except Exception:
+                continue
+            slots = []
+            for key in ("act", "aaa", "low", "dl", "ir"):
+                slots.extend(getattr(roster, key, []) or [])
+            for raw_pid in slots:
+                pid = str(raw_pid or "").strip()
+                if pid in lookup:
+                    lookup[pid] = clean_team_id
+        return lookup
 
     def _player_team_lookup(
         self, players: Mapping[str, object]
@@ -2661,11 +2802,31 @@ class SeasonProgressWindow(QDialog):
                     self.remaining_label.setText("Regular season complete.")
                 self._show_calendar_countdown = False
                 date_just_played = payload.get("date_just_played")
+                finance_result: dict[str, object] = {
+                    "applied_daily_dates": [],
+                    "applied_weeks": [],
+                    "applied_periods": [],
+                }
                 if date_just_played:
                     try:
                         self._log_daily_recap_for_date(str(date_just_played))
                     except Exception:
                         pass
+                    finance_result = self._apply_finance_cycles_for_dates(
+                        [str(date_just_played)]
+                    )
+                applied_daily = finance_result.get("applied_daily_dates", [])
+                applied_weeks = finance_result.get("applied_weeks", [])
+                applied_periods = finance_result.get("applied_periods", [])
+                if applied_daily:
+                    message = f"{message}; daily finance updated"
+                if applied_weeks:
+                    message = f"{message}; weekly finance updated"
+                if applied_periods:
+                    periods_text = ", ".join(str(p) for p in applied_periods)
+                    message = f"{message}; monthly finance settled for {periods_text}"
+                self.notes_label.setText(message)
+                self._set_simulation_status(message)
                 log_news_event(message, category="progress")
                 self._save_progress()
                 self._update_ui(message)
@@ -3088,12 +3249,28 @@ class SeasonProgressWindow(QDialog):
         self._set_simulation_status(message)
         progress_text = self._format_simulation_progress(label, simulated_days, total_goal)
         self._set_simulation_status(f"{message} - {progress_text}")
+        dates_covered = [str(d) for d in upcoming[:simulated_days]]
         try:
-            dates_covered = [str(d) for d in upcoming[:simulated_days]]
             for d in dates_covered:
                 self._log_daily_recap_for_date(d)
         except Exception:
             pass
+        finance_result = self._apply_finance_cycles_for_dates(dates_covered)
+        applied_daily = finance_result.get("applied_daily_dates", [])
+        applied_weeks = finance_result.get("applied_weeks", [])
+        applied_periods = finance_result.get("applied_periods", [])
+        if applied_daily:
+            message = f"{message}; daily finance updated"
+        if applied_weeks:
+            message = f"{message}; weekly finance updated"
+        if applied_periods:
+            periods_text = ", ".join(str(p) for p in applied_periods)
+            message = f"{message}; monthly finance settled for {periods_text}"
+            self.notes_label.setText(message)
+            self._set_simulation_status(f"{message} - {progress_text}")
+        elif applied_daily or applied_weeks:
+            self.notes_label.setText(message)
+            self._set_simulation_status(f"{message} - {progress_text}")
 
         log_news_event(message, category="progress")
         self._save_progress()
@@ -3143,6 +3320,39 @@ class SeasonProgressWindow(QDialog):
 
         self._cancel_requested = False
         return message
+
+    def _apply_finance_cycles_for_dates(
+        self,
+        dates_covered: list[str],
+    ) -> dict[str, object]:
+        if not dates_covered:
+            return {
+                "dates": [],
+                "applied_daily_dates": [],
+                "skipped_daily_dates": [],
+                "applied_weeks": [],
+                "skipped_weeks": [],
+                "periods": [],
+                "applied_periods": [],
+                "skipped_periods": [],
+                "total_net_change": 0,
+            }
+        try:
+            from services.owner_finance_engine import apply_owner_finance_cadence_for_dates
+
+            return apply_owner_finance_cadence_for_dates(dates_covered)
+        except Exception:
+            return {
+                "dates": [],
+                "applied_daily_dates": [],
+                "skipped_daily_dates": [],
+                "applied_weeks": [],
+                "skipped_weeks": [],
+                "periods": [],
+                "applied_periods": [],
+                "skipped_periods": [],
+                "total_net_change": 0,
+            }
 
     def _log_daily_recap_for_date(self, date_str: str) -> None:
         """Compose and append a daily recap for games on ``date_str``."""

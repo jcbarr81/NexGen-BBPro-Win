@@ -76,3 +76,33 @@ def test_training_camp_respects_custom_allocations(monkeypatch) -> None:
 
     reports = run_training_camp([player], allocations=allocations)
     assert reports[0].focus == "Strength & Lift"
+
+
+def test_training_camp_applies_intensity_multiplier(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "playbalance.training_camp.record_training_session",
+        lambda reports, **_: None,
+    )
+    low = make_player("low")
+    high = make_player("high")
+    low.is_pitcher = False
+    high.is_pitcher = False
+    low.primary_position = "1B"
+    high.primary_position = "1B"
+    low.ch = 35
+    high.ch = 35
+    low.pot_ch = 90
+    high.pot_ch = 90
+    low.ph = 35
+    high.ph = 35
+    low.pot_ph = 90
+    high.pot_ph = 90
+
+    reports = run_training_camp(
+        [low, high],
+        intensity_by_player={"low": 0.80, "high": 1.25},
+    )
+    by_id = {report.player_id: report for report in reports}
+    low_gain = sum(by_id["low"].changes.values())
+    high_gain = sum(by_id["high"].changes.values())
+    assert high_gain >= low_gain

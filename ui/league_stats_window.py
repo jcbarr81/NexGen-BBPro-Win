@@ -56,13 +56,13 @@ except ImportError:  # pragma: no cover - test stubs
             Stretch = None
             ResizeToContents = None
 
-from utils.path_utils import get_data_dir
+from utils.path_utils import ActivePath, get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.stats_persistence import load_stats as _load_season_stats
 
-DATA_DIR = get_data_dir()
-PLAYERS_FILE = DATA_DIR / "players.csv"
-STATS_FILE = DATA_DIR / "season_stats.json"
+DATA_DIR = ActivePath(get_data_dir)
+PLAYERS_FILE = ActivePath(lambda: get_data_dir() / "players.csv")
+STATS_FILE = ActivePath(lambda: get_data_dir() / "season_stats.json")
 
 
 def _games_from_history() -> Dict[str, int]:
