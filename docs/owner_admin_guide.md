@@ -51,7 +51,7 @@ Team owners manage their franchise through the Owner Dashboard.
 ### League Information
 - **Standings** and **Schedule** windows give a league-wide overview.
 - **Trades**: propose trades with other teams.
-- **Free Agents**: automatically sign the first available free agent.
+- **Free Agency Hub**: browse unsigned players and submit signings.
 - **News Feed**: display the latest league news.
 
 ### Tutorials
@@ -59,6 +59,9 @@ Team owners manage their franchise through the Owner Dashboard.
 - Run **Trades & Transactions** to review current trade flow behavior, including draft-pick trades and commissioner-approval mode.
 - Run **Finance Hub Overview** to walk through the new Owner Ops + GM/Coach Ops finance hub and the related queue/actions workflow.
 - Run **Dashboard Overview** to review top-bar navigation, including the new **Owner Tools** menu shortcuts.
+- Open **Tutorials -> Reference Manuals** for two searchable in-app documents:
+  - **Complete Game Manual**
+  - **Finance System Manual**
 
 ### Owner Tools Menu
 - Use the top-bar **Owner Tools** menu for direct access to core workflows:
@@ -76,6 +79,13 @@ Unsaved roster changes are flagged with an asterisk in the window title.
 ## Admin Dashboard
 
 Administrators control league configuration and high-level operations.
+
+### Admin Tutorials
+- Open the Admin **Tutorials** menu for:
+  - **Team Logo Tutorial**
+  - **Player Avatar Tutorial**
+  - **Complete Game Manual**
+  - **Finance System Manual**
 
 ### Dashboard Navigation
 - **Dashboard**: league overview metrics, draft timing/status, and priority queues.

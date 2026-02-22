@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>NexGen-BBPro Complete Game Manual</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      margin: 20px auto;
+      max-width: 1100px;
+      line-height: 1.45;
+      color: #f0f0f0;
+      background: transparent;
+    }
+    h1, h2, h3 { color: #ffffff; }
+    h1 { margin-top: 0; }
+    a { color: #9bd1ff; }
+    code { background: #1d1d1d; padding: 1px 4px; border-radius: 4px; }
+    .note { border-left: 3px solid #4d90fe; padding-left: 10px; margin: 10px 0; }
+    .warn { border-left: 3px solid #f5c542; padding-left: 10px; margin: 10px 0; }
+    .toc li { margin: 4px 0; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    th, td { border: 1px solid #444; padding: 8px; vertical-align: top; }
+    th { background: #2a2a2a; }
+  </style>
+</head>
+<body>
+  <h1 id="top">NexGen-BBPro Complete Game Manual</h1>
+  <p>
+    This manual is a full in-game reference for owners and commissioners.
+    Use the in-app search field to find any workflow quickly.
+  </p>
+
+  <h2>Table of Contents</h2>
+  <ol class="toc">
+    <li><a href="#startup">Startup and League Selection</a></li>
+    <li><a href="#owner-dashboard">Owner Dashboard Navigation</a></li>
+    <li><a href="#roster-management">Roster Management and Player Movement</a></li>
+    <li><a href="#lineups-pitching">Lineups, Pitching Staff, and Depth Chart</a></li>
+    <li><a href="#injuries">Injury Center and Recovery Flow</a></li>
+    <li><a href="#transactions">Trades, Change Requests, and Transactions</a></li>
+    <li><a href="#finance-hub">Owner Finance Hub</a></li>
+    <li><a href="#schedule-league">Schedule, League Hub, and History</a></li>
+    <li><a href="#training-draft-fa">Training, Draft, and Free Agency</a></li>
+    <li><a href="#admin-dashboard">Admin Dashboard Reference</a></li>
+    <li><a href="#season-flow">Season Progression and Operational Timing</a></li>
+    <li><a href="#reports-assets">Reports, Exports, and Asset Utilities</a></li>
+    <li><a href="#checklists">Practical Checklists</a></li>
+    <li><a href="#faq">FAQ and Troubleshooting</a></li>
+  </ol>
+
+  <h2 id="startup">1. Startup and League Selection</h2>
+  <h3>Start Flow</h3>
+  <ul>
+    <li>Launch the app and select <b>Start Game</b>.</li>
+    <li>Choose <b>Load Existing League</b> or <b>Create New League</b>.</li>
+    <li>Log in with your assigned account role (owner or admin).</li>
+  </ul>
+  <h3>Role Behavior</h3>
+  <ul>
+    <li><b>Owner</b>: team operations, roster control, finance hub, and owner tools.</li>
+    <li><b>Admin</b>: league-wide operations, policy settings, approvals, and lifecycle actions.</li>
+  </ul>
+  <div class="note">
+    The active league context drives all data reads/writes. Verify the league badge before making changes.
+  </div>
+
+  <h2 id="owner-dashboard">2. Owner Dashboard Navigation</h2>
+  <h3>Sidebar Pages</h3>
+  <table>
+    <tr><th>Page</th><th>Purpose</th></tr>
+    <tr><td>Dashboard</td><td>At-a-glance club status, quick actions, and performance highlights.</td></tr>
+    <tr><td>Roster</td><td>Active/AAA/LOW management, depth chart priorities, injuries, and staff actions.</td></tr>
+    <tr><td>Team</td><td>Team-facing views and schedule-related operations.</td></tr>
+    <tr><td>Records &amp; Leaders</td><td>Team achievements, records, and historical leader views.</td></tr>
+    <tr><td>Moves &amp; Trades</td><td>Transactions and move tracking.</td></tr>
+    <tr><td>Finance</td><td>Owner Ops and GM/Coach Ops finance workflows.</td></tr>
+    <tr><td>League Hub</td><td>Standings, league schedule, leaders, and history access.</td></tr>
+  </table>
+  <h3>Top Menus</h3>
+  <ul>
+    <li><b>File</b>: admin dashboard access, league snapshot import, quit.</li>
+    <li><b>View</b>: theme toggle, news feed, team settings.</li>
+    <li><b>Tutorials</b>: guided walkthroughs and manuals.</li>
+    <li><b>Owner Tools</b>: direct actions for core owner workflows.</li>
+    <li><b>Simulate</b>: season progression window access.</li>
+  </ul>
+
+  <h2 id="roster-management">3. Roster Management and Player Movement</h2>
+  <h3>Roster Levels</h3>
+  <ul>
+    <li><b>ACT</b>: active major-league roster.</li>
+    <li><b>AAA</b>: upper reserve level for ready replacements.</li>
+    <li><b>LOW</b>: development or overflow depth level.</li>
+  </ul>
+  <h3>Primary Movement Paths</h3>
+  <ul>
+    <li><b>Owner Tools -&gt; Reassign Players</b> for direct promotions/demotions.</li>
+    <li>Injury actions can auto-open active roster spots and prompt replacements.</li>
+    <li>Trade and signing events may require manual roster balancing afterward.</li>
+  </ul>
+  <div class="warn">
+    After major moves, revisit depth chart and lineups so simulation logic uses the new personnel correctly.
+  </div>
+
+  <h2 id="lineups-pitching">4. Lineups, Pitching Staff, and Depth Chart</h2>
+  <h3>Lineup Editor</h3>
+  <ul>
+    <li>Maintain both <b>vs RHP</b> and <b>vs LHP</b> lineups.</li>
+    <li>Use <b>Auto-Fill</b> as a baseline, then make strategic manual edits.</li>
+    <li>Save before closing; saved files are used immediately by simulation.</li>
+  </ul>
+  <h3>Pitching Staff</h3>
+  <ul>
+    <li>Assign rotation order and bullpen roles (CL, SU, MR, LR, etc.).</li>
+    <li>Watch fatigue and recovery context when setting usage expectations.</li>
+  </ul>
+  <h3>Depth Chart</h3>
+  <ul>
+    <li>Set positional priority replacements to automate injury and promotion fallback.</li>
+    <li>Use drag-and-drop order and save chart updates.</li>
+  </ul>
+
+  <h2 id="injuries">5. Injury Center and Recovery Flow</h2>
+  <h3>Core Actions</h3>
+  <ul>
+    <li><b>Place on DL</b> for fixed minimum list usage.</li>
+    <li><b>Place on IR</b> for long-term storage until manual reactivation.</li>
+    <li><b>Recover to Destination</b> to return a player when eligibility is met.</li>
+    <li><b>Promote Best Replacement</b> to keep active roster staffed.</li>
+  </ul>
+  <h3>Timing Notes</h3>
+  <ul>
+    <li>DL minimums are enforced before activation is permitted.</li>
+    <li>Recovery and movement actions are logged for audit and visibility.</li>
+  </ul>
+
+  <h2 id="transactions">6. Trades, Change Requests, and Transactions</h2>
+  <h3>Trade Center</h3>
+  <ul>
+    <li>Build offers with players and, if allowed, draft-pick assets.</li>
+    <li>League trade settings control approval mode and future-pick limits.</li>
+    <li>If commissioner approval is enabled, owner acceptance does not execute immediately.</li>
+  </ul>
+  <h3>Owner Change Requests</h3>
+  <ul>
+    <li>Export structured bundles for commissioner import/review.</li>
+    <li>Include roster, lineups, pitching, and depth chart changes as needed.</li>
+    <li>Cancel previously exported requests before application if necessary.</li>
+  </ul>
+  <h3>Transaction Visibility</h3>
+  <ul>
+    <li>Use transaction logs and news feed entries for verification.</li>
+    <li>Completed actions should always be validated against roster state.</li>
+  </ul>
+
+  <h2 id="finance-hub">7. Owner Finance Hub</h2>
+  <h3>Owner Ops Tab</h3>
+  <ul>
+    <li>Current cash/debt state and projected monthly revenue/expense view.</li>
+    <li>Budget targets for training, scouting, development, and facilities.</li>
+    <li>Ledger history for posted finance activity.</li>
+  </ul>
+  <h3>GM/Coach Ops Tab</h3>
+  <ul>
+    <li>Module status and effective level visibility.</li>
+    <li>Contracts and payroll summary with action buttons.</li>
+    <li>Arbitration/free-agency queue guidance and recommended actions.</li>
+    <li>Workflow panel showing what should happen next by phase.</li>
+  </ul>
+  <p>
+    For complete finance mechanics, open the dedicated
+    <b>Finance System Manual</b> from the Tutorials menu.
+  </p>
+
+  <h2 id="schedule-league">8. Schedule, League Hub, and History</h2>
+  <ul>
+    <li>Team Schedule: team-specific upcoming games and results.</li>
+    <li>League schedule: full slate context and seasonal travel rhythm.</li>
+    <li>Standings: division and league race tracking.</li>
+    <li>Leaders/Records: narrative and performance milestones.</li>
+    <li>League History: past champions and historical context.</li>
+  </ul>
+
+  <h2 id="training-draft-fa">9. Training, Draft, and Free Agency</h2>
+  <h3>Training Focus</h3>
+  <ul>
+    <li>Player-level, team-level, and league-level focus sources are supported.</li>
+    <li>Bulk apply options exist in roster table workflows.</li>
+    <li>Training history and impacts can be reviewed after training events.</li>
+  </ul>
+  <h3>Amateur Draft</h3>
+  <ul>
+    <li>Draft pool viewing and draft console become active at draft timing gates.</li>
+    <li>Manual picks, auto pick, and auto draft all are supported.</li>
+    <li>Committed draftees are written to player data and assigned to development rosters.</li>
+  </ul>
+  <h3>Free Agency</h3>
+  <ul>
+    <li>Browse unsigned player pool, evaluate fit, and execute signings.</li>
+    <li>Finance and payroll policy can warn or block actions by league configuration.</li>
+  </ul>
+
+  <h2 id="admin-dashboard">10. Admin Dashboard Reference</h2>
+  <h3>Main Pages</h3>
+  <table>
+    <tr><th>Page</th><th>Primary Responsibilities</th></tr>
+    <tr><td>Dashboard</td><td>League metrics and queue status.</td></tr>
+    <tr><td>Transactions</td><td>Trade review, trade settings, change requests, GM finance queue.</td></tr>
+    <tr><td>Season</td><td>Season progress controls, playoffs, schedule regeneration, opening day reset, offseason finance workflow.</td></tr>
+    <tr><td>Draft</td><td>Draft pool, draft console, draft settings, draft results.</td></tr>
+    <tr><td>Teams</td><td>Team dashboard launch and bulk roster automation.</td></tr>
+    <tr><td>Users</td><td>Account administration.</td></tr>
+    <tr><td>League Settings</td><td>League lifecycle, policy controls, finance settings, system hubs.</td></tr>
+    <tr><td>Assets &amp; Exports</td><td>Logo/avatar generation and report export tooling.</td></tr>
+  </table>
+
+  <h2 id="season-flow">11. Season Progression and Operational Timing</h2>
+  <h3>Recommended Order</h3>
+  <ol>
+    <li>Preseason setup: lineups, pitching, depth chart, budgets/policies.</li>
+    <li>Regular season simulation in controlled increments.</li>
+    <li>Draft handling at the draft window.</li>
+    <li>Playoff transition and postseason operations.</li>
+    <li>Offseason finance workflow and preparation for next year.</li>
+  </ol>
+  <div class="note">
+    In multi-owner leagues, communicate major phase changes before running league-wide actions.
+  </div>
+
+  <h2 id="reports-assets">12. Reports, Exports, and Asset Utilities</h2>
+  <ul>
+    <li>Export standings, stats, and other league reports for sharing/archive.</li>
+    <li>Generate team logos and player avatars from admin utilities.</li>
+    <li>Use snapshot exports before destructive or high-impact operations.</li>
+  </ul>
+
+  <h2 id="checklists">13. Practical Checklists</h2>
+  <h3>Owner Daily/Weekly Checklist</h3>
+  <ol>
+    <li>Review injuries and roster eligibility.</li>
+    <li>Validate lineups and pitching roles after moves.</li>
+    <li>Check finance guidance and pending queues.</li>
+    <li>Review standings and upcoming schedule blocks.</li>
+  </ol>
+  <h3>Commissioner Checklist Before Major Sim Runs</h3>
+  <ol>
+    <li>Confirm active league and phase.</li>
+    <li>Resolve pending trade and change-request items.</li>
+    <li>Check finance queue/alerts if enabled.</li>
+    <li>Run exports/snapshots for rollback safety.</li>
+  </ol>
+
+  <h2 id="faq">14. FAQ and Troubleshooting</h2>
+  <h3>Why did a move not execute?</h3>
+  <p>
+    Check roster limits, policy settings (trades/payroll), and commissioner approval requirements.
+  </p>
+  <h3>Why is a player not eligible to return from DL?</h3>
+  <p>
+    DL minimum service time may not be met yet. Check injury center timing fields.
+  </p>
+  <h3>Why are finance buttons disabled?</h3>
+  <p>
+    Financial system or specific modules may be set to <code>off</code> in league settings.
+  </p>
+  <h3>How do I find exact terminology quickly?</h3>
+  <p>
+    Use the manual search field and terms like <code>Owner Ops</code>,
+    <code>GM queue</code>, <code>trade approval</code>, or <code>offseason checklist</code>.
+  </p>
+
+  <p><a href="#top">Back to top</a></p>
+</body>
+</html>
+

@@ -108,6 +108,11 @@ from .player_browser_dialog import PlayerBrowserDialog
 from .injury_center_window import InjuryCenterWindow
 from .depth_chart_dialog import DepthChartDialog
 from .tutorial_dialog import TutorialDialog, TutorialStep
+from .manual_viewer_dialog import (
+    DOC_FINANCE_MANUAL,
+    DOC_GAME_MANUAL,
+    ManualViewerDialog,
+)
 from .training_focus_dialog import TrainingFocusDialog
 from .change_request_export_dialog import ChangeRequestExportDialog
 from .ui_template import _load_baseball_pixmap, _load_nav_icon
@@ -498,6 +503,14 @@ class OwnerDashboard(QMainWindow):
             for action_label, callback in entries:
                 _add_tutorial_action(category_menu, action_label, callback)
 
+        manuals_menu = tutorials_menu.addMenu("Reference Manuals")
+        game_manual_action = QAction("Complete Game Manual", self)
+        game_manual_action.triggered.connect(self.open_game_manual)
+        manuals_menu.addAction(game_manual_action)
+        finance_manual_action = QAction("Finance System Manual", self)
+        finance_manual_action.triggered.connect(self.open_finance_manual)
+        manuals_menu.addAction(finance_manual_action)
+
         owner_tools_menu = self.menuBar().addMenu("&Owner Tools")
 
         submit_change_request_action = QAction("Submit Change Request...", self)
@@ -594,6 +607,19 @@ class OwnerDashboard(QMainWindow):
             if not force:
                 self._tutorial_flags[key] = True
                 self._save_tutorial_flags()
+
+    def open_game_manual(self, *_args, **_kwargs) -> None:
+        self._open_manual(doc_id=DOC_GAME_MANUAL)
+
+    def open_finance_manual(self, *_args, **_kwargs) -> None:
+        self._open_manual(doc_id=DOC_FINANCE_MANUAL)
+
+    def _open_manual(self, *, doc_id: str) -> None:
+        try:
+            dialog = ManualViewerDialog(initial_doc_id=doc_id, parent=self)
+            dialog.exec()
+        except Exception:
+            pass
 
     def show_depth_chart_tutorial(self, *, force: bool = False) -> None:
         steps = [
@@ -751,7 +777,7 @@ class OwnerDashboard(QMainWindow):
             TutorialStep(
                 "Owner Tools Menu",
                 "<p>The top menu includes <b>Owner Tools</b> for fast access to Submit Change Request,"
-                " Lineup Editor, Pitching Staff, Reassign Players, Trade Center, Free Agency Hub, Finance Page,"
+                " Lineup Editor, Pitching Staff, Reassign Players, Trade Center, Free Agency Hub, Open Finance Hub,"
                 " and Team Settings.</p>",
             ),
             TutorialStep(
@@ -772,13 +798,13 @@ class OwnerDashboard(QMainWindow):
         steps = [
             TutorialStep(
                 "When to Run Camp",
-                "<p>Open <b>Admin Tools → Season Progress</b> once free agency prep is complete."
+                "<p>Open <b>Admin Dashboard -> Season -> Season Progress</b> once free agency prep is complete."
                 " The <b>Run Training Camp</b> button unlocks after you finish required preseason tasks.</p>",
             ),
             TutorialStep(
                 "Customize Focus Budgets",
                 "<p>Before running camp you can tailor hitter and pitcher allocations."
-                " Use the <b>Training Focus</b> button on the Roster page or the <b>Training Focus…</b> button in"
+                " Use the <b>Training Focus</b> button on the Roster page or the <b>Training Focus...</b> button in"
                 " the Season Progress window to split training time across tracks. You can also override individual players from their profile or the roster tables. League defaults are used when"
                 " a team hasn't set its own mix.</p>",
             ),
@@ -936,7 +962,7 @@ class OwnerDashboard(QMainWindow):
         steps = [
             TutorialStep(
                 "Review the Pool",
-                "<p>Open <b>Free Agency</b> from the roster actions to browse unsigned players."
+                "<p>Open <b>Owner Tools -> Free Agency Hub</b> to browse unsigned players."
                 " Use the filters to sort by position and overall.</p>",
             ),
             TutorialStep(
@@ -1068,7 +1094,8 @@ class OwnerDashboard(QMainWindow):
             ),
             TutorialStep(
                 "Generating Schedules",
-                "<p>Commissioners can generate a new schedule from Admin Tools. Do this once per season and"
+                "<p>Commissioners can generate a new schedule from <b>Admin Dashboard -> Season -> Regenerate Schedule</b>."
+                " Do this once per season and"
                 " before running simulations.</p>",
             ),
             TutorialStep(
@@ -1190,7 +1217,7 @@ class OwnerDashboard(QMainWindow):
             ),
             TutorialStep(
                 "Training Focus",
-                "<p>Use the <b>Training Focus…</b> button on Season Progress to set league-wide hitter and pitcher"
+                "<p>Use the <b>Training Focus...</b> button on Season Progress to set league-wide hitter and pitcher"
                 " allocations. Commissioners can balance defaults here before teams override them.</p>",
             ),
             TutorialStep(

@@ -60,6 +60,7 @@ def main() -> None:
         "assets",
         "samples",
         "config",
+        os.path.join("docs", "manuals"),
         os.path.join("ui", "icons"),
         os.path.join("images", "parks"),
     ]

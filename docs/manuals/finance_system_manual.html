@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>NexGen-BBPro Finance System Manual</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      margin: 20px auto;
+      max-width: 1100px;
+      line-height: 1.45;
+      color: #f0f0f0;
+      background: transparent;
+    }
+    h1, h2, h3 { color: #ffffff; }
+    h1 { margin-top: 0; }
+    a { color: #9bd1ff; }
+    code { background: #1d1d1d; padding: 1px 4px; border-radius: 4px; }
+    .note { border-left: 3px solid #4d90fe; padding-left: 10px; margin: 10px 0; }
+    .warn { border-left: 3px solid #f5c542; padding-left: 10px; margin: 10px 0; }
+    .good { border-left: 3px solid #49b86e; padding-left: 10px; margin: 10px 0; }
+    .toc li { margin: 4px 0; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    th, td { border: 1px solid #444; padding: 8px; vertical-align: top; }
+    th { background: #2a2a2a; }
+  </style>
+</head>
+<body>
+  <h1 id="top">NexGen-BBPro Finance System Manual</h1>
+  <p>
+    This manual explains the complete finance system: modules, settings, terms,
+    timing, queue flow, and the exact owner/commissioner progression through a season.
+  </p>
+
+  <h2>Table of Contents</h2>
+  <ol class="toc">
+    <li><a href="#overview">System Overview</a></li>
+    <li><a href="#terms">Glossary and Core Terms</a></li>
+    <li><a href="#module-map">Finance Modules and What They Control</a></li>
+    <li><a href="#presets">Presets, Enforcement Modes, and AI Tuning</a></li>
+    <li><a href="#owner-ops">Owner Ops Tab Deep Guide</a></li>
+    <li><a href="#gm-ops">GM/Coach Ops Tab Deep Guide</a></li>
+    <li><a href="#queue-flow">GM Finance Queue and Commissioner Review Flow</a></li>
+    <li><a href="#payroll-policy">Payroll Policy Checks (Warn/Block)</a></li>
+    <li><a href="#budget-effects">Budget Effects on Development and Scouting</a></li>
+    <li><a href="#cadence">When Finance Events Happen (Daily/Weekly/Monthly/Offseason)</a></li>
+    <li><a href="#offseason">Offseason Pipeline and Stage-by-Stage Progression</a></li>
+    <li><a href="#alerts">Alerts, Risk Signals, and What to Do Next</a></li>
+    <li><a href="#files">Finance Data Files and Persistence</a></li>
+    <li><a href="#playbook">Recommended Finance Playbook</a></li>
+    <li><a href="#troubleshooting">Troubleshooting and Validation</a></li>
+  </ol>
+
+  <h2 id="overview">1. System Overview</h2>
+  <p>
+    The finance system is league-scoped and configurable. It can run in a light mode
+    or deep mode, and it supports owner workflows plus commissioner oversight.
+  </p>
+  <ul>
+    <li>Finance can be fully disabled or enabled per league.</li>
+    <li>Each finance module can run at different levels.</li>
+    <li>Payroll policy can warn or hard-block actions depending on enforcement.</li>
+    <li>Owner and commissioner modes have different queue approval behavior.</li>
+  </ul>
+
+  <h2 id="terms">2. Glossary and Core Terms</h2>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td>Owner Ops</td><td>Owner-side finance: cash, debt, revenue, expenses, and budget targets.</td></tr>
+    <tr><td>GM/Coach Ops</td><td>Roster/business operations: contracts, payroll, arbitration, free agency queues.</td></tr>
+    <tr><td>Finance Preset</td><td>Predefined module profile (off, simple, standard, mlb_like, custom).</td></tr>
+    <tr><td>Enforcement Mode</td><td>How strict policy checks are: off, warn, block.</td></tr>
+    <tr><td>GM Queue</td><td>Queue of owner finance decisions awaiting apply/review workflow.</td></tr>
+    <tr><td>Offseason Pipeline</td><td>Snapshot + arbitration + reset + checklist progression.</td></tr>
+    <tr><td>Threshold/Floor</td><td>Payroll ceiling/floor context used for policy checks and risk signaling.</td></tr>
+    <tr><td>Ledger</td><td>Audit trail of finance events, postings, and policy outcomes.</td></tr>
+  </table>
+
+  <h2 id="module-map">3. Finance Modules and What They Control</h2>
+  <table>
+    <tr><th>Module</th><th>Function</th><th>Typical Levels</th></tr>
+    <tr><td>owner_revenue</td><td>Revenue projection behavior and realism depth.</td><td>off/basic/advanced</td></tr>
+    <tr><td>owner_market_model</td><td>Market-model complexity for owner economics.</td><td>off/basic/advanced</td></tr>
+    <tr><td>owner_budgets</td><td>Editable owner budget controls and downstream effect usage.</td><td>off/basic/advanced</td></tr>
+    <tr><td>owner_expenses</td><td>Expense projection depth and categories.</td><td>off/basic/advanced</td></tr>
+    <tr><td>gm_contracts</td><td>Contract feature availability and term controls.</td><td>off/basic/advanced</td></tr>
+    <tr><td>gm_payroll_rules</td><td>Payroll threshold/floor logic and policy checks.</td><td>off/basic/mlb_like</td></tr>
+    <tr><td>gm_arbitration</td><td>Arbitration pipeline and queue operations.</td><td>off/basic/advanced</td></tr>
+    <tr><td>gm_free_agency</td><td>Free-agency recommendation queue support.</td><td>off/basic/advanced</td></tr>
+    <tr><td>gm_roster_cost_enforcement</td><td>Roster-cost rule strictness.</td><td>off/warn/block</td></tr>
+    <tr><td>gm_finance_ai</td><td>CPU strategy intensity for finance decisions.</td><td>off/basic/advanced</td></tr>
+  </table>
+
+  <h2 id="presets">4. Presets, Enforcement Modes, and AI Tuning</h2>
+  <h3>Presets</h3>
+  <ul>
+    <li><b>off</b>: finance disabled and modules effectively off.</li>
+    <li><b>simple</b>: lighter economics with reduced rule strictness.</li>
+    <li><b>standard</b>: balanced default with richer owner and GM finance.</li>
+    <li><b>mlb_like</b>: strictest profile with stronger payroll enforcement behavior.</li>
+    <li><b>custom</b>: manually tuned module mix.</li>
+  </ul>
+  <h3>Enforcement Mode Meaning</h3>
+  <ul>
+    <li><b>off</b>: policy violations reported minimally and not enforced.</li>
+    <li><b>warn</b>: action allowed, but warning/audit is recorded.</li>
+    <li><b>block</b>: violating action is prevented.</li>
+  </ul>
+  <h3>AI Tuning</h3>
+  <p>
+    Finance AI uses configurable thresholds (talent/performance/salary pressure)
+    to steer arbitration and free-agent recommendation behavior.
+  </p>
+
+  <h2 id="owner-ops">5. Owner Ops Tab Deep Guide</h2>
+  <h3>What Owner Ops Shows</h3>
+  <ul>
+    <li>Current state: cash on hand, debt, and finance enabled/preset context.</li>
+    <li>Projected monthly revenue and expenses.</li>
+    <li>Budget controls and current budget targets.</li>
+    <li>Recent finance transaction history (ledger view).</li>
+  </ul>
+  <h3>Budget Editing</h3>
+  <ul>
+    <li>Budget edits are only available when <code>owner_budgets</code> is enabled.</li>
+    <li>Save writes budget targets for the selected team.</li>
+    <li>Budget changes feed multiple gameplay systems (see section 9).</li>
+  </ul>
+  <div class="good">
+    Good workflow: update budgets before preseason operations and re-check after major roster cost changes.
+  </div>
+
+  <h2 id="gm-ops">6. GM/Coach Ops Tab Deep Guide</h2>
+  <h3>Main Blocks</h3>
+  <ul>
+    <li><b>Module Status</b>: quick confirmation of active/inactive finance controls.</li>
+    <li><b>Next Finance Actions</b>: phase-aware guidance and blockers.</li>
+    <li><b>Contracts &amp; Payroll</b>: roster commitments and contract editing actions.</li>
+    <li><b>Queue</b>: arbitration and free-agency target queue tools.</li>
+  </ul>
+  <h3>Contract Actions</h3>
+  <ul>
+    <li><b>Extend Contract</b> available when contracts module is enabled.</li>
+    <li>Advanced actions require advanced contract level:
+      guarantees, options, incentives, option decisions.
+    </li>
+  </ul>
+  <h3>Queue Actions</h3>
+  <ul>
+    <li><b>Queue Recommended Arbitration</b> creates/updates arbitration recommendations.</li>
+    <li><b>Queue Recommended FA Targets</b> creates/updates free-agency targets.</li>
+    <li>Use open trade/free agency actions to execute strategic moves after queue review.</li>
+  </ul>
+
+  <h2 id="queue-flow">7. GM Finance Queue and Commissioner Review Flow</h2>
+  <h3>Single-Player Leagues</h3>
+  <ul>
+    <li>Recommended queue decisions are auto-approved locally.</li>
+    <li>Owners can iterate quickly with less admin gating.</li>
+  </ul>
+  <h3>Multi-Owner Leagues</h3>
+  <ul>
+    <li>Queue decisions enter commissioner review states.</li>
+    <li>Commissioner approves/rejects from admin queue tools.</li>
+    <li>Approved decisions are applied by queue-processing workflow.</li>
+  </ul>
+  <div class="note">
+    Queue status values matter: pending, approved-not-applied, applied. Always verify final applied state.
+  </div>
+
+  <h2 id="payroll-policy">8. Payroll Policy Checks (Warn/Block)</h2>
+  <h3>What is evaluated</h3>
+  <ul>
+    <li>Projected payroll after signings, contract updates, and trade deltas.</li>
+    <li>Threshold overages, floor shortfalls, and debt-cap pressure.</li>
+    <li>Rule level behavior based on current preset/module configuration.</li>
+  </ul>
+  <h3>Outcomes</h3>
+  <ul>
+    <li><b>Pass</b>: no blocking condition found.</li>
+    <li><b>Warn</b>: permitted but high-risk; warning/audit written.</li>
+    <li><b>Block</b>: action denied under strict enforcement.</li>
+  </ul>
+  <p>
+    The system formats policy messages with projected values and threshold deltas to explain the decision.
+  </p>
+
+  <h2 id="budget-effects">9. Budget Effects on Development and Scouting</h2>
+  <h3>Training/Development/Facilities</h3>
+  <ul>
+    <li>Budget levels influence training-camp intensity multipliers.</li>
+    <li>Development budgets also influence offseason aging/development outcomes.</li>
+    <li>Facilities contributes to overall training camp support strength.</li>
+  </ul>
+  <h3>Scouting</h3>
+  <ul>
+    <li>Scouting budget affects scouting confidence profile.</li>
+    <li>Lower scouting support increases displayed rating uncertainty.</li>
+    <li>Higher scouting support tightens confidence and lowers estimated error.</li>
+  </ul>
+
+  <h2 id="cadence">10. When Finance Events Happen</h2>
+  <table>
+    <tr><th>Cadence</th><th>Examples</th><th>Purpose</th></tr>
+    <tr><td>Daily</td><td>Daily owner-finance marker/posting logic when advanced revenue mode is active.</td><td>Smooth operational accrual and cycle consistency.</td></tr>
+    <tr><td>Weekly</td><td>Weekly cadence markers and periodic posting logic.</td><td>Mid-granularity operational accounting.</td></tr>
+    <tr><td>Monthly</td><td>Monthly owner finance cycles and projection alignment.</td><td>Core recurring economics and snapshot integrity.</td></tr>
+    <tr><td>Offseason</td><td>Rollover pipeline, arbitration updates, checklist stages.</td><td>Year boundary transitions and policy reset flow.</td></tr>
+  </table>
+  <div class="warn">
+    Cadence actions are marker-guarded to avoid duplicate postings for the same period key.
+  </div>
+
+  <h2 id="offseason">11. Offseason Pipeline and Stage-by-Stage Progression</h2>
+  <h3>Pipeline Core</h3>
+  <ol>
+    <li>Generate season-end finance snapshot.</li>
+    <li>Apply arbitration updates where enabled.</li>
+    <li>Reset/prepare team financial year state.</li>
+    <li>Apply payroll rule accounting effects.</li>
+  </ol>
+  <h3>Checklist Stages</h3>
+  <ol>
+    <li><b>run_pipeline</b></li>
+    <li><b>contracts_review</b></li>
+    <li><b>arbitration_review</b></li>
+    <li><b>gm_finance_review</b></li>
+    <li><b>budgets_review</b></li>
+    <li><b>free_agency_kickoff</b></li>
+    <li><b>finalize</b></li>
+  </ol>
+  <p>
+    Stage order is enforced. The next required stage must be completed before later stages can be marked done.
+  </p>
+
+  <h2 id="alerts">12. Alerts, Risk Signals, and What to Do Next</h2>
+  <h3>Common Alert Types</h3>
+  <ul>
+    <li>Cash/debt risk pressure.</li>
+    <li>Payroll threshold or floor pressure.</li>
+    <li>GM queue backlog or unapplied approved decisions.</li>
+    <li>Offseason checklist not finalized before progression.</li>
+  </ul>
+  <h3>Typical Response Pattern</h3>
+  <ol>
+    <li>Open the relevant page (Owner Ops, GM/Coach Ops, or Admin queue).</li>
+    <li>Resolve blocked/pending actions first.</li>
+    <li>Re-run overview/refresh and validate alerts clear or downgrade.</li>
+  </ol>
+
+  <h2 id="files">13. Finance Data Files and Persistence</h2>
+  <p>
+    Finance data is league-scoped. Common files include:
+  </p>
+  <ul>
+    <li><code>league_financial_settings.json</code></li>
+    <li><code>team_financials.json</code></li>
+    <li><code>contracts.json</code></li>
+    <li><code>financial_transactions.csv</code></li>
+    <li><code>gm_finance_decisions.json</code></li>
+    <li><code>offseason_finance_state.json</code></li>
+    <li><code>finance_snapshots/&lt;season&gt;.json</code></li>
+  </ul>
+  <div class="note">
+    Baseline financial files are auto-seeded when missing to keep leagues operational.
+  </div>
+
+  <h2 id="playbook">14. Recommended Finance Playbook</h2>
+  <h3>In-Season (Owner)</h3>
+  <ol>
+    <li>Check Owner Ops monthly projection and debt trend.</li>
+    <li>Review GM/Coach Ops queue guidance and apply recommended decisions.</li>
+    <li>Validate payroll warnings before major signings or trades.</li>
+  </ol>
+  <h3>In-Season (Commissioner)</h3>
+  <ol>
+    <li>Monitor queue pending volume and resolve approval backlog.</li>
+    <li>Watch threshold/floor alert summaries and communicate policy expectations.</li>
+    <li>Verify no unresolved finance blockers before major simulation jumps.</li>
+  </ol>
+  <h3>Offseason</h3>
+  <ol>
+    <li>Run pipeline once and validate snapshot output.</li>
+    <li>Complete checklist stages in order.</li>
+    <li>Ensure GM queue is fully resolved/applied before finalization.</li>
+    <li>Confirm budgets and kick off free agency cleanly.</li>
+  </ol>
+
+  <h2 id="troubleshooting">15. Troubleshooting and Validation</h2>
+  <h3>Buttons disabled in Finance Hub</h3>
+  <p>
+    Check module level and global finance enabled state. Disabled modules hide or disable related actions.
+  </p>
+  <h3>Queue action did not apply</h3>
+  <p>
+    Check review status and whether commissioner approval is still pending.
+  </p>
+  <h3>Policy blocked a signing/trade</h3>
+  <p>
+    Review policy message details: projected payroll/debt and threshold overage amount.
+  </p>
+  <h3>Projection seems stale</h3>
+  <p>
+    Use refresh, verify active league, and ensure phase/cadence events have run.
+  </p>
+
+  <p><a href="#top">Back to top</a></p>
+</body>
+</html>
+

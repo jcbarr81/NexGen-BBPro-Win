@@ -88,6 +88,11 @@ from .gm_finance_queue_dialog import GmFinanceQueueDialog
 from .league_manager_dialog import LeagueManagerDialog
 from .avatar_tutorial_dialog import AvatarTutorialDialog
 from .logo_tutorial_dialog import LogoTutorialDialog
+from .manual_viewer_dialog import (
+    DOC_FINANCE_MANUAL,
+    DOC_GAME_MANUAL,
+    ManualViewerDialog,
+)
 from .league_history_window import LeagueHistoryWindow
 from .change_requests_window import ChangeRequestsWindow
 from .owner_dashboard import OwnerDashboard
@@ -415,6 +420,21 @@ class MainWindow(QMainWindow):
         news_action.triggered.connect(self.open_news_window)
         view_menu.addAction(news_action)
 
+        tutorials_menu = self.menuBar().addMenu("&Tutorials")
+        logo_tutorial_action = QAction("Team Logo Tutorial", self)
+        logo_tutorial_action.triggered.connect(self.open_logo_tutorial)
+        tutorials_menu.addAction(logo_tutorial_action)
+        avatar_tutorial_action = QAction("Player Avatar Tutorial", self)
+        avatar_tutorial_action.triggered.connect(self.open_avatar_tutorial)
+        tutorials_menu.addAction(avatar_tutorial_action)
+        tutorials_menu.addSeparator()
+        game_manual_action = QAction("Complete Game Manual", self)
+        game_manual_action.triggered.connect(self.open_game_manual)
+        tutorials_menu.addAction(game_manual_action)
+        finance_manual_action = QAction("Finance System Manual", self)
+        finance_manual_action.triggered.connect(self.open_finance_manual)
+        tutorials_menu.addAction(finance_manual_action)
+
     def _status_with_date(self, base: str) -> str:
         date_str = get_current_sim_date()
         if date_str:
@@ -626,6 +646,19 @@ class MainWindow(QMainWindow):
     def open_avatar_tutorial(self) -> None:
         try:
             dialog = AvatarTutorialDialog(self)
+            dialog.exec()
+        except Exception:
+            pass
+
+    def open_game_manual(self) -> None:
+        self._open_manual(doc_id=DOC_GAME_MANUAL)
+
+    def open_finance_manual(self) -> None:
+        self._open_manual(doc_id=DOC_FINANCE_MANUAL)
+
+    def _open_manual(self, *, doc_id: str) -> None:
+        try:
+            dialog = ManualViewerDialog(initial_doc_id=doc_id, parent=self)
             dialog.exec()
         except Exception:
             pass

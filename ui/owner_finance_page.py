@@ -40,6 +40,7 @@ from services.owner_finance_engine import (
 from services.payroll_engine import calculate_annual_payroll_totals, load_contracts
 from utils.league_settings import is_owner_league, load_league_settings
 from .components import Card, section_title
+from .manual_viewer_dialog import DOC_FINANCE_MANUAL, ManualViewerDialog
 
 _ARBITRATION_SERVICE_DAYS = 172
 _ARBITRATION_ELIGIBILITY_DAYS = 3 * _ARBITRATION_SERVICE_DAYS
@@ -95,6 +96,8 @@ class OwnerFinancePage(QWidget):
         refresh_button.clicked.connect(self.refresh)
         tutorial_button = QPushButton("Tutorial")
         tutorial_button.clicked.connect(self._open_tutorial)
+        manual_button = QPushButton("Finance Manual")
+        manual_button.clicked.connect(self._open_finance_manual)
 
         title_block = QVBoxLayout()
         title_block.setSpacing(4)
@@ -102,6 +105,7 @@ class OwnerFinancePage(QWidget):
         title_block.addWidget(subtitle)
 
         header_row.addLayout(title_block, stretch=1)
+        header_row.addWidget(manual_button, alignment=Qt.AlignmentFlag.AlignRight)
         header_row.addWidget(tutorial_button, alignment=Qt.AlignmentFlag.AlignRight)
         header_row.addWidget(refresh_button, alignment=Qt.AlignmentFlag.AlignRight)
         root.addLayout(header_row)
@@ -280,6 +284,20 @@ class OwnerFinancePage(QWidget):
         callback = getattr(self._dashboard, "show_finance_snapshot_tutorial", None)
         if callable(callback):
             callback(force=True)
+
+    def _open_finance_manual(self) -> None:
+        callback = getattr(self._dashboard, "open_finance_manual", None)
+        if callable(callback):
+            callback()
+            return
+        try:
+            dialog = ManualViewerDialog(
+                initial_doc_id=DOC_FINANCE_MANUAL,
+                parent=self,
+            )
+            dialog.exec()
+        except Exception:
+            pass
 
     def _open_trade_center(self) -> None:
         callback = getattr(self._dashboard, "open_trade_dialog", None)

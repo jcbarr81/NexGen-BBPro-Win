@@ -1,0 +1,12 @@
+- Added a reusable in-app searchable HTML manual viewer (`ui/manual_viewer_dialog.py`) with find-next/find-previous and per-manual selection.
+- Added two detailed in-app manuals under `docs/manuals/`:
+  - `game_manual.html` (complete game operations guide)
+  - `finance_system_manual.html` (full finance system explanation with flow/timing/modules)
+- Wired manuals into the Owner dashboard via `Tutorials -> Reference Manuals` with direct actions for both manuals.
+- Wired manuals into the Admin dashboard via a new `Tutorials` menu that includes logo/avatar tutorials plus both manuals.
+- Added a direct `Finance Manual` button on the Owner Finance page header for one-click access while managing finance workflows.
+- Updated owner tutorial copy to match current menu labels/paths (Open Finance Hub, Admin Dashboard season path, Free Agency Hub wording, and schedule regeneration path).
+- Fixed tutorial step heading punctuation rendering in `ui/tutorial_dialog.py` for clean ASCII output.
+- Updated owner/admin guide documentation to include manual access paths and corrected free-agency guidance.
+- Updated PyInstaller build inputs to bundle `docs/manuals` in release builds (`build_exe.py` and `NexGen-BBPro.spec`).
+- Added targeted tests for manual viewer loading/fallback behavior (`tests/test_manual_viewer_dialog.py`).

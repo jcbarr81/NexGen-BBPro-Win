@@ -11,6 +11,7 @@ they are easy to revisit when planning new milestones.
 - **Scope:** Wrap common loaders (players, rosters, standings, transactions) in
   shared query/update APIs and expose an event bus so UI widgets can subscribe to
   changes instead of issuing file operations directly.
+- **Status:** Open.
 
 ## 2. League History & Archive UI
 - **Goal:** Surface the new season archives produced by
@@ -18,18 +19,21 @@ they are easy to revisit when planning new milestones.
 - **Ideas:** Add a "League History" page showing champions, awards, standings,
   and playoff brackets per season; extend player/team profile dialogs with a
   season selector that reads from `data/careers/<season_id>/`.
+- **Status:** Complete.
 
 ## 3. Contracts & Financial Systems
 - **Goal:** Expand the simple free-agency helpers into a richer contract model
   with budgets, multi-year deals, arbitration, and salary impact on trades.
 - **Scope:** Extend `services/contract_negotiator`, add organization finances,
   and build UI (owner + admin) to review commitments, payroll, and cap space.
+- **Status:** In progress.
 
 ## 4. Deepened Player Development
 - **Goal:** Turn the current "training camp marks everyone ready" flow into a
   meaningful development phase with focus tracks, morale, and aging effects.
 - **Ideas:** Add training plans per player, hook into `playbalance/aging_model`,
   and reflect outcomes in ratings plus new tutorial/UX messaging.
+- **Status:** In progress.
 
 ## 5. Pitch Budget Telemetry & Tuning
 - **Goal:** Finish the `docs/pitch_budget_model.md` roadmap by pushing budget
@@ -37,17 +41,20 @@ they are easy to revisit when planning new milestones.
 - **Scope:** Expose `available_pct`/rest info on dashboards, integrate
   `scripts/usage_calibration.py` summaries, and add tests to lock in MLB-like
   appearance/IP targets.
+- **Status:** Open.
 
 ## 6. Outstanding Test Failures
 - **Reminder:** `docs/failing_tests.md` still lists unchecked pytest targets
   (e.g., simulation averages, foul balls, stadium dimensions, stats windows).
   Clearing these before new features will keep regression risk low.
+- **Status:** Open.
 
 ## 7. Multi-League Ownership & Collaboration Roadmap
 These initiatives enable a single owner to juggle multiple leagues, move saves
 between offline/online modes, and collaborate with other owners through
 messaging, chat, and forums. Tackle them in the order below so shared services
 land before channel-specific features.
+- **Status:** Open (roadmap).
 
 ### 7.1 Multiple Offline Leagues per Owner
 1. **Domain model:** Introduce `Owner` → `LeagueProfile` → `Season` entities plus
@@ -116,6 +123,7 @@ land before channel-specific features.
 - **Ideas:** Consolidate league lifecycle actions into one guided operations
   surface, add clearer destructive-action guardrails, and improve active-league
   context visibility (header state, confirmations, post-switch refresh prompts).
+- **Status:** Complete.
 
 ## 9. Owner Change Request Packaging
 - **Goal:** Export owner change requests as a single `.zip` bundle instead of
@@ -126,6 +134,7 @@ land before channel-specific features.
   filename so commissioners can identify the source without opening it.
   Suggested format:
   `change_request_<league_slug>_<team_slug>_<YYYYMMDD-HHMM>.zip`
+- **Status:** Open.
 
 ## 10. Trade Window UX Redesign
 - **Goal:** Redesign the Trade window to improve readability and decision flow
@@ -135,6 +144,7 @@ land before channel-specific features.
 - **Sizing:** Rework default/minimum window dimensions and responsive behavior
   so controls are not crowded on smaller displays and there is less wasted space
   on larger displays.
+- **Status:** Open.
 
 ## 11. Owner Finance Page Layout/Sizing Fix
 - **Goal:** Ensure all Owner Finance page content is accessible without clipping.
@@ -142,6 +152,7 @@ land before channel-specific features.
   needed so bottom sections are always reachable on common screen sizes.
 - **UX requirement:** No critical controls or summary rows should be hidden
   below the fold without an obvious scrollbar.
+- **Status:** Complete.
 
 ## 12. Team Settings Visual Preview Upgrade
 - **Goal:** Improve Team Settings with clearer visual feedback for venue and
@@ -150,6 +161,7 @@ land before channel-specific features.
   in the Team Settings dialog.
 - **Scope:** Add a uniform preview graphic that reflects selected team primary
   and secondary colors so owners can confirm color combinations before saving.
+- **Status:** Open.
 
 ## 13. League Finance Settings Window Redesign
 - **Goal:** Redesign the League Finance Settings window for clarity and easier
@@ -158,6 +170,7 @@ land before channel-specific features.
   common screen sizes without clipping.
 - **Scope:** Improve grouping/labels for finance modules and level toggles so
   commissioners can understand and change settings faster.
+- **Status:** Partial (layout/scroll improvements done; further redesign pending).
 
 ## 14. Commissioner-Only Season Progression (Multi-Owner Leagues)
 - **Goal:** In multi-owner leagues, restrict all simulation/season progression
@@ -166,6 +179,7 @@ land before channel-specific features.
   owner dashboards and related menus when league mode is multi-owner.
 - **Scope:** Enforce server-side/action-level guardrails so progression cannot
   be triggered through alternate UI paths or direct action calls.
+- **Status:** Open.
 
 ## 15. Performance Pass: Auto-Assign + League Creation
 - **Goal:** Reduce long waits in two high-friction workflows: auto-assigning
@@ -186,6 +200,7 @@ land before channel-specific features.
   (owner change requests, league snapshot export, and similar export flows).
 - **UX:** Keep current success messaging but include one-click access to the
   export location to reduce manual file navigation.
+- **Status:** Open.
 
 ## 17. Admin In-App Tutorials
 - **Goal:** Add tutorial coverage for commissioner workflows directly inside the
@@ -195,3 +210,24 @@ land before channel-specific features.
   season progression, trade/review queues, exports/utilities).
 - **UX:** Match owner tutorial behavior so admins can launch tutorials on
   demand and new commissioners get a clear onboarding path.
+- **Status:** Open.
+
+## 18. UI Graphics Handoff Export Utility
+- **Goal:** Make UI redesign handoff one-click by exporting a package per screen
+  for screenshot-plus-code workflows with ChatGPT.
+- **Scope:** Add a dev tool/script that collects each top-level `QDialog`/
+  `QMainWindow`/`QWidget` class, grabs source context, and writes structured
+  handoff bundles to `reports/ui_handoff/`.
+- **Output idea:** For each screen, generate:
+  - class metadata (file, class name, line ranges),
+  - optional screenshot placeholder path,
+  - prompt-ready markdown block with constraints and style tokens.
+- **Status:** Open.
+
+## 19. In-App Manual Maintenance Cadence
+- **Goal:** Keep the in-app searchable manuals current as new features and menu
+  paths evolve.
+- **Scope:** Add a lightweight release checklist item to verify tutorial text
+  and both manuals (Complete Game Manual + Finance System Manual) against the
+  current UI labels and workflow order before each release.
+- **Status:** Complete (baseline implementation delivered in v5.0.97).

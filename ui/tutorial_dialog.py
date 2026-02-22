@@ -100,7 +100,7 @@ class TutorialDialog(QDialog):
             return
         self._index = max(0, min(self._index, len(self.steps) - 1))
         step = self.steps[self._index]
-        self.step_label.setText(f"Step {self._index + 1} of {len(self.steps)} — {step.title}")
+        self.step_label.setText(f"Step {self._index + 1} of {len(self.steps)} - {step.title}")
         self.browser.setHtml(step.body_html)
         self.prev_btn.setEnabled(self._index > 0)
         has_next = self._index < len(self.steps) - 1
