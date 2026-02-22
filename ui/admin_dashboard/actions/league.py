@@ -4,11 +4,14 @@ from __future__ import annotations
 import csv
 import json
 import shutil
+import time
+from threading import Lock
 from datetime import date
 from typing import Callable, Iterable, Optional, Tuple
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
+    QApplication,
     QDialog,
     QInputDialog,
     QLineEdit,
@@ -86,10 +89,107 @@ def _alive_widget(widget: Optional[QWidget]) -> Optional[QWidget]:
     return widget
 
 
+def _format_elapsed(seconds: float) -> str:
+    total = max(0, int(seconds))
+    minutes, sec = divmod(total, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{sec:02d}"
+    return f"{minutes:02d}:{sec:02d}"
+
+
+class _ProgressPhaseTracker:
+    """Thread-safe phase holder used by long-running worker actions."""
+
+    def __init__(self, initial_phase: str = "Loading") -> None:
+        self._phase = str(initial_phase or "Loading")
+        self._lock = Lock()
+
+    def set_phase(self, phase: str) -> None:
+        with self._lock:
+            self._phase = str(phase or "Processing")
+
+    def get_phase(self) -> str:
+        with self._lock:
+            return self._phase
+
+
+def _run_with_progress_dialog(
+    context: DashboardContext,
+    parent: Optional[QWidget],
+    *,
+    title: str,
+    label: str,
+    worker: Callable[[], object],
+    phase_getter: Callable[[], str] | None = None,
+) -> object:
+    """Run *worker* and keep the UI responsive while showing progress."""
+
+    progress_dialog: Optional[QProgressDialog] = None
+    started = time.perf_counter()
+
+    def _refresh_label() -> None:
+        if progress_dialog is None:
+            return
+        phase_text = ""
+        if phase_getter is not None:
+            try:
+                phase_text = str(phase_getter() or "").strip()
+            except Exception:
+                phase_text = ""
+        elapsed_text = _format_elapsed(time.perf_counter() - started)
+        if phase_text:
+            progress_dialog.setLabelText(f"{phase_text}...\nElapsed: {elapsed_text}")
+            return
+        progress_dialog.setLabelText(f"{label}\nElapsed: {elapsed_text}")
+
+    if parent is not None:
+        try:
+            progress_dialog = QProgressDialog(label, None, 0, 0, parent)
+            progress_dialog.setWindowTitle(title)
+            progress_dialog.setMinimumDuration(0)
+            progress_dialog.setAutoClose(False)
+            progress_dialog.setAutoReset(False)
+            progress_dialog.setCancelButton(None)
+            progress_dialog.show()
+            _refresh_label()
+        except Exception:
+            progress_dialog = None
+
+    try:
+        future = context.run_async(worker)
+        if hasattr(future, "done") and hasattr(future, "result"):
+            app = QApplication.instance()
+            while True:
+                try:
+                    if future.done():
+                        break
+                except Exception:
+                    break
+                if app is not None:
+                    try:
+                        _refresh_label()
+                        app.processEvents()
+                    except Exception:
+                        pass
+                time.sleep(0.02)
+            return future.result()
+        if hasattr(future, "result"):
+            return future.result()
+        return future
+    finally:
+        if progress_dialog is not None:
+            try:
+                progress_dialog.close()
+            except Exception:
+                pass
+
+
 def create_league_action(
     context: DashboardContext,
     parent: Optional[QWidget] = None,
     refresh_callbacks: Iterable[Callable[[], None]] | None = None,
+    show_draft_settings_reminder: bool = True,
 ) -> None:
     """Launch the guided dialog flow for creating a new league."""
 
@@ -312,13 +412,33 @@ def create_league_action(
 
         structure = dialog.get_structure()
     target_data_dir = league_registry.get_league_data_dir(league_id, create=True)
+    phase_tracker = _ProgressPhaseTracker("Loading")
+
+    def _create_worker() -> None:
+        create_league(
+            str(target_data_dir),
+            structure,
+            league_name,
+            progress_callback=phase_tracker.set_phase,
+        )
+
     try:
-        create_league(str(target_data_dir), structure, league_name)
+        _run_with_progress_dialog(
+            context,
+            parent,
+            title="Creating League",
+            label=f'Creating league "{league_name}"...',
+            worker=_create_worker,
+            phase_getter=phase_tracker.get_phase,
+        )
     except ValueError as exc:
         QMessageBox.warning(parent, "League Size Error", str(exc))
         return
     except OSError as exc:
         QMessageBox.critical(parent, "Error", f"Failed to create league data: {exc}")
+        return
+    except Exception as exc:
+        QMessageBox.critical(parent, "Error", f"Failed to create league: {exc}")
         return
 
     league_mode = "owner_league" if owner_league else "single_player"
@@ -421,24 +541,25 @@ def create_league_action(
             "Restart the app if open windows still show data from the previous league."
         ),
     )
-    try:
-        reminder = QMessageBox(parent)
-        reminder.setWindowTitle("Draft Settings Reminder")
-        reminder.setIcon(QMessageBox.Icon.Information)
-        reminder.setText(
-            "Before the season starts, review Draft Settings (rounds, pool size, seed)."
-        )
-        open_btn = reminder.addButton(
-            "Open Draft Settings", QMessageBox.ButtonRole.ActionRole
-        )
-        reminder.addButton("Not Now", QMessageBox.ButtonRole.RejectRole)
-        reminder.exec()
-        if reminder.clickedButton() == open_btn:
-            open_settings = getattr(parent, "open_draft_settings", None)
-            if callable(open_settings):
-                open_settings()
-    except Exception:
-        pass
+    if show_draft_settings_reminder:
+        try:
+            reminder = QMessageBox(parent)
+            reminder.setWindowTitle("Draft Settings Reminder")
+            reminder.setIcon(QMessageBox.Icon.Information)
+            reminder.setText(
+                "Before the season starts, review Draft Settings (rounds, pool size, seed)."
+            )
+            open_btn = reminder.addButton(
+                "Open Draft Settings", QMessageBox.ButtonRole.ActionRole
+            )
+            reminder.addButton("Not Now", QMessageBox.ButtonRole.RejectRole)
+            reminder.exec()
+            if reminder.clickedButton() == open_btn:
+                open_settings = getattr(parent, "open_draft_settings", None)
+                if callable(open_settings):
+                    open_settings()
+        except Exception:
+            pass
     for callback in refresh_callbacks or ():
         try:
             callback()

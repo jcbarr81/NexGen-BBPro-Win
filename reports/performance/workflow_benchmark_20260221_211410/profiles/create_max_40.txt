@@ -1,0 +1,43 @@
+         16519306 function calls (15722004 primitive calls) in 15.309 seconds
+
+   Ordered by: cumulative time
+   List reduced from 318 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.004    0.004   15.335   15.335 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\scripts\benchmark_workflows.py:127(_target)
+        1    0.004    0.004   15.331   15.331 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\league_creator.py:327(create_league)
+      120    0.005    0.000   14.476    0.121 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\league_creator.py:372(generate_roster)
+     2000    0.054    0.000   14.467    0.007 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\player_generator.py:1885(generate_player)
+    21444    0.042    0.000   12.454    0.001 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\player_generator.py:344(_sample_from_distribution)
+    21444    0.067    0.000   12.279    0.001 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\player_generator.py:299(_rating_distributions)
+    70619    0.123    0.000   10.245    0.000 C:\Users\james\AppData\Local\Programs\Python\Python311\Lib\pathlib.py:981(resolve)
+211781/71105    0.150    0.000    9.621    0.000 C:\Users\james\AppData\Local\Programs\Python\Python311\Lib\pathlib.py:504(_from_parts)
+259052/71484    0.298    0.000    9.560    0.000 C:\Users\james\AppData\Local\Programs\Python\Python311\Lib\pathlib.py:484(_parse_args)
+141162/47378    0.085    0.000    9.423    0.000 C:\Users\james\AppData\Local\Programs\Python\Python311\Lib\pathlib.py:868(__new__)
+541603/166467    0.086    0.000    9.053    0.000 {built-in method nt.fspath}
+    46892    0.030    0.000    8.982    0.000 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\path_utils.py:39(__fspath__)
+    46892    0.018    0.000    8.859    0.000 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\path_utils.py:36(_path)
+    47012    0.027    0.000    8.580    0.000 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\path_utils.py:355(get_data_dir)
+    47012    0.092    0.000    8.553    0.000 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\path_utils.py:200(_data_root_cache_key)
+    47012    0.112    0.000    8.127    0.000 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\path_utils.py:58(get_base_dir)
+    70619    0.248    0.000    7.265    0.000 <frozen ntpath>:674(realpath)
+   141318    6.411    0.000    6.411    0.000 {built-in method nt._getfinalpathname}
+     1080    0.011    0.000    6.284    0.006 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\player_generator.py:779(_sample_normalized_hitter)
+      920    0.009    0.000    6.235    0.007 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\player_generator.py:900(_sample_normalized_pitcher)
+    25448    0.018    0.000    4.799    0.000 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\player_generator.py:18(<lambda>)
+    21444    0.016    0.000    4.042    0.000 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\player_generator.py:19(<lambda>)
+    94200    0.041    0.000    2.680    0.000 C:\Users\james\AppData\Local\Programs\Python\Python311\Lib\pathlib.py:1008(stat)
+    94200    2.442    0.000    2.639    0.000 {built-in method nt.stat}
+      920    0.010    0.000    1.936    0.002 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\player_generator.py:846(_sample_pitch_mix)
+   259053    0.884    0.000    1.597    0.000 C:\Users\james\AppData\Local\Programs\Python\Python311\Lib\pathlib.py:56(parse_parts)
+     2000    0.208    0.000    1.459    0.001 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\player_generator.py:1243(generate_name)
+     2000    0.002    0.000    1.214    0.001 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\player_generator.py:1049(_refresh_name_pool)
+     2001    0.005    0.000    1.202    0.001 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\player_generator.py:1044(_current_name_source_path)
+        1    0.001    0.001    0.589    0.589 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\league_creator.py:255(_write_default_lineups)
+    23493    0.027    0.000    0.548    0.000 C:\Users\james\AppData\Local\Programs\Python\Python311\Lib\pathlib.py:1230(exists)
+       40    0.001    0.000    0.547    0.014 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\lineup_loader.py:221(build_default_game_state)
+       40    0.004    0.000    0.528    0.013 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\lineup_loader.py:90(_build_default_lists)
+   259150    0.239    0.000    0.406    0.000 C:\Users\james\AppData\Local\Programs\Python\Python311\Lib\pathlib.py:536(__str__)
+   211937    0.070    0.000    0.404    0.000 C:\Users\james\AppData\Local\Programs\Python\Python311\Lib\pathlib.py:546(__fspath__)
+
+

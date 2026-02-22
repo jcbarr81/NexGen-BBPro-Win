@@ -1503,21 +1503,46 @@ def simulate_game_scores(
     away_id: str,
     *,
     seed: int | None = None,
-    players_file: str = "data/players.csv",
-    roster_dir: str = "data/rosters",
-    lineup_dir: str | Path = "data/lineups",
+    players_file: str | Path | None = None,
+    roster_dir: str | Path | None = None,
+    lineup_dir: str | Path | None = None,
     game_date: str | date | None = None,
     engine: str | None = None,
 ) -> tuple[int, int, str, dict[str, object]]:
     """Return the final score, rendered HTML and metadata for a matchup."""
 
+    data_dir = get_data_dir()
+    default_players = {"data/players.csv", "players.csv"}
+    default_rosters = {"data/rosters", "rosters"}
+    default_lineups = {"data/lineups", "lineups"}
+
+    players_candidate = str(players_file).replace("\\", "/").lower() if players_file is not None else ""
+    roster_candidate = str(roster_dir).replace("\\", "/").lower() if roster_dir is not None else ""
+    lineup_candidate = str(lineup_dir).replace("\\", "/").lower() if lineup_dir is not None else ""
+
+    resolved_players = (
+        str(data_dir / "players.csv")
+        if players_file is None or players_candidate in default_players
+        else str(players_file)
+    )
+    resolved_rosters = (
+        str(data_dir / "rosters")
+        if roster_dir is None or roster_candidate in default_rosters
+        else str(roster_dir)
+    )
+    resolved_lineups = (
+        str(data_dir / "lineups")
+        if lineup_dir is None or lineup_candidate in default_lineups
+        else str(lineup_dir)
+    )
+
     home_state, away_state, _, html, meta = run_single_game(
         home_id,
         away_id,
         seed=seed,
-        players_file=players_file,
-        roster_dir=roster_dir,
-        lineup_dir=lineup_dir,
+        players_file=resolved_players,
+        roster_dir=resolved_rosters,
+        lineup_dir=resolved_lineups,
         game_date=game_date,
         engine=engine,
     )

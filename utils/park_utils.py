@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import ast
 import csv
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
-from utils.path_utils import get_data_dir
+from utils.path_utils import get_base_dir, get_data_dir, get_data_root
 from playbalance.field_geometry import Stadium
 
 
@@ -21,28 +22,40 @@ class ParkInfo:
     foul_territory: Optional[str]
 
 
+def _park_data_roots() -> list[Path]:
+    roots: list[Path] = []
+    seen: set[Path] = set()
+
+    for root in (get_data_dir(), get_data_root(), get_base_dir() / "data"):
+        resolved = root.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        roots.append(resolved)
+    return roots
+
+
+def _find_park_data_file(filename: str) -> Path:
+    for root in _park_data_roots():
+        candidate = root / "parks" / filename
+        if candidate.exists():
+            return candidate
+        legacy = root / "ballparks" / filename
+        if legacy.exists():
+            return legacy
+    return get_data_dir() / "parks" / filename
+
+
 def _park_config_path() -> Path:
-    base = get_data_dir()
-    primary = base / "parks" / "ParkConfig.csv"
-    if primary.exists():
-        return primary
-    return base / "ballparks" / "ParkConfig.csv"
+    return _find_park_data_file("ParkConfig.csv")
 
 
 def _park_factors_path() -> Path:
-    base = get_data_dir()
-    primary = base / "parks" / "ParkFactors.csv"
-    if primary.exists():
-        return primary
-    return base / "ballparks" / "ParkFactors.csv"
+    return _find_park_data_file("ParkFactors.csv")
 
 
 def _parks_master_path() -> Path:
-    base = get_data_dir()
-    primary = base / "parks" / "Parks.csv"
-    if primary.exists():
-        return primary
-    return base / "ballparks" / "Parks.csv"
+    return _find_park_data_file("Parks.csv")
 
 
 def _norm(s: str) -> str:
@@ -115,6 +128,48 @@ def _load_latest_parks() -> Dict[str, ParkInfo]:
             if prev is None or info.year > prev.year:
                 latest[key] = info
     return latest
+
+
+def _load_legacy_ballpark_names() -> list[str]:
+    for root in _park_data_roots():
+        path = root / "ballparks.py"
+        if not path.exists():
+            continue
+        try:
+            module_ast = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except Exception:
+            continue
+        for node in module_ast.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "BALLPARKS":
+                    try:
+                        values = ast.literal_eval(node.value)
+                    except Exception:
+                        continue
+                    names = [
+                        str(value).strip()
+                        for value in values
+                        if str(value).strip()
+                    ]
+                    if names:
+                        return sorted(set(names))
+    return []
+
+
+def list_ballpark_names() -> list[str]:
+    """Return sorted unique park display names from ParkConfig."""
+
+    try:
+        parks = _load_latest_parks()
+    except Exception:
+        return []
+    names = {info.name.strip() for info in parks.values() if info.name.strip()}
+    sorted_names = sorted(names)
+    if sorted_names:
+        return sorted_names
+    return _load_legacy_ballpark_names()
 
 
 def stadium_from_name(name: str) -> Stadium | None:
@@ -228,5 +283,6 @@ __all__ = [
     "park_factor_for_name",
     "park_altitude_for_name",
     "park_foul_territory_for_name",
+    "list_ballpark_names",
     "ParkInfo",
 ]

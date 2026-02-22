@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "season_year": 2069,
+  "season_year": 2189,
   "teams": {
     "CHI": {
-      "cash_on_hand": 541180800,
+      "cash_on_hand": 2051452800,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -26,7 +26,7 @@
       }
     },
     "DEN": {
-      "cash_on_hand": 558828000,
+      "cash_on_hand": 2118348000,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -49,7 +49,7 @@
       }
     },
     "AUS": {
-      "cash_on_hand": 541180800,
+      "cash_on_hand": 2051452800,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -72,7 +72,7 @@
       }
     },
     "NEW": {
-      "cash_on_hand": 547063200,
+      "cash_on_hand": 2073751200,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -95,7 +95,7 @@
       }
     },
     "DAL": {
-      "cash_on_hand": 647064000,
+      "cash_on_hand": 2452824000,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -118,7 +118,7 @@
       }
     },
     "ELP": {
-      "cash_on_hand": 617652000,
+      "cash_on_hand": 2341332000,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -141,7 +141,7 @@
       }
     },
     "ALB": {
-      "cash_on_hand": 635299200,
+      "cash_on_hand": 2408227200,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -164,7 +164,7 @@
       }
     },
     "POR": {
-      "cash_on_hand": 588240000,
+      "cash_on_hand": 2229840000,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -187,7 +187,7 @@
       }
     },
     "SAN": {
-      "cash_on_hand": 623534400,
+      "cash_on_hand": 2363630400,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -210,7 +210,7 @@
       }
     },
     "COL": {
-      "cash_on_hand": 600004800,
+      "cash_on_hand": 2274436800,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -233,7 +233,7 @@
       }
     },
     "PHI": {
-      "cash_on_hand": 617652000,
+      "cash_on_hand": 2341332000,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -256,7 +256,7 @@
       }
     },
     "SAN1": {
-      "cash_on_hand": 541180800,
+      "cash_on_hand": 2051452800,
       "debt": 0,
       "revenue": {
         "tickets": 0,

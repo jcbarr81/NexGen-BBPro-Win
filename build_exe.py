@@ -90,6 +90,8 @@ def main() -> None:
         "ui.admin_dashboard",
         "--hidden-import",
         "ui.owner_dashboard",
+        "--hidden-import",
+        "ui.owner_finance_page",
         "--collect-submodules",
         "ui.admin_dashboard",
     ]

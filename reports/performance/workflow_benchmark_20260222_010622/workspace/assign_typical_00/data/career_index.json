@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "league": {
+    "id": "autoassign-typical-0",
+    "name": "AutoAssign typical 0",
+    "created_at": "2026-02-22T06:06:35Z"
+  },
+  "current": {
+    "season_id": "autoassign-typical-0-2026",
+    "league_year": 2026,
+    "sequence": 1,
+    "started_on": null,
+    "metadata": {},
+    "rollover_complete": false,
+    "created_at": "2026-02-22T06:06:35Z"
+  },
+  "seasons": []
+}

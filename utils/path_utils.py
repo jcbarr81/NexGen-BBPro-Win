@@ -10,6 +10,9 @@ import json
 
 
 _DATA_DIR: Path | None = None
+_DATA_DIR_KEY: tuple[str, bool, str] | None = None
+_DATA_ROOT: Path | None = None
+_DATA_ROOT_KEY: tuple[str, bool, str] | None = None
 _LEAGUE_REGISTRY_FILENAME = "league_registry.json"
 _ACTIVE_LEAGUE_FILENAME = "active_league.txt"
 _MINIMAL_DATA_FILES = (
@@ -194,10 +197,32 @@ def _resolve_data_root() -> Path:
     return user_data
 
 
+def _data_root_cache_key() -> tuple[str, bool, str]:
+    override = (
+        os.environ.get("NEXGEN_DATA_ROOT")
+        or os.environ.get("NEXGEN_DATA_DIR")
+        or ""
+    ).strip()
+    active_league_override = _normalize_league_id(
+        os.environ.get("NEXGEN_ACTIVE_LEAGUE")
+    ) or ""
+    return (
+        f"{override}|{active_league_override}",
+        bool(getattr(sys, "frozen", False)),
+        str(get_base_dir()),
+    )
+
+
 def get_data_root() -> Path:
     """Return writable root for NexGen league data."""
 
-    return _resolve_data_root()
+    global _DATA_ROOT, _DATA_ROOT_KEY
+    cache_key = _data_root_cache_key()
+    if _DATA_ROOT is not None and _DATA_ROOT_KEY == cache_key:
+        return _DATA_ROOT
+    _DATA_ROOT = _resolve_data_root()
+    _DATA_ROOT_KEY = cache_key
+    return _DATA_ROOT
 
 
 def get_league_registry_path(*, data_root: Path | None = None) -> Path:
@@ -273,8 +298,9 @@ def set_active_league_id(league_id: str, *, data_root: Path | None = None) -> st
     pointer = get_active_league_pointer_path(data_root=data_root)
     pointer.parent.mkdir(parents=True, exist_ok=True)
     pointer.write_text(normalized, encoding="utf-8")
-    global _DATA_DIR
+    global _DATA_DIR, _DATA_DIR_KEY
     _DATA_DIR = None
+    _DATA_DIR_KEY = None
     return normalized
 
 
@@ -285,8 +311,9 @@ def clear_active_league_id(*, data_root: Path | None = None) -> None:
             pointer.unlink()
     except OSError:
         pass
-    global _DATA_DIR
+    global _DATA_DIR, _DATA_DIR_KEY
     _DATA_DIR = None
+    _DATA_DIR_KEY = None
 
 
 def get_active_league_dir(
@@ -331,16 +358,12 @@ def get_active_league_data_dir(
 def get_data_dir() -> Path:
     """Return active league data dir when configured, otherwise legacy root."""
 
-    global _DATA_DIR
-    if _DATA_DIR is not None:
-        try:
-            current_root = get_data_root().resolve()
-            cached = _DATA_DIR.resolve()
-            if cached == current_root or current_root in cached.parents:
-                return _DATA_DIR
-        except OSError:
-            return _DATA_DIR
-        _DATA_DIR = None
+    global _DATA_DIR, _DATA_DIR_KEY
+    cache_key = _data_root_cache_key()
+    if _DATA_DIR is not None and _DATA_DIR_KEY == cache_key:
+        return _DATA_DIR
+    _DATA_DIR = None
+    _DATA_DIR_KEY = None
 
     data_root = get_data_root()
     active_data = get_active_league_data_dir(data_root=data_root, create=True)
@@ -350,11 +373,13 @@ def get_data_dir() -> Path:
             _seed_data_dir(base_data, active_data)
             _clear_readonly_tree(active_data)
             _DATA_DIR = active_data
+            _DATA_DIR_KEY = cache_key
             return _DATA_DIR
         except OSError:
             pass
 
     _DATA_DIR = data_root
+    _DATA_DIR_KEY = cache_key
     return _DATA_DIR
 
 

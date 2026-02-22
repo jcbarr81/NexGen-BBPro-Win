@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "league": {
+    "id": "benchmark-typical-0",
+    "name": "Benchmark typical 0",
+    "created_at": "2026-02-22T02:19:18Z"
+  },
+  "current": {
+    "season_id": "benchmark-typical-0-2026",
+    "league_year": 2026,
+    "sequence": 1,
+    "started_on": null,
+    "metadata": {},
+    "rollover_complete": false,
+    "created_at": "2026-02-22T02:19:18Z"
+  },
+  "seasons": []
+}

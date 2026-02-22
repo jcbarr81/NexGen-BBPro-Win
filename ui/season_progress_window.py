@@ -853,6 +853,9 @@ class SeasonProgressWindow(QDialog):
             home_id,
             away_id,
             seed=seed,
+            players_file=str(DATA_DIR / "players.csv"),
+            roster_dir=str(DATA_DIR / "rosters"),
+            lineup_dir=str(DATA_DIR / "lineups"),
             game_date=game_date,
             engine=self._engine_choice,
         )

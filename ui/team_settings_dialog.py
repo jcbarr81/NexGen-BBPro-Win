@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
 )
 
-from data.ballparks import BALLPARKS
+from utils.park_utils import list_ballpark_names
 from .park_selector_dialog import ParkSelectorDialog
 
 
@@ -53,7 +53,7 @@ class TeamSettingsDialog(QDialog):
         stadium_row.addWidget(QLabel("Stadium:"))
         self.stadium_combo = QComboBox()
         self.stadium_combo.setEditable(True)
-        self.stadium_combo.addItems(sorted(BALLPARKS))
+        self.stadium_combo.addItems(list_ballpark_names())
         if team.stadium:
             self.stadium_combo.setCurrentText(team.stadium)
         stadium_row.addWidget(self.stadium_combo)

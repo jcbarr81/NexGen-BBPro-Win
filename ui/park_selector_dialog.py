@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from data.ballparks import BALLPARKS
+from utils.park_utils import list_ballpark_names
 from utils.path_utils import get_base_dir, get_data_dir
 
 
@@ -43,7 +43,8 @@ def _park_config_path() -> Path:
 
 
 def _fallback_parks() -> List[Park]:
-    return [Park(park_id="", name=name, year=0) for name in sorted(BALLPARKS)]
+    names = list_ballpark_names()
+    return [Park(park_id="", name=name, year=0) for name in names]
 
 
 def _park_label(park: Park) -> str:

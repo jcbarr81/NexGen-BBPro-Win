@@ -84,3 +84,22 @@ def test_env_active_league_override_wins_over_pointer(tmp_path, monkeypatch):
 
     resolved_data_dir = path_utils.get_data_dir()
     assert resolved_data_dir == data_root / "leagues" / "beta" / "data"
+
+
+def test_get_data_dir_cache_invalidation_on_active_env_change(tmp_path, monkeypatch):
+    data_root = tmp_path / "data"
+    monkeypatch.setenv("NEXGEN_DATA_DIR", str(data_root))
+    monkeypatch.delenv("NEXGEN_ACTIVE_LEAGUE", raising=False)
+
+    path_utils, league_registry = _reload_modules()
+    league_registry.register_league("alpha")
+    league_registry.register_league("beta")
+    league_registry.set_active_league("alpha")
+
+    path_utils._DATA_DIR = None
+    first = path_utils.get_data_dir()
+    assert first == data_root / "leagues" / "alpha" / "data"
+
+    monkeypatch.setenv("NEXGEN_ACTIVE_LEAGUE", "beta")
+    switched = path_utils.get_data_dir()
+    assert switched == data_root / "leagues" / "beta" / "data"

@@ -7,7 +7,7 @@ import random
 import shutil
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Tuple, Iterable, Set
+from typing import Callable, Dict, Iterable, List, Set, Tuple
 
 from models.player import Player
 from models.pitcher import Pitcher
@@ -329,7 +329,17 @@ def create_league(
     divisions: Dict[str, List[Tuple[str, str]]],
     league_name: str,
     rating_profile: str | None = None,
+    progress_callback: Callable[[str], None] | None = None,
 ):
+    def _report_progress(phase: str) -> None:
+        if progress_callback is None:
+            return
+        try:
+            progress_callback(str(phase))
+        except Exception:
+            pass
+
+    _report_progress("Loading")
     total_teams = sum(len(teams) for teams in divisions.values())
     if total_teams > MAX_LEAGUE_TEAMS:
         raise ValueError(
@@ -420,6 +430,7 @@ def create_league(
         return players
 
     generated_rosters: dict[str, Roster] = {}
+    _report_progress("Processing")
 
     for division, teams in divisions.items():
         for city, name in teams:
@@ -471,6 +482,7 @@ def create_league(
                 low=[p["player_id"] for p in low_players],
             )
 
+    _report_progress("Saving")
     player_models = [_dict_to_model(p) for p in all_players]
     save_players_to_csv(player_models, players_path)
 
@@ -509,6 +521,7 @@ def create_league(
         roster_loader.load_roster.cache_clear()
     _initialize_league_state(base_dir)
 
+    _report_progress("Validating")
     with open(teams_path, "w", newline="") as f:
         fieldnames = [
             "team_id","name","city","abbreviation","division","stadium","primary_color","secondary_color","owner_id"
@@ -518,6 +531,7 @@ def create_league(
         writer.writerows(team_rows)
     with open(league_path, "w", newline="") as f:
         f.write(league_name)
+    _report_progress("Complete")
 
     # Initialize season context scoped to this league data directory.
     ctx = SeasonContext.load(path=base_dir / "career_index.json")

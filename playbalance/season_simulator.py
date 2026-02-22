@@ -6,6 +6,7 @@ import random
 
 from playbalance.game_runner import simulate_game_scores
 from utils.pitcher_recovery import PitcherRecoveryTracker
+from utils.path_utils import get_data_dir
 from types import SimpleNamespace
 from utils.exceptions import DraftRosterError
 from utils.stats_persistence import load_stats as _load_season_stats
@@ -289,7 +290,16 @@ class SeasonSimulator:
     ) -> tuple[int, int, str, dict[str, object]]:
         """Run a full play-balance simulation and return score, HTML and metadata."""
 
-        return simulate_game_scores(home_id, away_id, seed=seed, game_date=game_date)
+        data_dir = get_data_dir()
+        return simulate_game_scores(
+            home_id,
+            away_id,
+            seed=seed,
+            players_file=str(data_dir / "players.csv"),
+            roster_dir=str(data_dir / "rosters"),
+            lineup_dir=str(data_dir / "lineups"),
+            game_date=game_date,
+        )
 
 
 __all__ = ["SeasonSimulator"]

@@ -1,0 +1,34 @@
+{
+  "generated_at": "2026-02-21T20:57:27.555661",
+  "config": {
+    "runs": 1,
+    "warmups": 0,
+    "typical_divisions": 2,
+    "typical_teams": 8,
+    "skip_max": true,
+    "work_dir": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\reports\\performance\\workflow_benchmark_20260221_205639\\workspace",
+    "profile": false
+  },
+  "summary": [
+    {
+      "workflow": "auto_assign_all_teams",
+      "scenario": "typical",
+      "runs": 1,
+      "teams": 16,
+      "mean_seconds": 2.5708,
+      "median_seconds": 2.5708,
+      "min_seconds": 2.5708,
+      "max_seconds": 2.5708
+    },
+    {
+      "workflow": "create_league",
+      "scenario": "typical",
+      "runs": 1,
+      "teams": 16,
+      "mean_seconds": 20.0699,
+      "median_seconds": 20.0699,
+      "min_seconds": 20.0699,
+      "max_seconds": 20.0699
+    }
+  ]
+}

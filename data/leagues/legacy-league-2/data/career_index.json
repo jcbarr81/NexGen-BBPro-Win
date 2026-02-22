@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "league": {
+    "id": "league",
+    "name": "LEAGUE",
+    "created_at": "2026-02-16T14:33:11Z"
+  },
+  "current": {
+    "season_id": "league-2026",
+    "league_year": 2026,
+    "sequence": 1,
+    "started_on": null,
+    "metadata": {},
+    "rollover_complete": false,
+    "created_at": "2026-02-16T14:33:11Z"
+  },
+  "seasons": []
+}

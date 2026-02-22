@@ -108,3 +108,90 @@ land before channel-specific features.
    or injury reports directly into forum channels.
 5. **Moderation & discovery:** Add pinning, reactions, search, and archival
    policies, plus integrate forum notifications with the inbox/chat system.
+
+## 8. League Settings/Manager Reorganization
+- **Goal:** Reorganize the Admin `League Settings` and `League Manager` UX so
+  high-frequency tasks (create, clone, switch, archive, delete) are faster and
+  less error-prone.
+- **Ideas:** Consolidate league lifecycle actions into one guided operations
+  surface, add clearer destructive-action guardrails, and improve active-league
+  context visibility (header state, confirmations, post-switch refresh prompts).
+
+## 9. Owner Change Request Packaging
+- **Goal:** Export owner change requests as a single `.zip` bundle instead of
+  loose files so submissions are cleaner and easier for commissioners to review.
+- **Scope:** Bundle all request artifacts (manifest + roster/lineup/pitching/
+  depth-chart files) into one archive at export time.
+- **File naming:** Include league identifier, team identifier, and date in the
+  filename so commissioners can identify the source without opening it.
+  Suggested format:
+  `change_request_<league_slug>_<team_slug>_<YYYYMMDD-HHMM>.zip`
+
+## 10. Trade Window UX Redesign
+- **Goal:** Redesign the Trade window to improve readability and decision flow
+  for both owners and commissioners.
+- **Scope:** Clean up layout hierarchy, spacing, and labeling so offered assets,
+  requested assets, and validation/status messages are easier to scan.
+- **Sizing:** Rework default/minimum window dimensions and responsive behavior
+  so controls are not crowded on smaller displays and there is less wasted space
+  on larger displays.
+
+## 11. Owner Finance Page Layout/Sizing Fix
+- **Goal:** Ensure all Owner Finance page content is accessible without clipping.
+- **Scope:** Resize the page/layout containers and add scrollable regions where
+  needed so bottom sections are always reachable on common screen sizes.
+- **UX requirement:** No critical controls or summary rows should be hidden
+  below the fold without an obvious scrollbar.
+
+## 12. Team Settings Visual Preview Upgrade
+- **Goal:** Improve Team Settings with clearer visual feedback for venue and
+  branding selections.
+- **Scope:** Show a live preview graphic of the currently selected stadium/park
+  in the Team Settings dialog.
+- **Scope:** Add a uniform preview graphic that reflects selected team primary
+  and secondary colors so owners can confirm color combinations before saving.
+
+## 13. League Finance Settings Window Redesign
+- **Goal:** Redesign the League Finance Settings window for clarity and easier
+  configuration across simple and advanced finance modes.
+- **Scope:** Resize and restructure the layout so all controls are visible on
+  common screen sizes without clipping.
+- **Scope:** Improve grouping/labels for finance modules and level toggles so
+  commissioners can understand and change settings faster.
+
+## 14. Commissioner-Only Season Progression (Multi-Owner Leagues)
+- **Goal:** In multi-owner leagues, restrict all simulation/season progression
+  actions to commissioner accounts only.
+- **Scope:** Disable or hide simulate/progress controls for owner accounts in
+  owner dashboards and related menus when league mode is multi-owner.
+- **Scope:** Enforce server-side/action-level guardrails so progression cannot
+  be triggered through alternate UI paths or direct action calls.
+
+## 15. Performance Pass: Auto-Assign + League Creation
+- **Goal:** Reduce long waits in two high-friction workflows: auto-assigning
+  players for all teams and creating a new league.
+- **Scope:** Profile both flows to identify hotspots (I/O, repeated CSV loads,
+  synchronous UI work, expensive recalculations), then optimize with caching
+  and batched/background processing where appropriate.
+- **UX:** Add clearer progress feedback and elapsed-step messaging so users can
+  tell the app is still working during longer operations.
+- **Execution Plan:** `docs/performance_pass_plan.md`
+- **Status:** Complete (closed in v5.0.94). See sign-off metrics in
+  `docs/performance_pass_plan.md`.
+
+## 16. Post-Export "Open Folder" Shortcut
+- **Goal:** After any export action completes, let users open the containing
+  folder directly from the success dialog.
+- **Scope:** Add an `Open Folder` button/action to export completion dialogs
+  (owner change requests, league snapshot export, and similar export flows).
+- **UX:** Keep current success messaging but include one-click access to the
+  export location to reduce manual file navigation.
+
+## 17. Admin In-App Tutorials
+- **Goal:** Add tutorial coverage for commissioner workflows directly inside the
+  Admin console/dashboard.
+- **Scope:** Provide an Admin `Tutorials` menu (or equivalent entry point) with
+  guided walkthroughs for core admin tasks (league setup, user management,
+  season progression, trade/review queues, exports/utilities).
+- **UX:** Match owner tutorial behavior so admins can launch tutorials on
+  demand and new commissioners get a clear onboarding path.

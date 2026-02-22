@@ -3,7 +3,7 @@
 [Setup]
 AppId={{1e5875ae-6b82-4c87-8172-ceafc7d08661}}
 AppName=NexGen BBPro
-AppVersion=5.0.75
+AppVersion=5.0.96
 AppPublisher=NexGen BBPro
 DefaultDirName={pf}\NexGen-BBPro
 DefaultGroupName=NexGen BBPro
@@ -174,6 +174,37 @@ begin
     Result := Text;
 end;
 
+function ExtractExecutableParams(const CommandLine: string): string;
+var
+  Text: string;
+  EndQuotePos: Integer;
+  SpacePos: Integer;
+begin
+  Text := Trim(CommandLine);
+  if Text = '' then
+  begin
+    Result := '';
+    Exit;
+  end;
+
+  if Text[1] = '"' then
+  begin
+    Delete(Text, 1, 1);
+    EndQuotePos := Pos('"', Text);
+    if EndQuotePos > 0 then
+      Result := Trim(Copy(Text, EndQuotePos + 1, MaxInt))
+    else
+      Result := '';
+    Exit;
+  end;
+
+  SpacePos := Pos(' ', Text);
+  if SpacePos > 0 then
+    Result := Trim(Copy(Text, SpacePos + 1, MaxInt))
+  else
+    Result := '';
+end;
+
 function NormalizeDir(const Value: string): string;
 begin
   Result := Trim(Value);
@@ -209,13 +240,35 @@ end;
 function RunExistingUninstaller(): Boolean;
 var
   UninstallerPath: string;
+  UninstallerParams: string;
   ResultCode: Integer;
 begin
   Result := True;
   if ExistingUninstallString = '' then
+  begin
+    if (ExistingInstallDir <> '') and IsInstalledAtDir(ExistingInstallDir) then
+    begin
+      MsgBox(
+        'Uninstaller entry was not found. Setup will remove the existing install folder directly before reinstalling.',
+        mbInformation,
+        MB_OK
+      );
+      if not DelTree(ExistingInstallDir, True, True, True) then
+      begin
+        MsgBox(
+          'Unable to remove existing install folder: ' + ExistingInstallDir + #13#10 +
+          'Please remove it manually and run setup again.',
+          mbError,
+          MB_OK
+        );
+        Result := False;
+      end;
+    end;
     Exit;
+  end;
 
   UninstallerPath := ExtractExecutablePath(ExistingUninstallString);
+  UninstallerParams := ExtractExecutableParams(ExistingUninstallString);
   if UninstallerPath = '' then
   begin
     MsgBox('Could not detect the existing uninstaller path. Setup will exit.', mbError, MB_OK);
@@ -223,11 +276,23 @@ begin
     Exit;
   end;
 
+  if UninstallerParams = '' then
+    UninstallerParams := '/SILENT /NORESTART'
+  else
+  begin
+    if (Pos('/SILENT', UpperCase(UninstallerParams)) = 0) and
+       (Pos('/VERYSILENT', UpperCase(UninstallerParams)) = 0) and
+       (Pos('UNINS', UpperCase(ExtractFileName(UninstallerPath))) > 0) then
+      UninstallerParams := UninstallerParams + ' /SILENT';
+    if Pos('/NORESTART', UpperCase(UninstallerParams)) = 0 then
+      UninstallerParams := UninstallerParams + ' /NORESTART';
+  end;
+
   if not Exec(
     UninstallerPath,
-    '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART',
+    Trim(UninstallerParams),
     '',
-    SW_HIDE,
+    SW_SHOW,
     ewWaitUntilTerminated,
     ResultCode
   ) then

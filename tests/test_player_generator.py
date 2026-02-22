@@ -224,6 +224,38 @@ def test_generate_player_varied_ethnicities():
     assert {"Anglo", "African", "Asian", "Hispanic"} <= ethnicities
 
 
+def test_generate_name_handles_duplicate_pool_exhaustion(monkeypatch):
+    monkeypatch.setattr(pg, "_refresh_name_pool", lambda: None)
+    monkeypatch.setattr(
+        pg,
+        "name_pool",
+        {"Anglo": [("John", "Smith"), ("John", "Smith")]},
+    )
+    monkeypatch.setattr(pg, "used_names", {("John", "Smith")})
+
+    first, last, ethnicity = pg.generate_name()
+
+    assert (first, last, ethnicity) == ("John", "Doe", "Unknown")
+
+
+def test_generate_name_returns_remaining_unique_when_duplicates_exist(monkeypatch):
+    monkeypatch.setattr(pg, "_refresh_name_pool", lambda: None)
+    monkeypatch.setattr(
+        pg,
+        "name_pool",
+        {
+            "Anglo": [("John", "Smith"), ("John", "Smith")],
+            "Hispanic": [("Luis", "Diaz")],
+        },
+    )
+    monkeypatch.setattr(pg, "used_names", {("John", "Smith")})
+
+    first, last, ethnicity = pg.generate_name()
+
+    assert (first, last, ethnicity) == ("Luis", "Diaz", "Hispanic")
+    assert ("Luis", "Diaz") in pg.used_names
+
+
 def test_hitter_contact_speed_distribution_centered():
     random.seed(42)
     hitters = [generate_player(is_pitcher=False) for _ in range(300)]

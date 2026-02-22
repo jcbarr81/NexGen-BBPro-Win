@@ -60,6 +60,19 @@ def test_default_simulation_saves_team_stats(monkeypatch):
         captured.setdefault("teams", []).extend(list(teams))
 
     monkeypatch.setattr("playbalance.simulation.save_stats", _capture)
+    monkeypatch.setattr(
+        "playbalance.season_simulator._load_season_stats",
+        lambda: {"players": {}, "teams": {}},
+    )
+    monkeypatch.setattr(
+        "playbalance.season_simulator.simulate_game_scores",
+        lambda *_args, **_kwargs: (
+            6,
+            4,
+            "",
+            {"score_line": {"home": 6, "away": 4}},
+        ),
+    )
 
     sim = SeasonSimulator(schedule)
     sim.simulate_next_day()
@@ -131,3 +144,27 @@ def test_fallback_accumulates_when_only_basic_keys(tmp_path, monkeypatch):
     assert team_entry["l"] == 0
     assert team_entry["r"] == 12
     assert team_entry["ra"] == 4
+
+
+def test_default_simulation_uses_active_data_paths(monkeypatch, tmp_path):
+    data_dir = tmp_path / "active_data"
+    captured: dict[str, object] = {}
+
+    def _fake_simulate_game_scores(home_id, away_id, **kwargs):
+        captured["home"] = home_id
+        captured["away"] = away_id
+        captured.update(kwargs)
+        return 3, 2, "<html></html>", {}
+
+    monkeypatch.setattr("playbalance.season_simulator.get_data_dir", lambda: data_dir)
+    monkeypatch.setattr(
+        "playbalance.season_simulator.simulate_game_scores",
+        _fake_simulate_game_scores,
+    )
+
+    sim = SeasonSimulator([{"date": "2024-04-01", "home": "AAA", "away": "BBB"}])
+    sim.simulate_next_day()
+
+    assert captured["players_file"] == str(data_dir / "players.csv")
+    assert captured["roster_dir"] == str(data_dir / "rosters")
+    assert captured["lineup_dir"] == str(data_dir / "lineups")

@@ -1,5 +1,6 @@
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from PyQt6.QtWidgets import (
@@ -476,13 +477,18 @@ class SplashScreen(QWidget):
         from ui.admin_dashboard.actions.league import create_league_action
 
         # Reuse existing league creation flow without opening the full admin dashboard.
-        context = DashboardContext(
-            base_path=get_base_dir(),
-            run_async=lambda worker: worker(),
-            show_toast=None,
-            register_cleanup=None,
-        )
-        create_league_action(context=context, parent=self)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            context = DashboardContext(
+                base_path=get_base_dir(),
+                run_async=executor.submit,
+                show_toast=None,
+                register_cleanup=None,
+            )
+            create_league_action(
+                context=context,
+                parent=self,
+                show_draft_settings_reminder=False,
+            )
 
     def changeEvent(self, event):
         if event.type() == QEvent.Type.WindowStateChange:

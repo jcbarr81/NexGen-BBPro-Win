@@ -3,11 +3,40 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import QMessageBox, QWidget, QProgressDialog
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QMessageBox, QProgressDialog, QWidget
 
 from services.league_snapshot import export_league_snapshot
 from ..context import DashboardContext
+
+
+class _UiDispatcher(QObject):
+    """Thread-safe bridge to queue callables on the GUI thread."""
+
+    trigger = pyqtSignal(object)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.trigger.connect(self._run, Qt.ConnectionType.QueuedConnection)
+
+    def _run(self, callback: object) -> None:
+        try:
+            if callable(callback):
+                callback()
+        except Exception:
+            pass
+
+
+_DISPATCHER = _UiDispatcher()
+
+
+def _schedule(callback) -> None:
+    app = QApplication.instance()
+    if app is None:
+        if callable(callback):
+            callback()
+        return
+    _DISPATCHER.trigger.emit(callback)
 
 
 def export_league_snapshot_action(
@@ -69,14 +98,24 @@ def export_league_snapshot_action(
         except Exception as exc:
             payload = {"status": "error", "message": str(exc)}
 
-        QTimer.singleShot(0, lambda: finish(payload))
+        _schedule(lambda: finish(payload))
 
     if hasattr(future, "add_done_callback"):
         future.add_done_callback(handle_result)
         if context.register_cleanup and hasattr(future, "cancel"):
             context.register_cleanup(lambda fut=future: fut.cancel())
     else:
-        handle_result(future)
+        if hasattr(future, "result"):
+            handle_result(future)
+        else:
+            class _Immediate:
+                def __init__(self, value):
+                    self._value = value
+
+                def result(self):
+                    return self._value
+
+            handle_result(_Immediate(future))
 
 
 __all__ = ["export_league_snapshot_action"]

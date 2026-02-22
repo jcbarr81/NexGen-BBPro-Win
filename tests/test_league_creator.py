@@ -227,3 +227,23 @@ def test_create_league_requires_all_positions(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError):
         create_league(str(tmp_path), divisions, "Test League")
+
+
+def test_create_league_reports_progress_phases(tmp_path):
+    random.seed(0)
+    phases: list[str] = []
+    divisions = {"East": [("CityA", "Cats")]}
+
+    create_league(
+        str(tmp_path),
+        divisions,
+        "Progress League",
+        progress_callback=phases.append,
+    )
+
+    assert phases
+    assert phases[0] == "Loading"
+    assert "Processing" in phases
+    assert "Saving" in phases
+    assert "Validating" in phases
+    assert phases[-1] == "Complete"

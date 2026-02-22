@@ -1,0 +1,43 @@
+         1443655 function calls in 3.844 seconds
+
+   Ordered by: cumulative time
+   List reduced from 275 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    3.849    3.849 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\scripts\benchmark_workflows.py:171(_target)
+        1    0.000    0.000    3.849    3.849 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\services\roster_auto_assign.py:343(auto_assign_all_teams)
+       12    0.000    0.000    3.417    0.285 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\services\roster_auto_assign.py:313(auto_assign_team)
+     2085    0.010    0.000    3.297    0.002 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\path_utils.py:331(get_data_dir)
+      123    0.002    0.000    3.142    0.026 {built-in method builtins.sorted}
+      900    0.001    0.000    3.119    0.003 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\services\roster_auto_assign.py:113(_player_age)
+      900    0.004    0.000    3.117    0.003 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\aging.py:88(calculate_age)
+      900    0.010    0.000    3.088    0.003 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\aging.py:96(_resolve_sim_date)
+     2085    0.003    0.000    2.127    0.001 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\path_utils.py:197(get_data_root)
+     2085    0.017    0.000    2.124    0.001 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\path_utils.py:155(_resolve_data_root)
+       12    0.000    0.000    2.064    0.172 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\services\roster_auto_assign.py:172(_pick_active_roster)
+      600    0.001    0.000    2.062    0.003 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\services\roster_auto_assign.py:129(_active_sort_key)
+     2085    0.014    0.000    1.605    0.001 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\path_utils.py:74(_can_write_dir)
+     6498    0.026    0.000    1.583    0.000 C:\Users\james\AppData\Local\Programs\Python\Python311\Lib\pathlib.py:981(resolve)
+      900    0.008    0.000    1.563    0.002 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\season_context.py:137(load)
+      900    0.003    0.000    1.506    0.002 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\sim_date.py:41(get_current_sim_date)
+      900    0.002    0.000    1.402    0.002 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\playbalance\season_context.py:65(get_career_index_path)
+     6498    0.041    0.000    1.147    0.000 <frozen ntpath>:674(realpath)
+       12    0.000    0.000    1.072    0.089 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\services\roster_auto_assign.py:268(_pick_minor_rosters)
+      300    0.001    0.000    1.069    0.004 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\services\roster_auto_assign.py:135(_prospect_sort_key)
+    13118    1.012    0.000    1.012    0.000 {built-in method nt._getfinalpathname}
+     2085    0.004    0.000    0.517    0.000 C:\Users\james\AppData\Local\Programs\Python\Python311\Lib\pathlib.py:1141(unlink)
+     2085    0.509    0.000    0.513    0.000 {built-in method nt.unlink}
+     3401    0.004    0.000    0.506    0.000 C:\Users\james\AppData\Local\Programs\Python\Python311\Lib\pathlib.py:1036(open)
+     3401    0.490    0.000    0.502    0.000 {built-in method io.open}
+     2085    0.009    0.000    0.475    0.000 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\path_utils.py:55(get_base_dir)
+    10606    0.007    0.000    0.444    0.000 C:\Users\james\AppData\Local\Programs\Python\Python311\Lib\pathlib.py:1008(stat)
+    10606    0.399    0.000    0.437    0.000 {built-in method nt.stat}
+       12    0.001    0.000    0.422    0.035 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\lineup_autofill.py:14(auto_fill_lineup_for_team)
+       61    0.000    0.000    0.396    0.006 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\player_loader.py:308(load_players_from_csv)
+       24    0.000    0.000    0.393    0.016 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\roster_loader.py:483(load_roster)
+       24    0.000    0.000    0.392    0.016 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\services\unified_data_service.py:126(get_roster)
+     3400    0.377    0.000    0.377    0.000 {method '__exit__' of '_io._IOBase' objects}
+       24    0.000    0.000    0.366    0.015 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\roster_loader.py:487(_loader)
+       24    0.003    0.000    0.362    0.015 C:\Users\james\Documents\Baseball-AI\NexGen-BBPro\utils\roster_loader.py:438(_load_roster_from_storage)
+
+

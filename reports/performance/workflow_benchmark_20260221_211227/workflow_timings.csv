@@ -1,0 +1,13 @@
+workflow,scenario,run_index,seconds,teams,warmup
+create_league,typical,0,3.3304044000105932,16,True
+create_league,typical,1,4.341706500039436,16,False
+create_league,typical,2,4.293074400047772,16,False
+auto_assign_all_teams,typical,0,0.1971212999196723,16,True
+auto_assign_all_teams,typical,1,0.18139919999521226,16,False
+auto_assign_all_teams,typical,2,0.17968939989805222,16,False
+create_league,max_40,0,12.995287099969573,40,True
+create_league,max_40,1,13.088686299975961,40,False
+create_league,max_40,2,12.408508200081997,40,False
+auto_assign_all_teams,max_40,0,0.17208410007879138,40,True
+auto_assign_all_teams,max_40,1,0.17440320004243404,40,False
+auto_assign_all_teams,max_40,2,0.17010660003870726,40,False

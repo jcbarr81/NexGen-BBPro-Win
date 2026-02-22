@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -149,6 +150,7 @@ class OwnerFinancePage(QWidget):
         self.history_card = Card()
         self.history_card.layout().addWidget(section_title("Finance Transaction History"))
         self.history_list = QListWidget()
+        self.history_list.setMinimumHeight(180)
         self.history_card.layout().addWidget(self.history_list)
         owner_layout.addWidget(self.history_card, stretch=1)
 
@@ -177,11 +179,14 @@ class OwnerFinancePage(QWidget):
         self.gm_summary_label.setWordWrap(True)
         self.gm_contracts_card.layout().addWidget(self.gm_summary_label)
         self.gm_contract_list = QListWidget()
+        self.gm_contract_list.setMinimumHeight(220)
         self.gm_contract_list.itemSelectionChanged.connect(
             self._sync_contract_action_buttons
         )
         self.gm_contracts_card.layout().addWidget(self.gm_contract_list)
-        contract_actions = QHBoxLayout()
+        contract_actions = QVBoxLayout()
+        contract_row_primary = QHBoxLayout()
+        contract_row_secondary = QHBoxLayout()
         self.extend_contract_button = QPushButton("Extend Contract")
         self.extend_contract_button.clicked.connect(self._extend_selected_contract)
         self.add_option_button = QPushButton("Add Option")
@@ -210,17 +215,20 @@ class OwnerFinancePage(QWidget):
         self.edit_incentive_button.clicked.connect(self._edit_selected_incentive)
         self.remove_incentive_button = QPushButton("Remove Incentive")
         self.remove_incentive_button.clicked.connect(self._remove_selected_incentive)
-        contract_actions.addWidget(self.extend_contract_button)
-        contract_actions.addWidget(self.add_option_button)
-        contract_actions.addWidget(self.add_incentive_button)
-        contract_actions.addWidget(self.edit_guarantees_button)
-        contract_actions.addWidget(self.edit_option_button)
-        contract_actions.addWidget(self.exercise_option_button)
-        contract_actions.addWidget(self.decline_option_button)
-        contract_actions.addWidget(self.remove_option_button)
-        contract_actions.addWidget(self.edit_incentive_button)
-        contract_actions.addWidget(self.remove_incentive_button)
-        contract_actions.addStretch(1)
+        contract_row_primary.addWidget(self.extend_contract_button)
+        contract_row_primary.addWidget(self.add_option_button)
+        contract_row_primary.addWidget(self.add_incentive_button)
+        contract_row_primary.addWidget(self.edit_guarantees_button)
+        contract_row_primary.addWidget(self.edit_option_button)
+        contract_row_primary.addStretch(1)
+        contract_row_secondary.addWidget(self.exercise_option_button)
+        contract_row_secondary.addWidget(self.decline_option_button)
+        contract_row_secondary.addWidget(self.remove_option_button)
+        contract_row_secondary.addWidget(self.edit_incentive_button)
+        contract_row_secondary.addWidget(self.remove_incentive_button)
+        contract_row_secondary.addStretch(1)
+        contract_actions.addLayout(contract_row_primary)
+        contract_actions.addLayout(contract_row_secondary)
         self.gm_contracts_card.layout().addLayout(contract_actions)
         gm_layout.addWidget(self.gm_contracts_card, stretch=1)
 
@@ -230,8 +238,11 @@ class OwnerFinancePage(QWidget):
         self.gm_queue_label.setWordWrap(True)
         self.gm_queue_card.layout().addWidget(self.gm_queue_label)
         self.gm_queue_list = QListWidget()
+        self.gm_queue_list.setMinimumHeight(180)
         self.gm_queue_card.layout().addWidget(self.gm_queue_list)
-        gm_actions = QHBoxLayout()
+        gm_actions = QVBoxLayout()
+        gm_actions_primary = QHBoxLayout()
+        gm_actions_secondary = QHBoxLayout()
         self.open_trade_center_button = QPushButton("Open Trade Center")
         self.open_trade_center_button.clicked.connect(self._open_trade_center)
         self.open_free_agency_button = QPushButton("Open Free Agency Hub")
@@ -242,18 +253,28 @@ class OwnerFinancePage(QWidget):
         )
         self.queue_free_agency_button = QPushButton("Queue Recommended FA Targets")
         self.queue_free_agency_button.clicked.connect(self._queue_recommended_free_agency)
-        gm_actions.addWidget(self.open_trade_center_button)
-        gm_actions.addWidget(self.open_free_agency_button)
-        gm_actions.addWidget(self.queue_arbitration_button)
-        gm_actions.addWidget(self.queue_free_agency_button)
-        gm_actions.addStretch(1)
+        gm_actions_primary.addWidget(self.open_trade_center_button)
+        gm_actions_primary.addWidget(self.open_free_agency_button)
+        gm_actions_primary.addStretch(1)
+        gm_actions_secondary.addWidget(self.queue_arbitration_button)
+        gm_actions_secondary.addWidget(self.queue_free_agency_button)
+        gm_actions_secondary.addStretch(1)
+        gm_actions.addLayout(gm_actions_primary)
+        gm_actions.addLayout(gm_actions_secondary)
         self.gm_queue_card.layout().addLayout(gm_actions)
         gm_layout.addWidget(self.gm_queue_card, stretch=1)
 
-        self._tabs.addTab(owner_ops, "Owner Ops")
-        self._tabs.addTab(gm_ops, "GM/Coach Ops")
+        self._tabs.addTab(self._wrap_scroll(owner_ops), "Owner Ops")
+        self._tabs.addTab(self._wrap_scroll(gm_ops), "GM/Coach Ops")
 
         self.refresh()
+
+    @staticmethod
+    def _wrap_scroll(content: QWidget) -> QScrollArea:
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setWidget(content)
+        return area
 
     def _open_tutorial(self) -> None:
         callback = getattr(self._dashboard, "show_finance_snapshot_tutorial", None)

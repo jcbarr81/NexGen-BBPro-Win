@@ -1,0 +1,5 @@
+workflow,scenario,run_index,seconds,teams,warmup
+create_league,typical,0,4.189540299936198,16,False
+auto_assign_all_teams,typical,0,0.16503969999030232,16,False
+create_league,max_40,0,10.790771199972369,40,False
+auto_assign_all_teams,max_40,0,0.1731603000080213,40,False

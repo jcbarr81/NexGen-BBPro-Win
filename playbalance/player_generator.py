@@ -1245,15 +1245,22 @@ def generate_name() -> tuple[str, str, str]:
 
     _refresh_name_pool()
     if name_pool:
-        total_names = sum(len(v) for v in name_pool.values())
-        if len(used_names) >= total_names:
-            return "John", "Doe", "Unknown"
-        while True:
-            ethnicity = random.choice(list(name_pool.keys()))
-            first, last = random.choice(name_pool[ethnicity])
-            if (first, last) not in used_names:
-                used_names.add((first, last))
-                return first, last, ethnicity
+        available_by_ethnicity: Dict[str, List[Tuple[str, str]]] = {}
+        seen_available: Set[Tuple[str, str]] = set()
+        for ethnicity, pairs in name_pool.items():
+            if not pairs:
+                continue
+            for first, last in pairs:
+                name_key = (first, last)
+                if name_key in used_names or name_key in seen_available:
+                    continue
+                available_by_ethnicity.setdefault(ethnicity, []).append(name_key)
+                seen_available.add(name_key)
+        if available_by_ethnicity:
+            ethnicity = random.choice(list(available_by_ethnicity.keys()))
+            first, last = random.choice(available_by_ethnicity[ethnicity])
+            used_names.add((first, last))
+            return first, last, ethnicity
     return "John", "Doe", "Unknown"
 
 

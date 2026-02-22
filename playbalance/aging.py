@@ -85,12 +85,18 @@ def spring_training_pitch(
     setattr(pitcher, pitch, boosted)
 
 
-def calculate_age(birthdate: str) -> int:
+def calculate_age(birthdate: str, *, as_of: date | None = None) -> int:
     """Return age in years given a birthdate ISO string."""
 
     born = datetime.strptime(birthdate, "%Y-%m-%d").date()
-    today = _resolve_sim_date() or date.today()
+    today = as_of or _resolve_sim_date() or date.today()
     return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+
+
+def get_sim_date() -> date | None:
+    """Return current simulation date when available."""
+
+    return _resolve_sim_date()
 
 
 def _resolve_sim_date() -> date | None:

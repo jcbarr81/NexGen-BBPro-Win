@@ -14,10 +14,10 @@ considered for the Active roster. Existing DL/IR assignments are preserved.
 """
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, Iterable, List, Tuple, Set
+from datetime import date
+from typing import Callable, Dict, Iterable, List, Set, Tuple
 
-from playbalance.aging import calculate_age
+from playbalance.aging import calculate_age, get_sim_date
 from utils.player_loader import load_players_from_csv
 from utils.team_loader import load_teams
 from utils.user_manager import load_users
@@ -110,14 +110,43 @@ def _overall_score(p) -> float:
     return max(0.0, min(99.0, float(avg)))
 
 
-def _player_age(player: object) -> int | None:
+def _age_on_date(birthdate: str, as_of_date: date) -> int | None:
+    value = str(birthdate or "").strip()
+    if not value:
+        return None
+    candidate = value.split("T", 1)[0]
+    try:
+        born = date.fromisoformat(candidate)
+    except ValueError:
+        return None
+    return as_of_date.year - born.year - (
+        (as_of_date.month, as_of_date.day) < (born.month, born.day)
+    )
+
+
+def _player_age(
+    player: object,
+    *,
+    as_of_date: date | None = None,
+    age_cache: Dict[str, int | None] | None = None,
+) -> int | None:
     birthdate = getattr(player, "birthdate", None)
     if not birthdate:
         return None
+    birthdate_key = str(birthdate)
+    if age_cache is not None and birthdate_key in age_cache:
+        return age_cache[birthdate_key]
+    age_value: int | None = None
     try:
-        return calculate_age(str(birthdate))
+        if as_of_date is not None:
+            age_value = _age_on_date(birthdate_key, as_of_date)
+        if age_value is None:
+            age_value = calculate_age(birthdate_key, as_of=as_of_date)
     except Exception:
-        return None
+        age_value = None
+    if age_cache is not None:
+        age_cache[birthdate_key] = age_value
+    return age_value
 
 
 def _age_bonus(age: int | None) -> float:
@@ -126,14 +155,24 @@ def _age_bonus(age: int | None) -> float:
     return float(PROSPECT_AGE_CUTOFF - age) * PROSPECT_BONUS_PER_YEAR
 
 
-def _active_sort_key(player: object) -> tuple[float, int]:
-    age = _player_age(player)
+def _active_sort_key(
+    player: object,
+    *,
+    as_of_date: date | None = None,
+    age_cache: Dict[str, int | None] | None = None,
+) -> tuple[float, int]:
+    age = _player_age(player, as_of_date=as_of_date, age_cache=age_cache)
     age_value = age if age is not None else 99
     return (_overall_score(player), -age_value)
 
 
-def _prospect_sort_key(player: object) -> tuple[float, int]:
-    age = _player_age(player)
+def _prospect_sort_key(
+    player: object,
+    *,
+    as_of_date: date | None = None,
+    age_cache: Dict[str, int | None] | None = None,
+) -> tuple[float, int]:
+    age = _player_age(player, as_of_date=as_of_date, age_cache=age_cache)
     age_value = age if age is not None else 99
     return (_overall_score(player) + _age_bonus(age), -age_value)
 
@@ -172,6 +211,9 @@ def _eligible_positions(player: object) -> Set[str]:
 def _pick_active_roster(
     hitters: List[object],
     pitchers: List[object],
+    *,
+    as_of_date: date | None = None,
+    age_cache: Dict[str, int | None] | None = None,
 ) -> Tuple[List[str], List[object], List[object]]:
     """Select a 25-man active roster with legal defensive coverage.
 
@@ -183,8 +225,24 @@ def _pick_active_roster(
 
     # Sort by overall to align with UI/user expectations; use role-aware
     # pitcher score only for shaping the staff (e.g., guaranteeing SPs)
-    hitters_sorted = sorted(hitters, key=_active_sort_key, reverse=True)
-    pitchers_sorted = sorted(pitchers, key=_active_sort_key, reverse=True)
+    hitters_sorted = sorted(
+        hitters,
+        key=lambda player: _active_sort_key(
+            player,
+            as_of_date=as_of_date,
+            age_cache=age_cache,
+        ),
+        reverse=True,
+    )
+    pitchers_sorted = sorted(
+        pitchers,
+        key=lambda player: _active_sort_key(
+            player,
+            as_of_date=as_of_date,
+            age_cache=age_cache,
+        ),
+        reverse=True,
+    )
 
     # Build the pitching staff: at least 5 SPs if available, then best remaining
     sps = [p for p in pitchers_sorted if get_role(p) == "SP"]
@@ -268,9 +326,28 @@ def _pick_active_roster(
 def _pick_minor_rosters(
     hitters: List[object],
     pitchers: List[object],
+    *,
+    as_of_date: date | None = None,
+    age_cache: Dict[str, int | None] | None = None,
 ) -> Tuple[List[str], List[str]]:
-    hitters_sorted = sorted(hitters, key=_prospect_sort_key, reverse=True)
-    pitchers_sorted = sorted(pitchers, key=_prospect_sort_key, reverse=True)
+    hitters_sorted = sorted(
+        hitters,
+        key=lambda player: _prospect_sort_key(
+            player,
+            as_of_date=as_of_date,
+            age_cache=age_cache,
+        ),
+        reverse=True,
+    )
+    pitchers_sorted = sorted(
+        pitchers,
+        key=lambda player: _prospect_sort_key(
+            player,
+            as_of_date=as_of_date,
+            age_cache=age_cache,
+        ),
+        reverse=True,
+    )
 
     total = len(hitters_sorted) + len(pitchers_sorted)
     if total == 0:
@@ -310,8 +387,18 @@ def _pick_minor_rosters(
     return aaa_ids, low_ids
 
 
-def auto_assign_team(team_id: str, *, players_file: str = "data/players.csv", roster_dir: str = "data/rosters") -> None:
-    players = {p.player_id: p for p in load_players_from_csv(players_file)}
+def auto_assign_team(
+    team_id: str,
+    *,
+    players_file: str = "data/players.csv",
+    roster_dir: str = "data/rosters",
+    players_by_id: Dict[str, object] | None = None,
+    as_of_date: date | None = None,
+    age_cache: Dict[str, int | None] | None = None,
+) -> None:
+    players = players_by_id
+    if players is None:
+        players = {p.player_id: p for p in load_players_from_csv(players_file)}
     roster = load_roster(team_id, roster_dir)
 
     # Build the pool from current org players (ACT/AAA/LOW); keep DL/IR intact
@@ -320,10 +407,20 @@ def auto_assign_team(team_id: str, *, players_file: str = "data/players.csv", ro
     buckets = _split_players(pool)
 
     # Choose Active roster
-    act_ids, rest_hitters, rest_pitchers = _pick_active_roster(buckets.hitters, buckets.pitchers)
+    act_ids, rest_hitters, rest_pitchers = _pick_active_roster(
+        buckets.hitters,
+        buckets.pitchers,
+        as_of_date=as_of_date,
+        age_cache=age_cache,
+    )
 
     # Balance minors so AAA isn't stacked with only hitters or pitchers.
-    aaa_ids, low_ids = _pick_minor_rosters(rest_hitters, rest_pitchers)
+    aaa_ids, low_ids = _pick_minor_rosters(
+        rest_hitters,
+        rest_pitchers,
+        as_of_date=as_of_date,
+        age_cache=age_cache,
+    )
 
     # Preserve injured players on DL/IR: keep existing DL/IR and move any newly
     # identified injured players from the org pool to DL if they aren't already there.
@@ -340,14 +437,41 @@ def auto_assign_team(team_id: str, *, players_file: str = "data/players.csv", ro
     save_roster(team_id, roster)
 
 
-def auto_assign_all_teams(*, players_file: str = "data/players.csv", roster_dir: str = "data/rosters", teams_file: str = "data/teams.csv") -> None:
+def auto_assign_all_teams(
+    *,
+    players_file: str = "data/players.csv",
+    roster_dir: str = "data/rosters",
+    teams_file: str = "data/teams.csv",
+    progress_callback: Callable[[str, int, int], None] | None = None,
+) -> None:
+    def _report_progress(phase: str, done: int, total: int) -> None:
+        if progress_callback is None:
+            return
+        try:
+            progress_callback(str(phase), int(done), int(total))
+        except Exception:
+            pass
+
     load_roster.cache_clear()
     teams = load_teams(teams_file)
+    total_teams = len(teams)
+    _report_progress("Loading", 0, total_teams)
+    players_by_id = {p.player_id: p for p in load_players_from_csv(players_file)}
+    as_of_date = get_sim_date() or date.today()
+    age_cache: Dict[str, int | None] = {}
     users = load_users("data/users.txt")
     owned: set[str] = {u.get("team_id", "") for u in users if u.get("role") == "owner" and u.get("team_id")}
-    for team in teams:
+    for index, team in enumerate(teams, start=1):
+        _report_progress("Processing", index - 1, total_teams)
         try:
-            auto_assign_team(team.team_id, players_file=players_file, roster_dir=roster_dir)
+            auto_assign_team(
+                team.team_id,
+                players_file=players_file,
+                roster_dir=roster_dir,
+                players_by_id=players_by_id,
+                as_of_date=as_of_date,
+                age_cache=age_cache,
+            )
             load_roster.cache_clear()
             # For unmanaged teams, auto-generate lineups to keep sims valid
             if team.team_id not in owned:
@@ -360,6 +484,8 @@ def auto_assign_all_teams(*, players_file: str = "data/players.csv", roster_dir:
         except Exception:
             # Continue with other teams; admin can fix any outliers manually
             continue
+        _report_progress("Saving", index, total_teams)
+    _report_progress("Complete", total_teams, total_teams)
 
 
 __all__ = ["auto_assign_team", "auto_assign_all_teams"]
