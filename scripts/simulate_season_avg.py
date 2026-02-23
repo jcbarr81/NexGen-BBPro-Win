@@ -85,8 +85,6 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from playbalance.legacy_guard import require_legacy_enabled
 
-require_legacy_enabled("Legacy playbalance season average script")
-
 from playbalance.schedule_generator import generate_mlb_schedule
 from playbalance.simulation import (
     GameSimulation,
@@ -95,7 +93,7 @@ from playbalance.simulation import (
 )
 from playbalance.sim_config import load_tuned_playbalance_config
 from utils.lineup_loader import build_default_game_state
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.team_loader import load_teams
 import playbalance.simulation as sim
 
@@ -218,6 +216,7 @@ def simulate_season_average(
     Returns:
         The league-wide BABIP observed in the simulation.
     """
+    require_legacy_enabled("Legacy playbalance season average script")
 
     teams = [t.team_id for t in load_teams()]
     schedule_dir = get_data_dir() / "schedules"

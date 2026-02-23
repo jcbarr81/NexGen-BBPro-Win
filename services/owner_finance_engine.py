@@ -25,6 +25,7 @@ from services.finance_settings import (
     ensure_financial_defaults,
 )
 from services.payroll_engine import calculate_monthly_payroll_totals
+from services.standings_repository import invalidate_standings, load_standings
 from utils.path_utils import get_data_dir
 
 __all__ = [
@@ -770,14 +771,9 @@ def _load_team_financials(data_dir: Path) -> Dict[str, object]:
 
 
 def _load_standings(data_dir: Path) -> Dict[str, Mapping[str, object]]:
-    path = data_dir / "standings.json"
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    if not isinstance(payload, dict):
+    invalidate_standings(base_path=data_dir)
+    payload = load_standings(base_path=data_dir, normalize=False)
+    if not isinstance(payload, Mapping):
         return {}
     standings: Dict[str, Mapping[str, object]] = {}
     for team_id, value in payload.items():

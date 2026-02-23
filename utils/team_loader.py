@@ -6,7 +6,11 @@ from pathlib import Path
 
 try:  # Allow running as a standalone script
     from models.team import Team
-    from utils.path_utils import resolve_app_path
+    from utils.path_utils import (
+        get_base_dir as _get_base_dir,
+        get_data_dir as _get_data_dir,
+        resolve_app_path,
+    )
     from utils.stats_persistence import load_stats
     from playbalance.season_context import CAREER_DATA_DIR
 except ModuleNotFoundError:  # pragma: no cover - for direct script execution
@@ -14,9 +18,17 @@ except ModuleNotFoundError:  # pragma: no cover - for direct script execution
 
     sys.path.append(str(Path(__file__).resolve().parents[1]))
     from models.team import Team
-    from utils.path_utils import resolve_app_path
+    from utils.path_utils import (
+        get_base_dir as _get_base_dir,
+        get_data_dir as _get_data_dir,
+        resolve_app_path,
+    )
     from utils.stats_persistence import load_stats
     from playbalance.season_context import CAREER_DATA_DIR
+
+# Backwards compatibility: tests patch these attributes directly.
+get_base_dir = _get_base_dir
+get_data_dir = _get_data_dir
 
 
 def _resolve_path(file_path: str | Path) -> Path:

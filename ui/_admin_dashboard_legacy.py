@@ -93,6 +93,7 @@ from .manual_viewer_dialog import (
     DOC_GAME_MANUAL,
     ManualViewerDialog,
 )
+from .tutorial_dialog import TutorialDialog, TutorialStep
 from .league_history_window import LeagueHistoryWindow
 from .change_requests_window import ChangeRequestsWindow
 from .owner_dashboard import OwnerDashboard
@@ -102,7 +103,7 @@ from utils.trade_utils import load_trades
 from utils.league_settings import is_owner_league, load_league_settings
 from utils.player_loader import load_players_from_csv
 from utils.team_loader import load_teams
-from utils.path_utils import get_data_dir
+from utils.path_utils import get_base_dir, get_data_dir
 from utils.sim_date import get_current_sim_date
 from ui.version_badge import enable_version_badge
 
@@ -297,6 +298,17 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        self._admin_tutorial_keys = {
+            "overview": "admin_tutorial_overview",
+            "league_setup": "admin_tutorial_league_setup",
+            "users": "admin_tutorial_users",
+            "season_progression": "admin_tutorial_season_progression",
+            "transactions": "admin_tutorial_transactions",
+            "exports": "admin_tutorial_exports",
+        }
+        self._admin_tutorial_flags = self._load_admin_tutorial_flags()
+        self._admin_tutorial_dialog_open = False
+
         # menu ------------------------------------------------------------
         self._build_menu()
 
@@ -376,6 +388,10 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self._refresh_league_header()
+        if QTimer:
+            QTimer.singleShot(400, self._maybe_auto_show_admin_tutorials)
+        else:
+            self._maybe_auto_show_admin_tutorials()
 
     def _build_dashboard_page(self, page_cls: type[QWidget]) -> Callable[[DashboardContext], QWidget]:
         def factory(context: DashboardContext) -> QWidget:
@@ -421,19 +437,247 @@ class MainWindow(QMainWindow):
         view_menu.addAction(news_action)
 
         tutorials_menu = self.menuBar().addMenu("&Tutorials")
+
+        def _add_tutorial_action(
+            menu: object,
+            label: str,
+            callback: Callable[..., None],
+        ) -> None:
+            action = QAction(label, self)
+            action.triggered.connect(
+                lambda _checked=False, cb=callback: cb(force=True)
+            )
+            menu.addAction(action)  # type: ignore[attr-defined]
+
+        workflows_menu = tutorials_menu.addMenu("Commissioner Workflows")
+        workflow_entries = [
+            ("Admin Dashboard Overview", self.show_admin_dashboard_overview_tutorial),
+            ("League Setup & Manager", self.show_admin_league_setup_tutorial),
+            ("User Management & Roles", self.show_admin_user_management_tutorial),
+            ("Season Progression Flow", self.show_admin_season_progression_tutorial),
+            ("Trade & Review Queues", self.show_admin_transaction_queues_tutorial),
+            ("Exports & Utilities", self.show_admin_exports_utilities_tutorial),
+        ]
+        for action_label, callback in workflow_entries:
+            _add_tutorial_action(workflows_menu, action_label, callback)
+
+        assets_menu = tutorials_menu.addMenu("Asset Guides")
         logo_tutorial_action = QAction("Team Logo Tutorial", self)
         logo_tutorial_action.triggered.connect(self.open_logo_tutorial)
-        tutorials_menu.addAction(logo_tutorial_action)
+        assets_menu.addAction(logo_tutorial_action)
         avatar_tutorial_action = QAction("Player Avatar Tutorial", self)
         avatar_tutorial_action.triggered.connect(self.open_avatar_tutorial)
-        tutorials_menu.addAction(avatar_tutorial_action)
-        tutorials_menu.addSeparator()
+        assets_menu.addAction(avatar_tutorial_action)
+
         game_manual_action = QAction("Complete Game Manual", self)
         game_manual_action.triggered.connect(self.open_game_manual)
-        tutorials_menu.addAction(game_manual_action)
+        manuals_menu = tutorials_menu.addMenu("Reference Manuals")
+        manuals_menu.addAction(game_manual_action)
         finance_manual_action = QAction("Finance System Manual", self)
         finance_manual_action.triggered.connect(self.open_finance_manual)
-        tutorials_menu.addAction(finance_manual_action)
+        manuals_menu.addAction(finance_manual_action)
+
+    def _load_admin_tutorial_flags(self) -> dict[str, bool]:
+        try:
+            import json
+
+            path = get_base_dir() / "config" / "admin_tutorial_flags.json"
+            if not path.exists():
+                return {}
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                return {str(key): bool(value) for key, value in payload.items()}
+        except Exception:
+            pass
+        return {}
+
+    def _save_admin_tutorial_flags(self) -> None:
+        try:
+            import json
+
+            config_dir = get_base_dir() / "config"
+            config_dir.mkdir(parents=True, exist_ok=True)
+            path = config_dir / "admin_tutorial_flags.json"
+            path.write_text(
+                json.dumps(self._admin_tutorial_flags, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    def _run_admin_tutorial(
+        self,
+        key: str,
+        title: str,
+        steps: list[TutorialStep],
+        *,
+        force: bool = False,
+    ) -> None:
+        if not force and self._admin_tutorial_flags.get(key):
+            return
+        if self._admin_tutorial_dialog_open:
+            return
+        self._admin_tutorial_dialog_open = True
+        try:
+            dialog = TutorialDialog(title=title, steps=steps, parent=self)
+            dialog.exec()
+        finally:
+            self._admin_tutorial_dialog_open = False
+            if not force:
+                self._admin_tutorial_flags[key] = True
+                self._save_admin_tutorial_flags()
+
+    def show_admin_dashboard_overview_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Dashboard Home",
+                "<p>Start on <b>Dashboard</b> to check pending trades, draft timing, GM finance queue pressure, "
+                "and league health before running admin actions.</p>",
+            ),
+            TutorialStep(
+                "Core Navigation",
+                "<p>Use left-nav pages for domain-specific work: <b>Transactions</b>, <b>Season</b>, "
+                "<b>Draft</b>, <b>Teams</b>, <b>Users</b>, <b>League Settings</b>, and <b>Assets &amp; Exports</b>.</p>",
+            ),
+            TutorialStep(
+                "On-Demand Help",
+                "<p>Open <b>Tutorials -> Commissioner Workflows</b> any time to replay focused walkthroughs "
+                "for setup, progression, queues, and export workflows.</p>",
+            ),
+        ]
+        self._run_admin_tutorial(
+            self._admin_tutorial_keys["overview"],
+            "Admin Dashboard Overview",
+            steps,
+            force=force,
+        )
+
+    def show_admin_league_setup_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Create and Register Leagues",
+                "<p>Open <b>League Settings -> Create League</b> to build structure, schedule template, "
+                "and league mode. This action sets active league context and base policy files.</p>",
+            ),
+            TutorialStep(
+                "Switch and Archive",
+                "<p>Use <b>League Settings -> League Manager</b> to switch active leagues, archive old saves, "
+                "or restore archived leagues during migration and testing cycles.</p>",
+            ),
+            TutorialStep(
+                "Policy Baseline",
+                "<p>Before season start, review <b>Trade Settings</b>, <b>Financial System Settings</b>, "
+                "<b>Injury Settings</b>, and <b>Hall of Fame Settings</b> to lock commissioner defaults.</p>",
+            ),
+        ]
+        self._run_admin_tutorial(
+            self._admin_tutorial_keys["league_setup"],
+            "League Setup & Manager",
+            steps,
+            force=force,
+        )
+
+    def show_admin_user_management_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "User Directory",
+                "<p>Open <b>Users</b> to search and audit account role/team assignments before each major phase.</p>",
+            ),
+            TutorialStep(
+                "Add and Edit Accounts",
+                "<p>Use <b>Add User</b> for new owners/admins and <b>Edit User</b> for role corrections, "
+                "team reassignment, and password recovery workflows.</p>",
+            ),
+            TutorialStep(
+                "Role Safety",
+                "<p>Reserve commissioner permissions for trusted admins only. In multi-owner leagues, "
+                "commissioner permissions control season progression and queue approvals.</p>",
+            ),
+        ]
+        self._run_admin_tutorial(
+            self._admin_tutorial_keys["users"],
+            "User Management & Roles",
+            steps,
+            force=force,
+        )
+
+    def show_admin_season_progression_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Season Progress Window",
+                "<p>Open <b>Season -> Open Season Progress</b> for day/series simulation, phase transitions, "
+                "training camp, and free-agency progression controls.</p>",
+            ),
+            TutorialStep(
+                "Schedule and Reset Controls",
+                "<p>Use <b>Regenerate Season Schedule</b> and <b>Reset to Opening Day</b> carefully. "
+                "Run exports first and notify owners before destructive actions.</p>",
+            ),
+            TutorialStep(
+                "Playoff and Archive Checks",
+                "<p>Use <b>Open Playoffs Viewer</b> for bracket progression checks and <b>League History</b> "
+                "to validate archived outcomes after phase rollovers.</p>",
+            ),
+        ]
+        self._run_admin_tutorial(
+            self._admin_tutorial_keys["season_progression"],
+            "Season Progression Flow",
+            steps,
+            force=force,
+        )
+
+    def show_admin_transaction_queues_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Trade Review Queue",
+                "<p>Open <b>Transactions -> Review Pending Trades</b> to process commissioner approvals and "
+                "owner-accepted deals waiting for execution.</p>",
+            ),
+            TutorialStep(
+                "Owner Change Requests",
+                "<p>Use <b>Review Change Requests</b> to import owner ZIP bundles, inspect diffs, and approve "
+                "or reject submissions with notes.</p>",
+            ),
+            TutorialStep(
+                "GM Finance Queue",
+                "<p>Open <b>Review GM Finance Queue</b> in multi-owner leagues to finalize pending arbitration/"
+                "free-agency decisions before advancing phases.</p>",
+            ),
+        ]
+        self._run_admin_tutorial(
+            self._admin_tutorial_keys["transactions"],
+            "Trade & Review Queues",
+            steps,
+            force=force,
+        )
+
+    def show_admin_exports_utilities_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Reports and Snapshot Exports",
+                "<p>Open <b>Assets &amp; Exports</b> and run <b>Export Reports</b> or "
+                "<b>Export Owner Snapshot Zip</b> to distribute league state safely.</p>",
+            ),
+            TutorialStep(
+                "Asset Generation",
+                "<p>Generate team logos and player avatars from the same page. Use logo/avatar tutorial entries "
+                "for image pipeline conventions and prompt standards.</p>",
+            ),
+            TutorialStep(
+                "Operational Habit",
+                "<p>Run exports before major sim/regression steps so rollback artifacts are available for "
+                "commissioners and remote owners.</p>",
+            ),
+        ]
+        self._run_admin_tutorial(
+            self._admin_tutorial_keys["exports"],
+            "Exports & Utilities",
+            steps,
+            force=force,
+        )
+
+    def _maybe_auto_show_admin_tutorials(self) -> None:
+        self.show_admin_dashboard_overview_tutorial()
 
     def _status_with_date(self, base: str) -> str:
         date_str = get_current_sim_date()
@@ -719,7 +963,7 @@ class MainWindow(QMainWindow):
             if not ok:
                 return
         if team_id:
-            dashboard = OwnerDashboard(team_id)
+            dashboard = OwnerDashboard(team_id, actor_role="commissioner")
             show_on_top(dashboard)
             self.team_dashboards.append(dashboard)
             _track_owner_dashboard(dashboard)

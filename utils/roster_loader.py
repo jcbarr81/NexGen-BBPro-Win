@@ -7,10 +7,18 @@ from pathlib import Path
 from typing import Dict, List
 
 from models.roster import Roster
-from utils.path_utils import get_data_dir, resolve_app_path
+from utils.path_utils import (
+    get_base_dir as _get_base_dir,
+    get_data_dir as _get_data_dir,
+    resolve_app_path,
+)
 from .player_loader import load_players_from_csv
 from .roster_io import write_roster_csv
 from services.unified_data_service import get_unified_data_service
+
+# Backwards compatibility: tests patch these attributes directly.
+get_base_dir = _get_base_dir
+get_data_dir = _get_data_dir
 
 # Teams should field exactly 25 players on the active roster.
 ACTIVE_ROSTER_SIZE = 25
@@ -495,9 +503,13 @@ def load_roster(team_id, roster_dir: str | Path = "data/rosters"):
     return service.get_roster(team_id, raw_dir, _loader)
 
 
-def save_roster(team_id, roster: Roster):
-    roster_dir = Path("data") / "rosters"
-    filepath = get_data_dir() / "rosters" / f"{team_id}.csv"
+def save_roster(team_id, roster: Roster, roster_dir: str | Path = "data/rosters"):
+    raw_dir = Path(str(roster_dir))
+    resolved_dir = raw_dir
+    if not resolved_dir.is_absolute():
+        resolved_dir = resolve_app_path(resolved_dir)
+    resolved_dir = resolved_dir.resolve(strict=False)
+    filepath = resolved_dir / f"{team_id}.csv"
     try:
         if filepath.exists():
             filepath.chmod(0o644)
@@ -506,7 +518,7 @@ def save_roster(team_id, roster: Roster):
     write_roster_csv(roster, filepath)
 
     service = get_unified_data_service()
-    service.update_roster(str(team_id), roster_dir, roster)
+    service.update_roster(str(team_id), raw_dir, roster)
 
 
 def _cache_clear_rosters(team_id: str | None = None, roster_dir: str | Path | None = None) -> None:

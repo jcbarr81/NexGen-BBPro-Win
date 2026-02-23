@@ -134,7 +134,11 @@ from utils.rating_display import rating_display_text
 from utils.team_loader import load_teams, save_team_settings
 from utils.path_utils import get_base_dir, get_data_dir
 from utils.sim_date import get_current_sim_date
-from utils.league_settings import is_owner_league, verify_commissioner_password
+from utils.league_settings import (
+    can_run_season_progression,
+    is_owner_league,
+    verify_commissioner_password,
+)
 from ui.analytics import gather_owner_quick_metrics
 from ui.dashboard_core import DashboardContext, NavigationController, PageRegistry
 from ui.window_utils import show_on_top
@@ -162,10 +166,15 @@ def _track_admin_window(window: object) -> None:
 class OwnerDashboard(QMainWindow):
     """Owner-facing dashboard with sidebar navigation."""
 
-    def __init__(self, team_id: str):
+    def __init__(self, team_id: str, *, actor_role: str = "owner"):
         super().__init__()
         enable_version_badge(self)
         self.team_id = team_id
+        self._actor_role = str(actor_role or "owner").strip().lower() or "owner"
+        self._season_progress_allowed = can_run_season_progression(self._actor_role)
+        self._season_progress_block_reason = (
+            "Season progression is commissioner-only in multi-owner leagues."
+        )
         self.players: Dict[str, object] = {
             p.player_id: p for p in load_players_from_csv("data/players.csv")
         }
@@ -564,6 +573,13 @@ class OwnerDashboard(QMainWindow):
         self.season_progress_action.setStatusTip("Open season progress controls")
         self.season_progress_action.triggered.connect(self.open_season_progress_window)
         simulate_menu.addAction(self.season_progress_action)
+        if not self._season_progress_allowed:
+            self.season_progress_action.setEnabled(False)
+            self.season_progress_action.setStatusTip(self._season_progress_block_reason)
+            try:
+                simulate_menu.menuAction().setVisible(False)
+            except Exception:
+                pass
 
     def _load_tutorial_flags(self) -> dict[str, bool]:
         try:
@@ -766,7 +782,8 @@ class OwnerDashboard(QMainWindow):
         steps = [
             TutorialStep(
                 "Scoreboard Strip",
-                "<p>The top scoreboard summarizes record, run differential, streak, upcoming opponent, and injuries."
+                "<p>The top scoreboard summarizes record, run differential, streak, upcoming opponent, injuries,"
+                " and bullpen readiness/budget percentage."
                 " It updates whenever the sim date advances.</p>",
             ),
             TutorialStep(
@@ -997,12 +1014,12 @@ class OwnerDashboard(QMainWindow):
             TutorialStep(
                 "Branding Options",
                 "<p>Update team name, city, colors, and logos. If you change logos, refresh any open windows"
-                " to see the new artwork.</p>",
+                " to see the new artwork. The uniform preview updates live as you edit primary/secondary colors.</p>",
             ),
             TutorialStep(
                 "Stadium & Park Factors",
                 "<p>Pick a home park that matches your roster strategy. Park settings are reflected in sim"
-                " outputs and stats.</p>",
+                " outputs and stats, and the Team Settings dialog now shows a live park preview when available.</p>",
             ),
             TutorialStep(
                 "Save & Verify",
@@ -1812,6 +1829,8 @@ class OwnerDashboard(QMainWindow):
                 run_async=self._context.run_async,
                 show_toast=self._context.show_toast,
                 register_cleanup=self._context.register_cleanup,
+                allow_progress_actions=self._season_progress_allowed,
+                progress_block_reason=self._season_progress_block_reason,
             )
         except Exception as exc:
             QMessageBox.critical(
@@ -2209,7 +2228,14 @@ class OwnerDashboard(QMainWindow):
         bullpen = metrics.get("bullpen", {}) or {}
         bp_ready = int(bullpen.get("ready", 0) or 0)
         bp_total = int(bullpen.get("total", 0) or 0)
-        bp_summary = f"{bp_ready}/{bp_total}" if bp_total else "--"
+        avg_budget_pct = bullpen.get("avg_available_pct")
+        try:
+            avg_budget_text = f"{float(avg_budget_pct) * 100:.0f}%"
+        except (TypeError, ValueError):
+            avg_budget_text = "--"
+        bp_summary = (
+            f"{bp_ready}/{bp_total} ({avg_budget_text})" if bp_total else "--"
+        )
         trend_series = ((metrics.get("trends") or {}).get("series") or {})
         win_pct_series = trend_series.get("win_pct") or []
         win_pct = f"{win_pct_series[-1]:.3f}" if win_pct_series else "--"

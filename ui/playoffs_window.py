@@ -15,6 +15,7 @@ from services.season_progress_flags import (
 )
 from services.unified_data_service import get_unified_data_service
 from playbalance.season_manager import SeasonManager, SeasonPhase
+from ui.export_dialogs import show_export_success_dialog
 from utils.sim_date import get_current_sim_date
 
 try:
@@ -875,7 +876,12 @@ class PlayoffsWindow(QDialog):
         self._last_summary_path = path
         if self._show_toast:
             self._show_toast("success", f"Summary exported to {path}")
-        QMessageBox.information(self, "Export Summary", f"Summary exported to:\n{path}")
+        show_export_success_dialog(
+            parent=self,
+            title="Export Summary",
+            message=f"Summary exported to:\n{path}",
+            export_path=str(path or ""),
+        )
 
     def _open_summary(self) -> None:
         if self._open_future is not None:

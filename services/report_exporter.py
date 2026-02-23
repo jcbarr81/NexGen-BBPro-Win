@@ -12,6 +12,7 @@ from services.record_book import league_record_book
 from services.standings_repository import load_standings
 from utils.path_utils import get_data_dir, resolve_app_path
 from utils.player_loader import load_players_from_csv
+from utils.roster_loader import load_roster
 from utils.stats_persistence import load_stats as _load_season_stats
 from utils.team_loader import load_teams
 from utils.standings_utils import default_record, normalize_record
@@ -538,16 +539,13 @@ def _build_player_team_map() -> Dict[str, str]:
             continue
         team_id = roster_file.stem
         try:
-            with roster_file.open("r", newline="", encoding="utf-8") as handle:
-                reader = csv.reader(handle)
-                for row in reader:
-                    if len(row) < 2:
-                        continue
-                    pid = row[0].strip()
-                    if pid:
-                        player_team[pid] = team_id
-        except OSError:
+            roster = load_roster(team_id, roster_dir=roster_dir)
+        except Exception:
             continue
+        for pid in list(roster.act) + list(roster.aaa) + list(roster.low) + list(roster.dl) + list(roster.ir):
+            clean = str(pid or "").strip()
+            if clean:
+                player_team[clean] = team_id
     return player_team
 
 

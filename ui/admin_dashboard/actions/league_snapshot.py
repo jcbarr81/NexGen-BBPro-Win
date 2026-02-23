@@ -7,6 +7,7 @@ from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QMessageBox, QProgressDialog, QWidget
 
 from services.league_snapshot import export_league_snapshot
+from ui.export_dialogs import show_export_success_dialog
 from ..context import DashboardContext
 
 
@@ -86,7 +87,12 @@ def export_league_snapshot_action(
         path = payload.get("path", "")
         message = f"Snapshot exported to:\n{path}\n\nSend this zip to your owners."
         if parent is not None:
-            QMessageBox.information(parent, "Export League Snapshot", message)
+            show_export_success_dialog(
+                parent=parent,
+                title="Export League Snapshot",
+                message=message,
+                export_path=str(path),
+            )
         if context.show_toast:
             context.show_toast("success", "League snapshot exported.")
 

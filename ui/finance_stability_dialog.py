@@ -28,6 +28,7 @@ from services.finance_stability import (
     DEFAULT_STABILITY_GUARDRAILS,
     run_finance_stability_preset_comparison,
 )
+from ui.export_dialogs import show_export_success_dialog
 from utils.path_utils import get_data_dir
 
 
@@ -308,6 +309,12 @@ class FinanceStabilityDialog(QDialog):
         path = Path(out_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(self._last_result, indent=2), encoding="utf-8")
+        show_export_success_dialog(
+            parent=self,
+            title="Finance Stability Export",
+            message=f"JSON report exported to:\n{path}",
+            export_path=path,
+        )
 
     def _export_csv(self) -> None:
         if not isinstance(self._last_result, dict):
@@ -330,6 +337,12 @@ class FinanceStabilityDialog(QDialog):
             for raw in season_metrics:
                 row = raw if isinstance(raw, dict) else {}
                 writer.writerow({key: row.get(key, "") for key in headers})
+        show_export_success_dialog(
+            parent=self,
+            title="Finance Stability Export",
+            message=f"CSV report exported to:\n{path}",
+            export_path=path,
+        )
 
     def _flatten_season_rows(self, result: Dict[str, Any]) -> list[Dict[str, Any]]:
         mode = str(result.get("mode") or "").strip().lower()

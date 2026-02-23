@@ -65,6 +65,19 @@ _MODULE_LABELS = {
     "gm_finance_ai": "GM AI: Financial Behavior",
 }
 
+_MODULE_HELP = {
+    "owner_revenue": "Ticket, sponsorship, media, and concession revenue calculations.",
+    "owner_market_model": "Market-size and fan-interest effects on demand/revenue.",
+    "owner_budgets": "Owner budget allocations for training, scouting, development, and facilities.",
+    "owner_expenses": "Operating costs and non-payroll expense modeling.",
+    "gm_contracts": "Contract valuation, offer structure, and commitment behavior.",
+    "gm_payroll_rules": "Payroll threshold/floor checks and MLB-like rule enforcement.",
+    "gm_arbitration": "Arbitration candidate handling and award outcomes.",
+    "gm_free_agency": "AI free-agent offer behavior and risk posture.",
+    "gm_roster_cost_enforcement": "Owner/GM spending guardrails and overage handling.",
+    "gm_finance_ai": "CPU finance decision quality for signings, cuts, and payroll balancing.",
+}
+
 _MODULE_ORDER = [
     "owner_revenue",
     "owner_market_model",
@@ -77,6 +90,34 @@ _MODULE_ORDER = [
     "gm_roster_cost_enforcement",
     "gm_finance_ai",
 ]
+
+_MODULE_SECTIONS = (
+    (
+        "Owner Finance Modules",
+        (
+            "owner_revenue",
+            "owner_market_model",
+            "owner_budgets",
+            "owner_expenses",
+        ),
+    ),
+    (
+        "GM Workflow Modules",
+        (
+            "gm_contracts",
+            "gm_payroll_rules",
+            "gm_arbitration",
+            "gm_free_agency",
+        ),
+    ),
+    (
+        "Governance & AI",
+        (
+            "gm_roster_cost_enforcement",
+            "gm_finance_ai",
+        ),
+    ),
+)
 
 _AI_TUNING_FIELDS = (
     ("star_talent_threshold", "Star Talent Threshold"),
@@ -102,29 +143,44 @@ _AI_TUNING_FIELDS = (
     ),
 )
 
+_PRESET_GUIDANCE = {
+    "off": "Off disables all finance modules and bypasses finance enforcement.",
+    "simple": "Simple enables core finance rules with lower complexity and lighter AI behavior.",
+    "standard": "Standard enables most advanced modules for balanced realism and control.",
+    "mlb_like": "MLB-Like enables strict enforcement and advanced module behavior for high realism.",
+    "custom": "Custom reflects manual module or AI tuning edits outside preset defaults.",
+}
+
 
 class FinancialSettingsDialog(QDialog):
     """Admin editor for global finance mode and per-module complexity levels."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Financial System Settings")
-        self.resize(840, 760)
+        self.setWindowTitle("League Finance Settings")
+        self.setMinimumSize(900, 620)
+        self.resize(980, 760)
         self._updating = False
         self._module_combos: Dict[str, QComboBox] = {}
         self._ai_tuning_inputs: Dict[str, QLineEdit] = {}
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(12, 12, 12, 12)
+        root_layout.setSpacing(10)
 
         desc = QLabel(
-            "Configure the two-layer financial system for the active league. "
-            "When disabled, all finance logic is bypassed. When enabled, each module "
-            "can run at Off/Basic/Advanced (or MLB-Like where applicable)."
+            "Configure league-wide financial behavior for owners and GMs. "
+            "Use a preset for fast setup, then switch to Custom for per-module tuning."
         )
         desc.setWordWrap(True)
-        layout.addWidget(desc)
+        root_layout.addWidget(desc)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(12)
 
         top = QGroupBox("Global Controls")
         top_layout = QGridLayout(top)
@@ -150,47 +206,83 @@ class FinancialSettingsDialog(QDialog):
         self.enforcement_combo.currentIndexChanged.connect(self._on_manual_change)
         top_layout.addWidget(self.enforcement_combo, 2, 1)
 
+        self.preset_guidance_label = QLabel("")
+        self.preset_guidance_label.setWordWrap(True)
+        top_layout.addWidget(self.preset_guidance_label, 3, 0, 1, 2)
+
         layout.addWidget(top)
 
-        modules_group = QGroupBox("Module Levels")
-        modules_layout = QVBoxLayout(modules_group)
-        modules_layout.setContentsMargins(8, 8, 8, 8)
+        self.modules_group = QGroupBox("Finance Module Levels")
+        modules_layout = QVBoxLayout(self.modules_group)
+        modules_layout.setContentsMargins(12, 12, 12, 12)
+        modules_layout.setSpacing(10)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        module_host = QWidget()
-        module_grid = QGridLayout(module_host)
-        module_grid.setContentsMargins(8, 8, 8, 8)
+        self.module_status_label = QLabel("")
+        self.module_status_label.setWordWrap(True)
+        modules_layout.addWidget(self.module_status_label)
+
+        legend = QLabel(
+            "Level legend: Off = disabled, Basic = core rules, Advanced = full simulation depth, "
+            "MLB-Like = strict MLB-style behavior, Warn/Block = enforcement severity."
+        )
+        legend.setWordWrap(True)
+        modules_layout.addWidget(legend)
+
+        module_grid = QGridLayout()
+        module_grid.setContentsMargins(0, 0, 0, 0)
         module_grid.setHorizontalSpacing(16)
         module_grid.setVerticalSpacing(8)
 
-        for row, module in enumerate(_MODULE_ORDER):
-            label = QLabel(_MODULE_LABELS.get(module, module))
-            combo = QComboBox()
-            for level in MODULE_LEVELS.get(module, ("off",)):
-                combo.addItem(_LEVEL_LABELS.get(level, level), level)
-            combo.currentIndexChanged.connect(self._on_manual_change)
-            module_grid.addWidget(label, row, 0)
-            module_grid.addWidget(combo, row, 1)
-            self._module_combos[module] = combo
+        row = 0
+        for section_title, modules in _MODULE_SECTIONS:
+            section = QLabel(section_title)
+            section.setStyleSheet("font-weight: 600;")
+            module_grid.addWidget(section, row, 0, 1, 3)
+            row += 1
+            for module in modules:
+                label = QLabel(_MODULE_LABELS.get(module, module))
+                label.setWordWrap(True)
+                details = QLabel(_MODULE_HELP.get(module, ""))
+                details.setWordWrap(True)
+                details.setStyleSheet("color: #6c757d;")
+                combo = QComboBox()
+                combo.setMinimumWidth(170)
+                for level in MODULE_LEVELS.get(module, ("off",)):
+                    combo.addItem(_LEVEL_LABELS.get(level, level), level)
+                combo.currentIndexChanged.connect(self._on_manual_change)
+                module_grid.addWidget(label, row, 0)
+                module_grid.addWidget(details, row, 1)
+                module_grid.addWidget(combo, row, 2)
+                self._module_combos[module] = combo
+                row += 1
 
-        scroll.setWidget(module_host)
-        modules_layout.addWidget(scroll)
-        layout.addWidget(modules_group, stretch=1)
+        modules_layout.addLayout(module_grid)
+        layout.addWidget(self.modules_group)
 
-        ai_group = QGroupBox("CPU Finance AI Tuning")
-        ai_layout = QGridLayout(ai_group)
+        self.ai_group = QGroupBox("CPU Finance AI Tuning")
+        ai_layout = QGridLayout(self.ai_group)
         ai_layout.setContentsMargins(12, 12, 12, 12)
         ai_layout.setHorizontalSpacing(16)
         ai_layout.setVerticalSpacing(8)
-        for row, (key, label) in enumerate(_AI_TUNING_FIELDS):
-            ai_layout.addWidget(QLabel(label), row, 0)
+
+        ai_intro = QLabel(
+            "Tune AI financial aggressiveness and risk thresholds. "
+            "These values are usually only adjusted when using Custom mode."
+        )
+        ai_intro.setWordWrap(True)
+        ai_layout.addWidget(ai_intro, 0, 0, 1, 4)
+
+        for idx, (key, label) in enumerate(_AI_TUNING_FIELDS):
+            row = (idx // 2) + 1
+            col = (idx % 2) * 2
+            ai_layout.addWidget(QLabel(label), row, col)
             field = QLineEdit()
             field.setObjectName(f"ai_tuning_{key}")
             field.textEdited.connect(self._on_manual_change)
-            ai_layout.addWidget(field, row, 1)
+            field.setMinimumWidth(160)
+            ai_layout.addWidget(field, row, col + 1)
             self._ai_tuning_inputs[key] = field
-        layout.addWidget(ai_group)
+        layout.addWidget(self.ai_group)
 
         workflow_group = QGroupBox("Commissioner Workflow Guidance")
         workflow_layout = QVBoxLayout(workflow_group)
@@ -214,7 +306,7 @@ class FinancialSettingsDialog(QDialog):
         projection_layout.addWidget(self.projection_preview_label)
         layout.addWidget(projection_group)
 
-        alerts_group = QGroupBox("Finance Alerts")
+        alerts_group = QGroupBox("Alert Preview")
         alerts_layout = QVBoxLayout(alerts_group)
         alerts_layout.setContentsMargins(12, 12, 12, 12)
         self.alerts_preview_label = QLabel("")
@@ -224,6 +316,9 @@ class FinancialSettingsDialog(QDialog):
         )
         alerts_layout.addWidget(self.alerts_preview_label)
         layout.addWidget(alerts_group)
+
+        scroll.setWidget(content)
+        root_layout.addWidget(scroll, stretch=1)
 
         button_row = QHBoxLayout()
         self.refresh_preview_button = QPushButton("Refresh Preview")
@@ -235,7 +330,7 @@ class FinancialSettingsDialog(QDialog):
         self.close_button = QPushButton("Close")
         button_row.addWidget(self.save_button)
         button_row.addWidget(self.close_button)
-        layout.addLayout(button_row)
+        root_layout.addLayout(button_row)
 
         self.save_button.clicked.connect(self._save)
         self.close_button.clicked.connect(self.reject)
@@ -268,6 +363,7 @@ class FinancialSettingsDialog(QDialog):
         self._set_ai_tuning_values(settings.finance_ai_tuning)
         self._updating = False
         self._sync_enabled_state()
+        self._refresh_mode_guidance()
         self._refresh_reporting_preview()
 
     def _apply_preset_to_controls(self, preset: str) -> None:
@@ -293,12 +389,14 @@ class FinancialSettingsDialog(QDialog):
         if preset != PRESET_CUSTOM:
             self._apply_preset_to_controls(preset)
         self._sync_enabled_state()
+        self._refresh_mode_guidance()
 
     def _on_manual_change(self, *_args) -> None:
         if self._updating:
             return
         self._set_preset_custom()
         self._sync_enabled_state()
+        self._refresh_mode_guidance()
 
     def _sync_enabled_state(self) -> None:
         enabled = self.enabled_checkbox.isChecked()
@@ -307,6 +405,53 @@ class FinancialSettingsDialog(QDialog):
             combo.setEnabled(enabled)
         for field in self._ai_tuning_inputs.values():
             field.setEnabled(enabled)
+
+    @staticmethod
+    def _summarize_module_levels(modules: Dict[str, str]) -> str:
+        total = len(_MODULE_ORDER)
+        enabled = 0
+        basic = 0
+        advanced_like = 0
+        warn = 0
+        block = 0
+        for module in _MODULE_ORDER:
+            level = str(modules.get(module, "off") or "off")
+            if module == "gm_roster_cost_enforcement":
+                if level == "warn":
+                    enabled += 1
+                    warn += 1
+                elif level == "block":
+                    enabled += 1
+                    block += 1
+                continue
+            if level == "basic":
+                enabled += 1
+                basic += 1
+            elif level in {"advanced", "mlb_like"}:
+                enabled += 1
+                advanced_like += 1
+        return (
+            f"Module coverage: {enabled}/{total} enabled | "
+            f"Basic: {basic} | Advanced/MLB-Like: {advanced_like} | "
+            f"Enforcement Warn: {warn} | Enforcement Block: {block}"
+        )
+
+    def _refresh_mode_guidance(self) -> None:
+        preset = self._preset_value()
+        enabled = self.enabled_checkbox.isChecked()
+        guidance = _PRESET_GUIDANCE.get(preset, _PRESET_GUIDANCE[PRESET_CUSTOM])
+        if enabled:
+            self.preset_guidance_label.setText(f"Preset guidance: {guidance}")
+            self.module_status_label.setText(
+                self._summarize_module_levels(self._collect_modules())
+            )
+        else:
+            self.preset_guidance_label.setText(
+                "Preset guidance: Off disables all finance modules and enforcement."
+            )
+            self.module_status_label.setText(
+                "Financial system is disabled. Enable it to apply module levels and AI tuning."
+            )
 
     def _refresh_reporting_preview(self) -> None:
         try:

@@ -141,8 +141,9 @@ def metric_widget(
     _call_if_exists(title_label, "setObjectName", "MetricLabel")
     _call_if_exists(title_label, "setProperty", "variant", variant)
 
-    align_left = getattr(Qt.AlignmentFlag, "AlignLeft", None)
-    align_v_center = getattr(Qt.AlignmentFlag, "AlignVCenter", None)
+    alignment_flag = getattr(Qt, "AlignmentFlag", None)
+    align_left = getattr(alignment_flag, "AlignLeft", None)
+    align_v_center = getattr(alignment_flag, "AlignVCenter", None)
 
     if variant == "leader" and align_left is not None:
         _call_if_exists(

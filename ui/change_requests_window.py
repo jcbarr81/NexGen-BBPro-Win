@@ -39,7 +39,7 @@ class ChangeRequestsWindow(QDialog):
         layout.setSpacing(10)
 
         intro = QLabel(
-            "Owners export change request JSON files. Place those files in the inbox "
+            "Owners export change request ZIP bundles. Place those files in the inbox "
             "folder below, then click Import Inbox to load them into the approval queue."
         )
         intro.setWordWrap(True)

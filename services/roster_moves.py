@@ -53,10 +53,6 @@ def cut_player(team_id: str, player_id: str, roster: Roster | None = None) -> Tu
         raise ValueError(f"Player {player_id} not found on roster {team_id}.")
 
     save_roster(team_id, roster_obj)
-    try:
-        load_roster.cache_clear()
-    except Exception:
-        pass
 
     try:
         record_transaction(

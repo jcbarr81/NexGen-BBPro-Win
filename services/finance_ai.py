@@ -17,6 +17,7 @@ from services.contracts_service import (
 from services.finance_settings import DEFAULT_FINANCE_AI_TUNING, load_financial_settings
 from services.owner_finance_engine import project_monthly_owner_finance
 from services.payroll_engine import calculate_annual_payroll_totals
+from services.standings_repository import invalidate_standings, load_standings
 from utils.path_utils import get_data_dir
 
 __all__ = [
@@ -400,13 +401,8 @@ def build_cpu_free_agent_bid_book(
 
 
 def _load_standings(data_dir: Path) -> Dict[str, Mapping[str, object]]:
-    path = data_dir / "standings.json"
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    invalidate_standings(base_path=data_dir)
+    payload = load_standings(base_path=data_dir, normalize=False)
     if not isinstance(payload, Mapping):
         return {}
     standings: Dict[str, Mapping[str, object]] = {}

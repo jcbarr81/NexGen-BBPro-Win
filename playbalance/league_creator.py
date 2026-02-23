@@ -12,10 +12,9 @@ from typing import Callable, Dict, Iterable, List, Set, Tuple
 from models.player import Player
 from models.pitcher import Pitcher
 from models.roster import Roster
-from utils.player_writer import save_players_to_csv
+from services.players_repository import save_players
 from playbalance.player_generator import generate_player, reset_name_cache
 from utils.user_manager import clear_users
-from utils.player_loader import load_players_from_csv
 import utils.lineup_loader as lineup_loader
 from utils.lineup_loader import build_default_game_state
 from utils import roster_loader
@@ -484,9 +483,7 @@ def create_league(
 
     _report_progress("Saving")
     player_models = [_dict_to_model(p) for p in all_players]
-    save_players_to_csv(player_models, players_path)
-
-    load_players_from_csv.cache_clear()
+    save_players(player_models, players_path)
     # New league rosters replace previously cached entries; drop them so lineup
     # generation reads the freshly-written CSVs instead of stale in-memory data.
     roster_loader.load_roster.cache_clear()

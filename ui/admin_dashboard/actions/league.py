@@ -42,13 +42,14 @@ from ui.window_utils import ensure_on_top
 from utils.news_logger import log_news_event
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
-from utils.player_writer import save_players_to_csv
+from services.players_repository import save_players
 from utils.roster_loader import load_roster, save_roster
 from services.injury_manager import recover_from_injury
 from utils.pitcher_recovery import PitcherRecoveryTracker
 from utils.stats_persistence import reset_stats
 from utils.team_loader import load_teams
 from services.standings_repository import save_standings
+from services.transaction_log import clear_transactions as clear_transaction_log
 from services.league_presets import (
     apply_rule_preset,
     build_quickstart_structure,
@@ -813,7 +814,7 @@ def reset_season_to_opening_day(
                     if hasattr(player, "ready"):
                         player.ready = True
                 players_by_id = {player.player_id: player for player in players}
-                save_players_to_csv(players, str(players_path))
+                save_players(players, players_path)
             roster_dir = data_root / "rosters"
             if roster_dir.exists():
                 for roster_file in roster_dir.glob("*.csv"):
@@ -864,10 +865,6 @@ def reset_season_to_opening_day(
                 manager.finalize_rosters()
             except Exception:
                 pass
-            try:
-                load_players_from_csv.cache_clear()  # type: ignore[attr-defined]
-            except Exception:
-                pass
         except Exception as exc:
             notes.append(f"State updated, but failed setting phase: {exc}")
 
@@ -908,9 +905,7 @@ def reset_season_to_opening_day(
         transactions_cleared = False
         if clear_transactions:
             try:
-                transactions = data_root / "transactions.csv"
-                if transactions.exists():
-                    transactions.unlink()
+                clear_transaction_log(path=data_root / "transactions.csv")
                 transactions_cleared = True
             except Exception as exc:
                 notes.append(f"Transactions purge failed: {exc}")

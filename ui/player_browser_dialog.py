@@ -9,7 +9,13 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QMenu,
 )
-from PyQt6.QtCore import Qt, QModelIndex
+try:
+    from PyQt6.QtCore import Qt, QModelIndex
+except ImportError:  # pragma: no cover - fallback for lightweight test stubs
+    from PyQt6.QtCore import Qt
+
+    class QModelIndex:  # type: ignore[too-many-ancestors]
+        pass
 
 from models.base_player import BasePlayer
 from models.roster import Roster

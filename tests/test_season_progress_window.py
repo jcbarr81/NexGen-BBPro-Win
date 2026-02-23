@@ -154,6 +154,7 @@ qtwidgets.QListWidget = QListWidget
 qtwidgets.QListWidgetItem = QListWidgetItem
 qtwidgets.QVBoxLayout = QVBoxLayout
 qtwidgets.QMessageBox = QMessageBox
+qtwidgets.QProgressBar = Dummy
 qtwidgets.QProgressDialog = Dummy
 sys.modules["PyQt6"] = types.ModuleType("PyQt6")
 sys.modules["PyQt6.QtWidgets"] = qtwidgets

@@ -9,8 +9,10 @@
     "season_id": "league-2026",
     "league_year": 2026,
     "sequence": 1,
-    "started_on": null,
-    "metadata": {},
+    "started_on": "2026-04-01",
+    "metadata": {
+      "schedule_template_id": "mlb_162"
+    },
     "rollover_complete": false,
     "created_at": "2026-02-21T23:39:26Z"
   },

@@ -463,7 +463,10 @@ class OwnerHomePage(QWidget):
         self._set_pitching_leader_row(pitching_entries)
 
         bullpen_data = m.get("bullpen", {}) if m else {}
-        self.bullpen_widget.update_data(bullpen_data)
+        usage_calibration = m.get("usage_calibration", {}) if m else {}
+        self.bullpen_widget.update_data(
+            bullpen_data, usage_summary=usage_calibration
+        )
         matchup_data = m.get("matchup", {}) if m else {}
         self.matchup_widget.update_matchup(matchup_data)
         performer_data = m.get("performers", {}) if m else {}
@@ -886,6 +889,10 @@ class BullpenReadinessWidget(QWidget):
         self.summary_label.setWordWrap(True)
         self.summary_label.setStyleSheet("font-weight:600;")
         layout.addWidget(self.summary_label)
+        self.calibration_label = QLabel("Calibration: --")
+        self.calibration_label.setWordWrap(True)
+        self.calibration_label.setStyleSheet("color: #6c757d; font-size: 11px;")
+        layout.addWidget(self.calibration_label)
 
         row = QHBoxLayout()
         row.setSpacing(8)
@@ -909,9 +916,15 @@ class BullpenReadinessWidget(QWidget):
         layout.addLayout(row)
         self._detail: List[Dict[str, Any]] = []
 
-    def update_data(self, data: Dict[str, Any] | None) -> None:
+    def update_data(
+        self,
+        data: Dict[str, Any] | None,
+        *,
+        usage_summary: Mapping[str, Any] | None = None,
+    ) -> None:
         if not data:
             self.summary_label.setText("Bullpen metrics unavailable.")
+            self.calibration_label.setText("Calibration: unavailable")
             for key, badge in self._badges.items():
                 label = "Ready" if key == "ready" else key.capitalize()
                 badge.setText(f"{label}: 0")
@@ -920,6 +933,18 @@ class BullpenReadinessWidget(QWidget):
 
         summary = data.get("headline") or "Bullpen outlook pending."
         self.summary_label.setText(summary)
+        calibration_text = "Calibration: not run yet"
+        if usage_summary and bool(usage_summary.get("available")):
+            calibration_core = str(
+                usage_summary.get("summary") or "Usage calibration summary loaded."
+            )
+            generated_at = str(usage_summary.get("generated_at") or "").strip()
+            calibration_text = (
+                f"Calibration: {calibration_core} ({generated_at})"
+                if generated_at and generated_at != "--"
+                else f"Calibration: {calibration_core}"
+            )
+        self.calibration_label.setText(calibration_text)
         for key, badge in self._badges.items():
             label = "Ready" if key == "ready" else key.capitalize()
             value = int(data.get(key, 0) or 0)
@@ -931,13 +956,55 @@ class BullpenReadinessWidget(QWidget):
             status = item.get("status", "--")
             last_pitches = item.get("last_pitches", 0)
             last_used = item.get("last_used") or "--"
+            available_pct = item.get("available_pct")
+            budget_text = "--"
+            try:
+                budget_text = f"{float(available_pct) * 100:.0f}%"
+            except (TypeError, ValueError):
+                pass
             detail_lines.append(
-                f"{name}: {status} (last used {last_used}, {last_pitches} pitches)"
+                f"{name}: {status} | budget {budget_text} "
+                f"(last used {last_used}, {last_pitches} pitches)"
             )
+        if usage_summary and bool(usage_summary.get("available")):
+            target_lines = self._format_usage_targets(usage_summary)
+            if target_lines:
+                if detail_lines:
+                    detail_lines.append("")
+                detail_lines.extend(target_lines)
         if detail_lines:
             self.setToolTip("\n".join(detail_lines))
         else:
             self.setToolTip("No bullpen usage recorded yet.")
+
+    @staticmethod
+    def _format_usage_targets(usage_summary: Mapping[str, Any]) -> list[str]:
+        targets = usage_summary.get("targets")
+        if not isinstance(targets, Mapping):
+            return []
+        lines = ["Usage calibration targets:"]
+        for role in ("CL", "SU", "MR", "LR"):
+            payload = targets.get(role)
+            if not isinstance(payload, Mapping):
+                continue
+            status = "PASS" if bool(payload.get("all_in_range")) else "WARN"
+            metric_payload = payload.get("metrics")
+            if not isinstance(metric_payload, Mapping):
+                lines.append(f"{role}: {status}")
+                continue
+            parts: list[str] = []
+            for metric_key in ("avg_g", "avg_ip"):
+                item = metric_payload.get(metric_key)
+                if not isinstance(item, Mapping):
+                    continue
+                actual = item.get("actual")
+                lower = item.get("min")
+                upper = item.get("max")
+                label = "G" if metric_key == "avg_g" else "IP"
+                parts.append(f"{label} {actual} [{lower}-{upper}]")
+            detail = " | ".join(parts) if parts else "No metric details"
+            lines.append(f"{role}: {status} | {detail}")
+        return lines if len(lines) > 1 else []
 
 
 class MatchupScoutWidget(QWidget):

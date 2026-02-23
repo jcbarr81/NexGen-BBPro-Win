@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 from datetime import date, datetime
 import json
 from pathlib import Path
@@ -11,6 +10,8 @@ from typing import Dict, Mapping
 from playbalance.season_context import SeasonContext
 from services.finance_ledger import post_contract_buyout
 from utils.path_utils import get_data_dir
+from utils.roster_io import read_roster_csv
+from utils.roster_loader import save_roster
 
 __all__ = [
     "CONTRACTS_VERSION",
@@ -569,37 +570,39 @@ def _release_players_from_rosters(
 
     for roster_path in sorted(roster_dir.glob("*.csv")):
         team_id = roster_path.stem
-        kept_rows: list[list[str]] = []
         removed_rows: list[tuple[str, str]] = []
         try:
-            with roster_path.open("r", newline="", encoding="utf-8") as handle:
-                reader = csv.reader(handle)
-                for row in reader:
-                    if len(row) < 2:
-                        kept_rows.append(row)
-                        continue
-                    player_id = str(row[0] or "").strip()
-                    level = str(row[1] or "").strip().upper()
-                    if player_id in player_set:
-                        removed_rows.append((player_id, level))
-                        continue
-                    kept_rows.append(row)
-        except OSError:
+            roster = read_roster_csv(roster_path, team_id)
+        except Exception:
             continue
+
+        def _remove_from(group_name: str, fallback_level: str) -> None:
+            group = getattr(roster, group_name, [])
+            kept: list[str] = []
+            for pid in group:
+                if pid in player_set:
+                    level = fallback_level
+                    if group_name == "dl":
+                        tier = (roster.dl_tiers or {}).get(pid, "dl15")
+                        level = "DL45" if str(tier).lower() == "dl45" else "DL15"
+                        roster.dl_tiers.pop(pid, None)
+                    removed_rows.append((pid, level))
+                else:
+                    kept.append(pid)
+            setattr(roster, group_name, kept)
+
+        _remove_from("act", "ACT")
+        _remove_from("aaa", "AAA")
+        _remove_from("low", "LOW")
+        _remove_from("dl", "DL15")
+        _remove_from("ir", "IR")
 
         if not removed_rows:
             continue
 
         try:
-            roster_path.chmod(0o644)
-        except OSError:
-            pass
-
-        try:
-            with roster_path.open("w", newline="", encoding="utf-8") as handle:
-                writer = csv.writer(handle)
-                writer.writerows(kept_rows)
-        except OSError:
+            save_roster(team_id, roster, roster_dir=roster_dir)
+        except Exception:
             continue
 
         teams.add(team_id)
@@ -618,13 +621,6 @@ def _release_players_from_rosters(
                     )
                 except Exception:
                     pass
-
-    try:
-        from utils.roster_loader import load_roster
-
-        load_roster.cache_clear()
-    except Exception:
-        pass
 
     return {
         "released_count": released_count,

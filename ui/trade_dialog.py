@@ -3,6 +3,10 @@
 from typing import Callable, Dict, List, Optional
 
 from PyQt6.QtCore import Qt, QTimer
+try:
+    from PyQt6.QtGui import QGuiApplication
+except ImportError:  # pragma: no cover - lightweight test stubs
+    QGuiApplication = None  # type: ignore[assignment]
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -12,6 +16,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -62,11 +67,13 @@ class TradeDialog(QDialog):
         self._pending_toast_reason: Optional[str] = None
 
         self.setWindowTitle("Trade Center")
-        self.resize(600, 400)
+        self.setMinimumSize(760, 540)
+        width, height = self._initial_window_size()
+        self.resize(width, height)
 
         tabs = QTabWidget()
-        tabs.addTab(self._build_new_trade_tab(), "New Trade")
-        tabs.addTab(self._build_incoming_tab(), "Incoming")
+        tabs.addTab(self._wrap_scrollable_tab(self._build_new_trade_tab()), "New Trade")
+        tabs.addTab(self._wrap_scrollable_tab(self._build_incoming_tab()), "Incoming")
 
         layout = QVBoxLayout()
         if not self.trade_settings.trades_enabled:
@@ -80,36 +87,55 @@ class TradeDialog(QDialog):
         self.setLayout(layout)
         self._register_event_listeners()
 
+    def _initial_window_size(self) -> tuple[int, int]:
+        width = 920
+        height = 660
+        try:
+            screen = (
+                QGuiApplication.primaryScreen()
+                if QGuiApplication is not None
+                else None
+            )
+            if screen is not None:
+                rect = screen.availableGeometry()
+                max_width = max(760, int(rect.width() * 0.85))
+                max_height = max(540, int(rect.height() * 0.85))
+                width = min(width, max_width)
+                height = min(height, max_height)
+        except Exception:
+            pass
+        return width, height
+
+    def _wrap_scrollable_tab(self, content: QWidget) -> QScrollArea:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(content)
+        return scroll
+
     # --- New trade tab -------------------------------------------------
     def _build_new_trade_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
-        layout.addWidget(QLabel("Trade with:"))
+        partner_row = QHBoxLayout()
+        partner_row.setSpacing(8)
+        partner_row.addWidget(QLabel("Trade with:"))
         self.team_dropdown = QComboBox()
         teams = [t.team_id for t in load_teams() if t.team_id != self.team_id]
         self.team_dropdown.addItems(teams)
         self.team_dropdown.currentTextChanged.connect(self._refresh_receive_list)
         self.team_dropdown.currentTextChanged.connect(
+            lambda _value: self._update_offer_summary()
+        )
+        self.team_dropdown.currentTextChanged.connect(
             lambda _value: self._update_new_trade_policy_preview()
         )
-        layout.addWidget(self.team_dropdown)
-
-        layout.addWidget(QLabel("Players to Give"))
-        self.give_list = QListWidget()
-        self.give_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-        self.give_list.itemSelectionChanged.connect(self._update_new_trade_policy_preview)
-        roster = load_roster(self.team_id)
-        for pid in roster.act:
-            self.give_list.addItem(self._make_player_item(pid))
-        layout.addWidget(self.give_list)
-
-        layout.addWidget(QLabel("Players to Receive"))
-        self.receive_list = QListWidget()
-        self.receive_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-        self.receive_list.itemSelectionChanged.connect(self._update_new_trade_policy_preview)
-        layout.addWidget(self.receive_list)
-        self._refresh_receive_list(self.team_dropdown.currentText())
+        partner_row.addWidget(self.team_dropdown, 1)
+        layout.addLayout(partner_row)
 
         self.picks_disabled_label = QLabel(
             "Draft pick trading is disabled by the commissioner."
@@ -120,30 +146,113 @@ class TradeDialog(QDialog):
         )
         layout.addWidget(self.picks_disabled_label)
 
-        layout.addWidget(QLabel("Draft Picks to Give"))
+        assets_row = QHBoxLayout()
+        assets_row.setSpacing(14)
+
+        give_panel = QWidget()
+        give_layout = QVBoxLayout(give_panel)
+        give_layout.setContentsMargins(0, 0, 0, 0)
+        give_layout.setSpacing(8)
+        give_heading = QLabel("You Send")
+        give_heading.setStyleSheet("font-weight: 700;")
+        give_layout.addWidget(give_heading)
+        give_layout.addWidget(QLabel("Players"))
+        self.give_list = QListWidget()
+        self.give_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        self.give_list.setMinimumHeight(170)
+        self.give_list.itemSelectionChanged.connect(self._update_new_trade_policy_preview)
+        self.give_list.itemSelectionChanged.connect(self._update_offer_summary)
+        roster = load_roster(self.team_id)
+        for pid in roster.act:
+            self.give_list.addItem(self._make_player_item(pid))
+        give_layout.addWidget(self.give_list, 1)
+
+        give_layout.addWidget(QLabel("Draft Picks"))
         self.give_pick_list = QListWidget()
         self.give_pick_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         self.give_pick_list.setEnabled(self.trade_settings.draft_pick_trading_enabled)
-        layout.addWidget(self.give_pick_list)
+        self.give_pick_list.setMinimumHeight(120)
+        self.give_pick_list.itemSelectionChanged.connect(self._update_offer_summary)
+        give_layout.addWidget(self.give_pick_list, 1)
 
-        layout.addWidget(QLabel("Draft Picks to Receive"))
+        receive_panel = QWidget()
+        receive_layout = QVBoxLayout(receive_panel)
+        receive_layout.setContentsMargins(0, 0, 0, 0)
+        receive_layout.setSpacing(8)
+        receive_heading = QLabel("You Receive")
+        receive_heading.setStyleSheet("font-weight: 700;")
+        receive_layout.addWidget(receive_heading)
+        receive_layout.addWidget(QLabel("Players"))
+        self.receive_list = QListWidget()
+        self.receive_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        self.receive_list.setMinimumHeight(170)
+        self.receive_list.itemSelectionChanged.connect(self._update_new_trade_policy_preview)
+        self.receive_list.itemSelectionChanged.connect(self._update_offer_summary)
+        receive_layout.addWidget(self.receive_list, 1)
+
+        receive_layout.addWidget(QLabel("Draft Picks"))
         self.receive_pick_list = QListWidget()
         self.receive_pick_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         self.receive_pick_list.setEnabled(self.trade_settings.draft_pick_trading_enabled)
-        layout.addWidget(self.receive_pick_list)
+        self.receive_pick_list.setMinimumHeight(120)
+        self.receive_pick_list.itemSelectionChanged.connect(self._update_offer_summary)
+        receive_layout.addWidget(self.receive_pick_list, 1)
+
+        assets_row.addWidget(give_panel, 1)
+        assets_row.addWidget(receive_panel, 1)
+        layout.addLayout(assets_row)
+
+        self._refresh_receive_list(self.team_dropdown.currentText())
         self._refresh_pick_lists(self.team_dropdown.currentText())
 
-        self.new_trade_policy_label = QLabel("Payroll policy preview: select trade assets.")
+        self.selection_summary_label = QLabel("Offer summary: no assets selected yet.")
+        self.selection_summary_label.setWordWrap(True)
+        layout.addWidget(self.selection_summary_label)
+
+        self.new_trade_policy_label = QLabel(
+            "Validation & payroll preview: select trade assets."
+        )
         self.new_trade_policy_label.setWordWrap(True)
         layout.addWidget(self.new_trade_policy_label)
+        self._update_offer_summary()
         self._update_new_trade_policy_preview()
 
         submit_btn = QPushButton("Submit Trade")
         submit_btn.clicked.connect(self._submit_trade)
         submit_btn.setEnabled(self.trade_settings.trades_enabled)
         layout.addWidget(submit_btn)
+        layout.addStretch(1)
 
         return widget
+
+    def _update_offer_summary(self) -> None:
+        label = getattr(self, "selection_summary_label", None)
+        if label is None:
+            return
+        partner = self.team_dropdown.currentText() if hasattr(self, "team_dropdown") else ""
+        give_players = len(self.give_list.selectedItems()) if hasattr(self, "give_list") else 0
+        give_picks = (
+            len(self.give_pick_list.selectedItems())
+            if hasattr(self, "give_pick_list")
+            else 0
+        )
+        recv_players = (
+            len(self.receive_list.selectedItems()) if hasattr(self, "receive_list") else 0
+        )
+        recv_picks = (
+            len(self.receive_pick_list.selectedItems())
+            if hasattr(self, "receive_pick_list")
+            else 0
+        )
+        if not partner:
+            label.setText("Offer summary: choose a trade partner.")
+            return
+        label.setText(
+            "Offer summary: "
+            f"send {give_players} player(s), {give_picks} pick(s) | "
+            f"receive {recv_players} player(s), {recv_picks} pick(s) "
+            f"with {partner}."
+        )
 
     def _register_event_listeners(self) -> None:
         bus = getattr(self._service, "events", None)
@@ -493,12 +602,23 @@ class TradeDialog(QDialog):
     def _build_incoming_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        header = QLabel("Incoming Trade Offers")
+        header.setStyleSheet("font-weight: 700;")
+        layout.addWidget(header)
 
         self.incoming_list = QListWidget()
+        self.incoming_list.setMinimumHeight(240)
         self.incoming_list.currentItemChanged.connect(
             lambda _current, _previous: self._update_incoming_policy_preview()
         )
         layout.addWidget(self.incoming_list)
+
+        self.incoming_detail_label = QLabel("Select a trade to inspect full asset details.")
+        self.incoming_detail_label.setWordWrap(True)
+        layout.addWidget(self.incoming_detail_label)
 
         self.incoming_policy_label = QLabel("Payroll policy preview: select an incoming trade.")
         self.incoming_policy_label.setWordWrap(True)
@@ -511,7 +631,9 @@ class TradeDialog(QDialog):
         reject_btn.clicked.connect(lambda: self._respond_to_trade(False))
         btn_row.addWidget(accept_btn)
         btn_row.addWidget(reject_btn)
+        btn_row.addStretch(1)
         layout.addLayout(btn_row)
+        layout.addStretch(1)
 
         self._load_incoming_trades()
         return widget
@@ -520,24 +642,11 @@ class TradeDialog(QDialog):
         self.trade_map: Dict[str, Trade] = {}
         self.incoming_list.clear()
         for t in get_pending_trades(self.team_id):
-            give_names = [self.players.get(pid).last_name for pid in t.give_player_ids if pid in self.players]
-            recv_names = [self.players.get(pid).last_name for pid in t.receive_player_ids if pid in self.players]
-            give_assets = list(give_names)
-            recv_assets = list(recv_names)
-            give_assets.extend(
-                _safe_pick_label(pick_id)
-                for pick_id in (getattr(t, "give_pick_ids", []) or [])
-            )
-            recv_assets.extend(
-                _safe_pick_label(pick_id)
-                for pick_id in (getattr(t, "receive_pick_ids", []) or [])
-            )
-            summary = (
-                f"{t.trade_id}: {t.from_team} -> {t.to_team} | "
-                f"Give: {', '.join(give_assets)} | Get: {', '.join(recv_assets)}"
-            )
-            self.incoming_list.addItem(summary)
-            self.trade_map[summary] = t
+            summary = f"{t.trade_id} | {t.from_team} -> {t.to_team}"
+            item = QListWidgetItem(summary)
+            item.setData(Qt.ItemDataRole.UserRole, t.trade_id)
+            self.incoming_list.addItem(item)
+            self.trade_map[t.trade_id] = t
         self._update_incoming_policy_preview()
 
     def _update_incoming_policy_preview(self) -> None:
@@ -546,14 +655,44 @@ class TradeDialog(QDialog):
             return
         selected = self.incoming_list.currentItem()
         if selected is None:
+            self.incoming_detail_label.setText(
+                "Select a trade to inspect full asset details."
+            )
             label.setText("Payroll policy preview: select an incoming trade.")
             label.setStyleSheet("")
             return
-        trade = self.trade_map.get(selected.text())
+        trade_id = selected.data(Qt.ItemDataRole.UserRole)
+        trade = self.trade_map.get(str(trade_id or ""))
         if trade is None:
+            self.incoming_detail_label.setText("Unable to load details for this trade.")
             label.setText("Payroll policy preview: unable to evaluate selected trade.")
             label.setStyleSheet("")
             return
+        give_names = [
+            self.players.get(pid).last_name
+            for pid in trade.give_player_ids
+            if pid in self.players
+        ]
+        recv_names = [
+            self.players.get(pid).last_name
+            for pid in trade.receive_player_ids
+            if pid in self.players
+        ]
+        give_assets = list(give_names)
+        recv_assets = list(recv_names)
+        give_assets.extend(
+            _safe_pick_label(pick_id)
+            for pick_id in (getattr(trade, "give_pick_ids", []) or [])
+        )
+        recv_assets.extend(
+            _safe_pick_label(pick_id)
+            for pick_id in (getattr(trade, "receive_pick_ids", []) or [])
+        )
+        self.incoming_detail_label.setText(
+            f"Offer details:\n"
+            f"{trade.from_team} sends: {', '.join(give_assets) if give_assets else '--'}\n"
+            f"{trade.to_team} sends: {', '.join(recv_assets) if recv_assets else '--'}"
+        )
         result = evaluate_trade_payroll_impact(
             trade,
             players_by_id=self.players,
@@ -584,7 +723,11 @@ class TradeDialog(QDialog):
             )
             return
 
-        trade = self.trade_map[selected.text()]
+        trade_id = selected.data(Qt.ItemDataRole.UserRole)
+        trade = self.trade_map.get(str(trade_id or ""))
+        if trade is None:
+            QMessageBox.warning(self, "Trade Missing", "Unable to load selected trade.")
+            return
         if accept:
             if settings.require_commissioner_approval:
                 trade.status = "owner_accepted"

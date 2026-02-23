@@ -8,13 +8,13 @@ test and reuse in different contexts.
 
 from __future__ import annotations
 
-import csv
 import math
 from pathlib import Path
 import random
 from typing import Dict, Iterable, List
 
 from models.player import Player
+from models.roster import Roster
 from models.team import Team
 from services.contract_negotiator import evaluate_free_agent_bids
 from services.contracts_service import sign_free_agent_contract
@@ -27,7 +27,8 @@ from services.payroll_policy import (
 from services.transaction_log import record_transaction
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
-from utils.roster_loader import load_roster
+from utils.roster_io import read_roster_csv
+from utils.roster_loader import load_roster, save_roster
 from utils.team_loader import load_teams
 
 
@@ -255,12 +256,6 @@ def run_cpu_free_agency_round(
             }
         )
 
-    if signed > 0:
-        try:
-            load_roster.cache_clear()
-        except Exception:
-            pass
-
     remaining = list_unsigned_players_from_files(data_dir=resolved_data_dir)
     return {
         "applied": signed > 0,
@@ -427,46 +422,38 @@ def _add_player_to_team_roster(
     *,
     data_dir: Path,
 ) -> str | None:
-    roster_path = data_dir / "rosters" / f"{team_id}.csv"
+    roster_dir = data_dir / "rosters"
+    roster_path = roster_dir / f"{team_id}.csv"
     roster_path.parent.mkdir(parents=True, exist_ok=True)
-    rows: list[list[str]] = []
     if roster_path.exists():
         try:
-            with roster_path.open("r", newline="", encoding="utf-8") as handle:
-                reader = csv.reader(handle)
-                for row in reader:
-                    rows.append(list(row))
+            roster = read_roster_csv(roster_path, team_id)
         except Exception:
-            rows = []
-
-    act = 0
-    aaa = 0
-    low = 0
-    for row in rows:
-        if len(row) < 2:
-            continue
-        existing_player_id = str(row[0] or "").strip()
-        if existing_player_id == player_id:
             return None
-        level = str(row[1] or "").strip().upper()
-        if level == "ACT":
-            act += 1
-        elif level == "AAA":
-            aaa += 1
-        elif level == "LOW":
-            low += 1
+    else:
+        roster = Roster(team_id=team_id)
+
+    if player_id in roster.act or player_id in roster.aaa or player_id in roster.low:
+        return None
+
+    act = len(roster.act)
+    aaa = len(roster.aaa)
+    low = len(roster.low)
 
     if act < 25:
         target_level = "ACT"
+        roster.act.append(player_id)
     elif aaa < 15:
         target_level = "AAA"
+        roster.aaa.append(player_id)
     elif low < 10:
         target_level = "LOW"
+        roster.low.append(player_id)
     else:
         return None
 
-    rows.append([player_id, target_level])
-    with roster_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        writer.writerows(rows)
+    try:
+        save_roster(team_id, roster, roster_dir=roster_dir)
+    except Exception:
+        return None
     return target_level

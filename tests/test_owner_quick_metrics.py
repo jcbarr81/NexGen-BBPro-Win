@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from types import SimpleNamespace
+
+import pytest
 
 from ui.analytics.quick_metrics import gather_owner_quick_metrics
 
@@ -114,3 +117,106 @@ def test_gather_owner_quick_metrics_team_leader_rows(tmp_path):
     assert leader_meta["pitching"]["wins"]["player_id"] == "PIT1"
     assert leader_meta["pitching"]["so"]["player_id"] == "PIT1"
     assert leader_meta["pitching"]["saves"]["player_id"] == "PIT2"
+
+
+def test_gather_owner_quick_metrics_bullpen_available_pct(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "standings.json").write_text(json.dumps({}), encoding="utf-8")
+    (data_dir / "schedule.csv").write_text(
+        "date,home,away,result,played\n", encoding="utf-8"
+    )
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    tracker = SimpleNamespace(
+        data={
+            "teams": {
+                "TST": {
+                    "pitchers": {
+                        "RP1": {
+                            "available_on": today,
+                            "last_used": "2026-02-20",
+                            "last_pitches": 24,
+                            "max_pitches": 40,
+                            "available_pitches": 20,
+                        }
+                    }
+                }
+            }
+        },
+        ensure_team=lambda *args, **kwargs: None,
+        bullpen_game_status=lambda *args, **kwargs: {
+            "RP1": {
+                "available_on": today,
+                "last_pitches": 24,
+                "available_pct": 0.5,
+            }
+        },
+    )
+
+    class _DummyRecovery:
+        @staticmethod
+        def instance():
+            return tracker
+
+    monkeypatch.setattr("ui.analytics.quick_metrics.PitcherRecoveryTracker", _DummyRecovery)
+
+    roster = SimpleNamespace(dl=[], ir=[], act=["RP1"])
+    players = {
+        "RP1": SimpleNamespace(
+            player_id="RP1",
+            first_name="Relief",
+            last_name="One",
+            role="MR",
+            is_pitcher=True,
+            primary_position="RP",
+        )
+    }
+
+    metrics = gather_owner_quick_metrics(
+        "TST", base_path=tmp_path, roster=roster, players=players
+    )
+
+    bullpen = metrics["bullpen"]
+    assert bullpen["total"] == 1
+    assert bullpen["avg_available_pct"] == pytest.approx(0.5)
+    assert "Avg budget 50%" in bullpen["headline"]
+    detail = bullpen["detail"][0]
+    assert detail["available_pct"] == pytest.approx(0.5)
+
+
+def test_gather_owner_quick_metrics_loads_usage_calibration_summary(tmp_path):
+    data_dir = tmp_path / "data"
+    reports_dir = data_dir / "reports"
+    reports_dir.mkdir(parents=True)
+    (data_dir / "standings.json").write_text(json.dumps({}), encoding="utf-8")
+    (data_dir / "schedule.csv").write_text(
+        "date,home,away,result,played\n", encoding="utf-8"
+    )
+    payload = {
+        "generated_at": "2026-02-23T15:20:00Z",
+        "summary": "3/4 role targets in range.",
+        "targets": {
+            "CL": {"all_in_range": True},
+            "SU": {"all_in_range": True},
+            "MR": {"all_in_range": True},
+            "LR": {"all_in_range": False},
+        },
+        "roles": {"CL": {"avg_g": 64.0, "avg_ip": 62.0}},
+    }
+    (reports_dir / "usage_calibration_summary.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+
+    metrics = gather_owner_quick_metrics(
+        "TST",
+        base_path=tmp_path,
+        roster=SimpleNamespace(dl=[], ir=[], act=[]),
+        players={},
+    )
+
+    usage = metrics["usage_calibration"]
+    assert usage["available"] is True
+    assert usage["summary"] == "3/4 role targets in range."
+    assert usage["target_groups"] == 4
+    assert usage["target_groups_in_range"] == 3
+    assert usage["target_pass_rate"] == pytest.approx(0.75)

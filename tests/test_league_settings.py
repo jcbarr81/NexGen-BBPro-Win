@@ -47,3 +47,28 @@ def test_commissioner_password_legacy_scheme_mismatch(data_dir):
         "secret123",
         settings=settings,
     )
+
+
+def test_can_run_season_progression_single_player_allows_owner(data_dir):
+    import utils.league_settings as league_settings
+
+    settings = {"mode": "single_player"}
+    assert league_settings.can_run_season_progression("owner", settings=settings)
+
+
+def test_can_run_season_progression_owner_league_blocks_owner(data_dir):
+    import utils.league_settings as league_settings
+
+    settings = {"mode": "owner_league"}
+    assert not league_settings.can_run_season_progression("owner", settings=settings)
+
+
+def test_can_run_season_progression_owner_league_allows_commissioner(data_dir):
+    import utils.league_settings as league_settings
+
+    settings = {"mode": "owner_league"}
+    assert league_settings.can_run_season_progression("admin", settings=settings)
+    assert league_settings.can_run_season_progression(
+        "commissioner",
+        settings=settings,
+    )

@@ -13,12 +13,21 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
 )
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEvent, QTimer
+try:
+    from PyQt6.QtCore import Qt, QPropertyAnimation, QEvent, QTimer
+except ImportError:  # pragma: no cover - fallback for lightweight test stubs
+    from PyQt6.QtCore import Qt, QPropertyAnimation, QTimer
+
+    class QEvent:  # type: ignore[too-many-ancestors]
+        class Type:
+            MouseButtonDblClick = object()
 import csv
 from pathlib import Path
 
 from utils.lineup_autofill import auto_fill_lineup_for_team
 from utils.path_utils import get_base_dir, get_data_dir
+from utils.player_loader import load_players_from_csv
+from utils.roster_loader import load_roster
 from utils.recovery_manager import (
     clear_recovery,
     needs_recovery,
@@ -260,44 +269,42 @@ class LineupEditor(QDialog):
         return True
 
     def load_players_dict(self):
-        players_file = get_data_dir() / "players.csv"
         players = {}
-        if players_file.exists():
-            with players_file.open("r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    player_id = str(row.get("player_id", "")).strip()
-                    name = f"{row.get('first_name', '').strip()} {row.get('last_name', '').strip()}"
-                    primary = row.get("primary_position", "").strip()
-                    others = (
-                        row.get("other_positions", "").strip().split("|")
-                        if row.get("other_positions")
-                        else []
-                    )
-                    is_pitcher = row.get("is_pitcher") == "1"
-                    players[player_id] = {
-                        "name": f"{name} ({primary})",
-                        "primary_position": primary,
-                        "other_positions": others,
-                        "is_pitcher": is_pitcher,
-                        "ratings": {
-                            "CH": row.get("CH", ""),
-                            "PH": row.get("PH", ""),
-                            "SP": row.get("SP", "")
-                        }
-                    }
+        try:
+            loaded = load_players_from_csv(get_data_dir() / "players.csv")
+        except Exception:
+            loaded = []
+        for player in loaded:
+            player_id = str(getattr(player, "player_id", "") or "").strip()
+            if not player_id:
+                continue
+            first = str(getattr(player, "first_name", "") or "").strip()
+            last = str(getattr(player, "last_name", "") or "").strip()
+            primary = str(getattr(player, "primary_position", "") or "").strip()
+            raw_others = getattr(player, "other_positions", [])
+            if isinstance(raw_others, str):
+                others = [item for item in raw_others.split("|") if item]
+            else:
+                others = list(raw_others or [])
+            players[player_id] = {
+                "name": f"{first} {last}".strip() + (f" ({primary})" if primary else ""),
+                "primary_position": primary,
+                "other_positions": others,
+                "is_pitcher": bool(getattr(player, "is_pitcher", False)),
+                "ratings": {
+                    "CH": getattr(player, "ch", ""),
+                    "PH": getattr(player, "ph", ""),
+                    "SP": getattr(player, "sp", ""),
+                },
+            }
         return players
 
     def get_act_level_ids(self):
-        act_ids = set()
-        act_roster_file = get_data_dir() / "rosters" / f"{self.team_id}.csv"
-        if act_roster_file.exists():
-            with act_roster_file.open("r", encoding="utf-8") as f:
-                reader = csv.reader(f)
-                for row in reader:
-                    if len(row) >= 2 and row[1].strip().upper() == "ACT":
-                        act_ids.add(row[0].strip())
-        return act_ids
+        try:
+            roster = load_roster(self.team_id)
+        except Exception:
+            return set()
+        return {str(pid).strip() for pid in roster.act if str(pid).strip()}
 
     def switch_view(self):
         self.current_view = self.view_selector.currentText()

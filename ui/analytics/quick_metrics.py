@@ -122,6 +122,7 @@ def gather_owner_quick_metrics(
     }
 
     metrics["calibration"] = _calibration_summary(base_dir)
+    metrics["usage_calibration"] = _usage_calibration_summary(base_dir)
 
     (
         batting_leaders,
@@ -320,6 +321,7 @@ def _compute_bullpen_readiness(
         "limited": 0,
         "rest": 0,
         "total": 0,
+        "avg_available_pct": None,
         "detail": [],
         "headline": "--",
         "probable_starter": "--",
@@ -328,11 +330,17 @@ def _compute_bullpen_readiness(
         return result
 
     try:
+        data_dir = _resolve_data_dir(base_dir)
+        players_file = data_dir / "players.csv"
+        roster_dir = data_dir / "rosters"
         tracker = PitcherRecoveryTracker.instance()
         tracker.ensure_team(
             team_id,
-            _resolve_data_dir(base_dir) / "players.csv",
-            _resolve_data_dir(base_dir) / "rosters",
+            players_file,
+            roster_dir,
+        )
+        status_map = tracker.bullpen_game_status(
+            team_id, today.strftime(DATE_FMT), players_file, roster_dir
         )
         entry = tracker.data.get("teams", {}).get(team_id, {})
         statuses = entry.get("pitchers", {}) or {}
@@ -343,13 +351,28 @@ def _compute_bullpen_readiness(
             if _is_bullpen_pitcher(players.get(pid))
         ]
         result["total"] = len(bullpen_ids)
+        available_pcts: list[float] = []
 
         for pid in bullpen_ids:
             player = players.get(pid)
+            usage = status_map.get(pid, {}) if isinstance(status_map, Mapping) else {}
             status = statuses.get(pid, {})
-            available_on = _parse_date(status.get("available_on"))
+            available_on = _coerce_date(usage.get("available_on")) or _coerce_date(
+                status.get("available_on")
+            )
             last_used = status.get("last_used") or None
-            last_pitches = int(status.get("last_pitches", 0) or 0)
+            last_pitches = int(
+                usage.get("last_pitches", status.get("last_pitches", 0)) or 0
+            )
+            available_pct = _safe_float(usage.get("available_pct"))
+            if available_pct is None:
+                max_pitches = _safe_float(status.get("max_pitches")) or 0.0
+                available_pitches = _safe_float(status.get("available_pitches"))
+                if max_pitches > 0 and available_pitches is not None:
+                    available_pct = available_pitches / max_pitches
+                else:
+                    available_pct = 1.0
+            available_pct = max(0.0, min(1.0, float(available_pct)))
             days = (available_on - today).days if available_on else 0
             if days <= 0:
                 bucket = "ready"
@@ -361,6 +384,7 @@ def _compute_bullpen_readiness(
                 bucket = "rest"
                 label = f"Rest {days}d"
             result[bucket] = int(result[bucket]) + 1
+            available_pcts.append(available_pct)
             result["detail"].append(
                 {
                     "player_id": pid,
@@ -369,14 +393,20 @@ def _compute_bullpen_readiness(
                     "days": days if days > 0 else 0,
                     "last_used": last_used,
                     "last_pitches": last_pitches,
+                    "available_pct": round(available_pct, 3),
                 }
             )
 
         if result["total"]:
+            avg_available = (
+                sum(available_pcts) / len(available_pcts) if available_pcts else 0.0
+            )
+            result["avg_available_pct"] = round(avg_available, 3)
             result["headline"] = (
                 f"{result['ready']} ready / "
                 f"{result['limited']} limited / "
                 f"{result['rest']} resting"
+                f" | Avg budget {avg_available:.0%}"
             )
     except Exception:
         pass
@@ -1099,6 +1129,74 @@ def _calibration_summary(base_dir: Path) -> Dict[str, Any]:
         return defaults
 
 
+def _usage_calibration_summary(base_dir: Path) -> Dict[str, Any]:
+    """Load the latest usage calibration artifact for owner dashboard context."""
+
+    defaults: Dict[str, Any] = {
+        "available": False,
+        "path": None,
+        "generated_at": "--",
+        "summary": "Usage calibration summary unavailable.",
+        "roles": {},
+        "targets": {},
+        "target_groups": 0,
+        "target_groups_in_range": 0,
+        "target_pass_rate": None,
+    }
+    data_dir = _resolve_data_dir(base_dir)
+    candidates = [
+        data_dir / "reports" / "usage_calibration_summary.json",
+        base_dir / "reports" / "usage_calibration_summary.json",
+    ]
+    seen: set[Path] = set()
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, Mapping):
+            continue
+        targets = payload.get("targets")
+        if not isinstance(targets, Mapping):
+            targets = {}
+        roles = payload.get("roles")
+        if not isinstance(roles, Mapping):
+            roles = {}
+        total = 0
+        in_range = 0
+        for role_payload in targets.values():
+            if not isinstance(role_payload, Mapping):
+                continue
+            total += 1
+            if bool(role_payload.get("all_in_range")):
+                in_range += 1
+        summary = str(payload.get("summary") or "").strip()
+        if not summary:
+            if total:
+                summary = f"{in_range}/{total} role targets in range."
+            else:
+                summary = "Usage calibration summary loaded."
+        generated_at = str(payload.get("generated_at") or "--")
+        pass_rate = round(in_range / total, 3) if total else None
+        return {
+            "available": True,
+            "path": str(path),
+            "generated_at": generated_at,
+            "summary": summary,
+            "roles": dict(roles),
+            "targets": dict(targets),
+            "target_groups": total,
+            "target_groups_in_range": in_range,
+            "target_pass_rate": pass_rate,
+        }
+    return defaults
+
+
 def _format_leader_entry(
     leader: Optional[tuple[Any, float]],
     *,
@@ -1188,6 +1286,17 @@ def _parse_date(value: str | None) -> date:
         return datetime.strptime(value, DATE_FMT).date()
     except Exception:
         return datetime.utcnow().date()
+
+
+def _coerce_date(value: Any) -> Optional[date]:
+    if isinstance(value, date):
+        return value
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value), DATE_FMT).date()
+    except Exception:
+        return None
 
 
 def _format_player_name(player: Any | None) -> str:

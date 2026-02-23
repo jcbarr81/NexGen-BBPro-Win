@@ -203,12 +203,11 @@ from utils.team_loader import load_teams
 from utils.roster_loader import load_roster, save_roster
 from utils.lineup_loader import load_lineup
 from utils.player_loader import load_players_from_csv
-from utils.player_writer import save_players_to_csv
+from services.players_repository import save_players
 from utils.pitcher_role import get_role
 from utils.sim_date import get_current_sim_date
 from ui.sim_date_bus import notify_sim_date_changed
 from ui.training_focus_dialog import TrainingFocusDialog
-from ui.league_preset_dialogs import select_schedule_template
 
 
 from utils.path_utils import ActivePath, get_data_dir
@@ -238,6 +237,23 @@ QPushButton:disabled {
 """
 
 
+def _select_schedule_template_dialog(parent, default_id: str) -> str | None:
+    """Select schedule template with a headless-safe fallback.
+
+    Some tests provide partial PyQt stubs and cannot import full dialog modules.
+    In that case, use the default template id instead of raising during import.
+    """
+
+    try:
+        from ui.league_preset_dialogs import select_schedule_template
+    except Exception:
+        return default_id
+    try:
+        return select_schedule_template(parent, default_id=default_id)
+    except Exception:
+        return default_id
+
+
 class SeasonProgressWindow(QDialog):
     """Dialog displaying the current season phase and progress notes."""
 
@@ -255,6 +271,8 @@ class SeasonProgressWindow(QDialog):
         run_async: Optional[Callable[[Callable[[], Any]], Any]] = None,
         show_toast: Optional[Callable[[str, str], None]] = None,
         register_cleanup: Optional[Callable[[Callable[[], None]], None]] = None,
+        allow_progress_actions: bool = True,
+        progress_block_reason: str | None = None,
     ) -> None:
         super().__init__(parent)
         try:
@@ -267,6 +285,16 @@ class SeasonProgressWindow(QDialog):
         self._run_async = run_async
         self._show_toast = show_toast
         self._register_cleanup = register_cleanup
+        self._progress_actions_allowed = bool(allow_progress_actions)
+        self._progress_block_reason = (
+            str(progress_block_reason).strip()
+            if progress_block_reason is not None
+            else "Season progression is commissioner-only in multi-owner leagues."
+        )
+        if not self._progress_block_reason:
+            self._progress_block_reason = (
+                "Season progression is commissioner-only in multi-owner leagues."
+            )
         self._active_future = None
         self._executor: ThreadPoolExecutor | None = None
         if self._run_async is None:
@@ -980,13 +1008,9 @@ class SeasonProgressWindow(QDialog):
                         pass
 
             try:
-                save_players_to_csv(csv_players.values(), players_path)
+                save_players(csv_players.values(), players_path)
             except Exception:
                 return len(retired_ids)
-            try:
-                load_players_from_csv.cache_clear()
-            except Exception:
-                pass
             try:
                 load_roster.cache_clear()
             except Exception:
@@ -1272,6 +1296,44 @@ class SeasonProgressWindow(QDialog):
     # ------------------------------------------------------------------
     # UI helpers
     # ------------------------------------------------------------------
+    def _progress_control_buttons(self) -> tuple[object, ...]:
+        return (
+            getattr(self, "free_agency_button", None),
+            getattr(self, "training_camp_button", None),
+            getattr(self, "generate_schedule_button", None),
+            getattr(self, "simulate_day_button", None),
+            getattr(self, "simulate_round_button", None),
+            getattr(self, "simulate_week_button", None),
+            getattr(self, "simulate_month_button", None),
+            getattr(self, "simulate_to_draft_button", None),
+            getattr(self, "simulate_to_playoffs_button", None),
+            getattr(self, "next_button", None),
+            getattr(self, "cancel_sim_button", None),
+        )
+
+    def _apply_progress_action_restrictions(self) -> None:
+        if self._progress_actions_allowed:
+            return
+        reason = self._progress_block_reason
+        for button in self._progress_control_buttons():
+            if button is None:
+                continue
+            self._set_button_state(button, False, reason)
+
+    def _require_progress_permission(self, action_name: str) -> bool:
+        if self._progress_actions_allowed:
+            return True
+        detail = f"Blocked action: {action_name}."
+        try:
+            QMessageBox.information(
+                self,
+                "Commissioner Only",
+                f"{self._progress_block_reason}\n\n{detail}",
+            )
+        except Exception:
+            pass
+        return False
+
     def _update_schedule_template_label(self) -> None:
         label = "Schedule Template: MLB 162 (default)"
         template_id: Optional[str] = None
@@ -1631,6 +1693,7 @@ class SeasonProgressWindow(QDialog):
             done_enabled,
             tooltip,
         )
+        self._apply_progress_action_restrictions()
         self._update_next_phase_tip()
         # Timeline reflects updated status after any UI refresh.
         self._refresh_timeline(bracket=playoffs_bracket)
@@ -2232,6 +2295,8 @@ class SeasonProgressWindow(QDialog):
 
     def _next_phase(self) -> None:
         """Advance to the next phase and update the display."""
+        if not self._require_progress_permission("Next Phase"):
+            return
         self._playoffs_override_done = False
         if self.manager.phase == SeasonPhase.OFFSEASON:
             next_year = self._resolve_next_league_year()
@@ -2335,6 +2400,8 @@ class SeasonProgressWindow(QDialog):
     # ------------------------------------------------------------------
     def _show_free_agents(self) -> None:
         """Display a simple list of unsigned players."""
+        if not self._require_progress_permission("Free Agency Market Cycle"):
+            return
         try:
             cpu_summary = run_cpu_free_agency_market(data_dir=get_data_dir())
         except Exception:
@@ -2391,6 +2458,8 @@ class SeasonProgressWindow(QDialog):
 
     def _run_training_camp(self) -> None:
         """Run the training camp and mark players as ready."""
+        if not self._require_progress_permission("Run Training Camp"):
+            return
         players = getattr(self.manager, "players", {})
         allocations = self._resolve_training_allocations(players)
         intensity_by_player = self._resolve_training_intensity(players)
@@ -2567,6 +2636,8 @@ class SeasonProgressWindow(QDialog):
 
     def _generate_schedule(self) -> None:
         """Create a full MLB-style schedule for the league."""
+        if not self._require_progress_permission("Generate Schedule"):
+            return
         teams = [
             getattr(t, "abbreviation", str(t))
             for t in getattr(self.manager, "teams", [])
@@ -2597,7 +2668,7 @@ class SeasonProgressWindow(QDialog):
         except Exception:
             pass
 
-        template_id = select_schedule_template(self, default_id=default_template_id)
+        template_id = _select_schedule_template_dialog(self, default_id=default_template_id)
         if not template_id:
             return
 
@@ -2660,6 +2731,8 @@ class SeasonProgressWindow(QDialog):
     # ------------------------------------------------------------------
     def _simulate_day(self) -> None:
         """Trigger simulation for a single schedule day."""
+        if not self._require_progress_permission("Simulate Day"):
+            return
         if self.manager.phase == SeasonPhase.PLAYOFFS:
             self._simulate_playoff_game()
             return
@@ -2830,6 +2903,10 @@ class SeasonProgressWindow(QDialog):
                     message = f"{message}; monthly finance settled for {periods_text}"
                 self.notes_label.setText(message)
                 self._set_simulation_status(message)
+                enable_sim_controls = bool(
+                    isinstance(total_remaining, int) and total_remaining > 0
+                )
+                self._set_sim_buttons_enabled(enable_sim_controls)
                 log_news_event(message, category="progress")
                 self._save_progress()
                 self._update_ui(message)
@@ -2850,8 +2927,6 @@ class SeasonProgressWindow(QDialog):
                 except Exception:
                     pass
 
-                self._set_sim_buttons_enabled(True)
-
             self._invoke_on_gui_thread(finish)
 
         if self._run_async is None or QThread is None:
@@ -2871,6 +2946,8 @@ class SeasonProgressWindow(QDialog):
         self._poll_future(future, handle_result)
 
     def _simulate_span(self, days: int, label: str) -> None:
+        if not self._require_progress_permission(f"Simulate {label}"):
+            return
         self._simulate_span_async(days, label)
 
     def _request_cancel_simulation(self) -> None:
@@ -3151,6 +3228,7 @@ class SeasonProgressWindow(QDialog):
                 pass
         if not enabled:
             self._set_button_state(self.next_button, False, reason)
+        self._apply_progress_action_restrictions()
 
     def _set_sim_progress_visible(self, visible: bool, text: str | None = None) -> None:
         bar = getattr(self, "sim_progress", None)
@@ -3408,6 +3486,9 @@ class SeasonProgressWindow(QDialog):
 
     def _simulate_to_next_phase(self, target: str | None = None) -> None:
         """Simulate games until the requested phase can advance."""
+        target_label = str(target or "next phase").replace("_", " ").title()
+        if not self._require_progress_permission(f"Simulate to {target_label}"):
+            return
         if self.manager.phase == SeasonPhase.REGULAR_SEASON:
             self._simulate_regular_season(target)
         elif self.manager.phase == SeasonPhase.PLAYOFFS:
@@ -3537,6 +3618,8 @@ class SeasonProgressWindow(QDialog):
         worker: Callable[[], dict[str, Any]],
         toast_text: str,
     ) -> None:
+        if not self._require_progress_permission("Simulate Playoff Step"):
+            return
         if self._playoffs_done:
             self._update_ui("Playoffs complete.")
             return
@@ -3613,6 +3696,8 @@ class SeasonProgressWindow(QDialog):
 
     def _simulate_playoffs(self) -> None:
         """Simulate the postseason bracket with background support."""
+        if not self._require_progress_permission("Simulate Playoffs"):
+            return
         if self._playoffs_done:
             self._update_ui("Playoffs complete.")
             return
@@ -3623,6 +3708,8 @@ class SeasonProgressWindow(QDialog):
             self._simulate_playoffs_async()
 
     def _simulate_playoffs_sync(self) -> None:
+        if not self._require_progress_permission("Simulate Playoffs"):
+            return
         self._set_playoff_controls_enabled(False)
         self._set_simulation_status("Simulating playoffs...")
         self._set_sim_progress_visible(True, "Simulating playoffs...")
@@ -3631,6 +3718,8 @@ class SeasonProgressWindow(QDialog):
         self._handle_playoffs_result(result)
 
     def _simulate_playoffs_async(self) -> None:
+        if not self._require_progress_permission("Simulate Playoffs"):
+            return
         if self._active_future is not None:
             QMessageBox.information(
                 self,
@@ -4014,6 +4103,7 @@ class SeasonProgressWindow(QDialog):
             self._set_button_state(btn, enabled, reason)
         if not enabled:
             self._set_button_state(self.next_button, False, "Playoffs must complete before advancing.")
+        self._apply_progress_action_restrictions()
 
     def _write_champions_record(self, bracket, series_result: str) -> None:
         try:

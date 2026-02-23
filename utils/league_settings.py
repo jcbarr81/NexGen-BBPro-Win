@@ -15,6 +15,7 @@ from utils.path_utils import get_data_dir
 
 _DEFAULT_MODE = "single_player"
 _OWNER_MODE = "owner_league"
+_COMMISSIONER_ROLES = {"admin", "commissioner"}
 
 
 def _now_iso() -> str:
@@ -73,6 +74,23 @@ def is_owner_league(settings: Optional[Dict[str, Any]] = None) -> bool:
     return str(payload.get("mode") or _DEFAULT_MODE) == _OWNER_MODE
 
 
+def can_run_season_progression(
+    actor_role: Optional[str],
+    *,
+    settings: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Return whether the given actor can run season progression actions.
+
+    In single-player leagues, all roles are allowed. In multi-owner leagues,
+    season progression is restricted to commissioner/admin roles.
+    """
+
+    if not is_owner_league(settings):
+        return True
+    role = str(actor_role or "").strip().lower()
+    return role in _COMMISSIONER_ROLES
+
+
 def verify_commissioner_password(
     password: str,
     *,
@@ -123,6 +141,7 @@ def _verify_legacy_hash(password: str, stored: str) -> bool:
 
 
 __all__ = [
+    "can_run_season_progression",
     "configure_league_settings",
     "is_owner_league",
     "load_league_settings",

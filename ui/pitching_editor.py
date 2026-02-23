@@ -1,5 +1,12 @@
 from PyQt6.QtWidgets import QDialog, QLabel, QVBoxLayout, QGridLayout, QComboBox, QPushButton, QMessageBox
-from PyQt6.QtCore import QEvent, QTimer
+try:
+    from PyQt6.QtCore import QEvent, QTimer
+except ImportError:  # pragma: no cover - fallback for lightweight test stubs
+    from PyQt6.QtCore import QTimer
+
+    class QEvent:  # type: ignore[too-many-ancestors]
+        class Type:
+            MouseButtonDblClick = object()
 import csv
 from pathlib import Path
 

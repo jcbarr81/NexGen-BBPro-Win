@@ -6,6 +6,7 @@ from models.player import Player
 from models.team import Team
 from services.finance_settings import ensure_financial_defaults, update_financial_settings
 from services.free_agency import (
+    _add_player_to_team_roster,
     estimate_cpu_free_agency_rounds,
     list_unsigned_players,
     list_unsigned_players_from_files,
@@ -13,6 +14,7 @@ from services.free_agency import (
     run_cpu_free_agency_round,
     sign_player_to_team,
 )
+from utils.roster_loader import load_roster
 
 
 def make_player(pid: str) -> Player:
@@ -129,6 +131,17 @@ def test_run_cpu_free_agency_round_signs_unsigned_players(tmp_path) -> None:
     assert "P100" in contracts.get("players", {})
     roster_text = (roster_dir / "AAA.csv").read_text(encoding="utf-8")
     assert "P100" in roster_text
+
+
+def test_add_player_to_team_roster_creates_missing_roster_file(tmp_path) -> None:
+    data_dir = tmp_path / "league-data"
+    (data_dir / "rosters").mkdir(parents=True, exist_ok=True)
+
+    level = _add_player_to_team_roster("AAA", "P100", data_dir=data_dir)
+
+    assert level == "ACT"
+    roster = load_roster("AAA", roster_dir=data_dir / "rosters")
+    assert "P100" in roster.act
 
 
 def test_estimate_cpu_free_agency_rounds_scales_with_unsigned_players() -> None:

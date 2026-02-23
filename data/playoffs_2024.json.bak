@@ -1,0 +1,426 @@
+{
+  "schema_version": 1,
+  "year": 2024,
+  "champion": "CHI",
+  "runner_up": "SAN",
+  "seeds": {
+    "LEAGUE": [
+      {
+        "team_id": "CHI",
+        "seed": 1,
+        "league": "LEAGUE",
+        "wins": 0,
+        "run_diff": 0
+      },
+      {
+        "team_id": "DAL",
+        "seed": 2,
+        "league": "LEAGUE",
+        "wins": 0,
+        "run_diff": 0
+      },
+      {
+        "team_id": "SAN",
+        "seed": 3,
+        "league": "LEAGUE",
+        "wins": 0,
+        "run_diff": 0
+      },
+      {
+        "team_id": "DEN",
+        "seed": 4,
+        "league": "LEAGUE",
+        "wins": 0,
+        "run_diff": 0
+      }
+    ]
+  },
+  "rounds": [
+    {
+      "name": "LEAGUE DS",
+      "matchups": [
+        {
+          "high": {
+            "team_id": "CHI",
+            "seed": 1,
+            "league": "LEAGUE",
+            "wins": 0,
+            "run_diff": 0
+          },
+          "low": {
+            "team_id": "DEN",
+            "seed": 4,
+            "league": "LEAGUE",
+            "wins": 0,
+            "run_diff": 0
+          },
+          "config": {
+            "length": 5,
+            "pattern": [
+              2,
+              2,
+              1
+            ]
+          },
+          "games": [
+            {
+              "home": "CHI",
+              "away": "DEN",
+              "date": null,
+              "result": "10-9",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE DS_S0_G0_DEN_at_CHI.html",
+              "meta": {
+                "home_innings": 12,
+                "away_innings": 12,
+                "extra_innings": true,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "CHI",
+              "away": "DEN",
+              "date": null,
+              "result": "10-2",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE DS_S0_G1_DEN_at_CHI.html",
+              "meta": {
+                "home_innings": 8,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "DEN",
+              "away": "CHI",
+              "date": null,
+              "result": "3-4",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE DS_S0_G2_CHI_at_DEN.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            }
+          ],
+          "winner": "CHI"
+        },
+        {
+          "high": {
+            "team_id": "DAL",
+            "seed": 2,
+            "league": "LEAGUE",
+            "wins": 0,
+            "run_diff": 0
+          },
+          "low": {
+            "team_id": "SAN",
+            "seed": 3,
+            "league": "LEAGUE",
+            "wins": 0,
+            "run_diff": 0
+          },
+          "config": {
+            "length": 5,
+            "pattern": [
+              2,
+              2,
+              1
+            ]
+          },
+          "games": [
+            {
+              "home": "DAL",
+              "away": "SAN",
+              "date": null,
+              "result": "4-3",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE DS_S1_G0_SAN_at_DAL.html",
+              "meta": {
+                "home_innings": 8,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "L",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "DAL",
+              "away": "SAN",
+              "date": null,
+              "result": "2-3",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE DS_S1_G1_SAN_at_DAL.html",
+              "meta": {
+                "home_innings": 10,
+                "away_innings": 10,
+                "extra_innings": true,
+                "home_starter_hand": "L",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "SAN",
+              "away": "DAL",
+              "date": null,
+              "result": "5-3",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE DS_S1_G2_DAL_at_SAN.html",
+              "meta": {
+                "home_innings": 8,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "L",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "SAN",
+              "away": "DAL",
+              "date": null,
+              "result": "2-3",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE DS_S1_G3_DAL_at_SAN.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "L",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "DAL",
+              "away": "SAN",
+              "date": null,
+              "result": "4-6",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE DS_S1_G4_SAN_at_DAL.html",
+              "meta": {
+                "home_innings": 12,
+                "away_innings": 12,
+                "extra_innings": true,
+                "home_starter_hand": "L",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            }
+          ],
+          "winner": "SAN"
+        }
+      ],
+      "plan": []
+    },
+    {
+      "name": "LEAGUE CS",
+      "matchups": [
+        {
+          "high": {
+            "team_id": "CHI",
+            "seed": 1,
+            "league": "LEAGUE",
+            "wins": 0,
+            "run_diff": 0
+          },
+          "low": {
+            "team_id": "SAN",
+            "seed": 3,
+            "league": "LEAGUE",
+            "wins": 0,
+            "run_diff": 0
+          },
+          "config": {
+            "length": 7,
+            "pattern": [
+              2,
+              3,
+              2
+            ]
+          },
+          "games": [
+            {
+              "home": "CHI",
+              "away": "SAN",
+              "date": null,
+              "result": "7-3",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE CS_S0_G0_SAN_at_CHI.html",
+              "meta": {
+                "home_innings": 8,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "CHI",
+              "away": "SAN",
+              "date": null,
+              "result": "9-4",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE CS_S0_G1_SAN_at_CHI.html",
+              "meta": {
+                "home_innings": 8,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "SAN",
+              "away": "CHI",
+              "date": null,
+              "result": "8-13",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE CS_S0_G2_CHI_at_SAN.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "SAN",
+              "away": "CHI",
+              "date": null,
+              "result": "2-4",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE CS_S0_G3_CHI_at_SAN.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            }
+          ],
+          "winner": "CHI"
+        }
+      ],
+      "plan": [
+        {
+          "series_key": "cs",
+          "sources": [
+            {
+              "kind": "winner",
+              "league": null,
+              "seed": null,
+              "source_round": "LEAGUE DS",
+              "slot": 0
+            },
+            {
+              "kind": "winner",
+              "league": null,
+              "seed": null,
+              "source_round": "LEAGUE DS",
+              "slot": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Final",
+      "matchups": [
+        {
+          "high": {
+            "team_id": "CHI",
+            "seed": 1,
+            "league": "LEAGUE",
+            "wins": 0,
+            "run_diff": 0
+          },
+          "low": {
+            "team_id": "SAN",
+            "seed": 3,
+            "league": "LEAGUE",
+            "wins": 0,
+            "run_diff": 0
+          },
+          "config": {
+            "length": 7,
+            "pattern": [
+              2,
+              3,
+              2
+            ]
+          },
+          "games": [
+            {
+              "home": "CHI",
+              "away": "SAN",
+              "date": null,
+              "result": "7-3",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE CS_S0_G0_SAN_at_CHI.html",
+              "meta": {
+                "home_innings": 8,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "CHI",
+              "away": "SAN",
+              "date": null,
+              "result": "9-4",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE CS_S0_G1_SAN_at_CHI.html",
+              "meta": {
+                "home_innings": 8,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "SAN",
+              "away": "CHI",
+              "date": null,
+              "result": "8-13",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE CS_S0_G2_CHI_at_SAN.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "SAN",
+              "away": "CHI",
+              "date": null,
+              "result": "2-4",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\boxscores\\playoffs\\2024_LEAGUE CS_S0_G3_CHI_at_SAN.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            }
+          ],
+          "winner": "CHI"
+        }
+      ],
+      "plan": []
+    }
+  ]
+}

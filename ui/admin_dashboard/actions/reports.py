@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QMessageBox, QWidget, QProgressDialog
 
 from services.report_exporter import export_reports
+from ui.export_dialogs import show_export_success_dialog
 from ..context import DashboardContext
 
 
@@ -63,7 +64,12 @@ def export_reports_action(
         note = "PDF summary generated." if pdf_written else "PDF summary skipped."
         message = f"Reports exported to:\n{output_dir}\n\n{note}"
         if parent is not None:
-            QMessageBox.information(parent, "Export Reports", message)
+            show_export_success_dialog(
+                parent=parent,
+                title="Export Reports",
+                message=message,
+                export_path=str(output_dir),
+            )
         if context.show_toast:
             context.show_toast("success", "Reports exported.")
 

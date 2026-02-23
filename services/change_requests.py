@@ -6,12 +6,14 @@ from datetime import datetime
 import csv
 import hashlib
 import json
+import re
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from utils.news_logger import log_news_event
-from utils.path_utils import get_data_dir
+from utils.path_utils import get_active_league_id, get_data_dir
 from utils.roster_loader import load_roster
 from utils.depth_chart import save_depth_chart
 
@@ -21,6 +23,42 @@ REQUEST_VERSION = 1
 
 def _now_iso() -> str:
     return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def _now_bundle_stamp() -> str:
+    return datetime.utcnow().strftime("%Y%m%d-%H%M")
+
+
+def _slug_token(value: Any, *, fallback: str) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return fallback
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    text = re.sub(r"-{2,}", "-", text).strip("-")
+    return text or fallback
+
+
+def _bundle_filename(
+    *,
+    action: str,
+    team_id: str,
+    out_dir: Path,
+) -> str:
+    league_id = get_active_league_id(default="league")
+    league_slug = _slug_token(league_id, fallback="league")
+    team_slug = _slug_token(team_id, fallback="team")
+    stamp = _now_bundle_stamp()
+    if action == "cancel":
+        base = f"change_request_cancel_{league_slug}_{team_slug}_{stamp}"
+    else:
+        base = f"change_request_{league_slug}_{team_slug}_{stamp}"
+    filename = f"{base}.zip"
+    candidate = out_dir / filename
+    suffix = 2
+    while candidate.exists():
+        candidate = out_dir / f"{base}_{suffix}.zip"
+        suffix += 1
+    return candidate.name
 
 
 def _requests_dir() -> Path:
@@ -182,8 +220,13 @@ def export_request(request: Dict[str, Any], *, out_dir: Path | None = None) -> P
         "exported_at": _now_iso(),
         "request": request,
     }
-    path = target_dir / f"change_request_{request_id}.json"
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    filename = _bundle_filename(
+        action="submit",
+        team_id=str(request.get("team_id") or ""),
+        out_dir=target_dir,
+    )
+    path = target_dir / filename
+    _write_export_bundle(path, payload)
     return path
 
 
@@ -196,6 +239,7 @@ def export_cancel_request(
 ) -> Path:
     _ensure_dirs()
     target_dir = out_dir or outbox_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": REQUEST_VERSION,
         "action": "cancel",
@@ -206,9 +250,111 @@ def export_cancel_request(
             "owner_name": owner_name or team_id,
         },
     }
-    path = target_dir / f"change_request_cancel_{request_id}.json"
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    filename = _bundle_filename(
+        action="cancel",
+        team_id=team_id,
+        out_dir=target_dir,
+    )
+    path = target_dir / filename
+    _write_export_bundle(path, payload)
     return path
+
+
+def _write_export_bundle(path: Path, payload: Dict[str, Any]) -> None:
+    request = payload.get("request")
+    if not isinstance(request, dict):
+        request = {}
+    action = str(payload.get("action") or "submit").lower()
+    files_manifest: list[dict[str, Any]] = []
+    written_paths: set[str] = set()
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for entry in request.get("files", []) if isinstance(request.get("files"), list) else []:
+            if not isinstance(entry, dict):
+                continue
+            rel_path = _normalize_path(entry.get("path"))
+            content = entry.get("content")
+            if not rel_path or not isinstance(content, str):
+                continue
+            archive_path = f"files/{rel_path}"
+            if archive_path in written_paths:
+                continue
+            payload_bytes = content.encode("utf-8")
+            archive.writestr(archive_path, payload_bytes)
+            written_paths.add(archive_path)
+            files_manifest.append(
+                {
+                    "path": rel_path,
+                    "archive_path": archive_path,
+                    "sha256": hashlib.sha256(payload_bytes).hexdigest(),
+                    "bytes": len(payload_bytes),
+                }
+            )
+
+        manifest = {
+            "version": REQUEST_VERSION,
+            "type": "change_request_bundle",
+            "action": action,
+            "exported_at": str(payload.get("exported_at") or _now_iso()),
+            "request_id": str(request.get("request_id") or ""),
+            "team_id": str(request.get("team_id") or ""),
+            "owner_name": str(request.get("owner_name") or ""),
+            "summary": str(request.get("summary") or ""),
+            "files": files_manifest,
+        }
+        archive.writestr("manifest.json", json.dumps(manifest, indent=2))
+        archive.writestr("request.json", json.dumps(payload, indent=2))
+
+
+def _load_export_payload(file_path: Path) -> Dict[str, Any]:
+    suffix = file_path.suffix.lower()
+    if suffix == ".json":
+        payload = json.loads(file_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("invalid request payload")
+        return payload
+    if suffix == ".zip":
+        return _load_export_payload_from_zip(file_path)
+    raise ValueError(f"Unsupported change request file type: {file_path.suffix}")
+
+
+def _load_export_payload_from_zip(file_path: Path) -> Dict[str, Any]:
+    try:
+        archive = zipfile.ZipFile(file_path, "r")
+    except zipfile.BadZipFile as exc:
+        raise ValueError("invalid zip file") from exc
+    with archive:
+        request_member = "request.json"
+        if request_member not in archive.namelist():
+            raise ValueError("bundle missing request.json")
+        try:
+            payload = json.loads(archive.read(request_member).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("bundle request.json is invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("bundle payload must be an object")
+
+        request = payload.get("request")
+        if isinstance(request, dict):
+            files = request.get("files")
+            if isinstance(files, list):
+                for entry in files:
+                    if not isinstance(entry, dict):
+                        continue
+                    if isinstance(entry.get("content"), str):
+                        continue
+                    rel_path = _normalize_path(entry.get("path"))
+                    if not rel_path:
+                        continue
+                    content = None
+                    for member in (f"files/{rel_path}", rel_path):
+                        try:
+                            content = archive.read(member).decode("utf-8")
+                            break
+                        except KeyError:
+                            continue
+                    if content is not None:
+                        entry["content"] = content
+        return payload
 
 
 def import_requests_from_inbox(*, inbox: Path | None = None, path: Path | None = None) -> Dict[str, Any]:
@@ -218,10 +364,17 @@ def import_requests_from_inbox(*, inbox: Path | None = None, path: Path | None =
     canceled = 0
     failed = 0
     errors: List[str] = []
-    for file_path in sorted(inbox_path.glob("*.json")):
+    inbox_files = sorted(
+        [
+            path_obj
+            for path_obj in inbox_path.iterdir()
+            if path_obj.is_file() and path_obj.suffix.lower() in {".json", ".zip"}
+        ]
+    )
+    for file_path in inbox_files:
         try:
-            payload = json.loads(file_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            payload = _load_export_payload(file_path)
+        except (OSError, ValueError, zipfile.BadZipFile, json.JSONDecodeError) as exc:
             failed += 1
             errors.append(f"{file_path.name}: {exc}")
             _move_file(file_path, failed_dir())

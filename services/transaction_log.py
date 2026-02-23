@@ -142,8 +142,21 @@ def load_transactions(
     return rows
 
 
+def clear_transactions(*, path: Path | None = None) -> None:
+    """Reset transactions to an empty file with just the CSV header."""
+
+    target_path = path or _transactions_path()
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    with target_path.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=TRANSACTION_COLUMNS)
+        writer.writeheader()
+    service = get_unified_data_service()
+    service.update_document(target_path, [], topic=_TRANSACTIONS_TOPIC)
+
+
 __all__ = [
     "record_transaction",
     "load_transactions",
+    "clear_transactions",
     "reset_player_cache",
 ]

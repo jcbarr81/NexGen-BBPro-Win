@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
-import csv
 import json
 import shutil
 
@@ -15,7 +14,10 @@ from playbalance.season_context import CAREER_DATA_DIR, SeasonContext
 from services.contracts_service import rollover_contracts_for_new_season
 from services.offseason_finance_flow import run_offseason_financial_rollover
 from services.record_notifications import update_record_notifications
-from services.transaction_log import TRANSACTION_COLUMNS, reset_player_cache as reset_transaction_cache
+from services.transaction_log import (
+    clear_transactions,
+    reset_player_cache as reset_transaction_cache,
+)
 from services.standings_repository import save_standings
 from utils.path_utils import ActivePath, get_base_dir, get_data_dir
 from utils.player_loader import load_players_from_csv
@@ -426,10 +428,7 @@ class LeagueRolloverService:
         self._unlock_rosters()
 
     def _reset_transactions_file(self) -> None:
-        _TRANSACTIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with _TRANSACTIONS_PATH.open("w", encoding="utf-8", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=TRANSACTION_COLUMNS)
-            writer.writeheader()
+        clear_transactions(path=_TRANSACTIONS_PATH)
 
     def _reset_progress_file(self) -> None:
         payload = {

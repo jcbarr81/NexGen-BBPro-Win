@@ -33,14 +33,14 @@ Tracked from the latest run of `.venv/bin/pytest`.
 - [x] tests/test_simulation.py::test_walk_records_stats
 - [x] tests/test_simulation.py::test_swing_and_miss_records_strikeout
 - [x] tests/test_simulation.py::test_passed_ball_advances_runner
-- [ ] tests/test_simulation.py::test_pitch_control_affects_location
+- [x] tests/test_simulation.py::test_pitch_control_affects_location
 - [x] tests/test_simulation.py::test_fielding_stats_tracking
-- [ ] tests/test_simulation_averages.py::test_simulated_averages_close_to_mlb
-- [ ] tests/test_simulation_foul_balls.py::test_fouls_increase_pitches_reduce_strikeouts
-- [ ] tests/test_simulation_foul_balls.py::test_foul_pitch_distribution
-- [ ] tests/test_simulation_strikeouts.py::test_strikeouts_within_mlb_range
-- [ ] tests/test_stadium_dimensions.py::test_custom_stadium_affects_hit_value
-- [ ] tests/test_standings_window.py::test_standings_window_displays_league_and_teams
-- [ ] tests/test_stats_windows.py::test_team_stats_window_instantiates
-- [ ] tests/test_stats_windows.py::test_league_stats_window_instantiates
-- [ ] tests/test_stats_windows.py::test_league_leaders_window_instantiates
+- [x] tests/test_simulation_averages.py::test_simulated_averages_close_to_mlb
+- [x] tests/test_simulation_foul_balls.py::test_fouls_increase_pitches_reduce_strikeouts
+- [x] tests/test_simulation_foul_balls.py::test_foul_probability_tracks_contact_and_counts
+- [x] tests/test_simulation_strikeouts.py::test_strikeouts_within_mlb_range
+- [x] tests/test_stadium_dimensions.py::test_custom_stadium_affects_hit_value
+- [x] tests/test_standings_window.py::test_standings_window_displays_league_and_teams
+- [x] tests/test_stats_windows.py::test_team_stats_window_instantiates
+- [x] tests/test_stats_windows.py::test_league_stats_window_instantiates
+- [x] tests/test_stats_windows.py::test_league_leaders_window_instantiates

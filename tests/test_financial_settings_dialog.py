@@ -42,3 +42,26 @@ def test_financial_settings_dialog_formats_workflow_preview():
     assert "Saved Settings Workflow" in text
     assert "Current phase: OFFSEASON" in text
     assert "Review Contract Expirations" in text
+
+
+def test_financial_settings_dialog_summarizes_module_levels():
+    from ui.financial_settings_dialog import FinancialSettingsDialog
+
+    modules = {
+        "owner_revenue": "basic",
+        "owner_market_model": "off",
+        "owner_budgets": "off",
+        "owner_expenses": "off",
+        "gm_contracts": "advanced",
+        "gm_payroll_rules": "mlb_like",
+        "gm_arbitration": "off",
+        "gm_free_agency": "off",
+        "gm_roster_cost_enforcement": "block",
+        "gm_finance_ai": "off",
+    }
+    text = FinancialSettingsDialog._summarize_module_levels(modules)
+
+    assert "Module coverage: 4/10 enabled" in text
+    assert "Basic: 1" in text
+    assert "Advanced/MLB-Like: 2" in text
+    assert "Enforcement Block: 1" in text

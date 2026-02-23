@@ -1,12 +1,12 @@
 """Trade-related admin dashboard actions."""
 from __future__ import annotations
 
-import csv
 from typing import Optional
 
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
+    QLabel,
     QListWidget,
     QMessageBox,
     QPushButton,
@@ -27,7 +27,7 @@ from ui.window_utils import show_on_top
 from utils.news_logger import log_news_event
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
-from utils.roster_loader import load_roster
+from utils.roster_loader import load_roster, save_roster
 from utils.trade_utils import load_trades, save_trade
 
 from ..context import DashboardContext
@@ -205,15 +205,6 @@ def review_pending_trades(
             except ValueError as exc:
                 QMessageBox.warning(dialog, "Trade Failed", str(exc))
                 return
-
-            def save_roster(roster) -> None:
-                path = get_data_dir() / "rosters" / f"{roster.team_id}.csv"
-                with path.open("w", newline="") as file:
-                    writer = csv.DictWriter(file, fieldnames=["player_id", "level"])
-                    writer.writeheader()
-                    for level in ("act", "aaa", "low"):
-                        for player_id in getattr(roster, level):
-                            writer.writerow({"player_id": player_id, "level": level.upper()})
 
             save_roster(from_roster)
             save_roster(to_roster)

@@ -3,15 +3,20 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Any, Dict, List, Mapping, Tuple
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from playbalance.season_simulator import SeasonSimulator
-from playbalance.game_runner import simulate_game_scores
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_data_dir
 from utils.stats_persistence import load_stats as load_season_stats
 from utils.pitcher_recovery import PitcherRecoveryTracker
 
@@ -48,6 +53,14 @@ class RoleSummary:
     @property
     def ip_per_gs(self) -> float:
         return self.ip / self.gs if self.gs else 0.0
+
+
+ROLE_TARGET_BANDS: Dict[str, Dict[str, Tuple[float, float]]] = {
+    "CL": {"avg_g": (60.0, 70.0), "avg_ip": (60.0, 70.0)},
+    "SU": {"avg_g": (60.0, 70.0), "avg_ip": (60.0, 70.0)},
+    "MR": {"avg_g": (50.0, 65.0)},
+    "LR": {"avg_g": (35.0, 50.0)},
+}
 
 
 def _load_schedule(path: Path) -> List[Dict[str, str]]:
@@ -254,12 +267,224 @@ def _print_summary(summary: Dict[str, RoleSummary]) -> None:
         )
 
 
+def _summarize_cadence_from_recovery(
+    schedule: List[Dict[str, str]],
+    roster_roles: Dict[str, str],
+) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, float]]:
+    rec = PitcherRecoveryTracker.instance()
+    rec.refresh_config()
+    teams = rec.data.get("teams", {}) or {}
+    per_pid_dates: Dict[str, List[date]] = {}
+    per_pid_role: Dict[str, str] = {}
+    sched_dates = [
+        datetime.strptime(str(row["date"]), "%Y-%m-%d").date()
+        for row in schedule
+        if row.get("date")
+    ]
+    min_d = min(sched_dates) if sched_dates else None
+    max_d = max(sched_dates) if sched_dates else None
+    for _team_id, entry in teams.items():
+        pitchers = entry.get("pitchers", {}) or {}
+        for pid, payload in pitchers.items():
+            recent = payload.get("recent", []) or []
+            role = payload.get("last_role") or roster_roles.get(pid, "")
+            role = _bucket_role(str(role))
+            per_pid_role[pid] = role
+            for usage in recent:
+                if not usage.get("appeared"):
+                    continue
+                dstr = str(usage.get("date") or "")
+                try:
+                    used_date = datetime.strptime(dstr, "%Y-%m-%d").date()
+                except Exception:
+                    continue
+                if (
+                    (min_d is None or used_date >= min_d)
+                    and (max_d is None or used_date <= max_d)
+                ):
+                    per_pid_dates.setdefault(pid, []).append(used_date)
+    role_vals: Dict[str, List[Tuple[float, float, float]]] = {}
+    for pid, dates in per_pid_dates.items():
+        role = per_pid_role.get(pid) or "RP"
+        dates = sorted(set(dates))
+        if not dates:
+            continue
+        b2b = sum(
+            1
+            for idx in range(1, len(dates))
+            if (dates[idx] - dates[idx - 1]).days == 1
+        )
+        b2b_rate = b2b / max(len(dates) - 1, 1)
+
+        max7 = 0
+        start = 0
+        for end in range(len(dates)):
+            while start <= end and (dates[end] - dates[start]).days > 6:
+                start += 1
+            max7 = max(max7, end - start + 1)
+
+        has_3in4 = 0.0
+        start = 0
+        for end in range(len(dates)):
+            while start <= end and (dates[end] - dates[start]).days > 3:
+                start += 1
+            if end - start + 1 >= 3:
+                has_3in4 = 1.0
+                break
+        role_vals.setdefault(role, []).append((float(max7), has_3in4, float(b2b_rate)))
+
+    def _avg(vals: List[float]) -> float:
+        return sum(vals) / len(vals) if vals else 0.0
+
+    avg_max7: Dict[str, float] = {}
+    pct_3in4: Dict[str, float] = {}
+    b2b_rate: Dict[str, float] = {}
+    for role, vals in role_vals.items():
+        max7_list = [entry[0] for entry in vals]
+        has_list = [entry[1] for entry in vals]
+        b2b_list = [entry[2] for entry in vals]
+        avg_max7[role] = _avg(max7_list)
+        pct_3in4[role] = (sum(has_list) / len(has_list)) * 100 if has_list else 0.0
+        b2b_rate[role] = _avg(b2b_list)
+    return avg_max7, pct_3in4, b2b_rate
+
+
+def evaluate_role_targets(
+    summary: Mapping[str, RoleSummary],
+    *,
+    bands: Mapping[str, Mapping[str, Tuple[float, float]]] | None = None,
+) -> Dict[str, Dict[str, Any]]:
+    active_bands = bands or ROLE_TARGET_BANDS
+    results: Dict[str, Dict[str, Any]] = {}
+    for role, metrics in active_bands.items():
+        role_summary = summary.get(role)
+        metric_results: Dict[str, Dict[str, Any]] = {}
+        if role_summary is None:
+            results[role] = {
+                "present": False,
+                "all_in_range": False,
+                "metrics": metric_results,
+            }
+            continue
+        for metric_key, (lower, upper) in metrics.items():
+            actual = float(getattr(role_summary, metric_key, 0.0))
+            in_range = lower <= actual <= upper
+            metric_results[metric_key] = {
+                "min": lower,
+                "max": upper,
+                "actual": round(actual, 2),
+                "in_range": in_range,
+            }
+        results[role] = {
+            "present": True,
+            "all_in_range": all(
+                bool(metric.get("in_range")) for metric in metric_results.values()
+            ),
+            "metrics": metric_results,
+        }
+    return results
+
+
+def _build_usage_payload(
+    summary: Mapping[str, RoleSummary],
+    *,
+    shards_cadence: Tuple[Dict[str, float], Dict[str, float], Dict[str, float]],
+    recovery_cadence: Tuple[Dict[str, float], Dict[str, float], Dict[str, float]]
+    | None,
+    schedule: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    role_rows: Dict[str, Dict[str, float | int]] = {}
+    for role, row in summary.items():
+        role_rows[role] = {
+            "count": int(row.count),
+            "avg_g": round(float(row.avg_g), 2),
+            "avg_gs": round(float(row.avg_gs), 2),
+            "avg_ip": round(float(row.avg_ip), 2),
+            "ip_per_g": round(float(row.ip_per_g), 3),
+            "ip_per_gs": round(float(row.ip_per_gs), 3),
+        }
+
+    target_eval = evaluate_role_targets(summary)
+    total_targets = len(target_eval)
+    passed_targets = sum(
+        1 for role_eval in target_eval.values() if bool(role_eval.get("all_in_range"))
+    )
+    if total_targets:
+        summary_line = (
+            f"{passed_targets}/{total_targets} role targets in range "
+            "(CL/SU 60-70 G and 60-70 IP, MR 50-65 G, LR 35-50 G)."
+        )
+    else:
+        summary_line = "No role targets evaluated."
+
+    cadence_payload: Dict[str, Any] = {
+        "shards": {
+            "avg_max7": {
+                role: round(float(val), 3) for role, val in shards_cadence[0].items()
+            },
+            "pct_3in4": {
+                role: round(float(val), 3) for role, val in shards_cadence[1].items()
+            },
+            "b2b_rate": {
+                role: round(float(val), 3) for role, val in shards_cadence[2].items()
+            },
+        }
+    }
+    if recovery_cadence is not None:
+        cadence_payload["recovery"] = {
+            "avg_max7": {
+                role: round(float(val), 3)
+                for role, val in recovery_cadence[0].items()
+            },
+            "pct_3in4": {
+                role: round(float(val), 3)
+                for role, val in recovery_cadence[1].items()
+            },
+            "b2b_rate": {
+                role: round(float(val), 3)
+                for role, val in recovery_cadence[2].items()
+            },
+        }
+
+    return {
+        "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "summary": summary_line,
+        "schedule_start": schedule[0]["date"] if schedule else None,
+        "schedule_end": schedule[-1]["date"] if schedule else None,
+        "roles": role_rows,
+        "targets": target_eval,
+        "target_groups": total_targets,
+        "target_groups_in_range": passed_targets,
+        "target_pass_rate": (
+            round(passed_targets / total_targets, 3) if total_targets else None
+        ),
+        "cadence": cadence_payload,
+    }
+
+
+def _write_usage_payload(payload: Mapping[str, Any], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Simulate a schedule and summarize pitcher usage by role.")
-    ap.add_argument("--schedule", type=str, required=True, help="CSV with columns: date,home,away")
+    ap = argparse.ArgumentParser(
+        description="Simulate a schedule and summarize pitcher usage by role."
+    )
+    ap.add_argument(
+        "--schedule", type=str, required=True, help="CSV with columns: date,home,away"
+    )
     ap.add_argument("--seed", type=int, default=1234)
-    ap.add_argument("--players_file", type=str, default=str(get_data_dir() / "players.csv"))
+    ap.add_argument(
+        "--players_file", type=str, default=str(get_data_dir() / "players.csv")
+    )
     ap.add_argument("--roster_dir", type=str, default=str(get_data_dir() / "rosters"))
+    ap.add_argument(
+        "--out-json",
+        type=str,
+        default=str(get_data_dir() / "reports" / "usage_calibration_summary.json"),
+        help="Write summary payload to this JSON path (default: data/reports/...).",
+    )
     args = ap.parse_args()
 
     schedule_path = Path(args.schedule)
@@ -287,85 +512,47 @@ def main() -> None:
     _print_summary(summary)
 
     # Cadence metrics from shards (may be limited if shard dates are not unique)
-    avg_max7, pct_3in4, b2b_rate = _summarize_cadence_from_shards(shards_dir, roster_roles)
+    avg_max7, pct_3in4, b2b_rate = _summarize_cadence_from_shards(
+        shards_dir, roster_roles
+    )
     print("\nRole cadence summary (from shards; may be limited by shard dating):")
     print("role,avg_max7,pct_3in4,b2b_rate")
     for role in ("SP", "CL", "SU", "MR", "LR", "RP"):
         if role not in summary:
             continue
-        print(f"{role},{avg_max7.get(role, 0):.2f},{pct_3in4.get(role, 0):.1f}%,{b2b_rate.get(role, 0):.2f}")
+        print(
+            f"{role},{avg_max7.get(role, 0):.2f},{pct_3in4.get(role, 0):.1f}%,"
+            f"{b2b_rate.get(role, 0):.2f}"
+        )
 
     # Cadence metrics from PitcherRecoveryTracker (robust daily dating)
     print("\nRole cadence summary (from recovery tracker):")
+    recovery_cadence: (
+        Tuple[Dict[str, float], Dict[str, float], Dict[str, float]] | None
+    ) = None
     try:
-        rec = PitcherRecoveryTracker.instance()
-        rec.refresh_config()
-        teams = rec.data.get("teams", {}) or {}
-        per_pid_dates: Dict[str, List[date]] = {}
-        per_pid_role: Dict[str, str] = {}
-        # Compute schedule date bounds to filter tracker history
-        sched_dates = [datetime.strptime(str(r["date"]), "%Y-%m-%d").date() for r in schedule]
-        min_d = min(sched_dates) if sched_dates else None
-        max_d = max(sched_dates) if sched_dates else None
-        for team_id, entry in teams.items():
-            pitchers = entry.get("pitchers", {}) or {}
-            for pid, payload in pitchers.items():
-                recent = payload.get("recent", []) or []
-                role = payload.get("last_role") or roster_roles.get(pid, "")
-                role = _bucket_role(str(role))
-                per_pid_role[pid] = role
-                for r in recent:
-                    if not r.get("appeared"):
-                        continue
-                    dstr = str(r.get("date") or "")
-                    try:
-                        d = datetime.strptime(dstr, "%Y-%m-%d").date()
-                    except Exception:
-                        continue
-                    if (min_d is None or d >= min_d) and (max_d is None or d <= max_d):
-                        per_pid_dates.setdefault(pid, []).append(d)
-        # Compute same metrics
-        role_vals: Dict[str, List[Tuple[float, float, float]]] = {}
-        for pid, dates in per_pid_dates.items():
-            role = per_pid_role.get(pid) or "RP"
-            dates = sorted(set(dates))
-            if not dates:
-                continue
-            b2b = sum(1 for i in range(1, len(dates)) if (dates[i] - dates[i - 1]).days == 1)
-            b2b_rate = b2b / max(len(dates) - 1, 1)
-            # max7
-            max7 = 0
-            s = 0
-            for e in range(len(dates)):
-                while s <= e and (dates[e] - dates[s]).days > 6:
-                    s += 1
-                max7 = max(max7, e - s + 1)
-            # 3-in-4
-            has_3 = 0.0
-            s = 0
-            for e in range(len(dates)):
-                while s <= e and (dates[e] - dates[s]).days > 3:
-                    s += 1
-                if e - s + 1 >= 3:
-                    has_3 = 1.0
-                    break
-            role_vals.setdefault(role, []).append((float(max7), has_3, float(b2b_rate)))
-        def _avg(lst: List[float]) -> float:
-            return sum(lst) / len(lst) if lst else 0.0
-        roles = ("SP", "CL", "SU", "MR", "LR", "RP")
+        recovery_cadence = _summarize_cadence_from_recovery(schedule, roster_roles)
         print("role,avg_max7,pct_3in4,b2b_rate")
-        for role in roles:
-            vals = role_vals.get(role, [])
-            max7_list = [v[0] for v in vals]
-            has_list = [v[1] for v in vals]
-            b2b_list = [v[2] for v in vals]
-            avg7 = _avg(max7_list)
-            pct3 = (sum(has_list) / len(has_list)) * 100 if has_list else 0.0
-            b2br = _avg(b2b_list)
+        for role in ("SP", "CL", "SU", "MR", "LR", "RP"):
             if role in summary:
-                print(f"{role},{avg7:.2f},{pct3:.1f}%,{b2br:.2f}")
+                print(
+                    f"{role},{recovery_cadence[0].get(role, 0):.2f},"
+                    f"{recovery_cadence[1].get(role, 0):.1f}%,"
+                    f"{recovery_cadence[2].get(role, 0):.2f}"
+                )
     except Exception:
         print("(Recovery tracker metrics unavailable)")
+
+    payload = _build_usage_payload(
+        summary,
+        shards_cadence=(avg_max7, pct_3in4, b2b_rate),
+        recovery_cadence=recovery_cadence,
+        schedule=schedule,
+    )
+    if args.out_json:
+        out_path = Path(args.out_json)
+        _write_usage_payload(payload, out_path)
+        print(f"\nWrote usage calibration summary: {out_path}")
 
 
 if __name__ == "__main__":

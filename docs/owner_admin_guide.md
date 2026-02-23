@@ -81,11 +81,20 @@ Unsaved roster changes are flagged with an asterisk in the window title.
 Administrators control league configuration and high-level operations.
 
 ### Admin Tutorials
-- Open the Admin **Tutorials** menu for:
+- Open the Admin **Tutorials -> Commissioner Workflows** menu for guided walkthroughs:
+  - **Admin Dashboard Overview**
+  - **League Setup & Manager**
+  - **User Management & Roles**
+  - **Season Progression Flow**
+  - **Trade & Review Queues**
+  - **Exports & Utilities**
+- Open **Tutorials -> Asset Guides** for:
   - **Team Logo Tutorial**
   - **Player Avatar Tutorial**
+- Open **Tutorials -> Reference Manuals** for:
   - **Complete Game Manual**
   - **Finance System Manual**
+- New commissioner onboarding runs the **Admin Dashboard Overview** tutorial automatically on first launch.
 
 ### Dashboard Navigation
 - **Dashboard**: league overview metrics, draft timing/status, and priority queues.
@@ -104,7 +113,8 @@ Administrators control league configuration and high-level operations.
     - draft-pick trading enabled/disabled,
     - commissioner-approval requirement for trade execution,
     - maximum years out for tradable draft picks.
-- **Financial System Settings** (League Settings): configure global finance on/off, presets, module levels, and AI tuning.
+- **Financial System Settings** (League Settings): configure global finance on/off, presets, grouped module levels (Owner, GM, Governance/AI), and AI tuning.
+  - The window uses a full-height scrollable layout so all controls remain reachable on smaller displays.
   - The dialog includes a **Commissioner Projection Preview** snapshot (cash/debt/net/payroll risk summary).
   - The dialog includes prioritized **Finance Alerts** with explicit next-step guidance (cash risk, payroll threshold/floor risk, offseason checklist deadlines, and GM queue pressure).
   - The guidance panel in this dialog reflects the current saved workflow state and the next checklist stage.
@@ -190,6 +200,8 @@ existing visual style and theme.
 - Unified **Players** browser with tabs for Position Players and Pitchers.
 - Roster page displays a defensive coverage notice when positions are missing.
 - Navigation labels: “Moves & Trades” and “League Hub”.
+- In multi-owner leagues, season progression/simulation actions are
+  commissioner-only; owner dashboards hide season progression controls.
 
 ### Admin
 - New Home page with overview metrics: Pending Trades, Teams, Players,

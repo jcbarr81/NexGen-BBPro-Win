@@ -91,7 +91,7 @@ from utils.player_loader import load_players_from_csv
 from utils.team_loader import load_teams
 from utils.roster_loader import load_roster
 from utils.roster_loader import save_roster
-from utils.player_writer import save_players_to_csv
+from services.players_repository import save_players
 from services.unified_data_service import get_unified_data_service
 from services.injury_manager import (
     DL_LABELS,
@@ -612,11 +612,7 @@ class InjuryCenterWindow(QDialog):
         try:
             from utils.path_utils import get_data_dir
 
-            save_players_to_csv(plist, str(get_data_dir() / 'players.csv'))
-        except Exception:
-            pass
-        try:
-            load_players_from_csv.cache_clear()
+            save_players(plist, get_data_dir() / "players.csv")
         except Exception:
             pass
 

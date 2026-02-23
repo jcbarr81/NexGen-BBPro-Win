@@ -23,7 +23,7 @@ from utils.lineup_autofill import auto_fill_lineup_for_team
 from utils.roster_loader import load_roster, save_roster
 from utils.pitcher_recovery import PitcherRecoveryTracker
 from utils.player_loader import load_players_from_csv
-from utils.player_writer import save_players_to_csv
+from services.players_repository import save_players
 from utils.team_loader import load_teams
 from services.injury_manager import place_on_injury_list
 from services.injury_history import record_injury_event
@@ -1484,11 +1484,7 @@ def _apply_injury_events(
     if not changed_players:
         return
 
-    save_players_to_csv(players, players_file)
-    try:
-        load_players_from_csv.cache_clear()
-    except Exception:
-        pass
+    save_players(players, players_file)
 
     for team_id, roster in team_rosters.items():
         save_roster(team_id, roster)

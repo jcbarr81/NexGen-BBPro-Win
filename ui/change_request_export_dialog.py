@@ -27,6 +27,7 @@ from services.change_requests import (
     outbox_dir,
     update_request_status,
 )
+from ui.export_dialogs import show_export_success_dialog
 from utils.path_utils import get_data_dir
 
 
@@ -43,7 +44,7 @@ class ChangeRequestExportDialog(QDialog):
 
         intro = QLabel(
             "Bundle your roster/lineup changes and export them for commissioner approval. "
-            "Send the exported JSON file to your admin."
+            "Send the exported ZIP bundle to your admin."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -124,10 +125,14 @@ class ChangeRequestExportDialog(QDialog):
         except Exception as exc:
             QMessageBox.warning(self, "Change Request", f"Export failed: {exc}")
             return
-        QMessageBox.information(
-            self,
-            "Change Request Exported",
-            f"Exported to:\n{export_path}\n\nSend this file to your commissioner.",
+        show_export_success_dialog(
+            parent=self,
+            title="Change Request Exported",
+            message=(
+                f"Exported bundle:\n{export_path}\n\n"
+                "Send this ZIP file to your commissioner."
+            ),
+            export_path=export_path,
         )
         self._refresh_requests()
 
@@ -149,10 +154,14 @@ class ChangeRequestExportDialog(QDialog):
         except Exception as exc:
             QMessageBox.warning(self, "Change Request", f"Cancel export failed: {exc}")
             return
-        QMessageBox.information(
-            self,
-            "Cancel Exported",
-            f"Cancel request exported to:\n{export_path}\n\nSend this file to your commissioner.",
+        show_export_success_dialog(
+            parent=self,
+            title="Cancel Exported",
+            message=(
+                f"Cancel bundle exported to:\n{export_path}\n\n"
+                "Send this ZIP file to your commissioner."
+            ),
+            export_path=export_path,
         )
         self._refresh_requests()
 
