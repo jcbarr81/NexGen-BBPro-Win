@@ -1,4 +1,4 @@
-<!-- last_build_ref: b22da7bb8efc722314c9cfeb80a9a97f4e9c6980 -->
+<!-- last_build_ref: c6bd61643549dc8f6b632467d03964a127daaae2 -->
 # 4.5 Release Notes (Since 4.3.41)
 
 ## League Setup & Presets
@@ -640,3 +640,46 @@ Date: 2026-02-23
 - Migrated core player-write call sites to use the repository layer (`playbalance/game_runner.py`, `playbalance/league_creator.py`, `services/dl_automation.py`, `ui/season_progress_window.py`, `ui/injury_center_window.py`, `ui/admin_dashboard/actions/league.py`).
 - Removed manual `load_players_from_csv.cache_clear()` calls from migrated flows; player cache and `players.updated` events now refresh through repository updates.
 - Added coverage in `tests/test_players_repository.py` for cache refresh and event emission on player saves.
+
+# 5.1.1 Release Notes (Since last build b22da7b)
+Date: 2026-02-25
+
+- 5.1.1
+- 5.1.0
+- 5.0.112
+- Added global theme-change refresh broadcasting so already-open Owner/Admin windows and dialogs restyle immediately when theme family or light/dark mode changes.
+- Added `on_theme_changed` hooks to both Owner and Admin dashboards to keep menu checks, nav icons, and page-level themed assets synchronized across multiple open windows.
+- Updated Position Players and Pitchers dialogs with mode-aware palette/style application so they no longer remain on hardcoded dark retro colors after theme switches.
+- Extended Owner Home theming with centralized mode tokens for finance/notice/section accent labels and child widget styling refresh hooks.
+- Expanded `docs/post_installer_ui_checklist.md` with explicit theme-family/light-dark parity checks and cross-window update validation steps.
+- Added a new switchable `Enhanced Warm` theme family while preserving the existing `Classic` theme.
+- Implemented persistent global appearance preferences (`theme family` + `light/dark mode`) restored at startup and after login.
+- Replaced hardcoded dark-mode resets in startup/login flow with saved-theme application.
+- Updated Owner/Admin `View` menus with `Theme Family` selection and `Toggle Light/Dark` actions.
+- Added sidebar quick toggle label updates and per-theme nav icon refresh behavior on Owner/Admin dashboards.
+- Integrated new graphics bundle assets for dashboard theming (`assets/graphics/icons.svg`, `assets/graphics/dividers.svg`) and added themed quick-action button icon hooks on Owner/Admin home pages.
+- Added new in-app tutorials for appearance switching:
+- Owner: `Tutorials -> Getting Started -> Appearance & Themes`
+- Admin: `Tutorials -> Commissioner Workflows -> Appearance & Themes`
+- Updated owner/admin guide and game manual wording to document the new theme controls.
+- Hardened backlog item 19 with automated tutorial/manual/doc consistency validation via `scripts/validate_help_surface.py`.
+- Wired help-surface validation into `scripts/build_release.py` as a default pre-build gate (with `--skip-help-surface-validation` escape hatch and configurable report output path).
+- Added help-surface validation report artifact output to `reports/release_validation/help_surface_validation.json`.
+- Updated release process docs/checklists (`RELEASE.md`, `docs/post_installer_ui_checklist.md`) to include the automated validation step and artifact check.
+- Fixed owner guide wording to match current change-request packaging (`ZIP bundle`).
+- Added regression coverage in `tests/test_validate_help_surface.py` and expanded `tests/test_build_release.py` gating assertions.
+- Implemented backlog item 18 as developer-only tooling: added `scripts/build_ui_handoff.py` to export per-screen handoff bundles under `reports/ui_handoff/`.
+- Added manifest-driven graphics style controls in `config/graphics_style_manifest.json` with profile tokens, OpenAI defaults, validation thresholds, and golden reference mapping.
+- Added developer OpenAI generation and gating workflows via `scripts/generate_consistent_graphics.py` and `scripts/validate_graphics_consistency.py` with strict failure support.
+- Added consistency utility modules `utils/graphics_style.py` and `utils/graphics_consistency.py`, plus prompt override support in `utils/logo_generator.generate_team_logos`.
+- Added golden baseline assets under `assets/graphics/golden/` and developer documentation in `docs/graphics_consistency_pipeline.md`.
+- Updated `docs/ui_graphics_handoff_kit.md` and marked backlog item 18 complete in `docs/future_work.md` with explicit developer-only boundary.
+- Added regression coverage for manifest validation, handoff export, generation flow, consistency checks, and runtime boundary protection.
+- Tightened developer UI graphics prompt constraints to explicitly ban fake UI controls/text overlays and glow haze in generated assets.
+- Hardened `retro_modern_v1` negative constraints and lighting rules in `config/graphics_style_manifest.json`.
+- Increased UI validation strictness (`edge_density_min`) to reject overly soft/blurred outputs that drift from usable panel art.
+
+# 5.1.1 Release Notes (Since last build c6bd616)
+Date: 2026-02-25
+
+- No changes since last build and no draft notes were found.

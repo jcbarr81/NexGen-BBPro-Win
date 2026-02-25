@@ -32,8 +32,7 @@ class NavButton(QToolButton):
     def __init__(self, text: str, parent=None) -> None:
         super().__init__(parent)
         _call_if_exists(self, "setObjectName", "NavButton")
-        # Emoji icons keep dependencies light; swap for SVGs if you prefer
-        _call_if_exists(self, "setText", text)  # e.g., "⚾  Dashboard"
+        _call_if_exists(self, "setText", text)
         _call_if_exists(self, "setCheckable", True)
         style = getattr(Qt.ToolButtonStyle, "ToolButtonTextOnly", None)
         if style is not None:

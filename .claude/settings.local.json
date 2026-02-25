@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv2/Scripts/python.exe -m pytest tests/ -q --ignore=tests/test_auto_tune_solver.py --ignore=tests/test_schedule_windows.py)"
+    ]
+  }
+}

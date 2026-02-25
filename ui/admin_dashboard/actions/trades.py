@@ -29,6 +29,7 @@ from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster, save_roster
 from utils.trade_utils import load_trades, save_trade
+from ui.design_tokens import apply_status
 
 from ..context import DashboardContext
 
@@ -100,20 +101,20 @@ def review_pending_trades(
         trade = trade_map.get(selected.text())
         if trade is None:
             payroll_preview.setText("Payroll policy preview: unable to evaluate selected trade.")
-            payroll_preview.setStyleSheet("")
+            apply_status(payroll_preview, "")
             return
         result = evaluate_trade_payroll_impact(trade, players_by_id=players)
         if not result.violations:
             payroll_preview.setText("Payroll policy preview: no payroll rule issues detected.")
-            payroll_preview.setStyleSheet("color: #2fa36b;")
+            apply_status(payroll_preview, "success")
             return
         summary = format_payroll_policy_message(result).replace("\n", " ")
         if result.allowed and result.warning:
             payroll_preview.setText(f"Payroll policy preview (warning): {summary}")
-            payroll_preview.setStyleSheet("color: #d4a76a;")
+            apply_status(payroll_preview, "warning")
             return
         payroll_preview.setText(f"Payroll policy preview (blocked): {summary}")
-        payroll_preview.setStyleSheet("color: #d45b5b;")
+        apply_status(payroll_preview, "danger")
 
     trade_list.currentItemChanged.connect(lambda *_args: update_payroll_preview())
 

@@ -21,22 +21,24 @@ from PyQt6.QtWidgets import QApplication, QStatusBar
 
 
 # ---------------------------------------------------------------------------
-# Shared tokens (keep in sync with graphics_style_manifest palette_tokens)
+# Shared tokens — imported from design_tokens (single source of truth)
 # ---------------------------------------------------------------------------
-_ESPRESSO   = "#1e1207"
-_DEEP_ROAST = "#160e04"
-_MAHOGANY   = "#462d0d"
-_WALNUT     = "#604d33"
-_BARK       = "#3b2810"
-_TAN        = "#968d7d"
-_CREAM      = "#fffdf0"
-_PARCHMENT  = "#fff7dc"
-_AMBER      = "#F59E0B"
-_AMBER_DIM  = "#b36b18"
-_RED        = "#C8102E"
-_NAVY       = "#0A3161"
-_GREEN      = "#2f9e44"
-_CHARCOAL   = "#1F2937"
+from .design_tokens import (
+    ESPRESSO   as _ESPRESSO,
+    DEEP_ROAST as _DEEP_ROAST,
+    MAHOGANY   as _MAHOGANY,
+    WALNUT     as _WALNUT,
+    BARK       as _BARK,
+    TAN        as _TAN,
+    CREAM      as _CREAM,
+    PARCHMENT  as _PARCHMENT,
+    AMBER      as _AMBER,
+    AMBER_DIM  as _AMBER_DIM,
+    RED        as _RED,
+    NAVY       as _NAVY,
+    GREEN      as _GREEN,
+    CHARCOAL   as _CHARCOAL,
+)
 
 # Grain pattern encoded as inline SVG data-URI (tiny, tileable)
 _GRAIN_LIGHT = (
@@ -323,6 +325,14 @@ QStatusBar {{
     font-weight: 700;
     letter-spacing: 0.5px;
 }}
+/* Semantic status properties — set via widget.setProperty("status", ...) */
+*[status="success"] {{ color: #2f9e44; }}
+*[status="warning"] {{ color: #e67700; }}
+*[status="danger"]  {{ color: #c92a2a; }}
+*[status="muted"]   {{ color: #6c757d; }}
+/* Named label roles */
+QLabel#PanelHeading {{ font-weight: 700; }}
+QLabel#StatusLabel  {{ font-weight: 600; }}
 """
 
 # ---------------------------------------------------------------------------
@@ -584,6 +594,14 @@ QStatusBar {{
     font-weight: 700;
     letter-spacing: 0.5px;
 }}
+/* Semantic status properties — set via widget.setProperty("status", ...) */
+*[status="success"] {{ color: #2f9e44; }}
+*[status="warning"] {{ color: #e67700; }}
+*[status="danger"]  {{ color: #c92a2a; }}
+*[status="muted"]   {{ color: #6c757d; }}
+/* Named label roles */
+QLabel#PanelHeading {{ font-weight: 700; }}
+QLabel#StatusLabel  {{ font-weight: 600; }}
 """
 
 

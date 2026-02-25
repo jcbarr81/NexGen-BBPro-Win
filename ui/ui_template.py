@@ -241,7 +241,7 @@ class DashboardPage(QWidget):
         c2 = Card()
         c2.layout().addWidget(section_title("Admin Shortcuts"))
         for text in ("Review Trades", "Create League", "Season Progress"):
-            btn = QPushButton(f"⚾  {text}")
+            btn = QPushButton(text)
             btn.setObjectName("Primary")
             c2.layout().addWidget(btn)
         c2.layout().addStretch()

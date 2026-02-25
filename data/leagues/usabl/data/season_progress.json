@@ -4,5 +4,9 @@
     "training_camp": false,
     "schedule": false
   },
-  "sim_index": 0
+  "sim_index": 0,
+  "draft_completed_years": [
+    2025,
+    2030
+  ]
 }

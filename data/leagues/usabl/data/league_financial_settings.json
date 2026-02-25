@@ -38,6 +38,44 @@
         "future_year_commitment_ratio_limit": 1.08,
         "future_year_hard_commitment_ratio_limit": 1.2
       }
+    },
+    "league": {
+      "enabled": true,
+      "preset": "standard",
+      "enforcement_mode": "warn",
+      "modules": {
+        "owner_revenue": "advanced",
+        "owner_market_model": "basic",
+        "owner_budgets": "advanced",
+        "owner_expenses": "advanced",
+        "gm_contracts": "advanced",
+        "gm_payroll_rules": "basic",
+        "gm_arbitration": "basic",
+        "gm_free_agency": "advanced",
+        "gm_roster_cost_enforcement": "warn",
+        "gm_finance_ai": "advanced"
+      },
+      "finance_ai_tuning": {
+        "star_talent_threshold": 76,
+        "star_performance_threshold": 78,
+        "underperformer_threshold": 45,
+        "severe_underperformer_threshold": 38,
+        "high_cost_salary_share": 0.18,
+        "very_high_cost_salary_share": 0.28,
+        "high_cost_salary": 12000000,
+        "very_high_cost_salary": 20000000,
+        "max_raise_pct": 0.45,
+        "fa_star_quality_threshold": 78,
+        "fa_rebuild_avoid_salary": 16000000,
+        "fa_cautious_avoid_salary": 12000000,
+        "fa_hard_avoid_salary": 24000000,
+        "commitment_pressure_ratio": 0.95,
+        "commitment_relief_ratio": 0.68,
+        "commitment_pressure_penalty": 18000000,
+        "commitment_relief_bonus": 10000000,
+        "future_year_commitment_ratio_limit": 1.08,
+        "future_year_hard_commitment_ratio_limit": 1.2
+      }
     }
   }
 }

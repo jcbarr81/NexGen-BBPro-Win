@@ -191,6 +191,14 @@ QStatusBar { background: #fffdf0; border-top: 1px solid #968d7d; }
     font-weight: 700;
     letter-spacing: 0.5px;
 }
+/* Semantic status properties — set via widget.setProperty("status", ...) */
+*[status="success"] { color: #2f9e44; }
+*[status="warning"] { color: #e67700; }
+*[status="danger"]  { color: #c92a2a; }
+*[status="muted"]   { color: #6c757d; }
+/* Named label roles */
+QLabel#PanelHeading { font-weight: 700; }
+QLabel#StatusLabel  { font-weight: 600; }
 """
 
 CLASSIC_DARK_QSS = """
@@ -338,6 +346,14 @@ QStatusBar { background: #1e1207; border-top: 1px solid #3b2810; }
     font-weight: 700;
     letter-spacing: 0.5px;
 }
+/* Semantic status properties — set via widget.setProperty("status", ...) */
+*[status="success"] { color: #2f9e44; }
+*[status="warning"] { color: #e67700; }
+*[status="danger"]  { color: #c92a2a; }
+*[status="muted"]   { color: #6c757d; }
+/* Named label roles */
+QLabel#PanelHeading { font-weight: 700; }
+QLabel#StatusLabel  { font-weight: 600; }
 """
 
 

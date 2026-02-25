@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .components import Card, section_title
+from .design_tokens import apply_status
 from .player_profile_dialog import PlayerProfileDialog
 from utils.depth_chart import (
     DEPTH_CHART_POSITIONS,
@@ -89,6 +90,7 @@ class RosterPage(QWidget):
         card.layout().addWidget(section_title("Roster Management"))
 
         self.coverage_label = QLabel("")
+        self.coverage_label.setObjectName("StatusLabel")
         card.layout().addWidget(self.coverage_label)
 
         btn_players = QPushButton("Players", objectName="Primary")
@@ -148,7 +150,8 @@ class RosterPage(QWidget):
         self.save_depth_btn.clicked.connect(self._save_depth_chart)
         controls.addWidget(self.save_depth_btn, 0, Qt.AlignmentFlag.AlignLeft)
         self.depth_status = QLabel("All changes saved.")
-        self.depth_status.setStyleSheet("color: #888888;")
+        self.depth_status.setObjectName("StatusLabel")
+        apply_status(self.depth_status, "muted")
         controls.addWidget(self.depth_status, 1)
         controls.addStretch()
         card.layout().addLayout(controls)
@@ -179,10 +182,10 @@ class RosterPage(QWidget):
             missing = []
         if missing:
             text = "Missing coverage: " + ", ".join(missing)
-            self.coverage_label.setStyleSheet("color: #e67700; font-weight: 600;")
+            apply_status(self.coverage_label, "warning")
         else:
             text = "Defensive coverage looks good."
-            self.coverage_label.setStyleSheet("color: #2f9e44; font-weight: 600;")
+            apply_status(self.coverage_label, "success")
         self.coverage_label.setText(text)
         self._refresh_depth_chart()
         try:
@@ -252,12 +255,12 @@ class RosterPage(QWidget):
         self._depth_dirty = dirty
         if dirty:
             self.depth_status.setText("Unsaved changes.")
-            self.depth_status.setStyleSheet("color: #e67700; font-weight: 600;")
+            apply_status(self.depth_status, "warning")
             if self._depth_title is not None:
                 self._depth_title.setText("Depth Chart Priorities *")
         else:
             self.depth_status.setText("All changes saved.")
-            self.depth_status.setStyleSheet("color: #888888;")
+            apply_status(self.depth_status, "muted")
             if self._depth_title is not None:
                 self._depth_title.setText("Depth Chart Priorities")
 
@@ -339,6 +342,6 @@ class RosterPage(QWidget):
             save_depth_chart(self._dashboard.team_id, data)
         except Exception as exc:
             self.depth_status.setText(f"Failed to save: {exc}")
-            self.depth_status.setStyleSheet("color: #c92a2a;")
+            apply_status(self.depth_status, "danger")
             return
         self._set_depth_dirty(False)

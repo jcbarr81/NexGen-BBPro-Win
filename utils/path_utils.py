@@ -25,6 +25,7 @@ _MINIMAL_DATA_DIRS = (
     "MLB_avg",
     "parks",
 )
+_SEED_EXCLUDE_FILES = frozenset({_LEAGUE_REGISTRY_FILENAME, _ACTIVE_LEAGUE_FILENAME})
 
 
 class ActivePath:
@@ -130,6 +131,8 @@ def _seed_data_dir(source: Path, target: Path) -> None:
         needs_full_seed = True
     if needs_full_seed:
         for item in source.iterdir():
+            if item.name in _SEED_EXCLUDE_FILES:
+                continue
             dest = target / item.name
             if dest.exists():
                 continue

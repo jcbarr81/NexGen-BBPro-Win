@@ -42,6 +42,7 @@ from utils.path_utils import get_data_dir
 from utils.roster_loader import load_roster, save_roster
 from utils.team_loader import load_teams
 from utils.trade_utils import get_pending_trades, save_trade
+from .design_tokens import apply_status
 
 import uuid
 
@@ -154,7 +155,7 @@ class TradeDialog(QDialog):
         give_layout.setContentsMargins(0, 0, 0, 0)
         give_layout.setSpacing(8)
         give_heading = QLabel("You Send")
-        give_heading.setStyleSheet("font-weight: 700;")
+        give_heading.setObjectName("PanelHeading")
         give_layout.addWidget(give_heading)
         give_layout.addWidget(QLabel("Players"))
         self.give_list = QListWidget()
@@ -180,7 +181,7 @@ class TradeDialog(QDialog):
         receive_layout.setContentsMargins(0, 0, 0, 0)
         receive_layout.setSpacing(8)
         receive_heading = QLabel("You Receive")
-        receive_heading.setStyleSheet("font-weight: 700;")
+        receive_heading.setObjectName("PanelHeading")
         receive_layout.addWidget(receive_heading)
         receive_layout.addWidget(QLabel("Players"))
         self.receive_list = QListWidget()
@@ -497,11 +498,11 @@ class TradeDialog(QDialog):
         trade = self._build_trade_from_current_selection()
         if trade is None:
             label.setText("Payroll policy preview: select a trade partner.")
-            label.setStyleSheet("")
+            apply_status(label, "")
             return
         if not trade.give_player_ids and not trade.receive_player_ids:
             label.setText("Payroll policy preview: select players to evaluate payroll impact.")
-            label.setStyleSheet("")
+            apply_status(label, "")
             return
         result = evaluate_trade_payroll_impact(
             trade,
@@ -509,15 +510,15 @@ class TradeDialog(QDialog):
         )
         if not result.violations:
             label.setText("Payroll policy preview: no payroll rule issues detected.")
-            label.setStyleSheet("color: #2fa36b;")
+            apply_status(label, "success")
             return
         summary = format_payroll_policy_message(result).replace("\n", " ")
         if result.allowed and result.warning:
             label.setText(f"Payroll policy preview (warning): {summary}")
-            label.setStyleSheet("color: #d4a76a;")
+            apply_status(label, "warning")
             return
         label.setText(f"Payroll policy preview (blocked): {summary}")
-        label.setStyleSheet("color: #d45b5b;")
+        apply_status(label, "danger")
 
     def _submit_trade(self):
         if not self.trade_settings.trades_enabled:
@@ -606,7 +607,7 @@ class TradeDialog(QDialog):
         layout.setSpacing(10)
 
         header = QLabel("Incoming Trade Offers")
-        header.setStyleSheet("font-weight: 700;")
+        header.setObjectName("PanelHeading")
         layout.addWidget(header)
 
         self.incoming_list = QListWidget()
@@ -659,14 +660,14 @@ class TradeDialog(QDialog):
                 "Select a trade to inspect full asset details."
             )
             label.setText("Payroll policy preview: select an incoming trade.")
-            label.setStyleSheet("")
+            apply_status(label, "")
             return
         trade_id = selected.data(Qt.ItemDataRole.UserRole)
         trade = self.trade_map.get(str(trade_id or ""))
         if trade is None:
             self.incoming_detail_label.setText("Unable to load details for this trade.")
             label.setText("Payroll policy preview: unable to evaluate selected trade.")
-            label.setStyleSheet("")
+            apply_status(label, "")
             return
         give_names = [
             self.players.get(pid).last_name
@@ -699,15 +700,15 @@ class TradeDialog(QDialog):
         )
         if not result.violations:
             label.setText("Payroll policy preview: no payroll rule issues detected.")
-            label.setStyleSheet("color: #2fa36b;")
+            apply_status(label, "success")
             return
         summary = format_payroll_policy_message(result).replace("\n", " ")
         if result.allowed and result.warning:
             label.setText(f"Payroll policy preview (warning): {summary}")
-            label.setStyleSheet("color: #d4a76a;")
+            apply_status(label, "warning")
             return
         label.setText(f"Payroll policy preview (blocked): {summary}")
-        label.setStyleSheet("color: #d45b5b;")
+        apply_status(label, "danger")
 
     def _respond_to_trade(self, accept: bool):
         selected = self.incoming_list.currentItem()

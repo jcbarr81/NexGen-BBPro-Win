@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "season_year": 2026,
+  "season_year": 2042,
   "teams": {
     "WAS": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 205747200,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -19,14 +19,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 205296,
+        "scouting": 171080,
+        "development": 153972,
+        "facilities": 171080
       }
     },
     "PHI": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 229824000,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -42,14 +42,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 229320,
+        "scouting": 191100,
+        "development": 171990,
+        "facilities": 191100
       }
     },
     "IND": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 216691200,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -65,14 +65,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 216216,
+        "scouting": 180180,
+        "development": 162162,
+        "facilities": 180180
       }
     },
     "SAN": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 232012800,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -88,14 +88,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 231504,
+        "scouting": 192920,
+        "development": 173628,
+        "facilities": 192920
       }
     },
     "BOS": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 236390400,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -111,14 +111,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 235872,
+        "scouting": 196560,
+        "development": 176904,
+        "facilities": 196560
       }
     },
     "SAN1": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 201369600,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -134,14 +134,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 200928,
+        "scouting": 167440,
+        "development": 150696,
+        "facilities": 167440
       }
     },
     "PHO": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 196992000,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -157,14 +157,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 196560,
+        "scouting": 163800,
+        "development": 147420,
+        "facilities": 163800
       }
     },
     "CHI": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 201369600,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -180,14 +180,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 200928,
+        "scouting": 167440,
+        "development": 150696,
+        "facilities": 167440
       }
     },
     "OKL": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 240768000,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -203,14 +203,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 240240,
+        "scouting": 200200,
+        "development": 180180,
+        "facilities": 200200
       }
     },
     "DET": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 221068800,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -226,14 +226,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 220584,
+        "scouting": 183820,
+        "development": 165438,
+        "facilities": 183820
       }
     },
     "ELP": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 229824000,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -249,14 +249,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 229320,
+        "scouting": 191100,
+        "development": 171990,
+        "facilities": 191100
       }
     },
     "MIL": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 232012800,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -272,14 +272,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 231504,
+        "scouting": 192920,
+        "development": 173628,
+        "facilities": 192920
       }
     },
     "ALB": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 236390400,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -295,14 +295,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 235872,
+        "scouting": 196560,
+        "development": 176904,
+        "facilities": 196560
       }
     },
     "HOU": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 207936000,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -318,14 +318,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 207480,
+        "scouting": 172900,
+        "development": 155610,
+        "facilities": 172900
       }
     },
     "JAC": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 234201600,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -341,14 +341,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 233688,
+        "scouting": 194740,
+        "development": 175266,
+        "facilities": 194740
       }
     },
     "POR": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 218880000,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -364,14 +364,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 218400,
+        "scouting": 182000,
+        "development": 163800,
+        "facilities": 182000
       }
     },
     "LOU": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 216691200,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -387,14 +387,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 216216,
+        "scouting": 180180,
+        "development": 162162,
+        "facilities": 180180
       }
     },
     "SAN2": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 203558400,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -410,14 +410,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 203112,
+        "scouting": 169260,
+        "development": 152334,
+        "facilities": 169260
       }
     },
     "FOR": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 196992000,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -433,14 +433,14 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 196560,
+        "scouting": 163800,
+        "development": 147420,
+        "facilities": 163800
       }
     },
     "NAS": {
-      "cash_on_hand": 0,
+      "cash_on_hand": 232012800,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -456,10 +456,10 @@
         "operations": 0
       },
       "budgets": {
-        "training": 0,
-        "scouting": 0,
-        "development": 0,
-        "facilities": 0
+        "training": 231504,
+        "scouting": 192920,
+        "development": 173628,
+        "facilities": 192920
       }
     }
   }
