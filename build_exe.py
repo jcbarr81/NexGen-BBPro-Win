@@ -62,6 +62,7 @@ def main() -> None:
         "config",
         os.path.join("docs", "manuals"),
         os.path.join("ui", "icons"),
+        os.path.join("ui", "resources"),
         os.path.join("images", "parks"),
     ]
     data_files = [

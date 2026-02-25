@@ -1,4 +1,4 @@
-<!-- last_build_ref: c6bd61643549dc8f6b632467d03964a127daaae2 -->
+<!-- last_build_ref: a18b727fd9650fb696cc99e9634aa40b1c3dea6e -->
 # 4.5 Release Notes (Since 4.3.41)
 
 ## League Setup & Presets
@@ -683,3 +683,8 @@ Date: 2026-02-25
 Date: 2026-02-25
 
 - No changes since last build and no draft notes were found.
+
+# 5.1.2 Release Notes (Since last build c6bd616)
+Date: 2026-02-25
+
+- 5.1.2
