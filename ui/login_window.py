@@ -19,7 +19,7 @@ import bcrypt
 from services import league_registry
 from utils.path_utils import get_data_dir
 from utils.league_settings import is_owner_league, verify_commissioner_password
-from ui.theme import DARK_QSS
+import ui.theme as app_theme
 from ui.window_utils import show_on_top, untrack_on_top
 from ui.version_badge import install_version_badge
 
@@ -221,7 +221,7 @@ class LoginWindow(QWidget):
 
         app = QApplication.instance()
         if app:
-            app.setStyleSheet(DARK_QSS)
+            _apply_theme(app)
             install_version_badge(app)
 
         show_on_top(self.dashboard)
@@ -316,9 +316,17 @@ class LoginWindow(QWidget):
 
         self.setLayout(root)
 
+def _apply_theme(app: QApplication) -> None:
+    apply_saved = getattr(app_theme, "apply_saved_theme", None)
+    if callable(apply_saved):
+        apply_saved()
+        return
+    app.setStyleSheet(getattr(app_theme, "DARK_QSS", ""))
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    app.setStyleSheet(DARK_QSS)
+    _apply_theme(app)
     install_version_badge(app)
     window = LoginWindow()
     window.show()

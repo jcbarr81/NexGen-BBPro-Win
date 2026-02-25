@@ -1,3 +1,15 @@
+## v5.1.0
+- Added a new switchable `Enhanced Warm` theme family while preserving the existing `Classic` theme.
+- Implemented persistent global appearance preferences (`theme family` + `light/dark mode`) restored at startup and after login.
+- Replaced hardcoded dark-mode resets in startup/login flow with saved-theme application.
+- Updated Owner/Admin `View` menus with `Theme Family` selection and `Toggle Light/Dark` actions.
+- Added sidebar quick toggle label updates and per-theme nav icon refresh behavior on Owner/Admin dashboards.
+- Integrated new graphics bundle assets for dashboard theming (`assets/graphics/icons.svg`, `assets/graphics/dividers.svg`) and added themed quick-action button icon hooks on Owner/Admin home pages.
+- Added new in-app tutorials for appearance switching:
+  - Owner: `Tutorials -> Getting Started -> Appearance & Themes`
+  - Admin: `Tutorials -> Commissioner Workflows -> Appearance & Themes`
+- Updated owner/admin guide and game manual wording to document the new theme controls.
+
 ## v5.0.110
 - Hardened backlog item 19 with automated tutorial/manual/doc consistency validation via `scripts/validate_help_surface.py`.
 - Wired help-surface validation into `scripts/build_release.py` as a default pre-build gate (with `--skip-help-surface-validation` escape hatch and configurable report output path).

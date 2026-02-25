@@ -2,20 +2,20 @@
   "version": 1,
   "leagues": {
     "league": {
-      "enabled": true,
-      "preset": "standard",
+      "enabled": false,
+      "preset": "off",
       "enforcement_mode": "warn",
       "modules": {
-        "owner_revenue": "advanced",
-        "owner_market_model": "basic",
-        "owner_budgets": "advanced",
-        "owner_expenses": "advanced",
-        "gm_contracts": "advanced",
-        "gm_payroll_rules": "basic",
-        "gm_arbitration": "basic",
-        "gm_free_agency": "advanced",
-        "gm_roster_cost_enforcement": "warn",
-        "gm_finance_ai": "advanced"
+        "owner_revenue": "off",
+        "owner_market_model": "off",
+        "owner_budgets": "off",
+        "owner_expenses": "off",
+        "gm_contracts": "off",
+        "gm_payroll_rules": "off",
+        "gm_arbitration": "off",
+        "gm_free_agency": "off",
+        "gm_roster_cost_enforcement": "off",
+        "gm_finance_ai": "off"
       },
       "finance_ai_tuning": {
         "star_talent_threshold": 76,

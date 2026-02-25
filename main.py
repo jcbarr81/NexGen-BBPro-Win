@@ -9,7 +9,7 @@ from PyQt6.QtGui import QGuiApplication, QFont, QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from ui.splash_screen import SplashScreen
-from ui.theme import DARK_QSS
+from ui.theme import apply_saved_theme
 from ui.version_badge import install_version_badge
 from utils.path_utils import get_base_dir
 
@@ -272,7 +272,7 @@ def main():
         _show_migration_notice(app)
         _apply_app_icon(app)
         _normalize_app_font(app)
-        app.setStyleSheet(DARK_QSS)
+        apply_saved_theme()
         install_version_badge(app)
         splash = SplashScreen()
         _show_splash_window(splash, app)

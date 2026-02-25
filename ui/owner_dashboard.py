@@ -79,7 +79,6 @@ from PyQt6.QtWidgets import (
 )
 
 from .components import NavButton
-from .theme import _toggle_theme
 from .roster_page import RosterPage
 from .transactions_page import TransactionsPage
 from .schedule_page import SchedulePage
@@ -144,8 +143,61 @@ from ui.dashboard_core import DashboardContext, NavigationController, PageRegist
 from ui.window_utils import show_on_top
 from ui.version_badge import enable_version_badge
 from ui.sim_date_bus import sim_date_bus
+from . import theme as app_theme
+from .theme_assets import load_enhanced_nav_icon
 
 _OPEN_ADMIN_WINDOWS: list[object] = []
+
+
+def _theme_family_classic() -> str:
+    return str(getattr(app_theme, "THEME_FAMILY_CLASSIC", "classic"))
+
+
+def _theme_family_enhanced_warm() -> str:
+    return str(
+        getattr(app_theme, "THEME_FAMILY_ENHANCED_WARM", "enhanced_warm")
+    )
+
+
+def _theme_state() -> tuple[str, str]:
+    getter = getattr(app_theme, "get_active_theme_state", None)
+    if callable(getter):
+        try:
+            family, mode = getter()
+            return str(family), str(mode)
+        except Exception:
+            pass
+    return (_theme_family_classic(), "dark")
+
+
+def _set_theme_family(family: str, status_bar: object) -> None:
+    setter = getattr(app_theme, "set_theme_family", None)
+    if callable(setter):
+        setter(family, status_bar=status_bar)
+        return
+    toggler = getattr(app_theme, "_toggle_theme", None)
+    if callable(toggler):
+        toggler(status_bar)
+
+
+def _toggle_theme_mode(status_bar: object) -> None:
+    toggler = getattr(app_theme, "toggle_theme_mode", None)
+    if callable(toggler):
+        toggler(status_bar=status_bar)
+        return
+    legacy = getattr(app_theme, "_toggle_theme", None)
+    if callable(legacy):
+        legacy(status_bar)
+
+
+def _theme_label(family: str) -> str:
+    labeler = getattr(app_theme, "theme_display_name", None)
+    if callable(labeler):
+        try:
+            return str(labeler(family))
+        except Exception:
+            pass
+    return "Enhanced Warm" if family == _theme_family_enhanced_warm() else "Classic"
 
 
 def _track_admin_window(window: object) -> None:
@@ -276,8 +328,8 @@ class OwnerDashboard(QMainWindow):
             "league": self.btn_league,
         }
 
-        icon_size = QSize(24, 24)
-        icon_sources = {
+        self._nav_icon_size = QSize(24, 24)
+        self._nav_icon_sources = {
             "home": "nav_dashboard.svg",
             "roster": "nav_roster.svg",
             "team": "nav_team.svg",
@@ -286,7 +338,7 @@ class OwnerDashboard(QMainWindow):
             "finance": "nav_utilities.svg",
             "league": "nav_league.svg",
         }
-        tooltips = {
+        self._nav_tooltips = {
             "home": "Overview and quick actions",
             "roster": "Roster management and player tools",
             "team": "Team schedule and stats",
@@ -295,22 +347,11 @@ class OwnerDashboard(QMainWindow):
             "finance": "Owner finance projection and transaction history",
             "league": "League schedule, standings, and stats",
         }
-        for key, button in self.nav_buttons.items():
-            icon_name = icon_sources.get(key)
-            if not icon_name:
-                continue
-            icon = _load_nav_icon(icon_name, icon_size.width())
-            if not icon.isNull():
-                button.setIcon(icon)
-                button.setIconSize(icon_size)
-                button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-            tip = tooltips.get(key)
-            if tip:
-                button.setToolTip(tip)
+        self._refresh_nav_icons()
 
         side.addStretch()
-        self.btn_settings = NavButton("  Toggle Theme")
-        self.btn_settings.clicked.connect(lambda: _toggle_theme(self.statusBar()))
+        self.btn_settings = NavButton("  Toggle Light/Dark")
+        self.btn_settings.clicked.connect(self._toggle_theme_mode)
         side.addWidget(self.btn_settings)
         self.btn_admin_panel = NavButton("  Admin Panel")
         self.btn_admin_panel.clicked.connect(self._prompt_admin_dashboard)
@@ -360,6 +401,7 @@ class OwnerDashboard(QMainWindow):
             pass
 
         self._build_menu()
+        self._refresh_theme_ui()
         self._sim_date_bus = sim_date_bus()
         try:
             self._sim_date_bus.dateChanged.connect(self._on_sim_date_changed)
@@ -390,6 +432,7 @@ class OwnerDashboard(QMainWindow):
             "pitching": f"pitching_staff_tutorial_{team_id}",
             "lineup": f"lineup_strategy_tutorial_{team_id}",
             "overview": f"dashboard_overview_tutorial_{team_id}",
+            "appearance": f"appearance_theme_tutorial_{team_id}",
             "training_camp": f"training_camp_tutorial_{team_id}",
             "player_training": f"player_training_focus_tutorial_{team_id}",
             "draft": f"draft_console_tutorial_{team_id}",
@@ -431,9 +474,23 @@ class OwnerDashboard(QMainWindow):
         file_menu.addAction(quit_action)
 
         view_menu = self.menuBar().addMenu("&View")
-        theme_action = QAction("Toggle Dark Mode", self)
-        theme_action.triggered.connect(lambda: _toggle_theme(self.statusBar()))
-        view_menu.addAction(theme_action)
+        theme_menu = view_menu.addMenu("Theme Family")
+        self._theme_family_actions: dict[str, QAction] = {}
+        for family in (
+            _theme_family_classic(),
+            _theme_family_enhanced_warm(),
+        ):
+            action = QAction(_theme_label(family), self)
+            action.setCheckable(True)
+            action.triggered.connect(
+                lambda _checked=False, f=family: self._set_theme_family(f)
+            )
+            theme_menu.addAction(action)
+            self._theme_family_actions[family] = action
+
+        toggle_theme_action = QAction("Toggle Light/Dark", self)
+        toggle_theme_action.triggered.connect(self._toggle_theme_mode)
+        view_menu.addAction(toggle_theme_action)
         news_action = QAction("News Feed", self)
         news_action.triggered.connect(self.open_news_window)
         view_menu.addAction(news_action)
@@ -443,6 +500,78 @@ class OwnerDashboard(QMainWindow):
             view_menu.addAction(settings_action)
         except Exception:
             pass
+
+    def _set_theme_family(self, family: str) -> None:
+        _set_theme_family(family, self.statusBar())
+        self._refresh_theme_ui()
+
+    def _toggle_theme_mode(self) -> None:
+        _toggle_theme_mode(self.statusBar())
+        self._refresh_theme_ui()
+
+    def _refresh_theme_ui(self) -> None:
+        self._refresh_theme_menu_checks()
+        self._refresh_nav_icons()
+        for page in self.pages.values():
+            hook = getattr(page, "apply_theme_assets", None)
+            if callable(hook):
+                try:
+                    hook()
+                except Exception:
+                    pass
+
+    def _refresh_theme_menu_checks(self) -> None:
+        family, mode = _theme_state()
+        for action_family, action in getattr(
+            self, "_theme_family_actions", {}
+        ).items():
+            try:
+                action.setChecked(action_family == family)
+            except Exception:
+                pass
+        mode_label = "dark" if mode == "dark" else "light"
+        tip = (
+            f"Toggle Light/Dark (current: {_theme_label(family)} {mode_label})"
+        )
+        try:
+            self.btn_settings.setToolTip(tip)
+        except Exception:
+            pass
+
+    def _refresh_nav_icons(self) -> None:
+        icon_size = getattr(self, "_nav_icon_size", QSize(24, 24))
+        family, _mode = _theme_state()
+        for key, button in self.nav_buttons.items():
+            icon = QIcon()
+            if family == _theme_family_enhanced_warm():
+                icon = load_enhanced_nav_icon(key, icon_size.width())
+
+            is_null = True
+            try:
+                is_null = bool(icon.isNull())
+            except Exception:
+                is_null = False
+            if is_null:
+                icon_name = self._nav_icon_sources.get(key)
+                icon = (
+                    _load_nav_icon(icon_name, icon_size.width())
+                    if icon_name
+                    else QIcon()
+                )
+
+            try:
+                if not icon.isNull():
+                    button.setIcon(icon)
+                    button.setIconSize(icon_size)
+                    button.setToolButtonStyle(
+                        Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+                    )
+            except Exception:
+                pass
+
+            tip = self._nav_tooltips.get(key)
+            if tip:
+                button.setToolTip(tip)
 
     def _build_tutorial_menu(self) -> None:
         tutorials_menu = self.menuBar().addMenu("&Tutorials")
@@ -463,6 +592,7 @@ class OwnerDashboard(QMainWindow):
                 "Getting Started",
                 [
                     ("Dashboard Overview", self.show_dashboard_overview_tutorial),
+                    ("Appearance & Themes", self.show_theme_tutorial),
                     ("League Hub Tour", self.show_league_hub_tutorial),
                     ("Schedule & Calendar", self.show_schedule_tutorial),
                 ],
@@ -636,6 +766,30 @@ class OwnerDashboard(QMainWindow):
             dialog.exec()
         except Exception:
             pass
+
+    def show_theme_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Theme Families",
+                "<p>Open <b>View -> Theme Family</b> to switch between <b>Classic</b> and "
+                "<b>Enhanced Warm</b> styles without changing gameplay.</p>",
+            ),
+            TutorialStep(
+                "Light and Dark Modes",
+                "<p>Use <b>View -> Toggle Light/Dark</b> or the sidebar "
+                "<b>Toggle Light/Dark</b> button to flip brightness while staying in the same family.</p>",
+            ),
+            TutorialStep(
+                "Saved Preference",
+                "<p>Your theme choice is saved automatically and restored the next time you launch the app.</p>",
+            ),
+        ]
+        self._run_tutorial(
+            self._tutorial_keys["appearance"],
+            "Appearance & Themes",
+            steps,
+            force=force,
+        )
 
     def show_depth_chart_tutorial(self, *, force: bool = False) -> None:
         steps = [

@@ -58,10 +58,16 @@ Team owners manage their franchise through the Owner Dashboard.
 - Open the **Tutorials** menu and run **Owner Change Requests** for a step-by-step walkthrough of exporting updates and sending the ZIP bundle to the commissioner.
 - Run **Trades & Transactions** to review current trade flow behavior, including draft-pick trades and commissioner-approval mode.
 - Run **Finance Hub Overview** to walk through the new Owner Ops + GM/Coach Ops finance hub and the related queue/actions workflow.
+- Run **Appearance & Themes** for a guided walkthrough of theme-family selection and light/dark toggling.
 - Run **Dashboard Overview** to review top-bar navigation, including the new **Owner Tools** menu shortcuts.
 - Open **Tutorials -> Reference Manuals** for two searchable in-app documents:
   - **Complete Game Manual**
   - **Finance System Manual**
+
+### Appearance & Theme Selection
+- Open **View -> Theme Family** to choose between **Classic** and **Enhanced Warm**.
+- Use **View -> Toggle Light/Dark** (or sidebar **Toggle Light/Dark**) to switch brightness within the selected family.
+- Theme preferences are saved globally and restored automatically on next launch.
 
 ### Owner Tools Menu
 - Use the top-bar **Owner Tools** menu for direct access to core workflows:
@@ -83,6 +89,7 @@ Administrators control league configuration and high-level operations.
 ### Admin Tutorials
 - Open the Admin **Tutorials -> Commissioner Workflows** menu for guided walkthroughs:
   - **Admin Dashboard Overview**
+  - **Appearance & Themes**
   - **League Setup & Manager**
   - **User Management & Roles**
   - **Season Progression Flow**
@@ -95,6 +102,11 @@ Administrators control league configuration and high-level operations.
   - **Complete Game Manual**
   - **Finance System Manual**
 - New commissioner onboarding runs the **Admin Dashboard Overview** tutorial automatically on first launch.
+
+### Admin Appearance Controls
+- Open **View -> Theme Family** to choose between **Classic** and **Enhanced Warm**.
+- Use **View -> Toggle Light/Dark** to change brightness for the active family.
+- The selected theme family/mode persists across restarts.
 
 ### Dashboard Navigation
 - **Dashboard**: league overview metrics, draft timing/status, and priority queues.

@@ -1,0 +1,115 @@
+{
+  "teams": {
+    "WAS": {
+      "rotation": [
+        "P9140",
+        "P7761",
+        "P8893",
+        "P8680",
+        "P9727"
+      ],
+      "next_index": 0,
+      "pitchers": {
+        "P1151": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "SU",
+          "max_pitches": 63.45,
+          "available_pitches": 63.45
+        },
+        "P5784": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "SU",
+          "max_pitches": 64.80000000000001,
+          "available_pitches": 64.80000000000001
+        },
+        "P2729": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "CL",
+          "max_pitches": 52.5,
+          "available_pitches": 52.5
+        },
+        "P8893": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "SP",
+          "max_pitches": 196.0,
+          "available_pitches": 196.0
+        },
+        "P9571": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 67.5,
+          "available_pitches": 67.5
+        },
+        "P8680": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "SP",
+          "max_pitches": 196.0,
+          "available_pitches": 196.0
+        },
+        "P9727": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "SP",
+          "max_pitches": 189.0,
+          "available_pitches": 189.0
+        },
+        "P1006": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "LR",
+          "max_pitches": 83.7,
+          "available_pitches": 83.7
+        },
+        "P9140": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "SP",
+          "max_pitches": 203.0,
+          "available_pitches": 203.0
+        },
+        "P6839": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "MR",
+          "max_pitches": 72.9,
+          "available_pitches": 72.9
+        },
+        "P7761": {
+          "available_on": null,
+          "last_used": null,
+          "last_pitches": 0,
+          "recent": [],
+          "last_role": "SP",
+          "max_pitches": 203.0,
+          "available_pitches": 203.0
+        }
+      }
+    }
+  }
+}

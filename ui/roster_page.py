@@ -1,4 +1,16 @@
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt
+try:  # pragma: no cover - test stub fallback
+    from PyQt6.QtCore import pyqtSignal
+except Exception:  # pragma: no cover
+    class _DummySignal:
+        def connect(self, *_args, **_kwargs):
+            return None
+
+        def emit(self, *_args, **_kwargs):
+            return None
+
+    def pyqtSignal(*_args, **_kwargs):  # type: ignore[misc]
+        return _DummySignal()
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,

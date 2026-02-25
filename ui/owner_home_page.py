@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional
 from types import SimpleNamespace
 
 try:
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtCore import Qt, QSize
 except ImportError:  # pragma: no cover - test stubs
     Qt = SimpleNamespace(
         AlignmentFlag=SimpleNamespace(
@@ -22,6 +22,11 @@ except ImportError:  # pragma: no cover - test stubs
             ScrollBarAsNeeded=1,
         ),
     )
+
+    class QSize:  # type: ignore[too-many-ancestors]
+        def __init__(self, width: int = 0, height: int = 0) -> None:
+            self._width = width
+            self._height = height
 
 try:
     from PyQt6.QtGui import QColor
@@ -51,6 +56,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .components import Card, section_title, build_metric_row
+from .theme_assets import load_enhanced_owner_action_icon
 from .stat_helpers import format_ip
 from services.owner_finance_engine import get_team_finance_snapshot
 
@@ -391,6 +397,7 @@ class OwnerHomePage(QWidget):
         ]
         self._layout_mode = None
         self._update_layout_mode()
+        self.apply_theme_assets()
 
     # ------------------------------------------------------------------
     # Public API
@@ -524,7 +531,7 @@ class OwnerHomePage(QWidget):
         *,
         compact: bool = False,
     ) -> QPushButton:
-        btn = QPushButton(label, objectName="Primary")
+        btn = QPushButton(label, objectName="ActionButton")
         if hasattr(btn, "setWordWrap"):
             btn.setWordWrap(True)
 
@@ -558,7 +565,26 @@ class OwnerHomePage(QWidget):
                 QSizePolicy.Policy.Expanding,
             )
         btn.clicked.connect(callback)
+        self._apply_action_button_icon(btn, label)
         return btn
+
+    def _apply_action_button_icon(self, button: QPushButton, label: str) -> None:
+        icon = load_enhanced_owner_action_icon(label, size=18)
+        try:
+            if icon is not None:
+                button.setIcon(icon)
+            if icon is not None and not icon.isNull():
+                button.setIconSize(QSize(18, 18))
+        except Exception:
+            pass
+
+    def apply_theme_assets(self) -> None:
+        for button in self.quick_buttons:
+            try:
+                label = str(button.text())
+            except Exception:
+                label = ""
+            self._apply_action_button_icon(button, label)
 
     def _default_batting_leaders(self) -> list[tuple[str, str]]:
         return [

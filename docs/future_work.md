@@ -226,14 +226,7 @@ land before channel-specific features.
   - class metadata (file, class name, line ranges),
   - optional screenshot placeholder path,
   - prompt-ready markdown block with constraints and style tokens.
-- **Developer-only note:** This tooling remains internal and is not exposed to
-  in-game/player UI surfaces.
-- **Delivered artifacts:** `scripts/build_ui_handoff.py`,
-  `scripts/generate_consistent_graphics.py`,
-  `scripts/validate_graphics_consistency.py`,
-  `config/graphics_style_manifest.json`,
-  `docs/graphics_consistency_pipeline.md`.
-- **Status:** Complete.
+- **Status:** Open.
 
 ## 19. In-App Manual Maintenance Cadence
 - **Goal:** Keep the in-app searchable manuals current as new features and menu
@@ -241,8 +234,7 @@ land before channel-specific features.
 - **Scope:** Add a lightweight release checklist item to verify tutorial text
   and both manuals (Complete Game Manual + Finance System Manual) against the
   current UI labels and workflow order before each release.
-- **Status:** Complete (baseline delivered in v5.0.97; automated help-surface
-  release gate added in v5.0.110).
+- **Status:** Complete (baseline implementation delivered in v5.0.97).
 
 ## 20. Player Morale System
 - **Goal:** Introduce a dedicated morale model that influences development,
@@ -251,4 +243,14 @@ land before channel-specific features.
   role/promotions, injuries, streaks, team context), connect morale modifiers
   to training/development outcomes and gameplay tuning where appropriate, and
   surface morale in owner/admin UI plus tutorials.
+- **Status:** Open.
+
+## 21. Theme Asset Coverage Expansion
+- **Goal:** Extend the new `Enhanced Warm` icon/divider integration beyond the
+  Owner/Admin dashboard home surfaces.
+- **Scope:** Apply themed action/icon treatments to additional high-traffic
+  windows and dialogs (lineup, pitching, trades, standings, schedule) while
+  preserving stable layout behavior and accessibility.
+- **Scope:** Add a lightweight visual regression checklist for theme-family
+  parity (Classic vs Enhanced Warm) across major navigation and action points.
 - **Status:** Open.

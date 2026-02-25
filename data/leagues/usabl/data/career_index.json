@@ -3,7 +3,7 @@
   "league": {
     "id": "usabl",
     "name": "USABL",
-    "created_at": "2026-02-10T16:04:36Z"
+    "created_at": "2026-02-25T06:57:47Z"
   },
   "current": {
     "season_id": "usabl-2026",
@@ -11,12 +11,12 @@
     "sequence": 1,
     "started_on": null,
     "metadata": {
-      "quickstart_preset_id": "indy_12",
+      "quickstart_preset_id": "regional_20",
       "rule_preset_id": "mlb_standard",
       "schedule_template_id": "mlb_162"
     },
     "rollover_complete": false,
-    "created_at": "2026-02-10T16:04:36Z"
+    "created_at": "2026-02-25T06:57:47Z"
   },
   "seasons": []
 }

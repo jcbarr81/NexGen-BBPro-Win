@@ -69,7 +69,7 @@ from .admin_dashboard.pages import (
 from .admin_home_page import AdminHomePage
 from ui.window_utils import show_on_top
 from ui.sim_date_bus import sim_date_bus
-from .theme import _toggle_theme
+from . import theme as app_theme
 from .exhibition_game_dialog import ExhibitionGameDialog
 from .playbalance_editor import PlayBalanceEditor
 from playbalance.draft_config import load_draft_config, save_draft_config
@@ -106,8 +106,60 @@ from utils.team_loader import load_teams
 from utils.path_utils import get_base_dir, get_data_dir
 from utils.sim_date import get_current_sim_date
 from ui.version_badge import enable_version_badge
+from .theme_assets import load_enhanced_nav_icon
 
 _OPEN_OWNER_DASHBOARDS: list[OwnerDashboard] = []
+
+
+def _theme_family_classic() -> str:
+    return str(getattr(app_theme, "THEME_FAMILY_CLASSIC", "classic"))
+
+
+def _theme_family_enhanced_warm() -> str:
+    return str(
+        getattr(app_theme, "THEME_FAMILY_ENHANCED_WARM", "enhanced_warm")
+    )
+
+
+def _theme_state() -> tuple[str, str]:
+    getter = getattr(app_theme, "get_active_theme_state", None)
+    if callable(getter):
+        try:
+            family, mode = getter()
+            return str(family), str(mode)
+        except Exception:
+            pass
+    return (_theme_family_classic(), "dark")
+
+
+def _set_theme_family(family: str, status_bar: object) -> None:
+    setter = getattr(app_theme, "set_theme_family", None)
+    if callable(setter):
+        setter(family, status_bar=status_bar)
+        return
+    legacy = getattr(app_theme, "_toggle_theme", None)
+    if callable(legacy):
+        legacy(status_bar)
+
+
+def _toggle_theme_mode(status_bar: object) -> None:
+    toggler = getattr(app_theme, "toggle_theme_mode", None)
+    if callable(toggler):
+        toggler(status_bar=status_bar)
+        return
+    legacy = getattr(app_theme, "_toggle_theme", None)
+    if callable(legacy):
+        legacy(status_bar)
+
+
+def _theme_label(family: str) -> str:
+    labeler = getattr(app_theme, "theme_display_name", None)
+    if callable(labeler):
+        try:
+            return str(labeler(family))
+        except Exception:
+            pass
+    return "Enhanced Warm" if family == _theme_family_enhanced_warm() else "Classic"
 
 
 def _track_owner_dashboard(dashboard: OwnerDashboard) -> None:
@@ -211,8 +263,8 @@ class MainWindow(QMainWindow):
             "settings": self.btn_settings,
             "utils": self.btn_utils,
         }
-        icon_size = QSize(24, 24)
-        nav_tooltips = {
+        self._nav_icon_size = QSize(24, 24)
+        self._nav_tooltips = {
             "dashboard": "League overview and urgent queues",
             "transactions": "Trades, approvals, and owner-change processing",
             "season": "Season simulation, schedule, and reset controls",
@@ -222,16 +274,7 @@ class MainWindow(QMainWindow):
             "settings": "League setup and policy configuration",
             "utils": "Asset generation and exports",
         }
-        for key, button in self.nav_buttons.items():
-            icon_name = _NAV_ICON_MAP.get(key)
-            icon = _load_nav_icon(icon_name, icon_size.width()) if icon_name else QIcon()
-            if not icon.isNull():
-                button.setIcon(icon)
-                button.setIconSize(icon_size)
-                button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-            tooltip = nav_tooltips.get(key)
-            if tooltip:
-                button.setToolTip(tooltip)
+        self._refresh_nav_icons()
 
         # header + stacked pages -----------------------------------------
         header = QWidget(objectName="Header")
@@ -300,6 +343,7 @@ class MainWindow(QMainWindow):
 
         self._admin_tutorial_keys = {
             "overview": "admin_tutorial_overview",
+            "appearance": "admin_tutorial_appearance",
             "league_setup": "admin_tutorial_league_setup",
             "users": "admin_tutorial_users",
             "season_progression": "admin_tutorial_season_progression",
@@ -311,6 +355,7 @@ class MainWindow(QMainWindow):
 
         # menu ------------------------------------------------------------
         self._build_menu()
+        self._refresh_theme_ui()
 
         # signals ---------------------------------------------------------
         # navigation wiring -------------------------------------------------
@@ -429,9 +474,23 @@ class MainWindow(QMainWindow):
         file_menu.addAction(quit_action)
 
         view_menu = self.menuBar().addMenu("&View")
-        theme_action = QAction("Toggle Dark Mode", self)
-        theme_action.triggered.connect(lambda: _toggle_theme(self.statusBar()))
-        view_menu.addAction(theme_action)
+        theme_menu = view_menu.addMenu("Theme Family")
+        self._theme_family_actions: dict[str, QAction] = {}
+        for family in (
+            _theme_family_classic(),
+            _theme_family_enhanced_warm(),
+        ):
+            action = QAction(_theme_label(family), self)
+            action.setCheckable(True)
+            action.triggered.connect(
+                lambda _checked=False, f=family: self._set_theme_family(f)
+            )
+            theme_menu.addAction(action)
+            self._theme_family_actions[family] = action
+
+        toggle_theme_action = QAction("Toggle Light/Dark", self)
+        toggle_theme_action.triggered.connect(self._toggle_theme_mode)
+        view_menu.addAction(toggle_theme_action)
         news_action = QAction("News Feed", self)
         news_action.triggered.connect(self.open_news_window)
         view_menu.addAction(news_action)
@@ -452,6 +511,7 @@ class MainWindow(QMainWindow):
         workflows_menu = tutorials_menu.addMenu("Commissioner Workflows")
         workflow_entries = [
             ("Admin Dashboard Overview", self.show_admin_dashboard_overview_tutorial),
+            ("Appearance & Themes", self.show_admin_theme_tutorial),
             ("League Setup & Manager", self.show_admin_league_setup_tutorial),
             ("User Management & Roles", self.show_admin_user_management_tutorial),
             ("Season Progression Flow", self.show_admin_season_progression_tutorial),
@@ -476,6 +536,76 @@ class MainWindow(QMainWindow):
         finance_manual_action = QAction("Finance System Manual", self)
         finance_manual_action.triggered.connect(self.open_finance_manual)
         manuals_menu.addAction(finance_manual_action)
+
+    def _set_theme_family(self, family: str) -> None:
+        _set_theme_family(family, self.statusBar())
+        self._refresh_theme_ui()
+
+    def _toggle_theme_mode(self) -> None:
+        _toggle_theme_mode(self.statusBar())
+        self._refresh_theme_ui()
+
+    def _refresh_theme_ui(self) -> None:
+        self._refresh_theme_menu_checks()
+        self._refresh_nav_icons()
+        for page in self.pages.values():
+            hook = getattr(page, "apply_theme_assets", None)
+            if callable(hook):
+                try:
+                    hook()
+                except Exception:
+                    pass
+
+    def _refresh_theme_menu_checks(self) -> None:
+        family, mode = _theme_state()
+        for action_family, action in getattr(
+            self, "_theme_family_actions", {}
+        ).items():
+            try:
+                action.setChecked(action_family == family)
+            except Exception:
+                pass
+        mode_label = "dark" if mode == "dark" else "light"
+        self.statusBar().showMessage(
+            self._status_with_date(
+                f"Theme: {_theme_label(family)} {mode_label}"
+            ),
+            3000,
+        )
+
+    def _refresh_nav_icons(self) -> None:
+        icon_size = getattr(self, "_nav_icon_size", QSize(24, 24))
+        family, _mode = _theme_state()
+        for key, button in self.nav_buttons.items():
+            icon = QIcon()
+            if family == _theme_family_enhanced_warm():
+                icon = load_enhanced_nav_icon(key, icon_size.width())
+
+            is_null = True
+            try:
+                is_null = bool(icon.isNull())
+            except Exception:
+                is_null = False
+            if is_null:
+                icon_name = _NAV_ICON_MAP.get(key)
+                icon = (
+                    _load_nav_icon(icon_name, icon_size.width())
+                    if icon_name
+                    else QIcon()
+                )
+
+            try:
+                if not icon.isNull():
+                    button.setIcon(icon)
+                    button.setIconSize(icon_size)
+                    button.setToolButtonStyle(
+                        Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+                    )
+            except Exception:
+                pass
+            tooltip = self._nav_tooltips.get(key)
+            if tooltip:
+                button.setToolTip(tooltip)
 
     def _load_admin_tutorial_flags(self) -> dict[str, bool]:
         try:
@@ -548,6 +678,29 @@ class MainWindow(QMainWindow):
         self._run_admin_tutorial(
             self._admin_tutorial_keys["overview"],
             "Admin Dashboard Overview",
+            steps,
+            force=force,
+        )
+
+    def show_admin_theme_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Theme Family Selection",
+                "<p>Open <b>View -> Theme Family</b> to switch between <b>Classic</b> and "
+                "<b>Enhanced Warm</b> while keeping the same workflows.</p>",
+            ),
+            TutorialStep(
+                "Light and Dark Modes",
+                "<p>Use <b>View -> Toggle Light/Dark</b> to change brightness without changing families.</p>",
+            ),
+            TutorialStep(
+                "Saved Preference",
+                "<p>The selected family and mode are saved automatically and restored on next launch.</p>",
+            ),
+        ]
+        self._run_admin_tutorial(
+            self._admin_tutorial_keys["appearance"],
+            "Appearance & Themes",
             steps,
             force=force,
         )
