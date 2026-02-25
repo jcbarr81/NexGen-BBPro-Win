@@ -545,6 +545,9 @@ class MainWindow(QMainWindow):
         _toggle_theme_mode(self.statusBar())
         self._refresh_theme_ui()
 
+    def on_theme_changed(self, _family: str = "", _mode: str = "") -> None:
+        self._refresh_theme_ui()
+
     def _refresh_theme_ui(self) -> None:
         self._refresh_theme_menu_checks()
         self._refresh_nav_icons()

@@ -1,3 +1,10 @@
+## v5.1.1
+- Added global theme-change refresh broadcasting so already-open Owner/Admin windows and dialogs restyle immediately when theme family or light/dark mode changes.
+- Added `on_theme_changed` hooks to both Owner and Admin dashboards to keep menu checks, nav icons, and page-level themed assets synchronized across multiple open windows.
+- Updated Position Players and Pitchers dialogs with mode-aware palette/style application so they no longer remain on hardcoded dark retro colors after theme switches.
+- Extended Owner Home theming with centralized mode tokens for finance/notice/section accent labels and child widget styling refresh hooks.
+- Expanded `docs/post_installer_ui_checklist.md` with explicit theme-family/light-dark parity checks and cross-window update validation steps.
+
 ## v5.1.0
 - Added a new switchable `Enhanced Warm` theme family while preserving the existing `Classic` theme.
 - Implemented persistent global appearance preferences (`theme family` + `light/dark mode`) restored at startup and after login.

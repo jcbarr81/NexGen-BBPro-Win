@@ -56,9 +56,46 @@ from PyQt6.QtWidgets import (
 )
 
 from .components import Card, section_title, build_metric_row
+from . import theme as app_theme
 from .theme_assets import load_enhanced_owner_action_icon
 from .stat_helpers import format_ip
 from services.owner_finance_engine import get_team_finance_snapshot
+
+
+def _is_dark_mode() -> bool:
+    getter = getattr(app_theme, "get_active_theme_state", None)
+    if callable(getter):
+        try:
+            _family, mode = getter()
+            dark_mode = getattr(app_theme, "THEME_MODE_DARK", "dark")
+            return str(mode) == str(dark_mode)
+        except Exception:
+            pass
+    return True
+
+
+def _home_tokens() -> dict[str, str]:
+    if _is_dark_mode():
+        return {
+            "muted": "#b8b8b8",
+            "subtle": "#9da1aa",
+            "group_title": "#d4a76a",
+            "section_subtitle": "#d2ba8f",
+            "notice_text": "#f1c27d",
+            "notice_bg": "rgba(179, 107, 24, 0.18)",
+            "notice_border": "#b36b18",
+            "neutral_net": "#d4a76a",
+        }
+    return {
+        "muted": "#6f5c42",
+        "subtle": "#8a785f",
+        "group_title": "#b36b18",
+        "section_subtitle": "#495057",
+        "notice_text": "#c3521f",
+        "notice_bg": "rgba(195, 82, 31, 0.12)",
+        "notice_border": "#c3521f",
+        "neutral_net": "#b36b18",
+    }
 
 
 class OwnerHomePage(QWidget):
@@ -292,6 +329,7 @@ class OwnerHomePage(QWidget):
         actions_layout.setSpacing(24)
         self.quick_actions_layout = actions_layout
         self.quick_action_columns: list[QVBoxLayout] = []
+        self._quick_group_labels: list[QLabel] = []
 
         for title, items in button_groups:
             column = QVBoxLayout()
@@ -299,6 +337,7 @@ class OwnerHomePage(QWidget):
             label = QLabel(title)
             label.setObjectName("QuickActionsGroupTitle")
             label.setStyleSheet("font-weight:600; color:#d4a76a; margin-bottom:4px;")
+            self._quick_group_labels.append(label)
             column.addWidget(label)
             for text, callback in items:
                 btn = self._make_action_button(text, callback, compact=True)
@@ -579,6 +618,47 @@ class OwnerHomePage(QWidget):
             pass
 
     def apply_theme_assets(self) -> None:
+        tokens = _home_tokens()
+        self.finance_status_label.setStyleSheet("font-weight: 600;")
+        self.finance_projection_label.setStyleSheet(
+            f"color: {tokens['muted']};"
+        )
+        self.finance_budget_label.setStyleSheet(
+            f"color: {tokens['subtle']};"
+        )
+        if "--" in self.finance_net_label.text():
+            self.finance_net_label.setStyleSheet(
+                f"font-weight: 700; color: {tokens['neutral_net']};"
+            )
+        self.draft_notice_label.setStyleSheet(
+            f"font-weight: 700; color: {tokens['notice_text']};"
+        )
+        self.draft_notice.setStyleSheet(
+            f"background-color: {tokens['notice_bg']}; "
+            f"border: 1px solid {tokens['notice_border']}; border-radius: 10px;"
+        )
+        for label in self._quick_group_labels:
+            label.setStyleSheet(
+                f"font-weight:600; color:{tokens['group_title']}; margin-bottom:4px;"
+            )
+        self.performers_title.setStyleSheet(
+            f"font-weight:600; color:{tokens['section_subtitle']};"
+        )
+        self.division_title.setStyleSheet(
+            f"font-weight:600; color:{tokens['section_subtitle']};"
+        )
+        for widget in (
+            self.bullpen_widget,
+            self.matchup_widget,
+            self.performers_widget,
+            self.division_widget,
+        ):
+            hook = getattr(widget, "apply_theme_assets", None)
+            if callable(hook):
+                try:
+                    hook()
+                except Exception:
+                    pass
         for button in self.quick_buttons:
             try:
                 label = str(button.text())
@@ -744,11 +824,14 @@ class OwnerHomePage(QWidget):
         return f"{sign}${abs(int(value)):,}"
 
     def _update_finance_summary(self) -> None:
+        tokens = _home_tokens()
         team_id = str(getattr(self._dashboard, "team_id", "") or "").strip()
         if not team_id:
             self.finance_status_label.setText("Finance data unavailable.")
             self.finance_net_label.setText("Projected Monthly Net: --")
-            self.finance_net_label.setStyleSheet("font-weight: 700; color: #d4a76a;")
+            self.finance_net_label.setStyleSheet(
+                f"font-weight: 700; color: {tokens['neutral_net']};"
+            )
             self.finance_projection_label.setText("Team context is missing.")
             self.finance_budget_label.setText("")
             return
@@ -756,7 +839,9 @@ class OwnerHomePage(QWidget):
         if snapshot is None:
             self.finance_status_label.setText("Finance data unavailable.")
             self.finance_net_label.setText("Projected Monthly Net: --")
-            self.finance_net_label.setStyleSheet("font-weight: 700; color: #d4a76a;")
+            self.finance_net_label.setStyleSheet(
+                f"font-weight: 700; color: {tokens['neutral_net']};"
+            )
             self.finance_projection_label.setText(
                 "Initialize finance settings and run simulation to populate projections."
             )
@@ -773,7 +858,13 @@ class OwnerHomePage(QWidget):
                 f"Debt {self._fmt_currency(snapshot.debt)}"
             )
         )
-        net_color = "#2fa36b" if net > 0 else "#d45b5b" if net < 0 else "#d4a76a"
+        net_color = (
+            "#2fa36b"
+            if net > 0
+            else "#d45b5b"
+            if net < 0
+            else tokens["neutral_net"]
+        )
         net_prefix = "+" if net > 0 else ""
         self.finance_net_label.setText(
             f"Projected Monthly Net: {net_prefix}{self._fmt_currency(net)} ({net_word})"
@@ -941,6 +1032,14 @@ class BullpenReadinessWidget(QWidget):
             self._badges[key] = badge
         layout.addLayout(row)
         self._detail: List[Dict[str, Any]] = []
+        self.apply_theme_assets()
+
+    def apply_theme_assets(self) -> None:
+        tokens = _home_tokens()
+        self.summary_label.setStyleSheet("font-weight:600;")
+        self.calibration_label.setStyleSheet(
+            f"color: {tokens['muted']}; font-size: 11px;"
+        )
 
     def update_data(
         self,
@@ -1053,6 +1152,12 @@ class MatchupScoutWidget(QWidget):
         self.detail = QLabel("--")
         self.detail.setWordWrap(True)
         layout.addWidget(self.detail)
+        self.apply_theme_assets()
+
+    def apply_theme_assets(self) -> None:
+        tokens = _home_tokens()
+        self.header.setStyleSheet("font-weight:600;")
+        self.subheader.setStyleSheet(f"color: {tokens['section_subtitle']};")
 
     def update_matchup(self, data: Dict[str, Any] | None) -> None:
         if not data:
@@ -1087,12 +1192,12 @@ class HotColdWidget(QWidget):
         layout.setHorizontalSpacing(16)
         layout.setVerticalSpacing(8)
 
-        hot_label = QLabel("Hot")
-        hot_label.setStyleSheet("font-weight:600;")
-        cold_label = QLabel("Cold")
-        cold_label.setStyleSheet("font-weight:600;")
-        layout.addWidget(hot_label, 0, 0)
-        layout.addWidget(cold_label, 0, 1)
+        self.hot_label = QLabel("Hot")
+        self.hot_label.setStyleSheet("font-weight:600;")
+        self.cold_label = QLabel("Cold")
+        self.cold_label.setStyleSheet("font-weight:600;")
+        layout.addWidget(self.hot_label, 0, 0)
+        layout.addWidget(self.cold_label, 0, 1)
 
         self.hot_hitters = QLabel("Hitters: --")
         self.cold_hitters = QLabel("Hitters: --")
@@ -1113,6 +1218,11 @@ class HotColdWidget(QWidget):
 
         layout.setColumnStretch(0, 1)
         layout.setColumnStretch(1, 1)
+        self.apply_theme_assets()
+
+    def apply_theme_assets(self) -> None:
+        self.hot_label.setStyleSheet("font-weight:600;")
+        self.cold_label.setStyleSheet("font-weight:600;")
 
     def update_performers(self, data: Dict[str, Any] | None) -> None:
         if not data:
@@ -1230,7 +1340,7 @@ class DivisionStandingsWidget(QWidget):
         for col, (label, align) in enumerate(headers):
             header = QLabel(label)
             header.setAlignment(align)
-            header.setStyleSheet("font-weight:600; color:#495057;")
+            header.setStyleSheet("font-weight:600;")
             layout.addWidget(header, 0, col)
 
         for row_idx, entry in enumerate(teams, start=1):

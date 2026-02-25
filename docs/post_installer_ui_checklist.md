@@ -51,7 +51,14 @@ x- [ ] Import a matching snapshot and confirm backup is created before import.
 - [ ] Confirm owner/admin guide links/content match current navigation labels.
 - [ ] Confirm `reports/release_validation/help_surface_validation.json` shows `"status": "pass"` for this build.
 
-## 8) Archive Result
+## 8) Theme Family Coverage
+- [ ] In Owner dashboard, switch `View -> Theme Family` between `Classic` and `Enhanced Warm`.
+- [ ] In Owner dashboard, run `Toggle Light/Dark` in both families and confirm no unreadable text on Home, Roster, Team, Transactions, and League pages.
+- [ ] Open Position Players and Pitchers dialogs, toggle theme, and confirm table/header/footer restyle immediately.
+- [ ] In Admin dashboard, switch `Theme Family` and `Toggle Light/Dark`, then confirm nav icons and Admin Home action icons update.
+- [ ] With both Owner and Admin windows open, toggle theme in one window and confirm the other open window updates without restart.
+
+## 9) Archive Result
 - [ ] Archive this checklist into `reports/release_validation/checklists/` using:
   - `.\.venv2\Scripts\python.exe scripts\archive_ui_checklist.py --version <VERSION> --result pass --tester "<name>"`
 - [ ] Confirm archived file contains `Checklist Result: PASS`.

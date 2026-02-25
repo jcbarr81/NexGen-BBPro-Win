@@ -253,4 +253,6 @@ land before channel-specific features.
   preserving stable layout behavior and accessibility.
 - **Scope:** Add a lightweight visual regression checklist for theme-family
   parity (Classic vs Enhanced Warm) across major navigation and action points.
-- **Status:** Open.
+- **Progress:** v5.1.1 added live theme refresh broadcasting across open
+  windows and mode-aware styling hooks for Position Players/Pitchers dialogs.
+- **Status:** In Progress.

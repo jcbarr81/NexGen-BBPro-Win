@@ -7,6 +7,7 @@ class _DummyApp:
     def __init__(self) -> None:
         self._style = ""
         self._props: dict[str, str] = {}
+        self._widgets: list[object] = []
 
     def setStyleSheet(self, style: str) -> None:
         self._style = style
@@ -19,6 +20,9 @@ class _DummyApp:
 
     def property(self, key: str):
         return self._props.get(key)
+
+    def topLevelWidgets(self) -> list[object]:
+        return list(self._widgets)
 
 
 class _DummyQApplication:
@@ -72,3 +76,49 @@ def test_apply_and_toggle_theme_with_dummy_app(monkeypatch):
     assert toggled_family == theme.THEME_FAMILY_ENHANCED_WARM
     assert toggled_mode == theme.THEME_MODE_DARK
     assert app.property("nexgen_theme_mode") == theme.THEME_MODE_DARK
+
+
+def test_apply_theme_notifies_top_level_theme_hook(monkeypatch):
+    class _ThemeAwareWindow:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        def on_theme_changed(self, family: str, mode: str) -> None:
+            self.calls.append((family, mode))
+
+    app = _DummyApp()
+    watcher = _ThemeAwareWindow()
+    app._widgets = [watcher]
+    _DummyQApplication._instance = app
+    monkeypatch.setattr(theme, "QApplication", _DummyQApplication)
+
+    theme.apply_theme(
+        family=theme.THEME_FAMILY_CLASSIC,
+        mode=theme.THEME_MODE_LIGHT,
+        persist=False,
+    )
+
+    assert watcher.calls == [(theme.THEME_FAMILY_CLASSIC, theme.THEME_MODE_LIGHT)]
+
+
+def test_apply_theme_notifies_fallback_no_arg_hook(monkeypatch):
+    class _LegacyWindow:
+        def __init__(self) -> None:
+            self.count = 0
+
+        def apply_theme_assets(self) -> None:
+            self.count += 1
+
+    app = _DummyApp()
+    watcher = _LegacyWindow()
+    app._widgets = [watcher]
+    _DummyQApplication._instance = app
+    monkeypatch.setattr(theme, "QApplication", _DummyQApplication)
+
+    theme.apply_theme(
+        family=theme.THEME_FAMILY_ENHANCED_WARM,
+        mode=theme.THEME_MODE_DARK,
+        persist=False,
+    )
+
+    assert watcher.count == 1

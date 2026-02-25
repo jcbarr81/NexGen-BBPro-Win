@@ -448,6 +448,46 @@ def get_active_theme_state(app: QApplication | None = None) -> tuple[str, str]:
     return prefs["theme_family"], prefs["theme_mode"]
 
 
+def _invoke_theme_hook(hook: object, family: str, mode: str) -> None:
+    if not callable(hook):
+        return
+    try:
+        hook(family, mode)
+        return
+    except TypeError:
+        pass
+    except Exception:
+        return
+    try:
+        hook()
+    except Exception:
+        pass
+
+
+def _notify_theme_change(app: QApplication, family: str, mode: str) -> None:
+    try:
+        widgets = list(app.topLevelWidgets())
+    except Exception:
+        widgets = []
+
+    seen: set[int] = set()
+    for widget in widgets:
+        marker = id(widget)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        for hook_name in (
+            "on_theme_changed",
+            "apply_theme_assets",
+            "refresh_theme_ui",
+            "refresh_theme",
+        ):
+            hook = getattr(widget, hook_name, None)
+            if callable(hook):
+                _invoke_theme_hook(hook, family, mode)
+                break
+
+
 def apply_theme(
     *,
     family: str | None = None,
@@ -475,6 +515,8 @@ def apply_theme(
     if status_bar is not None:
         mode_label = "Dark" if resolved_mode == THEME_MODE_DARK else "Light"
         status_bar.showMessage(f"{theme_display_name(resolved_family)} {mode_label}")
+
+    _notify_theme_change(app, resolved_family, resolved_mode)
 
     return resolved_family, resolved_mode
 

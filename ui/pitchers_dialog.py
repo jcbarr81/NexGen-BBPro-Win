@@ -20,6 +20,7 @@ from models.roster import Roster
 from services.training_settings import load_training_settings, set_player_training_weights
 from utils.pitcher_role import get_display_role, get_role
 from utils.rating_display import overall_rating, rating_display_text, rating_display_value
+from . import theme as app_theme
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +85,50 @@ def _focus_label(settings, player_id: str, team_id: str | None) -> str:
     return "League"
 
 
+def _is_dark_mode() -> bool:
+    getter = getattr(app_theme, "get_active_theme_state", None)
+    if callable(getter):
+        try:
+            _family, mode = getter()
+            dark_mode = getattr(app_theme, "THEME_MODE_DARK", "dark")
+            return str(mode) == str(dark_mode)
+        except Exception:
+            pass
+    return True
+
+
+def _retro_tokens() -> dict[str, str]:
+    if _is_dark_mode():
+        return {
+            "window_bg": RETRO_GREEN,
+            "table_bg": RETRO_GREEN_TABLE,
+            "header_bg": RETRO_GREEN,
+            "header_strip_bg": RETRO_GREEN_DARK,
+            "text": RETRO_TEXT,
+            "numeric_text": RETRO_CYAN,
+            "border": RETRO_BORDER,
+            "button_bg": RETRO_BEIGE,
+            "button_text": "#222",
+            "title_text": "#ff6b6b",
+            "accent_text": RETRO_YELLOW,
+            "selection_bg": "#245b2b",
+        }
+    return {
+        "window_bg": "#f4ead4",
+        "table_bg": "#fff8ea",
+        "header_bg": "#efe3c5",
+        "header_strip_bg": "#f8f0dd",
+        "text": "#462d0d",
+        "numeric_text": "#8f5b22",
+        "border": "#c7ad82",
+        "button_bg": "#d2ba8f",
+        "button_text": "#462d0d",
+        "title_text": "#a8321d",
+        "accent_text": "#8f5b22",
+        "selection_bg": "#e5d4b4",
+    }
+
+
 class NumberDelegate(QtWidgets.QStyledItemDelegate):
     """Right align numeric cells and tint them retro cyan."""
 
@@ -142,16 +187,20 @@ class NumberDelegate(QtWidgets.QStyledItemDelegate):
                 QtCore.Qt.AlignmentFlag.AlignRight
                 | QtCore.Qt.AlignmentFlag.AlignVCenter
             )
+            tokens = _retro_tokens()
             opt.palette.setColor(
-                QtGui.QPalette.ColorRole.Text, QtGui.QColor(RETRO_CYAN)
+                QtGui.QPalette.ColorRole.Text,
+                QtGui.QColor(tokens["numeric_text"]),
             )
         else:
             opt.displayAlignment = (
                 QtCore.Qt.AlignmentFlag.AlignLeft
                 | QtCore.Qt.AlignmentFlag.AlignVCenter
             )
+            tokens = _retro_tokens()
             opt.palette.setColor(
-                QtGui.QPalette.ColorRole.Text, QtGui.QColor(RETRO_TEXT)
+                QtGui.QPalette.ColorRole.Text,
+                QtGui.QColor(tokens["text"]),
             )
         style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
         style.drawControl(
@@ -269,6 +318,32 @@ class RetroHeader(QtWidgets.QWidget):
         lay.setSpacing(8)
         lay.addWidget(title)
         lay.addWidget(strip)
+        self._title = title
+        self._strip = strip
+        self._team_line = team_line
+        self._season = season
+        self._arrow = arrow
+        self.apply_theme_assets()
+
+    def apply_theme_assets(self) -> None:
+        tokens = _retro_tokens()
+        self.setStyleSheet(
+            "QWidget { "
+            f"background:{tokens['header_bg']}; "
+            f"border-bottom: 1px solid {tokens['border']};"
+            " }"
+        )
+        self._title.setStyleSheet(
+            f"color: {tokens['title_text']}; letter-spacing: 0.5px;"
+        )
+        self._strip.setStyleSheet(
+            f"background:{tokens['header_strip_bg']}; "
+            f"border: 1px solid {tokens['border']};"
+        )
+        accent = tokens["accent_text"]
+        self._team_line.setStyleSheet(f"color:{accent}; font-weight:600;")
+        self._season.setStyleSheet(f"color:{accent};")
+        self._arrow.setStyleSheet(f"color:{accent}; font-weight:700;")
 
 
 class RosterTable(QtWidgets.QTableWidget):
@@ -374,6 +449,7 @@ class RosterTable(QtWidgets.QTableWidget):
         self.horizontalHeader().setSectionsClickable(True)
         self.setSortingEnabled(True)
         self._init_column_menu()
+        self.apply_theme_assets()
 
     def _init_column_menu(self) -> None:
         header = self.horizontalHeader()
@@ -403,6 +479,18 @@ class RosterTable(QtWidgets.QTableWidget):
             type(self).hidden_columns.discard(col)
         else:
             type(self).hidden_columns.add(col)
+
+    def apply_theme_assets(self) -> None:
+        tokens = _retro_tokens()
+        self.setStyleSheet(
+            f"QTableWidget {{ background:{tokens['table_bg']}; color:{tokens['text']};"
+            f" gridline-color:{tokens['border']}; selection-background-color:{tokens['selection_bg']};"
+            f" selection-color:{tokens['text']}; font: 12px 'Segoe UI'; }}"
+            f"QHeaderView::section {{ background:{tokens['header_bg']}; color:{tokens['text']};"
+            f" border: 1px solid {tokens['border']}; font-weight:600; }}"
+            f"QScrollBar:vertical {{ background:{tokens['header_strip_bg']}; width: 12px; margin: 0; }}"
+            f"QScrollBar::handle:vertical {{ background:{tokens['button_bg']}; min-height: 24px; }}"
+        )
 
 
 class StatusFooter(QtWidgets.QStatusBar):
@@ -437,6 +525,14 @@ class StatusFooter(QtWidgets.QStatusBar):
         lay.addWidget(right)
 
         self.addPermanentWidget(container, 1)
+        self.apply_theme_assets()
+
+    def apply_theme_assets(self) -> None:
+        tokens = _retro_tokens()
+        self.setStyleSheet(
+            f"background:{tokens['header_bg']}; color:{tokens['text']};"
+            f" border-top: 1px solid {tokens['border']};"
+        )
 
 
 class PitchersDialog(QtWidgets.QDialog):
@@ -474,6 +570,7 @@ class PitchersDialog(QtWidgets.QDialog):
 
         self.statusbar = StatusFooter()
         layout.addWidget(self.statusbar)
+        self.apply_theme_assets()
 
     # ------------------------------------------------------------------
     # Data helpers
@@ -666,16 +763,29 @@ class PitchersDialog(QtWidgets.QDialog):
 
     # ------------------------------------------------------------------
     # Palette helpers
+    def on_theme_changed(self, _family: str = "", _mode: str = "") -> None:
+        self.apply_theme_assets()
+
+    def apply_theme_assets(self) -> None:
+        self._apply_global_palette()
+        self.header.apply_theme_assets()
+        self.table.apply_theme_assets()
+        self.statusbar.apply_theme_assets()
+        self.table.viewport().update()
+
     def _apply_global_palette(self) -> None:
+        tokens = _retro_tokens()
         pal = self.palette()
-        pal.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(RETRO_GREEN))
-        pal.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor(RETRO_GREEN_TABLE))
-        pal.setColor(QtGui.QPalette.ColorRole.Text, QtGui.QColor(RETRO_TEXT))
-        pal.setColor(QtGui.QPalette.ColorRole.Button, QtGui.QColor(RETRO_BEIGE))
-        pal.setColor(QtGui.QPalette.ColorRole.ButtonText, QtGui.QColor("#222"))
+        pal.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(tokens["window_bg"]))
+        pal.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor(tokens["table_bg"]))
+        pal.setColor(QtGui.QPalette.ColorRole.Text, QtGui.QColor(tokens["text"]))
+        pal.setColor(QtGui.QPalette.ColorRole.Button, QtGui.QColor(tokens["button_bg"]))
+        pal.setColor(
+            QtGui.QPalette.ColorRole.ButtonText,
+            QtGui.QColor(tokens["button_text"]),
+        )
         self.setPalette(pal)
         self.setStyleSheet(
-            f"QDialog {{ background:{RETRO_GREEN}; }}"
-            f"QPushButton {{ background:{RETRO_BEIGE}; color:#222; }}"
+            f"QDialog {{ background:{tokens['window_bg']}; }}"
         )
 
