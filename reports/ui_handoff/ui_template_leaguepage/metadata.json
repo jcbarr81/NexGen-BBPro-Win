@@ -1,0 +1,12 @@
+{
+  "screen_id": "ui_template_leaguepage",
+  "class_name": "LeaguePage",
+  "relative_path": "ui/ui_template.py",
+  "line_start": 269,
+  "line_end": 280,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/ui_template_leaguepage.png",
+  "developer_only": true
+}

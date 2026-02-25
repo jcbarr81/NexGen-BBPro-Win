@@ -1,0 +1,1 @@
+screens/avatar_tutorial_dialog_avatartutorialdialog.png

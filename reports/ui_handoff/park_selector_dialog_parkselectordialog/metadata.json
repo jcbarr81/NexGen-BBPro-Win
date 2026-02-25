@@ -1,0 +1,12 @@
+{
+  "screen_id": "park_selector_dialog_parkselectordialog",
+  "class_name": "ParkSelectorDialog",
+  "relative_path": "ui/park_selector_dialog.py",
+  "line_start": 107,
+  "line_end": 216,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/park_selector_dialog_parkselectordialog.png",
+  "developer_only": true
+}

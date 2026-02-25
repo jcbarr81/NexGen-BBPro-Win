@@ -1,0 +1,12 @@
+{
+  "screen_id": "owner_finance_page_ownerfinancepage",
+  "class_name": "OwnerFinancePage",
+  "relative_path": "ui/owner_finance_page.py",
+  "line_start": 70,
+  "line_end": 1626,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/owner_finance_page_ownerfinancepage.png",
+  "developer_only": true
+}

@@ -1,0 +1,1 @@
+screens/finance_stability_dialog_financestabilitydialog.png

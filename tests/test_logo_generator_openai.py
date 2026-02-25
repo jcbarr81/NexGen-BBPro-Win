@@ -74,6 +74,39 @@ def test_generates_logo_and_calls_callback(tmp_path, monkeypatch):
     assert statuses == ["openai"]
 
 
+def test_generate_team_logos_uses_prompt_builder(tmp_path, monkeypatch):
+    team = Team(
+        team_id="TST",
+        name="Testers",
+        city="Testville",
+        abbreviation="TST",
+        division="Test",
+        stadium="Test Field",
+        primary_color="#112233",
+        secondary_color="#445566",
+        owner_id="0",
+    )
+    monkeypatch.setattr(logo_generator, "load_teams", lambda _: [team])
+
+    calls = {}
+
+    class DummyImages:
+        def generate(self, **kwargs):
+            calls.update(kwargs)
+            return SimpleNamespace(data=[SimpleNamespace(b64_json=_fake_b64_png(1024))])
+
+    monkeypatch.setattr(logo_generator, "client", SimpleNamespace(images=DummyImages()))
+
+    out_dir = tmp_path
+    logo_generator.generate_team_logos(
+        out_dir=str(out_dir),
+        prompt_builder=lambda t: f"CUSTOM PROMPT FOR {t.team_id}",
+    )
+
+    assert calls["prompt"] == "CUSTOM PROMPT FOR TST"
+    assert (out_dir / "tst.png").exists()
+
+
 def test_existing_logos_are_removed(tmp_path, monkeypatch):
     team = Team(
         team_id="TST",

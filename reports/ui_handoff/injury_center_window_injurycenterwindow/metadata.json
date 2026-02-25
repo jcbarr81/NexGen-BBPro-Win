@@ -1,0 +1,12 @@
+{
+  "screen_id": "injury_center_window_injurycenterwindow",
+  "class_name": "InjuryCenterWindow",
+  "relative_path": "ui/injury_center_window.py",
+  "line_start": 113,
+  "line_end": 834,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/injury_center_window_injurycenterwindow.png",
+  "developer_only": true
+}

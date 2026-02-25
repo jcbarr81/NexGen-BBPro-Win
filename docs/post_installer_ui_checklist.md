@@ -49,6 +49,7 @@ x- [ ] Import a matching snapshot and confirm backup is created before import.
 ## 7) Tutorials/Docs Surface
 - [ ] Confirm updated tutorials are visible from Tutorials menu.
 - [ ] Confirm owner/admin guide links/content match current navigation labels.
+- [ ] Confirm `reports/release_validation/help_surface_validation.json` shows `"status": "pass"` for this build.
 
 ## 8) Archive Result
 - [ ] Archive this checklist into `reports/release_validation/checklists/` using:

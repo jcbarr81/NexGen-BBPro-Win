@@ -226,7 +226,14 @@ land before channel-specific features.
   - class metadata (file, class name, line ranges),
   - optional screenshot placeholder path,
   - prompt-ready markdown block with constraints and style tokens.
-- **Status:** Open.
+- **Developer-only note:** This tooling remains internal and is not exposed to
+  in-game/player UI surfaces.
+- **Delivered artifacts:** `scripts/build_ui_handoff.py`,
+  `scripts/generate_consistent_graphics.py`,
+  `scripts/validate_graphics_consistency.py`,
+  `config/graphics_style_manifest.json`,
+  `docs/graphics_consistency_pipeline.md`.
+- **Status:** Complete.
 
 ## 19. In-App Manual Maintenance Cadence
 - **Goal:** Keep the in-app searchable manuals current as new features and menu
@@ -234,7 +241,8 @@ land before channel-specific features.
 - **Scope:** Add a lightweight release checklist item to verify tutorial text
   and both manuals (Complete Game Manual + Finance System Manual) against the
   current UI labels and workflow order before each release.
-- **Status:** Complete (baseline implementation delivered in v5.0.97).
+- **Status:** Complete (baseline delivered in v5.0.97; automated help-surface
+  release gate added in v5.0.110).
 
 ## 20. Player Morale System
 - **Goal:** Introduce a dedicated morale model that influences development,

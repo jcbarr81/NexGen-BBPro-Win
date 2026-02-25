@@ -1,0 +1,12 @@
+{
+  "screen_id": "owner_home_page_bullpenreadinesswidget",
+  "class_name": "BullpenReadinessWidget",
+  "relative_path": "ui/owner_home_page.py",
+  "line_start": 879,
+  "line_end": 1007,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/owner_home_page_bullpenreadinesswidget.png",
+  "developer_only": true
+}

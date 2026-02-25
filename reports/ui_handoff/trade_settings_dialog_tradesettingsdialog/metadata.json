@@ -1,0 +1,12 @@
+{
+  "screen_id": "trade_settings_dialog_tradesettingsdialog",
+  "class_name": "TradeSettingsDialog",
+  "relative_path": "ui/trade_settings_dialog.py",
+  "line_start": 23,
+  "line_end": 104,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/trade_settings_dialog_tradesettingsdialog.png",
+  "developer_only": true
+}

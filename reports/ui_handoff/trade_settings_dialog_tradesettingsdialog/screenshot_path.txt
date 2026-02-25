@@ -1,0 +1,1 @@
+screens/trade_settings_dialog_tradesettingsdialog.png

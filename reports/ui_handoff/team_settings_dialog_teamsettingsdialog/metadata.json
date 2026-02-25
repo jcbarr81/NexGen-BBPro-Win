@@ -1,0 +1,12 @@
+{
+  "screen_id": "team_settings_dialog_teamsettingsdialog",
+  "class_name": "TeamSettingsDialog",
+  "relative_path": "ui/team_settings_dialog.py",
+  "line_start": 63,
+  "line_end": 360,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/team_settings_dialog_teamsettingsdialog.png",
+  "developer_only": true
+}

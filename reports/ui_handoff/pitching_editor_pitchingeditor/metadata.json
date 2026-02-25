@@ -1,0 +1,12 @@
+{
+  "screen_id": "pitching_editor_pitchingeditor",
+  "class_name": "PitchingEditor",
+  "relative_path": "ui/pitching_editor.py",
+  "line_start": 23,
+  "line_end": 312,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/pitching_editor_pitchingeditor.png",
+  "developer_only": true
+}

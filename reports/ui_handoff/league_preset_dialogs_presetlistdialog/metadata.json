@@ -1,0 +1,12 @@
+{
+  "screen_id": "league_preset_dialogs_presetlistdialog",
+  "class_name": "PresetListDialog",
+  "relative_path": "ui/league_preset_dialogs.py",
+  "line_start": 68,
+  "line_end": 139,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/league_preset_dialogs_presetlistdialog.png",
+  "developer_only": true
+}

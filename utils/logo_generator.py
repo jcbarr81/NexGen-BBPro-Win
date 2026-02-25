@@ -163,6 +163,7 @@ def generate_team_logos(
     progress_callback: Optional[Callable[[int, int], None]] = None,
     allow_auto_logo: bool = True,
     status_callback: Optional[Callable[[str], None]] = None,
+    prompt_builder: Optional[Callable[[object], str]] = None,
 ) -> str:
     """Generate logos for all teams and return the output directory.
 
@@ -184,6 +185,9 @@ def generate_team_logos(
     status_callback:
         Optional callable invoked with ``"openai"`` or ``"auto_logo"`` to
         indicate which generation path was used.
+    prompt_builder:
+        Optional callback receiving a team object and returning a custom
+        OpenAI prompt. When omitted, the default built-in prompt is used.
     """
 
     def _notify_status(value: str) -> None:
@@ -218,7 +222,10 @@ def generate_team_logos(
         progress_callback(0, total)
 
     for idx, t in enumerate(teams, start=1):
-        prompt = _build_openai_prompt(t)
+        if prompt_builder is not None:
+            prompt = str(prompt_builder(t))
+        else:
+            prompt = _build_openai_prompt(t)
         result = client.images.generate(
             model="gpt-image-1",
             prompt=prompt,

@@ -1,0 +1,12 @@
+{
+  "screen_id": "login_window_loginwindow",
+  "class_name": "LoginWindow",
+  "relative_path": "ui/login_window.py",
+  "line_start": 30,
+  "line_end": 317,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/login_window_loginwindow.png",
+  "developer_only": true
+}

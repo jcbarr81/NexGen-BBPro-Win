@@ -1,0 +1,12 @@
+{
+  "screen_id": "roster_page_rosterpage",
+  "class_name": "RosterPage",
+  "relative_path": "ui/roster_page.py",
+  "line_start": 47,
+  "line_end": 332,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/roster_page_rosterpage.png",
+  "developer_only": true
+}

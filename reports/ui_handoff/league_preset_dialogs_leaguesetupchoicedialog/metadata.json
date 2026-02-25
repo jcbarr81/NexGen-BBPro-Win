@@ -1,0 +1,12 @@
+{
+  "screen_id": "league_preset_dialogs_leaguesetupchoicedialog",
+  "class_name": "LeagueSetupChoiceDialog",
+  "relative_path": "ui/league_preset_dialogs.py",
+  "line_start": 35,
+  "line_end": 65,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/league_preset_dialogs_leaguesetupchoicedialog.png",
+  "developer_only": true
+}

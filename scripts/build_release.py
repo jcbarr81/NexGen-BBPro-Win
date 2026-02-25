@@ -18,10 +18,14 @@ VERSION_FILE = ROOT / "VERSION"
 ISS_FILE = ROOT / "packaging" / "NexGen-BBPro.iss"
 BUILD_EXE = ROOT / "build_exe.py"
 VALIDATE_RELEASE = ROOT / "scripts" / "validate_finance_release.py"
+VALIDATE_HELP_SURFACE = ROOT / "scripts" / "validate_help_surface.py"
 RELEASE_NOTES_FILE = ROOT / "release_notes.md"
 DRAFT_NOTES_FILE = ROOT / "release_notes_draft.md"
 LAST_BUILD_RE = re.compile(r"^<!--\s*last_build_ref:\s*([0-9a-fA-F]+)\s*-->$")
 CHECKLIST_PASS_TOKEN = "Checklist Result: PASS"
+DEFAULT_HELP_SURFACE_REPORT = (
+    ROOT / "reports" / "release_validation" / "help_surface_validation.json"
+)
 
 
 def read_version() -> str:
@@ -275,6 +279,15 @@ def main(argv: list[str]) -> int:
         help="Skip pre-build finance release validation checks.",
     )
     parser.add_argument(
+        "--skip-help-surface-validation",
+        action="store_true",
+        help="Skip tutorial/manual/docs consistency validation.",
+    )
+    parser.add_argument(
+        "--help-surface-report",
+        help="Output path for help-surface validation JSON report.",
+    )
+    parser.add_argument(
         "--validation-seasons",
         type=int,
         default=8,
@@ -342,6 +355,17 @@ def main(argv: list[str]) -> int:
             version=version,
         )
         print("Manual UI/installer checklist artifact validated.")
+
+    if not args.skip_help_surface_validation:
+        help_surface_cmd = [sys.executable, str(VALIDATE_HELP_SURFACE)]
+        help_surface_out = (
+            pathlib.Path(args.help_surface_report)
+            if args.help_surface_report
+            else DEFAULT_HELP_SURFACE_REPORT
+        )
+        help_surface_cmd.extend(["--json-out", str(help_surface_out)])
+        run_command(help_surface_cmd)
+        print("Help-surface validation passed.")
 
     if not args.skip_validation:
         validate_cmd = [

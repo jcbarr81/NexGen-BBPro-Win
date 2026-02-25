@@ -1,0 +1,12 @@
+{
+  "screen_id": "finance_stability_dialog_financestabilitydialog",
+  "class_name": "FinanceStabilityDialog",
+  "relative_path": "ui/finance_stability_dialog.py",
+  "line_start": 35,
+  "line_end": 382,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/finance_stability_dialog_financestabilitydialog.png",
+  "developer_only": true
+}

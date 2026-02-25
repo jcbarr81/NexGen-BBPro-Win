@@ -1,0 +1,89 @@
+{
+  "status": "fail",
+  "error_count": 1,
+  "developer_only": true,
+  "mode": "ui",
+  "profile": "retro_modern_v1",
+  "manifest_path": "config/graphics_style_manifest.json",
+  "run_dir": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\reports\\graphics_runs\\trade_only_run",
+  "model": "gpt-image-1",
+  "openai_size": "1024x1024",
+  "openai_background": "transparent",
+  "max_retries": 2,
+  "published": {
+    "logos": 0,
+    "ui": 0
+  },
+  "results": [
+    {
+      "asset_id": "trade_dialog_tradedialog",
+      "category": "ui",
+      "path": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\reports\\graphics_runs\\trade_only_run\\ui\\trade_dialog_tradedialog.png",
+      "status": "fail",
+      "attempt_count": 3,
+      "attempts": [
+        {
+          "path": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\reports\\graphics_runs\\trade_only_run\\ui\\trade_dialog_tradedialog.png",
+          "category": "ui",
+          "status": "fail",
+          "metrics": {
+            "width": 1024,
+            "height": 1024,
+            "transparent_ratio": 0.35144710540771484,
+            "palette_delta": 44.34805679321289,
+            "edge_density": 0.02846240997314453,
+            "phash_distance_min": 33
+          },
+          "findings": [
+            {
+              "severity": "error",
+              "code": "edge_density_out_of_range",
+              "message": "Edge density 0.0285 outside [0.0600, 0.4200]"
+            }
+          ]
+        },
+        {
+          "path": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\reports\\graphics_runs\\trade_only_run\\ui\\trade_dialog_tradedialog.png",
+          "category": "ui",
+          "status": "fail",
+          "metrics": {
+            "width": 1024,
+            "height": 1024,
+            "transparent_ratio": 0.8163604736328125,
+            "palette_delta": 39.50677490234375,
+            "edge_density": 0.017737388610839844,
+            "phash_distance_min": 37
+          },
+          "findings": [
+            {
+              "severity": "error",
+              "code": "edge_density_out_of_range",
+              "message": "Edge density 0.0177 outside [0.0600, 0.4200]"
+            }
+          ]
+        },
+        {
+          "path": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\reports\\graphics_runs\\trade_only_run\\ui\\trade_dialog_tradedialog.png",
+          "category": "ui",
+          "status": "fail",
+          "metrics": {
+            "width": 1024,
+            "height": 1024,
+            "transparent_ratio": 0.837559700012207,
+            "palette_delta": 39.54541778564453,
+            "edge_density": 0.010262489318847656,
+            "phash_distance_min": 39
+          },
+          "findings": [
+            {
+              "severity": "error",
+              "code": "edge_density_out_of_range",
+              "message": "Edge density 0.0103 outside [0.0600, 0.4200]"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "generated_at_utc": "2026-02-25T02:25:38Z"
+}

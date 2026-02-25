@@ -1,0 +1,12 @@
+{
+  "screen_id": "transactions_window_transactionswindow",
+  "class_name": "TransactionsWindow",
+  "relative_path": "ui/transactions_window.py",
+  "line_start": 19,
+  "line_end": 163,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/transactions_window_transactionswindow.png",
+  "developer_only": true
+}

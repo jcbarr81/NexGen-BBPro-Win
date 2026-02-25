@@ -1,0 +1,12 @@
+{
+  "screen_id": "league_history_window_leaguehistorywindow",
+  "class_name": "LeagueHistoryWindow",
+  "relative_path": "ui/league_history_window.py",
+  "line_start": 373,
+  "line_end": 753,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/league_history_window_leaguehistorywindow.png",
+  "developer_only": true
+}

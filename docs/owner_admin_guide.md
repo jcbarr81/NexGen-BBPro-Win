@@ -55,7 +55,7 @@ Team owners manage their franchise through the Owner Dashboard.
 - **News Feed**: display the latest league news.
 
 ### Tutorials
-- Open the **Tutorials** menu and run **Owner Change Requests** for a step-by-step walkthrough of exporting updates and sending the JSON bundle to the commissioner.
+- Open the **Tutorials** menu and run **Owner Change Requests** for a step-by-step walkthrough of exporting updates and sending the ZIP bundle to the commissioner.
 - Run **Trades & Transactions** to review current trade flow behavior, including draft-pick trades and commissioner-approval mode.
 - Run **Finance Hub Overview** to walk through the new Owner Ops + GM/Coach Ops finance hub and the related queue/actions workflow.
 - Run **Dashboard Overview** to review top-bar navigation, including the new **Owner Tools** menu shortcuts.

@@ -1,0 +1,12 @@
+{
+  "screen_id": "position_players_dialog_retroheader",
+  "class_name": "RetroHeader",
+  "relative_path": "ui/position_players_dialog.py",
+  "line_start": 196,
+  "line_end": 240,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/position_players_dialog_retroheader.png",
+  "developer_only": true
+}

@@ -1,0 +1,12 @@
+{
+  "screen_id": "change_request_export_dialog_changerequestexportdialog",
+  "class_name": "ChangeRequestExportDialog",
+  "relative_path": "ui/change_request_export_dialog.py",
+  "line_start": 34,
+  "line_end": 201,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/change_request_export_dialog_changerequestexportdialog.png",
+  "developer_only": true
+}

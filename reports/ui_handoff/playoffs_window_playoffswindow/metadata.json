@@ -1,0 +1,12 @@
+{
+  "screen_id": "playoffs_window_playoffswindow",
+  "class_name": "PlayoffsWindow",
+  "relative_path": "ui/playoffs_window.py",
+  "line_start": 217,
+  "line_end": 988,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/playoffs_window_playoffswindow.png",
+  "developer_only": true
+}

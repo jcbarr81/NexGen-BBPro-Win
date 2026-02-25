@@ -1,0 +1,12 @@
+{
+  "screen_id": "league_stats_window_leaguestatswindow",
+  "class_name": "LeagueStatsWindow",
+  "relative_path": "ui/league_stats_window.py",
+  "line_start": 192,
+  "line_end": 566,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/league_stats_window_leaguestatswindow.png",
+  "developer_only": true
+}

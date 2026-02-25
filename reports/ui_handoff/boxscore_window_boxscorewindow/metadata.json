@@ -1,0 +1,12 @@
+{
+  "screen_id": "boxscore_window_boxscorewindow",
+  "class_name": "BoxScoreWindow",
+  "relative_path": "ui/boxscore_window.py",
+  "line_start": 7,
+  "line_end": 34,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/boxscore_window_boxscorewindow.png",
+  "developer_only": true
+}

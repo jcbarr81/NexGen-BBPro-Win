@@ -3,6 +3,27 @@
 This guide gives you reusable templates for redesigning NexGen BBPro UI screens
 with ChatGPT while keeping working PyQt code.
 
+## Developer-Only Boundary
+
+This workflow is for developers only.
+
+- Do not expose this pipeline in game menus/dialogs.
+- Do not add player-facing/tutorial menu entries for this process.
+- Keep all outputs in developer/report paths (`reports/ui_handoff/`,
+  `reports/graphics_runs/`).
+
+## Manifest-Driven Workflow
+
+Use the developer scripts to keep style prompts and outputs consistent:
+
+```powershell
+.\.venv2\Scripts\python.exe scripts\build_ui_handoff.py --include-source
+.\.venv2\Scripts\python.exe scripts\generate_consistent_graphics.py --mode ui --strict
+```
+
+The style profile and validation thresholds are defined in:
+`config/graphics_style_manifest.json`.
+
 ## Will this workflow work?
 
 Yes, with guardrails.

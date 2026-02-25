@@ -1,0 +1,1 @@
+screens/manual_viewer_dialog_manualviewerdialog.png

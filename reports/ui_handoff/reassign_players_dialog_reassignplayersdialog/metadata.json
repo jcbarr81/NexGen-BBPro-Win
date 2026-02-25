@@ -1,0 +1,12 @@
+{
+  "screen_id": "reassign_players_dialog_reassignplayersdialog",
+  "class_name": "ReassignPlayersDialog",
+  "relative_path": "ui/reassign_players_dialog.py",
+  "line_start": 58,
+  "line_end": 478,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/reassign_players_dialog_reassignplayersdialog.png",
+  "developer_only": true
+}

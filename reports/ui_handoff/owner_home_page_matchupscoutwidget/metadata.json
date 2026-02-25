@@ -1,0 +1,12 @@
+{
+  "screen_id": "owner_home_page_matchupscoutwidget",
+  "class_name": "MatchupScoutWidget",
+  "relative_path": "ui/owner_home_page.py",
+  "line_start": 1010,
+  "line_end": 1051,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/owner_home_page_matchupscoutwidget.png",
+  "developer_only": true
+}

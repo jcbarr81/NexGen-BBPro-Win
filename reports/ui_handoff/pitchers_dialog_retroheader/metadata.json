@@ -1,0 +1,12 @@
+{
+  "screen_id": "pitchers_dialog_retroheader",
+  "class_name": "RetroHeader",
+  "relative_path": "ui/pitchers_dialog.py",
+  "line_start": 227,
+  "line_end": 271,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/pitchers_dialog_retroheader.png",
+  "developer_only": true
+}

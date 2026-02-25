@@ -1,0 +1,12 @@
+{
+  "screen_id": "draft_results_dialog_draftresultsdialog",
+  "class_name": "DraftResultsDialog",
+  "relative_path": "ui/draft_results_dialog.py",
+  "line_start": 26,
+  "line_end": 294,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/draft_results_dialog_draftresultsdialog.png",
+  "developer_only": true
+}

@@ -1,0 +1,12 @@
+{
+  "screen_id": "team_stats_window_teamstatswindow",
+  "class_name": "TeamStatsWindow",
+  "relative_path": "ui/team_stats_window.py",
+  "line_start": 339,
+  "line_end": 1041,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/team_stats_window_teamstatswindow.png",
+  "developer_only": true
+}

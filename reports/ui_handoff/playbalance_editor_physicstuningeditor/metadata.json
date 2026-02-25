@@ -1,0 +1,12 @@
+{
+  "screen_id": "playbalance_editor_physicstuningeditor",
+  "class_name": "PhysicsTuningEditor",
+  "relative_path": "ui/playbalance_editor.py",
+  "line_start": 315,
+  "line_end": 454,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/playbalance_editor_physicstuningeditor.png",
+  "developer_only": true
+}

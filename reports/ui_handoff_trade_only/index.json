@@ -1,0 +1,20 @@
+{
+  "status": "pass",
+  "developer_only": true,
+  "out_dir": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\reports\\ui_handoff_trade_only",
+  "count": 1,
+  "screens": [
+    {
+      "screen_id": "trade_dialog_tradedialog",
+      "class_name": "TradeDialog",
+      "relative_path": "ui/trade_dialog.py",
+      "line_start": 56,
+      "line_end": 928,
+      "base_classes": [
+        "QDialog"
+      ],
+      "screenshot_path": "screens/trade_dialog_tradedialog.png",
+      "developer_only": true
+    }
+  ]
+}

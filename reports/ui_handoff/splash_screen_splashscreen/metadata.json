@@ -1,0 +1,12 @@
+{
+  "screen_id": "splash_screen_splashscreen",
+  "class_name": "SplashScreen",
+  "relative_path": "ui/splash_screen.py",
+  "line_start": 38,
+  "line_end": 522,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/splash_screen_splashscreen.png",
+  "developer_only": true
+}

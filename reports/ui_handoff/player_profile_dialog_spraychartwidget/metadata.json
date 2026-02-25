@@ -1,0 +1,12 @@
+{
+  "screen_id": "player_profile_dialog_spraychartwidget",
+  "class_name": "SprayChartWidget",
+  "relative_path": "ui/player_profile_dialog.py",
+  "line_start": 3203,
+  "line_end": 3259,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/player_profile_dialog_spraychartwidget.png",
+  "developer_only": true
+}

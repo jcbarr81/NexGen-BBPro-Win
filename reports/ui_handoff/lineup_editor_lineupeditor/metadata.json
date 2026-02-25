@@ -1,0 +1,12 @@
+{
+  "screen_id": "lineup_editor_lineupeditor",
+  "class_name": "LineupEditor",
+  "relative_path": "ui/lineup_editor.py",
+  "line_start": 38,
+  "line_end": 573,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/lineup_editor_lineupeditor.png",
+  "developer_only": true
+}

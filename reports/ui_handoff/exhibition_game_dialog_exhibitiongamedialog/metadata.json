@@ -1,0 +1,12 @@
+{
+  "screen_id": "exhibition_game_dialog_exhibitiongamedialog",
+  "class_name": "ExhibitionGameDialog",
+  "relative_path": "ui/exhibition_game_dialog.py",
+  "line_start": 21,
+  "line_end": 134,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/exhibition_game_dialog_exhibitiongamedialog.png",
+  "developer_only": true
+}

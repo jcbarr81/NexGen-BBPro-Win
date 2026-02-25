@@ -1,0 +1,1 @@
+screens/logo_tutorial_dialog_logotutorialdialog.png

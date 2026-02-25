@@ -1,0 +1,12 @@
+{
+  "screen_id": "gm_finance_queue_dialog_gmfinancequeuedialog",
+  "class_name": "GmFinanceQueueDialog",
+  "relative_path": "ui/gm_finance_queue_dialog.py",
+  "line_start": 23,
+  "line_end": 179,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/gm_finance_queue_dialog_gmfinancequeuedialog.png",
+  "developer_only": true
+}

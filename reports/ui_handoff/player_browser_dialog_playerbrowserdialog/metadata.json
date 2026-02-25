@@ -1,0 +1,12 @@
+{
+  "screen_id": "player_browser_dialog_playerbrowserdialog",
+  "class_name": "PlayerBrowserDialog",
+  "relative_path": "ui/player_browser_dialog.py",
+  "line_start": 40,
+  "line_end": 289,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/player_browser_dialog_playerbrowserdialog.png",
+  "developer_only": true
+}

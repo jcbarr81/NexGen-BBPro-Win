@@ -1,0 +1,12 @@
+{
+  "screen_id": "pitchers_dialog_pitchersdialog",
+  "class_name": "PitchersDialog",
+  "relative_path": "ui/pitchers_dialog.py",
+  "line_start": 442,
+  "line_end": 680,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/pitchers_dialog_pitchersdialog.png",
+  "developer_only": true
+}

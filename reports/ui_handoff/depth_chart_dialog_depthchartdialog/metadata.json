@@ -1,0 +1,12 @@
+{
+  "screen_id": "depth_chart_dialog_depthchartdialog",
+  "class_name": "DepthChartDialog",
+  "relative_path": "ui/depth_chart_dialog.py",
+  "line_start": 122,
+  "line_end": 474,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/depth_chart_dialog_depthchartdialog.png",
+  "developer_only": true
+}

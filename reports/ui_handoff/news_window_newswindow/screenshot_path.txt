@@ -1,0 +1,1 @@
+screens/news_window_newswindow.png

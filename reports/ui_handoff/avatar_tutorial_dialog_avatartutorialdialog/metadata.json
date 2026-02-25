@@ -1,0 +1,12 @@
+{
+  "screen_id": "avatar_tutorial_dialog_avatartutorialdialog",
+  "class_name": "AvatarTutorialDialog",
+  "relative_path": "ui/avatar_tutorial_dialog.py",
+  "line_start": 67,
+  "line_end": 98,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/avatar_tutorial_dialog_avatartutorialdialog.png",
+  "developer_only": true
+}

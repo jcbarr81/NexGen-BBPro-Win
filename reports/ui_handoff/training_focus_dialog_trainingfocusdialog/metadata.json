@@ -1,0 +1,12 @@
+{
+  "screen_id": "training_focus_dialog_trainingfocusdialog",
+  "class_name": "TrainingFocusDialog",
+  "relative_path": "ui/training_focus_dialog.py",
+  "line_start": 166,
+  "line_end": 464,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/training_focus_dialog_trainingfocusdialog.png",
+  "developer_only": true
+}

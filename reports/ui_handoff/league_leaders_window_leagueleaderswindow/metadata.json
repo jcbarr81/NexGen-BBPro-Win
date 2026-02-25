@@ -1,0 +1,12 @@
+{
+  "screen_id": "league_leaders_window_leagueleaderswindow",
+  "class_name": "LeagueLeadersWindow",
+  "relative_path": "ui/league_leaders_window.py",
+  "line_start": 108,
+  "line_end": 501,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/league_leaders_window_leagueleaderswindow.png",
+  "developer_only": true
+}

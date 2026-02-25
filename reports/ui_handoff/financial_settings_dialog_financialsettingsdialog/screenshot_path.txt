@@ -1,0 +1,1 @@
+screens/financial_settings_dialog_financialsettingsdialog.png

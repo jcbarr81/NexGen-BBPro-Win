@@ -1,0 +1,12 @@
+{
+  "screen_id": "ui_template_utilitiespage",
+  "class_name": "UtilitiesPage",
+  "relative_path": "ui/ui_template.py",
+  "line_start": 308,
+  "line_end": 319,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/ui_template_utilitiespage.png",
+  "developer_only": true
+}

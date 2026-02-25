@@ -1,0 +1,12 @@
+{
+  "screen_id": "schedule_window_schedulewindow",
+  "class_name": "ScheduleWindow",
+  "relative_path": "ui/schedule_window.py",
+  "line_start": 23,
+  "line_end": 89,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/schedule_window_schedulewindow.png",
+  "developer_only": true
+}

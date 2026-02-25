@@ -1,0 +1,13 @@
+{
+  "developer_only": true,
+  "manifest_path": "config/graphics_style_manifest.json",
+  "profile": "retro_modern_v1",
+  "mode": "ui",
+  "model": "gpt-image-1",
+  "openai_size": "1024x1024",
+  "openai_background": "transparent",
+  "max_retries": 2,
+  "strict": true,
+  "publish": false,
+  "generated_at_utc": "2026-02-25T02:25:38Z"
+}

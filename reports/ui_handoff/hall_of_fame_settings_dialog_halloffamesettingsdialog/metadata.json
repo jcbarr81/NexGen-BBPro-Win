@@ -1,0 +1,12 @@
+{
+  "screen_id": "hall_of_fame_settings_dialog_halloffamesettingsdialog",
+  "class_name": "HallOfFameSettingsDialog",
+  "relative_path": "ui/hall_of_fame_settings_dialog.py",
+  "line_start": 24,
+  "line_end": 106,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/hall_of_fame_settings_dialog_halloffamesettingsdialog.png",
+  "developer_only": true
+}

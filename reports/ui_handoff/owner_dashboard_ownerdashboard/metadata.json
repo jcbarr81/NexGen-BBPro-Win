@@ -1,0 +1,12 @@
+{
+  "screen_id": "owner_dashboard_ownerdashboard",
+  "class_name": "OwnerDashboard",
+  "relative_path": "ui/owner_dashboard.py",
+  "line_start": 166,
+  "line_end": 2271,
+  "base_classes": [
+    "QMainWindow"
+  ],
+  "screenshot_path": "screens/owner_dashboard_ownerdashboard.png",
+  "developer_only": true
+}

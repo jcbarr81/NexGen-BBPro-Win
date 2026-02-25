@@ -1,0 +1,12 @@
+{
+  "screen_id": "owner_home_page_hotcoldwidget",
+  "class_name": "HotColdWidget",
+  "relative_path": "ui/owner_home_page.py",
+  "line_start": 1054,
+  "line_end": 1170,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/owner_home_page_hotcoldwidget.png",
+  "developer_only": true
+}

@@ -1,0 +1,12 @@
+{
+  "screen_id": "offseason_finance_dialog_offseasonfinancedialog",
+  "class_name": "OffseasonFinanceDialog",
+  "relative_path": "ui/offseason_finance_dialog.py",
+  "line_start": 146,
+  "line_end": 845,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/offseason_finance_dialog_offseasonfinancedialog.png",
+  "developer_only": true
+}

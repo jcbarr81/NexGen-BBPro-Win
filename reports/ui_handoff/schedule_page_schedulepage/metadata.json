@@ -1,0 +1,12 @@
+{
+  "screen_id": "schedule_page_schedulepage",
+  "class_name": "SchedulePage",
+  "relative_path": "ui/schedule_page.py",
+  "line_start": 5,
+  "line_end": 46,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/schedule_page_schedulepage.png",
+  "developer_only": true
+}

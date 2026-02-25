@@ -1,0 +1,12 @@
+{
+  "screen_id": "owner_home_page_divisionstandingswidget",
+  "class_name": "DivisionStandingsWidget",
+  "relative_path": "ui/owner_home_page.py",
+  "line_start": 1173,
+  "line_end": 1238,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/owner_home_page_divisionstandingswidget.png",
+  "developer_only": true
+}

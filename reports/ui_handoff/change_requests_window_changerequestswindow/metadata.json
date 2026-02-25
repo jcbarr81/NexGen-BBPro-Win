@@ -1,0 +1,12 @@
+{
+  "screen_id": "change_requests_window_changerequestswindow",
+  "class_name": "ChangeRequestsWindow",
+  "relative_path": "ui/change_requests_window.py",
+  "line_start": 30,
+  "line_end": 279,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/change_requests_window_changerequestswindow.png",
+  "developer_only": true
+}

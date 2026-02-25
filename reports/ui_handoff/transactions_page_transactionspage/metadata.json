@@ -1,0 +1,12 @@
+{
+  "screen_id": "transactions_page_transactionspage",
+  "class_name": "TransactionsPage",
+  "relative_path": "ui/transactions_page.py",
+  "line_start": 5,
+  "line_end": 30,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/transactions_page_transactionspage.png",
+  "developer_only": true
+}

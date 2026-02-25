@@ -1,0 +1,12 @@
+{
+  "screen_id": "league_manager_dialog_leaguemanagerdialog",
+  "class_name": "LeagueManagerDialog",
+  "relative_path": "ui/league_manager_dialog.py",
+  "line_start": 21,
+  "line_end": 271,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/league_manager_dialog_leaguemanagerdialog.png",
+  "developer_only": true
+}

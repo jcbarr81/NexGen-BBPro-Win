@@ -1,0 +1,12 @@
+{
+  "screen_id": "logo_tutorial_dialog_logotutorialdialog",
+  "class_name": "LogoTutorialDialog",
+  "relative_path": "ui/logo_tutorial_dialog.py",
+  "line_start": 65,
+  "line_end": 96,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/logo_tutorial_dialog_logotutorialdialog.png",
+  "developer_only": true
+}

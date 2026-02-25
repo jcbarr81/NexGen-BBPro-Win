@@ -1,0 +1,12 @@
+{
+  "screen_id": "ui_template_mainwindow",
+  "class_name": "MainWindow",
+  "relative_path": "ui/ui_template.py",
+  "line_start": 325,
+  "line_end": 477,
+  "base_classes": [
+    "QMainWindow"
+  ],
+  "screenshot_path": "screens/ui_template_mainwindow.png",
+  "developer_only": true
+}

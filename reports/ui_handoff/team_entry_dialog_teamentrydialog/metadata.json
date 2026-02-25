@@ -1,0 +1,12 @@
+{
+  "screen_id": "team_entry_dialog_teamentrydialog",
+  "class_name": "TeamEntryDialog",
+  "relative_path": "ui/team_entry_dialog.py",
+  "line_start": 15,
+  "line_end": 105,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/team_entry_dialog_teamentrydialog.png",
+  "developer_only": true
+}

@@ -1,0 +1,12 @@
+{
+  "screen_id": "ui_template_dashboardpage",
+  "class_name": "DashboardPage",
+  "relative_path": "ui/ui_template.py",
+  "line_start": 225,
+  "line_end": 267,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/ui_template_dashboardpage.png",
+  "developer_only": true
+}

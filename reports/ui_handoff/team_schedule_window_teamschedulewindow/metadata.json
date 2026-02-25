@@ -1,0 +1,12 @@
+{
+  "screen_id": "team_schedule_window_teamschedulewindow",
+  "class_name": "TeamScheduleWindow",
+  "relative_path": "ui/team_schedule_window.py",
+  "line_start": 27,
+  "line_end": 177,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/team_schedule_window_teamschedulewindow.png",
+  "developer_only": true
+}

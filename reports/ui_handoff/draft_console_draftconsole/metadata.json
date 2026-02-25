@@ -1,0 +1,12 @@
+{
+  "screen_id": "draft_console_draftconsole",
+  "class_name": "DraftConsole",
+  "relative_path": "ui/draft_console.py",
+  "line_start": 289,
+  "line_end": 1312,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/draft_console_draftconsole.png",
+  "developer_only": true
+}

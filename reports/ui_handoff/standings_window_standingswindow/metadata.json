@@ -1,0 +1,12 @@
+{
+  "screen_id": "standings_window_standingswindow",
+  "class_name": "StandingsWindow",
+  "relative_path": "ui/standings_window.py",
+  "line_start": 64,
+  "line_end": 275,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/standings_window_standingswindow.png",
+  "developer_only": true
+}

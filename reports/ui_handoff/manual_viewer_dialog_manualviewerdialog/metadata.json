@@ -1,0 +1,12 @@
+{
+  "screen_id": "manual_viewer_dialog_manualviewerdialog",
+  "class_name": "ManualViewerDialog",
+  "relative_path": "ui/manual_viewer_dialog.py",
+  "line_start": 164,
+  "line_end": 298,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/manual_viewer_dialog_manualviewerdialog.png",
+  "developer_only": true
+}

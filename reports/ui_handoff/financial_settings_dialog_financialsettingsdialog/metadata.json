@@ -1,0 +1,12 @@
+{
+  "screen_id": "financial_settings_dialog_financialsettingsdialog",
+  "class_name": "FinancialSettingsDialog",
+  "relative_path": "ui/financial_settings_dialog.py",
+  "line_start": 155,
+  "line_end": 601,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/financial_settings_dialog_financialsettingsdialog.png",
+  "developer_only": true
+}

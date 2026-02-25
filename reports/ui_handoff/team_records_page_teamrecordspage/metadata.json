@@ -1,0 +1,12 @@
+{
+  "screen_id": "team_records_page_teamrecordspage",
+  "class_name": "TeamRecordsPage",
+  "relative_path": "ui/team_records_page.py",
+  "line_start": 71,
+  "line_end": 254,
+  "base_classes": [
+    "QWidget"
+  ],
+  "screenshot_path": "screens/team_records_page_teamrecordspage.png",
+  "developer_only": true
+}

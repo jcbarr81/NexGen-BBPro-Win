@@ -1,0 +1,12 @@
+{
+  "screen_id": "injury_settings_dialog_injurysettingsdialog",
+  "class_name": "InjurySettingsDialog",
+  "relative_path": "ui/injury_settings_dialog.py",
+  "line_start": 23,
+  "line_end": 77,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/injury_settings_dialog_injurysettingsdialog.png",
+  "developer_only": true
+}

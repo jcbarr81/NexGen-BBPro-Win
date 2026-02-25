@@ -1,0 +1,12 @@
+{
+  "screen_id": "news_window_newswindow",
+  "class_name": "NewsWindow",
+  "relative_path": "ui/news_window.py",
+  "line_start": 49,
+  "line_end": 112,
+  "base_classes": [
+    "QDialog"
+  ],
+  "screenshot_path": "screens/news_window_newswindow.png",
+  "developer_only": true
+}
