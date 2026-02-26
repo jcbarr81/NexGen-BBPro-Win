@@ -4824,6 +4824,4830 @@
       "budgets_reviewed": false,
       "free_agency_started": false,
       "offseason_finalized": false
+    },
+    "2050": {
+      "completed": true,
+      "completed_at": "2026-02-25T16:21:19Z",
+      "next_season_year": 2051,
+      "snapshot_path": "finance_snapshots/2050.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2051": {
+      "completed": true,
+      "completed_at": "2026-02-25T16:21:25Z",
+      "next_season_year": 2052,
+      "snapshot_path": "finance_snapshots/2051.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2052": {
+      "completed": true,
+      "completed_at": "2026-02-25T16:21:31Z",
+      "next_season_year": 2053,
+      "snapshot_path": "finance_snapshots/2052.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2053": {
+      "completed": true,
+      "completed_at": "2026-02-25T16:21:37Z",
+      "next_season_year": 2054,
+      "snapshot_path": "finance_snapshots/2053.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2054": {
+      "completed": true,
+      "completed_at": "2026-02-25T16:21:44Z",
+      "next_season_year": 2055,
+      "snapshot_path": "finance_snapshots/2054.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2055": {
+      "completed": true,
+      "completed_at": "2026-02-25T16:21:50Z",
+      "next_season_year": 2056,
+      "snapshot_path": "finance_snapshots/2055.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2056": {
+      "completed": true,
+      "completed_at": "2026-02-25T16:21:57Z",
+      "next_season_year": 2057,
+      "snapshot_path": "finance_snapshots/2056.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2057": {
+      "completed": true,
+      "completed_at": "2026-02-25T16:22:04Z",
+      "next_season_year": 2058,
+      "snapshot_path": "finance_snapshots/2057.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2058": {
+      "completed": true,
+      "completed_at": "2026-02-25T18:54:27Z",
+      "next_season_year": 2059,
+      "snapshot_path": "finance_snapshots/2058.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2059": {
+      "completed": true,
+      "completed_at": "2026-02-25T18:54:34Z",
+      "next_season_year": 2060,
+      "snapshot_path": "finance_snapshots/2059.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2060": {
+      "completed": true,
+      "completed_at": "2026-02-25T18:54:42Z",
+      "next_season_year": 2061,
+      "snapshot_path": "finance_snapshots/2060.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2061": {
+      "completed": true,
+      "completed_at": "2026-02-25T18:54:50Z",
+      "next_season_year": 2062,
+      "snapshot_path": "finance_snapshots/2061.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2062": {
+      "completed": true,
+      "completed_at": "2026-02-25T18:54:59Z",
+      "next_season_year": 2063,
+      "snapshot_path": "finance_snapshots/2062.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2063": {
+      "completed": true,
+      "completed_at": "2026-02-25T18:55:07Z",
+      "next_season_year": 2064,
+      "snapshot_path": "finance_snapshots/2063.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2064": {
+      "completed": true,
+      "completed_at": "2026-02-25T18:55:16Z",
+      "next_season_year": 2065,
+      "snapshot_path": "finance_snapshots/2064.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2065": {
+      "completed": true,
+      "completed_at": "2026-02-25T18:55:25Z",
+      "next_season_year": 2066,
+      "snapshot_path": "finance_snapshots/2065.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2066": {
+      "completed": true,
+      "completed_at": "2026-02-25T19:57:39Z",
+      "next_season_year": 2067,
+      "snapshot_path": "finance_snapshots/2066.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2067": {
+      "completed": true,
+      "completed_at": "2026-02-25T19:57:48Z",
+      "next_season_year": 2068,
+      "snapshot_path": "finance_snapshots/2067.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2068": {
+      "completed": true,
+      "completed_at": "2026-02-25T19:57:57Z",
+      "next_season_year": 2069,
+      "snapshot_path": "finance_snapshots/2068.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2069": {
+      "completed": true,
+      "completed_at": "2026-02-25T19:58:07Z",
+      "next_season_year": 2070,
+      "snapshot_path": "finance_snapshots/2069.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2070": {
+      "completed": true,
+      "completed_at": "2026-02-25T19:58:17Z",
+      "next_season_year": 2071,
+      "snapshot_path": "finance_snapshots/2070.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2071": {
+      "completed": true,
+      "completed_at": "2026-02-25T19:58:27Z",
+      "next_season_year": 2072,
+      "snapshot_path": "finance_snapshots/2071.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2072": {
+      "completed": true,
+      "completed_at": "2026-02-25T19:58:37Z",
+      "next_season_year": 2073,
+      "snapshot_path": "finance_snapshots/2072.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
+    },
+    "2073": {
+      "completed": true,
+      "completed_at": "2026-02-25T19:58:48Z",
+      "next_season_year": 2074,
+      "snapshot_path": "finance_snapshots/2073.json",
+      "arbitration_awards": 0,
+      "arbitration_salary_delta": 0,
+      "teams_reset": 20,
+      "arbitration_details": [],
+      "payroll_accounting_level": "basic",
+      "payroll_accounting_teams_penalized": 0,
+      "payroll_accounting_tax_total": 0,
+      "payroll_accounting_floor_fee_total": 0,
+      "payroll_accounting_details": [
+        {
+          "team_id": "ALB",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "BOS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "CHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "DET",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "ELP",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "FOR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "HOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "IND",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "JAC",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "LOU",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "MIL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "NAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "OKL",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHI",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "PHO",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "POR",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN1",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "SAN2",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        },
+        {
+          "team_id": "WAS",
+          "payroll": 0,
+          "threshold": 120000000,
+          "floor": 0,
+          "tax_penalty": 0,
+          "floor_fee": 0,
+          "applied": false
+        }
+      ],
+      "contracts_reviewed": false,
+      "arbitration_reviewed": false,
+      "budgets_reviewed": false,
+      "free_agency_started": false,
+      "offseason_finalized": false
     }
   }
 }

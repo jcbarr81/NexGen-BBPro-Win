@@ -1,1 +1,0 @@
-- Build packaging now includes `ui/resources` so installed releases contain bundled stylesheet/theme resource files.

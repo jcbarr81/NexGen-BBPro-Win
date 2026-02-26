@@ -1,4 +1,4 @@
-<!-- last_build_ref: a18b727fd9650fb696cc99e9634aa40b1c3dea6e -->
+<!-- last_build_ref: b20ab6507191e77ce8caba6812790f3a97e0652c -->
 # 4.5 Release Notes (Since 4.3.41)
 
 ## League Setup & Presets
@@ -688,3 +688,20 @@ Date: 2026-02-25
 Date: 2026-02-25
 
 - 5.1.2
+
+# 5.1.3 Release Notes (Since last build a18b727)
+Date: 2026-02-25
+
+- 5.1.3
+- Build packaging now includes `ui/resources` so installed releases contain bundled stylesheet/theme resource files.
+
+# 5.1.4 Release Notes (Since last build b20ab65)
+Date: 2026-02-25
+
+- Build packaging now includes `ui/resources` so installed releases contain bundled stylesheet/theme resource files.
+- Installer finish page now includes checkboxes to launch NexGen BBPro and open the game manual after setup completes.
+
+# 5.1.5 Release Notes (Since last build b20ab65)
+Date: 2026-02-25
+
+- Installer now opens a browser-optimized manual page (`game_manual_installer.html`) so post-install manual text remains readable without changing in-app manual styling.

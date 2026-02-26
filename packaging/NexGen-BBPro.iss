@@ -3,7 +3,7 @@
 [Setup]
 AppId={{1e5875ae-6b82-4c87-8172-ceafc7d08661}}
 AppName=NexGen BBPro
-AppVersion=5.1.3
+AppVersion=5.1.5
 AppPublisher=NexGen BBPro
 DefaultDirName={pf}\NexGen-BBPro
 DefaultGroupName=NexGen BBPro
@@ -36,6 +36,10 @@ Source: "NexGen-BBPro.ico"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{autoprograms}\NexGen BBPro"; Filename: "{app}\NexGen-BBPro.exe"; WorkingDir: "{app}"; IconFilename: "{app}\NexGen-BBPro.ico"
 Name: "{autodesktop}\NexGen BBPro"; Filename: "{app}\NexGen-BBPro.exe"; Tasks: desktopicon; WorkingDir: "{app}"; IconFilename: "{app}\NexGen-BBPro.ico"
+
+[Run]
+Filename: "{app}\NexGen-BBPro.exe"; Description: "Launch NexGen BBPro"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\_internal\docs\manuals\game_manual_installer.html"; Description: "Open the game manual"; Flags: postinstall shellexec skipifsilent skipifdoesntexist unchecked
 
 [Code]
 var
