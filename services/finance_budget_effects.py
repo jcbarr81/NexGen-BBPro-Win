@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 import json
 from pathlib import Path
 from typing import Dict, Mapping
 
 from services.finance_settings import LEVEL_OFF, load_financial_settings
 from services.owner_finance_engine import project_monthly_owner_finance
+from services.scouting_service import (
+    TeamScoutingProfile,
+    scouting_observed_value,
+    team_scouting_profile,
+)
 from utils.path_utils import get_data_dir
 
 __all__ = [
@@ -188,7 +192,7 @@ def scouting_display_profile_for_team(
     data_dir: Path | str | None = None,
     league_id: str | None = None,
 ) -> ScoutingDisplayProfile:
-    """Return scouting-confidence metadata for display-only rating uncertainty."""
+    """Return scouting-confidence metadata for rating uncertainty display."""
 
     clean_team_id = str(team_id or "").strip().upper()
     resolved_data_dir = _resolve_data_dir(data_dir)
@@ -196,41 +200,28 @@ def scouting_display_profile_for_team(
         path=resolved_data_dir / "league_financial_settings.json",
         league_id=league_id,
     )
-    if (not settings.enabled) or settings.module_level("owner_budgets") == LEVEL_OFF:
-        return ScoutingDisplayProfile(
-            team_id=clean_team_id,
-            scouting_multiplier=1.0,
-            confidence_score=100,
-            confidence_label="Exact",
-            max_rating_error=0,
-        )
-
-    profile = list_team_budget_effects(
+    finance_enabled = bool(settings.enabled) and settings.module_level("owner_budgets") != LEVEL_OFF
+    if finance_enabled:
+        budget_profile = list_team_budget_effects(
+            data_dir=resolved_data_dir,
+            league_id=league_id,
+        ).get(clean_team_id)
+        scouting_multiplier = float(budget_profile.scouting_multiplier) if budget_profile is not None else 1.0
+    else:
+        scouting_multiplier = 1.0
+    profile = team_scouting_profile(
+        clean_team_id,
+        finance_enabled=finance_enabled,
+        finance_multiplier=scouting_multiplier,
         data_dir=resolved_data_dir,
         league_id=league_id,
-    ).get(clean_team_id)
-    scouting_multiplier = (
-        float(profile.scouting_multiplier) if profile is not None else 1.0
     )
-    normalized = _clamp((scouting_multiplier - 0.85) / 0.30, 0.0, 1.0)
-    confidence = int(round(normalized * 100))
-    if confidence >= 85:
-        label = "Elite"
-    elif confidence >= 65:
-        label = "High"
-    elif confidence >= 35:
-        label = "Moderate"
-    else:
-        label = "Low"
-
-    raw_error = 1.0 + (((1.15 - scouting_multiplier) / 0.30) * 3.0)
-    max_rating_error = int(round(_clamp(raw_error, 1.0, 4.0)))
     return ScoutingDisplayProfile(
         team_id=clean_team_id,
-        scouting_multiplier=round(scouting_multiplier, 4),
-        confidence_score=max(0, min(100, confidence)),
-        confidence_label=label,
-        max_rating_error=max_rating_error,
+        scouting_multiplier=round(float(profile.scouting_multiplier), 4),
+        confidence_score=max(0, min(100, int(profile.confidence_score))),
+        confidence_label=str(profile.confidence_label or "Low"),
+        max_rating_error=max(0, int(profile.max_rating_error)),
     )
 
 
@@ -245,7 +236,7 @@ def scouting_display_value(
     minimum: int = 0,
     maximum: int = 99,
 ) -> object:
-    """Return a deterministic scouting-adjusted display value."""
+    """Return deterministic scouting-adjusted display value."""
 
     try:
         numeric = float(value)
@@ -257,20 +248,22 @@ def scouting_display_value(
         data_dir=data_dir,
         league_id=league_id,
     )
-    if profile.max_rating_error <= 0:
-        rounded = int(round(numeric))
-        return int(_clamp(float(rounded), float(minimum), float(maximum)))
-
-    clean_player_id = str(player_id or "").strip() or "unknown"
-    clean_team_id = str(team_id or "").strip().upper() or "NA"
-    clean_key = str(metric_key or "").strip().upper() or "RATING"
-    spread = profile.max_rating_error
-    offset = _deterministic_offset(
-        f"{clean_player_id}|{clean_team_id}|{clean_key}",
-        spread,
+    return scouting_observed_value(
+        numeric,
+        team_profile=TeamScoutingProfile(
+            enabled=profile.max_rating_error > 0,
+            team_id=str(profile.team_id or ""),
+            scouting_multiplier=float(profile.scouting_multiplier),
+            confidence_score=int(profile.confidence_score),
+            confidence_label=str(profile.confidence_label or ""),
+            max_rating_error=int(profile.max_rating_error),
+        ),
+        player_id=player_id,
+        metric_key=metric_key,
+        team_id=team_id,
+        minimum=minimum,
+        maximum=maximum,
     )
-    adjusted = int(round(numeric + offset))
-    return int(_clamp(float(adjusted), float(minimum), float(maximum)))
 
 
 def _resolve_data_dir(data_dir: Path | str | None) -> Path:
@@ -288,15 +281,6 @@ def _safe_int(value: object) -> int:
 
 def _clamp(value: float, min_value: float, max_value: float) -> float:
     return max(min_value, min(max_value, float(value)))
-
-
-def _deterministic_offset(token: str, spread: int) -> int:
-    if spread <= 0:
-        return 0
-    digest = hashlib.sha256(token.encode("utf-8")).digest()
-    raw = int.from_bytes(digest[:4], byteorder="big", signed=False)
-    span = (spread * 2) + 1
-    return (raw % span) - spread
 
 
 def _budget_multiplier(current: object, target: object) -> float:

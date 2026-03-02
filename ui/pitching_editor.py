@@ -1,8 +1,39 @@
-from PyQt6.QtWidgets import QDialog, QLabel, QVBoxLayout, QGridLayout, QComboBox, QPushButton, QMessageBox
+from PyQt6.QtWidgets import (
+    QDialog,
+    QLabel,
+    QVBoxLayout,
+    QGridLayout,
+    QComboBox,
+    QPushButton,
+    QMessageBox,
+    QGroupBox,
+    QHBoxLayout,
+)
 try:
     from PyQt6.QtCore import QEvent, QTimer
 except ImportError:  # pragma: no cover - fallback for lightweight test stubs
-    from PyQt6.QtCore import QTimer
+    try:
+        from PyQt6.QtCore import QTimer
+    except ImportError:  # pragma: no cover - fallback when QTimer is not stubbed
+        class _DummySignal:
+            def connect(self, *_args, **_kwargs) -> None:
+                return None
+
+        class QTimer:  # type: ignore[too-many-ancestors]
+            def __init__(self, *_args, **_kwargs) -> None:
+                self.timeout = _DummySignal()
+
+            def setSingleShot(self, *_args, **_kwargs) -> None:
+                return None
+
+            def setInterval(self, *_args, **_kwargs) -> None:
+                return None
+
+            def start(self, *_args, **_kwargs) -> None:
+                return None
+
+            def stop(self, *_args, **_kwargs) -> None:
+                return None
 
     class QEvent:  # type: ignore[too-many-ancestors]
         class Type:
@@ -26,7 +57,7 @@ class PitchingEditor(QDialog):
         self.team_id = team_id
         self._base_title = "Pitching Staff Editor"
         self.setWindowTitle(self._base_title)
-        self.setMinimumSize(500, 500)
+        self.setMinimumSize(760, 560)
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setSingleShot(True)
         self._autosave_timer.setInterval(1500)
@@ -34,9 +65,27 @@ class PitchingEditor(QDialog):
         self._recovery_checked = False
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
+
+        status_group = QGroupBox("Staff Status")
+        status_layout = QVBoxLayout()
+        status_layout.setContentsMargins(10, 8, 10, 8)
+        status_layout.setSpacing(4)
         self.dirty_label = QLabel("All changes saved.")
         self.dirty_label.setStyleSheet("color: #888888;")
-        layout.addWidget(self.dirty_label)
+        status_layout.addWidget(self.dirty_label)
+        self.staff_health_label = QLabel("Filled: 0/9 | Duplicates: 0")
+        self.staff_health_label.setStyleSheet("color: #666666;")
+        status_layout.addWidget(self.staff_health_label)
+        status_hint = QLabel(
+            "Tip: Double-click a pitcher name to open the player profile."
+        )
+        status_hint.setWordWrap(True)
+        status_hint.setStyleSheet("color: #777777; font-size: 11px;")
+        status_layout.addWidget(status_hint)
+        status_group.setLayout(status_layout)
+        layout.addWidget(status_group)
 
         self.roles = ["SP1", "SP2", "SP3", "SP4", "SP5", "LR", "MR", "SU", "CL"]
         self.pitcher_dropdowns = {}
@@ -44,7 +93,14 @@ class PitchingEditor(QDialog):
         self.players_dict = self.load_players_dict()
         self.act_ids = self.get_act_level_ids()
 
+        assignments_group = QGroupBox("Role Assignments")
+        assignments_layout = QVBoxLayout()
+        assignments_layout.setContentsMargins(10, 8, 10, 8)
+        assignments_layout.setSpacing(6)
+
         grid = QGridLayout()
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(6)
         for i, role in enumerate(self.roles):
             label = QLabel(role)
             dropdown = QComboBox()
@@ -52,27 +108,37 @@ class PitchingEditor(QDialog):
             for pid, pdata in self.players_dict.items():
                 if pid in self.act_ids and get_role(pdata):
                     dropdown.addItem(pdata["name"], userData=pid)
-            dropdown.currentIndexChanged.connect(self._schedule_autosave)
+            dropdown.currentIndexChanged.connect(self._on_assignment_changed)
             self.pitcher_dropdowns[role] = dropdown
             grid.addWidget(label, i, 0)
             grid.addWidget(dropdown, i, 1)
 
-        layout.addLayout(grid)
+        assignments_layout.addLayout(grid)
+        assignments_group.setLayout(assignments_layout)
+        layout.addWidget(assignments_group)
 
-        save_btn = QPushButton("Save Pitching Staff")
-        save_btn.clicked.connect(self.save_pitching_staff)
-        layout.addWidget(save_btn)
+        action_group = QGroupBox("Actions")
+        action_layout = QHBoxLayout()
+        action_layout.setContentsMargins(10, 8, 10, 8)
+        action_layout.setSpacing(8)
+        self.save_button = QPushButton("Save Pitching Staff")
+        self.save_button.setObjectName("Primary")
+        self.save_button.clicked.connect(self.save_pitching_staff)
+        action_layout.addWidget(self.save_button)
 
-        autofill_btn = QPushButton("Auto-Fill Staff")
-        autofill_btn.clicked.connect(self.autofill_staff)
-        layout.addWidget(autofill_btn)
+        self.autofill_button = QPushButton("Auto-Fill Staff")
+        self.autofill_button.clicked.connect(self.autofill_staff)
+        action_layout.addWidget(self.autofill_button)
 
-        clear_btn = QPushButton("Clear Staff")
-        clear_btn.clicked.connect(self.clear_staff)
-        layout.addWidget(clear_btn)
+        self.clear_button = QPushButton("Clear Staff")
+        self.clear_button.clicked.connect(self.clear_staff)
+        action_layout.addWidget(self.clear_button)
+        action_group.setLayout(action_layout)
+        layout.addWidget(action_group)
 
         self._baseline = []
         self._load_staff_with_recovery()
+        self._update_staff_health()
 
     def _player_lookup(self):
         cache = getattr(self, "_player_lookup_cache", None)
@@ -174,6 +240,7 @@ class PitchingEditor(QDialog):
                                     break
         if set_baseline:
             self._refresh_baseline()
+        self._update_staff_health()
 
     def autofill_staff(self):
         available = [
@@ -191,11 +258,14 @@ class PitchingEditor(QDialog):
                 if dropdown.itemData(i) == pid:
                     dropdown.setCurrentIndex(i)
                     break
+        self._schedule_autosave()
+        self._update_staff_health()
 
     def clear_staff(self):
         for dropdown in self.pitcher_dropdowns.values():
             dropdown.setCurrentIndex(-1)
         self._schedule_autosave()
+        self._update_staff_health()
 
     def _prompt_recovery_choice(self, title: str, message: str) -> str:
         box = QMessageBox(self)
@@ -243,6 +313,7 @@ class PitchingEditor(QDialog):
             clear_recovery(get_data_dir() / "rosters" / f"{self.team_id}_pitching.csv")
             return
         self._autosave_timer.start()
+        self._update_staff_health()
 
     def _write_recovery(self) -> None:
         if not self._has_unsaved_changes():
@@ -273,6 +344,7 @@ class PitchingEditor(QDialog):
     def _refresh_baseline(self):
         self._baseline = self._snapshot_staff()
         self._set_dirty_state(False)
+        self._update_staff_health()
 
     def _has_unsaved_changes(self) -> bool:
         return self._snapshot_staff() != getattr(self, "_baseline", [])
@@ -286,6 +358,25 @@ class PitchingEditor(QDialog):
             self.dirty_label.setText("All changes saved.")
             self.dirty_label.setStyleSheet("color: #888888;")
             self.setWindowTitle(self._base_title)
+
+    def _on_assignment_changed(self) -> None:
+        self._schedule_autosave()
+        self._update_staff_health()
+
+    def _update_staff_health(self) -> None:
+        selected_ids = [dropdown.currentData() for dropdown in self.pitcher_dropdowns.values()]
+        filled_ids = [pid for pid in selected_ids if pid]
+        filled = len(filled_ids)
+        duplicate_count = max(0, filled - len(set(filled_ids)))
+        self.staff_health_label.setText(
+            f"Filled: {filled}/9 | Duplicates: {duplicate_count}"
+        )
+        if duplicate_count > 0:
+            self.staff_health_label.setStyleSheet("color: #b54708; font-weight: 600;")
+        elif filled < len(self.roles):
+            self.staff_health_label.setStyleSheet("color: #666666;")
+        else:
+            self.staff_health_label.setStyleSheet("color: #12703d; font-weight: 600;")
 
     def closeEvent(self, event):  # noqa: N802 - Qt signature
         if not self._has_unsaved_changes():

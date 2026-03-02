@@ -4,6 +4,7 @@ from typing import Dict, Mapping
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QInputDialog,
     QLineEdit,
@@ -23,7 +24,10 @@ from services.contracts_service import (
     set_contract_option_decision,
 )
 from services.finance_settings import load_financial_settings
-from services.finance_budget_effects import training_camp_multiplier_for_team
+from services.finance_budget_effects import (
+    list_team_budget_effects,
+    training_camp_multiplier_for_team,
+)
 from services.gm_finance_queue import (
     apply_recommended_arbitration_decisions,
     apply_recommended_free_agency_targets,
@@ -38,6 +42,10 @@ from services.owner_finance_engine import (
     update_team_budget_targets,
 )
 from services.payroll_engine import calculate_annual_payroll_totals, load_contracts
+from services.scouting_service import (
+    load_team_scouting_controls,
+    set_team_scouting_intensity,
+)
 from utils.league_settings import is_owner_league, load_league_settings
 from .components import Card, section_title
 from .manual_viewer_dialog import DOC_FINANCE_MANUAL, ManualViewerDialog
@@ -65,6 +73,11 @@ _OWNER_BUDGET_LABELS = {
     "development": "Development",
     "facilities": "Facilities",
 }
+_SCOUTING_INTENSITY_OPTIONS = (
+    ("low", "Low"),
+    ("normal", "Normal"),
+    ("high", "High"),
+)
 
 
 class OwnerFinancePage(QWidget):
@@ -150,6 +163,27 @@ class OwnerFinancePage(QWidget):
         self.save_budgets_button.clicked.connect(self._save_budget_targets)
         self.budgets_card.layout().addWidget(self.save_budgets_button)
         owner_layout.addWidget(self.budgets_card)
+
+        self.scouting_card = Card()
+        self.scouting_card.layout().addWidget(section_title("Scouting Controls"))
+        self.scouting_hint_label = QLabel("")
+        self.scouting_hint_label.setWordWrap(True)
+        self.scouting_card.layout().addWidget(self.scouting_hint_label)
+        scouting_row = QHBoxLayout()
+        scouting_row.setSpacing(10)
+        scouting_row.addWidget(QLabel("Scouting Intensity"))
+        self.scouting_intensity_combo = QComboBox()
+        for value, label in _SCOUTING_INTENSITY_OPTIONS:
+            self.scouting_intensity_combo.addItem(label, value)
+        scouting_row.addWidget(self.scouting_intensity_combo, stretch=1)
+        self.save_scouting_button = QPushButton("Save Scouting Intensity")
+        self.save_scouting_button.clicked.connect(self._save_scouting_intensity)
+        scouting_row.addWidget(self.save_scouting_button)
+        self.scouting_card.layout().addLayout(scouting_row)
+        self.scouting_status_label = QLabel("")
+        self.scouting_status_label.setWordWrap(True)
+        self.scouting_card.layout().addWidget(self.scouting_status_label)
+        owner_layout.addWidget(self.scouting_card)
 
         self.history_card = Card()
         self.history_card.layout().addWidget(section_title("Finance Transaction History"))
@@ -1040,6 +1074,102 @@ class OwnerFinancePage(QWidget):
         self._show_status("Budget targets saved.")
         self.refresh()
 
+    def _save_scouting_intensity(self) -> None:
+        team_id = str(getattr(self._dashboard, "team_id", "") or "").strip()
+        if not team_id:
+            self._show_status("Unable to resolve team id for scouting update.")
+            return
+        intensity = str(self.scouting_intensity_combo.currentData() or "normal")
+        result = set_team_scouting_intensity(team_id, intensity)
+        if not bool(result.get("saved")):
+            self._show_status(
+                str(result.get("message") or "Unable to save scouting intensity.")
+            )
+            return
+        self._show_status("Scouting intensity saved.")
+        self.refresh()
+
+    def _refresh_scouting_controls(self, *, team_id: str, settings) -> None:
+        if not team_id:
+            self.scouting_hint_label.setText("Scouting controls are unavailable.")
+            self.scouting_status_label.setText("Unable to resolve team id.")
+            self.scouting_intensity_combo.setEnabled(False)
+            self.save_scouting_button.setEnabled(False)
+            return
+
+        uses_budget_model = bool(settings.enabled) and (
+            settings.module_level("owner_budgets") != "off"
+        )
+        scouting_multiplier = 1.0
+        if uses_budget_model:
+            try:
+                effects = list_team_budget_effects()
+                effect = effects.get(team_id)
+                if effect is not None:
+                    scouting_multiplier = float(effect.scouting_multiplier)
+            except Exception:
+                scouting_multiplier = 1.0
+
+        controls = load_team_scouting_controls(
+            team_id,
+            finance_enabled=uses_budget_model,
+            finance_multiplier=scouting_multiplier,
+        )
+        intensity = str(controls.get("intensity") or "normal")
+        index = self.scouting_intensity_combo.findData(intensity)
+        self.scouting_intensity_combo.setCurrentIndex(index if index >= 0 else 0)
+
+        scouting_enabled = bool(controls.get("enabled"))
+        if scouting_enabled:
+            self.scouting_hint_label.setText(
+                "Adjust scouting intensity to trade off faster confidence growth against credit usage."
+            )
+        else:
+            self.scouting_hint_label.setText(
+                "Scouting fog-of-war is currently disabled by commissioner settings."
+            )
+        self.scouting_status_label.setText(
+            self._format_scouting_controls_summary(
+                controls=controls,
+                uses_budget_model=uses_budget_model,
+            )
+        )
+        self.scouting_intensity_combo.setEnabled(scouting_enabled)
+        self.save_scouting_button.setEnabled(scouting_enabled)
+
+    @staticmethod
+    def _format_scouting_controls_summary(
+        *,
+        controls: Mapping[str, object],
+        uses_budget_model: bool,
+    ) -> str:
+        if not bool(controls.get("enabled")):
+            return "Fog-of-war disabled: player ratings display exact values."
+
+        confidence_score = int(controls.get("confidence_score", 0) or 0)
+        confidence_label = str(controls.get("confidence_label") or "Low")
+        max_error = int(controls.get("max_rating_error", 0) or 0)
+        intensity = str(controls.get("intensity") or "normal").title()
+        credits = float(controls.get("credits", 0.0) or 0.0)
+        multiplier = float(controls.get("scouting_multiplier", 1.0) or 1.0)
+        monthly_income = float(controls.get("estimated_monthly_income", 0.0) or 0.0)
+        mode_line = (
+            "Mode: Finance + budget-linked scouting progression."
+            if uses_budget_model
+            else "Mode: League baseline progression (finance off or owner budgets disabled)."
+        )
+        return "\n".join(
+            [
+                f"Confidence: {confidence_score}% ({confidence_label})",
+                f"Estimated Rating Error Band: ±{max_error}",
+                f"Intensity: {intensity}",
+                f"Banked Credits: {credits:.1f}",
+                f"Effective Multiplier: {multiplier:.2f}x",
+                f"Estimated Monthly Credits: {monthly_income:.1f}",
+                mode_line,
+            ]
+        )
+
     def refresh(self) -> None:
         team_id = str(getattr(self._dashboard, "team_id", "") or "").strip()
         self._requires_commissioner_review = self._resolve_requires_commissioner_review()
@@ -1103,6 +1233,7 @@ class OwnerFinancePage(QWidget):
             self.history_list.addItem(
                 QListWidgetItem("No finance transactions recorded.")
             )
+            self._refresh_scouting_controls(team_id=team_id, settings=settings)
             return
 
         status_lines = [
@@ -1217,6 +1348,7 @@ class OwnerFinancePage(QWidget):
                     field.setEnabled(False)
             self.save_budgets_button.setEnabled(False)
         self.projections_label.setText("\n".join(projection_lines))
+        self._refresh_scouting_controls(team_id=team_id, settings=settings)
 
         rows = list_team_financial_transactions(team_id, limit=50)
         if not rows:

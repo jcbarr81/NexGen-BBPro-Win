@@ -49,6 +49,15 @@ class LeagueSettingsPage(DashboardPage):
             alignment=Qt.AlignmentFlag.AlignHCenter,
         )
 
+        self.team_strategy_profiles_button = QPushButton("Team Strategy Profiles")
+        self.team_strategy_profiles_button.setToolTip(
+            "Set league/team strategy profiles for automation behavior"
+        )
+        rules.layout().addWidget(
+            self.team_strategy_profiles_button,
+            alignment=Qt.AlignmentFlag.AlignHCenter,
+        )
+
         self.finance_stability_button = QPushButton("Finance Stability Simulation")
         self.finance_stability_button.setToolTip(
             "Run multi-season financial stability simulations and export reports"

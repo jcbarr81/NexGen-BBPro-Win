@@ -83,9 +83,11 @@ from .hall_of_fame_settings_dialog import HallOfFameSettingsDialog
 from .trade_settings_dialog import TradeSettingsDialog
 from .financial_settings_dialog import FinancialSettingsDialog
 from .finance_stability_dialog import FinanceStabilityDialog
+from .team_strategy_settings_dialog import TeamStrategySettingsDialog
 from .offseason_finance_dialog import OffseasonFinanceDialog
 from .gm_finance_queue_dialog import GmFinanceQueueDialog
 from .league_manager_dialog import LeagueManagerDialog
+from .league_command_center_window import LeagueCommandCenterWindow
 from .avatar_tutorial_dialog import AvatarTutorialDialog
 from .logo_tutorial_dialog import LogoTutorialDialog
 from .manual_viewer_dialog import (
@@ -347,6 +349,7 @@ class MainWindow(QMainWindow):
             "league_setup": "admin_tutorial_league_setup",
             "users": "admin_tutorial_users",
             "season_progression": "admin_tutorial_season_progression",
+            "command_center": "admin_tutorial_command_center",
             "transactions": "admin_tutorial_transactions",
             "exports": "admin_tutorial_exports",
         }
@@ -381,6 +384,7 @@ class MainWindow(QMainWindow):
             season_page.exhibition_button.clicked.connect(self.open_exhibition_dialog)
             season_page.season_progress_button.clicked.connect(self.open_season_progress)
             season_page.playoffs_view_button.clicked.connect(self.open_playoffs_window)
+            season_page.command_center_button.clicked.connect(self.open_league_command_center)
             season_page.regenerate_schedule_button.clicked.connect(self.regenerate_regular_season_schedule)
             season_page.reset_opening_day_button.clicked.connect(self.reset_to_opening_day)
             season_page.league_history_button.clicked.connect(self.open_league_history)
@@ -394,6 +398,7 @@ class MainWindow(QMainWindow):
             settings.injury_center_button.clicked.connect(self.open_injury_center)
             settings.injury_settings_button.clicked.connect(self.open_injury_settings)
             settings.financial_settings_button.clicked.connect(self.open_financial_settings)
+            settings.team_strategy_profiles_button.clicked.connect(self.open_team_strategy_profiles)
             settings.finance_stability_button.clicked.connect(self.open_finance_stability)
             settings.free_agency_hub_button.clicked.connect(self.open_free_agency)
             settings.hall_of_fame_settings_button.clicked.connect(self.open_hall_of_fame_settings)
@@ -515,6 +520,7 @@ class MainWindow(QMainWindow):
             ("League Setup & Manager", self.show_admin_league_setup_tutorial),
             ("User Management & Roles", self.show_admin_user_management_tutorial),
             ("Season Progression Flow", self.show_admin_season_progression_tutorial),
+            ("League Command Center", self.show_admin_command_center_tutorial),
             ("Trade & Review Queues", self.show_admin_transaction_queues_tutorial),
             ("Exports & Utilities", self.show_admin_exports_utilities_tutorial),
         ]
@@ -723,7 +729,8 @@ class MainWindow(QMainWindow):
             TutorialStep(
                 "Policy Baseline",
                 "<p>Before season start, review <b>Trade Settings</b>, <b>Financial System Settings</b>, "
-                "<b>Injury Settings</b>, and <b>Hall of Fame Settings</b> to lock commissioner defaults.</p>",
+                "<b>Team Strategy Profiles</b>, <b>Injury Settings</b>, and <b>Hall of Fame Settings</b> "
+                "to lock commissioner defaults.</p>",
             ),
         ]
         self._run_admin_tutorial(
@@ -778,6 +785,31 @@ class MainWindow(QMainWindow):
         self._run_admin_tutorial(
             self._admin_tutorial_keys["season_progression"],
             "Season Progression Flow",
+            steps,
+            force=force,
+        )
+
+    def show_admin_command_center_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Open Command Center",
+                "<p>Use <b>Season -> Open League Command Center</b> for a unified triage board covering"
+                " injuries, approval queues, roster conflicts, deadlines, and finance risk alerts.</p>",
+            ),
+            TutorialStep(
+                "Severity and Counts",
+                "<p>Each card surfaces severity and item count so commissioners can prioritize urgent league"
+                " operations before progressing simulation dates.</p>",
+            ),
+            TutorialStep(
+                "Refresh Habit",
+                "<p>Refresh the command center after major simulation, trade review, or finance actions to"
+                " confirm queues and risk cards have cleared as expected.</p>",
+            ),
+        ]
+        self._run_admin_tutorial(
+            self._admin_tutorial_keys["command_center"],
+            "League Command Center",
             steps,
             force=force,
         )
@@ -1253,6 +1285,13 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def open_team_strategy_profiles(self) -> None:
+        try:
+            dialog = TeamStrategySettingsDialog(self)
+            dialog.exec()
+        except Exception:
+            pass
+
     def open_finance_stability(self) -> None:
         try:
             dialog = FinanceStabilityDialog(self)
@@ -1285,6 +1324,12 @@ class MainWindow(QMainWindow):
             self._playoffs_win.show()
         except Exception:
             # Headless environments may lack full Qt stack
+            pass
+
+    def open_league_command_center(self) -> None:
+        try:
+            show_on_top(LeagueCommandCenterWindow(self))
+        except Exception:
             pass
 
     def open_league_history(self) -> None:

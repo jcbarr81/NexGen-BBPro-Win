@@ -6,7 +6,30 @@ from typing import Dict, List
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QTimer
+try:
+    from PyQt6.QtCore import Qt, QTimer
+except ImportError:  # pragma: no cover - fallback for lightweight test stubs
+    from PyQt6.QtCore import Qt
+
+    class _DummySignal:
+        def connect(self, *_args, **_kwargs) -> None:
+            return None
+
+    class QTimer:  # type: ignore[too-many-ancestors]
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.timeout = _DummySignal()
+
+        def setSingleShot(self, *_args, **_kwargs) -> None:
+            return None
+
+        def setInterval(self, *_args, **_kwargs) -> None:
+            return None
+
+        def start(self, *_args, **_kwargs) -> None:
+            return None
+
+        def stop(self, *_args, **_kwargs) -> None:
+            return None
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -29,9 +52,10 @@ from utils.recovery_manager import (
     recovery_path_for_data_file,
 )
 from utils.roster_io import read_roster_csv, write_roster_csv
-from utils.roster_loader import save_roster
+from utils.roster_loader import load_roster, save_roster
 from utils.roster_validation import missing_positions
 from services.roster_moves import cut_player as cut_player_service
+from services.roster_auto_assign import auto_assign_team
 
 
 class RosterListWidget(QListWidget):
@@ -89,24 +113,15 @@ class ReassignPlayersDialog(QDialog):
             lw.itemDoubleClicked.connect(self._open_player_profile)
             self.lists[level] = lw
 
-            for pid in getattr(self.roster, level):
-                player = players.get(pid)
-                if not player:
-                    continue
-                age = self._calculate_age(player.birthdate)
-                text = (
-                    f"{player.first_name} {player.last_name} "
-                    f"({age}) - {player.primary_position}"
-                )
-                item = QListWidgetItem(text)
-                item.setData(Qt.ItemDataRole.UserRole, pid)
-                lw.addItem(item)
-
             vbox.addWidget(lw)
             columns.addLayout(vbox)
 
+        self._populate_lists_from_roster()
+
         move_btn = QPushButton("Reassign")
         move_btn.clicked.connect(self._apply_moves)
+        auto_btn = QPushButton("Auto-Reassign Team")
+        auto_btn.clicked.connect(self._auto_reassign_team)
         cut_btn = QPushButton("Cut Selected Player(s)")
         cut_btn.clicked.connect(self._cut_selected_player)
 
@@ -125,6 +140,7 @@ class ReassignPlayersDialog(QDialog):
         self.dirty_label.setStyleSheet("color: #888888;")
         layout.addWidget(self.dirty_label)
         layout.addLayout(columns)
+        layout.addWidget(auto_btn)
         layout.addWidget(move_btn)
         layout.addWidget(cut_btn)
 
@@ -143,6 +159,27 @@ class ReassignPlayersDialog(QDialog):
         self.resize(900, height)
         self._update_counts()
         self._set_dirty_state(self._has_unsaved_changes())
+
+    def _make_player_item(self, pid: str) -> QListWidgetItem | None:
+        player = self.players.get(pid)
+        if not player:
+            return None
+        age = self._calculate_age(player.birthdate)
+        text = (
+            f"{player.first_name} {player.last_name} "
+            f"({age}) - {player.primary_position}"
+        )
+        item = QListWidgetItem(text)
+        item.setData(Qt.ItemDataRole.UserRole, pid)
+        return item
+
+    def _populate_lists_from_roster(self) -> None:
+        for level, lw in self.lists.items():
+            lw.clear()
+            for pid in getattr(self.roster, level):
+                item = self._make_player_item(pid)
+                if item is not None:
+                    lw.addItem(item)
 
     def _prompt_recovery_choice(self, title: str, message: str) -> str:
         box = QMessageBox(self)
@@ -413,6 +450,71 @@ class ReassignPlayersDialog(QDialog):
 
         if errors:
             QMessageBox.warning(self, "Cut Players", "\n".join(errors))
+
+    def _auto_reassign_team(self) -> None:
+        if self._has_unsaved_changes():
+            choice = QMessageBox.question(
+                self,
+                "Auto-Reassign Team",
+                (
+                    "You have unsaved manual changes.\n\n"
+                    "Auto-reassign will overwrite roster levels with policy-based "
+                    "assignments for this team.\n\nContinue?"
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if choice != QMessageBox.StandardButton.Yes:
+                return
+
+        data_dir = get_data_dir()
+        roster_dir = data_dir / "rosters"
+        players_file = data_dir / "players.csv"
+
+        try:
+            auto_assign_team(
+                self.roster.team_id,
+                players_file=str(players_file),
+                roster_dir=str(roster_dir),
+                players_by_id=self.players,
+            )
+            load_roster.cache_clear(team_id=self.roster.team_id, roster_dir=roster_dir)
+            refreshed = load_roster(self.roster.team_id, roster_dir)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Auto-Reassign Team",
+                f"Auto-reassign failed: {exc}",
+            )
+            return
+
+        self.roster.act = list(refreshed.act)
+        self.roster.aaa = list(refreshed.aaa)
+        self.roster.low = list(refreshed.low)
+        self.roster.dl = list(refreshed.dl)
+        self.roster.ir = list(refreshed.ir)
+        self.roster.dl_tiers = dict(refreshed.dl_tiers or {})
+
+        self._populate_lists_from_roster()
+        self._update_counts()
+        clear_recovery(self._roster_file_path())
+        self._refresh_baseline()
+
+        missing = missing_positions(self.roster, self.players)
+        if missing:
+            QMessageBox.warning(
+                self,
+                "Auto-Reassign Team",
+                "Auto-reassign completed with coverage warnings for: "
+                + ", ".join(missing),
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Auto-Reassign Team",
+            "Auto-reassign completed for this team.",
+        )
 
 
     def _sync_roster_from_lists(self) -> None:

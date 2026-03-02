@@ -2,10 +2,14 @@ from PyQt6.QtWidgets import (
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
+    QGroupBox,
     QLabel,
     QLineEdit,
     QPushButton,
     QMessageBox,
+    QScrollArea,
+    QWidget,
 )
 
 from playbalance.team_name_generator import random_team
@@ -18,28 +22,65 @@ class TeamEntryDialog(QDialog):
     def __init__(self, divisions, teams_per_div, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Enter Teams")
+        self.resize(1080, 700)
         self._inputs = {}
 
-        layout = QVBoxLayout()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        instructions = QLabel(
+            "Enter team city and nickname for each division. "
+            "Large leagues can scroll horizontally across division columns."
+        )
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        layout.addWidget(scroll, stretch=1)
+
+        content = QWidget()
+        content_layout = QHBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(12)
 
         for div in divisions:
-            layout.addWidget(QLabel(f"{div} Division"))
+            group = QGroupBox(f"{div} Division")
+            group_layout = QGridLayout(group)
+            group_layout.setContentsMargins(10, 10, 10, 10)
+            group_layout.setHorizontalSpacing(8)
+            group_layout.setVerticalSpacing(6)
+            group.setMinimumWidth(420)
+            group_layout.setColumnStretch(1, 1)
+            group_layout.setColumnStretch(2, 1)
+
             self._inputs[div] = []
             for i in range(teams_per_div):
-                row = QHBoxLayout()
+                row_label = QLabel(f"Team {i + 1}")
                 city_edit = QLineEdit()
                 city_edit.setPlaceholderText("City")
+                city_edit.setMinimumWidth(120)
                 name_edit = QLineEdit()
                 name_edit.setPlaceholderText("Nickname")
-                row.addWidget(city_edit)
-                row.addWidget(name_edit)
+                name_edit.setMinimumWidth(140)
                 random_btn = QPushButton("Randomize")
-                row.addWidget(random_btn)
-                layout.addLayout(row)
+                random_btn.setMinimumWidth(96)
+
+                group_layout.addWidget(row_label, i, 0)
+                group_layout.addWidget(city_edit, i, 1)
+                group_layout.addWidget(name_edit, i, 2)
+                group_layout.addWidget(random_btn, i, 3)
+
                 self._inputs[div].append((city_edit, name_edit))
                 random_btn.clicked.connect(
                     lambda _, c=city_edit, n=name_edit: self._random_fill(c, n)
                 )
+
+            content_layout.addWidget(group)
+
+        content_layout.addStretch(1)
+        scroll.setWidget(content)
 
         btn_row = QHBoxLayout()
         random_all_btn = QPushButton("Randomize All")
@@ -53,8 +94,6 @@ class TeamEntryDialog(QDialog):
         random_all_btn.clicked.connect(self._random_fill_all)
         save_btn.clicked.connect(self._handle_save)
         cancel_btn.clicked.connect(self.reject)
-
-        self.setLayout(layout)
 
     def _random_fill(self, city_edit: QLineEdit, name_edit: QLineEdit) -> None:
         """Populate the provided fields with a random team name."""

@@ -1,4 +1,4 @@
-<!-- last_build_ref: b20ab6507191e77ce8caba6812790f3a97e0652c -->
+<!-- last_build_ref: 5e745edb3b4bb4b3e4c091b02ad96ce02bbc06f9 -->
 # 4.5 Release Notes (Since 4.3.41)
 
 ## League Setup & Presets
@@ -705,3 +705,32 @@ Date: 2026-02-25
 Date: 2026-02-25
 
 - Installer now opens a browser-optimized manual page (`game_manual_installer.html`) so post-install manual text remains readable without changing in-app manual styling.
+
+# 5.1.6 Release Notes (Since last build b20ab65)
+Date: 2026-02-27
+
+- 5.1.5
+- Fixed League Finance Settings dialog behavior where selecting `Custom` first
+- could leave module controls locked. Selecting `Custom` now enables finance
+- editing immediately so commissioners can adjust enforcement/module settings
+- without first choosing another preset.
+
+# 5.1.7 Release Notes (Since last build 5e745ed)
+Date: 2026-02-27
+
+- Improved the league-creation `Enter Teams` dialog for larger leagues by
+- switching from a single vertical stack to per-division columns inside a
+- scrollable layout.
+- Each division now appears in its own section/column, making 24-team and other
+- large setups much easier to enter and review.
+
+# 5.1.8 Release Notes (Since last build 5e745ed)
+Date: 2026-02-27
+
+- Fixed clipping in the league-creation Enter Teams dialog where per-team Randomize buttons could appear cut off in division columns.
+- Increased division column minimum width and tuned field/button minimum widths to keep row controls fully visible in large-league setups.
+
+# 5.1.8 Release Notes (Since last build 5e745ed)
+Date: 2026-02-28
+
+- No changes since last build and no draft notes were found.

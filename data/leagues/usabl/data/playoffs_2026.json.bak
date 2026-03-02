@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "year": 2026,
-  "champion": null,
-  "runner_up": null,
+  "champion": "A1",
+  "runner_up": "N1",
   "seeds": {
     "AL": [
       {
@@ -566,7 +566,110 @@
     },
     {
       "name": "WS",
-      "matchups": [],
+      "matchups": [
+        {
+          "high": {
+            "team_id": "A1",
+            "seed": 1,
+            "league": "AL",
+            "wins": 98,
+            "run_diff": 148
+          },
+          "low": {
+            "team_id": "N1",
+            "seed": 1,
+            "league": "NL",
+            "wins": 97,
+            "run_diff": 147
+          },
+          "config": {
+            "length": 7,
+            "pattern": [
+              2,
+              3,
+              2
+            ]
+          },
+          "games": [
+            {
+              "home": "A1",
+              "away": "N1",
+              "date": null,
+              "result": "2-0",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_WS_S0_G0_N1_at_A1.html",
+              "meta": {
+                "home_innings": 8,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "L",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "A1",
+              "away": "N1",
+              "date": null,
+              "result": "2-0",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_WS_S0_G1_N1_at_A1.html",
+              "meta": {
+                "home_innings": 8,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "N1",
+              "away": "A1",
+              "date": null,
+              "result": "1-2",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_WS_S0_G2_A1_at_N1.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "N1",
+              "away": "A1",
+              "date": null,
+              "result": "2-0",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_WS_S0_G3_A1_at_N1.html",
+              "meta": {
+                "home_innings": 15,
+                "away_innings": 15,
+                "extra_innings": true,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "N1",
+              "away": "A1",
+              "date": null,
+              "result": "0-3",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_WS_S0_G4_A1_at_N1.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            }
+          ],
+          "winner": "A1"
+        }
+      ],
       "plan": [
         {
           "series_key": "ws",

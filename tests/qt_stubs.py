@@ -225,6 +225,7 @@ def patch_qt() -> None:
         TransformationMode=_QtEnum(SmoothTransformation=None),
     )
     qt_core.QPoint = _QtDummy
+    qt_core.QTimer = _QtDummy
     qt_gui = types.ModuleType("PyQt6.QtGui")
 
     class _Pixmap:
@@ -255,13 +256,17 @@ def patch_qt() -> None:
         "QVBoxLayout",
         "QHBoxLayout",
         "QGridLayout",
+        "QScrollArea",
         "QTabWidget",
         "QHeaderView",
         "QWidget",
+        "QCheckBox",
         "QComboBox",
         "QGroupBox",
         "QPushButton",
         "QLineEdit",
+        "QMessageBox",
+        "QInputDialog",
         "QListWidget",
         "QListWidgetItem",
         "QStatusBar",

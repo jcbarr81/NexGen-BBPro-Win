@@ -15,9 +15,11 @@ considered for the Active roster. Existing DL/IR assignments are preserved.
 
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Set, Tuple
 
 from playbalance.aging import calculate_age, get_sim_date
+from services.team_strategy_profiles import resolve_team_strategy_profile
 from utils.player_loader import load_players_from_csv
 from utils.team_loader import load_teams
 from utils.user_manager import load_users
@@ -160,10 +162,17 @@ def _active_sort_key(
     *,
     as_of_date: date | None = None,
     age_cache: Dict[str, int | None] | None = None,
+    strategy_profile: str = "balanced",
 ) -> tuple[float, int]:
     age = _player_age(player, as_of_date=as_of_date, age_cache=age_cache)
     age_value = age if age is not None else 99
-    return (_overall_score(player), -age_value)
+    score = _overall_score(player) + _strategy_assignment_bonus(
+        player,
+        strategy_profile=strategy_profile,
+        age=age,
+        prospect_mode=False,
+    )
+    return (score, -age_value)
 
 
 def _prospect_sort_key(
@@ -171,10 +180,98 @@ def _prospect_sort_key(
     *,
     as_of_date: date | None = None,
     age_cache: Dict[str, int | None] | None = None,
+    strategy_profile: str = "balanced",
 ) -> tuple[float, int]:
     age = _player_age(player, as_of_date=as_of_date, age_cache=age_cache)
     age_value = age if age is not None else 99
-    return (_overall_score(player) + _age_bonus(age), -age_value)
+    prospect_bonus = _age_bonus(age)
+    if strategy_profile == "development_focus":
+        prospect_bonus *= 1.70
+    elif strategy_profile == "win_now":
+        prospect_bonus *= 0.65
+    score = (
+        _overall_score(player)
+        + prospect_bonus
+        + _strategy_assignment_bonus(
+            player,
+            strategy_profile=strategy_profile,
+            age=age,
+            prospect_mode=True,
+        )
+    )
+    return (score, -age_value)
+
+
+def _norm_rating(value: object) -> float:
+    try:
+        numeric = float(value)
+    except Exception:
+        return 0.0
+    return max(0.0, min(99.0, numeric)) / 99.0
+
+
+def _strategy_assignment_bonus(
+    player: object,
+    *,
+    strategy_profile: str,
+    age: int | None,
+    prospect_mode: bool,
+) -> float:
+    profile = str(strategy_profile or "balanced").strip().lower()
+    if profile == "balanced":
+        return 0.0
+
+    is_pitcher = bool(
+        getattr(player, "is_pitcher", False)
+        or str(getattr(player, "primary_position", "")).upper() == "P"
+    )
+    if is_pitcher:
+        control = _norm_rating(getattr(player, "control", 0))
+        movement = _norm_rating(getattr(player, "movement", 0))
+        endurance = _norm_rating(getattr(player, "endurance", 0))
+        hold = _norm_rating(getattr(player, "hold_runner", 0))
+        arm = _norm_rating(getattr(player, "arm", getattr(player, "fb", 0)))
+        if profile == "win_now":
+            bonus = (2.2 * control) + (2.0 * movement) + (1.7 * endurance)
+            if isinstance(age, int) and age <= 23:
+                bonus -= 0.4
+            return bonus
+        if profile == "development_focus":
+            bonus = (1.2 * arm) + (1.1 * control) + (0.8 * endurance)
+            if isinstance(age, int) and age < 28:
+                bonus += max(0, 28 - age) * 0.28
+            if prospect_mode:
+                bonus += 0.6
+            return bonus
+        if profile == "defense_first":
+            return (2.8 * control) + (2.4 * movement) + (1.5 * hold)
+        if profile == "power_offense":
+            return (1.8 * arm) + (1.4 * endurance) - (0.5 * hold)
+        return 0.0
+
+    ch = _norm_rating(getattr(player, "ch", 0))
+    ph = _norm_rating(getattr(player, "ph", 0))
+    sp = _norm_rating(getattr(player, "sp", 0))
+    fa = _norm_rating(getattr(player, "fa", 0))
+    arm = _norm_rating(getattr(player, "arm", 0))
+    gf = _norm_rating(getattr(player, "gf", 0))
+    if profile == "win_now":
+        bonus = (2.3 * ch) + (2.7 * ph) + (0.8 * sp) - (0.6 * fa)
+        if isinstance(age, int) and age <= 23:
+            bonus -= 0.5
+        return bonus
+    if profile == "development_focus":
+        bonus = (1.1 * sp) + (0.9 * fa) + (0.9 * ch)
+        if isinstance(age, int) and age < 28:
+            bonus += max(0, 28 - age) * 0.32
+        if prospect_mode:
+            bonus += 0.6
+        return bonus
+    if profile == "defense_first":
+        return (2.8 * fa) + (1.8 * arm) + (1.8 * gf) - (0.5 * ph)
+    if profile == "power_offense":
+        return (3.1 * ph) + (1.1 * ch) + (0.6 * sp) - (0.6 * fa)
+    return 0.0
 
 
 def _pitcher_score(p) -> float:
@@ -214,6 +311,7 @@ def _pick_active_roster(
     *,
     as_of_date: date | None = None,
     age_cache: Dict[str, int | None] | None = None,
+    strategy_profile: str = "balanced",
 ) -> Tuple[List[str], List[object], List[object]]:
     """Select a 25-man active roster with legal defensive coverage.
 
@@ -231,6 +329,7 @@ def _pick_active_roster(
             player,
             as_of_date=as_of_date,
             age_cache=age_cache,
+            strategy_profile=strategy_profile,
         ),
         reverse=True,
     )
@@ -240,6 +339,7 @@ def _pick_active_roster(
             player,
             as_of_date=as_of_date,
             age_cache=age_cache,
+            strategy_profile=strategy_profile,
         ),
         reverse=True,
     )
@@ -329,6 +429,7 @@ def _pick_minor_rosters(
     *,
     as_of_date: date | None = None,
     age_cache: Dict[str, int | None] | None = None,
+    strategy_profile: str = "balanced",
 ) -> Tuple[List[str], List[str]]:
     hitters_sorted = sorted(
         hitters,
@@ -336,6 +437,7 @@ def _pick_minor_rosters(
             player,
             as_of_date=as_of_date,
             age_cache=age_cache,
+            strategy_profile=strategy_profile,
         ),
         reverse=True,
     )
@@ -345,6 +447,7 @@ def _pick_minor_rosters(
             player,
             as_of_date=as_of_date,
             age_cache=age_cache,
+            strategy_profile=strategy_profile,
         ),
         reverse=True,
     )
@@ -395,6 +498,7 @@ def auto_assign_team(
     players_by_id: Dict[str, object] | None = None,
     as_of_date: date | None = None,
     age_cache: Dict[str, int | None] | None = None,
+    strategy_profile: str | None = None,
 ) -> None:
     players = players_by_id
     if players is None:
@@ -405,6 +509,11 @@ def auto_assign_team(
     pool_ids = roster.act + roster.aaa + roster.low
     pool = [players[pid] for pid in pool_ids if pid in players]
     buckets = _split_players(pool)
+    profile = _resolve_strategy_profile_token(
+        team_id,
+        explicit=strategy_profile,
+        players_file=players_file,
+    )
 
     # Choose Active roster
     act_ids, rest_hitters, rest_pitchers = _pick_active_roster(
@@ -412,6 +521,7 @@ def auto_assign_team(
         buckets.pitchers,
         as_of_date=as_of_date,
         age_cache=age_cache,
+        strategy_profile=profile,
     )
 
     # Balance minors so AAA isn't stacked with only hitters or pitchers.
@@ -420,6 +530,7 @@ def auto_assign_team(
         rest_pitchers,
         as_of_date=as_of_date,
         age_cache=age_cache,
+        strategy_profile=profile,
     )
 
     # Preserve injured players on DL/IR: keep existing DL/IR and move any newly
@@ -464,6 +575,11 @@ def auto_assign_all_teams(
     for index, team in enumerate(teams, start=1):
         _report_progress("Processing", index - 1, total_teams)
         try:
+            team_profile = _resolve_strategy_profile_token(
+                team.team_id,
+                explicit=None,
+                players_file=players_file,
+            )
             auto_assign_team(
                 team.team_id,
                 players_file=players_file,
@@ -471,6 +587,7 @@ def auto_assign_all_teams(
                 players_by_id=players_by_id,
                 as_of_date=as_of_date,
                 age_cache=age_cache,
+                strategy_profile=team_profile,
             )
             load_roster.cache_clear()
             # For unmanaged teams, auto-generate lineups to keep sims valid
@@ -480,12 +597,37 @@ def auto_assign_all_teams(
                     players_file=players_file,
                     roster_dir=roster_dir,
                     lineup_dir="data/lineups",
+                    strategy_profile=team_profile,
                 )
         except Exception:
             # Continue with other teams; admin can fix any outliers manually
             continue
         _report_progress("Saving", index, total_teams)
     _report_progress("Complete", total_teams, total_teams)
+
+
+def _resolve_strategy_profile_token(
+    team_id: str,
+    *,
+    explicit: str | None,
+    players_file: str | None = None,
+) -> str:
+    token = str(explicit or "").strip().lower()
+    if token:
+        return token
+    data_dir = None
+    if players_file:
+        try:
+            path = Path(players_file)
+            if path.name.lower() == "players.csv":
+                data_dir = path.parent
+        except Exception:
+            data_dir = None
+    try:
+        resolved = resolve_team_strategy_profile(team_id, data_dir=data_dir)
+        return str(resolved.profile or "balanced")
+    except Exception:
+        return "balanced"
 
 
 __all__ = ["auto_assign_team", "auto_assign_all_teams"]

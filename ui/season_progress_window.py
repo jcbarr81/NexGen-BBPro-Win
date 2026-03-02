@@ -422,6 +422,9 @@ class SeasonProgressWindow(QDialog):
         self.simulation_status_label = QLabel()
         self.simulation_status_label.setWordWrap(True)
         layout.addWidget(self.simulation_status_label)
+        self.bullpen_reason_label = QLabel()
+        self.bullpen_reason_label.setWordWrap(True)
+        layout.addWidget(self.bullpen_reason_label)
         self.sim_progress = QProgressBar()
         try:
             self.sim_progress.setRange(0, 0)
@@ -1393,6 +1396,7 @@ class SeasonProgressWindow(QDialog):
         if note is None:
             note = self.manager.handle_phase()
         self.notes_label.setText(note)
+        self._update_bullpen_reason_status()
 
         is_preseason = self.manager.phase == SeasonPhase.PRESEASON
         is_regular = self.manager.phase == SeasonPhase.REGULAR_SEASON
@@ -1794,6 +1798,82 @@ class SeasonProgressWindow(QDialog):
                 label.setVisible(False)
             except RuntimeError:
                 pass
+
+    def _update_bullpen_reason_status(self, date_str: str | None = None) -> None:
+        """Show the latest bullpen-usage AI reason summaries from simulated games."""
+
+        label = getattr(self, "bullpen_reason_label", None)
+        if label is None:
+            return
+        default = (
+            "Bullpen Usage Reasons: simulate games to view AI bullpen ordering rationale."
+        )
+
+        try:
+            schedule = list(getattr(self.simulator, "schedule", []) or [])
+        except Exception:
+            schedule = []
+        if not schedule:
+            label.setText(default)
+            return
+
+        target_date = str(date_str).strip() if date_str else ""
+        played: list[dict[str, object]] = []
+        if target_date:
+            played = [
+                game
+                for game in schedule
+                if str(game.get("date", "")) == target_date and game.get("result")
+            ]
+        if not played:
+            played = [game for game in schedule if game.get("result")]
+            if not played:
+                label.setText(default)
+                return
+            played.sort(key=lambda game: str(game.get("date", "")))
+            target_date = str(played[-1].get("date", "") or "")
+            played = [
+                game for game in played if str(game.get("date", "")) == target_date
+            ]
+
+        snippets: list[str] = []
+        for game in played:
+            meta = game.get("extra")
+            if not isinstance(meta, Mapping):
+                continue
+            details = meta.get("bullpen_usage_reasons")
+            if not isinstance(details, Mapping):
+                continue
+            away_team = str(game.get("away", "Away"))
+            home_team = str(game.get("home", "Home"))
+            parts: list[str] = []
+            away_entry = details.get("away")
+            if isinstance(away_entry, Mapping):
+                away_summary = " ".join(
+                    part.strip() for part in str(away_entry.get("summary") or "").splitlines() if part.strip()
+                )
+                if away_summary:
+                    parts.append(f"{away_team}: {away_summary}")
+            home_entry = details.get("home")
+            if isinstance(home_entry, Mapping):
+                home_summary = " ".join(
+                    part.strip() for part in str(home_entry.get("summary") or "").splitlines() if part.strip()
+                )
+                if home_summary:
+                    parts.append(f"{home_team}: {home_summary}")
+            if not parts:
+                continue
+            snippets.append(f"{away_team} at {home_team} -> " + " | ".join(parts))
+            if len(snippets) >= 2:
+                break
+
+        if not snippets:
+            label.setText(default)
+            return
+        date_suffix = f" ({target_date})" if target_date else ""
+        label.setText(
+            f"Bullpen Usage Reasons{date_suffix}: " + " || ".join(snippets)
+        )
 
     def _update_auto_activate_tip(self) -> None:
         checkbox = getattr(self, "auto_activate_checkbox", None)
@@ -2903,6 +2983,9 @@ class SeasonProgressWindow(QDialog):
                     message = f"{message}; monthly finance settled for {periods_text}"
                 self.notes_label.setText(message)
                 self._set_simulation_status(message)
+                self._update_bullpen_reason_status(
+                    str(date_just_played) if date_just_played else None
+                )
                 enable_sim_controls = bool(
                     isinstance(total_remaining, int) and total_remaining > 0
                 )
@@ -3354,6 +3437,8 @@ class SeasonProgressWindow(QDialog):
             self._set_simulation_status(f"{message} - {progress_text}")
 
         log_news_event(message, category="progress")
+        latest_date = dates_covered[-1] if dates_covered else None
+        self._update_bullpen_reason_status(latest_date)
         self._save_progress()
         self._update_ui(message)
         self._apply_dl_updates(days_elapsed=max(1, simulated_days))

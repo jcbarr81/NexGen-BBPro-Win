@@ -61,7 +61,7 @@ land before channel-specific features.
 - **Status:** Open (roadmap).
 
 ### 7.1 Multiple Offline Leagues per Owner
-1. **Domain model:** Introduce `Owner` → `LeagueProfile` → `Season` entities plus
+1. **Domain model:** Introduce `Owner` -> `LeagueProfile` -> `Season` entities plus
    ownership/role tables so one owner can switch contexts safely.
 2. **Storage:** Centralize persistence in a franchise service layer (SQLite or
    repo abstraction) that keeps per-league saves isolated yet linked to an owner.
@@ -256,3 +256,197 @@ land before channel-specific features.
 - **Progress:** v5.1.1 added live theme refresh broadcasting across open
   windows and mode-aware styling hooks for Position Players/Pitchers dialogs.
 - **Status:** In Progress.
+
+## 22. Optional Team Auto-Assign for Player Reassignment
+- **Goal:** Let teams opt into automatic player reassignment so owners who
+  prefer automation do not need to manually move players after roster changes.
+- **Scope:** Add a per-team setting (or league default + per-team override) to
+  enable automatic reassignment behavior for common triggers (injury moves,
+  activations, promotions/demotions, and transaction-driven roster updates).
+- **Scope:** Keep manual reassignment fully available for teams that leave the
+  option disabled, with clear UI messaging about when auto-assign is active.
+- **Status:** Open.
+
+## 23. CPU Team Trade AI (Respond + Propose)
+- **Goal:** Add trade-decision AI for CPU-owned teams so they can evaluate and
+  respond to incoming human trade offers, and optionally initiate trade offers
+  to human-owned teams.
+- **Scope:** Implement CPU-side trade valuation using roster needs, player
+  value/contract context, competitive window, and league settings so responses
+  are believable and consistent.
+- **Scope:** Add proactive CPU trade proposals with configurable frequency,
+  guardrails against spam/low-quality offers, and clear inbox/notification UX
+  for human teams.
+- **Status:** Open.
+
+## 24. Team Strategy Profiles for Automation
+- **Goal:** Add team strategy profiles so auto-assign and auto-lineup creation
+  decisions reflect each team's intended play style and roster philosophy.
+- **Scope:** Define league/team strategy presets (for example: Balanced, Win
+  Now, Development Focus, Defense First, Power Offense) and feed them into
+  auto-assignment, lineup generation, and depth-chart prioritization logic.
+- **Scope:** Support league defaults with per-team overrides, plus clear UI
+  indicators showing which strategy is active when automation runs.
+- **Progress:** v5.1.18 delivered domain/settings UI (`V5.2-17`); v5.1.19
+  delivered auto-assign and valuation hooks (`V5.2-18`).
+- **Status:** In Progress.
+
+## 25. Finance Setup During League Creation
+- **Goal:** Require or strongly guide finance configuration during new league
+  creation so leagues start with intentional economic rules instead of defaults.
+- **Scope:** Add a finance settings step to the league creation wizard that
+  lets commissioners choose presets or customize key options before league
+  creation completes.
+- **Scope:** Persist the selected finance configuration as part of the initial
+  league bootstrap and surface a confirmation summary before finalizing setup.
+- **Status:** Open.
+
+## 26. Milestone Roadmap (v5.2-v5.4)
+- **Goal:** Turn the current strategic priorities into a concrete release plan
+  with explicit sequencing, effort, risks, and dependency gates.
+- **Progress:** v5.2 execution complete (`V5.2-01`..`V5.2-21` complete).
+- **Status:** In Progress.
+
+### v5.2 - Foundation Polish + Depth Systems
+- **Target effort:** 4-6 weeks.
+- **Primary scope:**
+  - Ship-ready UI polish pass on core windows: Lineups, Pitching Staff, Trades,
+    Standings, and Schedule (layout, spacing, readability, consistent actions).
+  - League Command Center v1 (injuries, pending approvals, roster conflicts,
+    draft/free-agency deadlines, finance risk alerts).
+  - AI transparency v1 (reason tags on lineup/bullpen/trade decisions).
+  - Scouting v1 (fog-of-war ratings, confidence bands, scouting budget controls).
+  - Team strategy identities v1 (rebuild/contend/prospect-hoard/balanced)
+    influencing roster automation and valuation.
+  - Analytics/Career Arc v1 (year-over-year comps, trend lines, team-era views).
+  - Documentation/backlog hygiene pass to reconcile `Open` vs `Complete` status.
+- **Risk level:** Medium.
+- **Key risks:**
+  - UI polish scope creep across many windows.
+  - Scouting and strategy logic can destabilize current balance if over-tuned.
+- **Dependencies / gates:**
+  - Shared player evaluation output (true rating + scouted estimate + confidence)
+    available to UI and AI services.
+  - Command Center data cards depend on stable alert sources from injuries,
+    finance, transactions, and schedule/phase state.
+  - Decision-reason schema defined once and reused across lineup/bullpen/trade.
+- **Exit criteria:**
+  - Core-window UX checklist passes for all five targeted windows.
+  - Command Center is owner/admin accessible with live summary cards.
+  - At least three AI decision surfaces show clear "why" output.
+
+#### v5.2 Subtasks (Tracking Checklist)
+- [x] **V5.2-01 UI polish rubric + baseline screenshots** (Effort: S, Risk: Low, Depends: None)
+- [x] **V5.2-02 Lineup window polish pass** (Effort: M, Risk: Medium, Depends: V5.2-01)
+- [x] **V5.2-03 Pitching staff window polish pass** (Effort: M, Risk: Medium, Depends: V5.2-01)
+- [x] **V5.2-04 Trade window polish pass** (Effort: M, Risk: Medium, Depends: V5.2-01)
+- [x] **V5.2-05 Standings window polish pass** (Effort: S, Risk: Low, Depends: V5.2-01)
+- [x] **V5.2-06 Schedule window polish pass** (Effort: S, Risk: Low, Depends: V5.2-01)
+- [x] **V5.2-07 League Command Center data contract/service layer** (Effort: M, Risk: Medium, Depends: D4)
+- [x] **V5.2-08 League Command Center UI shell + navigation** (Effort: M, Risk: Medium, Depends: V5.2-07)
+- [x] **V5.2-09 Command Center cards: injuries + approvals + roster conflicts** (Effort: M, Risk: Medium, Depends: V5.2-08)
+- [x] **V5.2-10 Command Center cards: deadlines + finance risk alerts** (Effort: M, Risk: Medium, Depends: V5.2-08)
+- [x] **V5.2-11 AI decision explanation schema (reason tags + payload)** (Effort: M, Risk: Medium, Depends: D1)
+- [x] **V5.2-12 Surface lineup decision reasons in UI** (Effort: S, Risk: Low, Depends: V5.2-11)
+- [x] **V5.2-13 Surface bullpen usage reasons in UI** (Effort: S, Risk: Low, Depends: V5.2-11)
+- [x] **V5.2-14 Surface trade rejection reasons in UI** (Effort: M, Risk: Medium, Depends: V5.2-11)
+- [x] **V5.2-15 Scouting fog-of-war model (true vs observed ratings + confidence)** (Effort: L, Risk: High, Depends: D2)
+- [x] **V5.2-16 Scouting budget settings + persistence + UI controls** (Effort: M, Risk: Medium, Depends: V5.2-15)
+- [x] **V5.2-17 Team strategy profiles v1 domain + settings UI** (Effort: M, Risk: Medium, Depends: None)
+- [x] **V5.2-18 Strategy profile hooks in auto-assign + valuation paths** (Effort: M, Risk: Medium, Depends: V5.2-17)
+- [x] **V5.2-19 Analytics/Career Arc v1 (YoY, trends, team-era view)** (Effort: M, Risk: Medium, Depends: None)
+- [x] **V5.2-20 Backlog/doc status reconciliation pass** (Effort: S, Risk: Low, Depends: None)
+- [x] **V5.2-21 Release gates: targeted tests + multi-league smoke + UI checklist sign-off** (Effort: M, Risk: Medium, Depends: V5.2-02..V5.2-20)
+- **V5.2-21 progress (2026-03-02):** release gates complete (`73` targeted tests, multi-league smoke pass, help-surface validation pass, and archived UI/installer checklist sign-off); see `reports/release_validation/v5_2_21_gate_summary.md`.
+
+### v5.3 - Roster Intelligence + Competitive AI
+- **Target effort:** 5-7 weeks.
+- **Primary scope:**
+  - CPU Trade AI v1.5 (respond + proactive proposals with quality guardrails).
+  - Prospect management layer (protection/options/promotion rules and late-bloom
+    variance tied to development/scouting uncertainty).
+  - Strategy profiles v2 integrated into trades, draft, promotions, and free
+    agency posture.
+  - Analytics/Career Arc v2 (player similarity, aging buckets, comparative
+    history filters, export-ready views).
+  - Sim transparency v2 (explain rejected trades and promotion/option decisions).
+- **Risk level:** Medium-High.
+- **Key risks:**
+  - AI proposal quality can produce spammy or repetitive trade offers.
+  - Prospect rules may conflict with existing roster cap and injury workflows.
+- **Dependencies / gates:**
+  - Requires v5.2 scouting and strategy profile foundations.
+  - Requires explicit transaction/audit events for promotions/options.
+  - Requires acceptance-quality tests for CPU trade proposals.
+- **Exit criteria:**
+  - CPU teams both evaluate and initiate trade offers with configurable cadence.
+  - Prospect lifecycle rules are enforced consistently across sim phases.
+  - Trade/prospect decisions include user-facing rationale in UI.
+
+#### v5.3 Subtasks (Tracking Checklist)
+- [ ] **V5.3-01 CPU trade evaluator refactor (value + roster fit + timeline)** (Effort: M, Risk: Medium, Depends: V5.2-17, V5.2-18)
+- [ ] **V5.3-02 CPU incoming-offer response logic (accept/reject/counter)** (Effort: M, Risk: Medium, Depends: V5.3-01)
+- [ ] **V5.3-03 CPU proactive trade proposal generator + cadence controls** (Effort: M, Risk: Medium, Depends: V5.3-01)
+- [ ] **V5.3-04 Proposal quality guardrails + anti-spam filters** (Effort: S, Risk: Medium, Depends: V5.3-03)
+- [ ] **V5.3-05 Promotion/options/protection event model + persistence** (Effort: M, Risk: High, Depends: D1)
+- [ ] **V5.3-06 Prospect protection/eligibility rules enforcement** (Effort: M, Risk: High, Depends: V5.3-05)
+- [ ] **V5.3-07 Late-bloomer variance model tied to scouting uncertainty** (Effort: M, Risk: Medium, Depends: V5.2-15)
+- [ ] **V5.3-08 Strategy profiles v2 hooks for draft + FA + promotions** (Effort: M, Risk: Medium, Depends: V5.2-17, V5.3-05)
+- [ ] **V5.3-09 Analytics/Career Arc v2 (similarity, aging buckets, filters, export)** (Effort: M, Risk: Medium, Depends: V5.2-19)
+- [ ] **V5.3-10 Transparency v2 for trade/prospect decisions** (Effort: S, Risk: Low, Depends: V5.3-01, V5.3-05)
+- [ ] **V5.3-11 Acceptance tests for CPU trade quality + prospect workflow regression** (Effort: M, Risk: Medium, Depends: V5.3-02..V5.3-10)
+
+### v5.4 - Differentiators (Simulation Futures + Narrative + Presentation)
+- **Target effort:** 6-10 weeks.
+- **Primary scope:**
+  - What-If Lab v1: fork from any date, run Monte Carlo batch sims (up to 1,000
+    futures), compare move outcomes (trade/call-up/lineup/pitching changes).
+  - Commissioner-grade online foundation v1: deterministic replay packaging,
+    signed action records, and end-to-end audit timeline.
+  - Story engine v1: weekly narrative generation from real events (streaks,
+    breakouts, collapses, milestones, rivalries).
+  - Presentation layer v1: lightweight key-play/highlight recap mode (no full
+    3D dependency).
+- **Risk level:** High.
+- **Key risks:**
+  - What-If compute cost and runtime may impact desktop responsiveness.
+  - Deterministic replay and signed actions require strict event-model discipline.
+  - Story generation can feel repetitive without event diversity controls.
+- **Dependencies / gates:**
+  - Requires stable deterministic simulation hooks and replayable state snapshots.
+  - Requires richer structured event stream from game/season simulation.
+  - Requires scalable background-job orchestration for batch simulations.
+- **Exit criteria:**
+  - Users can run and compare scenario batches from a saved historical date.
+  - Audit timeline links actions to deterministic sim outcomes.
+  - Weekly story feed and highlight recap are visible and filterable in UI.
+
+#### v5.4 Subtasks (Tracking Checklist)
+- [ ] **V5.4-01 Deterministic event log foundation (canonical schema + writers)** (Effort: L, Risk: High, Depends: D3)
+- [ ] **V5.4-02 Season/date snapshot and fork manager** (Effort: M, Risk: High, Depends: V5.4-01)
+- [ ] **V5.4-03 Batch simulation runner (up to 1,000 futures) + job orchestration** (Effort: L, Risk: High, Depends: V5.4-02)
+- [ ] **V5.4-04 What-If comparator UI (baseline vs scenarios + deltas)** (Effort: M, Risk: Medium, Depends: V5.4-03)
+- [ ] **V5.4-05 Signed action records + verification chain** (Effort: L, Risk: High, Depends: V5.4-01)
+- [ ] **V5.4-06 Commissioner audit timeline UI + replay links** (Effort: M, Risk: Medium, Depends: V5.4-05)
+- [ ] **V5.4-07 Deterministic replay validator tooling** (Effort: M, Risk: High, Depends: V5.4-01, V5.4-05)
+- [ ] **V5.4-08 Story event extraction pipeline (weekly signals)** (Effort: M, Risk: Medium, Depends: V5.4-01)
+- [ ] **V5.4-09 Story engine generator (breakouts, collapses, milestones, rivalries)** (Effort: M, Risk: Medium, Depends: V5.4-08)
+- [ ] **V5.4-10 Highlight recap mode (key plays + summary presentation)** (Effort: M, Risk: Medium, Depends: V5.4-08)
+- [ ] **V5.4-11 Performance guardrails for What-If + recap generation** (Effort: M, Risk: High, Depends: V5.4-03, V5.4-10)
+- [ ] **V5.4-12 Release soak tests + deterministic replay sign-off** (Effort: M, Risk: High, Depends: V5.4-04..V5.4-11)
+
+### Implementation Start Queue
+- **Now:** `V5.3-01 CPU trade evaluator refactor (value + roster fit + timeline)`
+- **Next:** `V5.3-02 CPU incoming-offer response logic (accept/reject/counter)`
+- **Then:** `V5.3-03 CPU proactive trade proposal generator + cadence controls`
+
+### Cross-Milestone Dependency Map
+- **D1: Decision Explanation Schema** -> required by v5.2 AI transparency, v5.3
+  trade/prospect rationale, and v5.4 audit/story output.
+- **D2: Scouted vs True Rating Model** -> required by v5.2 scouting, v5.3
+  prospect/trade valuation, and v5.4 story context quality.
+- **D3: Deterministic Event Log** -> required by v5.4 What-If Lab and online/audit
+  foundation.
+- **D4: Command Center Aggregation Layer** -> provides operational visibility for
+  all subsequent roadmap systems.
+

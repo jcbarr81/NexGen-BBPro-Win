@@ -11,12 +11,36 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QListWidget,
     QListWidgetItem,
+    QSizePolicy,
 )
 from PyQt6.QtGui import QPixmap
 try:
     from PyQt6.QtCore import Qt, QPropertyAnimation, QEvent, QTimer
 except ImportError:  # pragma: no cover - fallback for lightweight test stubs
-    from PyQt6.QtCore import Qt, QPropertyAnimation, QTimer
+    from PyQt6.QtCore import Qt, QPropertyAnimation
+
+    try:
+        from PyQt6.QtCore import QTimer
+    except ImportError:  # pragma: no cover - fallback when QTimer is not stubbed
+        class _DummySignal:
+            def connect(self, *_args, **_kwargs) -> None:
+                return None
+
+        class QTimer:  # type: ignore[too-many-ancestors]
+            def __init__(self, *_args, **_kwargs) -> None:
+                self.timeout = _DummySignal()
+
+            def setSingleShot(self, *_args, **_kwargs) -> None:
+                return None
+
+            def setInterval(self, *_args, **_kwargs) -> None:
+                return None
+
+            def start(self, *_args, **_kwargs) -> None:
+                return None
+
+            def stop(self, *_args, **_kwargs) -> None:
+                return None
 
     class QEvent:  # type: ignore[too-many-ancestors]
         class Type:
@@ -34,14 +58,19 @@ from utils.recovery_manager import (
     recovery_path_for_data_file,
     write_recovery_csv,
 )
+from services.decision_explanations import summarize_decision_explanation
 
 class LineupEditor(QDialog):
+    _AUTOFILL_REASON_PLACEHOLDER = (
+        "Run Auto-Fill Lineup to view the latest lineup decision reasons."
+    )
+
     def __init__(self, team_id):
         self.team_id = team_id
         super().__init__()
         self._base_title = "Lineup Editor"
         self.setWindowTitle(self._base_title)
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(980, 640)
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setSingleShot(True)
         self._autosave_timer.setInterval(1500)
@@ -121,16 +150,31 @@ class LineupEditor(QDialog):
         view_selector_group.setLayout(view_selector_layout)
         right_panel.addWidget(view_selector_group)
 
+        status_group = QGroupBox("Lineup Status")
+        status_layout = QVBoxLayout()
+        status_layout.setContentsMargins(10, 8, 10, 8)
+        status_layout.setSpacing(4)
         self.dirty_label = QLabel("All changes saved.")
         self.dirty_label.setStyleSheet("color: #888888;")
-        right_panel.addWidget(self.dirty_label)
+        status_layout.addWidget(self.dirty_label)
+        self.lineup_health_label = QLabel("Filled: 0/9 | Duplicates: 0")
+        self.lineup_health_label.setStyleSheet("color: #666666;")
+        status_layout.addWidget(self.lineup_health_label)
+        status_hint = QLabel("Tip: Double-click a player in lineup/bench to open their profile.")
+        status_hint.setWordWrap(True)
+        status_hint.setStyleSheet("color: #777777; font-size: 11px;")
+        status_layout.addWidget(status_hint)
+        status_group.setLayout(status_layout)
+        right_panel.addWidget(status_group)
 
-        # Batting Order
-        order_label = QLabel("Batting Order")
-        order_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-        right_panel.addWidget(order_label)
+        order_group = QGroupBox("Batting Order")
+        order_group_layout = QVBoxLayout()
+        order_group_layout.setContentsMargins(10, 8, 10, 8)
+        order_group_layout.setSpacing(6)
 
         self.order_grid = QGridLayout()
+        self.order_grid.setHorizontalSpacing(8)
+        self.order_grid.setVerticalSpacing(6)
         self.player_dropdowns = []
         self.position_dropdowns = []
 
@@ -148,12 +192,7 @@ class LineupEditor(QDialog):
             pos_dropdown = QComboBox()
             pos_dropdown.addItems(["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"])
             pos_dropdown.currentIndexChanged.connect(
-                lambda _, i=i: (
-                    self.update_player_dropdown(i),
-                    self.update_overlay_label(i),
-                    self.update_bench_display(),
-                    self._schedule_autosave(),
-                )
+                lambda _=None, i=i: self._on_position_changed(i)
             )
 
             self.order_grid.addWidget(spot, i, 0)
@@ -161,43 +200,65 @@ class LineupEditor(QDialog):
             self.order_grid.addWidget(pos_dropdown, i, 2)
 
             player_dropdown.currentIndexChanged.connect(
-                lambda _, i=i: (
-                    self.update_overlay_label(i),
-                    self.update_bench_display(),
-                    self._schedule_autosave(),
-                )
+                lambda _=None, i=i: self._on_player_changed(i)
             )
 
             self.player_dropdowns.append(player_dropdown)
             self.position_dropdowns.append(pos_dropdown)
 
-        right_panel.addLayout(self.order_grid)
+        order_group_layout.addLayout(self.order_grid)
+        order_group.setLayout(order_group_layout)
+        right_panel.addWidget(order_group)
 
-        bench_label = QLabel("Substitute / Bench")
-        bench_label.setStyleSheet("font-weight: bold; margin-top: 20px;")
-        right_panel.addWidget(bench_label)
+        bench_group = QGroupBox("Substitute / Bench")
+        bench_layout = QVBoxLayout()
+        bench_layout.setContentsMargins(10, 8, 10, 8)
+        bench_layout.setSpacing(6)
 
         self.bench_display = QListWidget()
         self.bench_display.setMinimumHeight(100)
         self.bench_display.setMaximumHeight(150)
-        self.bench_display.setStyleSheet("margin-bottom: 10px;")
+        self.bench_display.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
         self.bench_display.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
-        right_panel.addWidget(self.bench_display)
+        bench_layout.addWidget(self.bench_display)
+        bench_group.setLayout(bench_layout)
+        right_panel.addWidget(bench_group)
         self.bench_display.itemDoubleClicked.connect(self._open_bench_player_profile)
 
-        save_button = QPushButton("Save Lineup")
-        save_button.clicked.connect(self.save_lineup)
-        right_panel.addWidget(save_button)
+        action_group = QGroupBox("Actions")
+        action_layout = QHBoxLayout()
+        action_layout.setContentsMargins(10, 8, 10, 8)
+        action_layout.setSpacing(8)
+        self.save_button = QPushButton("Save Lineup")
+        self.save_button.setObjectName("Primary")
+        self.save_button.clicked.connect(self.save_lineup)
+        action_layout.addWidget(self.save_button)
 
-        autofill_button = QPushButton("Auto-Fill Lineup")
-        autofill_button.clicked.connect(self.autofill_lineup)
-        right_panel.addWidget(autofill_button)
+        self.autofill_button = QPushButton("Auto-Fill Lineup")
+        self.autofill_button.clicked.connect(self.autofill_lineup)
+        action_layout.addWidget(self.autofill_button)
 
-        clear_button = QPushButton("Clear Lineup")
-        clear_button.clicked.connect(self.clear_lineup)
-        right_panel.addWidget(clear_button)
+        self.clear_button = QPushButton("Clear Lineup")
+        self.clear_button.clicked.connect(self.clear_lineup)
+        action_layout.addWidget(self.clear_button)
+        action_group.setLayout(action_layout)
+        right_panel.addWidget(action_group)
+
+        autofill_reason_group = QGroupBox("Auto-Fill Decision Reasons")
+        autofill_reason_layout = QVBoxLayout()
+        autofill_reason_layout.setContentsMargins(10, 8, 10, 8)
+        autofill_reason_layout.setSpacing(4)
+        self.autofill_reason_label = QLabel(self._AUTOFILL_REASON_PLACEHOLDER)
+        self.autofill_reason_label.setWordWrap(True)
+        autofill_reason_layout.addWidget(self.autofill_reason_label)
+        autofill_reason_group.setLayout(autofill_reason_layout)
+        right_panel.addWidget(autofill_reason_group)
+        right_panel.addStretch(1)
 
         layout.addWidget(right_container)
 
@@ -206,6 +267,8 @@ class LineupEditor(QDialog):
         self._baseline = []
         self._load_lineup_with_recovery()
         self.update_bench_display()
+        self._update_lineup_health()
+        self._update_autofill_reason_label()
 
     def autofill_lineup(self):
         try:
@@ -214,6 +277,8 @@ class LineupEditor(QDialog):
             QMessageBox.warning(self, "Auto-Fill Failed", str(exc))
             return
 
+        payload = getattr(auto_fill_lineup_for_team, "last_explanation", None)
+        self._update_autofill_reason_label(payload)
         self.load_lineup()
         clear_recovery(self.get_lineup_filename())
         self.update_bench_display()
@@ -265,6 +330,7 @@ class LineupEditor(QDialog):
 
         self._refresh_baseline()
         clear_recovery(self.get_lineup_filename())
+        self._update_lineup_health()
         QMessageBox.information(self, "Lineup Saved", "Lineup saved successfully.")
         return True
 
@@ -311,6 +377,7 @@ class LineupEditor(QDialog):
         self._autosave_timer.stop()
         self._load_lineup_with_recovery()
         self.update_bench_display()
+        self._update_lineup_health()
 
     def get_lineup_filename(self):
         """Return path to the lineup CSV for the current view.
@@ -374,6 +441,7 @@ class LineupEditor(QDialog):
                 self.bench_display.addItem(item)
         else:
             self.bench_display.addItem("(none)")
+        self._update_lineup_health()
 
     def update_overlay_label(self, index):
         position = self.position_dropdowns[index].currentText()
@@ -408,6 +476,7 @@ class LineupEditor(QDialog):
             lbl.setText("")
         self.update_bench_display()
         self._schedule_autosave()
+        self._update_lineup_health()
 
     def update_player_dropdown(self, index):
         selected_pos = self.position_dropdowns[index].currentText()
@@ -534,6 +603,7 @@ class LineupEditor(QDialog):
     def _refresh_baseline(self):
         self._baseline = self._snapshot_lineup()
         self._set_dirty_state(False)
+        self._update_lineup_health()
 
     def _has_unsaved_changes(self) -> bool:
         return self._snapshot_lineup() != getattr(self, "_baseline", [])
@@ -547,6 +617,32 @@ class LineupEditor(QDialog):
             self.dirty_label.setText("All changes saved.")
             self.dirty_label.setStyleSheet("color: #888888;")
             self.setWindowTitle(self._base_title)
+
+    def _on_position_changed(self, index: int) -> None:
+        self.update_player_dropdown(index)
+        self.update_overlay_label(index)
+        self.update_bench_display()
+        self._schedule_autosave()
+
+    def _on_player_changed(self, index: int) -> None:
+        self.update_overlay_label(index)
+        self.update_bench_display()
+        self._schedule_autosave()
+
+    def _update_lineup_health(self) -> None:
+        selected_ids = [self.player_dropdowns[i].currentData() for i in range(9)]
+        filled_ids = [pid for pid in selected_ids if pid]
+        filled = len(filled_ids)
+        duplicate_count = max(0, filled - len(set(filled_ids)))
+        self.lineup_health_label.setText(
+            f"Filled: {filled}/9 | Duplicates: {duplicate_count}"
+        )
+        if duplicate_count > 0:
+            self.lineup_health_label.setStyleSheet("color: #b54708; font-weight: 600;")
+        elif filled < 9:
+            self.lineup_health_label.setStyleSheet("color: #666666;")
+        else:
+            self.lineup_health_label.setStyleSheet("color: #12703d; font-weight: 600;")
 
     def closeEvent(self, event):  # noqa: N802 - Qt signature
         if not self._has_unsaved_changes():
@@ -571,3 +667,21 @@ class LineupEditor(QDialog):
             super().closeEvent(event)
         else:
             event.ignore()
+
+    def _update_autofill_reason_label(self, payload=None) -> None:
+        summary = self._AUTOFILL_REASON_PLACEHOLDER
+        current_payload = payload
+        if current_payload is None:
+            current_payload = getattr(auto_fill_lineup_for_team, "last_explanation", None)
+        if isinstance(current_payload, dict):
+            decision_type = str(current_payload.get("decision_type") or "").strip()
+            payload_team_id = str(current_payload.get("team_id") or "").strip()
+            if decision_type == "lineup_autofill" and (
+                not payload_team_id or payload_team_id == self.team_id
+            ):
+                summary = summarize_decision_explanation(
+                    current_payload,
+                    fallback="Lineup auto-fill completed. Detailed reasons were unavailable.",
+                    max_reasons=4,
+                )
+        self.autofill_reason_label.setText(summary)

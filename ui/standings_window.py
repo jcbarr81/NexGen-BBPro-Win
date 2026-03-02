@@ -4,7 +4,15 @@ from collections import defaultdict
 from datetime import datetime
 
 try:
-    from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextEdit
+    from PyQt6.QtWidgets import (
+        QDialog,
+        QVBoxLayout,
+        QHBoxLayout,
+        QTextEdit,
+        QLabel,
+        QPushButton,
+        QGroupBox,
+    )
     from PyQt6.QtCore import QTimer
 except ImportError:  # pragma: no cover - fallback for stubbed tests
     class _QtDummy:
@@ -17,6 +25,15 @@ except ImportError:  # pragma: no cover - fallback for stubbed tests
         def setHtml(self, *_):
             pass
 
+        def setText(self, *_):
+            pass
+
+        def setWordWrap(self, *_):
+            pass
+
+        def setObjectName(self, *_):
+            pass
+
         def toHtml(self):
             return ""
 
@@ -26,6 +43,15 @@ except ImportError:  # pragma: no cover - fallback for stubbed tests
     class QVBoxLayout(_QtDummy):
         def addWidget(self, *_):
             pass
+
+        def addLayout(self, *_):
+            pass
+
+        def addStretch(self, *_):
+            pass
+
+    class QHBoxLayout(QVBoxLayout):
+        pass
 
     class QTextEdit(_QtDummy):
         def __init__(self, *_, **__):
@@ -47,6 +73,16 @@ except ImportError:  # pragma: no cover - fallback for stubbed tests
         def toHtml(self):
             return self._html
 
+    class QLabel(_QtDummy):
+        pass
+
+    class QPushButton(_QtDummy):
+        pass
+
+    class QGroupBox(_QtDummy):
+        def setLayout(self, *_):
+            pass
+
     class QTimer:
         @staticmethod
         def singleShot(_msec, callback):
@@ -67,15 +103,50 @@ class StandingsWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Standings")
-        # Expand the dialog so the standings HTML can be viewed without scrolling
-        self.setGeometry(100, 100, 1000, 800)
+        try:
+            self.setMinimumSize(980, 740)
+        except Exception:
+            pass
+        self.setGeometry(100, 100, 1080, 820)
 
         layout = QVBoxLayout(self)
+        try:
+            layout.setContentsMargins(12, 12, 12, 12)
+            layout.setSpacing(10)
+        except Exception:
+            pass
+
+        status_group = QGroupBox("Standings Snapshot")
+        status_layout = QVBoxLayout()
+        self.status_label = QLabel("Loading standings...")
+        self._safe_ui_call(self.status_label, "setObjectName", "StatusLabel")
+        self._safe_ui_call(self.status_label, "setWordWrap", True)
+        status_layout.addWidget(self.status_label)
+        status_hint = QLabel(
+            "Use Refresh to pull the latest standings and tiebreak context."
+        )
+        self._safe_ui_call(status_hint, "setWordWrap", True)
+        status_layout.addWidget(status_hint)
+        status_group.setLayout(status_layout)
+        layout.addWidget(status_group)
+
+        action_group = QGroupBox("Actions")
+        action_row = QHBoxLayout()
+        self._safe_ui_call(action_row, "setSpacing", 8)
+        self.refresh_button = QPushButton("Refresh Standings")
+        self._safe_ui_call(self.refresh_button, "setObjectName", "Primary")
+        self.refresh_button.clicked.connect(self._render_standings)
+        action_row.addWidget(self.refresh_button)
+        self.last_updated_label = QLabel("Last updated: --")
+        self._safe_ui_call(self.last_updated_label, "setWordWrap", True)
+        action_row.addWidget(self.last_updated_label)
+        action_row.addStretch(1)
+        action_group.setLayout(action_row)
+        layout.addWidget(action_group)
 
         self.viewer = QTextEdit()
         self.viewer.setReadOnly(True)
-        # Ensure the text area grows with the dialog
-        self.viewer.setMinimumHeight(760)
+        self.viewer.setMinimumHeight(680)
 
         layout.addWidget(self.viewer)
 
@@ -91,13 +162,20 @@ class StandingsWindow(QDialog):
         bus = self._service.events
 
         def _schedule_refresh(_payload=None) -> None:
-            QTimer.singleShot(0, self._render_standings)
+            self._queue_render()
 
         for topic in ("standings.updated", "standings.invalidated"):
             try:
                 self._event_unsubscribes.append(bus.subscribe(topic, _schedule_refresh))
             except Exception:  # pragma: no cover - defensive
                 pass
+
+    def _queue_render(self) -> None:
+        single_shot = getattr(QTimer, "singleShot", None)
+        if callable(single_shot):
+            single_shot(0, self._render_standings)
+            return
+        self._render_standings()
 
     def _render_standings(self) -> None:
         """Load league, division and team names into the text viewer."""
@@ -236,6 +314,38 @@ class StandingsWindow(QDialog):
 
         parts.extend(["</pre></body></html>"])
         self.viewer.setHtml("\n".join(parts))
+        self._update_snapshot_status(
+            league_name=league_name,
+            divisions_count=len(divisions),
+            teams_count=len(teams),
+            sim_date_text=today,
+        )
+
+    def _update_snapshot_status(
+        self,
+        *,
+        league_name: str,
+        divisions_count: int,
+        teams_count: int,
+        sim_date_text: str,
+    ) -> None:
+        if hasattr(self, "status_label"):
+            self.status_label.setText(
+                f"{league_name}: {teams_count} team(s) across {divisions_count} division(s). "
+                f"Sim date: {sim_date_text}."
+            )
+        if hasattr(self, "last_updated_label"):
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            self.last_updated_label.setText(f"Last updated: {timestamp}")
+
+    @staticmethod
+    def _safe_ui_call(target, method: str, *args) -> None:
+        fn = getattr(target, method, None)
+        if callable(fn):
+            try:
+                fn(*args)
+            except Exception:
+                return
 
     def closeEvent(self, event):  # pragma: no cover - GUI wiring
         for unsubscribe in getattr(self, "_event_unsubscribes", []):

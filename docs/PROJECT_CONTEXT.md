@@ -13,12 +13,13 @@
 ## Current State
 - Physics engine is the default engine in `playbalance/game_runner.py`.
 - Injury logging persists to `data/injury_reports/<season_id>.json`.
-- Player profiles show an “Injury History” section.
+- Player profiles show an "Injury History" section.
 - Season rollover archives stats/standings/playoffs/awards into `data/careers/<season_id>/` and updates `data/career_index.json` plus career ledgers in `data/careers/career_players.json` and `data/careers/career_teams.json`.
 - Awards (MVP, CY_YOUNG) are generated during rollover via `playbalance/awards_manager.py` and stored in `data/careers/<season_id>/awards.json`.
 - League history viewer is available from the Team Dashboard (League Hub) and Admin Dashboard, showing archived seasons and awards.
 - Admin Dashboard utilities show a modal progress dialog when generating player avatars (count/percent updates until completion).
-- No Hall of Fame system implemented.
+- Hall of Fame system is implemented with automated candidate scoring, manual
+  induction controls, and a league-history integration surface.
 - Pitcher roster UIs (full roster/pitchers dialogs) display `preferred_pitching_role` instead of the `role` field.
 - Ratings remain normalized for simulation; UI display maps ratings to a 0-99 percentile scale by default using `data/players_normalized.csv` (fallback `data/players.csv`).
 - Roster OVR is the simple average of core ratings (hitters: CH/PH/SP/PL/VL/SC/FA/ARM/GF; pitchers: EN/CO/MO/HOLD/ARM/FA plus pitch ratings); display values are percentile-based with a logistic curve (k=6) in `utils/rating_display.py`.
@@ -50,10 +51,10 @@
 - Park factors (disabled): `data/parks/ParkFactors.csv`
 
 ## Running/Testing
-- Use venv: `./.venv/bin/python`
-- Targeted tests: `pytest` (per `AGENTS.md`)
-- KPI sim: `./.venv/bin/python scripts/physics_sim_season_kpis.py`
-- Full-season UI sim: launch `./.venv/bin/python main.py`
+- Use venv: `.\.venv2\Scripts\python.exe`
+- Targeted tests: `.\.venv2\Scripts\python.exe -m pytest` (per `AGENTS.md`)
+- KPI sim: `.\.venv2\Scripts\python.exe scripts/physics_sim_season_kpis.py`
+- Full-season UI sim: launch `.\.venv2\Scripts\python.exe main.py`
 
 ## KPI Targets (MLB deltas)
 - Store the agreed benchmark deltas here (K%, BB%, AVG, OBP, SLG, HR/FB, SB%, etc.).
@@ -74,7 +75,9 @@
 ## Known Risks / TODOs
 - Park factors remain deferred; re-enable and validate later.
 - Injury rates are currently low due to trigger gating; revisit if desired.
-- Pitcher role display uses `players.csv` role field; all pitchers currently have `role=RP`, so roster UI shows only RPs even when `preferred_pitching_role` or `data/rosters/*_pitching.csv` indicates SP.
+- Keep validating that pitcher role views continue using
+  `preferred_pitching_role`; regressions to raw `role` values can collapse SP/RP
+  presentation.
 - Extend logistic position-based display mapping beyond Full Roster once validated.
 
 ## Do Not Change (unless revisiting tuning)
@@ -86,3 +89,4 @@
 - Use `rg` for searching.
 - Follow PEP8.
 - ASCII-only edits unless file already uses Unicode.
+

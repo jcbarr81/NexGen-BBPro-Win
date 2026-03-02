@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import csv
+from datetime import date
 import random
 from pathlib import Path
 from typing import Dict
 
+from services.team_strategy_profiles import resolve_team_strategy_profile
 from utils.path_utils import resolve_app_path
 from utils.roster_loader import load_roster
 from utils.player_loader import load_players_from_csv
 from utils.depth_chart import depth_order_for_position, load_depth_chart
+from services.decision_explanations import (
+    append_decision_log,
+    explanation,
+    reason,
+    should_persist_decision_logs,
+)
 
 
 def auto_fill_lineup_for_team(
@@ -17,6 +25,7 @@ def auto_fill_lineup_for_team(
     players_file: str | Path = "data/players.csv",
     roster_dir: str | Path = "data/rosters",
     lineup_dir: str | Path = "data/lineups",
+    strategy_profile: str | None = None,
 ) -> list[tuple[str, str]]:
     """Create sound, coverage-first lineups for ``team_id`` from ACT.
 
@@ -34,10 +43,16 @@ def auto_fill_lineup_for_team(
     players_path = resolve_app_path(players_file)
     roster_root = resolve_app_path(roster_dir)
     lineup_root = resolve_app_path(lineup_dir)
+    data_dir_hint = players_path.parent if players_path.name.lower() == "players.csv" else None
 
     players: Dict[str, object] = {p.player_id: p for p in load_players_from_csv(str(players_path))}
     roster = load_roster(team_id, roster_root)
     act_ids = [pid for pid in roster.act if pid in players]
+    profile = _resolve_strategy_profile_token(
+        team_id,
+        explicit=strategy_profile,
+        data_dir_hint=data_dir_hint,
+    )
     try:
         depth_chart = load_depth_chart(team_id)
     except Exception:
@@ -49,6 +64,9 @@ def auto_fill_lineup_for_team(
 
     lineup: list[tuple[str, str]] = []
     used: set[str] = set()
+    depth_chart_assignments = 0
+    fallback_assignments = 0
+    emergency_fill_count = 0
     # Scarcity-aware order: C/SS/CF first
     positions = ["C", "SS", "CF", "3B", "2B", "1B", "LF", "RF"]
 
@@ -69,7 +87,8 @@ def auto_fill_lineup_for_team(
         fa = float(getattr(p, "fa", 0)); arm = float(getattr(p, "arm", 0))
         off = 0.5 * ch + 0.5 * ph
         defense = 0.5 * fa + 0.5 * arm
-        return 0.6 * off + 0.2 * sp + 0.2 * defense
+        base_score = (0.6 * off) + (0.2 * sp) + (0.2 * defense)
+        return base_score + _strategy_hitter_bonus(p, profile=profile)
 
     def depth_preferred(pos: str) -> list[str]:
         preferred = depth_order_for_position(depth_chart, pos)
@@ -86,6 +105,7 @@ def auto_fill_lineup_for_team(
             best = preferred[0]
             lineup.append((best, pos))
             used.add(best)
+            depth_chart_assignments += 1
             continue
         candidates = [pid for pid in act_ids if pid not in used and eligible_for(pid, pos)]
         if not candidates:
@@ -99,6 +119,7 @@ def auto_fill_lineup_for_team(
         best = max(candidates, key=hitter_score)
         lineup.append((best, pos))
         used.add(best)
+        fallback_assignments += 1
 
     # DH is any remaining non-pitcher
     if len(lineup) < 9:
@@ -113,6 +134,7 @@ def auto_fill_lineup_for_team(
             best = dh_pref[0]
             lineup.append((best, "DH"))
             used.add(best)
+            depth_chart_assignments += 1
         else:
             remaining = [
                 pid
@@ -123,6 +145,7 @@ def auto_fill_lineup_for_team(
                 best = max(remaining, key=hitter_score)
                 lineup.append((best, "DH"))
                 used.add(best)
+                fallback_assignments += 1
 
     # If still short, just fill with any remaining ACT players (defensive pos unknown)
     for pid in act_ids:
@@ -134,6 +157,7 @@ def auto_fill_lineup_for_team(
         if p and not is_pitcher(p):
             lineup.append((pid, "DH"))
             used.add(pid)
+            emergency_fill_count += 1
 
     if len(lineup) < 9:
         fallback_ids = [
@@ -148,6 +172,7 @@ def auto_fill_lineup_for_team(
                 break
             lineup.append((pid, "DH"))
             used.add(pid)
+            emergency_fill_count += 1
 
     lineup_root.mkdir(parents=True, exist_ok=True)
     # Order batting by hitter_score (best bats earlier)
@@ -159,4 +184,114 @@ def auto_fill_lineup_for_team(
             writer.writerow(["order", "player_id", "position"])
             for i, (pid, pos) in enumerate(result, start=1):
                 writer.writerow([i, pid, pos])
+
+    decision = explanation(
+        "lineup_autofill",
+        "generated",
+        actor="automation",
+        team_id=team_id,
+        context={
+            "act_pool_size": len(act_ids),
+            "lineup_size": len(result),
+            "depth_chart_assignments": depth_chart_assignments,
+            "fallback_assignments": fallback_assignments,
+            "emergency_fill_count": emergency_fill_count,
+            "strategy_profile": profile,
+        },
+        reasons=[
+            reason(
+                "coverage_first",
+                "Filled scarce defensive positions before batting order sort.",
+            ),
+            reason(
+                "depth_chart_preference",
+                "Used depth chart priority where eligible players were available.",
+                details={"count": depth_chart_assignments},
+            ),
+            reason(
+                "best_remaining_bat",
+                "Used hitter score to select fallback or DH slots.",
+                details={"count": fallback_assignments},
+            ),
+            reason(
+                "emergency_fill",
+                "Used emergency DH fills when coverage candidates were short.",
+                details={"count": emergency_fill_count},
+            ),
+            reason(
+                "strategy_profile",
+                "Applied strategy-profile hitter valuation during fallback and order scoring.",
+                details={"profile": profile},
+            ),
+        ],
+    )
+    auto_fill_lineup_for_team.last_explanation = decision.to_dict()  # type: ignore[attr-defined]
+    if should_persist_decision_logs():
+        append_decision_log(decision)
     return result
+
+
+def _resolve_strategy_profile_token(
+    team_id: str,
+    *,
+    explicit: str | None,
+    data_dir_hint: Path | None,
+) -> str:
+    token = str(explicit or "").strip().lower()
+    if token:
+        return token
+    try:
+        resolved = resolve_team_strategy_profile(team_id, data_dir=data_dir_hint)
+        return str(resolved.profile or "balanced")
+    except Exception:
+        return "balanced"
+
+
+def _player_age(player: object) -> int | None:
+    token = str(getattr(player, "birthdate", "") or "").strip()
+    if not token:
+        return None
+    try:
+        born = date.fromisoformat(token[:10])
+    except Exception:
+        return None
+    today = date.today()
+    return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+
+
+def _norm_rating(value: object) -> float:
+    try:
+        numeric = float(value)
+    except Exception:
+        return 0.0
+    return max(0.0, min(99.0, numeric)) / 99.0
+
+
+def _strategy_hitter_bonus(player: object, *, profile: str) -> float:
+    token = str(profile or "balanced").strip().lower()
+    if token == "balanced":
+        return 0.0
+    ch = _norm_rating(getattr(player, "ch", 0))
+    ph = _norm_rating(getattr(player, "ph", 0))
+    sp = _norm_rating(getattr(player, "sp", 0))
+    eye = _norm_rating(getattr(player, "eye", 0))
+    fa = _norm_rating(getattr(player, "fa", 0))
+    arm = _norm_rating(getattr(player, "arm", 0))
+    gf = _norm_rating(getattr(player, "gf", 0))
+    age = _player_age(player)
+
+    if token == "win_now":
+        bonus = (2.4 * ch) + (2.8 * ph) + (1.4 * eye) - (0.7 * fa)
+        if isinstance(age, int) and age <= 23:
+            bonus -= 0.4
+        return bonus
+    if token == "development_focus":
+        bonus = (1.1 * sp) + (1.0 * fa) + (0.7 * ch)
+        if isinstance(age, int) and age < 28:
+            bonus += max(0, 28 - age) * 0.30
+        return bonus
+    if token == "defense_first":
+        return (2.9 * fa) + (1.7 * arm) + (1.8 * gf) - (0.6 * ph)
+    if token == "power_offense":
+        return (3.3 * ph) + (1.2 * ch) + (0.8 * sp) - (0.7 * fa)
+    return 0.0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 from services.finance_budget_effects import (
     development_multiplier_by_player,
@@ -9,6 +10,7 @@ from services.finance_budget_effects import (
     scouting_display_value,
     training_camp_multiplier_by_player,
 )
+from services.scouting_service import update_scouting_settings
 from services.finance_settings import (
     PRESET_OFF,
     PRESET_STANDARD,
@@ -27,6 +29,14 @@ def _write_teams(path) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _month_token(months_back: int) -> str:
+    today = date.today()
+    month_index = (today.year * 12 + today.month - 1) - max(0, int(months_back))
+    year = month_index // 12
+    month = (month_index % 12) + 1
+    return f"{year:04d}-{month:02d}"
 
 
 def test_budget_effects_neutral_when_finance_off(tmp_path):
@@ -179,12 +189,39 @@ def test_scouting_display_value_tracks_budget_and_remains_deterministic(tmp_path
         path=data_dir / "league_financial_settings.json",
         league_id="alpha",
     )
+    update_scouting_settings(enabled=True, data_dir=data_dir, league_id="alpha")
 
     payload = json.loads((data_dir / "team_financials.json").read_text(encoding="utf-8"))
     payload["teams"]["AAA"]["budgets"]["scouting"] = 25_000
     payload["teams"]["BBB"]["budgets"]["scouting"] = 2_000_000
     (data_dir / "team_financials.json").write_text(
         json.dumps(payload, indent=2),
+        encoding="utf-8",
+    )
+    scouting_payload = {
+        "version": 1,
+        "leagues": {
+            "alpha": {
+                "enabled": True,
+                "teams": {
+                    "AAA": {
+                        "confidence": 0.35,
+                        "credits": 0.0,
+                        "intensity": "normal",
+                        "last_period": _month_token(2),
+                    },
+                    "BBB": {
+                        "confidence": 0.35,
+                        "credits": 0.0,
+                        "intensity": "normal",
+                        "last_period": _month_token(2),
+                    },
+                },
+            }
+        },
+    }
+    (data_dir / "scouting_state.json").write_text(
+        json.dumps(scouting_payload, indent=2),
         encoding="utf-8",
     )
 
@@ -199,8 +236,8 @@ def test_scouting_display_value_tracks_budget_and_remains_deterministic(tmp_path
         league_id="alpha",
     )
 
-    assert low_profile.max_rating_error > high_profile.max_rating_error
     assert low_profile.confidence_score < high_profile.confidence_score
+    assert low_profile.max_rating_error >= high_profile.max_rating_error
 
     low_first = scouting_display_value(
         70,

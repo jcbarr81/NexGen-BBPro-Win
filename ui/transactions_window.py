@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer
+try:
+    from PyQt6.QtCore import Qt, QTimer
+except ImportError:  # pragma: no cover - fallback for lightweight test stubs
+    from PyQt6.QtCore import Qt
+
+    class QTimer:  # type: ignore[too-many-ancestors]
+        @staticmethod
+        def singleShot(_msec, callback) -> None:
+            if callback is not None:
+                callback()
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,

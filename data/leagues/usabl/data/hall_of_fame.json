@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "settings": {
+    "min_years_retired": 5,
+    "score_threshold": 120.0
+  },
+  "inductees": [],
+  "exclusions": {},
+  "updated_at": "2026-03-02T04:20:57Z"
+}

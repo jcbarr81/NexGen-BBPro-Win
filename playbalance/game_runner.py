@@ -29,6 +29,13 @@ from services.injury_manager import place_on_injury_list
 from services.injury_history import record_injury_event
 from services.injury_settings import get_injury_tuning_overrides
 from services.physics_tuning_settings import get_physics_tuning_overrides
+from services.decision_explanations import (
+    append_decision_log,
+    explanation,
+    reason,
+    summarize_decision_explanation,
+    should_persist_decision_logs,
+)
 from utils.news_logger import log_news_event
 from utils.pitcher_role import get_role
 from utils.path_utils import get_data_dir, resolve_app_path
@@ -308,6 +315,87 @@ def _apply_bullpen_usage_order(
     resting.sort(key=_resting_key)
 
     state.pitchers = [starter] + [p for _, p in available] + [p for _, p in resting]
+    decision = explanation(
+        "bullpen_usage_order",
+        "reordered",
+        actor="automation",
+        team_id=team_id,
+        context={
+            "date": str(date_token),
+            "available_count": len(available),
+            "resting_count": len(resting),
+            "starter_id": getattr(starter, "player_id", None),
+        },
+        reasons=[
+            reason(
+                "availability_gate",
+                "Pitchers marked unavailable were moved behind available bullpen arms.",
+                details={"resting_count": len(resting)},
+            ),
+            reason(
+                "rest_priority",
+                "Available arms were ordered by days since use and recent workload.",
+                details={"available_count": len(available)},
+            ),
+            reason(
+                "recovery_constraints",
+                "Ordering respects recovery tracker budget and readiness signals.",
+            ),
+        ],
+    )
+    try:
+        state.last_bullpen_decision_explanation = decision.to_dict()
+    except Exception:
+        pass
+    if should_persist_decision_logs():
+        append_decision_log(decision)
+
+
+def _collect_bullpen_usage_reason_meta(
+    home_id: str,
+    home_state: TeamState,
+    away_id: str,
+    away_state: TeamState,
+) -> dict[str, object]:
+    """Return compact bullpen-usage explanation summaries for UI metadata."""
+
+    def _entry(team_id: str, state: TeamState) -> dict[str, object] | None:
+        payload = getattr(state, "last_bullpen_decision_explanation", None)
+        if not isinstance(payload, Mapping):
+            return None
+        summary = summarize_decision_explanation(
+            payload,
+            fallback="",
+            max_reasons=2,
+        )
+        compact = " ".join(part.strip() for part in str(summary).splitlines() if part.strip())
+        if not compact:
+            return None
+        raw_reasons = payload.get("reasons")
+        tags: list[str] = []
+        if isinstance(raw_reasons, list):
+            for item in raw_reasons:
+                if not isinstance(item, Mapping):
+                    continue
+                tag = str(item.get("tag") or "").strip()
+                if tag:
+                    tags.append(tag)
+        return {
+            "team_id": str(team_id),
+            "decision_type": str(payload.get("decision_type") or ""),
+            "outcome": str(payload.get("outcome") or ""),
+            "reason_tags": tags,
+            "summary": compact,
+        }
+
+    details: dict[str, object] = {}
+    home_entry = _entry(home_id, home_state)
+    away_entry = _entry(away_id, away_state)
+    if home_entry:
+        details["home"] = home_entry
+    if away_entry:
+        details["away"] = away_entry
+    return details
 
 
 def reorder_pitchers(state: TeamState, starter_id: str | None) -> None:
@@ -1061,6 +1149,9 @@ def _run_physics_game(
         "away_starter_hand": _starter_hand(away_state),
         "engine": "physics",
     }
+    bullpen_meta = _collect_bullpen_usage_reason_meta(home_id, home_state, away_id, away_state)
+    if bullpen_meta:
+        meta["bullpen_usage_reasons"] = bullpen_meta
 
     injury_events = metadata.get("injury_events", []) if isinstance(metadata, dict) else []
     if not isinstance(injury_events, list):
@@ -1310,6 +1401,9 @@ def run_single_game(
         "away_starter_hand": _starter_hand(away_state),
         "engine": "legacy",
     }
+    bullpen_meta = _collect_bullpen_usage_reason_meta(home_id, home_state, away_id, away_state)
+    if bullpen_meta:
+        meta["bullpen_usage_reasons"] = bullpen_meta
     if getattr(sim, "debug_log", None):
         meta["debug_log"] = list(sim.debug_log)
     try:

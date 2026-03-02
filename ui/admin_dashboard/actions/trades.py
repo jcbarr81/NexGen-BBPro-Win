@@ -21,6 +21,13 @@ from services.payroll_policy import (
     format_payroll_policy_message,
     record_payroll_policy_result,
 )
+from services.decision_explanations import (
+    append_decision_log,
+    explanation,
+    reason,
+    summarize_decision_explanation,
+    should_persist_decision_logs,
+)
 from services.trade_settings import load_trade_settings
 from services.transaction_log import record_transaction
 from ui.window_utils import show_on_top
@@ -91,6 +98,10 @@ def review_pending_trades(
 
     payroll_preview = QLabel("Payroll policy preview: select a trade.")
     payroll_preview.setWordWrap(True)
+    decision_reason_label = QLabel(
+        "Decision reasons will appear here after approving or rejecting a trade."
+    )
+    decision_reason_label.setWordWrap(True)
 
     def update_payroll_preview() -> None:
         selected = trade_list.currentItem()
@@ -118,12 +129,69 @@ def review_pending_trades(
 
     trade_list.currentItemChanged.connect(lambda *_args: update_payroll_preview())
 
+    def update_decision_reason(payload: dict | None = None) -> None:
+        current = payload
+        if current is None:
+            raw = getattr(dialog, "_last_trade_decision_explanation", None)
+            current = raw if isinstance(raw, dict) else None
+        if not isinstance(current, dict):
+            decision_reason_label.setText(
+                "Decision reasons will appear here after approving or rejecting a trade."
+            )
+            return
+        if str(current.get("decision_type") or "").strip() != "trade_response":
+            decision_reason_label.setText(
+                "Decision reasons will appear here after approving or rejecting a trade."
+            )
+            return
+        summary = summarize_decision_explanation(
+            current,
+            fallback="Latest trade decision did not include detailed reasons.",
+            max_reasons=3,
+        )
+        decision_reason_label.setText(f"Latest Decision Reasons:\n{summary}")
+
+    def _record_admin_trade_decision(
+        trade,
+        *,
+        outcome: str,
+        requested_action: str,
+        reasons_payload: list | None = None,
+    ) -> None:
+        payload = explanation(
+            "trade_response",
+            outcome,
+            actor="commissioner",
+            team_id=trade.to_team,
+            subject_id=trade.trade_id,
+            context={
+                "requested_action": requested_action,
+                "trade_status": str(getattr(trade, "status", "")),
+                "from_team": trade.from_team,
+                "to_team": trade.to_team,
+                "give_players_count": len(getattr(trade, "give_player_ids", []) or []),
+                "receive_players_count": len(getattr(trade, "receive_player_ids", []) or []),
+                "give_picks_count": len(getattr(trade, "give_pick_ids", []) or []),
+                "receive_picks_count": len(getattr(trade, "receive_pick_ids", []) or []),
+            },
+            reasons=list(reasons_payload or []),
+        )
+        try:
+            record = payload.to_dict()
+            setattr(dialog, "_last_trade_decision_explanation", record)
+            update_decision_reason(record)
+        except Exception:
+            pass
+        if should_persist_decision_logs():
+            append_decision_log(payload)
+
     def process_trade(accept: bool = True) -> None:
         selected = trade_list.currentItem()
         if not selected:
             return
         summary = selected.text()
         trade = trade_map[summary]
+        requested_action = "accept" if accept else "reject"
 
         outgoing_from: list[tuple[str, str]] = []
         incoming_to: list[tuple[str, str]] = []
@@ -133,6 +201,17 @@ def review_pending_trades(
         if accept:
             settings = load_trade_settings()
             if not settings.trades_enabled:
+                _record_admin_trade_decision(
+                    trade,
+                    outcome="blocked",
+                    requested_action=requested_action,
+                    reasons_payload=[
+                        reason(
+                            "trading_disabled",
+                            "Commissioner attempted to approve while trading is disabled.",
+                        ),
+                    ],
+                )
                 QMessageBox.warning(
                     dialog,
                     "Trading Disabled",
@@ -140,6 +219,17 @@ def review_pending_trades(
                 )
                 return
             if settings.require_commissioner_approval and trade.status != "owner_accepted":
+                _record_admin_trade_decision(
+                    trade,
+                    outcome="blocked",
+                    requested_action=requested_action,
+                    reasons_payload=[
+                        reason(
+                            "owner_acceptance_required",
+                            "Trade requires owner acceptance before commissioner approval.",
+                        ),
+                    ],
+                )
                 QMessageBox.warning(
                     dialog,
                     "Owner Acceptance Required",
@@ -155,6 +245,18 @@ def review_pending_trades(
                     policy,
                     action="admin_trade_approve",
                     data_dir=get_data_dir(),
+                )
+                _record_admin_trade_decision(
+                    trade,
+                    outcome="blocked",
+                    requested_action=requested_action,
+                    reasons_payload=[
+                        reason(
+                            "payroll_policy_blocked",
+                            "Payroll policy blocked commissioner approval.",
+                            details={"violations": list(getattr(policy, "violations", []) or [])},
+                        ),
+                    ],
                 )
                 QMessageBox.warning(
                     dialog,
@@ -175,6 +277,20 @@ def review_pending_trades(
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 )
                 if proceed != QMessageBox.StandardButton.Yes:
+                    _record_admin_trade_decision(
+                        trade,
+                        outcome="cancelled",
+                        requested_action=requested_action,
+                        reasons_payload=[
+                            reason(
+                                "commissioner_cancelled_after_warning",
+                                "Commissioner cancelled after payroll warning.",
+                                details={
+                                    "violations": list(getattr(policy, "violations", []) or []),
+                                },
+                            ),
+                        ],
+                    )
                     return
             from_roster = load_roster(trade.from_team)
             to_roster = load_roster(trade.to_team)
@@ -225,6 +341,17 @@ def review_pending_trades(
 
         trade.status = "accepted" if accept else "rejected"
         save_trade(trade)
+        _record_admin_trade_decision(
+            trade,
+            outcome=trade.status,
+            requested_action=requested_action,
+            reasons_payload=[
+                reason(
+                    "commissioner_decision",
+                    "Commissioner explicitly processed pending trade.",
+                ),
+            ],
+        )
 
         if accept:
             try:
@@ -343,9 +470,11 @@ def review_pending_trades(
 
     layout.addWidget(trade_list)
     layout.addWidget(payroll_preview)
+    layout.addWidget(decision_reason_label)
     layout.addLayout(btn_layout)
     dialog.setLayout(layout)
     update_payroll_preview()
+    update_decision_reason()
     show_on_top(dialog)
 
 

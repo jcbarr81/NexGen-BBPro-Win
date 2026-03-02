@@ -21,6 +21,10 @@ class SchedulePage(QWidget):
         btn_standings.clicked.connect(dashboard.open_standings_window)
         card.layout().addWidget(btn_standings)
 
+        btn_command_center = QPushButton("League Command Center", objectName="Primary")
+        btn_command_center.clicked.connect(dashboard.open_league_command_center)
+        card.layout().addWidget(btn_command_center)
+
         btn_stats = QPushButton("League Stats", objectName="Primary")
         btn_stats.clicked.connect(dashboard.open_league_stats_window)
         card.layout().addWidget(btn_stats)

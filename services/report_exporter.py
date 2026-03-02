@@ -8,6 +8,12 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping
 
 from playbalance.season_context import SeasonContext
+from services.career_arc_analytics import (
+    CAREER_ARC_ERA_FIELDS,
+    CAREER_ARC_TREND_FIELDS,
+    CAREER_ARC_YOY_FIELDS,
+    build_career_arc_analytics,
+)
 from services.record_book import league_record_book
 from services.standings_repository import load_standings
 from utils.path_utils import get_data_dir, resolve_app_path
@@ -104,6 +110,7 @@ def export_reports(
         out_dir,
         batting=False,
     )
+    files.update(_export_career_arc_analytics(out_dir))
     files["league_history_csv"] = _export_league_history(out_dir)
     record_files = _export_record_book(out_dir)
     files.update(record_files)
@@ -443,6 +450,36 @@ def _export_league_history(out_dir: Path) -> Path:
         ],
     )
     return path
+
+
+def _export_career_arc_analytics(out_dir: Path) -> Dict[str, Path]:
+    payload = build_career_arc_analytics()
+    yoy_rows = payload.get("yoy", []) if isinstance(payload, dict) else []
+    trend_rows = payload.get("trends", []) if isinstance(payload, dict) else []
+    era_rows = payload.get("team_eras", []) if isinstance(payload, dict) else []
+
+    yoy_path = out_dir / "career_arc_yoy.csv"
+    _write_csv(yoy_path, yoy_rows if isinstance(yoy_rows, list) else [], fieldnames=CAREER_ARC_YOY_FIELDS)
+
+    trends_path = out_dir / "career_arc_trends.csv"
+    _write_csv(
+        trends_path,
+        trend_rows if isinstance(trend_rows, list) else [],
+        fieldnames=CAREER_ARC_TREND_FIELDS,
+    )
+
+    eras_path = out_dir / "career_arc_team_eras.csv"
+    _write_csv(
+        eras_path,
+        era_rows if isinstance(era_rows, list) else [],
+        fieldnames=CAREER_ARC_ERA_FIELDS,
+    )
+
+    return {
+        "career_arc_yoy_csv": yoy_path,
+        "career_arc_trends_csv": trends_path,
+        "career_arc_team_eras_csv": eras_path,
+    }
 
 
 def _export_record_book(out_dir: Path) -> Dict[str, Path]:

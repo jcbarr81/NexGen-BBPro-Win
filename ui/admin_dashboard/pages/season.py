@@ -31,6 +31,15 @@ class SeasonPage(DashboardPage):
         self.playoffs_view_button = QPushButton("Open Playoffs Viewer")
         self.playoffs_view_button.setToolTip("View current playoff bracket and results")
         control.layout().addWidget(self.playoffs_view_button, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        self.command_center_button = QPushButton("Open League Command Center")
+        self.command_center_button.setToolTip(
+            "Open league-wide command center cards for operations triage"
+        )
+        control.layout().addWidget(
+            self.command_center_button,
+            alignment=Qt.AlignmentFlag.AlignHCenter,
+        )
         control.layout().addStretch()
 
         ops = Card()

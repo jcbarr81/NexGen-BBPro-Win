@@ -17,6 +17,11 @@ from services.contracts_service import (
 from services.finance_settings import DEFAULT_FINANCE_AI_TUNING, load_financial_settings
 from services.owner_finance_engine import project_monthly_owner_finance
 from services.payroll_engine import calculate_annual_payroll_totals
+from services.team_strategy_profiles import (
+    load_team_strategy_settings,
+    resolve_team_strategy_profile,
+    to_finance_strategy_profile,
+)
 from services.standings_repository import invalidate_standings, load_standings
 from utils.path_utils import get_data_dir
 
@@ -75,6 +80,16 @@ def load_team_finance_strategies(
     commitments = _load_multi_year_commitments(resolved_data_dir)
     team_financials = _load_team_financials(resolved_data_dir)
     projections = project_monthly_owner_finance(data_dir=resolved_data_dir)
+    try:
+        strategy_settings = load_team_strategy_settings(data_dir=resolved_data_dir)
+    except Exception:
+        strategy_settings = {"default_profile": "balanced", "team_overrides": {}}
+    strategy_default = str(strategy_settings.get("default_profile") or "balanced").strip().lower()
+    raw_overrides = strategy_settings.get("team_overrides", {})
+    strategy_overrides = raw_overrides if isinstance(raw_overrides, Mapping) else {}
+    override_team_ids = {
+        str(key or "").strip().upper() for key in strategy_overrides.keys()
+    }
 
     team_ids = set(standings.keys())
     team_ids.update(payroll_totals.keys())
@@ -108,6 +123,16 @@ def load_team_finance_strategies(
             projected_net = _safe_int(getattr(projection, "projected_net", 0), fallback=0)
         win_pct = _win_pct(standings.get(team_id))
         profile = _resolve_profile(win_pct, cash_on_hand=cash_on_hand, debt=debt, projected_net=projected_net)
+        has_team_override = str(team_id or "").strip().upper() in override_team_ids
+        if has_team_override or strategy_default != "balanced":
+            try:
+                resolved_profile = resolve_team_strategy_profile(
+                    team_id,
+                    data_dir=resolved_data_dir,
+                )
+                profile = to_finance_strategy_profile(resolved_profile.profile)
+            except Exception:
+                pass
         budget_tone = _resolve_budget_tone(
             cash_on_hand=cash_on_hand,
             debt=debt,

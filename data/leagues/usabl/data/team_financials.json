@@ -1,22 +1,22 @@
 {
   "version": 1,
-  "season_year": 2074,
+  "season_year": 2106,
   "teams": {
     "WAS": {
-      "cash_on_hand": 617241600,
+      "cash_on_hand": 1032653688,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1178034,
+        "concessions": 258054,
+        "media": 902400,
+        "sponsorship": 620400
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 263200,
+        "scouting": 225600,
+        "facilities": 244400,
+        "operations": 817800
       },
       "budgets": {
         "training": 205296,
@@ -26,20 +26,20 @@
       }
     },
     "PHI": {
-      "cash_on_hand": 689472000,
+      "cash_on_hand": 1153496130,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1315890,
+        "concessions": 288240,
+        "media": 1008000,
+        "sponsorship": 693000
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 294000,
+        "scouting": 252000,
+        "facilities": 273000,
+        "operations": 913500
       },
       "budgets": {
         "training": 229320,
@@ -49,20 +49,20 @@
       }
     },
     "IND": {
-      "cash_on_hand": 650073600,
+      "cash_on_hand": 1087582062,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1240692,
+        "concessions": 271770,
+        "media": 950400,
+        "sponsorship": 653400
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 277200,
+        "scouting": 237600,
+        "facilities": 257400,
+        "operations": 861300
       },
       "budgets": {
         "training": 216216,
@@ -72,20 +72,20 @@
       }
     },
     "SAN": {
-      "cash_on_hand": 696038400,
+      "cash_on_hand": 1164481818,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1328418,
+        "concessions": 291000,
+        "media": 1017600,
+        "sponsorship": 699600
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 296800,
+        "scouting": 254400,
+        "facilities": 275600,
+        "operations": 922200
       },
       "budgets": {
         "training": 231504,
@@ -95,20 +95,20 @@
       }
     },
     "BOS": {
-      "cash_on_hand": 709171200,
+      "cash_on_hand": 1186453164,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1353486,
+        "concessions": 296478,
+        "media": 1036800,
+        "sponsorship": 712800
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 302400,
+        "scouting": 259200,
+        "facilities": 280800,
+        "operations": 939600
       },
       "budgets": {
         "training": 235872,
@@ -118,20 +118,20 @@
       }
     },
     "SAN1": {
-      "cash_on_hand": 604108800,
+      "cash_on_hand": 1010682312,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1152966,
+        "concessions": 252546,
+        "media": 883200,
+        "sponsorship": 607200
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 257600,
+        "scouting": 220800,
+        "facilities": 239200,
+        "operations": 800400
       },
       "budgets": {
         "training": 200928,
@@ -141,20 +141,20 @@
       }
     },
     "PHO": {
-      "cash_on_hand": 590976000,
+      "cash_on_hand": 988710966,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1127904,
+        "concessions": 247062,
+        "media": 864000,
+        "sponsorship": 594000
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 252000,
+        "scouting": 216000,
+        "facilities": 234000,
+        "operations": 783000
       },
       "budgets": {
         "training": 196560,
@@ -164,20 +164,20 @@
       }
     },
     "CHI": {
-      "cash_on_hand": 604108800,
+      "cash_on_hand": 1010682312,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1152966,
+        "concessions": 252546,
+        "media": 883200,
+        "sponsorship": 607200
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 257600,
+        "scouting": 220800,
+        "facilities": 239200,
+        "operations": 800400
       },
       "budgets": {
         "training": 200928,
@@ -187,20 +187,20 @@
       }
     },
     "OKL": {
-      "cash_on_hand": 722304000,
+      "cash_on_hand": 1208424504,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1378548,
+        "concessions": 301956,
+        "media": 1056000,
+        "sponsorship": 726000
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 308000,
+        "scouting": 264000,
+        "facilities": 286000,
+        "operations": 957000
       },
       "budgets": {
         "training": 240240,
@@ -210,20 +210,20 @@
       }
     },
     "DET": {
-      "cash_on_hand": 663206400,
+      "cash_on_hand": 1109553414,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1265760,
+        "concessions": 277254,
+        "media": 969600,
+        "sponsorship": 666600
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 282800,
+        "scouting": 242400,
+        "facilities": 262600,
+        "operations": 878700
       },
       "budgets": {
         "training": 220584,
@@ -233,20 +233,20 @@
       }
     },
     "ELP": {
-      "cash_on_hand": 689472000,
+      "cash_on_hand": 1153496130,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1315890,
+        "concessions": 288240,
+        "media": 1008000,
+        "sponsorship": 693000
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 294000,
+        "scouting": 252000,
+        "facilities": 273000,
+        "operations": 913500
       },
       "budgets": {
         "training": 229320,
@@ -256,20 +256,20 @@
       }
     },
     "MIL": {
-      "cash_on_hand": 696038400,
+      "cash_on_hand": 1164481818,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1328418,
+        "concessions": 291000,
+        "media": 1017600,
+        "sponsorship": 699600
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 296800,
+        "scouting": 254400,
+        "facilities": 275600,
+        "operations": 922200
       },
       "budgets": {
         "training": 231504,
@@ -279,20 +279,20 @@
       }
     },
     "ALB": {
-      "cash_on_hand": 709171200,
+      "cash_on_hand": 1186453164,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1353486,
+        "concessions": 296478,
+        "media": 1036800,
+        "sponsorship": 712800
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 302400,
+        "scouting": 259200,
+        "facilities": 280800,
+        "operations": 939600
       },
       "budgets": {
         "training": 235872,
@@ -302,20 +302,20 @@
       }
     },
     "HOU": {
-      "cash_on_hand": 623808000,
+      "cash_on_hand": 1043639340,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1190562,
+        "concessions": 260778,
+        "media": 912000,
+        "sponsorship": 627000
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 266000,
+        "scouting": 228000,
+        "facilities": 247000,
+        "operations": 826500
       },
       "budgets": {
         "training": 207480,
@@ -325,20 +325,20 @@
       }
     },
     "JAC": {
-      "cash_on_hand": 702604800,
+      "cash_on_hand": 1175467476,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1340952,
+        "concessions": 293724,
+        "media": 1027200,
+        "sponsorship": 706200
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 299600,
+        "scouting": 256800,
+        "facilities": 278200,
+        "operations": 930900
       },
       "budgets": {
         "training": 233688,
@@ -348,20 +348,20 @@
       }
     },
     "POR": {
-      "cash_on_hand": 656640000,
+      "cash_on_hand": 1098567750,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1253226,
+        "concessions": 274524,
+        "media": 960000,
+        "sponsorship": 660000
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 280000,
+        "scouting": 240000,
+        "facilities": 260000,
+        "operations": 870000
       },
       "budgets": {
         "training": 218400,
@@ -371,20 +371,20 @@
       }
     },
     "LOU": {
-      "cash_on_hand": 650073600,
+      "cash_on_hand": 1087582062,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1240692,
+        "concessions": 271770,
+        "media": 950400,
+        "sponsorship": 653400
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 277200,
+        "scouting": 237600,
+        "facilities": 257400,
+        "operations": 861300
       },
       "budgets": {
         "training": 216216,
@@ -394,20 +394,20 @@
       }
     },
     "SAN2": {
-      "cash_on_hand": 610675200,
+      "cash_on_hand": 1021668000,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1165500,
+        "concessions": 255300,
+        "media": 892800,
+        "sponsorship": 613800
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 260400,
+        "scouting": 223200,
+        "facilities": 241800,
+        "operations": 809100
       },
       "budgets": {
         "training": 203112,
@@ -417,20 +417,20 @@
       }
     },
     "FOR": {
-      "cash_on_hand": 590976000,
+      "cash_on_hand": 988710966,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1127904,
+        "concessions": 247062,
+        "media": 864000,
+        "sponsorship": 594000
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 252000,
+        "scouting": 216000,
+        "facilities": 234000,
+        "operations": 783000
       },
       "budgets": {
         "training": 196560,
@@ -440,20 +440,20 @@
       }
     },
     "NAS": {
-      "cash_on_hand": 696038400,
+      "cash_on_hand": 1164481818,
       "debt": 0,
       "revenue": {
-        "tickets": 0,
-        "concessions": 0,
-        "media": 0,
-        "sponsorship": 0
+        "tickets": 1328418,
+        "concessions": 291000,
+        "media": 1017600,
+        "sponsorship": 699600
       },
       "expenses": {
         "payroll": 0,
-        "training": 0,
-        "scouting": 0,
-        "facilities": 0,
-        "operations": 0
+        "training": 296800,
+        "scouting": 254400,
+        "facilities": 275600,
+        "operations": 922200
       },
       "budgets": {
         "training": 231504,

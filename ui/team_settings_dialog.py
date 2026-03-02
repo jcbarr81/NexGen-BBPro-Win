@@ -16,6 +16,13 @@ from PyQt6.QtWidgets import (
 )
 
 from utils.park_utils import list_ballpark_names
+from services.team_strategy_profiles import (
+    DEFAULT_PROFILE,
+    STRATEGY_PROFILES,
+    TeamStrategyProfile,
+    load_team_strategy_settings,
+    resolve_team_strategy_profile,
+)
 from .park_selector_dialog import (
     ParkSelectorDialog,
     _load_latest_parks,
@@ -71,6 +78,21 @@ class TeamSettingsDialog(QDialog):
         self._uniform_source_pixmap = None
         self._parks_by_name = _build_park_lookup(_load_latest_parks())
         self._park_preview_cache: Dict[str, Optional[Path]] = {}
+        try:
+            self._strategy_settings = load_team_strategy_settings()
+            self._resolved_strategy = resolve_team_strategy_profile(
+                getattr(team, "team_id", None)
+            )
+        except Exception:
+            self._strategy_settings = {"default_profile": DEFAULT_PROFILE}
+            meta = STRATEGY_PROFILES[DEFAULT_PROFILE]
+            self._resolved_strategy = TeamStrategyProfile(
+                team_id=str(getattr(team, "team_id", "") or "").strip(),
+                profile=DEFAULT_PROFILE,
+                label=str(meta.get("label", "Balanced")),
+                description=str(meta.get("description", "")),
+                source="league_default",
+            )
 
         layout = QVBoxLayout()
 
@@ -114,6 +136,26 @@ class TeamSettingsDialog(QDialog):
         browse_btn.clicked.connect(self._open_park_selector)
         stadium_row.addWidget(browse_btn)
         layout.addLayout(stadium_row)
+
+        # Team strategy profile
+        strategy_row = QHBoxLayout()
+        strategy_row.addWidget(QLabel("Team Strategy:"))
+        self.strategy_combo = QComboBox()
+        self.strategy_combo.addItem("Use League Default", "")
+        for profile_id, meta in STRATEGY_PROFILES.items():
+            label = str(meta.get("label", profile_id.title()))
+            self.strategy_combo.addItem(label, profile_id)
+        if self._resolved_strategy.source == "team_override":
+            idx = self.strategy_combo.findData(self._resolved_strategy.profile)
+            self.strategy_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        else:
+            self.strategy_combo.setCurrentIndex(0)
+        strategy_row.addWidget(self.strategy_combo)
+        layout.addLayout(strategy_row)
+
+        self.strategy_label = QLabel()
+        self.strategy_label.setWordWrap(True)
+        layout.addWidget(self.strategy_label)
 
         # Live visual previews
         preview_row = QHBoxLayout()
@@ -163,8 +205,10 @@ class TeamSettingsDialog(QDialog):
         self.stadium_combo.currentTextChanged.connect(self._on_stadium_changed)
         self.primary_edit.textChanged.connect(self._update_uniform_preview)
         self.secondary_edit.textChanged.connect(self._update_uniform_preview)
+        self.strategy_combo.currentIndexChanged.connect(self._update_strategy_label)
         self._on_stadium_changed(self.stadium_combo.currentText())
         self._update_uniform_preview()
+        self._update_strategy_label()
 
     def choose_color(self, edit):
         """Open a color dialog and set the selected color on the given line edit."""
@@ -183,6 +227,7 @@ class TeamSettingsDialog(QDialog):
             "primary_color": primary if self.primary_edit.hasAcceptableInput() else "",
             "secondary_color": secondary if self.secondary_edit.hasAcceptableInput() else "",
             "stadium": self.stadium_combo.currentText(),
+            "strategy_profile_override": str(self.strategy_combo.currentData() or ""),
         }
 
     def _open_park_selector(self):
@@ -201,6 +246,32 @@ class TeamSettingsDialog(QDialog):
             self.stadium_label.setText(f"Current MLB park: {name}")
         else:
             self.stadium_label.setText("Current MLB park: Not set")
+
+    def _strategy_default_label(self) -> str:
+        profile_id = str(
+            self._strategy_settings.get("default_profile", DEFAULT_PROFILE) or DEFAULT_PROFILE
+        )
+        meta = STRATEGY_PROFILES.get(profile_id, STRATEGY_PROFILES[DEFAULT_PROFILE])
+        return str(meta.get("label", "Balanced"))
+
+    def _update_strategy_label(self) -> None:
+        selected = str(self.strategy_combo.currentData() or "").strip().lower()
+        if selected:
+            resolved = selected
+            source = "Team Override"
+        else:
+            resolved = str(
+                self._strategy_settings.get("default_profile", DEFAULT_PROFILE)
+                or DEFAULT_PROFILE
+            )
+            source = "League Default"
+        meta = STRATEGY_PROFILES.get(resolved, STRATEGY_PROFILES[DEFAULT_PROFILE])
+        label = str(meta.get("label", "Balanced"))
+        description = str(meta.get("description", ""))
+        default_label = self._strategy_default_label()
+        self.strategy_label.setText(
+            f"Effective strategy: {label} ({source}). League default: {default_label}. {description}"
+        )
 
     def _park_preview_path(self, park: Any) -> Optional[Path]:
         park_id = (getattr(park, "park_id", "") or "").strip()

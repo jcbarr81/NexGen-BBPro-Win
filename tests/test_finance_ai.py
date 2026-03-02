@@ -47,6 +47,48 @@ def test_load_team_finance_strategies_assigns_profiles_from_context(tmp_path):
     assert strategies["BBB"].profile == "rebuild"
 
 
+def test_load_team_finance_strategies_respects_strategy_profile_overrides(tmp_path):
+    data_dir = tmp_path / "league-data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    ensure_financial_defaults(data_dir=data_dir, league_id="test")
+    (data_dir / "team_financials.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "season_year": 2030,
+                "teams": {
+                    "AAA": {"cash_on_hand": 4_000_000, "debt": 0},
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "standings.json").write_text(
+        json.dumps({"AAA": {"wins": 81, "losses": 81}}, indent=2),
+        encoding="utf-8",
+    )
+    (data_dir / "team_strategy_profiles.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "leagues": {
+                    "test": {
+                        "default_profile": "power_offense",
+                        "teams": {},
+                    }
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    strategies = load_team_finance_strategies(data_dir=data_dir)
+
+    assert strategies["AAA"].profile == "contend"
+
+
 def test_load_team_finance_strategies_tracks_multi_year_commitments(tmp_path):
     data_dir = tmp_path / "league-data"
     data_dir.mkdir(parents=True, exist_ok=True)

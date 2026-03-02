@@ -9,7 +9,7 @@
     "season_id": "usabl-2026",
     "league_year": 2026,
     "sequence": 1,
-    "started_on": null,
+    "started_on": "2026-04-01",
     "metadata": {
       "quickstart_preset_id": "regional_20",
       "rule_preset_id": "mlb_standard",

@@ -83,3 +83,31 @@ def test_owner_finance_page_builds_linear_workflow_guidance():
     assert "Arbitration: 4 candidate(s), pending 2" in text
     assert "Free agency: 25 unsigned player(s), pending 1" in text
     assert "commissioner must review pending finance decisions" in text
+
+
+def test_owner_finance_page_formats_scouting_controls_summary():
+    from ui.owner_finance_page import OwnerFinancePage
+
+    enabled_text = OwnerFinancePage._format_scouting_controls_summary(
+        controls={
+            "enabled": True,
+            "confidence_score": 62,
+            "confidence_label": "High",
+            "max_rating_error": 3,
+            "intensity": "high",
+            "credits": 145.5,
+            "scouting_multiplier": 1.12,
+            "estimated_monthly_income": 168.0,
+        },
+        uses_budget_model=False,
+    )
+    assert "Confidence: 62% (High)" in enabled_text
+    assert "Estimated Rating Error Band: ±3" in enabled_text
+    assert "Intensity: High" in enabled_text
+    assert "League baseline progression" in enabled_text
+
+    disabled_text = OwnerFinancePage._format_scouting_controls_summary(
+        controls={"enabled": False},
+        uses_budget_model=True,
+    )
+    assert "Fog-of-war disabled" in disabled_text

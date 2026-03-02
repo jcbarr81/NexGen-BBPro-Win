@@ -317,6 +317,7 @@ class OwnerHomePage(QWidget):
                     ("Team Stats", lambda: self._dashboard.open_team_stats_window("team")),
                     ("League Leaders", self._dashboard.open_league_leaders_window),
                     ("League Standings", self._dashboard.open_standings_window),
+                    ("Command Center", self._dashboard.open_league_command_center),
                     ("Team Schedule", self._dashboard.open_team_schedule_window),
                     ("Draft Console", self._dashboard.open_draft_console),
                     ("Playoffs Viewer", self._dashboard.open_playoffs_window),

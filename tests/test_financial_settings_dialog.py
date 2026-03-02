@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from services.finance_settings import PRESET_CUSTOM
 
 def test_import_financial_settings_dialog_headless():
     from ui.financial_settings_dialog import FinancialSettingsDialog  # noqa: F401
@@ -65,3 +66,59 @@ def test_financial_settings_dialog_summarizes_module_levels():
     assert "Basic: 1" in text
     assert "Advanced/MLB-Like: 2" in text
     assert "Enforcement Block: 1" in text
+
+
+def test_preset_changed_custom_enables_finance_controls():
+    from ui.financial_settings_dialog import FinancialSettingsDialog
+
+    class _FakeCheckBox:
+        def __init__(self) -> None:
+            self._checked = False
+
+        def isChecked(self) -> bool:
+            return self._checked
+
+        def setChecked(self, value: bool) -> None:
+            self._checked = bool(value)
+
+    dialog = FinancialSettingsDialog.__new__(FinancialSettingsDialog)
+    dialog._updating = False
+    dialog.enabled_checkbox = _FakeCheckBox()
+    dialog._preset_value = lambda: PRESET_CUSTOM
+    dialog._apply_preset_to_controls = lambda _preset: None
+    dialog._sync_enabled_state = lambda: None
+    dialog._refresh_mode_guidance = lambda: None
+
+    dialog._on_preset_changed()
+
+    assert dialog.enabled_checkbox.isChecked() is True
+
+
+def test_financial_settings_dialog_collects_and_clamps_scouting_tuning():
+    from ui.financial_settings_dialog import FinancialSettingsDialog
+
+    class _FakeField:
+        def __init__(self, value: str) -> None:
+            self._value = value
+
+        def text(self) -> str:
+            return self._value
+
+    dialog = FinancialSettingsDialog.__new__(FinancialSettingsDialog)
+    dialog._scouting_tuning_inputs = {
+        "base_monthly_credits": _FakeField("1200"),
+        "finance_off_multiplier": _FakeField("9.0"),
+        "monthly_decay": _FakeField("-1"),
+        "passive_gain": _FakeField("0.015"),
+        "max_banked_credits": _FakeField("20"),
+        "auto_spend_cap": _FakeField("bad"),
+    }
+
+    values = dialog._collect_scouting_tuning()
+
+    assert values["base_monthly_credits"] == 1200.0
+    assert values["finance_off_multiplier"] == 1.5
+    assert values["monthly_decay"] == 0.0
+    assert values["passive_gain"] == 0.015
+    assert values["max_banked_credits"] == 50.0
+    assert values["auto_spend_cap"] == 80.0

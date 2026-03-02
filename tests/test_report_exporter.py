@@ -133,6 +133,9 @@ def test_export_reports_creates_csvs(monkeypatch, tmp_path):
     assert result.files["league_stats_pitching_csv"].exists()
     assert result.files["league_leaders_batting_csv"].exists()
     assert result.files["league_leaders_pitching_csv"].exists()
+    assert result.files["career_arc_yoy_csv"].exists()
+    assert result.files["career_arc_trends_csv"].exists()
+    assert result.files["career_arc_team_eras_csv"].exists()
     assert result.files["league_history_csv"].exists()
     assert result.files["record_book_batting_csv"].exists()
     assert result.files["record_book_pitching_csv"].exists()
@@ -142,3 +145,5 @@ def test_export_reports_creates_csvs(monkeypatch, tmp_path):
     assert "team_id" in standings_header
     batting_header = result.files["league_stats_batting_csv"].read_text(encoding="utf-8").splitlines()[0]
     assert "player_id" in batting_header
+    yoy_header = result.files["career_arc_yoy_csv"].read_text(encoding="utf-8").splitlines()[0]
+    assert "delta_wins" in yoy_header

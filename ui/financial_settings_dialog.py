@@ -34,6 +34,16 @@ from services.finance_reporting import (
     build_commissioner_projection_report,
     build_finance_alerts,
 )
+from services.scouting_service import (
+    DEFAULT_AUTO_SPEND_CAP,
+    DEFAULT_BASE_MONTHLY_CREDITS,
+    DEFAULT_FINANCE_OFF_MULTIPLIER,
+    DEFAULT_MAX_BANKED_CREDITS,
+    DEFAULT_MONTHLY_DECAY,
+    DEFAULT_PASSIVE_GAIN,
+    load_scouting_settings,
+    update_scouting_settings,
+)
 
 _PRESET_LABELS = {
     "off": "Off",
@@ -151,6 +161,51 @@ _PRESET_GUIDANCE = {
     "custom": "Custom reflects manual module or AI tuning edits outside preset defaults.",
 }
 
+_SCOUTING_TUNING_FIELDS = (
+    (
+        "base_monthly_credits",
+        "Base Monthly Credits",
+        DEFAULT_BASE_MONTHLY_CREDITS,
+        0.0,
+        10_000.0,
+    ),
+    (
+        "finance_off_multiplier",
+        "Finance-Off Pace Multiplier",
+        DEFAULT_FINANCE_OFF_MULTIPLIER,
+        0.50,
+        1.50,
+    ),
+    (
+        "monthly_decay",
+        "Monthly Decay",
+        DEFAULT_MONTHLY_DECAY,
+        0.0,
+        0.10,
+    ),
+    (
+        "passive_gain",
+        "Passive Gain",
+        DEFAULT_PASSIVE_GAIN,
+        0.0,
+        0.10,
+    ),
+    (
+        "max_banked_credits",
+        "Max Banked Credits",
+        DEFAULT_MAX_BANKED_CREDITS,
+        50.0,
+        10_000.0,
+    ),
+    (
+        "auto_spend_cap",
+        "Auto Spend Cap",
+        DEFAULT_AUTO_SPEND_CAP,
+        10.0,
+        1_000.0,
+    ),
+)
+
 
 class FinancialSettingsDialog(QDialog):
     """Admin editor for global finance mode and per-module complexity levels."""
@@ -163,6 +218,7 @@ class FinancialSettingsDialog(QDialog):
         self._updating = False
         self._module_combos: Dict[str, QComboBox] = {}
         self._ai_tuning_inputs: Dict[str, QLineEdit] = {}
+        self._scouting_tuning_inputs: Dict[str, QLineEdit] = {}
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(12, 12, 12, 12)
@@ -192,25 +248,55 @@ class FinancialSettingsDialog(QDialog):
         self.enabled_checkbox.toggled.connect(self._on_manual_change)
         top_layout.addWidget(self.enabled_checkbox, 0, 0, 1, 2)
 
-        top_layout.addWidget(QLabel("Preset"), 1, 0)
+        self.scouting_enabled_checkbox = QCheckBox(
+            "Enable Scouting Fog-of-War (works with finance on or off)"
+        )
+        top_layout.addWidget(self.scouting_enabled_checkbox, 1, 0, 1, 2)
+
+        top_layout.addWidget(QLabel("Preset"), 2, 0)
         self.preset_combo = QComboBox()
         for key in ("off", "simple", "standard", "mlb_like", "custom"):
             self.preset_combo.addItem(_PRESET_LABELS[key], key)
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
-        top_layout.addWidget(self.preset_combo, 1, 1)
+        top_layout.addWidget(self.preset_combo, 2, 1)
 
-        top_layout.addWidget(QLabel("Enforcement Mode"), 2, 0)
+        top_layout.addWidget(QLabel("Enforcement Mode"), 3, 0)
         self.enforcement_combo = QComboBox()
         for key in ("off", "warn", "block"):
             self.enforcement_combo.addItem(_LEVEL_LABELS[key], key)
         self.enforcement_combo.currentIndexChanged.connect(self._on_manual_change)
-        top_layout.addWidget(self.enforcement_combo, 2, 1)
+        top_layout.addWidget(self.enforcement_combo, 3, 1)
 
         self.preset_guidance_label = QLabel("")
         self.preset_guidance_label.setWordWrap(True)
-        top_layout.addWidget(self.preset_guidance_label, 3, 0, 1, 2)
+        top_layout.addWidget(self.preset_guidance_label, 4, 0, 1, 2)
 
         layout.addWidget(top)
+
+        self.scouting_group = QGroupBox("Scouting Fog-of-War Tuning")
+        scouting_layout = QGridLayout(self.scouting_group)
+        scouting_layout.setContentsMargins(12, 12, 12, 12)
+        scouting_layout.setHorizontalSpacing(16)
+        scouting_layout.setVerticalSpacing(8)
+
+        scouting_intro = QLabel(
+            "Tune scouting progression pacing for leagues with finance on or off. "
+            "Owners can still improve confidence over time via team scouting intensity."
+        )
+        scouting_intro.setWordWrap(True)
+        scouting_layout.addWidget(scouting_intro, 0, 0, 1, 4)
+        for idx, (key, label, _default, _minimum, _maximum) in enumerate(
+            _SCOUTING_TUNING_FIELDS
+        ):
+            row = (idx // 2) + 1
+            col = (idx % 2) * 2
+            scouting_layout.addWidget(QLabel(label), row, col)
+            field = QLineEdit()
+            field.setObjectName(f"scouting_tuning_{key}")
+            field.setMinimumWidth(160)
+            scouting_layout.addWidget(field, row, col + 1)
+            self._scouting_tuning_inputs[key] = field
+        layout.addWidget(self.scouting_group)
 
         self.modules_group = QGroupBox("Finance Module Levels")
         modules_layout = QVBoxLayout(self.modules_group)
@@ -354,8 +440,13 @@ class FinancialSettingsDialog(QDialog):
 
     def _load(self) -> None:
         settings = load_financial_settings()
+        scouting_settings = load_scouting_settings()
         self._updating = True
         self.enabled_checkbox.setChecked(bool(settings.enabled))
+        self.scouting_enabled_checkbox.setChecked(
+            bool(scouting_settings.get("enabled", False))
+        )
+        self._set_scouting_tuning_values(scouting_settings)
         self._set_combo_value(self.preset_combo, settings.preset)
         self._set_combo_value(self.enforcement_combo, settings.enforcement_mode)
         for module, combo in self._module_combos.items():
@@ -386,7 +477,13 @@ class FinancialSettingsDialog(QDialog):
         if self._updating:
             return
         preset = self._preset_value()
-        if preset != PRESET_CUSTOM:
+        if preset == PRESET_CUSTOM:
+            # Custom mode should always allow manual editing immediately.
+            if not self.enabled_checkbox.isChecked():
+                self._updating = True
+                self.enabled_checkbox.setChecked(True)
+                self._updating = False
+        else:
             self._apply_preset_to_controls(preset)
         self._sync_enabled_state()
         self._refresh_mode_guidance()
@@ -557,6 +654,35 @@ class FinancialSettingsDialog(QDialog):
             modules[module] = str(combo.currentData() or "off")
         return modules
 
+    @staticmethod
+    def _format_decimal(value: object) -> str:
+        try:
+            numeric = float(value)
+        except Exception:
+            return "0"
+        if abs(numeric - round(numeric)) < 1e-9:
+            return str(int(round(numeric)))
+        return f"{numeric:.4f}".rstrip("0").rstrip(".")
+
+    def _set_scouting_tuning_values(self, values: Dict[str, object]) -> None:
+        for key, _label, default, _minimum, _maximum in _SCOUTING_TUNING_FIELDS:
+            field = self._scouting_tuning_inputs.get(key)
+            if field is None:
+                continue
+            field.setText(self._format_decimal(values.get(key, default)))
+
+    def _collect_scouting_tuning(self) -> Dict[str, float]:
+        tuning: Dict[str, float] = {}
+        for key, _label, default, minimum, maximum in _SCOUTING_TUNING_FIELDS:
+            field = self._scouting_tuning_inputs.get(key)
+            raw = field.text().strip() if field is not None else ""
+            try:
+                parsed = float(raw)
+            except Exception:
+                parsed = float(default)
+            tuning[key] = max(minimum, min(maximum, parsed))
+        return tuning
+
     def _set_ai_tuning_values(self, values: Dict[str, object]) -> None:
         for key, field in self._ai_tuning_inputs.items():
             default_value = DEFAULT_FINANCE_AI_TUNING.get(key, "")
@@ -586,6 +712,16 @@ class FinancialSettingsDialog(QDialog):
 
     def _save(self) -> None:
         preset = self._preset_value()
+        scouting_tuning = self._collect_scouting_tuning()
+        update_scouting_settings(
+            enabled=self.scouting_enabled_checkbox.isChecked(),
+            base_monthly_credits=float(scouting_tuning["base_monthly_credits"]),
+            finance_off_multiplier=float(scouting_tuning["finance_off_multiplier"]),
+            monthly_decay=float(scouting_tuning["monthly_decay"]),
+            passive_gain=float(scouting_tuning["passive_gain"]),
+            max_banked_credits=float(scouting_tuning["max_banked_credits"]),
+            auto_spend_cap=float(scouting_tuning["auto_spend_cap"]),
+        )
         if preset == PRESET_OFF:
             apply_financial_preset(PRESET_OFF)
             self.accept()

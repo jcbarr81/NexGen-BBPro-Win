@@ -2,7 +2,16 @@
 
 from typing import Callable, Dict, List, Optional
 
-from PyQt6.QtCore import Qt, QTimer
+try:
+    from PyQt6.QtCore import Qt, QTimer
+except ImportError:  # pragma: no cover - fallback for lightweight test stubs
+    from PyQt6.QtCore import Qt
+
+    class QTimer:  # type: ignore[too-many-ancestors]
+        @staticmethod
+        def singleShot(_msec, callback) -> None:
+            if callback is not None:
+                callback()
 try:
     from PyQt6.QtGui import QGuiApplication
 except ImportError:  # pragma: no cover - lightweight test stubs
@@ -10,6 +19,7 @@ except ImportError:  # pragma: no cover - lightweight test stubs
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -34,6 +44,13 @@ from services.payroll_policy import (
     format_payroll_policy_message,
     record_payroll_policy_result,
 )
+from services.decision_explanations import (
+    append_decision_log,
+    explanation,
+    reason,
+    summarize_decision_explanation,
+    should_persist_decision_logs,
+)
 from services.trade_settings import load_trade_settings
 from services.transaction_log import record_transaction
 from services.unified_data_service import get_unified_data_service
@@ -56,6 +73,9 @@ def _safe_pick_label(pick_id: str) -> str:
 
 class TradeDialog(QDialog):
     """Dialog allowing an owner to propose and respond to trades."""
+    _TRADE_REASON_PLACEHOLDER = (
+        "Decision reasons will appear here after you accept or reject an incoming trade."
+    )
 
     def __init__(self, team_id: str, parent=None):
         super().__init__(parent)
@@ -66,6 +86,7 @@ class TradeDialog(QDialog):
         self._event_unsubscribes: List[Callable[[], None]] = []
         self._pending_refresh = False
         self._pending_toast_reason: Optional[str] = None
+        self._last_trade_decision_explanation: dict[str, object] = {}
 
         self.setWindowTitle("Trade Center")
         self.setMinimumSize(760, 540)
@@ -77,6 +98,21 @@ class TradeDialog(QDialog):
         tabs.addTab(self._wrap_scrollable_tab(self._build_incoming_tab()), "Incoming")
 
         layout = QVBoxLayout()
+        status_group = QGroupBox("Trade Center Status")
+        status_layout = QVBoxLayout()
+        status_layout.setContentsMargins(10, 8, 10, 8)
+        status_layout.setSpacing(4)
+        self.trade_status_label = QLabel()
+        self.trade_status_label.setObjectName("StatusLabel")
+        self.trade_status_label.setWordWrap(True)
+        status_layout.addWidget(self.trade_status_label)
+        status_hint = QLabel(
+            "Review payroll policy previews before submitting or accepting offers."
+        )
+        status_hint.setWordWrap(True)
+        status_layout.addWidget(status_hint)
+        status_group.setLayout(status_layout)
+        layout.addWidget(status_group)
         if not self.trade_settings.trades_enabled:
             banner = QLabel(
                 "Trading is currently disabled by the commissioner. "
@@ -87,6 +123,7 @@ class TradeDialog(QDialog):
         layout.addWidget(tabs)
         self.setLayout(layout)
         self._register_event_listeners()
+        self._update_trade_status()
 
     def _initial_window_size(self) -> tuple[int, int]:
         width = 920
@@ -122,6 +159,10 @@ class TradeDialog(QDialog):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
+        setup_group = QGroupBox("Trade Setup")
+        setup_layout = QVBoxLayout()
+        setup_layout.setContentsMargins(10, 8, 10, 8)
+        setup_layout.setSpacing(6)
         partner_row = QHBoxLayout()
         partner_row.setSpacing(8)
         partner_row.addWidget(QLabel("Trade with:"))
@@ -136,7 +177,7 @@ class TradeDialog(QDialog):
             lambda _value: self._update_new_trade_policy_preview()
         )
         partner_row.addWidget(self.team_dropdown, 1)
-        layout.addLayout(partner_row)
+        setup_layout.addLayout(partner_row)
 
         self.picks_disabled_label = QLabel(
             "Draft pick trading is disabled by the commissioner."
@@ -145,18 +186,19 @@ class TradeDialog(QDialog):
         self.picks_disabled_label.setVisible(
             not self.trade_settings.draft_pick_trading_enabled
         )
-        layout.addWidget(self.picks_disabled_label)
+        setup_layout.addWidget(self.picks_disabled_label)
+        setup_group.setLayout(setup_layout)
+        layout.addWidget(setup_group)
 
+        assets_group = QGroupBox("Trade Assets")
         assets_row = QHBoxLayout()
+        assets_row.setContentsMargins(10, 8, 10, 8)
         assets_row.setSpacing(14)
 
-        give_panel = QWidget()
-        give_layout = QVBoxLayout(give_panel)
-        give_layout.setContentsMargins(0, 0, 0, 0)
+        give_panel = QGroupBox("You Send")
+        give_layout = QVBoxLayout()
+        give_layout.setContentsMargins(10, 8, 10, 8)
         give_layout.setSpacing(8)
-        give_heading = QLabel("You Send")
-        give_heading.setObjectName("PanelHeading")
-        give_layout.addWidget(give_heading)
         give_layout.addWidget(QLabel("Players"))
         self.give_list = QListWidget()
         self.give_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
@@ -175,14 +217,12 @@ class TradeDialog(QDialog):
         self.give_pick_list.setMinimumHeight(120)
         self.give_pick_list.itemSelectionChanged.connect(self._update_offer_summary)
         give_layout.addWidget(self.give_pick_list, 1)
+        give_panel.setLayout(give_layout)
 
-        receive_panel = QWidget()
-        receive_layout = QVBoxLayout(receive_panel)
-        receive_layout.setContentsMargins(0, 0, 0, 0)
+        receive_panel = QGroupBox("You Receive")
+        receive_layout = QVBoxLayout()
+        receive_layout.setContentsMargins(10, 8, 10, 8)
         receive_layout.setSpacing(8)
-        receive_heading = QLabel("You Receive")
-        receive_heading.setObjectName("PanelHeading")
-        receive_layout.addWidget(receive_heading)
         receive_layout.addWidget(QLabel("Players"))
         self.receive_list = QListWidget()
         self.receive_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
@@ -198,30 +238,49 @@ class TradeDialog(QDialog):
         self.receive_pick_list.setMinimumHeight(120)
         self.receive_pick_list.itemSelectionChanged.connect(self._update_offer_summary)
         receive_layout.addWidget(self.receive_pick_list, 1)
+        receive_panel.setLayout(receive_layout)
 
         assets_row.addWidget(give_panel, 1)
         assets_row.addWidget(receive_panel, 1)
-        layout.addLayout(assets_row)
+        assets_group.setLayout(assets_row)
+        layout.addWidget(assets_group, 1)
 
         self._refresh_receive_list(self.team_dropdown.currentText())
         self._refresh_pick_lists(self.team_dropdown.currentText())
 
+        review_group = QGroupBox("Offer Review")
+        review_layout = QVBoxLayout()
+        review_layout.setContentsMargins(10, 8, 10, 8)
+        review_layout.setSpacing(4)
         self.selection_summary_label = QLabel("Offer summary: no assets selected yet.")
         self.selection_summary_label.setWordWrap(True)
-        layout.addWidget(self.selection_summary_label)
+        review_layout.addWidget(self.selection_summary_label)
 
         self.new_trade_policy_label = QLabel(
             "Validation & payroll preview: select trade assets."
         )
         self.new_trade_policy_label.setWordWrap(True)
-        layout.addWidget(self.new_trade_policy_label)
+        review_layout.addWidget(self.new_trade_policy_label)
+        review_group.setLayout(review_layout)
+        layout.addWidget(review_group)
         self._update_offer_summary()
         self._update_new_trade_policy_preview()
 
-        submit_btn = QPushButton("Submit Trade")
-        submit_btn.clicked.connect(self._submit_trade)
-        submit_btn.setEnabled(self.trade_settings.trades_enabled)
-        layout.addWidget(submit_btn)
+        action_group = QGroupBox("Actions")
+        action_layout = QHBoxLayout()
+        action_layout.setContentsMargins(10, 8, 10, 8)
+        action_layout.setSpacing(8)
+        self.submit_button = QPushButton("Submit Trade")
+        self.submit_button.setObjectName("Primary")
+        self.submit_button.clicked.connect(self._submit_trade)
+        self.submit_button.setEnabled(self.trade_settings.trades_enabled)
+        action_layout.addWidget(self.submit_button)
+        clear_btn = QPushButton("Clear Selection")
+        clear_btn.clicked.connect(self._clear_new_trade_selection)
+        action_layout.addWidget(clear_btn)
+        action_layout.addStretch(1)
+        action_group.setLayout(action_layout)
+        layout.addWidget(action_group)
         layout.addStretch(1)
 
         return widget
@@ -594,49 +653,84 @@ class TradeDialog(QDialog):
             QMessageBox.warning(self, "Trade Not Allowed", str(exc))
             return
         QMessageBox.information(self, "Trade Sent", f"Trade proposal sent to {to_team}.")
+        self._clear_new_trade_selection()
+
+    def _clear_new_trade_selection(self) -> None:
         self.give_list.clearSelection()
         self.receive_list.clearSelection()
         self.give_pick_list.clearSelection()
         self.receive_pick_list.clearSelection()
+        self._update_offer_summary()
+        self._update_new_trade_policy_preview()
 
     # --- Incoming trades tab -------------------------------------------
     def _build_incoming_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout.setSpacing(12)
 
-        header = QLabel("Incoming Trade Offers")
-        header.setObjectName("PanelHeading")
-        layout.addWidget(header)
+        overview_group = QGroupBox("Incoming Offers Overview")
+        overview_layout = QHBoxLayout()
+        overview_layout.setContentsMargins(10, 8, 10, 8)
+        overview_layout.setSpacing(8)
+        self.incoming_count_label = QLabel("Incoming offers: 0")
+        self.incoming_count_label.setObjectName("StatusLabel")
+        overview_layout.addWidget(self.incoming_count_label)
+        overview_layout.addStretch(1)
+        refresh_btn = QPushButton("Refresh Offers")
+        refresh_btn.clicked.connect(self._refresh_sources)
+        overview_layout.addWidget(refresh_btn)
+        overview_group.setLayout(overview_layout)
+        layout.addWidget(overview_group)
 
+        queue_group = QGroupBox("Incoming Trade Queue")
+        queue_layout = QVBoxLayout()
+        queue_layout.setContentsMargins(10, 8, 10, 8)
+        queue_layout.setSpacing(6)
         self.incoming_list = QListWidget()
         self.incoming_list.setMinimumHeight(240)
-        self.incoming_list.currentItemChanged.connect(
-            lambda _current, _previous: self._update_incoming_policy_preview()
-        )
-        layout.addWidget(self.incoming_list)
+        self.incoming_list.currentItemChanged.connect(self._on_incoming_selection_changed)
+        queue_layout.addWidget(self.incoming_list)
+        queue_group.setLayout(queue_layout)
+        layout.addWidget(queue_group, 1)
 
+        review_group = QGroupBox("Offer Review")
+        review_layout = QVBoxLayout()
+        review_layout.setContentsMargins(10, 8, 10, 8)
+        review_layout.setSpacing(4)
         self.incoming_detail_label = QLabel("Select a trade to inspect full asset details.")
         self.incoming_detail_label.setWordWrap(True)
-        layout.addWidget(self.incoming_detail_label)
+        review_layout.addWidget(self.incoming_detail_label)
 
         self.incoming_policy_label = QLabel("Payroll policy preview: select an incoming trade.")
         self.incoming_policy_label.setWordWrap(True)
-        layout.addWidget(self.incoming_policy_label)
+        review_layout.addWidget(self.incoming_policy_label)
 
+        self.incoming_decision_label = QLabel(self._TRADE_REASON_PLACEHOLDER)
+        self.incoming_decision_label.setWordWrap(True)
+        review_layout.addWidget(self.incoming_decision_label)
+        review_group.setLayout(review_layout)
+        layout.addWidget(review_group)
+
+        action_group = QGroupBox("Actions")
         btn_row = QHBoxLayout()
-        accept_btn = QPushButton("Accept")
-        reject_btn = QPushButton("Reject")
-        accept_btn.clicked.connect(lambda: self._respond_to_trade(True))
-        reject_btn.clicked.connect(lambda: self._respond_to_trade(False))
-        btn_row.addWidget(accept_btn)
-        btn_row.addWidget(reject_btn)
+        btn_row.setContentsMargins(10, 8, 10, 8)
+        btn_row.setSpacing(8)
+        self.accept_button = QPushButton("Accept")
+        self.accept_button.setObjectName("Primary")
+        self.reject_button = QPushButton("Reject")
+        self.accept_button.clicked.connect(lambda: self._respond_to_trade(True))
+        self.reject_button.clicked.connect(lambda: self._respond_to_trade(False))
+        btn_row.addWidget(self.accept_button)
+        btn_row.addWidget(self.reject_button)
         btn_row.addStretch(1)
-        layout.addLayout(btn_row)
+        action_group.setLayout(btn_row)
+        layout.addWidget(action_group)
         layout.addStretch(1)
 
         self._load_incoming_trades()
+        self._update_trade_decision_reason_label()
         return widget
 
     def _load_incoming_trades(self):
@@ -648,6 +742,11 @@ class TradeDialog(QDialog):
             item.setData(Qt.ItemDataRole.UserRole, t.trade_id)
             self.incoming_list.addItem(item)
             self.trade_map[t.trade_id] = t
+        if self.incoming_list.count() > 0:
+            self.incoming_list.setCurrentRow(0)
+        self._update_incoming_offer_count()
+        self._update_trade_status()
+        self._update_incoming_action_state()
         self._update_incoming_policy_preview()
 
     def _update_incoming_policy_preview(self) -> None:
@@ -729,6 +828,8 @@ class TradeDialog(QDialog):
         if trade is None:
             QMessageBox.warning(self, "Trade Missing", "Unable to load selected trade.")
             return
+
+        requested_action = "accept" if accept else "reject"
         if accept:
             if settings.require_commissioner_approval:
                 trade.status = "owner_accepted"
@@ -745,7 +846,18 @@ class TradeDialog(QDialog):
                         "for commissioner approval."
                     ),
                 )
-                self.incoming_list.takeItem(self.incoming_list.currentRow())
+                self._record_trade_decision(
+                    trade,
+                    outcome="owner_accepted",
+                    requested_action=requested_action,
+                    reasons=[
+                        reason(
+                            "commissioner_gate",
+                            "League requires commissioner approval before execution.",
+                        ),
+                    ],
+                )
+                self._load_incoming_trades()
                 return
             policy = evaluate_trade_payroll_impact(
                 trade,
@@ -756,6 +868,18 @@ class TradeDialog(QDialog):
                     policy,
                     action="owner_trade_accept",
                     data_dir=get_data_dir(),
+                )
+                self._record_trade_decision(
+                    trade,
+                    outcome="blocked",
+                    requested_action=requested_action,
+                    reasons=[
+                        reason(
+                            "payroll_policy_blocked",
+                            "Payroll policy blocked this trade acceptance.",
+                            details={"violations": list(getattr(policy, "violations", []) or [])},
+                        ),
+                    ],
                 )
                 QMessageBox.warning(
                     self,
@@ -776,6 +900,20 @@ class TradeDialog(QDialog):
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 )
                 if proceed != QMessageBox.StandardButton.Yes:
+                    self._record_trade_decision(
+                        trade,
+                        outcome="cancelled",
+                        requested_action=requested_action,
+                        reasons=[
+                            reason(
+                                "user_cancelled_after_warning",
+                                "Owner cancelled after reviewing payroll warning.",
+                                details={
+                                    "violations": list(getattr(policy, "violations", []) or []),
+                                },
+                            ),
+                        ],
+                    )
                     return
             trade.status = "accepted"
             try:
@@ -790,8 +928,117 @@ class TradeDialog(QDialog):
         except RuntimeError as exc:
             QMessageBox.warning(self, "Trade Failed", str(exc))
             return
+        self._record_trade_decision(
+            trade,
+            outcome=trade.status,
+            requested_action=requested_action,
+            reasons=[
+                reason(
+                    "owner_response",
+                    "Owner explicitly responded to incoming trade offer.",
+                ),
+            ],
+        )
         QMessageBox.information(self, "Trade Updated", f"Trade {trade.trade_id} {trade.status}.")
-        self.incoming_list.takeItem(self.incoming_list.currentRow())
+        self._load_incoming_trades()
+
+    def _record_trade_decision(
+        self,
+        trade: Trade,
+        *,
+        outcome: str,
+        requested_action: str,
+        reasons: list | None = None,
+    ) -> None:
+        payload = explanation(
+            "trade_response",
+            outcome,
+            actor="owner",
+            team_id=self.team_id,
+            subject_id=trade.trade_id,
+            context={
+                "requested_action": requested_action,
+                "trade_status": str(getattr(trade, "status", "")),
+                "from_team": trade.from_team,
+                "to_team": trade.to_team,
+                "give_players_count": len(getattr(trade, "give_player_ids", []) or []),
+                "receive_players_count": len(getattr(trade, "receive_player_ids", []) or []),
+                "give_picks_count": len(getattr(trade, "give_pick_ids", []) or []),
+                "receive_picks_count": len(getattr(trade, "receive_pick_ids", []) or []),
+            },
+            reasons=list(reasons or []),
+        )
+        self._last_trade_decision_explanation = payload.to_dict()
+        self._update_trade_decision_reason_label(self._last_trade_decision_explanation)
+        if should_persist_decision_logs():
+            append_decision_log(payload)
+
+    def _update_trade_decision_reason_label(self, payload: dict | None = None) -> None:
+        label = getattr(self, "incoming_decision_label", None)
+        if label is None:
+            return
+        current_payload = payload
+        if current_payload is None:
+            raw = getattr(self, "_last_trade_decision_explanation", None)
+            current_payload = raw if isinstance(raw, dict) else None
+        if not isinstance(current_payload, dict):
+            label.setText(self._TRADE_REASON_PLACEHOLDER)
+            return
+        if str(current_payload.get("decision_type") or "").strip() != "trade_response":
+            label.setText(self._TRADE_REASON_PLACEHOLDER)
+            return
+        summary = summarize_decision_explanation(
+            current_payload,
+            fallback="Latest trade decision did not include detailed reasons.",
+            max_reasons=3,
+        )
+        label.setText(f"Latest Decision Reasons:\n{summary}")
+
+    def _update_trade_status(self) -> None:
+        label = getattr(self, "trade_status_label", None)
+        if label is None:
+            return
+        trades_state = "enabled" if self.trade_settings.trades_enabled else "disabled"
+        picks_state = (
+            "enabled"
+            if self.trade_settings.draft_pick_trading_enabled
+            else "disabled"
+        )
+        incoming_count = len(getattr(self, "trade_map", {}) or {})
+        label.setText(
+            f"Trading is {trades_state}. Draft pick trading is {picks_state}. "
+            f"Incoming offers: {incoming_count}."
+        )
+        if not self.trade_settings.trades_enabled:
+            apply_status(label, "warning")
+            return
+        if incoming_count > 0:
+            apply_status(label, "success")
+            return
+        apply_status(label, "muted")
+
+    def _update_incoming_offer_count(self) -> None:
+        label = getattr(self, "incoming_count_label", None)
+        if label is None:
+            return
+        count = len(getattr(self, "trade_map", {}) or {})
+        label.setText(f"Incoming offers: {count}")
+        if count > 0:
+            apply_status(label, "success")
+            return
+        apply_status(label, "muted")
+
+    def _on_incoming_selection_changed(self, _current=None, _previous=None) -> None:
+        self._update_incoming_policy_preview()
+        self._update_incoming_action_state()
+
+    def _update_incoming_action_state(self) -> None:
+        selected_item = self.incoming_list.currentItem() if hasattr(self, "incoming_list") else None
+        enabled = selected_item is not None
+        if hasattr(self, "accept_button"):
+            self.accept_button.setEnabled(enabled)
+        if hasattr(self, "reject_button"):
+            self.reject_button.setEnabled(enabled)
 
     def _process_trade(self, trade: Trade):
         from_roster = load_roster(trade.from_team)
@@ -927,4 +1174,3 @@ class TradeDialog(QDialog):
                 )
         except Exception:
             pass
-

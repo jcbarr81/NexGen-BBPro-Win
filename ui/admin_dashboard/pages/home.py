@@ -110,6 +110,18 @@ class AdminHomePage(DashboardPage):
         season_btn.clicked.connect(lambda: self._dashboard._go("season"))
         actions.layout().addWidget(season_btn)
 
+        command_center_btn = QPushButton(
+            "Open League Command Center",
+            objectName="ActionButton",
+        )
+        command_center_btn.setToolTip(
+            "Open league command center cards for operations triage"
+        )
+        command_center_btn.clicked.connect(
+            self._dashboard.open_league_command_center
+        )
+        actions.layout().addWidget(command_center_btn)
+
         draft_btn = QPushButton("Open Draft Hub", objectName="ActionButton")
         draft_btn.setToolTip("Go to draft controls and draft settings")
         draft_btn.clicked.connect(lambda: self._dashboard._go("draft"))
@@ -120,6 +132,7 @@ class AdminHomePage(DashboardPage):
             change_requests_btn,
             gm_queue_btn,
             season_btn,
+            command_center_btn,
             draft_btn,
         ]
         self.apply_theme_assets()

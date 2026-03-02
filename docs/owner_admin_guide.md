@@ -1,4 +1,4 @@
-# Team Owner and Admin Guide
+﻿# Team Owner and Admin Guide
 
 This guide explains how to operate the UBL Simulation application as a **team owner** or as an **administrator**. Launch the app with:
 
@@ -38,18 +38,23 @@ Team owners manage their franchise through the Owner Dashboard.
 - **Submit Change Request**: export roster/lineup/pitching/depth chart updates for commissioner approval.
 - **Finance page**: now split into **Owner Ops** (cash/debt, projections, budgets, ledger history) and **GM/Coach Ops** (module status, payroll/contracts, arbitration/free-agency queues, and quick actions).
   - Owner Ops now includes editable budget fields for training, scouting, development, and facilities when the Owner Budgets module is enabled.
+  - Owner Ops now includes a **Scouting Controls** card where owners can set scouting intensity (Low/Normal/High) and review current scouting confidence, estimated error band, and monthly scouting-credit pace.
   - GM/Coach Ops now includes queue actions to **Queue Recommended Arbitration** and **Queue Recommended FA Targets** for tracking front-office decisions.
   - GM/Coach Ops now includes a **Next Finance Actions** panel that summarizes what to do next based on current season phase, queue state, and league mode.
   - GM/Coach Ops contract list supports inline contract-term actions. **Extend Contract** is available whenever GM Contracts are enabled; advanced terms (**Edit Guarantees**, **Add/Edit/Remove Option**, **Add/Edit/Remove Incentive**, **Exercise Option**, **Decline Option**) require GM Contracts set to **Advanced** or **MLB-Like**.
   - Owner budget levels for **training/development/facilities** now feed into preseason training-camp development intensity (higher budget support improves camp gains; lower support reduces them).
   - Owner **development** budgets also influence offseason player aging/development progression (better support improves positive development and softens decline).
   - Owner **scouting** budgets now drive scouting confidence in player profiles; lower scouting investment increases estimated rating uncertainty, while higher investment improves report precision.
+  - Commissioners can enable/disable scouting fog-of-war from **Admin -> League Settings -> Financial System Settings** using **Enable Scouting Fog-of-War**. Existing leagues default to disabled until the commissioner turns it on.
+  - Commissioners can tune league scouting pacing in the same dialog using **Scouting Fog-of-War Tuning** (base monthly credits, finance-off pace multiplier, decay/passive gain, bank cap, and auto-spend cap).
   - In single-player leagues, recommended finance decisions are auto-approved locally; in multi-owner leagues they are queued for commissioner review.
 - **Transactions**: view recent roster moves.
 - **Settings**: adjust team colours, logos and other options.
+  - Team Settings now includes a **Team Strategy** profile selector with **Use League Default** and per-team override options.
 
 ### League Information
 - **Standings** and **Schedule** windows give a league-wide overview.
+- **League Command Center** provides one place to triage injuries, pending approvals, roster conflicts, deadlines, and finance-risk alerts.
 - **Trades**: propose trades with other teams.
 - **Free Agency Hub**: browse unsigned players and submit signings.
 - **News Feed**: display the latest league news.
@@ -58,6 +63,7 @@ Team owners manage their franchise through the Owner Dashboard.
 - Open the **Tutorials** menu and run **Owner Change Requests** for a step-by-step walkthrough of exporting updates and sending the ZIP bundle to the commissioner.
 - Run **Trades & Transactions** to review current trade flow behavior, including draft-pick trades and commissioner-approval mode.
 - Run **Finance Hub Overview** to walk through the new Owner Ops + GM/Coach Ops finance hub and the related queue/actions workflow.
+- Run **League Command Center** to review league-wide operational alerts and suggested next actions.
 - Run **Appearance & Themes** for a guided walkthrough of theme-family selection and light/dark toggling.
 - Run **Dashboard Overview** to review top-bar navigation, including the new **Owner Tools** menu shortcuts.
 - Open **Tutorials -> Reference Manuals** for two searchable in-app documents:
@@ -93,6 +99,7 @@ Administrators control league configuration and high-level operations.
   - **League Setup & Manager**
   - **User Management & Roles**
   - **Season Progression Flow**
+  - **League Command Center**
   - **Trade & Review Queues**
   - **Exports & Utilities**
 - Open **Tutorials -> Asset Guides** for:
@@ -115,7 +122,7 @@ Administrators control league configuration and high-level operations.
 - **Draft**: draft pool access, draft console, draft settings, and draft results.
 - **Teams**: open an owner dashboard for any club and run league-wide roster/lineup automation.
 - **Users**: add/edit admin and owner accounts.
-- **League Settings**: create league, physics tuning, injury settings, Hall of Fame settings, and league operations hubs.
+- **League Settings**: create league, physics tuning, team strategy profiles, injury settings, Hall of Fame settings, and league operations hubs.
 - **Assets & Exports**: team logos, player avatars, league report exports, and owner snapshot zip exports.
 
 ### League Creation and Policy Setup
@@ -130,6 +137,7 @@ Administrators control league configuration and high-level operations.
   - The dialog includes a **Commissioner Projection Preview** snapshot (cash/debt/net/payroll risk summary).
   - The dialog includes prioritized **Finance Alerts** with explicit next-step guidance (cash risk, payroll threshold/floor risk, offseason checklist deadlines, and GM queue pressure).
   - The guidance panel in this dialog reflects the current saved workflow state and the next checklist stage.
+- **Team Strategy Profiles** (League Settings): set a league default strategy profile and optional per-team overrides used by automation services.
 
 ### Trade Oversight (Transactions)
 - **Review Pending Trades**: approve or reject pending trades submitted by teams.
@@ -147,6 +155,7 @@ owns the pick makes the selection.
 ### Operations Highlights
 - **Reset to Opening Day** (Season): clear current season results and standings, reset progress to day one, and set the phase to Regular Season (non-destructive to teams/rosters). You will be prompted whether to also purge saved season boxscores (`data/boxscores/season`).
 - **Regenerate Season Schedule** (Season): generate a fresh regular-season schedule and clear previous results.
+- **Open League Command Center** (Season): monitor injuries, approvals, roster conflicts, deadlines, and finance risk alerts in a unified operations view.
 - **Open Offseason Finance Workflow** (Season): during Offseason/Preseason, use the guided checklist to run the finance pipeline (snapshot, arbitration, reset) and complete finance review stages in order (contracts, arbitration, budgets, free-agency kickoff, finalize).
   - The workflow now includes dedicated in-dialog review tabs for **Contract Expirations**, **Arbitration Details**, and **Budget Deltas** before each stage is marked complete.
   - An **Action Readiness** panel now shows the next required stage and explicit blocker reasons when an action is not available (for example, missing prerequisite checklist stage).
@@ -160,8 +169,8 @@ The Amateur Draft introduces new prospects mid-season and pauses the season to c
 
 - Draft Timing: Draft Day is the third Tuesday in July (computed from the schedule).
   - The Draft page shows a status line with the current simulation date and Draft Day.
-  - “View Draft Pool” and “Start/Resume Draft” enable only on/after Draft Day and only if the draft hasn’t been completed that year.
-  - “Draft Settings” is always available.
+  - "View Draft Pool" and "Start/Resume Draft" enable only on/after Draft Day and only if the draft has not been completed that year.
+  - "Draft Settings" is always available.
 
 - Draft Page Buttons:
   - **Draft Settings**: configure rounds, pool size, and RNG seed for reproducibility. Settings are saved to `data/draft_config.json`.
@@ -173,10 +182,10 @@ The Amateur Draft introduces new prospects mid-season and pauses the season to c
   - On-the-clock banner indicating the current team and pick.
   - Recent picks board (last 10); state and results are persisted per pick.
   - Actions:
-    - “Make Pick” to select the highlighted prospect.
-    - “Auto Pick (This Team)” for an AI pick respecting organizational needs.
-    - “Auto Draft All” to finish the remaining rounds automatically.
-    - “Commit Draftees to Rosters” appends new players to `data/players.csv` and places them on each team’s `LOW` roster level.
+    - "Make Pick" to select the highlighted prospect.
+    - "Auto Pick (This Team)" for an AI pick respecting organizational needs.
+    - "Auto Draft All" to finish the remaining rounds automatically.
+    - "Commit Draftees to Rosters" appends new players to `data/players.csv` and places them on each team's `LOW` roster level.
   - Double-click a prospect to open their Player Profile for detailed ratings.
 
 - Files and Persistence:
@@ -208,10 +217,10 @@ existing visual style and theme.
 ### Owner
 - New Home page with quick metrics (Record, Run Differential, Next Opponent
   and Date) and shortcuts (Lineups, Pitching Staff, Recent Transactions).
-- Header shows: “Next: <opponent> <date> | Record W-L RD ±X”.
+- Header shows: "Next: <opponent> <date> | Record W-L RD +/-X".
 - Unified **Players** browser with tabs for Position Players and Pitchers.
 - Roster page displays a defensive coverage notice when positions are missing.
-- Navigation labels: “Moves & Trades” and “League Hub”.
+- Navigation labels: "Moves & Trades" and "League Hub".
 - In multi-owner leagues, season progression/simulation actions are
   commissioner-only; owner dashboards hide season progression controls.
 
@@ -245,4 +254,5 @@ existing visual style and theme.
 - Draft page now shows "View Draft Results" after the draft is completed.
 - Users page shows a searchable list of users alongside Add/Edit actions.
 This document will evolve as new features are introduced.
+
 

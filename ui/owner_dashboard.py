@@ -94,6 +94,7 @@ from .transactions_window import TransactionsWindow
 from .trade_dialog import TradeDialog
 from .standings_window import StandingsWindow
 from .schedule_window import ScheduleWindow
+from .league_command_center_window import LeagueCommandCenterWindow
 from .team_schedule_window import TeamScheduleWindow, SCHEDULE_FILE
 from .team_stats_window import TeamStatsWindow
 from .league_stats_window import LeagueStatsWindow
@@ -120,6 +121,7 @@ from .free_agency_window import FreeAgencyWindow
 from services import league_registry
 from services.contracts_service import sign_free_agent_contract
 from services.contracts_service import estimate_salary_for_player
+from services.team_strategy_profiles import set_team_strategy_profile
 from services.payroll_policy import (
     evaluate_free_agent_signing,
     format_payroll_policy_message,
@@ -442,6 +444,7 @@ class OwnerDashboard(QMainWindow):
             "team_settings": f"team_settings_tutorial_{team_id}",
             "finance_snapshot": f"finance_snapshot_tutorial_{team_id}",
             "schedule": f"schedule_tutorial_{team_id}",
+            "command_center": f"league_command_center_tutorial_{team_id}",
             "league_hub": f"league_hub_tutorial_{team_id}",
             "reports": f"reports_exports_tutorial_{team_id}",
             "admin": "admin_tools_tutorial",
@@ -597,6 +600,7 @@ class OwnerDashboard(QMainWindow):
                     ("Dashboard Overview", self.show_dashboard_overview_tutorial),
                     ("Appearance & Themes", self.show_theme_tutorial),
                     ("League Hub Tour", self.show_league_hub_tutorial),
+                    ("League Command Center", self.show_command_center_tutorial),
                     ("Schedule & Calendar", self.show_schedule_tutorial),
                 ],
             ),
@@ -693,6 +697,13 @@ class OwnerDashboard(QMainWindow):
         )
         finance_snapshot_action.triggered.connect(self.open_finance_hub)
         owner_tools_menu.addAction(finance_snapshot_action)
+
+        command_center_action = QAction("League Command Center...", self)
+        command_center_action.setStatusTip(
+            "Open league-wide attention cards for injuries, approvals, roster issues, deadlines, and finance risk."
+        )
+        command_center_action.triggered.connect(self.open_league_command_center)
+        owner_tools_menu.addAction(command_center_action)
 
         owner_tools_menu.addSeparator()
 
@@ -1166,7 +1177,8 @@ class OwnerDashboard(QMainWindow):
             TutorialStep(
                 "Access Team Settings",
                 "<p>Open <b>Owner Tools -> Team Settings</b> (or use <b>View -> Team Settings</b>)."
-                " This is where you manage branding, stadium, and team metadata.</p>",
+                " This is where you manage branding, stadium, and team metadata,"
+                " including your team strategy profile override.</p>",
             ),
             TutorialStep(
                 "Branding Options",
@@ -1177,6 +1189,11 @@ class OwnerDashboard(QMainWindow):
                 "Stadium & Park Factors",
                 "<p>Pick a home park that matches your roster strategy. Park settings are reflected in sim"
                 " outputs and stats, and the Team Settings dialog now shows a live park preview when available.</p>",
+            ),
+            TutorialStep(
+                "Team Strategy Profile",
+                "<p>Use the <b>Team Strategy</b> dropdown to keep <b>League Default</b> or set a team-specific"
+                " profile (for example <b>Win Now</b> or <b>Development Focus</b>) to steer automation intent.</p>",
             ),
             TutorialStep(
                 "Save & Verify",
@@ -1207,7 +1224,10 @@ class OwnerDashboard(QMainWindow):
                 " training-camp development intensity, and development budgets now also"
                 " influence offseason aging/development outcomes."
                 " Scouting budget now also affects player-profile scouting confidence"
-                " and estimated rating uncertainty.</p>",
+                " and estimated rating uncertainty."
+                " Use the <b>Scouting Controls</b> card in Owner Ops to set team scouting"
+                " intensity (<b>Low</b>/<b>Normal</b>/<b>High</b>) and monitor confidence"
+                " plus estimated rating error bands.</p>",
             ),
             TutorialStep(
                 "GM/Coach Ops Tab",
@@ -1244,7 +1264,8 @@ class OwnerDashboard(QMainWindow):
                 "Commissioner Controls",
                 "<p>Commissioners can tune the system from <b>Admin -> League Settings -> Financial System"
                 " Settings</b>. The dialog now includes projection preview and prioritized finance alerts"
-                " (cash risk, payroll threshold/floor, offseason deadlines) with explicit next steps.</p>",
+                " (cash risk, payroll threshold/floor, offseason deadlines) with explicit next steps."
+                " It also includes scouting fog-of-war enablement and scouting pace tuning controls.</p>",
             ),
         ]
         self._run_tutorial(
@@ -1281,6 +1302,31 @@ class OwnerDashboard(QMainWindow):
         self._run_tutorial(
             self._tutorial_keys["schedule"],
             "Schedule & Calendar",
+            steps,
+            force=force,
+        )
+
+    def show_command_center_tutorial(self, *, force: bool = False) -> None:
+        steps = [
+            TutorialStep(
+                "Open Command Center",
+                "<p>Open <b>League Command Center</b> from the League Hub page, the dashboard quick actions,"
+                " or <b>Owner Tools</b> for league-wide attention cards.</p>",
+            ),
+            TutorialStep(
+                "Card Priorities",
+                "<p>Cards summarize injuries, pending approvals, roster conflicts, deadlines, and finance"
+                " risks with severity and count indicators.</p>",
+            ),
+            TutorialStep(
+                "Refresh Workflow",
+                "<p>Use <b>Refresh</b> after major simulation steps or transaction reviews to pull the latest"
+                " command-center snapshot before making league decisions.</p>",
+            ),
+        ]
+        self._run_tutorial(
+            self._tutorial_keys["command_center"],
+            "League Command Center",
             steps,
             force=force,
         )
@@ -1952,6 +1998,9 @@ class OwnerDashboard(QMainWindow):
     def open_schedule_window(self) -> None:
         show_on_top(ScheduleWindow(self))
 
+    def open_league_command_center(self) -> None:
+        show_on_top(LeagueCommandCenterWindow(self))
+
     def open_team_schedule_window(self) -> None:
         if not getattr(self, "team_id", None):
             QMessageBox.warning(self, "Error", "Team information not available.")
@@ -2223,6 +2272,10 @@ class OwnerDashboard(QMainWindow):
                 self.team.secondary_color = data.get("secondary_color", self.team.secondary_color) or self.team.secondary_color
                 self.team.stadium = data.get("stadium", self.team.stadium) or self.team.stadium
                 save_team_settings(self.team)
+                set_team_strategy_profile(
+                    self.team.team_id,
+                    data.get("strategy_profile_override"),
+                )
                 QMessageBox.information(self, "Team Settings", "Team settings saved.")
                 # Notify pages to refresh if they implement refresh()
                 try:
