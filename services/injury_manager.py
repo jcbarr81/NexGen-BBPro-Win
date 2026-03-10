@@ -9,11 +9,16 @@ UI/simulation layers to reason about eligibility.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Optional
+from typing import Mapping, Optional
 
 from models.player import Player
 from models.roster import Roster
 from services.depth_chart_manager import promote_depth_chart_replacement
+from services.prospect_event_log import (
+    record_roster_level_movements,
+    roster_level_map,
+)
+from services.prospect_rules import apply_roster_move, evaluate_roster_move
 
 DL_MINIMUM_DAYS = {"dl15": 15}
 DL_LABELS = {
@@ -92,6 +97,7 @@ def place_on_injury_list(
 
     normalized = _normalize_list_name(list_name)
     today = today or _today()
+    before_levels = roster_level_map(roster)
     if getattr(roster, "dl_tiers", None) is None:
         roster.dl_tiers = {}
 
@@ -137,6 +143,101 @@ def place_on_injury_list(
         promoted = False
     if not promoted:
         roster.promote_replacements()
+    _enforce_injury_replacement_eligibility(roster, before_levels)
+    after_levels = roster_level_map(roster)
+    try:
+        record_roster_level_movements(
+            before_levels,
+            after_levels,
+            team_id=str(getattr(roster, "team_id", "") or ""),
+            player_names={
+                player.player_id: (
+                    f"{getattr(player, 'first_name', '')} "
+                    f"{getattr(player, 'last_name', '')}"
+                ).strip()
+            },
+            actor="system",
+            trigger="injury_list_placement",
+            details={"list_name": normalized},
+        )
+    except Exception:
+        pass
+
+
+def _enforce_injury_replacement_eligibility(
+    roster: Roster,
+    before_levels: Mapping[str, str],
+) -> None:
+    team_id = str(getattr(roster, "team_id", "") or "").strip()
+    if not team_id:
+        return
+    current_levels = roster_level_map(roster)
+    blocked_promotions = 0
+    for player_id, from_level in before_levels.items():
+        if from_level not in {"aaa", "low"}:
+            continue
+        if current_levels.get(player_id) != "act":
+            continue
+        decision = evaluate_roster_move(
+            team_id,
+            player_id,
+            from_level=from_level,
+            to_level="act",
+        )
+        if decision.allowed:
+            try:
+                apply_roster_move(
+                    team_id,
+                    player_id,
+                    from_level=from_level,
+                    to_level="act",
+                    decision=decision,
+                    actor="system",
+                    trigger="injury_replacement_promotion",
+                )
+            except Exception:
+                pass
+            continue
+
+        blocked_promotions += 1
+        if player_id in roster.act:
+            roster.act.remove(player_id)
+        if from_level == "aaa":
+            if player_id not in roster.aaa:
+                roster.aaa.append(player_id)
+        elif from_level == "low" and player_id not in roster.low:
+            roster.low.append(player_id)
+
+    if blocked_promotions <= 0:
+        return
+    for source_level in ("aaa", "low"):
+        source = getattr(roster, source_level)
+        for player_id in list(source):
+            if blocked_promotions <= 0:
+                return
+            decision = evaluate_roster_move(
+                team_id,
+                player_id,
+                from_level=source_level,
+                to_level="act",
+            )
+            if not decision.allowed:
+                continue
+            source.remove(player_id)
+            roster.act.append(player_id)
+            try:
+                apply_roster_move(
+                    team_id,
+                    player_id,
+                    from_level=source_level,
+                    to_level="act",
+                    decision=decision,
+                    actor="system",
+                    trigger="injury_replacement_promotion",
+                )
+            except Exception:
+                pass
+            blocked_promotions -= 1
 
 
 def recover_from_injury(
@@ -152,6 +253,7 @@ def recover_from_injury(
     if destination not in {"act", "aaa", "low"}:
         raise ValueError("destination must be one of act, aaa or low")
 
+    before_levels = roster_level_map(roster)
     if getattr(roster, "dl_tiers", None) is None:
         roster.dl_tiers = {}
 
@@ -188,6 +290,24 @@ def recover_from_injury(
             if pid != player.player_id:
                 roster.aaa.append(roster.act.pop(idx))
                 break
+    after_levels = roster_level_map(roster)
+    try:
+        record_roster_level_movements(
+            before_levels,
+            after_levels,
+            team_id=str(getattr(roster, "team_id", "") or ""),
+            player_names={
+                player.player_id: (
+                    f"{getattr(player, 'first_name', '')} "
+                    f"{getattr(player, 'last_name', '')}"
+                ).strip()
+            },
+            actor="system",
+            trigger="injury_recovery",
+            details={"destination": destination},
+        )
+    except Exception:
+        pass
 
 
 __all__ = [

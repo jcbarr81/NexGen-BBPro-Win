@@ -14,11 +14,15 @@ import logging
 import sys
 import importlib
 
-import bcrypt
-
 from services import league_registry
 from utils.path_utils import get_data_dir
 from utils.league_settings import is_owner_league, verify_commissioner_password
+from utils.user_manager import (
+    apply_admin_bootstrap,
+    admin_password_setup_required,
+    set_admin_password,
+    verify_user_password,
+)
 import ui.theme as app_theme
 from ui.window_utils import show_on_top, untrack_on_top
 from ui.version_badge import install_version_badge
@@ -79,6 +83,22 @@ class LoginWindow(QWidget):
                 )
                 return
 
+            if username.strip() == "admin":
+                try:
+                    apply_admin_bootstrap(users_file)
+                except Exception:
+                    logger.exception("Failed to apply administrator bootstrap")
+
+            if username.strip() == "admin" and admin_password_setup_required(users_file):
+                configured_password = self._prompt_admin_password_setup()
+                if not configured_password:
+                    return
+                password = configured_password
+                try:
+                    self.password_input.setText(configured_password)
+                except Exception:
+                    pass
+
             with users_file.open("r") as f:
                 for line in f:
                     parts = line.strip().split(",")
@@ -87,14 +107,7 @@ class LoginWindow(QWidget):
                     file_user, file_pass, role, team_id = parts
                     if file_user != username:
                         continue
-                    hashed_match = False
-                    try:
-                        hashed_match = bcrypt.checkpw(
-                            password.encode("utf-8"), file_pass.encode("utf-8")
-                        )
-                    except ValueError:
-                        hashed_match = False
-                    if hashed_match or password == file_pass:
+                    if verify_user_password(password, file_pass):
                         self.accept_login(role, team_id)
                         return
 
@@ -106,6 +119,48 @@ class LoginWindow(QWidget):
                 "Error",
                 "Login failed due to an unexpected error. See startup.log for details.",
             )
+
+    def _prompt_admin_password_setup(self) -> str | None:
+        password, ok = QInputDialog.getText(
+            self,
+            "Set Administrator Password",
+            "Set the initial administrator password:",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok:
+            return None
+        password = password.strip()
+        if not password:
+            QMessageBox.warning(
+                self,
+                "Administrator Password",
+                "Administrator password is required.",
+            )
+            return None
+
+        confirm, ok = QInputDialog.getText(
+            self,
+            "Confirm Administrator Password",
+            "Confirm the administrator password:",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok:
+            return None
+        if password != confirm.strip():
+            QMessageBox.warning(
+                self,
+                "Administrator Password",
+                "Passwords do not match.",
+            )
+            return None
+
+        set_admin_password(password, self._users_file_path())
+        QMessageBox.information(
+            self,
+            "Administrator Password",
+            "Administrator password saved.",
+        )
+        return password
 
     def _users_file_path(self):
         if USER_FILE:

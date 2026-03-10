@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import html
 import json
 from dataclasses import dataclass
 from datetime import datetime
@@ -9,7 +10,9 @@ from typing import Any, Dict, Iterable, List, Mapping
 
 from playbalance.season_context import SeasonContext
 from services.career_arc_analytics import (
+    CAREER_ARC_AGING_BUCKET_FIELDS,
     CAREER_ARC_ERA_FIELDS,
+    CAREER_ARC_SIMILARITY_FIELDS,
     CAREER_ARC_TREND_FIELDS,
     CAREER_ARC_YOY_FIELDS,
     build_career_arc_analytics,
@@ -85,11 +88,20 @@ class ExportResult:
 def export_reports(
     output_dir: str | Path | None = None,
     *,
+    report_format: str = "csv",
+    include_csv: bool | None = None,
     include_pdf: bool = True,
 ) -> ExportResult:
-    """Export league history + analytics reports to CSV/PDF."""
+    """Export league history + analytics reports in CSV and/or HTML formats."""
     out_dir = _resolve_output_dir(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    normalized_format = str(report_format or "csv").strip().lower()
+    if normalized_format not in {"csv", "html", "both"}:
+        normalized_format = "csv"
+    if include_csv is None:
+        include_csv = normalized_format in {"csv", "both"}
+    include_html = normalized_format in {"html", "both"}
 
     files: Dict[str, Path] = {}
     files["standings_csv"] = _export_standings(out_dir)
@@ -114,6 +126,19 @@ def export_reports(
     files["league_history_csv"] = _export_league_history(out_dir)
     record_files = _export_record_book(out_dir)
     files.update(record_files)
+
+    if include_html:
+        files.update(_export_html_report_bundle(out_dir, files))
+
+    if not include_csv:
+        for key in list(files.keys()):
+            if not key.endswith("_csv"):
+                continue
+            path = files.pop(key)
+            try:
+                path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     summary_lines = _build_summary_lines(out_dir, files)
     summary_txt = out_dir / "report_summary.txt"
@@ -457,6 +482,8 @@ def _export_career_arc_analytics(out_dir: Path) -> Dict[str, Path]:
     yoy_rows = payload.get("yoy", []) if isinstance(payload, dict) else []
     trend_rows = payload.get("trends", []) if isinstance(payload, dict) else []
     era_rows = payload.get("team_eras", []) if isinstance(payload, dict) else []
+    similarity_rows = payload.get("similarity", []) if isinstance(payload, dict) else []
+    aging_rows = payload.get("aging_buckets", []) if isinstance(payload, dict) else []
 
     yoy_path = out_dir / "career_arc_yoy.csv"
     _write_csv(yoy_path, yoy_rows if isinstance(yoy_rows, list) else [], fieldnames=CAREER_ARC_YOY_FIELDS)
@@ -475,10 +502,26 @@ def _export_career_arc_analytics(out_dir: Path) -> Dict[str, Path]:
         fieldnames=CAREER_ARC_ERA_FIELDS,
     )
 
+    similarity_path = out_dir / "career_arc_similarity.csv"
+    _write_csv(
+        similarity_path,
+        similarity_rows if isinstance(similarity_rows, list) else [],
+        fieldnames=CAREER_ARC_SIMILARITY_FIELDS,
+    )
+
+    aging_path = out_dir / "career_arc_aging_buckets.csv"
+    _write_csv(
+        aging_path,
+        aging_rows if isinstance(aging_rows, list) else [],
+        fieldnames=CAREER_ARC_AGING_BUCKET_FIELDS,
+    )
+
     return {
         "career_arc_yoy_csv": yoy_path,
         "career_arc_trends_csv": trends_path,
         "career_arc_team_eras_csv": eras_path,
+        "career_arc_similarity_csv": similarity_path,
+        "career_arc_aging_buckets_csv": aging_path,
     }
 
 
@@ -534,6 +577,98 @@ def _build_summary_lines(out_dir: Path, files: Mapping[str, Path]) -> List[str]:
     for key, path in sorted(files.items()):
         lines.append(f"- {key}: {path.name}")
     return lines
+
+
+def _export_html_report_bundle(out_dir: Path, files: Mapping[str, Path]) -> Dict[str, Path]:
+    html_dir = out_dir / "html"
+    html_dir.mkdir(parents=True, exist_ok=True)
+    pages: Dict[str, Path] = {}
+    csv_keys = [key for key in sorted(files.keys()) if key.endswith("_csv")]
+    for key in csv_keys:
+        csv_path = files.get(key)
+        if csv_path is None:
+            continue
+        page_name = f"{csv_path.stem}.html"
+        page_path = html_dir / page_name
+        _write_html_table_page(page_path, key, csv_path)
+        pages[f"{key[:-4]}_html"] = page_path
+
+    links = []
+    for key, path in sorted(pages.items()):
+        label = key.replace("_html", "").replace("_", " ").title()
+        links.append(f"<li><a href=\"html/{html.escape(path.name)}\">{html.escape(label)}</a></li>")
+    if not links:
+        links.append("<li>No report pages generated.</li>")
+
+    index_path = out_dir / "reports_index.html"
+    index_html = [
+        "<!doctype html>",
+        "<html><head><meta charset=\"utf-8\">",
+        "<title>NexGen BBPro Reports</title>",
+        "<style>",
+        "body{font-family:Segoe UI,Arial,sans-serif;margin:24px;background:#f7f8fa;color:#1f2933;}",
+        "h1{margin:0 0 10px 0;} .meta{color:#52606d;margin-bottom:16px;}",
+        "ul{line-height:1.7;} a{color:#0a66c2;text-decoration:none;} a:hover{text-decoration:underline;}",
+        "</style></head><body>",
+        "<h1>NexGen BBPro Report Bundle</h1>",
+        f"<div class=\"meta\">Generated: {html.escape(datetime.utcnow().isoformat(timespec='seconds'))}Z</div>",
+        "<p>Open any section below. HTML is the default report surface.</p>",
+        "<ul>",
+        *links,
+        "</ul>",
+        "</body></html>",
+    ]
+    index_path.write_text("\n".join(index_html), encoding="utf-8")
+    pages["reports_index_html"] = index_path
+    return pages
+
+
+def _write_html_table_page(path: Path, key: str, csv_path: Path) -> None:
+    rows: List[Dict[str, str]] = []
+    fieldnames: List[str] = []
+    try:
+        with csv_path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            fieldnames = list(reader.fieldnames or [])
+            for row in reader:
+                rows.append({str(k): str(v or "") for k, v in (row or {}).items()})
+    except OSError:
+        fieldnames = []
+        rows = []
+
+    title = key.replace("_csv", "").replace("_", " ").title()
+    header_cells = "".join(f"<th>{html.escape(name)}</th>" for name in fieldnames)
+    body_rows: List[str] = []
+    for row in rows:
+        cells = "".join(f"<td>{html.escape(str(row.get(name, '')))}</td>" for name in fieldnames)
+        body_rows.append(f"<tr>{cells}</tr>")
+    if not body_rows:
+        body_rows.append(
+            "<tr><td colspan=\"100%\">No rows available for this section.</td></tr>"
+        )
+
+    payload = [
+        "<!doctype html>",
+        "<html><head><meta charset=\"utf-8\">",
+        f"<title>{html.escape(title)}</title>",
+        "<style>",
+        "body{font-family:Segoe UI,Arial,sans-serif;margin:24px;background:#f7f8fa;color:#1f2933;}",
+        "a{color:#0a66c2;text-decoration:none;} a:hover{text-decoration:underline;}",
+        "table{border-collapse:collapse;width:100%;background:#fff;font-size:13px;}",
+        "th,td{border:1px solid #d9e2ec;padding:6px 8px;text-align:left;vertical-align:top;}",
+        "th{background:#f0f4f8;position:sticky;top:0;} .meta{margin-bottom:12px;color:#52606d;}",
+        "</style></head><body>",
+        "<p><a href=\"../reports_index.html\">Back to report index</a></p>",
+        f"<h1>{html.escape(title)}</h1>",
+        f"<div class=\"meta\">Source CSV: {html.escape(csv_path.name)} | Rows: {len(rows)}</div>",
+        "<table>",
+        f"<thead><tr>{header_cells}</tr></thead>",
+        "<tbody>",
+        *body_rows,
+        "</tbody></table>",
+        "</body></html>",
+    ]
+    path.write_text("\n".join(payload), encoding="utf-8")
 
 
 def _write_summary_pdf(path: Path, lines: Iterable[str]) -> bool:

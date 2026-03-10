@@ -11,6 +11,7 @@ from services.injury_manager import (
     disabled_list_label,
     recover_from_injury,
 )
+from services.team_auto_reassign_settings import auto_reassign_team_if_enabled
 from services.roster_auto_assign import ACTIVE_MAX, AAA_MAX, LOW_MAX
 from services.players_repository import save_players
 from utils.news_logger import log_news_event
@@ -143,8 +144,18 @@ def process_disabled_lists(
                 log_news_event(base_msg, category="injury")
 
     if mutated_rosters:
+        data_dir = get_data_dir()
         for team_id in mutated_rosters:
             save_roster(team_id, rosters[team_id])
+            try:
+                auto_reassign_team_if_enabled(
+                    team_id,
+                    players_file=data_dir / "players.csv",
+                    roster_dir=data_dir / "rosters",
+                    data_dir=data_dir,
+                )
+            except Exception:
+                pass
         try:
             load_roster.cache_clear()  # type: ignore[attr-defined]
         except Exception:

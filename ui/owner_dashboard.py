@@ -122,6 +122,10 @@ from services import league_registry
 from services.contracts_service import sign_free_agent_contract
 from services.contracts_service import estimate_salary_for_player
 from services.team_strategy_profiles import set_team_strategy_profile
+from services.team_auto_reassign_settings import (
+    auto_reassign_team_if_enabled,
+    set_team_auto_reassign,
+)
 from services.payroll_policy import (
     evaluate_free_agent_signing,
     format_payroll_policy_message,
@@ -251,6 +255,8 @@ class OwnerDashboard(QMainWindow):
         self._registry = PageRegistry()
         self._nav_controller = NavigationController(self._registry)
         self._nav_controller.add_listener(self._on_nav_changed_with_tutorial)
+        self._submit_change_request_action: Optional[QAction] = None
+        self._change_request_tutorial_action: Optional[QAction] = None
 
         self.setWindowTitle(f"Owner Dashboard - {team_id}")
         self.resize(1100, 720)
@@ -586,12 +592,13 @@ class OwnerDashboard(QMainWindow):
             menu: object,
             label: str,
             callback: Callable[..., None],
-        ) -> None:
+        ) -> QAction:
             action = QAction(label, self)
             action.triggered.connect(
                 lambda _checked=False, cb=callback: cb(force=True)
             )
             menu.addAction(action)  # type: ignore[attr-defined]
+            return action
 
         tutorial_categories = [
             (
@@ -647,7 +654,9 @@ class OwnerDashboard(QMainWindow):
         for category_label, entries in tutorial_categories:
             category_menu = tutorials_menu.addMenu(category_label)
             for action_label, callback in entries:
-                _add_tutorial_action(category_menu, action_label, callback)
+                action = _add_tutorial_action(category_menu, action_label, callback)
+                if action_label == "Owner Change Requests":
+                    self._change_request_tutorial_action = action
 
         manuals_menu = tutorials_menu.addMenu("Reference Manuals")
         game_manual_action = QAction("Complete Game Manual", self)
@@ -656,6 +665,7 @@ class OwnerDashboard(QMainWindow):
         finance_manual_action = QAction("Finance System Manual", self)
         finance_manual_action.triggered.connect(self.open_finance_manual)
         manuals_menu.addAction(finance_manual_action)
+        self._refresh_change_request_ui_state()
 
         owner_tools_menu = self.menuBar().addMenu("&Owner Tools")
 
@@ -665,6 +675,7 @@ class OwnerDashboard(QMainWindow):
         )
         submit_change_request_action.triggered.connect(self.open_change_request_export_dialog)
         owner_tools_menu.addAction(submit_change_request_action)
+        self._submit_change_request_action = submit_change_request_action
 
         lineup_editor_action = QAction("Lineup Editor...", self)
         lineup_editor_action.setStatusTip("Open lineup editor for vs LHP and vs RHP lineups")
@@ -724,6 +735,38 @@ class OwnerDashboard(QMainWindow):
                 simulate_menu.menuAction().setVisible(False)
             except Exception:
                 pass
+        self._refresh_change_request_ui_state()
+
+    def is_change_request_submission_available(self) -> bool:
+        try:
+            return bool(is_owner_league())
+        except Exception:
+            return True
+
+    def _refresh_change_request_ui_state(self) -> None:
+        enabled = self.is_change_request_submission_available()
+
+        try:
+            if self._submit_change_request_action is not None:
+                self._submit_change_request_action.setVisible(enabled)
+                self._submit_change_request_action.setEnabled(enabled)
+        except Exception:
+            pass
+
+        try:
+            if self._change_request_tutorial_action is not None:
+                self._change_request_tutorial_action.setVisible(enabled)
+                self._change_request_tutorial_action.setEnabled(enabled)
+        except Exception:
+            pass
+
+        try:
+            roster_page = self.pages.get("roster")
+            updater = getattr(roster_page, "refresh_change_request_visibility", None)
+            if callable(updater):
+                updater(enabled)
+        except Exception:
+            pass
 
     def _load_tutorial_flags(self) -> dict[str, bool]:
         try:
@@ -947,6 +990,17 @@ class OwnerDashboard(QMainWindow):
         self._run_tutorial(self._tutorial_keys["lineup"], "Lineup & Strategy Tutorial", steps, force=force)
 
     def show_dashboard_overview_tutorial(self, *, force: bool = False) -> None:
+        if self.is_change_request_submission_available():
+            owner_tools_text = (
+                "<p>The top menu includes <b>Owner Tools</b> for fast access to Submit Change Request,"
+                " Lineup Editor, Pitching Staff, Reassign Players, Trade Center, Free Agency Hub, Open Finance Hub,"
+                " and Team Settings.</p>"
+            )
+        else:
+            owner_tools_text = (
+                "<p>The top menu includes <b>Owner Tools</b> for fast access to Lineup Editor, Pitching Staff,"
+                " Reassign Players, Trade Center, Free Agency Hub, Open Finance Hub, and Team Settings.</p>"
+            )
         steps = [
             TutorialStep(
                 "Scoreboard Strip",
@@ -961,9 +1015,7 @@ class OwnerDashboard(QMainWindow):
             ),
             TutorialStep(
                 "Owner Tools Menu",
-                "<p>The top menu includes <b>Owner Tools</b> for fast access to Submit Change Request,"
-                " Lineup Editor, Pitching Staff, Reassign Players, Trade Center, Free Agency Hub, Open Finance Hub,"
-                " and Team Settings.</p>",
+                owner_tools_text,
             ),
             TutorialStep(
                 "Performers & Standings",
@@ -1085,7 +1137,8 @@ class OwnerDashboard(QMainWindow):
                 " Select a partner, add players,"
                 " and include draft picks when enabled. Commissioners can disable trading,"
                 " disable draft pick trades, require commissioner approval, or cap how many"
-                " years out picks are tradable via <b>League -> Trade Settings</b>.</p>",
+                " years out picks are tradable via <b>League -> Trade Settings</b>. CPU-initiated"
+                " offers and proactive CPU trade cadence are also controlled there.</p>",
             ),
             TutorialStep(
                 "Pending Queue",
@@ -1114,6 +1167,13 @@ class OwnerDashboard(QMainWindow):
         )
 
     def show_change_request_tutorial(self, *, force: bool = False) -> None:
+        if not self.is_change_request_submission_available():
+            QMessageBox.information(
+                self,
+                "Owner Change Requests",
+                "Submit Change Request is only available in multi-owner leagues.",
+            )
+            return
         steps = [
             TutorialStep(
                 "Where to Start",
@@ -1178,7 +1238,7 @@ class OwnerDashboard(QMainWindow):
                 "Access Team Settings",
                 "<p>Open <b>Owner Tools -> Team Settings</b> (or use <b>View -> Team Settings</b>)."
                 " This is where you manage branding, stadium, and team metadata,"
-                " including your team strategy profile override.</p>",
+                " including team strategy and roster auto-reassign overrides.</p>",
             ),
             TutorialStep(
                 "Branding Options",
@@ -1191,9 +1251,11 @@ class OwnerDashboard(QMainWindow):
                 " outputs and stats, and the Team Settings dialog now shows a live park preview when available.</p>",
             ),
             TutorialStep(
-                "Team Strategy Profile",
+                "Team Strategy & Auto-Reassign",
                 "<p>Use the <b>Team Strategy</b> dropdown to keep <b>League Default</b> or set a team-specific"
-                " profile (for example <b>Win Now</b> or <b>Development Focus</b>) to steer automation intent.</p>",
+                " profile (for example <b>Win Now</b> or <b>Development Focus</b>) to steer automation intent."
+                " Use <b>Roster Auto-Reassign</b> to inherit league default behavior or explicitly enable/disable"
+                " automatic ACT/AAA/LOW balancing for this team.</p>",
             ),
             TutorialStep(
                 "Save & Verify",
@@ -1364,7 +1426,7 @@ class OwnerDashboard(QMainWindow):
         steps = [
             TutorialStep(
                 "Export Options",
-                "<p>Admins can export league reports to CSV or PDF from the Admin utilities page.</p>",
+                "<p>Admins can export league reports as HTML bundles by default, with optional CSV exports from the Admin utilities page.</p>",
             ),
             TutorialStep(
                 "What Gets Exported",
@@ -1450,7 +1512,7 @@ class OwnerDashboard(QMainWindow):
             ),
             TutorialStep(
                 "Safety & Backups",
-                "<p>Use <b>Assets &amp; Exports</b> for report/snapshot exports before destructive tasks like season resets."
+                "<p>Use <b>Assets &amp; Exports</b> for report/almanac/snapshot exports before destructive tasks like season resets."
                 " Keep exports if you plan to share league files.</p>",
             ),
             TutorialStep(
@@ -1657,6 +1719,7 @@ class OwnerDashboard(QMainWindow):
             self._maybe_show_roster_tutorial(key)
 
     def _on_nav_changed(self, key: Optional[str]) -> None:
+        self._refresh_change_request_ui_state()
         for name, btn in self.nav_buttons.items():
             btn.setChecked(name == key)
         if key is None:
@@ -1723,6 +1786,7 @@ class OwnerDashboard(QMainWindow):
             pass
 
     def _refresh_active_page(self) -> None:
+        self._refresh_change_request_ui_state()
         page = None
         key = self._nav_controller.current_key
         if key is not None:
@@ -1860,6 +1924,13 @@ class OwnerDashboard(QMainWindow):
         self._open_training_focus_dialog()
 
     def open_change_request_export_dialog(self) -> None:
+        if not self.is_change_request_submission_available():
+            QMessageBox.information(
+                self,
+                "Owner Change Requests",
+                "Submit Change Request is only available in multi-owner leagues.",
+            )
+            return
         try:
             self.show_change_request_tutorial()
         except Exception:
@@ -1984,6 +2055,17 @@ class OwnerDashboard(QMainWindow):
             self.roster.act.append(pid)
             save_roster(self.team_id, self.roster)
             sign_free_agent_contract(pid, self.team_id, player=player)
+            try:
+                data_dir = get_data_dir()
+                auto_reassign_team_if_enabled(
+                    self.team_id,
+                    players_file=data_dir / "players.csv",
+                    roster_dir=data_dir / "rosters",
+                    data_dir=data_dir,
+                )
+                self.roster = load_roster(self.team_id)
+            except Exception:
+                pass
             QMessageBox.information(self, "Free Agents", f"Signed free agent: {pid}")
             try:
                 self._refresh_active_page()
@@ -2275,6 +2357,10 @@ class OwnerDashboard(QMainWindow):
                 set_team_strategy_profile(
                     self.team.team_id,
                     data.get("strategy_profile_override"),
+                )
+                set_team_auto_reassign(
+                    self.team.team_id,
+                    data.get("auto_reassign_override"),
                 )
                 QMessageBox.information(self, "Team Settings", "Team settings saved.")
                 # Notify pages to refresh if they implement refresh()

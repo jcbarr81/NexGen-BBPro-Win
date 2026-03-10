@@ -59,6 +59,7 @@ from utils.recovery_manager import (
     write_recovery_csv,
 )
 from services.decision_explanations import summarize_decision_explanation
+from .components import ActionButtonPanel
 
 class LineupEditor(QDialog):
     _AUTOFILL_REASON_PLACEHOLDER = (
@@ -231,21 +232,29 @@ class LineupEditor(QDialog):
         self.bench_display.itemDoubleClicked.connect(self._open_bench_player_profile)
 
         action_group = QGroupBox("Actions")
-        action_layout = QHBoxLayout()
+        action_layout = QVBoxLayout()
         action_layout.setContentsMargins(10, 8, 10, 8)
         action_layout.setSpacing(8)
+        action_panel = ActionButtonPanel(
+            min_columns=1,
+            max_columns=3,
+            target_button_width=190,
+            min_button_width=150,
+            max_button_width=220,
+        )
         self.save_button = QPushButton("Save Lineup")
         self.save_button.setObjectName("Primary")
         self.save_button.clicked.connect(self.save_lineup)
-        action_layout.addWidget(self.save_button)
+        action_panel.add_button(self.save_button)
 
         self.autofill_button = QPushButton("Auto-Fill Lineup")
         self.autofill_button.clicked.connect(self.autofill_lineup)
-        action_layout.addWidget(self.autofill_button)
+        action_panel.add_button(self.autofill_button)
 
         self.clear_button = QPushButton("Clear Lineup")
         self.clear_button.clicked.connect(self.clear_lineup)
-        action_layout.addWidget(self.clear_button)
+        action_panel.add_button(self.clear_button)
+        action_layout.addWidget(action_panel)
         action_group.setLayout(action_layout)
         right_panel.addWidget(action_group)
 

@@ -51,6 +51,7 @@ Team owners manage their franchise through the Owner Dashboard.
 - **Transactions**: view recent roster moves.
 - **Settings**: adjust team colours, logos and other options.
   - Team Settings now includes a **Team Strategy** profile selector with **Use League Default** and per-team override options.
+  - Team Settings now includes a **Roster Auto-Reassign** override so each team can inherit league default automation or opt in/out directly.
 
 ### League Information
 - **Standings** and **Schedule** windows give a league-wide overview.
@@ -123,7 +124,7 @@ Administrators control league configuration and high-level operations.
 - **Teams**: open an owner dashboard for any club and run league-wide roster/lineup automation.
 - **Users**: add/edit admin and owner accounts.
 - **League Settings**: create league, physics tuning, team strategy profiles, injury settings, Hall of Fame settings, and league operations hubs.
-- **Assets & Exports**: team logos, player avatars, league report exports, and owner snapshot zip exports.
+- **Assets & Exports**: team logos, player avatars, league report exports, league almanac exports, and owner snapshot zip exports.
 
 ### League Creation and Policy Setup
 - **Create League** (League Settings): generate a new league structure (overwrites current data).
@@ -132,12 +133,17 @@ Administrators control league configuration and high-level operations.
     - draft-pick trading enabled/disabled,
     - commissioner-approval requirement for trade execution,
     - maximum years out for tradable draft picks.
+  - During creation, commissioners now complete a required **Finance Setup** step:
+    - choose a preset (**Off**, **Simple**, **Standard**, **MLB-Like**) or
+      switch to **Custom** for key module choices,
+    - review a finance summary in the final confirmation before league files are generated,
+    - persist the selected finance settings as the league's initial bootstrap state.
 - **Financial System Settings** (League Settings): configure global finance on/off, presets, grouped module levels (Owner, GM, Governance/AI), and AI tuning.
   - The window uses a full-height scrollable layout so all controls remain reachable on smaller displays.
   - The dialog includes a **Commissioner Projection Preview** snapshot (cash/debt/net/payroll risk summary).
   - The dialog includes prioritized **Finance Alerts** with explicit next-step guidance (cash risk, payroll threshold/floor risk, offseason checklist deadlines, and GM queue pressure).
   - The guidance panel in this dialog reflects the current saved workflow state and the next checklist stage.
-- **Team Strategy Profiles** (League Settings): set a league default strategy profile and optional per-team overrides used by automation services.
+- **Team Strategy Profiles** (League Settings): set league defaults and per-team overrides for both team strategy intent and roster auto-reassign automation.
 
 ### Trade Oversight (Transactions)
 - **Review Pending Trades**: approve or reject pending trades submitted by teams.
@@ -163,6 +169,9 @@ owns the pick makes the selection.
   - CPU/non-owner teams are included in the same offseason pipeline. Arbitration logic now applies team-aware CPU decisions (retain stars more aggressively and non-tender expensive underperformers when appropriate), with outcomes visible in the review tabs.
 - **Generate Team Logos** (Assets & Exports): create logo images for all teams.
 - **Generate Player Avatars** (Assets & Exports): create/rebuild avatar images.
+- **Export Almanac (HTML)** (Assets & Exports): generate a multi-page historical league reference site.
+  - The export writes a browsable `almanac/index.html` landing page with sections for seasons, teams, players, awards, postseason, leaders, transactions, finance, and records.
+  - Use it when you want a shareable baseball-reference-style archive of the current league history, especially before releases, major sim runs, or offseason rollovers.
 
 ### Amateur Draft
 The Amateur Draft introduces new prospects mid-season and pauses the season to conduct the draft.
@@ -196,17 +205,17 @@ The Amateur Draft introduces new prospects mid-season and pauses the season to c
 
 Tip: Use a non-empty seed in Draft Settings for deterministic pool generation and draft order.
 
-## Default Administrator Login
-When user data is reset, a default administrator account is created. Although
-most passwords are stored using `bcrypt` hashes, the fallback administrator
-record is saved in plain text so the app remains accessible even if the
-`bcrypt` dependency is missing. Use these credentials to access the Admin
-Dashboard if no other accounts exist:
+## Administrator Login Bootstrap
+New installs now prompt for the initial administrator password during setup.
+That password becomes the bootstrap credential for freshly created leagues and
+fresh runtime data roots.
 
-```
-username: admin
-password: pass
-```
+- Interactive installer runs: enter and confirm the administrator password in
+  the installer wizard.
+- Silent/unattended installs: the app requires administrator password setup on
+  the first admin login before admin access is granted.
+- Existing leagues keep their current `users.txt` credentials unless you
+  explicitly reset or replace them.
 
 ---
 ## Dashboard Updates
@@ -250,7 +259,10 @@ existing visual style and theme.
     All Rosters, with roster size constraints noted.
 - Assets & Exports page grouped into:
   - Assets: Generate Team Logos, Generate Player Avatars (+ tutorials).
-  - Exports & Sharing: Export Reports (CSV/PDF), Export Owner Snapshot Zip.
+  - Exports & Sharing:
+    - Export Reports (HTML default, optional CSV) for current analytical bundles.
+    - Export Almanac (HTML) for full historical league reference pages.
+    - Export Owner Snapshot Zip for rollback/import safety.
 - Draft page now shows "View Draft Results" after the draft is completed.
 - Users page shows a searchable list of users alongside Add/Edit actions.
 This document will evolve as new features are introduced.

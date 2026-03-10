@@ -60,12 +60,17 @@ from services.league_presets import (
     record_league_metadata,
 )
 from services.trade_settings import (
+    CPU_PROPOSAL_CADENCE_VALUES,
     MAX_ALLOWED_PICK_TRADE_YEARS,
     MIN_ALLOWED_PICK_TRADE_YEARS,
     update_trade_settings,
 )
-from services.finance_settings import ensure_financial_defaults
+from services.league_creation_finance import (
+    apply_initial_finance_settings,
+    finance_summary_lines,
+)
 from utils.league_settings import configure_league_settings
+from ui.league_creation_finance_dialog import LeagueCreationFinanceDialog
 
 from ..context import DashboardContext
 
@@ -186,6 +191,32 @@ def _run_with_progress_dialog(
                 pass
 
 
+def _build_creation_confirmation_message(
+    *,
+    league_name: str,
+    league_mode: str,
+    team_count: int,
+    setup_lines: list[str],
+    trade_lines: list[str],
+    finance_lines: list[str],
+) -> str:
+    lines = [
+        "Review League Setup",
+        "",
+        f"League name: {league_name}",
+        f"League mode: {league_mode}",
+        f"Teams: {team_count}",
+    ]
+    if setup_lines:
+        lines.extend([""] + setup_lines)
+    if trade_lines:
+        lines.extend(["", "Trade Policy:"] + [f"- {line}" for line in trade_lines])
+    if finance_lines:
+        lines.extend(["", "Finance Setup:"] + [f"- {line}" for line in finance_lines])
+    lines.extend(["", "Create league now?"])
+    return "\n".join(lines)
+
+
 def create_league_action(
     context: DashboardContext,
     parent: Optional[QWidget] = None,
@@ -270,6 +301,8 @@ def create_league_action(
     trades_enabled = True
     draft_pick_trading_enabled = False
     require_commissioner_approval = False
+    cpu_initiated_trades_enabled = True
+    cpu_proposal_cadence = "normal"
     max_pick_trade_years = 3
 
     trades_choice = QMessageBox.question(
@@ -320,6 +353,37 @@ def create_league_action(
             approval_choice == QMessageBox.StandardButton.Yes
         )
 
+        cpu_trades_choice = QMessageBox.question(
+            parent,
+            "CPU-Initiated Trades?",
+            (
+                "Allow CPU teams to send counter-offers and initiate trade "
+                "proposals to owners?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        cpu_initiated_trades_enabled = (
+            cpu_trades_choice == QMessageBox.StandardButton.Yes
+        )
+        if cpu_initiated_trades_enabled:
+            cadence_items = ["Off", "Low", "Normal", "High"]
+            cadence_choice, ok = QInputDialog.getItem(
+                parent,
+                "CPU Trade Proposal Cadence",
+                "CPU proactive trade proposal cadence:",
+                cadence_items,
+                cadence_items.index("Normal"),
+                False,
+            )
+            if not ok:
+                return
+            cadence_token = str(cadence_choice or "Normal").strip().lower()
+            if cadence_token not in CPU_PROPOSAL_CADENCE_VALUES:
+                cadence_token = "normal"
+            cpu_proposal_cadence = cadence_token
+
+    setup_summary_lines: list[str] = []
     if setup_choice == "quickstart":
         quickstart_id = select_quickstart_preset(parent)
         if not quickstart_id:
@@ -348,6 +412,12 @@ def create_league_action(
             if schedule_template is not None
             else chosen_schedule_id or "None"
         )
+        setup_summary_lines = [
+            f"Setup mode: Quick-Start ({preset.name})",
+            f"Divisions: {', '.join(preset.divisions)}",
+            f"Rule preset: {rule_label}",
+            f"Schedule template: {schedule_label}",
+        ]
         summary_lines = [
             f"League name: {league_name}",
             f"Quick-Start preset: {preset.name}",
@@ -412,6 +482,64 @@ def create_league_action(
             return
 
         structure = dialog.get_structure()
+        setup_summary_lines = [
+            "Setup mode: Custom",
+            "Divisions: " + ", ".join(divisions),
+            f"Teams per division: {teams_per_div}",
+        ]
+
+    finance_dialog = LeagueCreationFinanceDialog(parent)
+    ensure_on_top(finance_dialog)
+    if finance_dialog.exec() != QDialog.DialogCode.Accepted:
+        return
+    finance_config = finance_dialog.get_selection()
+
+    trade_summary_lines = [
+        f"Trading enabled: {'Yes' if trades_enabled else 'No'}",
+        (
+            f"Draft-pick trading: {'Yes' if draft_pick_trading_enabled else 'No'}"
+            if trades_enabled
+            else "Draft-pick trading: No"
+        ),
+        (
+            f"Commissioner trade approval: {'Yes' if require_commissioner_approval else 'No'}"
+            if trades_enabled
+            else "Commissioner trade approval: No"
+        ),
+        (
+            f"CPU-initiated trade offers: {'Yes' if cpu_initiated_trades_enabled else 'No'}"
+            if trades_enabled
+            else "CPU-initiated trade offers: No"
+        ),
+        (
+            f"CPU proactive proposal cadence: {cpu_proposal_cadence.title()}"
+            if trades_enabled and cpu_initiated_trades_enabled
+            else "CPU proactive proposal cadence: Off"
+        ),
+    ]
+    if trades_enabled and draft_pick_trading_enabled:
+        trade_summary_lines.append(
+            f"Max draft-pick trade years: {max_pick_trade_years}"
+        )
+
+    mode_label = "Multi-owner" if owner_league else "Single-player"
+    confirmation = _build_creation_confirmation_message(
+        league_name=league_name,
+        league_mode=mode_label,
+        team_count=total_teams,
+        setup_lines=setup_summary_lines,
+        trade_lines=trade_summary_lines,
+        finance_lines=finance_summary_lines(finance_config),
+    )
+    final_confirm = QMessageBox.question(
+        parent,
+        "Confirm League Creation",
+        confirmation,
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+    )
+    if final_confirm != QMessageBox.StandardButton.Yes:
+        return
+
     target_data_dir = league_registry.get_league_data_dir(league_id, create=True)
     phase_tracker = _ProgressPhaseTracker("Loading")
 
@@ -514,6 +642,8 @@ def create_league_action(
             trades_enabled=trades_enabled,
             draft_pick_trading_enabled=draft_pick_trading_enabled,
             require_commissioner_approval=require_commissioner_approval,
+            cpu_initiated_trades_enabled=cpu_initiated_trades_enabled,
+            cpu_proposal_cadence=cpu_proposal_cadence,
             max_pick_trade_years=max_pick_trade_years,
             path=target_data_dir / "trade_settings.json",
             league_id=league_id,
@@ -526,12 +656,16 @@ def create_league_action(
         )
 
     try:
-        ensure_financial_defaults(data_dir=target_data_dir, league_id=league_id)
+        apply_initial_finance_settings(
+            finance_config,
+            data_dir=target_data_dir,
+            league_id=league_id,
+        )
     except Exception as exc:
         QMessageBox.warning(
             parent,
             "Financial Settings",
-            f"Unable to initialize financial data files: {exc}",
+            f"Unable to save initial finance settings: {exc}",
         )
 
     QMessageBox.information(

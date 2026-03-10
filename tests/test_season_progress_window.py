@@ -413,6 +413,16 @@ def test_regular_season_simulation_controls(tmp_path, monkeypatch):
     assert win.next_button.isEnabled()
 
 
+def test_season_progress_window_omits_timeline_feed(tmp_path, monkeypatch):
+    monkeypatch.setattr(spw, "PROGRESS_FILE", tmp_path / "progress.json")
+    win = spw.SeasonProgressWindow()
+
+    assert "timeline_label" in win.__dict__
+    assert "timeline" in win.__dict__
+    assert "feed_label" not in win.__dict__
+    assert "feed_list" not in win.__dict__
+
+
 def test_simulate_to_playoffs_requires_draft_completion(tmp_path, monkeypatch):
     spw.SeasonManager = DummyManager
     schedule = [

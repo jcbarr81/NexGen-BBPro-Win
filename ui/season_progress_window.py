@@ -169,6 +169,7 @@ from services.free_agency import (
 from services.dl_automation import DLAutomationSummary, process_disabled_lists
 from services.finance_budget_effects import training_camp_multiplier_by_player
 from services.finance_budget_effects import development_multiplier_by_player
+from services.late_bloomer_variance import apply_late_bloomer_variance
 from services.season_progress_flags import (
     ProgressUpdateError,
     mark_draft_completed,
@@ -184,7 +185,6 @@ from services.league_presets import (
 )
 from services.hall_of_fame import update_hall_of_fame
 from services.record_notifications import consume_record_notifications
-from services.timeline_feed import build_timeline_feed
 from utils.exceptions import DraftRosterError
 from playbalance.simulation import save_boxscore_html
 from utils.news_logger import log_news_event
@@ -208,6 +208,18 @@ from utils.pitcher_role import get_role
 from utils.sim_date import get_current_sim_date
 from ui.sim_date_bus import notify_sim_date_changed
 from ui.training_focus_dialog import TrainingFocusDialog
+try:
+    from ui.components import ActionButtonPanel
+except Exception:  # pragma: no cover - fallback for lightweight test stubs
+    class ActionButtonPanel:  # type: ignore[override]
+        def __init__(self, *args, **kwargs) -> None:
+            self._buttons = []
+
+        def add_button(self, button) -> None:
+            self._buttons.append(button)
+
+        def reflow(self, available_width: Optional[int] = None) -> None:
+            return None
 
 
 from utils.path_utils import ActivePath, get_data_dir
@@ -381,32 +393,15 @@ class SeasonProgressWindow(QDialog):
         self.timeline.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         layout.addWidget(self.timeline)
 
-        self.feed_label = QLabel("Timeline Feed")
-        self.feed_label.setStyleSheet("font-weight: 600;")
-        layout.addWidget(self.feed_label)
-
-        self.feed_list = QListWidget()
-        self.feed_list.setMouseTracking(True)
-        self.feed_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
-        try:
-            self.feed_list.setWordWrap(True)
-            self.feed_list.setMaximumHeight(220)
-        except Exception:
-            pass
-        layout.addWidget(self.feed_list)
-
         # Actions available during the preseason
         self.free_agency_button = QPushButton("List Unsigned Players")
         self.free_agency_button.clicked.connect(self._show_free_agents)
-        layout.addWidget(self.free_agency_button)
 
         self.training_camp_button = QPushButton("Run Training Camp")
         self.training_camp_button.clicked.connect(self._run_training_camp)
-        layout.addWidget(self.training_camp_button)
 
         self.training_focus_button = QPushButton("Training Focus...")
         self.training_focus_button.clicked.connect(self._open_training_focus_dialog)
-        layout.addWidget(self.training_focus_button)
 
         self.schedule_template_label = QLabel()
         self.schedule_template_label.setWordWrap(True)
@@ -414,7 +409,6 @@ class SeasonProgressWindow(QDialog):
 
         self.generate_schedule_button = QPushButton("Generate Schedule")
         self.generate_schedule_button.clicked.connect(self._generate_schedule)
-        layout.addWidget(self.generate_schedule_button)
 
         # Regular season controls
         self.remaining_label = QLabel()
@@ -445,47 +439,60 @@ class SeasonProgressWindow(QDialog):
         layout.addWidget(self.auto_activate_checkbox)
 
         self.engine_toggle = None
+        self.action_panel = ActionButtonPanel(
+            min_columns=1,
+            max_columns=3,
+            target_button_width=220,
+            min_button_width=170,
+            max_button_width=250,
+        )
+        self.action_panel.add_button(self.free_agency_button)
+        self.action_panel.add_button(self.training_camp_button)
+        self.action_panel.add_button(self.training_focus_button)
+        self.action_panel.add_button(self.generate_schedule_button)
 
         self.simulate_day_button = QPushButton("Simulate Day")
         self.simulate_day_button.clicked.connect(self._simulate_day)
-        layout.addWidget(self.simulate_day_button)
+        self.action_panel.add_button(self.simulate_day_button)
 
         self.simulate_round_button = QPushButton("Simulate Round")
         self.simulate_round_button.clicked.connect(self._simulate_playoff_round)
-        layout.addWidget(self.simulate_round_button)
+        self.action_panel.add_button(self.simulate_round_button)
 
         self.simulate_week_button = QPushButton("Simulate Week")
         self.simulate_week_button.clicked.connect(self._simulate_week)
-        layout.addWidget(self.simulate_week_button)
+        self.action_panel.add_button(self.simulate_week_button)
 
         self.simulate_month_button = QPushButton("Simulate Month")
         self.simulate_month_button.clicked.connect(self._simulate_month)
-        layout.addWidget(self.simulate_month_button)
+        self.action_panel.add_button(self.simulate_month_button)
 
         self.simulate_to_draft_button = QPushButton("Simulate to Draft Day")
         self.simulate_to_draft_button.clicked.connect(self._simulate_to_draft)
-        layout.addWidget(self.simulate_to_draft_button)
+        self.action_panel.add_button(self.simulate_to_draft_button)
 
         self.simulate_to_playoffs_button = QPushButton("Simulate to Playoffs")
         self.simulate_to_playoffs_button.clicked.connect(self._simulate_to_playoffs)
-        layout.addWidget(self.simulate_to_playoffs_button)
+        self.action_panel.add_button(self.simulate_to_playoffs_button)
 
         # Maintenance tool: repair/auto-fill lineups
         self.repair_lineups_button = QPushButton("Repair Lineups")
         self.repair_lineups_button.clicked.connect(self._repair_lineups)
-        layout.addWidget(self.repair_lineups_button)
+        self.action_panel.add_button(self.repair_lineups_button)
 
         self.next_button = QPushButton("Next Phase")
         self.next_button.clicked.connect(self._next_phase)
-        layout.addWidget(self.next_button)
+        self.action_panel.add_button(self.next_button)
 
         self.cancel_sim_button = QPushButton("Cancel Simulation")
         self.cancel_sim_button.clicked.connect(self._request_cancel_simulation)
-        layout.addWidget(self.cancel_sim_button)
+        self.action_panel.add_button(self.cancel_sim_button)
 
         self.done_button = QPushButton("Done")
         self.done_button.clicked.connect(self.close)
-        layout.addWidget(self.done_button)
+        self.action_panel.add_button(self.done_button)
+
+        layout.addWidget(self.action_panel)
 
         self._apply_button_styles()
         self._set_button_state(
@@ -963,7 +970,7 @@ class SeasonProgressWindow(QDialog):
         retired_ids: set[str] = set()
         try:
             if isinstance(players, dict) and players:
-                local_development = self._resolve_development_intensity(players.keys())
+                local_development = self._resolve_development_intensity(players)
                 retired_local = age_and_retire(
                     players,
                     development_multiplier_by_player=local_development,
@@ -974,7 +981,7 @@ class SeasonProgressWindow(QDialog):
         try:
             loaded = load_players_from_csv(players_path)
             csv_players = {p.player_id: p for p in loaded}
-            csv_development = self._resolve_development_intensity(csv_players.keys())
+            csv_development = self._resolve_development_intensity(csv_players)
             retired = age_and_retire(
                 csv_players,
                 development_multiplier_by_player=csv_development,
@@ -1429,7 +1436,6 @@ class SeasonProgressWindow(QDialog):
                 pass
         playoffs_bracket = bracket
         draft_locked = bool(self._draft_blocked)
-        self._refresh_timeline_feed()
         if is_regular:
             self.simulate_day_button.setText("Simulate Day")
             mid_remaining = self.simulator.remaining_days()
@@ -2336,42 +2342,6 @@ class SeasonProgressWindow(QDialog):
         if timeline.count() == 0:
             add_event("Timeline data unavailable", "pending")
 
-    def _refresh_timeline_feed(self) -> None:
-        feed = getattr(self, "feed_list", None)
-        if feed is None:
-            return
-        try:
-            feed.clear()
-        except Exception:
-            return
-        entries = []
-        try:
-            entries = build_timeline_feed(limit=12)
-        except Exception:
-            entries = []
-        if not entries:
-            try:
-                feed.addItem(QListWidgetItem("No milestones recorded yet."))
-            except Exception:
-                pass
-            return
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            date_val = str(entry.get("date") or "").strip() or "--"
-            label = str(entry.get("label") or "Milestone")
-            text = f"{date_val} • {label}"
-            item = QListWidgetItem(text)
-            detail = str(entry.get("detail") or "").strip()
-            if detail:
-                try:
-                    item.setToolTip(detail)
-                except Exception:
-                    pass
-            try:
-                feed.addItem(item)
-            except Exception:
-                pass
 
     def _next_phase(self) -> None:
         """Advance to the next phase and update the display."""
@@ -2642,24 +2612,45 @@ class SeasonProgressWindow(QDialog):
 
     def _resolve_development_intensity(
         self,
-        player_ids: Iterable[str],
+        players_or_ids: Mapping[str, object] | Iterable[str],
     ) -> dict[str, float]:
         """Return per-player development multipliers from owner budget settings."""
 
-        try:
+        players_by_id: dict[str, object] = {}
+        if isinstance(players_or_ids, Mapping):
             ids = {
                 str(pid).strip()
-                for pid in player_ids  # type: ignore[operator]
+                for pid in players_or_ids.keys()
                 if str(pid).strip()
             }
-        except Exception:
-            return {}
+            players_by_id = {
+                str(pid).strip(): player
+                for pid, player in players_or_ids.items()
+                if str(pid).strip()
+            }
+        else:
+            try:
+                ids = {
+                    str(pid).strip()
+                    for pid in players_or_ids  # type: ignore[operator]
+                    if str(pid).strip()
+                }
+            except Exception:
+                return {}
         if not ids:
             return {}
         try:
             team_lookup = self._player_team_lookup_from_roster_files(ids)
-            return development_multiplier_by_player(
+            base = development_multiplier_by_player(
                 team_lookup,
+                data_dir=get_data_dir(),
+            )
+            if not players_by_id:
+                return base
+            return apply_late_bloomer_variance(
+                players_by_id=players_by_id,
+                player_team_lookup=team_lookup,
+                base_multipliers=base,
                 data_dir=get_data_dir(),
             )
         except Exception:
@@ -2981,6 +2972,15 @@ class SeasonProgressWindow(QDialog):
                 if applied_periods:
                     periods_text = ", ".join(str(p) for p in applied_periods)
                     message = f"{message}; monthly finance settled for {periods_text}"
+                proposal_result = self._run_cpu_trade_proposals_for_dates(
+                    [str(date_just_played)] if date_just_played else []
+                )
+                offers_created = int(proposal_result.get("offers_created", 0) or 0)
+                if offers_created > 0:
+                    offer_text = "offer" if offers_created == 1 else "offers"
+                    message = (
+                        f"{message}; CPU teams initiated {offers_created} trade {offer_text}"
+                    )
                 self.notes_label.setText(message)
                 self._set_simulation_status(message)
                 self._update_bullpen_reason_status(
@@ -3436,6 +3436,16 @@ class SeasonProgressWindow(QDialog):
             self.notes_label.setText(message)
             self._set_simulation_status(f"{message} - {progress_text}")
 
+        proposal_result = self._run_cpu_trade_proposals_for_dates(dates_covered)
+        offers_created = int(proposal_result.get("offers_created", 0) or 0)
+        if offers_created > 0:
+            offer_text = "offer" if offers_created == 1 else "offers"
+            message = (
+                f"{message}; CPU teams initiated {offers_created} trade {offer_text}"
+            )
+            self.notes_label.setText(message)
+            self._set_simulation_status(f"{message} - {progress_text}")
+
         log_news_event(message, category="progress")
         latest_date = dates_covered[-1] if dates_covered else None
         self._update_bullpen_reason_status(latest_date)
@@ -3519,6 +3529,22 @@ class SeasonProgressWindow(QDialog):
                 "skipped_periods": [],
                 "total_net_change": 0,
             }
+
+    def _run_cpu_trade_proposals_for_dates(
+        self,
+        dates_covered: list[str],
+    ) -> dict[str, object]:
+        if not dates_covered:
+            return {"applied": False, "offers_created": 0, "reason": "no_dates"}
+        try:
+            from services.cpu_trade_proposals import run_cpu_trade_proposal_cycle
+
+            return run_cpu_trade_proposal_cycle(
+                simulated_dates=dates_covered,
+                data_dir=get_data_dir(),
+            )
+        except Exception:
+            return {"applied": False, "offers_created": 0, "reason": "error"}
 
     def _log_daily_recap_for_date(self, date_str: str) -> None:
         """Compose and append a daily recap for games on ``date_str``."""

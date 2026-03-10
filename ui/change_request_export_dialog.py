@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
 )
+from .components import ActionButtonPanel
 
 from services.change_requests import (
     add_request,
@@ -72,16 +73,21 @@ class ChangeRequestExportDialog(QDialog):
         self.request_list = QListWidget()
         layout.addWidget(self.request_list)
 
-        button_row = QHBoxLayout()
+        button_row = ActionButtonPanel(
+            min_columns=1,
+            max_columns=3,
+            target_button_width=180,
+            min_button_width=130,
+            max_button_width=210,
+        )
         self.export_button = QPushButton("Export Request")
         self.cancel_button = QPushButton("Export Cancel")
         self.close_button = QPushButton("Close")
         self.export_button.setObjectName("Primary")
-        button_row.addWidget(self.export_button)
-        button_row.addWidget(self.cancel_button)
-        button_row.addStretch(1)
-        button_row.addWidget(self.close_button)
-        layout.addLayout(button_row)
+        button_row.add_button(self.export_button)
+        button_row.add_button(self.cancel_button)
+        button_row.add_button(self.close_button)
+        layout.addWidget(button_row)
 
         self.export_button.clicked.connect(self._export_request)
         self.cancel_button.clicked.connect(self._export_cancel)

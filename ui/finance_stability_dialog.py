@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QGridLayout,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -29,6 +28,7 @@ from services.finance_stability import (
     run_finance_stability_preset_comparison,
 )
 from ui.export_dialogs import show_export_success_dialog
+from .components import ActionButtonPanel
 from utils.path_utils import get_data_dir
 
 
@@ -126,20 +126,25 @@ class FinanceStabilityDialog(QDialog):
         self.output.setPlaceholderText("Run a simulation to view summary metrics and guardrail checks.")
         root.addWidget(self.output, stretch=1)
 
-        button_row = QHBoxLayout()
+        button_row = ActionButtonPanel(
+            min_columns=1,
+            max_columns=3,
+            target_button_width=200,
+            min_button_width=145,
+            max_button_width=235,
+        )
         self.run_button = QPushButton("Run Simulation")
         self.run_button.setObjectName("Primary")
         self.compare_button = QPushButton("Compare Core Presets")
         self.export_json_button = QPushButton("Export JSON")
         self.export_csv_button = QPushButton("Export CSV")
         self.close_button = QPushButton("Close")
-        button_row.addWidget(self.run_button)
-        button_row.addWidget(self.compare_button)
-        button_row.addWidget(self.export_json_button)
-        button_row.addWidget(self.export_csv_button)
-        button_row.addStretch()
-        button_row.addWidget(self.close_button)
-        root.addLayout(button_row)
+        button_row.add_button(self.run_button)
+        button_row.add_button(self.compare_button)
+        button_row.add_button(self.export_json_button)
+        button_row.add_button(self.export_csv_button)
+        button_row.add_button(self.close_button)
+        root.addWidget(button_row)
 
         self.run_button.clicked.connect(self._run_simulation)
         self.compare_button.clicked.connect(self._run_comparison)

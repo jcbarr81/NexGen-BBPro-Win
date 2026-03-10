@@ -50,6 +50,7 @@ from utils.recovery_manager import (
     recovery_path_for_data_file,
     write_recovery_csv,
 )
+from .components import ActionButtonPanel
 
 class PitchingEditor(QDialog):
     def __init__(self, team_id):
@@ -118,21 +119,29 @@ class PitchingEditor(QDialog):
         layout.addWidget(assignments_group)
 
         action_group = QGroupBox("Actions")
-        action_layout = QHBoxLayout()
+        action_layout = QVBoxLayout()
         action_layout.setContentsMargins(10, 8, 10, 8)
         action_layout.setSpacing(8)
+        action_panel = ActionButtonPanel(
+            min_columns=1,
+            max_columns=3,
+            target_button_width=190,
+            min_button_width=150,
+            max_button_width=220,
+        )
         self.save_button = QPushButton("Save Pitching Staff")
         self.save_button.setObjectName("Primary")
         self.save_button.clicked.connect(self.save_pitching_staff)
-        action_layout.addWidget(self.save_button)
+        action_panel.add_button(self.save_button)
 
         self.autofill_button = QPushButton("Auto-Fill Staff")
         self.autofill_button.clicked.connect(self.autofill_staff)
-        action_layout.addWidget(self.autofill_button)
+        action_panel.add_button(self.autofill_button)
 
         self.clear_button = QPushButton("Clear Staff")
         self.clear_button.clicked.connect(self.clear_staff)
-        action_layout.addWidget(self.clear_button)
+        action_panel.add_button(self.clear_button)
+        action_layout.addWidget(action_panel)
         action_group.setLayout(action_layout)
         layout.addWidget(action_group)
 

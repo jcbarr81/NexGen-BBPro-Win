@@ -56,6 +56,11 @@ from utils.roster_loader import load_roster, save_roster
 from utils.roster_validation import missing_positions
 from services.roster_moves import cut_player as cut_player_service
 from services.roster_auto_assign import auto_assign_team
+from services.decision_explanations import summarize_decision_explanation
+from services.prospect_event_log import record_roster_level_movements
+from services.prospect_rules import apply_roster_move, evaluate_roster_move
+from services.team_auto_reassign_settings import resolve_team_auto_reassign
+from .components import ActionButtonPanel
 
 
 class RosterListWidget(QListWidget):
@@ -135,21 +140,32 @@ class ReassignPlayersDialog(QDialog):
         )
         info.setWordWrap(True)
         layout.addWidget(info)
+        self.auto_reassign_status_label = QLabel()
+        self.auto_reassign_status_label.setWordWrap(True)
+        layout.addWidget(self.auto_reassign_status_label)
+        self._update_auto_reassign_status_label()
 
         self.dirty_label = QLabel("All changes saved.")
         self.dirty_label.setStyleSheet("color: #888888;")
         layout.addWidget(self.dirty_label)
         layout.addLayout(columns)
-        layout.addWidget(auto_btn)
-        layout.addWidget(move_btn)
-        layout.addWidget(cut_btn)
-
         note = QLabel(
             "Changes will not be saved until you click 'Save Roster'."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
-        layout.addWidget(save_btn)
+        action_panel = ActionButtonPanel(
+            min_columns=1,
+            max_columns=2,
+            target_button_width=220,
+            min_button_width=150,
+            max_button_width=250,
+        )
+        action_panel.add_button(auto_btn)
+        action_panel.add_button(move_btn)
+        action_panel.add_button(cut_btn)
+        action_panel.add_button(save_btn)
+        layout.addWidget(action_panel)
 
         def _calc_height(lw: QListWidget) -> int:
             row = lw.sizeHintForRow(0) if lw.count() else 20
@@ -159,6 +175,36 @@ class ReassignPlayersDialog(QDialog):
         self.resize(900, height)
         self._update_counts()
         self._set_dirty_state(self._has_unsaved_changes())
+
+    def _update_auto_reassign_status_label(self) -> None:
+        try:
+            resolved = resolve_team_auto_reassign(self.roster.team_id)
+        except Exception:
+            self.auto_reassign_status_label.setText(
+                "Auto-reassign setting: unavailable."
+            )
+            self.auto_reassign_status_label.setStyleSheet("color: #888888;")
+            return
+        if resolved.enabled:
+            source = (
+                "team override"
+                if resolved.source == "team_override"
+                else "league default"
+            )
+            self.auto_reassign_status_label.setText(
+                "Auto-reassign is enabled for this team "
+                f"({source}). Injury, promotion, and transaction workflows "
+                "may auto-balance roster levels."
+            )
+            self.auto_reassign_status_label.setStyleSheet(
+                "color: #2f855a; font-weight: 600;"
+            )
+            return
+        self.auto_reassign_status_label.setText(
+            "Auto-reassign is disabled for this team. Manual reassignment "
+            "controls remain in effect."
+        )
+        self.auto_reassign_status_label.setStyleSheet("color: #888888;")
 
     def _make_player_item(self, pid: str) -> QListWidgetItem | None:
         player = self.players.get(pid)
@@ -208,6 +254,45 @@ class ReassignPlayersDialog(QDialog):
             "ir": list(self.roster.ir),
             "dl_tiers": dict(self.roster.dl_tiers or {}),
         }
+
+    def _level_map_from_snapshot(
+        self,
+        snapshot: dict[str, object] | None,
+    ) -> dict[str, str]:
+        mapping: dict[str, str] = {}
+        payload = snapshot or {}
+        for level in ("act", "aaa", "low"):
+            for raw_player_id in payload.get(level, []) or []:
+                player_id = str(raw_player_id or "").strip()
+                if player_id:
+                    mapping[player_id] = level
+        return mapping
+
+    def _record_manual_reassign_events(self) -> None:
+        before_levels = self._level_map_from_snapshot(
+            self._baseline if isinstance(self._baseline, dict) else None
+        )
+        after_levels = self._level_map_from_snapshot(self._snapshot_roster())
+        if before_levels == after_levels:
+            return
+
+        player_names = {
+            str(player_id): (
+                f"{player.first_name} {player.last_name}".strip()
+                if player is not None
+                else ""
+            )
+            for player_id, player in self.players.items()
+        }
+        record_roster_level_movements(
+            before_levels,
+            after_levels,
+            team_id=self.roster.team_id,
+            player_names=player_names,
+            actor="user",
+            trigger="manual_reassign_save",
+            details={"source": "reassign_players_dialog"},
+        )
 
     def _refresh_baseline(self) -> None:
         self._baseline = self._snapshot_roster()
@@ -350,6 +435,24 @@ class ReassignPlayersDialog(QDialog):
         moved: List[str] = []
 
         for item, pid, _player, _age in selected:
+            decision = evaluate_roster_move(
+                self.roster.team_id,
+                pid,
+                from_level=from_level,
+                to_level=to_level,
+            )
+            if not decision.allowed:
+                message = summarize_decision_explanation(
+                    getattr(decision, "decision_explanation", None),
+                    fallback=decision.reason or "Move blocked by prospect rules.",
+                    max_reasons=2,
+                )
+                QMessageBox.warning(
+                    self,
+                    "Reassign Players",
+                    message,
+                )
+                continue
             try:
                 self.roster.move_player(pid, from_level, to_level)
             except ValueError:
@@ -363,6 +466,18 @@ class ReassignPlayersDialog(QDialog):
             row = source_list.row(item)
             moved_item = source_list.takeItem(row)
             target_list.addItem(moved_item)
+            try:
+                apply_roster_move(
+                    self.roster.team_id,
+                    pid,
+                    from_level=from_level,
+                    to_level=to_level,
+                    decision=decision,
+                    actor="user",
+                    trigger="manual_reassign",
+                )
+            except Exception:
+                pass
             moved.append(pid)
 
         if not moved:
@@ -574,6 +689,11 @@ class ReassignPlayersDialog(QDialog):
         except Exception as exc:  # pragma: no cover - UI feedback
             QMessageBox.critical(self, "Save Failed", str(exc))
             return
+
+        try:
+            self._record_manual_reassign_events()
+        except Exception:
+            pass
 
         clear_recovery(self._roster_file_path())
         self._refresh_baseline()

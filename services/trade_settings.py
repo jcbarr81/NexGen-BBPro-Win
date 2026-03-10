@@ -18,6 +18,9 @@ __all__ = [
     "DEFAULT_TRADES_ENABLED",
     "DEFAULT_DRAFT_PICK_TRADING_ENABLED",
     "DEFAULT_REQUIRE_COMMISSIONER_APPROVAL",
+    "DEFAULT_CPU_INITIATED_TRADES_ENABLED",
+    "DEFAULT_CPU_PROPOSAL_CADENCE",
+    "CPU_PROPOSAL_CADENCE_VALUES",
     "DEFAULT_MAX_PICK_TRADE_YEARS",
     "MAX_ALLOWED_PICK_TRADE_YEARS",
     "MIN_ALLOWED_PICK_TRADE_YEARS",
@@ -32,6 +35,9 @@ VERSION = 1
 DEFAULT_TRADES_ENABLED = True
 DEFAULT_DRAFT_PICK_TRADING_ENABLED = False
 DEFAULT_REQUIRE_COMMISSIONER_APPROVAL = False
+DEFAULT_CPU_INITIATED_TRADES_ENABLED = True
+DEFAULT_CPU_PROPOSAL_CADENCE = "normal"
+CPU_PROPOSAL_CADENCE_VALUES = ("off", "low", "normal", "high")
 DEFAULT_MAX_PICK_TRADE_YEARS = 3
 MIN_ALLOWED_PICK_TRADE_YEARS = 1
 MAX_ALLOWED_PICK_TRADE_YEARS = 10
@@ -43,6 +49,8 @@ class TradeSettings:
     trades_enabled: bool = DEFAULT_TRADES_ENABLED
     draft_pick_trading_enabled: bool = DEFAULT_DRAFT_PICK_TRADING_ENABLED
     require_commissioner_approval: bool = DEFAULT_REQUIRE_COMMISSIONER_APPROVAL
+    cpu_initiated_trades_enabled: bool = DEFAULT_CPU_INITIATED_TRADES_ENABLED
+    cpu_proposal_cadence: str = DEFAULT_CPU_PROPOSAL_CADENCE
     max_pick_trade_years: int = DEFAULT_MAX_PICK_TRADE_YEARS
 
     def normalized(self) -> "TradeSettings":
@@ -51,6 +59,8 @@ class TradeSettings:
             trades_enabled=bool(self.trades_enabled),
             draft_pick_trading_enabled=bool(self.draft_pick_trading_enabled),
             require_commissioner_approval=bool(self.require_commissioner_approval),
+            cpu_initiated_trades_enabled=bool(self.cpu_initiated_trades_enabled),
+            cpu_proposal_cadence=_normalize_cpu_proposal_cadence(self.cpu_proposal_cadence),
             max_pick_trade_years=_normalize_max_years(self.max_pick_trade_years),
         )
 
@@ -108,6 +118,15 @@ def load_trade_settings(
                 DEFAULT_REQUIRE_COMMISSIONER_APPROVAL,
             )
         ),
+        cpu_initiated_trades_enabled=bool(
+            data.get(
+                "cpu_initiated_trades_enabled",
+                DEFAULT_CPU_INITIATED_TRADES_ENABLED,
+            )
+        ),
+        cpu_proposal_cadence=_normalize_cpu_proposal_cadence(
+            data.get("cpu_proposal_cadence", DEFAULT_CPU_PROPOSAL_CADENCE)
+        ),
         max_pick_trade_years=_normalize_max_years(
             data.get("max_pick_trade_years", DEFAULT_MAX_PICK_TRADE_YEARS)
         ),
@@ -129,6 +148,8 @@ def save_trade_settings(
         "trades_enabled": normalized.trades_enabled,
         "draft_pick_trading_enabled": normalized.draft_pick_trading_enabled,
         "require_commissioner_approval": normalized.require_commissioner_approval,
+        "cpu_initiated_trades_enabled": normalized.cpu_initiated_trades_enabled,
+        "cpu_proposal_cadence": normalized.cpu_proposal_cadence,
         "max_pick_trade_years": normalized.max_pick_trade_years,
     }
     payload["version"] = VERSION
@@ -140,6 +161,8 @@ def update_trade_settings(
     trades_enabled: bool | None = None,
     draft_pick_trading_enabled: bool | None = None,
     require_commissioner_approval: bool | None = None,
+    cpu_initiated_trades_enabled: bool | None = None,
+    cpu_proposal_cadence: str | None = None,
     max_pick_trade_years: int | None = None,
     path: Path | str | None = None,
     league_id: str | None = None,
@@ -151,10 +174,23 @@ def update_trade_settings(
         settings.draft_pick_trading_enabled = bool(draft_pick_trading_enabled)
     if require_commissioner_approval is not None:
         settings.require_commissioner_approval = bool(require_commissioner_approval)
+    if cpu_initiated_trades_enabled is not None:
+        settings.cpu_initiated_trades_enabled = bool(cpu_initiated_trades_enabled)
+    if cpu_proposal_cadence is not None:
+        settings.cpu_proposal_cadence = _normalize_cpu_proposal_cadence(
+            cpu_proposal_cadence
+        )
     if max_pick_trade_years is not None:
         settings.max_pick_trade_years = _normalize_max_years(max_pick_trade_years)
     save_trade_settings(settings, path=path, league_id=league_id)
     return settings.normalized()
+
+
+def _normalize_cpu_proposal_cadence(value: object) -> str:
+    token = str(value or "").strip().lower()
+    if token in CPU_PROPOSAL_CADENCE_VALUES:
+        return token
+    return DEFAULT_CPU_PROPOSAL_CADENCE
 
 
 def _normalize_max_years(value: object) -> int:

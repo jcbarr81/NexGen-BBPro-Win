@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from .components import ActionButtonPanel
 
 from services.offseason_finance_flow import (
     collect_offseason_finance_overview,
@@ -248,48 +249,53 @@ class OffseasonFinanceDialog(QDialog):
         gm_tab_layout.addWidget(self._gm_queue_table, stretch=1)
         self._tabs.addTab(gm_tab, "GM Queue")
 
-        button_row = QHBoxLayout()
-        button_row.addStretch(1)
+        action_panel = ActionButtonPanel(
+            min_columns=1,
+            max_columns=3,
+            target_button_width=230,
+            min_button_width=165,
+            max_button_width=260,
+        )
 
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.clicked.connect(self._refresh)
-        button_row.addWidget(self.refresh_button)
+        action_panel.add_button(self.refresh_button)
 
         self.run_button = QPushButton("Run Offseason Finance")
         self.run_button.setObjectName("Primary")
         self.run_button.clicked.connect(self._run_workflow_stage)
-        button_row.addWidget(self.run_button)
+        action_panel.add_button(self.run_button)
 
         self.complete_stage_button = QPushButton("Complete Next Checklist Step")
         self.complete_stage_button.clicked.connect(self._complete_next_stage)
-        button_row.addWidget(self.complete_stage_button)
+        action_panel.add_button(self.complete_stage_button)
 
         self.gm_queue_button = QPushButton("Open GM Finance Queue")
         self.gm_queue_button.clicked.connect(self._open_gm_finance_queue)
-        button_row.addWidget(self.gm_queue_button)
+        action_panel.add_button(self.gm_queue_button)
 
         self.gm_queue_approve_button = QPushButton("Approve Selected")
         self.gm_queue_approve_button.clicked.connect(self._approve_selected_gm_queue)
-        button_row.addWidget(self.gm_queue_approve_button)
+        action_panel.add_button(self.gm_queue_approve_button)
 
         self.gm_queue_reject_button = QPushButton("Reject Selected")
         self.gm_queue_reject_button.setObjectName("Danger")
         self.gm_queue_reject_button.clicked.connect(self._reject_selected_gm_queue)
-        button_row.addWidget(self.gm_queue_reject_button)
+        action_panel.add_button(self.gm_queue_reject_button)
 
         self.gm_queue_apply_button = QPushButton("Apply Approved")
         self.gm_queue_apply_button.clicked.connect(self._apply_approved_gm_queue)
-        button_row.addWidget(self.gm_queue_apply_button)
+        action_panel.add_button(self.gm_queue_apply_button)
 
         self.free_agency_button = QPushButton("Open Free Agency Hub")
         self.free_agency_button.clicked.connect(self._open_free_agency)
-        button_row.addWidget(self.free_agency_button)
+        action_panel.add_button(self.free_agency_button)
 
         self.close_button = QPushButton("Close")
         self.close_button.clicked.connect(self.reject)
-        button_row.addWidget(self.close_button)
+        action_panel.add_button(self.close_button)
 
-        root.addLayout(button_row)
+        root.addWidget(action_panel)
         self._refresh()
 
     def _refresh(self) -> None:

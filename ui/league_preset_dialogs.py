@@ -14,8 +14,8 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QDialogButtonBox,
-    QHBoxLayout,
 )
+from .components import ActionButtonPanel
 
 from services.league_presets import (
     load_rule_presets,
@@ -43,14 +43,18 @@ class LeagueSetupChoiceDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("How would you like to set up the new league-"))
 
-        button_row = QHBoxLayout()
+        button_row = ActionButtonPanel(
+            min_columns=1,
+            max_columns=3,
+            target_button_width=190,
+            min_button_width=140,
+            max_button_width=220,
+        )
         quick_btn = QPushButton("Quick-Start")
         custom_btn = QPushButton("Custom Setup")
         cancel_btn = QPushButton("Cancel")
-        button_row.addWidget(quick_btn)
-        button_row.addWidget(custom_btn)
-        button_row.addWidget(cancel_btn)
-        layout.addLayout(button_row)
+        button_row.add_buttons([quick_btn, custom_btn, cancel_btn])
+        layout.addWidget(button_row)
 
         quick_btn.clicked.connect(self._choose_quickstart)
         custom_btn.clicked.connect(self._choose_custom)

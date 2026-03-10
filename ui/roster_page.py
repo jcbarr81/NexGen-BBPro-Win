@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
 )
 
-from .components import Card, section_title
+from .components import ActionButtonPanel, Card, section_title
 from .design_tokens import apply_status
 from .player_profile_dialog import PlayerProfileDialog
 from utils.depth_chart import (
@@ -66,6 +66,8 @@ class RosterPage(QWidget):
         self._depth_lists: dict[str, DepthChartListWidget] = {}
         self._depth_dirty = False
         self._depth_title = None
+        self._change_request_button = None
+        self._action_panel = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -92,37 +94,50 @@ class RosterPage(QWidget):
         self.coverage_label = QLabel("")
         self.coverage_label.setObjectName("StatusLabel")
         card.layout().addWidget(self.coverage_label)
+        self._action_panel = ActionButtonPanel(
+            min_columns=1,
+            max_columns=2,
+            target_button_width=220,
+            min_button_width=160,
+            max_button_width=240,
+        )
 
         btn_players = QPushButton("Players", objectName="Primary")
         btn_players.setToolTip("Browse all position players and pitchers")
         btn_players.clicked.connect(self._dashboard.open_player_browser_dialog)
-        card.layout().addWidget(btn_players)
+        self._action_panel.add_button(btn_players)
 
         btn_pitch = QPushButton("Pitching Staff", objectName="Primary")
         btn_pitch.clicked.connect(self._dashboard.open_pitching_editor)
-        card.layout().addWidget(btn_pitch)
+        self._action_panel.add_button(btn_pitch)
 
         btn_lineups = QPushButton("Lineups", objectName="Primary")
         btn_lineups.clicked.connect(self._dashboard.open_lineup_editor)
-        card.layout().addWidget(btn_lineups)
+        self._action_panel.add_button(btn_lineups)
 
         btn_move = QPushButton("Reassign Players", objectName="Primary")
         btn_move.clicked.connect(self._dashboard.open_reassign_players_dialog)
-        card.layout().addWidget(btn_move)
+        self._action_panel.add_button(btn_move)
 
         btn_injuries = QPushButton("Injury Center", objectName="Primary")
         btn_injuries.clicked.connect(self._dashboard.open_team_injury_center)
-        card.layout().addWidget(btn_injuries)
+        self._action_panel.add_button(btn_injuries)
 
         btn_training = QPushButton("Training Focus", objectName="Primary")
         btn_training.setToolTip("Adjust hitter/pitcher development budgets for this team")
         btn_training.clicked.connect(self._dashboard.open_training_focus_dialog)
-        card.layout().addWidget(btn_training)
+        self._action_panel.add_button(btn_training)
 
-        btn_change_request = QPushButton("Submit Change Request", objectName="Primary")
-        btn_change_request.setToolTip("Export roster/lineup changes for commissioner approval")
-        btn_change_request.clicked.connect(self._dashboard.open_change_request_export_dialog)
-        card.layout().addWidget(btn_change_request)
+        self._change_request_button = QPushButton("Submit Change Request", objectName="Primary")
+        self._change_request_button.setToolTip(
+            "Export roster/lineup changes for commissioner approval"
+        )
+        self._change_request_button.clicked.connect(
+            self._dashboard.open_change_request_export_dialog
+        )
+        self._action_panel.add_button(self._change_request_button)
+        self.refresh_change_request_visibility()
+        card.layout().addWidget(self._action_panel)
 
         card.layout().addStretch()
         return card
@@ -174,6 +189,7 @@ class RosterPage(QWidget):
 
     def refresh(self) -> None:
         """Update defensive coverage notice and surface depth chart order."""
+        self.refresh_change_request_visibility()
         try:
             roster = getattr(self._dashboard, "roster", None)
             players = getattr(self._dashboard, "players", {})
@@ -192,6 +208,36 @@ class RosterPage(QWidget):
             self._dashboard.maybe_show_depth_chart_tutorial()
         except Exception:
             pass
+
+    def refresh_change_request_visibility(self, enabled=None) -> None:
+        button = self._change_request_button
+        if button is None:
+            return
+        visible = enabled
+        if visible is None:
+            checker = getattr(
+                self._dashboard,
+                "is_change_request_submission_available",
+                None,
+            )
+            if callable(checker):
+                try:
+                    visible = bool(checker())
+                except Exception:
+                    visible = True
+            else:
+                visible = True
+        button.setVisible(bool(visible))
+        button.setEnabled(bool(visible))
+        try:
+            panel = self._action_panel
+        except Exception:
+            panel = None
+        if panel is not None:
+            try:
+                panel.reflow()
+            except Exception:
+                pass
 
     # Depth chart helpers -------------------------------------------------
     def _refresh_depth_chart(self) -> None:

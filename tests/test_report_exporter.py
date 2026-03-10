@@ -136,6 +136,8 @@ def test_export_reports_creates_csvs(monkeypatch, tmp_path):
     assert result.files["career_arc_yoy_csv"].exists()
     assert result.files["career_arc_trends_csv"].exists()
     assert result.files["career_arc_team_eras_csv"].exists()
+    assert result.files["career_arc_similarity_csv"].exists()
+    assert result.files["career_arc_aging_buckets_csv"].exists()
     assert result.files["league_history_csv"].exists()
     assert result.files["record_book_batting_csv"].exists()
     assert result.files["record_book_pitching_csv"].exists()
@@ -147,3 +149,63 @@ def test_export_reports_creates_csvs(monkeypatch, tmp_path):
     assert "player_id" in batting_header
     yoy_header = result.files["career_arc_yoy_csv"].read_text(encoding="utf-8").splitlines()[0]
     assert "delta_wins" in yoy_header
+
+
+def test_export_reports_html_default_generates_index_and_html_pages(monkeypatch, tmp_path):
+    data_dir = _set_data_dir(monkeypatch, tmp_path)
+
+    teams_header = "team_id,name,city,abbreviation,division,stadium,primary_color,secondary_color,owner_id"
+    teams_rows = [
+        "T1,Owls,Orchard,T1,East,Park,#111,#222,owner",
+    ]
+    _write_csv(data_dir / "teams.csv", teams_header, teams_rows)
+
+    players_header = (
+        "player_id,first_name,last_name,birthdate,height,weight,ethnicity,skin_tone,hair_color,facial_hair,"
+        "bats,primary_position,other_positions,is_pitcher,role,preferred_pitching_role,ch,ph,sp,eye,gf,pl,vl,"
+        "sc,fa,arm,endurance,control,movement,hold_runner,fb,cu,cb,sl,si,scb,kn,pot_ch,pot_ph,pot_sp,pot_eye,"
+        "pot_gf,pot_pl,pot_vl,pot_sc,pot_fa,pot_arm,pot_control,pot_movement,pot_endurance,pot_hold_runner,"
+        "pot_fb,pot_cu,pot_cb,pot_sl,pot_si,pot_scb,pot_kn,injured,injury_description,return_date,ready,"
+        "injury_list,injury_start_date,injury_minimum_days,injury_eligible_date,injury_rehab_assignment,"
+        "injury_rehab_days,durability,pitcher_archetype,hitter_archetype"
+    )
+    default_player = {field: "" for field in players_header.split(",")}
+    batter = dict(default_player)
+    batter.update(
+        {
+            "player_id": "P1",
+            "first_name": "Alex",
+            "last_name": "Batter",
+            "birthdate": "2000-01-01",
+            "height": "72",
+            "weight": "190",
+            "bats": "R",
+            "primary_position": "2B",
+            "is_pitcher": "0",
+            "gf": "50",
+            "ch": "50",
+            "ph": "50",
+            "sp": "50",
+            "pl": "50",
+            "vl": "50",
+            "sc": "50",
+            "fa": "50",
+            "arm": "50",
+        }
+    )
+    _write_players_csv(data_dir / "players.csv", players_header, [batter])
+    _write_csv(data_dir / "rosters" / "T1.csv", "player_id,level", ["P1,ACT"])
+    (data_dir / "standings.json").write_text(json.dumps({"T1": {"wins": 1, "losses": 0}}, indent=2), encoding="utf-8")
+    (data_dir / "season_stats.json").write_text(
+        json.dumps(
+            {"players": {"P1": {"g": 1, "ab": 4, "h": 2}}, "teams": {"T1": {"g": 1, "w": 1, "l": 0}}},
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    result = export_reports(report_format="html", include_pdf=False)
+    assert "reports_index_html" in result.files
+    assert result.files["reports_index_html"].exists()
+    assert "standings_csv" not in result.files
+    assert result.files["summary_txt"].exists()

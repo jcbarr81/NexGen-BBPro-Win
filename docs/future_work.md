@@ -265,7 +265,10 @@ land before channel-specific features.
   activations, promotions/demotions, and transaction-driven roster updates).
 - **Scope:** Keep manual reassignment fully available for teams that leave the
   option disabled, with clear UI messaging about when auto-assign is active.
-- **Status:** Open.
+- **Progress:** v5.2.2 delivered league default + per-team override settings,
+  owner/admin configuration UI, trigger hooks for injury/trade/transaction
+  roster updates, and Reassign dialog auto-mode status messaging.
+- **Status:** Complete.
 
 ## 23. CPU Team Trade AI (Respond + Propose)
 - **Goal:** Add trade-decision AI for CPU-owned teams so they can evaluate and
@@ -277,7 +280,17 @@ land before channel-specific features.
 - **Scope:** Add proactive CPU trade proposals with configurable frequency,
   guardrails against spam/low-quality offers, and clear inbox/notification UX
   for human teams.
-- **Status:** Open.
+- **Progress:** v5.2.9 delivered `V5.3-01` CPU trade evaluator foundations
+  (value + roster fit + timeline) and wired owner-to-CPU offer auto-response
+  handling for accept/reject outcomes in Trade Center; v5.2.10 completed CPU
+  counter-offer responses for close offers so owners now receive immediate
+  accept/reject/counter behavior when proposing to CPU teams; v5.2.11 added a
+  league trade-setting toggle to enable/disable CPU-initiated offers; v5.2.12
+  completed `V5.3-03` with proactive CPU proposal generation and cadence
+  controls integrated into season simulation; v5.2.13 completed `V5.3-04` with
+  stronger proposal quality guardrails and anti-spam filters (target cooldown,
+  pending-offer caps, repeat-package suppression, and cycle diagnostics).
+- **Status:** In Progress.
 
 ## 24. Team Strategy Profiles for Automation
 - **Goal:** Add team strategy profiles so auto-assign and auto-lineup creation
@@ -299,7 +312,7 @@ land before channel-specific features.
   creation completes.
 - **Scope:** Persist the selected finance configuration as part of the initial
   league bootstrap and surface a confirmation summary before finalizing setup.
-- **Status:** Open.
+- **Status:** Complete.
 
 ## 26. Milestone Roadmap (v5.2-v5.4)
 - **Goal:** Turn the current strategic priorities into a concrete release plan
@@ -384,20 +397,68 @@ land before channel-specific features.
   - Trade/prospect decisions include user-facing rationale in UI.
 
 #### v5.3 Subtasks (Tracking Checklist)
-- [ ] **V5.3-01 CPU trade evaluator refactor (value + roster fit + timeline)** (Effort: M, Risk: Medium, Depends: V5.2-17, V5.2-18)
-- [ ] **V5.3-02 CPU incoming-offer response logic (accept/reject/counter)** (Effort: M, Risk: Medium, Depends: V5.3-01)
-- [ ] **V5.3-03 CPU proactive trade proposal generator + cadence controls** (Effort: M, Risk: Medium, Depends: V5.3-01)
-- [ ] **V5.3-04 Proposal quality guardrails + anti-spam filters** (Effort: S, Risk: Medium, Depends: V5.3-03)
-- [ ] **V5.3-05 Promotion/options/protection event model + persistence** (Effort: M, Risk: High, Depends: D1)
-- [ ] **V5.3-06 Prospect protection/eligibility rules enforcement** (Effort: M, Risk: High, Depends: V5.3-05)
-- [ ] **V5.3-07 Late-bloomer variance model tied to scouting uncertainty** (Effort: M, Risk: Medium, Depends: V5.2-15)
-- [ ] **V5.3-08 Strategy profiles v2 hooks for draft + FA + promotions** (Effort: M, Risk: Medium, Depends: V5.2-17, V5.3-05)
-- [ ] **V5.3-09 Analytics/Career Arc v2 (similarity, aging buckets, filters, export)** (Effort: M, Risk: Medium, Depends: V5.2-19)
-- [ ] **V5.3-10 Transparency v2 for trade/prospect decisions** (Effort: S, Risk: Low, Depends: V5.3-01, V5.3-05)
-- [ ] **V5.3-11 Acceptance tests for CPU trade quality + prospect workflow regression** (Effort: M, Risk: Medium, Depends: V5.3-02..V5.3-10)
+- [x] **V5.3-01 CPU trade evaluator refactor (value + roster fit + timeline)** (Effort: M, Risk: Medium, Depends: V5.2-17, V5.2-18)
+- [x] **V5.3-02 CPU incoming-offer response logic (accept/reject/counter)** (Effort: M, Risk: Medium, Depends: V5.3-01)
+- [x] **V5.3-03 CPU proactive trade proposal generator + cadence controls** (Effort: M, Risk: Medium, Depends: V5.3-01)
+- [x] **V5.3-04 Proposal quality guardrails + anti-spam filters** (Effort: S, Risk: Medium, Depends: V5.3-03)
+- [x] **V5.3-05 Promotion/options/protection event model + persistence** (Effort: M, Risk: High, Depends: D1)
+- [x] **V5.3-06 Prospect protection/eligibility rules enforcement** (Effort: M, Risk: High, Depends: V5.3-05)
+- [x] **V5.3-07 Late-bloomer variance model tied to scouting uncertainty** (Effort: M, Risk: Medium, Depends: V5.2-15)
+- [x] **V5.3-08 Strategy profiles v2 hooks for draft + FA + promotions** (Effort: M, Risk: Medium, Depends: V5.2-17, V5.3-05)
+- [x] **V5.3-09 Analytics/Career Arc v2 (similarity, aging buckets, filters, export)** (Effort: M, Risk: Medium, Depends: V5.2-19)
+- [x] **V5.3-10 Transparency v2 for trade/prospect decisions** (Effort: S, Risk: Low, Depends: V5.3-01, V5.3-05)
+- [x] **V5.3-11 Acceptance tests for CPU trade quality + prospect workflow regression** (Effort: M, Risk: Medium, Depends: V5.3-02..V5.3-10)
+- **V5.3-02 progress (2026-03-03):** owner-to-CPU Trade Center offers now get
+  immediate CPU accept/reject/counter responses.
+- **V5.3-03 progress (2026-03-03):** added CPU proactive trade proposal cycle,
+  league cadence controls (`off/low/normal/high`), persisted per-team cooldown
+  state, and sim-day/week/month integration so Trade Center receives generated
+  CPU offers during season progression.
+- **V5.3-04 progress (2026-03-03):** added stricter proactive trade quality and
+  anti-spam controls: per-target cooldown windows, pending-offer caps, repeated
+  package suppression via proposal history signatures, and cycle filter metrics.
+- **V5.3-05 progress (2026-03-03):** added shared promotion/options/protection
+  lifecycle event persistence in `services/prospect_event_log.py`, wired
+  promotion/demotion event recording into injury and manual reassign flows,
+  wired option decision events into contracts workflows (manual + rollover),
+  and added targeted regression coverage.
+- **V5.3-06 progress (2026-03-03):** added `services/prospect_rules.py` with
+  league-scoped protection + option-limit rule enforcement, wired move checks
+  into manual reassign and injury replacement promotion paths, and added
+  targeted rule/integration regression coverage.
+- **V5.3-07 progress (2026-03-03):** added deterministic late-bloomer
+  development variance in `services/late_bloomer_variance.py` using
+  scouting-uncertainty signals, integrated adjusted development multipliers
+  into offseason aging flow in `ui/season_progress_window.py`, and added
+  targeted regression coverage.
+- **V5.3-08 progress (2026-03-03):** expanded strategy profile v2 hooks across
+  draft scoring (`services/draft_ai.py` + `ui/draft_console.py`), CPU
+  free-agency bid shaping (`services/finance_ai.py`), and promotion protection
+  decisions (`services/prospect_rules.py`) with targeted regression coverage.
+- **V5.3-09 progress (2026-03-03):** expanded `services/career_arc_analytics.py`
+  with player-similarity rows, aging-bucket summaries, and comparative filters;
+  extended report exports with HTML report-bundle generation (landing page +
+  section pages) and optional CSV mode in `services/report_exporter.py`; wired
+  Admin Utilities report actions so HTML opens by default with explicit CSV
+  export option in UI/actions; added targeted regression coverage.
+- **V5.3-10 progress (2026-03-03):** completed transparency v2 by extending
+  prospect move decisions with structured reason tags/context payloads in
+  `services/prospect_rules.py`, surfacing rationale summaries in manual
+  reassignment and injury-center promotion flows, and adding targeted
+  regression coverage (`tests/test_prospect_rules.py`,
+  `tests/test_injury_manager.py`, `tests/test_reassign_players_dialog.py`).
+- **V5.3-11 progress (2026-03-03):** added acceptance/regression coverage in
+  `tests/test_v53_acceptance.py` for CPU trade quality matrix scenarios,
+  proactive CPU proposal quality-gate behavior, prospect protection/option-limit
+  workflow progression, and injury-replacement interactions with prospect rules.
+  Verified with targeted suite run across acceptance + CPU/prospect tests.
 
 ### v5.4 - Differentiators (Simulation Futures + Narrative + Presentation)
 - **Target effort:** 6-10 weeks.
+- **Status note (2026-03-08):** What-If Lab work is deferred pending community
+  feedback on whether the feature justifies the engineering cost. Do not pull
+  What-If-specific prerequisites into the active queue until that feedback is
+  reviewed.
 - **Primary scope:**
   - What-If Lab v1: fork from any date, run Monte Carlo batch sims (up to 1,000
     futures), compare move outcomes (trade/call-up/lineup/pitching changes).
@@ -422,23 +483,23 @@ land before channel-specific features.
   - Weekly story feed and highlight recap are visible and filterable in UI.
 
 #### v5.4 Subtasks (Tracking Checklist)
-- [ ] **V5.4-01 Deterministic event log foundation (canonical schema + writers)** (Effort: L, Risk: High, Depends: D3)
-- [ ] **V5.4-02 Season/date snapshot and fork manager** (Effort: M, Risk: High, Depends: V5.4-01)
-- [ ] **V5.4-03 Batch simulation runner (up to 1,000 futures) + job orchestration** (Effort: L, Risk: High, Depends: V5.4-02)
-- [ ] **V5.4-04 What-If comparator UI (baseline vs scenarios + deltas)** (Effort: M, Risk: Medium, Depends: V5.4-03)
+- [ ] **V5.4-01 Deterministic event log foundation (canonical schema + writers)** (Effort: L, Risk: High, Depends: D3, Deferred pending What-If feedback)
+- [ ] **V5.4-02 Season/date snapshot and fork manager** (Effort: M, Risk: High, Depends: V5.4-01, Deferred pending What-If feedback)
+- [ ] **V5.4-03 Batch simulation runner (up to 1,000 futures) + job orchestration** (Effort: L, Risk: High, Depends: V5.4-02, Deferred pending What-If feedback)
+- [ ] **V5.4-04 What-If comparator UI (baseline vs scenarios + deltas)** (Effort: M, Risk: Medium, Depends: V5.4-03, Deferred pending What-If feedback)
 - [ ] **V5.4-05 Signed action records + verification chain** (Effort: L, Risk: High, Depends: V5.4-01)
 - [ ] **V5.4-06 Commissioner audit timeline UI + replay links** (Effort: M, Risk: Medium, Depends: V5.4-05)
 - [ ] **V5.4-07 Deterministic replay validator tooling** (Effort: M, Risk: High, Depends: V5.4-01, V5.4-05)
 - [ ] **V5.4-08 Story event extraction pipeline (weekly signals)** (Effort: M, Risk: Medium, Depends: V5.4-01)
 - [ ] **V5.4-09 Story engine generator (breakouts, collapses, milestones, rivalries)** (Effort: M, Risk: Medium, Depends: V5.4-08)
 - [ ] **V5.4-10 Highlight recap mode (key plays + summary presentation)** (Effort: M, Risk: Medium, Depends: V5.4-08)
-- [ ] **V5.4-11 Performance guardrails for What-If + recap generation** (Effort: M, Risk: High, Depends: V5.4-03, V5.4-10)
+- [ ] **V5.4-11 Performance guardrails for What-If + recap generation** (Effort: M, Risk: High, Depends: V5.4-03, V5.4-10, Deferred pending What-If feedback)
 - [ ] **V5.4-12 Release soak tests + deterministic replay sign-off** (Effort: M, Risk: High, Depends: V5.4-04..V5.4-11)
 
 ### Implementation Start Queue
-- **Now:** `V5.3-01 CPU trade evaluator refactor (value + roster fit + timeline)`
-- **Next:** `V5.3-02 CPU incoming-offer response logic (accept/reject/counter)`
-- **Then:** `V5.3-03 CPU proactive trade proposal generator + cadence controls`
+- **Now:** `#32 Simulation Speed Review and Optimization Pass`
+- **Next:** `V5.4-01 Deterministic event log foundation`
+- **Then:** `V5.4-05 Commissioner-grade audit timeline UI`
 
 ### Cross-Milestone Dependency Map
 - **D1: Decision Explanation Schema** -> required by v5.2 AI transparency, v5.3
@@ -449,4 +510,179 @@ land before channel-specific features.
   foundation.
 - **D4: Command Center Aggregation Layer** -> provides operational visibility for
   all subsequent roadmap systems.
+
+## 27. Almanac Export (Baseball-Reference Style)
+- **Goal:** Provide a full-history league almanac export as a multi-page HTML
+  site so owners/commissioners can browse historical and current league data in
+  one organized reference package.
+- **Scope:** Add an export workflow that generates an Almanac folder with a
+  landing page (`index.html`) that links to all major sections (league summary,
+  standings by season, teams, players, awards, postseason, records, leaders,
+  transactions/finance summaries where applicable).
+- **Scope:** Organize outputs year-by-year so each season has a dedicated page
+  (or page set) showing that year's key data with links to prior/next seasons
+  and cumulative context.
+- **Scope:** Use a consistent baseball-reference-inspired presentation style:
+  clean tables, section navigation, sortable/indexed views where feasible, and
+  cross-links between related entities (team pages, player pages, season pages).
+- **Dependencies / inputs:**
+  - Season archives and metadata from `SeasonContext` / career snapshots.
+  - Current-league CSV/JSON sources (teams, players, standings, playoffs,
+    leaders, transactions, finance summaries).
+  - Stable export location and file naming convention under the active league.
+- **Exit criteria:**
+  - One-click export produces a browsable multi-page HTML almanac.
+  - Landing page links every major section and each season page.
+  - Year-by-year navigation works with prior/next season links.
+  - Cross-links between seasons, teams, and players resolve without broken links.
+- **Progress:** v5.2.21 delivered an initial Almanac export foundation:
+  data contract/source map doc (`docs/almanac_data_contract.md`), exporter
+  scaffold (`services/almanac_exporter.py`), landing page + section shell
+  (Seasons, Teams, Players, Records), per-season pages with year-by-year
+  navigation, and Admin Utilities action wiring (`Export Almanac (HTML)`);
+  v5.2.22 completed `ALM-05` with franchise pages under `teams/<team_id>.html`,
+  year-by-year team history tables, cumulative team summaries, and cross-links
+  between season standings and franchise pages; v5.2.23 completed `ALM-06`
+  with player career pages under `players/<player_id>.html`, current-team
+  links, season-log navigation back to season/team pages, and player record-book
+  summaries; v5.2.24 completed `ALM-07` with dedicated Awards, Postseason, and
+  Leaders sections plus richer Records linking and season pages that now
+  surface awards/postseason data inline; v5.2.25 completed `ALM-08` with
+  transaction history and finance summary sections, including archived/current
+  data ingestion, season/team/player cross-links, and current finance ledger
+  output when present; v5.2.26 completed `ALM-09` with a baseball-reference-
+  inspired style pass: richer navigation cards, stat cards, wrapped/sticky
+  tables, numeric alignment, and print-friendly stylesheet defaults; v5.2.27
+  completed `ALM-11` with Almanac export validation helpers plus regression
+  coverage for required page presence and local link integrity; v5.2.28
+  completed `ALM-12` by updating owner/admin guides, shipped manuals, in-app
+  admin export tutorial text, and release/manual checklist steps for Almanac
+  export validation.
+- **Status:** Complete.
+
+#### Almanac Subtasks (Tracking Checklist)
+- [x] **ALM-01 Almanac data contract + source map** (Effort: S, Risk: Low, Depends: None)
+- [x] **ALM-02 Export pipeline scaffold (folder structure, writer utilities, templating)** (Effort: M, Risk: Medium, Depends: ALM-01)
+- [x] **ALM-03 Landing page (`index.html`) + global navigation shell** (Effort: S, Risk: Low, Depends: ALM-02)
+- [x] **ALM-04 Season index and per-year league summary pages** (Effort: M, Risk: Medium, Depends: ALM-02)
+- [x] **ALM-05 Team franchise pages (history + year splits + links)** (Effort: M, Risk: Medium, Depends: ALM-04)
+- [x] **ALM-06 Player pages (career totals + year logs + team history links)** (Effort: M, Risk: Medium, Depends: ALM-04)
+- [x] **ALM-07 Awards/postseason/records/leaders sections** (Effort: M, Risk: Medium, Depends: ALM-04)
+- [x] **ALM-08 Transaction and finance history sections (when data exists)** (Effort: S, Risk: Medium, Depends: ALM-04)
+- [x] **ALM-09 Style pass (baseball-reference-inspired tables, readability, print-friendly defaults)** (Effort: S, Risk: Low, Depends: ALM-03..ALM-08)
+- [x] **ALM-10 Export entry point in UI + progress feedback + open-folder shortcut** (Effort: S, Risk: Low, Depends: ALM-02)
+- [x] **ALM-11 Validation/tests (link integrity, required pages, sample league snapshot checks)** (Effort: M, Risk: Medium, Depends: ALM-03..ALM-10)
+- [x] **ALM-12 Docs/tutorial updates + release checklist coverage** (Effort: S, Risk: Low, Depends: ALM-11)
+
+#### Suggested Execution Order
+1. `ALM-01` -> `ALM-03` for a minimal but browsable skeleton.
+2. `ALM-04` -> `ALM-08` to fill out season/team/player and history content.
+3. `ALM-09` -> `ALM-12` to polish, integrate, validate, and document.
+
+#### Current Almanac Queue
+- **Completed:** `ALM-01` -> `ALM-12`
+- **Next Suggested Milestone:** `V5.4-01 Deterministic event log foundation`
+- **Then:** `V5.4-02 Season/date snapshot and fork manager`
+
+## 28. Hide Change-Request Submission in Single-Player Leagues
+- **Goal:** Remove the Owner "Submit Change Request" workflow in local
+  single-player leagues where commissioner approval is not part of gameplay.
+- **Scope:** Hide or disable all "Submit Change Request" entry points (Owner
+  Tools menu, roster/home shortcuts, and related prompts/tutorial references)
+  when league mode is single-player.
+- **Scope:** Preserve full change-request functionality in multi-owner leagues,
+  including exports, cancellation flow, and commissioner import/review tooling.
+- **Scope:** Ensure league-mode transitions (for example when switching active
+  leagues) refresh visibility state correctly without requiring app restart.
+- **Progress:** v5.2.4 hides owner change-request menu/tutorial/roster entry
+  points in single-player leagues, adds runtime guards on change-request launch
+  paths, and keeps full export workflow behavior for multi-owner leagues.
+- **Status:** Complete.
+
+## 29. Installer-Time Admin Password Setup
+- **Goal:** Prompt for and set the initial administrator password during app
+  installation so deployments do not rely on default credentials.
+- **Scope:** Add an installer step to capture an admin password (with confirm
+  entry and basic validation) and persist it to the initial auth/user store in
+  a secure hashed form.
+- **Scope:** Define fallback behavior for unattended/silent installs (for
+  example: require post-install first-run password setup before admin access).
+- **Scope:** Update installer documentation, first-run guidance, and recovery
+  instructions to reflect the new password initialization flow.
+- **Progress:** v5.2.29 added an installer admin-password page with confirm
+  validation for interactive installs, persistent bootstrap config for new
+  league/user-store seeding, automatic replacement of placeholder admin
+  credentials from installer bootstrap data, and silent-install first-run admin
+  password setup enforcement in the login flow.
+- **Status:** Complete.
+
+## 30. Action Button Layout Cleanup (Width + Multi-Column)
+- **Goal:** Improve UI readability by preventing action buttons from stretching
+  across full page width in dashboards and dialogs.
+- **Scope:** Replace single full-width button stacks with responsive multi-column
+  button layouts (for example 2-3 columns depending on window width) so action
+  panels look cleaner and use space more efficiently.
+- **Scope:** Standardize button width constraints and spacing tokens so action
+  groups are visually consistent across owner/admin screens.
+- **Scope:** Verify desktop and smaller-window behavior to ensure no clipping or
+  overlap when columns reflow.
+- **Progress:** v5.2.5 added shared `ActionButtonPanel` responsive layout
+  helpers and migrated owner core action stacks (Roster, Team, Transactions,
+  League Hub, and Season Progress) to constrained multi-column button panels;
+  v5.2.6 extended the same pattern to admin core pages (Home, League Settings,
+  Season, Transactions, Utilities, Draft, and Teams); v5.2.7 applied the same
+  constrained action-layout treatment to high-traffic editor/dialog workflows
+  (Lineup Editor, Pitching Staff Editor, Trade Center actions, and Injury
+  Center action controls); v5.2.8 completed the cleanup pass across remaining
+  settings and setup dialogs (financial settings, league-creation finance,
+  team strategy settings, hall of fame settings, injury settings, trade
+  settings, playbalance editor, change requests, and league setup choice).
+- **Status:** Complete.
+
+## 31. Remove Timeline Feed from Season Progress Window
+- **Goal:** Simplify the Season Progress UI by removing the timeline feed panel
+  and reducing visual clutter during simulation operations.
+- **Scope:** Remove timeline feed rendering and related controls/messages from
+  the Season Progress window while preserving core simulation controls, status,
+  and progress feedback.
+- **Scope:** Clean up any dependent layout spacing or placeholder containers so
+  the window remains balanced after the feed is removed.
+- **Scope:** Update tutorials/manual references that mention the Season Progress
+  timeline feed.
+- **Progress:** v5.2.30 removed the separate Timeline Feed list from
+  `ui/season_progress_window.py`, kept the Season Timeline milestone view,
+  added a regression test to prevent the feed widgets from returning, and
+  updated `docs/season_progress.md`.
+- **Status:** Complete.
+
+## 32. Simulation Speed Review and Optimization Pass
+- **Goal:** Evaluate current simulation runtime and improve speed in the most
+  common progression paths without sacrificing deterministic behavior or
+  simulation accuracy.
+- **Scope:** Profile key simulation workflows (single-day sim, weekly/monthly
+  jumps, playoffs, and offseason transitions) to identify top CPU/I/O
+  bottlenecks.
+- **Scope:** Implement targeted optimizations (caching, batch writes, reduced
+  repeated loads, and background execution improvements where safe), then
+  validate output parity against baseline runs.
+- **Scope:** Add/refresh speed benchmark reporting so release validation tracks
+  runtime trends over time.
+- **Status:** Open.
+
+## 33. Owner Dashboard Minimize/Focus-Loss Hang
+- **Goal:** Fix a stability issue where minimizing the Owner Dashboard and then
+  interacting with another application/window can cause the dashboard to
+  disappear and the app to hang.
+- **Scope:** Reproduce and isolate the minimize/focus transition path
+  (window-state changes, raise/activate logic, modal/non-modal interactions,
+  and event-loop callbacks) that leads to the freeze condition.
+- **Scope:** Implement a safe window lifecycle/state-handling fix so minimized
+  owner windows can be restored reliably without UI deadlock.
+- **Scope:** Add regression coverage for minimize/restore/focus workflows (as
+  feasible in headless tests) and a manual validation checklist for desktop
+  environments.
+- **Progress:** v5.2.3 updated top-most window handling so main dashboards are
+  no longer forced into `WindowStaysOnTopHint`, preventing the minimize/focus
+  restore hang path for Owner Dashboard windows.
+- **Status:** Complete.
 

@@ -1,4 +1,4 @@
-<!-- last_build_ref: 5e745edb3b4bb4b3e4c091b02ad96ce02bbc06f9 -->
+<!-- last_build_ref: a9aebe7234aed5fb78445aba205980d57bd1a8f1 -->
 # 4.5 Release Notes (Since 4.3.41)
 
 ## League Setup & Presets
@@ -734,3 +734,622 @@ Date: 2026-02-27
 Date: 2026-02-28
 
 - No changes since last build and no draft notes were found.
+
+# 5.2.0 Release Notes (Since last build 5e745ed)
+Date: 2026-03-02
+
+- 5.2.0
+- Closed `V5.2-21` release gates and finalized milestone sign-off for `v5.2` (targeted pytest suite, multi-league smoke validation, help-surface validation, and archived UI/installer checklist artifact).
+- Updated `reports/release_validation/v5_2_21_gate_summary.md` with the latest gate run details and archived checklist path.
+- Marked all `v5.2` subtasks complete in `docs/future_work.md` and advanced the implementation queue to `V5.3-01`.
+- Bumped app version to `5.2.0` and synchronized installer `AppVersion` to `5.2.0`.
+- Completed roadmap subtask `V5.2-10` by expanding League Command Center deadline and finance-risk card behavior.
+- Updated `services/league_command_center.py` to track richer deadline statuses (trade deadline windows, draft timing, offseason workflow tasks, arbitration/free-agency workload) and add stronger finance-card actions.
+- Updated `ui/league_command_center_window.py` card-row formatting so deadline rows and finance alerts render clear status/context and explicit next-step guidance.
+- Expanded targeted coverage in `tests/test_league_command_center.py` and `tests/test_league_command_center_window.py` for new deadline semantics, finance actions, and detailed item-row formatting.
+- Completed roadmap subtask `V5.2-09` by polishing Command Center card behavior for injuries, approvals, and roster conflicts in `ui/league_command_center_window.py`.
+- Added card-aware detail formatting and per-card suggested-action buttons that resolve to available owner/admin handlers when present.
+- Added fallback-safe action resolution for key workflows (`Open Injury Center`, `Review Pending Trades`, `Review Change Requests`, `Run Auto-Reassign`, and related command-center actions).
+- Expanded coverage in `tests/test_league_command_center_window.py` to validate command-center action handler resolution.
+- Completed roadmap subtask `V5.2-08` by adding a League Command Center UI shell in `ui/league_command_center_window.py`.
+- Added owner/admin navigation entry points for League Command Center from League Hub, dashboard quick actions, Owner Tools, Admin Season page, and Admin Home shortcuts.
+- Added owner and admin command-center tutorial entries so the new workflow is discoverable from in-app Tutorials menus.
+- Added targeted coverage in `tests/test_league_command_center_window.py` for command-center snapshot rendering state and item formatting.
+- Completed roadmap subtask `V5.2-06` with a schedule-window polish pass in `ui/schedule_window.py`.
+- Added grouped schedule status/actions sections with explicit refresh control and last-updated feedback.
+- Improved schedule table readability defaults while preserving existing row data and box score open-on-double-click behavior.
+- Added safer loading/refresh helpers for schedule data and fallback-safe optional UI calls for lightweight test stubs.
+- Completed roadmap subtask `V5.2-05` with a standings-window polish pass in `ui/standings_window.py`.
+- Added a **Standings Snapshot** status panel and **Actions** group with explicit refresh control and last-updated timestamp.
+- Improved standings window readability/layout sizing while keeping the existing detailed standings table format intact.
+- Hardened standings auto-refresh scheduling and lightweight test-stub compatibility for optional UI methods.
+- Completed roadmap subtask `V5.2-04` with a trade-window polish pass in `ui/trade_dialog.py`.
+- Reorganized Trade Center UI into clearer grouped sections for setup, assets, offer review, and actions in both **New Trade** and **Incoming** tabs.
+- Added live Trade Center status and incoming-offer counters so owners can quickly see trading state and pending offer volume.
+- Added incoming-tab action-state handling (disabled accept/reject when no offer selected), plus a dedicated **Clear Selection** action for new trade composition.
+- Completed roadmap subtask `V5.2-03` with a pitching-staff window polish pass in `ui/pitching_editor.py`.
+- Reorganized Pitching Staff Editor into clearer grouped sections (status, role assignments, actions) with improved spacing and action hierarchy.
+- Added live staff health feedback (`Filled` and `Duplicates`) so assignment completeness/errors are visible while editing.
+- Added robust `QTimer` fallback handling for lightweight Qt test stubs in `ui/pitching_editor.py`, `ui/reassign_players_dialog.py`, `ui/trade_dialog.py`, and `ui/transactions_window.py`.
+- Completed roadmap subtask `V5.2-02` with a lineup-window polish pass in `ui/lineup_editor.py`.
+- Reorganized Lineup Editor UI into clearer grouped sections (view/status, batting order, bench, actions, auto-fill reasons) and improved action hierarchy.
+- Added live lineup health feedback (`Filled` and `Duplicates`) to reduce lineup editing errors during manual setup.
+- Added robust fallback handling for lightweight Qt test stubs when `QTimer` is unavailable.
+- Completed roadmap subtask `V5.2-19` by adding Career Arc analytics v1 outputs for year-over-year, trendline, and team-era comparisons.
+- Added `services/career_arc_analytics.py` to compute archive-driven analytics from season standings and champions metadata.
+- Updated `services/report_exporter.py` to include `career_arc_yoy.csv`, `career_arc_trends.csv`, and `career_arc_team_eras.csv` in standard report exports.
+- Added targeted tests in `tests/test_career_arc_analytics.py` and expanded export coverage in `tests/test_report_exporter.py`.
+- Completed roadmap subtask `V5.2-18` by wiring team strategy profiles into auto-assign and automation valuation paths.
+- Updated `services/roster_auto_assign.py` so `auto_assign_all_teams` resolves each team profile once and passes it into both roster assignment and lineup auto-fill.
+- Updated roster sort/scoring hooks to apply strategy-aware bonuses for active/prospect placement while keeping `balanced` as a no-op baseline.
+- Fixed strategy profile resolution path handling by importing `Path` in `services/roster_auto_assign.py`.
+- Expanded targeted coverage in `tests/test_roster_auto_assign.py` and `tests/test_decision_explanations.py` for strategy propagation and lineup explanation payload tags/context.
+- Completed roadmap subtask `V5.2-17` by adding team strategy profile domain persistence and settings UI for commissioner/owner workflows.
+- Added `services/team_strategy_profiles.py` with league-scoped default strategy, per-team overrides, resolved profile metadata, and finance-profile mapping helpers.
+- Added `ui/team_strategy_settings_dialog.py` and wired **League Settings -> Team Strategy Profiles** in the admin dashboard.
+- Updated `ui/team_settings_dialog.py` and `ui/owner_dashboard.py` so owners can choose **Use League Default** or set a team strategy override from Team Settings.
+- Updated `services/finance_ai.py` to respect explicit strategy profile settings while preserving legacy behavior when no explicit strategy configuration is provided.
+- Added targeted coverage in `tests/test_team_strategy_profiles.py`, `tests/test_team_strategy_settings_dialog.py`, and `tests/test_finance_ai.py`.
+- Completed roadmap subtask `V5.2-16` by adding scouting budget tuning persistence and UI controls across commissioner and owner workflows.
+- Expanded `services/scouting_service.py` with persisted commissioner tuning values (including passive gain, bank cap, and auto-spend cap), plus team-level scouting intensity save/load APIs for owner control.
+- Updated `ui/financial_settings_dialog.py` with a new **Scouting Fog-of-War Tuning** section so commissioners can tune scouting pace while finance is on or off.
+- Updated `ui/owner_finance_page.py` with a new **Scouting Controls** card showing confidence/error status and allowing owners to save Low/Normal/High scouting intensity.
+- Updated the owner **Finance Hub Overview** tutorial (`ui/owner_dashboard.py`) to cover scouting intensity controls and commissioner scouting tuning.
+- Added/updated targeted tests in `tests/test_scouting_service.py`, `tests/test_financial_settings_dialog.py`, and `tests/test_owner_finance_page.py`; targeted suite passed.
+- Added a new league-scoped scouting fog-of-war engine in `services/scouting_service.py` with commissioner-controlled enablement, persistent team scouting state, deterministic observed ratings, and monthly confidence progression that works with finance on or off.
+- Updated scouting display integration in `services/finance_budget_effects.py` so player profile scouting confidence/range now flows through the new scouting system while preserving true-rating internals.
+- Added a commissioner toggle to `ui/financial_settings_dialog.py` (`Enable Scouting Fog-of-War`) so existing leagues remain disabled by default until explicitly enabled.
+- Added targeted regression coverage in `tests/test_scouting_service.py` and updated scouting budget effect tests in `tests/test_finance_budget_effects.py`.
+- Marked roadmap subtask `V5.2-15` complete in `docs/future_work.md`.
+- Added trade decision rationale panels in both owner and commissioner trade workflows (`ui/trade_dialog.py`, `ui/admin_dashboard/actions/trades.py`) so rejected/blocked/cancelled decisions show explicit AI/user reason tags and messages in the UI.
+- Added targeted trade-response summary coverage in `tests/test_decision_explanations.py`.
+- Marked roadmap subtask `V5.2-14` complete in `docs/future_work.md`.
+- Added bullpen-usage explanation summaries to game metadata in `playbalance/game_runner.py` so simulation results carry AI rationale for reliever ordering decisions.
+- Updated `ui/season_progress_window.py` to display a live "Bullpen Usage Reasons" status line sourced from recent simulated games.
+- Added coverage for bullpen reason metadata extraction in `tests/test_decision_explanations.py` and marked roadmap subtask `V5.2-13` complete in `docs/future_work.md`.
+- Added `summarize_decision_explanation` in `services/decision_explanations.py` to render AI decision payloads into compact user-facing reason summaries.
+- Updated `ui/lineup_editor.py` to surface Auto-Fill decision rationale in a new "Auto-Fill Decision Reasons" panel after running lineup auto-fill.
+- Added formatter coverage in `tests/test_decision_explanations.py` and marked roadmap subtask `V5.2-12` complete in `docs/future_work.md`.
+- Added services/league_command_center.py as the v5.2 Command Center data contract/service layer with normalized card payloads for injuries, pending approvals, roster conflicts, deadlines, and finance risks.
+- Added targeted coverage in tests/test_league_command_center.py and marked roadmap subtask V5.2-07 complete in docs/future_work.md.
+- Added a shared AI decision explanation schema in services/decision_explanations.py (reason tags, context payload, actor/team/subject metadata, and optional JSONL persistence via NEXGEN_DECISION_LOG).
+- Integrated explanation payload emission for lineup autofill (utils/lineup_autofill.py), bullpen ordering (playbalance/game_runner.py), and owner/commissioner trade responses (ui/trade_dialog.py, ui/admin_dashboard/actions/trades.py).
+- Added targeted tests in tests/test_decision_explanations.py and marked roadmap subtask V5.2-11 complete in docs/future_work.md.
+- Added scripts/create_ui_polish_baseline.py to scaffold v5.2 UI polish baseline bundles (checklist + JSON index + optional screenshot placeholders) for core screens: Lineups, Pitching, Trades, Standings, and Schedule.
+- Added docs/ui_polish_rubric.md with standardized scoring criteria and pass thresholds for ship-readiness evaluations.
+- Updated roadmap tracking in docs/future_work.md: marked V5.2-01 complete and advanced the implementation queue to V5.2-11.
+- Added an Auto-Reassign Team button to the Owner Reassign Players dialog so owners can run policy-based ACT/AAA/LOW assignment directly from that workflow.
+- After auto-reassign, the dialog now reloads roster levels in-place, refreshes counts, clears recovery state, and reports coverage warnings when applicable.
+
+# 5.2.3 Release Notes (Since last build a9aebe7)
+Date: 2026-03-02
+
+- Fixed a window-state stability bug where the Owner Dashboard could disappear and appear hung after minimizing it and switching to another application.
+- Updated `ui.window_utils.show_on_top` behavior so `QMainWindow` dashboards are no longer forced into `WindowStaysOnTopHint` state, while dialog on-top behavior remains intact.
+- Added regression tests in `tests/test_window_utils.py` for dialog/main-window on-top routing behavior.
+- Added league-scoped **Roster Auto-Reassign** settings with a commissioner default plus per-team overrides (`team_auto_reassign_settings.json`).
+- Extended **Team Strategy Profiles** admin dialog to also manage league/team auto-reassign behavior.
+- Extended owner **Team Settings** with a per-team auto-reassign override (Use League Default / Enabled / Disabled).
+- Added trigger-based auto-reassign execution for common roster mutation paths:
+- Injury Center list placement, activation, and promote-best actions
+- Trade execution (both teams)
+- DL automation activations
+- Owner free-agent signing flow
+- Contract-expiration releases from roster files
+- Added clear auto-mode status messaging to the **Reassign Players** dialog so owners can see whether trigger-based automation is active.
+- Added targeted coverage in `tests/test_team_auto_reassign_settings.py`.
+- Added a required **Finance Setup** step to league creation so commissioners choose an initial finance preset (or custom key modules) before league files are finalized.
+- Added a final league-creation confirmation summary that includes finance configuration details alongside setup and trade policy selections.
+- Persisted selected creation-time finance settings directly into the new league bootstrap (`league_financial_settings.json`) during league creation.
+- Added `ui/league_creation_finance_dialog.py` and `services/league_creation_finance.py` to support creation-time finance configuration flow and persistence.
+- Updated admin league-setup tutorial copy and owner/admin manual docs to reflect the new create-league finance step.
+- Added targeted coverage in `tests/test_league_creation_finance.py`.
+
+# 5.2.30 Release Notes (Since last build a9aebe7)
+Date: 2026-03-09
+
+- Completed backlog item `#31` (Remove Timeline Feed from Season Progress
+- Window).
+- Simplified `ui/season_progress_window.py` by removing the separate Timeline
+- Feed panel while preserving the main Season Timeline milestone list and all
+- season simulation controls.
+- Updated `docs/season_progress.md` to reflect the streamlined Season Progress
+- layout.
+- Added a focused UI regression test in `tests/test_season_progress_window.py`
+- to ensure the removed feed widgets do not return.
+- Targeted validation run:
+- `.\.venv2\Scripts\python.exe -m pytest tests/test_season_progress_window.py`
+- Result: `16 passed`.
+- Version bumped to `5.2.30` and installer `AppVersion` synchronized.
+- Completed backlog item `#29` (Installer-Time Admin Password Setup).
+- Added installer-time administrator password capture in
+- `packaging/NexGen-BBPro.iss`:
+- interactive installs now prompt for administrator password + confirmation,
+- installer writes bootstrap auth config for fresh runtime data and new
+- league creation,
+- silent installs mark admin access as requiring first-run password setup.
+- Extended auth/bootstrap handling:
+- `utils/user_manager.py` now supports installer bootstrap state, admin
+- password initialization, placeholder replacement, and first-run setup
+- checks,
+- `ui/login_window.py` now applies bootstrap credentials to placeholder admin
+- accounts and prompts for first-run admin password setup when silent install
+- fallback is active.
+- Updated docs/help surfaces:
+- `docs/owner_admin_guide.md`
+- `RELEASE.md`
+- `docs/post_installer_ui_checklist.md`
+- Added targeted regression coverage:
+- `tests/test_user_manager.py`
+- `tests/test_login_window.py`
+- `tests/test_league_creator.py`
+- Targeted validation run:
+- `.\.venv2\Scripts\python.exe -m pytest tests/test_user_manager.py tests/test_login_window.py tests/test_league_creator.py -k "bootstrap or first_run_password_setup or login_plain_and_hashed or set_admin_password"`
+- Result: `6 passed` (`16 deselected`).
+- Version bumped to `5.2.29` and installer `AppVersion` synchronized.
+- Completed backlog item `#27` (Almanac Export, baseball-reference style) by
+- finishing `ALM-12` docs/tutorial and release-checklist coverage.
+- Updated Almanac help surfaces:
+- expanded `docs/owner_admin_guide.md` with output/use guidance for
+- `Export Almanac (HTML)`,
+- updated shipped manuals `docs/manuals/game_manual.html` and
+- `docs/manuals/game_manual_installer.html` to document Almanac export in
+- Assets & Exports and commissioner pre-sim checklist guidance,
+- refined the in-app admin exports tutorial in `ui/_admin_dashboard_legacy.py`
+- to describe Almanac landing-page contents.
+- Updated release/manual validation docs:
+- added Almanac export coverage to `RELEASE.md`,
+- added explicit Almanac export checks to
+- `docs/post_installer_ui_checklist.md`.
+- Ran help-surface validation:
+- `.\.venv2\Scripts\python.exe scripts\validate_help_surface.py`
+- Result: `pass`.
+- Updated Almanac backlog tracking in `docs/future_work.md`:
+- marked `ALM-12` complete,
+- marked backlog item `#27` complete,
+- returned the implementation queue to `V5.4-01`.
+- Version bumped to `5.2.28` and installer `AppVersion` synchronized.
+- Continued backlog item `#27` (Almanac Export, baseball-reference style) by
+- completing `ALM-11` validation and integrity coverage.
+- Added Almanac validation helpers in `services/almanac_exporter.py`:
+- `validate_almanac_export(...)` for required-page checks,
+- local HTML/CSS link crawling to catch broken relative export links,
+- structured validation result reporting for release/test usage.
+- Expanded `tests/test_almanac_exporter.py` to verify:
+- the sample export passes full validation with no missing files or broken
+- local links,
+- missing required section pages and broken links are reported correctly.
+- Updated Almanac contract documentation in `docs/almanac_data_contract.md` to
+- note validation guarantees/tooling.
+- Updated Almanac backlog tracking in `docs/future_work.md`:
+- marked `ALM-11` complete,
+- advanced the implementation queue to `ALM-12`.
+- Targeted validation run:
+- `tests/test_almanac_exporter.py`
+- `tests/test_admin_almanac_actions.py`
+- Result: `3 passed`.
+- Version bumped to `5.2.27` and installer `AppVersion` synchronized.
+- Continued backlog item `#27` (Almanac Export, baseball-reference style) by
+- completing `ALM-09` style and readability polish.
+- Updated `services/almanac_exporter.py` presentation output to add:
+- richer baseball-reference-inspired shared styling in `assets/almanac.css`,
+- stat cards and section navigation cards on the landing/team/player pages,
+- wrapped tables with sticky headers and numeric alignment,
+- print-friendly defaults for exported HTML pages.
+- Expanded exporter regression coverage in `tests/test_almanac_exporter.py` to
+- verify stylesheet features and updated HTML structure.
+- Updated Almanac contract documentation in `docs/almanac_data_contract.md` to
+- note responsive/print-friendly style guarantees.
+- Updated Almanac backlog tracking in `docs/future_work.md`:
+- marked `ALM-09` complete,
+- advanced the implementation queue to `ALM-11`.
+- Targeted validation run:
+- `tests/test_almanac_exporter.py`
+- `tests/test_admin_almanac_actions.py`
+- Result: `2 passed`.
+- Version bumped to `5.2.26` and installer `AppVersion` synchronized.
+- Continued backlog item `#27` (Almanac Export, baseball-reference style) by
+- completing `ALM-08` transaction and finance history sections.
+- Expanded `services/almanac_exporter.py` to:
+- generate dedicated `transactions/index.html` and `finance/index.html`
+- sections,
+- ingest current and archived transaction logs when available,
+- surface season finance snapshots from archived exports and current league
+- finance settings/team financials,
+- include current finance ledger rows and cross-links to related player,
+- team, and season pages.
+- Updated Almanac contract documentation in `docs/almanac_data_contract.md` to
+- reflect transaction and finance export inputs/outputs.
+- Expanded exporter regression coverage in `tests/test_almanac_exporter.py` to
+- validate current + archived transaction history and finance-section output.
+- Updated Almanac backlog tracking in `docs/future_work.md`:
+- marked `ALM-08` complete,
+- advanced the implementation queue to `ALM-09`.
+- Targeted validation run:
+- `tests/test_almanac_exporter.py`
+- `tests/test_admin_almanac_actions.py`
+- Result: `2 passed`.
+- Version bumped to `5.2.25` and installer `AppVersion` synchronized.
+- Continued backlog item `#27` (Almanac Export, baseball-reference style) by
+- completing `ALM-07` awards, postseason, records, and leaders sections.
+- Expanded `services/almanac_exporter.py` to:
+- generate dedicated `awards/index.html`, `postseason/index.html`, and
+- `leaders/index.html` sections,
+- enrich season pages with inline Awards and Postseason panels,
+- surface archived award winners and championship results from season
+- artifacts,
+- add current-season batting/pitching leader snapshots,
+- upgrade record-book pages with links to player, team, and season pages.
+- Updated Almanac contract documentation in `docs/almanac_data_contract.md` to
+- reflect the new section pages and source inputs.
+- Expanded exporter regression coverage in `tests/test_almanac_exporter.py` to
+- validate awards/postseason/leaders generation and cross-links.
+- Updated Almanac backlog tracking in `docs/future_work.md`:
+- marked `ALM-07` complete,
+- advanced the implementation queue to `ALM-08`.
+- Targeted validation run:
+- `tests/test_almanac_exporter.py`
+- `tests/test_admin_almanac_actions.py`
+- Result: `2 passed`.
+- Version bumped to `5.2.24` and installer `AppVersion` synchronized.
+- Continued backlog item `#27` (Almanac Export, baseball-reference style) by
+- completing `ALM-06` player career pages.
+- Expanded `services/almanac_exporter.py` to:
+- generate `players/<player_id>.html` career pages,
+- build year-by-year player logs from current season stats plus archived
+- career ledgers,
+- show career summary cards for hitters and pitchers,
+- link current team references to franchise pages when available,
+- link season-log rows back to season pages and player record-book entries.
+- Updated the Players index so player names open HTML career pages by default
+- and current-team cells link to franchise pages.
+- Updated Almanac contract documentation in `docs/almanac_data_contract.md` to
+- reflect per-player career pages.
+- Expanded exporter regression coverage in `tests/test_almanac_exporter.py` to
+- validate player-page generation and player/team/season cross-links.
+- Updated Almanac backlog tracking in `docs/future_work.md`:
+- marked `ALM-06` complete,
+- advanced the implementation queue to `ALM-07`.
+- Targeted validation run:
+- `tests/test_almanac_exporter.py`
+- `tests/test_admin_almanac_actions.py`
+- Result: `2 passed`.
+- Version bumped to `5.2.23` and installer `AppVersion` synchronized.
+- Continued backlog item `#27` (Almanac Export, baseball-reference style) by
+- completing `ALM-05` team franchise pages.
+- Expanded `services/almanac_exporter.py` to:
+- generate `teams/<team_id>.html` franchise pages,
+- build year-by-year team history tables from archived/current standings,
+- summarize franchise totals (seasons tracked, all-time record, titles,
+- best season),
+- cross-link season standings snapshots to franchise pages and franchise
+- history rows back to season pages.
+- Updated Almanac contract documentation in `docs/almanac_data_contract.md` to
+- reflect per-team franchise pages.
+- Expanded exporter regression coverage in `tests/test_almanac_exporter.py` to
+- validate franchise page generation and season/team cross-links.
+- Updated Almanac backlog tracking in `docs/future_work.md`:
+- marked `ALM-05` complete,
+- advanced the implementation queue to `ALM-06`.
+- Targeted validation run:
+- `tests/test_almanac_exporter.py`
+- `tests/test_admin_almanac_actions.py`
+- Result: `2 passed`.
+- Version bumped to `5.2.22` and installer `AppVersion` synchronized.
+- Began backlog item `#27` (Almanac Export, baseball-reference style) with an
+- initial multi-page HTML foundation.
+- Added new exporter service: `services/almanac_exporter.py`.
+- Generates `exports/league_almanac_<timestamp>/almanac/` with:
+- landing page (`index.html`),
+- season index + per-season pages (`seasons/index.html`, `seasons/<season>.html`),
+- teams, players, and records sections,
+- shared stylesheet (`assets/almanac.css`).
+- Uses `SeasonContext` + archived/current standings sources to render
+- year-by-year navigation and season snapshots.
+- Added Almanac contract/source-map documentation:
+- `docs/almanac_data_contract.md`.
+- Added Admin UI entry point:
+- new action `ui/admin_dashboard/actions/almanac.py`,
+- new Utilities button `Export Almanac (HTML)` in
+- `ui/admin_dashboard/pages/utilities.py`,
+- action export registration in `ui/admin_dashboard/actions/__init__.py`.
+- Updated guide/tutorial text to include Almanac export in admin export
+- workflows:
+- `docs/owner_admin_guide.md`,
+- `ui/_admin_dashboard_legacy.py`,
+- `ui/owner_dashboard.py`.
+- Added targeted regression coverage:
+- `tests/test_almanac_exporter.py`,
+- `tests/test_admin_almanac_actions.py`.
+- Updated Almanac backlog tracking:
+- marked `ALM-01` to `ALM-04` and `ALM-10` complete in `docs/future_work.md`,
+- set implementation queue to continue with `ALM-05` onward.
+- Targeted validation run:
+- `tests/test_almanac_exporter.py`
+- `tests/test_admin_almanac_actions.py`
+- `tests/test_admin_reports_actions.py`
+- `tests/test_report_exporter.py`
+- Result: `6 passed`.
+- Version bumped to `5.2.21` and installer `AppVersion` synchronized.
+- Completed roadmap subtask `V5.3-11` (Acceptance tests for CPU trade quality +
+- prospect workflow regression).
+- Added `tests/test_v53_acceptance.py` with milestone-level acceptance coverage
+- for:
+- CPU trade quality matrix behavior (rebuild-upside accept vs win-now
+- downgrade reject),
+- proactive CPU proposal quality-gate behavior (low-margin suppression vs
+- high-margin offer creation),
+- prospect workflow progression (protection gate, allowed promotion, option
+- tracking/exhaustion),
+- injury replacement interactions with prospect rules (blocked replacement vs
+- auto-protect promotion path).
+- Executed targeted validation suite:
+- `tests/test_v53_acceptance.py`
+- `tests/test_cpu_trade_evaluator.py`
+- `tests/test_cpu_trade_proposals.py`
+- `tests/test_prospect_rules.py`
+- `tests/test_injury_manager.py`
+- Result: `22 passed`.
+- Marked `V5.3-11` complete and advanced implementation queue to `v5.4` in
+- `docs/future_work.md`.
+- Version bumped to `5.2.20` and installer `AppVersion` synchronized.
+- Completed roadmap subtask `V5.3-10` (Transparency v2 for trade/prospect decisions).
+- Extended `services/prospect_rules.py` move-evaluation output with structured
+- decision rationale payloads:
+- normalized reason tags per verdict path (protection required, option limits,
+- auto-protect, rules-disabled, and pass-through outcomes),
+- contextual details for option usage/limits and promotion safeguards,
+- reusable `decision_explanation` payloads aligned with the shared
+- `decision_explanations` schema.
+- Updated roster-move UI feedback to surface structured prospect rationale:
+- `ui/reassign_players_dialog.py` now shows summarized reason payloads when a
+- move is blocked by prospect rules,
+- `ui/injury_center_window.py` now surfaces summarized rationale when
+- "Promote Best Replacement" is blocked by prospect rules.
+- Added/expanded targeted regression coverage:
+- `tests/test_prospect_rules.py`,
+- `tests/test_injury_manager.py`,
+- `tests/test_reassign_players_dialog.py`.
+- Marked `V5.3-10` complete and advanced the implementation queue in
+- `docs/future_work.md`.
+- Version bumped to `5.2.19` and installer `AppVersion` synchronized.
+- Completed roadmap subtask `V5.3-09` (Analytics/Career Arc v2).
+- Expanded `services/career_arc_analytics.py` with:
+- player similarity output rows,
+- aging-bucket summaries,
+- comparative filters (team/season/position/age),
+- export payload support for v2 analytics surfaces.
+- Extended `services/report_exporter.py`:
+- new career-arc CSV outputs for similarity and aging buckets,
+- HTML report bundle generation (`reports_index.html` + per-section table pages),
+- format controls so exports can run in HTML mode (default in UI) or CSV mode.
+- Updated Admin report-export flow and UI:
+- `ui/admin_dashboard/actions/reports.py` now defaults to HTML exports and opens the HTML landing page automatically,
+- `ui/admin_dashboard/pages/utilities.py` now exposes separate buttons for `Export Reports (HTML)` and `Export Reports (CSV)`.
+- Updated in-app tutorial wording to reflect HTML-default reporting.
+- Added targeted regression coverage:
+- `tests/test_career_arc_analytics.py`,
+- `tests/test_report_exporter.py`,
+- `tests/test_admin_reports_actions.py`.
+- Marked `V5.3-09` complete and advanced the implementation queue in `docs/future_work.md`.
+- Version bumped to `5.2.18` and installer `AppVersion` synchronized.
+- Completed roadmap subtask `V5.3-08` by wiring strategy profile v2 hooks into draft, free agency, and promotion workflows.
+- Draft AI upgrades:
+- expanded `services/draft_ai.py` scoring with strategy-aware prospect fit bonuses,
+- updated `ui/draft_console.py` auto-pick logic to pass each team's resolved strategy profile into need-aware prospect scoring.
+- Free-agency AI upgrades:
+- extended `services/finance_ai.py` to retain each team?s raw strategy profile alongside finance posture,
+- added strategy-fit gating and offer shaping so CPU bids now adjust to player fit for `win_now`, `development_focus`, `defense_first`, and `power_offense` intents.
+- Promotion/prospect-rule upgrades:
+- updated `services/prospect_rules.py` so Development Focus teams can auto-protect eligible ACT promotions even when global auto-protect is off, while preserving existing protection/option-limit enforcement.
+- Added targeted regression coverage:
+- new `tests/test_draft_ai.py`,
+- expanded `tests/test_finance_ai.py`,
+- expanded `tests/test_prospect_rules.py`.
+- Marked `V5.3-08` complete and advanced the execution queue in `docs/future_work.md`.
+- Version bumped to `5.2.17` and installer `AppVersion` synchronized.
+- Completed roadmap subtask `V5.3-07` by adding a late-bloomer variance model tied to scouting uncertainty.
+- Added `services/late_bloomer_variance.py`:
+- deterministic per-player variance adjustments seeded by season/team/player,
+- uncertainty-aware scaling using scouting confidence error bands,
+- age-weighted late-bloomer bias with bounded multiplier guardrails.
+- Integrated late-bloomer variance into offseason development flow in `ui/season_progress_window.py` by applying scouting-driven adjustments on top of existing finance-based development multipliers before `age_and_retire(...)`.
+- Added targeted coverage:
+- new `tests/test_late_bloomer_variance.py`,
+- regression validation in `tests/test_aging_model.py`,
+- integration smoke via `tests/test_season_progress_window.py`.
+- Marked `V5.3-07` complete and advanced the queue to `V5.3-08` in `docs/future_work.md`.
+- Version bumped to `5.2.16` and installer `AppVersion` synchronized.
+- Completed roadmap subtask `V5.3-06` by enforcing prospect protection/eligibility rules for promotion and demotion moves.
+- Added `services/prospect_rules.py` with league-scoped persistence (`prospect_rules.json`) for:
+- enabling/disabling prospect rule enforcement,
+- active-roster promotion protection requirements,
+- optional auto-protect-on-promotion behavior,
+- season-scoped option-assignment limits for demotions from ACT to minors.
+- Integrated rule enforcement into key roster move paths:
+- manual move validation + apply in `ui/reassign_players_dialog.py`,
+- injury replacement promotion enforcement in `services/injury_manager.py`,
+- injury-center promote-best validation/apply in `ui/injury_center_window.py`.
+- Added targeted regression coverage:
+- new `tests/test_prospect_rules.py`,
+- expanded `tests/test_injury_manager.py` with protection-rule replacement behavior,
+- existing lifecycle/prospect test suites kept green.
+- Marked `V5.3-06` complete and advanced the queue to `V5.3-07` in `docs/future_work.md`.
+- Version bumped to `5.2.15` and installer `AppVersion` synchronized.
+- Completed roadmap subtask `V5.3-05` by adding a shared promotion/options/protection event model with persistent storage.
+- Added `services/prospect_event_log.py`:
+- season-scoped JSONL lifecycle event persistence (`data/prospect_events/<season>.jsonl`),
+- normalized event schema for promotion, demotion, option decisions, and protection-status changes,
+- helper APIs for roster-level movement inference and filtered event loading.
+- Integrated lifecycle event hooks across core workflows:
+- manual roster save in `ui/reassign_players_dialog.py` now records promotion/demotion events,
+- injury placement/recovery paths in `services/injury_manager.py` now emit inferred movement events,
+- contract option decisions in `services/contracts_service.py` now emit option decision events (manual decision + rollover outcomes).
+- Added targeted regression coverage:
+- new `tests/test_prospect_event_log.py`,
+- expanded `tests/test_contracts_service.py`,
+- expanded `tests/test_injury_manager.py`,
+- expanded `tests/test_reassign_players_dialog.py`.
+- Marked `V5.3-05` complete and advanced the queue to `V5.3-06` in `docs/future_work.md`.
+- Version bumped to `5.2.14` and installer `AppVersion` synchronized.
+- Completed roadmap subtask `V5.3-04` by adding proposal quality guardrails and anti-spam filters for proactive CPU trade offers.
+- Hardened `services/cpu_trade_proposals.py` with:
+- per-target cooldown windows and per-target pending-offer caps,
+- league-level pending CPU-offer cap checks,
+- stricter cadence-aware minimum score margins for proposal quality,
+- repeated package suppression using persisted offer-signature history,
+- cycle diagnostics (`filtered_counts`) for skipped proposal reasons.
+- Added/expanded targeted coverage in `tests/test_cpu_trade_proposals.py` for:
+- per-target anti-spam limiting,
+- repeated package blocking behavior,
+- existing cadence/cooldown proposal flow.
+- Marked `V5.3-04` complete and advanced the implementation queue in `docs/future_work.md`.
+- Version bumped to `5.2.13` and installer `AppVersion` synchronized.
+- Completed roadmap subtask `V5.3-03` by adding proactive CPU trade proposal generation with cadence controls.
+- Added `services/cpu_trade_proposals.py`:
+- generates CPU-to-owner trade offers during season progression,
+- uses cadence-based proposal rates (`off`, `low`, `normal`, `high`),
+- persists per-team cooldown state in `cpu_trade_proposal_state.json`,
+- validates proposal quality by requiring CPU evaluator acceptance before creating offers.
+- Extended trade settings persistence and UI for proactive cadence control:
+- `services/trade_settings.py` now stores `cpu_proposal_cadence`,
+- `ui/trade_settings_dialog.py` now exposes `CPU proactive proposal cadence`,
+- league creation flow now captures and persists initial cadence choice.
+- Integrated proactive proposal generation into season simulation flow in `ui/season_progress_window.py` so day/week/month simulation runs can create CPU offers and append status messaging.
+- Updated Trade Center status text to include proactive cadence visibility.
+- Added targeted coverage:
+- `tests/test_cpu_trade_proposals.py`
+- updated `tests/test_trade_settings.py` for cadence persistence/defaults.
+- Version bumped to `5.2.12` and installer `AppVersion` synchronized.
+- Added league-level control to enable/disable CPU-initiated trade offers.
+- Extended trade settings persistence in `services/trade_settings.py` with `cpu_initiated_trades_enabled` and wired it through update/load/save flows.
+- Updated Trade Settings UI (`ui/trade_settings_dialog.py`) with a new commissioner toggle: `Allow CPU-initiated trade offers (counters/proactive)`.
+- Updated league creation (`ui/admin_dashboard/actions/league.py`) to:
+- prompt for CPU-initiated trade behavior when trading is enabled,
+- include CPU-initiated state in setup confirmation summary,
+- persist the selected value into initial `trade_settings.json`.
+- Updated Trade Center (`ui/trade_dialog.py`) so CPU counter generation is gated by league settings and status text shows CPU-initiated offers enabled/disabled.
+- Added evaluator support and coverage for counter gating:
+- `services/cpu_trade_evaluator.py` now supports `allow_counter_offers`,
+- `tests/test_cpu_trade_evaluator.py` validates disabled-counter behavior.
+- Extended trade settings tests in `tests/test_trade_settings.py` for default and persisted CPU-initiated setting values.
+- Version bumped to `5.2.11` and installer `AppVersion` synchronized.
+- Continued v5.3 CPU trade AI rollout by adding CPU counter-offer handling for close trade proposals.
+- Updated `services/cpu_trade_evaluator.py` to return `counter` decisions when an offer is near acceptance threshold and generate an adjusted counter package.
+- Updated `ui/trade_dialog.py` so CPU counter decisions now:
+- reject the original owner proposal,
+- create a pending counter trade from CPU to owner,
+- surface a clear counter-offer summary in Trade Center messaging.
+- Expanded evaluator coverage in `tests/test_cpu_trade_evaluator.py` for deterministic counter-generation behavior.
+- Version bumped to `5.2.10` and installer `AppVersion` synchronized.
+- Started the v5.3 CPU trade AI track so owners can trade with CPU teams in Trade Center.
+- Added `services/cpu_trade_evaluator.py` with strategy-aware CPU trade scoring across:
+- asset value balance,
+- roster-fit needs,
+- competitive timeline alignment,
+- draft-pick valuation impact.
+- Updated `ui/trade_dialog.py` submission flow so offers sent to CPU-owned teams now auto-resolve with immediate CPU accept/reject responses.
+- Preserved commissioner-approval behavior:
+- accepted CPU offers become `owner_accepted` when approval is required,
+- accepted CPU offers execute immediately when approval is not required.
+- Added targeted coverage in `tests/test_cpu_trade_evaluator.py`.
+- Version bumped to `5.2.9` and installer `AppVersion` synchronized.
+- Completed backlog item `#30` (Action Button Layout Cleanup) with a final pass across remaining settings/setup dialogs to use constrained responsive action panels.
+- Updated:
+- `ui/financial_settings_dialog.py`
+- `ui/change_requests_window.py`
+- `ui/league_creation_finance_dialog.py`
+- `ui/team_strategy_settings_dialog.py`
+- `ui/hall_of_fame_settings_dialog.py`
+- `ui/injury_settings_dialog.py`
+- `ui/trade_settings_dialog.py`
+- `ui/playbalance_editor.py`
+- `ui/league_preset_dialogs.py`
+- Version bumped to `5.2.8` and installer `AppVersion` synchronized.
+- Continued backlog item `#30` by migrating additional high-traffic dialogs/editors to constrained multi-column action layouts.
+- Updated:
+- `ui/lineup_editor.py` (Actions panel)
+- `ui/pitching_editor.py` (Actions panel)
+- `ui/trade_dialog.py` (New Trade + Incoming action groups)
+- `ui/injury_center_window.py` (button width constraints + cleaner grid stretching)
+- Kept headless-test compatibility for Injury Center while reducing oversized button stretching.
+- Continued backlog item `#30` (Action Button Layout Cleanup) by migrating admin action stacks to responsive multi-column `ActionButtonPanel` layouts with constrained button widths.
+- Updated admin pages:
+- `ui/admin_dashboard/pages/home.py`
+- `ui/admin_dashboard/pages/league_settings.py`
+- `ui/admin_dashboard/pages/season.py`
+- `ui/admin_dashboard/pages/transactions.py`
+- `ui/admin_dashboard/pages/utilities.py`
+- `ui/admin_dashboard/pages/draft.py`
+- `ui/admin_dashboard/pages/teams.py`
+- Preserved existing admin status/help labels while standardizing action controls for cleaner desktop and smaller-window presentation.
+- Began backlog item `#30` (Action Button Layout Cleanup) with a shared responsive button-grid component: `ui.components.ActionButtonPanel`.
+- Migrated owner-facing action stacks from full-width vertical buttons to constrained multi-column panels on:
+- Owner Roster page (`ui/roster_page.py`)
+- Team page (`ui/team_page.py`)
+- Transactions page (`ui/transactions_page.py`)
+- League Hub page (`ui/schedule_page.py`)
+- Season Progress window (`ui/season_progress_window.py`)
+- Added targeted tests for action-grid column behavior in `tests/test_action_button_panel.py`.
+- Owner UI now hides `Submit Change Request` surfaces in single-player local leagues:
+- Removed visibility for Owner Tools menu entry.
+- Removed visibility for the Roster page action button.
+- Removed visibility for the Owner Change Requests tutorial menu entry.
+- Added runtime guards so single-player leagues cannot open the change-request export dialog, while multi-owner leagues retain full behavior.
+- Added targeted regression tests for change-request visibility/guard behavior across owner dashboard and roster page flows.
+
+# 5.2.31 Release Notes (Since last build a9aebe7)
+Date: 2026-03-09
+
+- ?## 5.2.31 (2026-03-09)
+- Fixed an Inno Setup installer compile failure in `packaging/NexGen-BBPro.iss`.
+- Replaced line-leading Pascal char literals in `JsonEscape(...)` with named constants so the installer password bootstrap logic no longer triggers `Unknown preprocessor directive` during `ISCC` preprocessing.
+- Updated `DefaultDirName` to use `{commonpf}` instead of deprecated `{pf}` so the installer compile is clean without warnings.
+- Validation run:
+- `"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\NexGen-BBPro.iss`
+- Result: successful compile.
+- Version bumped to `5.2.31` and installer `AppVersion` synchronized.
+- Completed backlog item `#31` (Remove Timeline Feed from Season Progress Window).
+- Simplified `ui/season_progress_window.py` by removing the separate Timeline Feed panel while preserving the main Season Timeline milestone list and all season simulation controls.
+- Updated `docs/season_progress.md` to reflect the streamlined Season Progress layout.
+- Added a focused UI regression test in `tests/test_season_progress_window.py` to ensure the removed feed widgets do not return.
+- Targeted validation run:
+- `./.venv2/Scripts/python.exe -m pytest tests/test_season_progress_window.py`
+- Result: `16 passed`.
+- Version bumped to `5.2.30` and installer `AppVersion` synchronized.
+- Completed backlog item `#29` (Installer-Time Admin Password Setup).
+- Added installer-time administrator password capture in `packaging/NexGen-BBPro.iss`:
+- interactive installs now prompt for administrator password + confirmation,
+- installer writes bootstrap auth config for fresh runtime data and new league creation,
+- silent installs mark admin access as requiring first-run password setup.
+- Extended auth/bootstrap handling:
+- `utils/user_manager.py` now supports installer bootstrap state, admin password initialization, placeholder replacement, and first-run setup checks,
+- `ui/login_window.py` now applies bootstrap credentials to placeholder admin accounts and prompts for first-run admin password setup when silent install fallback is active.
+- Updated docs/help surfaces:
+- `docs/owner_admin_guide.md`
+- `RELEASE.md`
+- `docs/post_installer_ui_checklist.md`
+- Added targeted regression coverage:
+- `tests/test_user_manager.py`
+- `tests/test_login_window.py`
+- `tests/test_league_creator.py`
+- Targeted validation run:
+- `./.venv2/Scripts/python.exe -m pytest tests/test_user_manager.py tests/test_login_window.py tests/test_league_creator.py -k "bootstrap or first_run_password_setup or login_plain_and_hashed or set_admin_password"`
+- Result: `6 passed` (`16 deselected`).
+- Version bumped to `5.2.29` and installer `AppVersion` synchronized.
+- Completed backlog item `#27` (Almanac Export, baseball-reference style) by finishing `ALM-12` docs/tutorial and release-checklist coverage.
+- Updated Almanac help surfaces:
+- expanded `docs/owner_admin_guide.md` with output/use guidance for `Export Almanac (HTML)`,
+- updated shipped manuals `docs/manuals/game_manual.html` and `docs/manuals/game_manual_installer.html` to document Almanac export in Assets & Exports and commissioner pre-sim checklist guidance,
+- refined the in-app admin exports tutorial in `ui/_admin_dashboard_legacy.py` to describe Almanac landing-page contents.
+- Updated release/manual validation docs:
+- added Almanac export coverage to `RELEASE.md`,
+- added explicit Almanac export checks to `docs/post_installer_ui_checklist.md`.
+- Ran help-surface validation:
+- `./.venv2/Scripts/python.exe scripts/validate_help_surface.py`
+- Result: `pass`.
+- Updated Almanac backlog tracking in `docs/future_work.md`:
+- marked `ALM-12` complete,
+- marked backlog item `#27` complete,
+- returned the implementation queue to `V5.4-01`.
+- Version bumped to `5.2.28` and installer `AppVersion` synchronized.

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QWidget,
 )
+from .components import ActionButtonPanel
 
 from playbalance.team_name_generator import random_team
 from ui.window_utils import untrack_on_top
@@ -66,6 +67,7 @@ class TeamEntryDialog(QDialog):
                 name_edit.setMinimumWidth(140)
                 random_btn = QPushButton("Randomize")
                 random_btn.setMinimumWidth(96)
+                random_btn.setMaximumWidth(120)
 
                 group_layout.addWidget(row_label, i, 0)
                 group_layout.addWidget(city_edit, i, 1)
@@ -82,14 +84,20 @@ class TeamEntryDialog(QDialog):
         content_layout.addStretch(1)
         scroll.setWidget(content)
 
-        btn_row = QHBoxLayout()
+        btn_row = ActionButtonPanel(
+            min_columns=1,
+            max_columns=3,
+            target_button_width=170,
+            min_button_width=120,
+            max_button_width=200,
+        )
         random_all_btn = QPushButton("Randomize All")
         save_btn = QPushButton("Save")
         cancel_btn = QPushButton("Cancel")
-        btn_row.addWidget(random_all_btn)
-        btn_row.addWidget(save_btn)
-        btn_row.addWidget(cancel_btn)
-        layout.addLayout(btn_row)
+        btn_row.add_button(random_all_btn)
+        btn_row.add_button(save_btn)
+        btn_row.add_button(cancel_btn)
+        layout.addWidget(btn_row)
 
         random_all_btn.clicked.connect(self._random_fill_all)
         save_btn.clicked.connect(self._handle_save)

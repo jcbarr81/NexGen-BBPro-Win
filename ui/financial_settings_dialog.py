@@ -10,7 +10,6 @@ from PyQt6.QtWidgets import (
     QDialog,
     QGridLayout,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -18,6 +17,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from .components import ActionButtonPanel
 
 from services.finance_settings import (
     DEFAULT_FINANCE_AI_TUNING,
@@ -406,17 +406,26 @@ class FinancialSettingsDialog(QDialog):
         scroll.setWidget(content)
         root_layout.addWidget(scroll, stretch=1)
 
-        button_row = QHBoxLayout()
+        button_row = ActionButtonPanel(
+            min_columns=1,
+            max_columns=3,
+            target_button_width=210,
+            min_button_width=150,
+            max_button_width=240,
+        )
         self.refresh_preview_button = QPushButton("Refresh Preview")
         self.refresh_preview_button.clicked.connect(self._refresh_reporting_preview)
-        button_row.addWidget(self.refresh_preview_button)
-        button_row.addStretch(1)
         self.save_button = QPushButton("Save")
         self.save_button.setObjectName("Primary")
         self.close_button = QPushButton("Close")
-        button_row.addWidget(self.save_button)
-        button_row.addWidget(self.close_button)
-        root_layout.addLayout(button_row)
+        button_row.add_buttons(
+            [
+                self.refresh_preview_button,
+                self.save_button,
+                self.close_button,
+            ]
+        )
+        root_layout.addWidget(button_row)
 
         self.save_button.clicked.connect(self._save)
         self.close_button.clicked.connect(self.reject)

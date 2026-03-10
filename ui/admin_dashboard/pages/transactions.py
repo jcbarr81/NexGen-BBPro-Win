@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import QLabel, QPushButton, QVBoxLayout
 from services.gm_finance_queue import summarize_queue_decisions
 from utils.league_settings import is_owner_league, load_league_settings
 from utils.path_utils import get_data_dir
-from ...components import Card, section_title
+from ...components import ActionButtonPanel, Card, section_title
 from .base import DashboardPage
 
 
@@ -33,16 +33,24 @@ class TransactionsPage(DashboardPage):
 
         trades = Card()
         trades.layout().addWidget(section_title("Trade Queue"))
+        trade_actions = ActionButtonPanel(
+            min_columns=1,
+            max_columns=2,
+            target_button_width=220,
+            min_button_width=160,
+            max_button_width=240,
+        )
 
         self.review_button = QPushButton("Review Pending Trades")
         self.review_button.setToolTip("Approve or reject pending and owner-accepted trades")
-        trades.layout().addWidget(self.review_button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        trade_actions.add_button(self.review_button)
 
         self.trade_settings_button = QPushButton("Open Trade Settings")
         self.trade_settings_button.setToolTip(
             "Configure trade enablement, commissioner approval, and draft-pick rules"
         )
-        trades.layout().addWidget(self.trade_settings_button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        trade_actions.add_button(self.trade_settings_button)
+        trades.layout().addWidget(trade_actions)
 
         trade_note = QLabel("Use settings to control whether trades auto-execute or require commissioner approval.")
         trade_note.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -51,10 +59,18 @@ class TransactionsPage(DashboardPage):
 
         owner_flow = Card()
         owner_flow.layout().addWidget(section_title("Owner Change Queue"))
+        owner_actions = ActionButtonPanel(
+            min_columns=1,
+            max_columns=2,
+            target_button_width=220,
+            min_button_width=160,
+            max_button_width=240,
+        )
 
         self.change_requests_button = QPushButton("Review Change Requests")
         self.change_requests_button.setToolTip("Import and approve owner change requests")
-        owner_flow.layout().addWidget(self.change_requests_button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        owner_actions.add_button(self.change_requests_button)
+        owner_flow.layout().addWidget(owner_actions)
 
         owner_note = QLabel("Use this queue to process incoming owner updates in one place.")
         owner_note.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -63,15 +79,20 @@ class TransactionsPage(DashboardPage):
 
         gm_finance = Card()
         gm_finance.layout().addWidget(section_title("GM Finance Queue"))
+        gm_actions = ActionButtonPanel(
+            min_columns=1,
+            max_columns=2,
+            target_button_width=220,
+            min_button_width=160,
+            max_button_width=240,
+        )
 
         self.gm_finance_queue_button = QPushButton("Review GM Finance Queue")
         self.gm_finance_queue_button.setToolTip(
             "Approve or reject pending owner arbitration/free-agency queue decisions"
         )
-        gm_finance.layout().addWidget(
-            self.gm_finance_queue_button,
-            alignment=Qt.AlignmentFlag.AlignHCenter,
-        )
+        gm_actions.add_button(self.gm_finance_queue_button)
+        gm_finance.layout().addWidget(gm_actions)
 
         gm_finance_note = QLabel(
             "In multi-owner mode, owner finance decisions require commissioner review."

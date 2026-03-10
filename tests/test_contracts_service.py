@@ -17,6 +17,10 @@ from services.contracts_service import (
     upsert_contract,
 )
 from services.finance_ledger import CATEGORY_CONTRACT_BUYOUT
+from services.prospect_event_log import (
+    EVENT_TYPE_OPTION_DECISION,
+    load_prospect_events,
+)
 
 
 def test_upsert_contract_persists_and_gets(tmp_path):
@@ -257,6 +261,13 @@ def test_rollover_exercises_option_when_marked_exercised(tmp_path):
     assert contract["years_left"] == 1
     assert contract["annual_salary"] == 4_800_000
     assert contract["fa_year"] == 2032
+    option_events = load_prospect_events(
+        player_id="P900",
+        data_dir=data_dir,
+        event_types=[EVENT_TYPE_OPTION_DECISION],
+    )
+    assert option_events
+    assert option_events[0].get("details", {}).get("decision") == "exercised"
 
 
 def test_rollover_declined_option_posts_buyout(tmp_path):
@@ -283,6 +294,13 @@ def test_rollover_declined_option_posts_buyout(tmp_path):
     ledger = (data_dir / "financial_transactions.csv").read_text(encoding="utf-8")
     assert CATEGORY_CONTRACT_BUYOUT in ledger
     assert "P901" in ledger
+    option_events = load_prospect_events(
+        player_id="P901",
+        data_dir=data_dir,
+        event_types=[EVENT_TYPE_OPTION_DECISION],
+    )
+    assert option_events
+    assert option_events[0].get("details", {}).get("decision") == "declined"
 
 
 def test_rollover_resets_incentive_statuses_on_retained_contract(tmp_path):
@@ -356,6 +374,38 @@ def test_extend_contract_allows_term_updates_without_new_years(tmp_path):
     assert updated["years_left"] == 2
     assert updated["options"][0]["type"] == "player"
     assert updated["incentives"][0]["expected_payout"] == 50_000
+
+
+def test_set_contract_option_decision_persists_lifecycle_event(tmp_path):
+    data_dir = tmp_path / "league-data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    upsert_contract(
+        "P950",
+        team_id="AAA",
+        annual_salary=2_200_000,
+        years_left=1,
+        season_year=2030,
+        options=[{"type": "team", "salary": 3_000_000, "buyout": 200_000}],
+        data_dir=data_dir,
+    )
+
+    changed = set_contract_option_decision(
+        "P950",
+        decision="declined",
+        option_index=0,
+        data_dir=data_dir,
+    )
+
+    assert changed is not None
+    events = load_prospect_events(
+        player_id="P950",
+        data_dir=data_dir,
+        event_types=[EVENT_TYPE_OPTION_DECISION],
+    )
+    assert events
+    latest = events[0]
+    assert latest["team_id"] == "AAA"
+    assert latest.get("details", {}).get("decision") == "declined"
 
 
 def test_extend_contract_updates_guarantee_fields(tmp_path):

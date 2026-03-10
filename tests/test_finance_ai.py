@@ -87,6 +87,7 @@ def test_load_team_finance_strategies_respects_strategy_profile_overrides(tmp_pa
     strategies = load_team_finance_strategies(data_dir=data_dir)
 
     assert strategies["AAA"].profile == "contend"
+    assert strategies["AAA"].raw_strategy_profile == "power_offense"
 
 
 def test_load_team_finance_strategies_tracks_multi_year_commitments(tmp_path):
@@ -474,3 +475,107 @@ def test_build_cpu_free_agent_bid_book_respects_commitment_tuning_limits(tmp_pat
         rng=_MaxRng(),
     )
     assert "AAA" in relaxed_bids
+
+
+def test_build_cpu_free_agent_bid_book_applies_raw_strategy_fit_bias(tmp_path):
+    data_dir = tmp_path / "league-data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    ensure_financial_defaults(data_dir=data_dir, league_id="test")
+    (data_dir / "league_financial_settings.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "leagues": {
+                    "test": {
+                        "enabled": True,
+                        "preset": "standard",
+                        "enforcement_mode": "warn",
+                        "modules": {
+                            "owner_revenue": "advanced",
+                            "owner_market_model": "basic",
+                            "owner_budgets": "advanced",
+                            "owner_expenses": "advanced",
+                            "gm_contracts": "advanced",
+                            "gm_payroll_rules": "basic",
+                            "gm_arbitration": "basic",
+                            "gm_free_agency": "advanced",
+                            "gm_roster_cost_enforcement": "warn",
+                            "gm_finance_ai": "advanced",
+                        },
+                    }
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "team_financials.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "season_year": 2030,
+                "teams": {
+                    "AAA": {"cash_on_hand": 18_000_000, "debt": 0},
+                    "BBB": {"cash_on_hand": 18_000_000, "debt": 0},
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "standings.json").write_text(
+        json.dumps(
+            {
+                "AAA": {"wins": 82, "losses": 80},
+                "BBB": {"wins": 82, "losses": 80},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "team_strategy_profiles.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "leagues": {
+                    "test": {
+                        "default_profile": "balanced",
+                        "teams": {
+                            "AAA": "power_offense",
+                            "BBB": "defense_first",
+                        },
+                    }
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    teams = [
+        SimpleNamespace(team_id="AAA", owner_id="cpu"),
+        SimpleNamespace(team_id="BBB", owner_id="cpu"),
+    ]
+    slugger = SimpleNamespace(
+        player_id="P10",
+        is_pitcher=False,
+        primary_position="1B",
+        birthdate="2001-07-04",
+        ch=67,
+        ph=89,
+        sp=52,
+        eye=64,
+        fa=38,
+        arm=42,
+        gf=40,
+    )
+
+    bids = build_cpu_free_agent_bid_book(
+        slugger,
+        teams,
+        ai_level="advanced",
+        data_dir=data_dir,
+        rng=_MaxRng(),
+    )
+
+    assert "AAA" in bids
+    assert bids["AAA"] >= bids.get("BBB", 0)

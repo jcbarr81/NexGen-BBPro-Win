@@ -97,7 +97,7 @@
   <ul>
     <li><b>Owner Tools -&gt; Reassign Players</b> for direct promotions/demotions.</li>
     <li>Injury actions can auto-open active roster spots and prompt replacements.</li>
-    <li>Trade and signing events may require manual roster balancing afterward.</li>
+    <li>When team auto-reassign is enabled, injury/trade/signing updates can auto-balance ACT/AAA/LOW after the move.</li>
   </ul>
   <div class="warn">
     After major moves, revisit depth chart and lineups so simulation logic uses the new personnel correctly.
@@ -204,6 +204,9 @@
   </ul>
 
   <h2 id="admin-dashboard">10. Admin Dashboard Reference</h2>
+  <p>
+    Create League now includes a required finance-setup step (preset or custom key modules) and a final confirmation summary before files are generated.
+  </p>
   <h3>Main Pages</h3>
   <table>
     <tr><th>Page</th><th>Primary Responsibilities</th></tr>
@@ -213,8 +216,8 @@
     <tr><td>Draft</td><td>Draft pool, draft console, draft settings, draft results.</td></tr>
     <tr><td>Teams</td><td>Team dashboard launch and bulk roster automation.</td></tr>
     <tr><td>Users</td><td>Account administration.</td></tr>
-    <tr><td>League Settings</td><td>League lifecycle, policy controls, team strategy profiles, finance settings, system hubs.</td></tr>
-    <tr><td>Assets &amp; Exports</td><td>Logo/avatar generation and report export tooling.</td></tr>
+    <tr><td>League Settings</td><td>League lifecycle, policy controls, team strategy + auto-reassign profiles, finance settings, system hubs.</td></tr>
+    <tr><td>Assets &amp; Exports</td><td>Logo/avatar generation, HTML/CSV reports, Almanac export, and owner snapshot export tooling.</td></tr>
   </table>
   <p>
     Open <b>Season -&gt; Open League Command Center</b> for a live operational board with suggested next actions.
@@ -235,7 +238,8 @@
 
   <h2 id="reports-assets">12. Reports, Exports, and Asset Utilities</h2>
   <ul>
-    <li>Export standings, stats, and other league reports for sharing/archive.</li>
+    <li>Export reports in HTML (default) or CSV when you need shareable standings, stats, and analytics bundles.</li>
+    <li>Use <b>Export Almanac (HTML)</b> to build a multi-page league history site with a landing page for seasons, teams, players, awards, postseason, leaders, transactions, finance, and records.</li>
     <li>Generate team logos and player avatars from admin utilities.</li>
     <li>Use snapshot exports before destructive or high-impact operations.</li>
   </ul>
@@ -253,7 +257,7 @@
     <li>Confirm active league and phase.</li>
     <li>Resolve pending trade and change-request items.</li>
     <li>Check finance queue/alerts if enabled.</li>
-    <li>Run exports/snapshots for rollback safety.</li>
+    <li>Run exports/snapshots for rollback safety. For public history or release-ready archives, include an Almanac export and open its landing page once to confirm the bundle is browsable.</li>
   </ol>
 
   <h2 id="faq">14. FAQ and Troubleshooting</h2>

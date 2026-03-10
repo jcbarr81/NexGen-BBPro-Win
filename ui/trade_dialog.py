@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 
 from models.trade import Trade
 from services.contracts_service import transfer_contracts
+from services.cpu_trade_evaluator import evaluate_cpu_trade_offer
 from services.draft_pick_ledger import (
     format_pick_label,
     list_team_tradable_picks,
@@ -52,6 +53,7 @@ from services.decision_explanations import (
     should_persist_decision_logs,
 )
 from services.trade_settings import load_trade_settings
+from services.team_auto_reassign_settings import auto_reassign_team_if_enabled
 from services.transaction_log import record_transaction
 from services.unified_data_service import get_unified_data_service
 from utils.player_loader import load_players_from_csv
@@ -60,6 +62,7 @@ from utils.roster_loader import load_roster, save_roster
 from utils.team_loader import load_teams
 from utils.trade_utils import get_pending_trades, save_trade
 from .design_tokens import apply_status
+from .components import ActionButtonPanel
 
 import uuid
 
@@ -267,18 +270,25 @@ class TradeDialog(QDialog):
         self._update_new_trade_policy_preview()
 
         action_group = QGroupBox("Actions")
-        action_layout = QHBoxLayout()
+        action_layout = QVBoxLayout()
         action_layout.setContentsMargins(10, 8, 10, 8)
         action_layout.setSpacing(8)
+        action_panel = ActionButtonPanel(
+            min_columns=1,
+            max_columns=2,
+            target_button_width=200,
+            min_button_width=150,
+            max_button_width=220,
+        )
         self.submit_button = QPushButton("Submit Trade")
         self.submit_button.setObjectName("Primary")
         self.submit_button.clicked.connect(self._submit_trade)
         self.submit_button.setEnabled(self.trade_settings.trades_enabled)
-        action_layout.addWidget(self.submit_button)
+        action_panel.add_button(self.submit_button)
         clear_btn = QPushButton("Clear Selection")
         clear_btn.clicked.connect(self._clear_new_trade_selection)
-        action_layout.addWidget(clear_btn)
-        action_layout.addStretch(1)
+        action_panel.add_button(clear_btn)
+        action_layout.addWidget(action_panel)
         action_group.setLayout(action_layout)
         layout.addWidget(action_group)
         layout.addStretch(1)
@@ -580,6 +590,8 @@ class TradeDialog(QDialog):
         apply_status(label, "danger")
 
     def _submit_trade(self):
+        self.trade_settings = load_trade_settings()
+        self._update_trade_status()
         if not self.trade_settings.trades_enabled:
             QMessageBox.warning(
                 self,
@@ -652,8 +664,386 @@ class TradeDialog(QDialog):
         except RuntimeError as exc:
             QMessageBox.warning(self, "Trade Not Allowed", str(exc))
             return
+        cpu_evaluation = evaluate_cpu_trade_offer(
+            trade,
+            players_by_id=self.players,
+            data_dir=get_data_dir(),
+            allow_counter_offers=self.trade_settings.cpu_initiated_trades_enabled,
+        )
+        if cpu_evaluation is not None:
+            self._handle_cpu_trade_response(trade, cpu_evaluation)
+            self._clear_new_trade_selection()
+            self._update_trade_status()
+            return
         QMessageBox.information(self, "Trade Sent", f"Trade proposal sent to {to_team}.")
         self._clear_new_trade_selection()
+
+    def _handle_cpu_trade_response(self, trade: Trade, evaluation) -> None:
+        requested_action = "cpu_auto_response"
+        reasons = list(getattr(evaluation, "reasons", []) or [])
+        action = str(getattr(evaluation, "action", "reject")).strip().lower()
+
+        if action == "counter":
+            self._handle_cpu_counter_response(trade, evaluation, reasons=reasons)
+            return
+
+        if action == "accept":
+            if self.trade_settings.require_commissioner_approval:
+                trade.status = "owner_accepted"
+                try:
+                    save_trade(trade)
+                except RuntimeError as exc:
+                    QMessageBox.warning(self, "Trade Not Allowed", str(exc))
+                    return
+                reasons.append(
+                    reason(
+                        "commissioner_gate",
+                        "League requires commissioner approval before execution.",
+                    )
+                )
+                self._record_trade_decision(
+                    trade,
+                    outcome="owner_accepted",
+                    requested_action=requested_action,
+                    actor="cpu",
+                    actor_team_id=trade.to_team,
+                    reasons=reasons,
+                )
+                details = summarize_decision_explanation(
+                    getattr(self, "_last_trade_decision_explanation", None),
+                    fallback="CPU accepted the offer and queued it for commissioner approval.",
+                    max_reasons=3,
+                )
+                QMessageBox.information(
+                    self,
+                    "CPU Team Response",
+                    (
+                        f"{trade.to_team} accepted your offer. "
+                        "Trade is queued for commissioner approval.\n\n"
+                        f"{details}"
+                    ),
+                )
+                return
+
+            policy = evaluate_trade_payroll_impact(
+                trade,
+                players_by_id=self.players,
+            )
+            if not policy.allowed:
+                record_payroll_policy_result(
+                    policy,
+                    action="cpu_trade_accept",
+                    data_dir=get_data_dir(),
+                )
+                trade.status = "rejected"
+                reasons.append(
+                    reason(
+                        "payroll_policy_blocked",
+                        "Payroll policy blocked CPU acceptance for this offer.",
+                        details={"violations": list(getattr(policy, "violations", []) or [])},
+                    )
+                )
+                try:
+                    save_trade(trade)
+                except RuntimeError as exc:
+                    QMessageBox.warning(self, "Trade Not Allowed", str(exc))
+                    return
+                self._record_trade_decision(
+                    trade,
+                    outcome="rejected",
+                    requested_action=requested_action,
+                    actor="cpu",
+                    actor_team_id=trade.to_team,
+                    reasons=reasons,
+                )
+                details = summarize_decision_explanation(
+                    getattr(self, "_last_trade_decision_explanation", None),
+                    fallback="CPU rejected the offer due to payroll policy limits.",
+                    max_reasons=3,
+                )
+                QMessageBox.information(
+                    self,
+                    "CPU Team Response",
+                    (
+                        f"{trade.to_team} could not accept due to payroll policy and rejected "
+                        f"the offer.\n\n{details}"
+                    ),
+                )
+                return
+
+            if policy.warning:
+                record_payroll_policy_result(
+                    policy,
+                    action="cpu_trade_accept",
+                    data_dir=get_data_dir(),
+                )
+                reasons.append(
+                    reason(
+                        "payroll_policy_warning",
+                        "CPU accepted with payroll warning conditions.",
+                        details={"violations": list(getattr(policy, "violations", []) or [])},
+                    )
+                )
+            trade.status = "accepted"
+            try:
+                self._process_trade(trade)
+            except RuntimeError as exc:
+                trade.status = "rejected"
+                reasons.append(
+                    reason(
+                        "execution_failed",
+                        "CPU accepted but trade execution failed; offer was rejected.",
+                        details={"error": str(exc)},
+                    )
+                )
+                try:
+                    save_trade(trade)
+                except RuntimeError as save_exc:
+                    QMessageBox.warning(self, "Trade Failed", str(save_exc))
+                    return
+                self._record_trade_decision(
+                    trade,
+                    outcome="rejected",
+                    requested_action=requested_action,
+                    actor="cpu",
+                    actor_team_id=trade.to_team,
+                    reasons=reasons,
+                )
+                details = summarize_decision_explanation(
+                    getattr(self, "_last_trade_decision_explanation", None),
+                    fallback="CPU rejected after execution failure.",
+                    max_reasons=3,
+                )
+                QMessageBox.warning(
+                    self,
+                    "Trade Failed",
+                    f"CPU response encountered an execution error.\n\n{details}",
+                )
+                return
+
+            try:
+                save_trade(trade)
+            except RuntimeError as exc:
+                QMessageBox.warning(self, "Trade Failed", str(exc))
+                return
+            self._record_trade_decision(
+                trade,
+                outcome="accepted",
+                requested_action=requested_action,
+                actor="cpu",
+                actor_team_id=trade.to_team,
+                reasons=reasons,
+            )
+            details = summarize_decision_explanation(
+                getattr(self, "_last_trade_decision_explanation", None),
+                fallback="CPU accepted and trade executed.",
+                max_reasons=3,
+            )
+            QMessageBox.information(
+                self,
+                "CPU Team Response",
+                f"{trade.to_team} accepted your offer and trade executed.\n\n{details}",
+            )
+            return
+
+        trade.status = "rejected"
+        try:
+            save_trade(trade)
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "Trade Failed", str(exc))
+            return
+        self._record_trade_decision(
+            trade,
+            outcome="rejected",
+            requested_action=requested_action,
+            actor="cpu",
+            actor_team_id=trade.to_team,
+            reasons=reasons,
+        )
+        details = summarize_decision_explanation(
+            getattr(self, "_last_trade_decision_explanation", None),
+            fallback="CPU rejected the offer.",
+            max_reasons=3,
+        )
+        QMessageBox.information(
+            self,
+            "CPU Team Response",
+            f"{trade.to_team} rejected your trade offer.\n\n{details}",
+        )
+
+    def _handle_cpu_counter_response(self, trade: Trade, evaluation, *, reasons: list) -> None:
+        if not self.trade_settings.cpu_initiated_trades_enabled:
+            trade.status = "rejected"
+            reasons.append(
+                reason(
+                    "cpu_initiated_trades_disabled",
+                    "CPU-initiated trade offers are disabled by league settings.",
+                )
+            )
+            try:
+                save_trade(trade)
+            except RuntimeError as exc:
+                QMessageBox.warning(self, "Trade Failed", str(exc))
+                return
+            self._record_trade_decision(
+                trade,
+                outcome="rejected",
+                requested_action="cpu_auto_response",
+                actor="cpu",
+                actor_team_id=trade.to_team,
+                reasons=reasons,
+            )
+            details = summarize_decision_explanation(
+                getattr(self, "_last_trade_decision_explanation", None),
+                fallback="CPU rejected the offer.",
+                max_reasons=3,
+            )
+            QMessageBox.information(
+                self,
+                "CPU Team Response",
+                (
+                    f"{trade.to_team} rejected your trade offer.\n\n"
+                    f"{details}"
+                ),
+            )
+            return
+
+        counter_offer = getattr(evaluation, "counter_offer", None)
+        if not isinstance(counter_offer, dict):
+            trade.status = "rejected"
+            try:
+                save_trade(trade)
+            except RuntimeError as exc:
+                QMessageBox.warning(self, "Trade Failed", str(exc))
+                return
+            self._record_trade_decision(
+                trade,
+                outcome="rejected",
+                requested_action="cpu_auto_response",
+                actor="cpu",
+                actor_team_id=trade.to_team,
+                reasons=reasons,
+            )
+            QMessageBox.information(
+                self,
+                "CPU Team Response",
+                f"{trade.to_team} rejected your trade offer.",
+            )
+            return
+
+        counter_trade = self._build_cpu_counter_trade(trade, counter_offer)
+        if counter_trade is None:
+            trade.status = "rejected"
+            try:
+                save_trade(trade)
+            except RuntimeError as exc:
+                QMessageBox.warning(self, "Trade Failed", str(exc))
+                return
+            self._record_trade_decision(
+                trade,
+                outcome="rejected",
+                requested_action="cpu_auto_response",
+                actor="cpu",
+                actor_team_id=trade.to_team,
+                reasons=reasons,
+            )
+            QMessageBox.information(
+                self,
+                "CPU Team Response",
+                f"{trade.to_team} rejected your trade offer.",
+            )
+            return
+
+        trade.status = "rejected"
+        try:
+            save_trade(trade)
+            save_trade(counter_trade)
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "Trade Failed", str(exc))
+            return
+        self._record_trade_decision(
+            trade,
+            outcome="countered",
+            requested_action="cpu_auto_response_counter",
+            actor="cpu",
+            actor_team_id=trade.to_team,
+            reasons=reasons,
+        )
+        self._load_incoming_trades()
+        summary = self._summarize_counter_offer(counter_trade)
+        details = summarize_decision_explanation(
+            getattr(self, "_last_trade_decision_explanation", None),
+            fallback="CPU proposed a counter-offer.",
+            max_reasons=3,
+        )
+        QMessageBox.information(
+            self,
+            "CPU Counter Offer",
+            (
+                f"{trade.to_team} rejected your original offer and sent a counter-offer.\n\n"
+                f"{summary}\n\n{details}"
+            ),
+        )
+
+    def _build_cpu_counter_trade(self, trade: Trade, payload: dict) -> Trade | None:
+        incoming_player_ids = [
+            str(pid or "").strip()
+            for pid in payload.get("incoming_player_ids", [])
+            if str(pid or "").strip()
+        ]
+        outgoing_player_ids = [
+            str(pid or "").strip()
+            for pid in payload.get("outgoing_player_ids", [])
+            if str(pid or "").strip()
+        ]
+        incoming_pick_ids = [
+            str(pid or "").strip()
+            for pid in payload.get("incoming_pick_ids", [])
+            if str(pid or "").strip()
+        ]
+        outgoing_pick_ids = [
+            str(pid or "").strip()
+            for pid in payload.get("outgoing_pick_ids", [])
+            if str(pid or "").strip()
+        ]
+
+        if (not incoming_player_ids and not incoming_pick_ids) or (
+            not outgoing_player_ids and not outgoing_pick_ids
+        ):
+            return None
+
+        return Trade(
+            trade_id=uuid.uuid4().hex[:8],
+            from_team=str(trade.to_team or "").strip(),
+            to_team=str(trade.from_team or "").strip(),
+            give_player_ids=outgoing_player_ids,
+            receive_player_ids=incoming_player_ids,
+            give_pick_ids=outgoing_pick_ids,
+            receive_pick_ids=incoming_pick_ids,
+        )
+
+    def _summarize_counter_offer(self, counter_trade: Trade) -> str:
+        def _player_name(player_id: str) -> str:
+            player = self.players.get(player_id)
+            if player is None:
+                return player_id
+            first = str(getattr(player, "first_name", "") or "").strip()
+            last = str(getattr(player, "last_name", "") or "").strip()
+            full = f"{first} {last}".strip()
+            return full or player_id
+
+        cpu_assets: list[str] = []
+        owner_assets: list[str] = []
+        cpu_assets.extend(_player_name(pid) for pid in counter_trade.give_player_ids)
+        owner_assets.extend(_player_name(pid) for pid in counter_trade.receive_player_ids)
+        cpu_assets.extend(_safe_pick_label(pid) for pid in counter_trade.give_pick_ids)
+        owner_assets.extend(_safe_pick_label(pid) for pid in counter_trade.receive_pick_ids)
+        cpu_text = ", ".join(cpu_assets) if cpu_assets else "--"
+        owner_text = ", ".join(owner_assets) if owner_assets else "--"
+        return (
+            f"{counter_trade.from_team} sends: {cpu_text}\n"
+            f"{counter_trade.to_team} sends: {owner_text}"
+        )
 
     def _clear_new_trade_selection(self) -> None:
         self.give_list.clearSelection()
@@ -714,17 +1104,24 @@ class TradeDialog(QDialog):
         layout.addWidget(review_group)
 
         action_group = QGroupBox("Actions")
-        btn_row = QHBoxLayout()
+        btn_row = QVBoxLayout()
         btn_row.setContentsMargins(10, 8, 10, 8)
         btn_row.setSpacing(8)
+        action_panel = ActionButtonPanel(
+            min_columns=1,
+            max_columns=2,
+            target_button_width=190,
+            min_button_width=145,
+            max_button_width=210,
+        )
         self.accept_button = QPushButton("Accept")
         self.accept_button.setObjectName("Primary")
         self.reject_button = QPushButton("Reject")
         self.accept_button.clicked.connect(lambda: self._respond_to_trade(True))
         self.reject_button.clicked.connect(lambda: self._respond_to_trade(False))
-        btn_row.addWidget(self.accept_button)
-        btn_row.addWidget(self.reject_button)
-        btn_row.addStretch(1)
+        action_panel.add_button(self.accept_button)
+        action_panel.add_button(self.reject_button)
+        btn_row.addWidget(action_panel)
         action_group.setLayout(btn_row)
         layout.addWidget(action_group)
         layout.addStretch(1)
@@ -948,13 +1345,15 @@ class TradeDialog(QDialog):
         *,
         outcome: str,
         requested_action: str,
+        actor: str = "owner",
+        actor_team_id: str | None = None,
         reasons: list | None = None,
     ) -> None:
         payload = explanation(
             "trade_response",
             outcome,
-            actor="owner",
-            team_id=self.team_id,
+            actor=actor,
+            team_id=str(actor_team_id or self.team_id),
             subject_id=trade.trade_id,
             context={
                 "requested_action": requested_action,
@@ -1004,10 +1403,19 @@ class TradeDialog(QDialog):
             if self.trade_settings.draft_pick_trading_enabled
             else "disabled"
         )
+        cpu_initiated_state = (
+            "enabled"
+            if self.trade_settings.cpu_initiated_trades_enabled
+            else "disabled"
+        )
+        cadence = str(
+            getattr(self.trade_settings, "cpu_proposal_cadence", "normal") or "normal"
+        ).strip().lower()
         incoming_count = len(getattr(self, "trade_map", {}) or {})
         label.setText(
             f"Trading is {trades_state}. Draft pick trading is {picks_state}. "
-            f"Incoming offers: {incoming_count}."
+            f"CPU-initiated offers are {cpu_initiated_state} "
+            f"(proactive cadence: {cadence}). Incoming offers: {incoming_count}."
         )
         if not self.trade_settings.trades_enabled:
             apply_status(label, "warning")
@@ -1064,6 +1472,17 @@ class TradeDialog(QDialog):
 
         save_roster(trade.from_team, from_roster)
         save_roster(trade.to_team, to_roster)
+        data_dir = get_data_dir()
+        for team_id in (trade.from_team, trade.to_team):
+            try:
+                auto_reassign_team_if_enabled(
+                    team_id,
+                    players_file=data_dir / "players.csv",
+                    roster_dir=data_dir / "rosters",
+                    data_dir=data_dir,
+                )
+            except Exception:
+                pass
         try:
             transfer_contracts(
                 trade.give_player_ids,

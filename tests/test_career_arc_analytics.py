@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 
@@ -44,6 +45,112 @@ def _write_champions(path: Path, year: int, champion: str, runner_up: str) -> No
         ),
         encoding="utf-8",
     )
+
+
+def _write_players_csv(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    header = (
+        "player_id,first_name,last_name,birthdate,height,weight,ethnicity,skin_tone,hair_color,facial_hair,"
+        "bats,primary_position,other_positions,is_pitcher,role,preferred_pitching_role,ch,ph,sp,eye,gf,pl,vl,"
+        "sc,fa,arm,endurance,control,movement,hold_runner,fb,cu,cb,sl,si,scb,kn,pot_ch,pot_ph,pot_sp,pot_eye,"
+        "pot_gf,pot_pl,pot_vl,pot_sc,pot_fa,pot_arm,pot_control,pot_movement,pot_endurance,pot_hold_runner,"
+        "pot_fb,pot_cu,pot_cb,pot_sl,pot_si,pot_scb,pot_kn,injured,injury_description,return_date,ready,"
+        "injury_list,injury_start_date,injury_minimum_days,injury_eligible_date,injury_rehab_assignment,"
+        "injury_rehab_days,durability,pitcher_archetype,hitter_archetype"
+    )
+    fields = header.split(",")
+    default_row = {field: "" for field in fields}
+    batter = dict(default_row)
+    batter.update(
+        {
+            "player_id": "P1",
+            "first_name": "Alex",
+            "last_name": "Batter",
+            "birthdate": "2000-01-01",
+            "height": "72",
+            "weight": "190",
+            "ethnicity": "Anglo",
+            "skin_tone": "light",
+            "hair_color": "brown",
+            "facial_hair": "none",
+            "bats": "R",
+            "primary_position": "2B",
+            "is_pitcher": "0",
+            "gf": "52",
+            "ch": "64",
+            "ph": "61",
+            "sp": "57",
+            "eye": "55",
+            "pl": "50",
+            "vl": "50",
+            "sc": "50",
+            "fa": "58",
+            "arm": "54",
+            "pot_ch": "67",
+            "pot_ph": "63",
+            "pot_sp": "60",
+            "pot_eye": "57",
+            "pot_gf": "56",
+            "pot_fa": "60",
+            "pot_arm": "56",
+            "injured": "false",
+            "ready": "true",
+            "durability": "50",
+        }
+    )
+    pitcher = dict(default_row)
+    pitcher.update(
+        {
+            "player_id": "P2",
+            "first_name": "Pat",
+            "last_name": "Pitcher",
+            "birthdate": "1999-02-02",
+            "height": "74",
+            "weight": "210",
+            "ethnicity": "Anglo",
+            "skin_tone": "light",
+            "hair_color": "brown",
+            "facial_hair": "none",
+            "bats": "R",
+            "primary_position": "P",
+            "is_pitcher": "1",
+            "role": "SP",
+            "preferred_pitching_role": "SP",
+            "gf": "50",
+            "arm": "60",
+            "endurance": "72",
+            "control": "68",
+            "movement": "67",
+            "hold_runner": "58",
+            "fb": "70",
+            "cu": "55",
+            "cb": "53",
+            "sl": "52",
+            "si": "51",
+            "scb": "50",
+            "kn": "0",
+            "pot_arm": "75",
+            "pot_control": "70",
+            "pot_movement": "69",
+            "pot_endurance": "73",
+            "pot_hold_runner": "60",
+            "pot_fb": "72",
+            "pot_cu": "58",
+            "pot_cb": "56",
+            "pot_sl": "54",
+            "pot_si": "53",
+            "pot_scb": "52",
+            "pot_kn": "0",
+            "injured": "false",
+            "ready": "true",
+            "durability": "55",
+        }
+    )
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerow(batter)
+        writer.writerow(pitcher)
 
 
 def test_build_career_arc_analytics_outputs_yoy_trends_and_eras(monkeypatch, tmp_path):
@@ -94,6 +201,8 @@ def test_build_career_arc_analytics_outputs_yoy_trends_and_eras(monkeypatch, tmp
     yoy_rows = payload.get("yoy", [])
     trend_rows = payload.get("trends", [])
     era_rows = payload.get("team_eras", [])
+    assert "similarity" in payload
+    assert "aging_buckets" in payload
 
     assert len(yoy_rows) == 6
     t1_2025 = next(
@@ -119,3 +228,45 @@ def test_build_career_arc_analytics_outputs_yoy_trends_and_eras(monkeypatch, tmp
     )
     assert t1_era["wins"] == 182
     assert t1_era["championships"] == 2
+
+
+def test_build_career_arc_analytics_v2_similarity_and_filters(monkeypatch, tmp_path):
+    data_dir = _set_data_dir(monkeypatch, tmp_path)
+    _write_teams_csv(data_dir / "teams.csv")
+    _write_players_csv(data_dir / "players.csv")
+    (data_dir / "season_stats.json").write_text(
+        json.dumps(
+            {
+                "players": {
+                    "P1": {"ab": 300, "h": 90, "2b": 20, "3b": 2, "hr": 12, "bb": 30, "sb": 8},
+                    "P2": {"outs": 300, "er": 30, "bb": 20, "h": 90, "so": 110},
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "rosters").mkdir(parents=True, exist_ok=True)
+    (data_dir / "rosters" / "T1.csv").write_text("P1,ACT\nP2,ACT\n", encoding="utf-8")
+    _write_json(
+        data_dir / "career_index.json",
+        {
+            "version": 1,
+            "league": {"id": "test", "name": "Test League"},
+            "current": {"season_id": "test-2026", "league_year": 2026},
+            "seasons": [],
+        },
+    )
+
+    payload = build_career_arc_analytics(
+        data_dir=data_dir,
+        filters={"position_group": "hitter", "team_ids": ["T1"]},
+        target_player_id="P1",
+        similarity_top_n=3,
+    )
+
+    similarity = payload.get("similarity", [])
+    aging = payload.get("aging_buckets", [])
+    assert isinstance(similarity, list)
+    assert isinstance(aging, list)
+    assert payload.get("filters_applied")

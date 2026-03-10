@@ -26,6 +26,119 @@ def _call_if_exists(obj: Any, method: str, *args: Any, **kwargs: Any) -> None:
             pass
 
 
+def resolve_action_button_columns(
+    available_width: Optional[int],
+    *,
+    min_columns: int = 1,
+    max_columns: int = 3,
+    target_button_width: int = 220,
+    horizontal_gap: int = 14,
+) -> int:
+    """Resolve a reasonable action-grid column count for the available width."""
+
+    floor = max(1, int(min_columns))
+    ceiling = max(floor, int(max_columns))
+    if available_width is None or int(available_width) <= 0:
+        return floor
+
+    slot = max(1, int(target_button_width) + int(horizontal_gap))
+    columns = max(1, int(available_width) // slot)
+    return max(floor, min(ceiling, columns))
+
+
+class ActionButtonPanel(QWidget):
+    """Responsive multi-column container for dashboard action buttons."""
+
+    def __init__(
+        self,
+        *,
+        min_columns: int = 1,
+        max_columns: int = 3,
+        target_button_width: int = 220,
+        min_button_width: int = 160,
+        max_button_width: int = 260,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._buttons: list[QWidget] = []
+        self._min_columns = max(1, int(min_columns))
+        self._max_columns = max(self._min_columns, int(max_columns))
+        self._target_button_width = max(120, int(target_button_width))
+        self._min_button_width = max(100, int(min_button_width))
+        self._max_button_width = max(self._min_button_width, int(max_button_width))
+        self._columns = self._min_columns
+
+        layout = QGridLayout()
+        self._fallback_layout = layout
+        _call_if_exists(self, "setLayout", layout)
+        _call_if_exists(layout, "setContentsMargins", 0, 0, 0, 0)
+        _call_if_exists(layout, "setHorizontalSpacing", 12)
+        _call_if_exists(layout, "setVerticalSpacing", 10)
+
+    def add_button(self, button: QWidget) -> None:
+        self._buttons.append(button)
+        _call_if_exists(button, "setMinimumWidth", self._min_button_width)
+        _call_if_exists(button, "setMaximumWidth", self._max_button_width)
+        self.reflow()
+
+    def add_buttons(self, buttons: list[QWidget]) -> None:
+        for button in buttons:
+            self.add_button(button)
+
+    def reflow(self, available_width: Optional[int] = None) -> None:
+        layout = ensure_layout(self)
+        if available_width is None:
+            try:
+                width_method = getattr(self, "width", None)
+                available_width = int(width_method()) if callable(width_method) else None
+            except Exception:
+                available_width = None
+
+        self._columns = resolve_action_button_columns(
+            available_width,
+            min_columns=self._min_columns,
+            max_columns=self._max_columns,
+            target_button_width=self._target_button_width,
+        )
+        self._clear_layout(layout)
+        align_left = getattr(getattr(Qt, "AlignmentFlag", None), "AlignLeft", None)
+        for idx, button in enumerate(self._buttons):
+            row = idx // self._columns
+            col = idx % self._columns
+            if align_left is None:
+                _call_if_exists(layout, "addWidget", button, row, col)
+            else:
+                _call_if_exists(layout, "addWidget", button, row, col, align_left)
+            _call_if_exists(layout, "setColumnStretch", col, 0)
+        _call_if_exists(layout, "setColumnStretch", self._columns, 1)
+
+    def resizeEvent(self, event) -> None:  # pragma: no cover - UI behavior
+        self.reflow()
+        try:
+            super().resizeEvent(event)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _clear_layout(layout: Any) -> None:
+        count = getattr(layout, "count", None)
+        take_at = getattr(layout, "takeAt", None)
+        if not callable(count) or not callable(take_at):
+            return
+        while True:
+            try:
+                if int(count()) <= 0:
+                    return
+            except Exception:
+                return
+            try:
+                item = take_at(0)
+            except Exception:
+                return
+            if item is None:
+                return
+
+
 class NavButton(QToolButton):
     """Navigation button used in sidebars."""
 

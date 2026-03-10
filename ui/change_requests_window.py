@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QLineEdit,
 )
+from .components import ActionButtonPanel
 
 from services.change_requests import (
     approve_request,
@@ -110,15 +111,24 @@ class ChangeRequestsWindow(QDialog):
         self.note_edit.setMaximumHeight(90)
         side.addWidget(self.note_edit)
 
-        action_row = QHBoxLayout()
+        action_row = ActionButtonPanel(
+            min_columns=1,
+            max_columns=3,
+            target_button_width=210,
+            min_button_width=150,
+            max_button_width=240,
+        )
         self.approve_button = QPushButton("Approve + Apply", objectName="Primary")
         self.reject_button = QPushButton("Reject")
         self.close_button = QPushButton("Close")
-        action_row.addWidget(self.approve_button)
-        action_row.addWidget(self.reject_button)
-        action_row.addStretch(1)
-        action_row.addWidget(self.close_button)
-        layout.addLayout(action_row)
+        action_row.add_buttons(
+            [
+                self.approve_button,
+                self.reject_button,
+                self.close_button,
+            ]
+        )
+        layout.addWidget(action_row)
 
         self.import_button.clicked.connect(self._import_inbox)
         self.refresh_button.clicked.connect(self._refresh_requests)

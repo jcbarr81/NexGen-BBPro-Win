@@ -2,10 +2,12 @@ import csv
 import json
 from collections import Counter
 from datetime import date
+import bcrypt
 from playbalance.league_creator import create_league, _dict_to_model, _abbr
 from models.pitcher import Pitcher
 from playbalance.player_generator import reset_name_cache
 from utils.team_loader import load_teams
+from utils.user_manager import load_users
 import random
 import pytest
 
@@ -187,6 +189,36 @@ def test_create_league_clears_users_and_rosters(tmp_path, monkeypatch):
     assert users_file.exists()
     assert users_file.read_text() == "admin,pass,admin,\n"
     assert not stray.exists()
+
+
+def test_create_league_uses_bootstrap_admin_password(tmp_path, monkeypatch):
+    data_root = tmp_path / "data_root"
+    data_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("NEXGEN_DATA_DIR", str(data_root))
+
+    import utils.path_utils as path_utils
+    from utils.user_manager import save_admin_bootstrap
+
+    path_utils._DATA_DIR = None
+    path_utils._DATA_DIR_KEY = None
+    path_utils._DATA_ROOT = None
+    path_utils._DATA_ROOT_KEY = None
+
+    save_admin_bootstrap(
+        data_root=data_root,
+        password_plaintext="league-admin",
+        require_setup=False,
+    )
+
+    base_dir = tmp_path / "league"
+    divisions = {"East": [("CityA", "Cats")]}
+
+    create_league(str(base_dir), divisions, "Test League")
+
+    users_file = base_dir / "users.txt"
+    users = load_users(users_file)
+    admin = next(u for u in users if u["username"] == "admin")
+    assert bcrypt.checkpw(b"league-admin", admin["password"].encode())
 
 
 def test_create_league_purges_old_files_but_keeps_avatars(tmp_path):

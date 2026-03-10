@@ -1,6 +1,8 @@
 """Report export actions for the admin dashboard."""
 from __future__ import annotations
 
+import webbrowser
+from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer
@@ -14,6 +16,8 @@ from ..context import DashboardContext
 def export_reports_action(
     context: DashboardContext,
     parent: Optional[QWidget] = None,
+    *,
+    export_format: str = "html",
 ) -> None:
     """Export league history + analytics reports in the background."""
 
@@ -36,11 +40,20 @@ def export_reports_action(
 
     def worker() -> dict[str, object]:
         try:
-            result = export_reports()
+            normalized = str(export_format or "html").strip().lower()
+            if normalized not in {"html", "csv"}:
+                normalized = "html"
+            result = export_reports(
+                report_format=normalized,
+                include_csv=(normalized == "csv"),
+                include_pdf=(normalized == "csv"),
+            )
             return {
                 "status": "success",
                 "output_dir": str(result.output_dir),
                 "pdf_written": result.pdf_written,
+                "reports_index_html": str(result.files.get("reports_index_html", "") or ""),
+                "format": normalized,
             }
         except Exception as exc:
             return {"status": "error", "message": str(exc)}
@@ -61,8 +74,21 @@ def export_reports_action(
             return
         output_dir = payload.get("output_dir", "")
         pdf_written = bool(payload.get("pdf_written"))
+        reports_index_html = str(payload.get("reports_index_html", "") or "")
+        normalized = str(payload.get("format", "html") or "html")
         note = "PDF summary generated." if pdf_written else "PDF summary skipped."
-        message = f"Reports exported to:\n{output_dir}\n\n{note}"
+        if normalized == "html":
+            message = (
+                f"HTML reports exported to:\n{output_dir}\n\n"
+                f"Landing page:\n{reports_index_html or '(not generated)'}"
+            )
+        else:
+            message = f"CSV reports exported to:\n{output_dir}\n\n{note}"
+        if normalized == "html" and reports_index_html:
+            try:
+                webbrowser.open(Path(reports_index_html).resolve().as_uri())
+            except Exception:
+                pass
         if parent is not None:
             show_export_success_dialog(
                 parent=parent,
@@ -71,7 +97,10 @@ def export_reports_action(
                 export_path=str(output_dir),
             )
         if context.show_toast:
-            context.show_toast("success", "Reports exported.")
+            if normalized == "html":
+                context.show_toast("success", "HTML reports exported.")
+            else:
+                context.show_toast("success", "CSV reports exported.")
 
     future = context.run_async(worker)
 

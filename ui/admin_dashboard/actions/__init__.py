@@ -4,6 +4,7 @@ from .assets import (
     generate_player_avatars_action,
     generate_team_logos_action,
 )
+from .almanac import export_almanac_action
 from .league import create_league_action, reset_season_to_opening_day
 from .league_snapshot import export_league_snapshot_action
 from .reports import export_reports_action
@@ -20,6 +21,7 @@ __all__ = [
     "auto_reassign_rosters",
     "create_league_action",
     "edit_user_action",
+    "export_almanac_action",
     "export_league_snapshot_action",
     "export_reports_action",
     "generate_player_avatars_action",

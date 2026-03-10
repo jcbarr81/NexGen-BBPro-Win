@@ -3,6 +3,9 @@
 The Season Progress window controls the flow of the league through its phases
 and provides quick 'simulate to' actions for major milestones.
 
+- The window includes a single Season Timeline list for milestone visibility
+  without a separate timeline feed panel.
+
 - Current phases: PRESEASON -> REGULAR_SEASON -> AMATEUR_DRAFT -> PLAYOFFS -> OFFSEASON.
 - The big action button adapts to context:
   - Simulate to Midseason: available during the first half of the regular season.
@@ -20,4 +23,3 @@ Amateur Draft
   - Completion tracking in `season_progress.json` under `draft_completed_years`
 
 Tip: Use a non-empty seed in Draft Settings for reproducible pools and order.
-

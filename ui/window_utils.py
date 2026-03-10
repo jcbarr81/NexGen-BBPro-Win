@@ -5,6 +5,10 @@ from __future__ import annotations
 import weakref
 
 from PyQt6.QtCore import Qt
+try:
+    from PyQt6.QtWidgets import QMainWindow
+except Exception:  # pragma: no cover - headless test stubs
+    QMainWindow = None  # type: ignore[assignment]
 
 # Track windows that should follow the splash screen's top-most state
 _tracked_windows: "weakref.WeakSet" = weakref.WeakSet()
@@ -68,10 +72,44 @@ def show_on_top(window):
     If the window has an ``exec`` method (e.g. dialogs), it will be invoked and
     the result returned. Otherwise ``show`` is called.
     """
-    ensure_on_top(window)
     if hasattr(window, "exec"):
+        ensure_on_top(window)
         return window.exec()
-    window.show()
-    window.raise_()
-    window.activateWindow()
+
+    # Main application windows (dashboards) should not be forced top-most.
+    # Keeping WindowStaysOnTopHint on them can cause minimize/focus restore
+    # issues on Windows where the app appears to disappear or stall.
+    if _is_main_window(window):
+        try:
+            remove_on_top(window)
+        except Exception:
+            pass
+    else:
+        ensure_on_top(window)
+
+    try:
+        window.show()
+    except Exception:
+        pass
+    try:
+        window.raise_()
+    except Exception:
+        pass
+    try:
+        window.activateWindow()
+    except Exception:
+        pass
     return None
+
+
+def _is_main_window(window) -> bool:
+    """Best-effort check for QMainWindow-like instances."""
+
+    if QMainWindow is not None:
+        try:
+            if isinstance(window, QMainWindow):
+                return True
+        except Exception:
+            pass
+    cls_name = str(getattr(type(window), "__name__", "") or "").lower()
+    return cls_name.endswith("mainwindow")

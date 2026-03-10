@@ -23,6 +23,12 @@ from services.team_strategy_profiles import (
     load_team_strategy_settings,
     resolve_team_strategy_profile,
 )
+from services.team_auto_reassign_settings import (
+    DEFAULT_ENABLED as AUTO_REASSIGN_DEFAULT_ENABLED,
+    TeamAutoReassignPreference,
+    load_team_auto_reassign_settings,
+    resolve_team_auto_reassign,
+)
 from .park_selector_dialog import (
     ParkSelectorDialog,
     _load_latest_parks,
@@ -93,6 +99,18 @@ class TeamSettingsDialog(QDialog):
                 description=str(meta.get("description", "")),
                 source="league_default",
             )
+        try:
+            self._auto_reassign_settings = load_team_auto_reassign_settings()
+            self._resolved_auto_reassign = resolve_team_auto_reassign(
+                getattr(team, "team_id", None)
+            )
+        except Exception:
+            self._auto_reassign_settings = {"default_enabled": AUTO_REASSIGN_DEFAULT_ENABLED}
+            self._resolved_auto_reassign = TeamAutoReassignPreference(
+                team_id=str(getattr(team, "team_id", "") or "").strip(),
+                enabled=AUTO_REASSIGN_DEFAULT_ENABLED,
+                source="league_default",
+            )
 
         layout = QVBoxLayout()
 
@@ -157,6 +175,26 @@ class TeamSettingsDialog(QDialog):
         self.strategy_label.setWordWrap(True)
         layout.addWidget(self.strategy_label)
 
+        # Team auto-reassign profile
+        auto_reassign_row = QHBoxLayout()
+        auto_reassign_row.addWidget(QLabel("Roster Auto-Reassign:"))
+        self.auto_reassign_combo = QComboBox()
+        self.auto_reassign_combo.addItem("Use League Default", "")
+        self.auto_reassign_combo.addItem("Enabled", "enabled")
+        self.auto_reassign_combo.addItem("Disabled", "disabled")
+        if self._resolved_auto_reassign.source == "team_override":
+            selected = "enabled" if self._resolved_auto_reassign.enabled else "disabled"
+            idx = self.auto_reassign_combo.findData(selected)
+            self.auto_reassign_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        else:
+            self.auto_reassign_combo.setCurrentIndex(0)
+        auto_reassign_row.addWidget(self.auto_reassign_combo)
+        layout.addLayout(auto_reassign_row)
+
+        self.auto_reassign_label = QLabel()
+        self.auto_reassign_label.setWordWrap(True)
+        layout.addWidget(self.auto_reassign_label)
+
         # Live visual previews
         preview_row = QHBoxLayout()
         stadium_col = QVBoxLayout()
@@ -206,9 +244,13 @@ class TeamSettingsDialog(QDialog):
         self.primary_edit.textChanged.connect(self._update_uniform_preview)
         self.secondary_edit.textChanged.connect(self._update_uniform_preview)
         self.strategy_combo.currentIndexChanged.connect(self._update_strategy_label)
+        self.auto_reassign_combo.currentIndexChanged.connect(
+            self._update_auto_reassign_label
+        )
         self._on_stadium_changed(self.stadium_combo.currentText())
         self._update_uniform_preview()
         self._update_strategy_label()
+        self._update_auto_reassign_label()
 
     def choose_color(self, edit):
         """Open a color dialog and set the selected color on the given line edit."""
@@ -228,6 +270,7 @@ class TeamSettingsDialog(QDialog):
             "secondary_color": secondary if self.secondary_edit.hasAcceptableInput() else "",
             "stadium": self.stadium_combo.currentText(),
             "strategy_profile_override": str(self.strategy_combo.currentData() or ""),
+            "auto_reassign_override": str(self.auto_reassign_combo.currentData() or ""),
         }
 
     def _open_park_selector(self):
@@ -271,6 +314,40 @@ class TeamSettingsDialog(QDialog):
         default_label = self._strategy_default_label()
         self.strategy_label.setText(
             f"Effective strategy: {label} ({source}). League default: {default_label}. {description}"
+        )
+
+    def _auto_reassign_default_label(self) -> str:
+        enabled = bool(
+            self._auto_reassign_settings.get(
+                "default_enabled",
+                AUTO_REASSIGN_DEFAULT_ENABLED,
+            )
+        )
+        return "Enabled" if enabled else "Disabled"
+
+    def _update_auto_reassign_label(self) -> None:
+        selected = str(self.auto_reassign_combo.currentData() or "").strip().lower()
+        if selected == "enabled":
+            enabled = True
+            source = "Team Override"
+        elif selected == "disabled":
+            enabled = False
+            source = "Team Override"
+        else:
+            enabled = bool(
+                self._auto_reassign_settings.get(
+                    "default_enabled",
+                    AUTO_REASSIGN_DEFAULT_ENABLED,
+                )
+            )
+            source = "League Default"
+        effective = "Enabled" if enabled else "Disabled"
+        default_label = self._auto_reassign_default_label()
+        self.auto_reassign_label.setText(
+            "Effective auto-reassign: "
+            f"{effective} ({source}). League default: {default_label}. "
+            "When enabled, the game auto-balances ACT/AAA/LOW after injury, "
+            "promotion, and transaction roster updates."
         )
 
     def _park_preview_path(self, park: Any) -> Optional[Path]:

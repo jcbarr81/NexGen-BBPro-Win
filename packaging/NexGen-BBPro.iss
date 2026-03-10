@@ -3,9 +3,9 @@
 [Setup]
 AppId={{1e5875ae-6b82-4c87-8172-ceafc7d08661}}
 AppName=NexGen BBPro
-AppVersion=5.2.0
+AppVersion=5.2.31
 AppPublisher=NexGen BBPro
-DefaultDirName={pf}\NexGen-BBPro
+DefaultDirName={commonpf}\NexGen-BBPro
 DefaultGroupName=NexGen BBPro
 UninstallDisplayIcon={app}\NexGen-BBPro.exe
 SetupIconFile=NexGen-BBPro.ico
@@ -42,12 +42,80 @@ Filename: "{app}\NexGen-BBPro.exe"; Description: "Launch NexGen BBPro"; Flags: n
 Filename: "{app}\_internal\docs\manuals\game_manual_installer.html"; Description: "Open the game manual"; Flags: postinstall shellexec skipifsilent skipifdoesntexist unchecked
 
 [Code]
+const
+  CR_CHAR = #13;
+  LF_CHAR = #10;
+  TAB_CHAR = #9;
+
 var
   ExistingUninstallString: string;
   ExistingInstallDir: string;
   InstallModeResolved: Boolean;
   CleanReinstallSelected: Boolean;
   CleanReinstallCompleted: Boolean;
+  AdminPasswordPage: TInputQueryWizardPage;
+
+function JsonEscape(const Value: string): string;
+var
+  I: Integer;
+  Ch: Char;
+begin
+  Result := '';
+  for I := 1 to Length(Value) do
+  begin
+    Ch := Value[I];
+    case Ch of
+      '"': Result := Result + '\"';
+      '\': Result := Result + '\\';
+      CR_CHAR: Result := Result + '\r';
+      LF_CHAR: Result := Result + '\n';
+      TAB_CHAR: Result := Result + '\t';
+    else
+      Result := Result + Ch;
+    end;
+  end;
+end;
+
+procedure WriteAdminBootstrapToPath(const TargetPath, PasswordValue: string; const RequireSetup: Boolean);
+var
+  Payload: string;
+begin
+  if RequireSetup then
+    Payload := '{' + #13#10 +
+      '  "require_setup": true' + #13#10 +
+      '}'
+  else
+    Payload := '{' + #13#10 +
+      '  "password": "' + JsonEscape(PasswordValue) + '",' + #13#10 +
+      '  "require_setup": false' + #13#10 +
+      '}';
+  SaveStringToFile(TargetPath, Payload, False);
+end;
+
+procedure WriteAdminBootstrapFiles();
+var
+  PasswordValue: string;
+  RequireSetup: Boolean;
+begin
+  RequireSetup := WizardSilent or (AdminPasswordPage = nil);
+  PasswordValue := '';
+  if not RequireSetup then
+    PasswordValue := Trim(AdminPasswordPage.Values[0]);
+
+  if (not RequireSetup) and (PasswordValue = '') then
+    RequireSetup := True;
+
+  WriteAdminBootstrapToPath(
+    ExpandConstant('{app}\_internal\data\admin_bootstrap.json'),
+    PasswordValue,
+    RequireSetup
+  );
+  WriteAdminBootstrapToPath(
+    ExpandConstant('{app}\data\admin_bootstrap.json'),
+    PasswordValue,
+    RequireSetup
+  );
+end;
 
 function TrimQuotes(const Value: string): string;
 begin
@@ -376,8 +444,32 @@ begin
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  PasswordValue: string;
+  ConfirmValue: string;
 begin
   Result := True;
+  if (AdminPasswordPage <> nil) and (CurPageID = AdminPasswordPage.ID) and (not WizardSilent) then
+  begin
+    PasswordValue := Trim(AdminPasswordPage.Values[0]);
+    ConfirmValue := Trim(AdminPasswordPage.Values[1]);
+    if PasswordValue = '' then
+    begin
+      MsgBox(
+        'Administrator password is required for interactive installs.',
+        mbError,
+        MB_OK
+      );
+      Result := False;
+      Exit;
+    end;
+    if PasswordValue <> ConfirmValue then
+    begin
+      MsgBox('Administrator passwords do not match.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+  end;
   if CurPageID = wpReady then
     Result := PromptInstallModeIfNeeded();
 end;
@@ -401,21 +493,34 @@ begin
   InstallModeResolved := False;
   CleanReinstallSelected := False;
   CleanReinstallCompleted := False;
+  AdminPasswordPage := CreateInputQueryPage(
+    wpSelectDir,
+    'Administrator Password',
+    'Set the initial administrator password.',
+    'This password seeds fresh installs and newly created leagues. Silent installs will require first-run setup instead.'
+  );
+  AdminPasswordPage.Add('Administrator password:', True);
+  AdminPasswordPage.Add('Confirm administrator password:', True);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if CurStep <> ssInstall then
-    Exit;
-  if CleanReinstallCompleted then
-    Exit;
-  if not CleanReinstallSelected then
-    Exit;
+  if CurStep = ssInstall then
+  begin
+    if CleanReinstallCompleted then
+      Exit;
+    if not CleanReinstallSelected then
+      Exit;
 
-  if not RunExistingUninstaller() then
-    Abort;
+    if not RunExistingUninstaller() then
+      Abort;
 
-  CleanReinstallCompleted := True;
+    CleanReinstallCompleted := True;
+    Exit;
+  end;
+
+  if CurStep = ssPostInstall then
+    WriteAdminBootstrapFiles();
 end;
 
 

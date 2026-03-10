@@ -27,3 +27,210 @@
 [2026-03-01 23:20:57] Generated regular season schedule with 162 games
 [2026-03-01 23:20:57] Generated regular season schedule with 162 games
 [2026-03-01 23:20:58] No unsigned players available.
+[2026-03-02 19:49:08] [progress] Simulated a regular season day; 1 days until Midseason
+[2026-03-02 19:49:11] [progress] Simulated a regular season day; 2 days until Season End
+[2026-03-02 19:49:13] [progress] Simulated a regular season day; 1 days until Season End
+[2026-03-02 19:49:15] [progress] Simulated a regular season day; regular season complete
+[2026-03-02 19:49:20] [progress] Simulated week; 3 days until Midseason
+[2026-03-02 19:49:25] [progress] Simulated week; 3 days until Season End
+[2026-03-02 19:49:30] [progress] Simulated week; regular season complete
+[2026-03-02 19:49:46] [progress] Simulated month; 10 days until Season End
+[2026-03-02 19:49:49] [progress] Simulated month; regular season complete
+[2026-03-02 19:49:55] [progress] Simulated draft; regular season complete
+[2026-03-02 19:50:02] [progress] Simulated draft; 3 days until Season End
+[2026-03-02 19:50:07] [progress] Simulated regular season; regular season complete
+[2026-03-02 19:50:10] [progress] Simulated draft; 1 days until Season End
+[2026-03-02 19:50:10] Simulated playoffs; championship decided. Champion: A1
+[2026-03-02 19:50:10] Season advanced to Preseason
+[2026-03-02 19:50:10] No unsigned players available.
+[2026-03-02 19:50:10] Training camp completed. Players marked ready—review highlights in the Admin timeline.
+[2026-03-02 19:50:10] Generated regular season schedule with 162 games
+[2026-03-02 19:50:11] Generated regular season schedule with 162 games
+[2026-03-02 19:50:11] No unsigned players available.
+[2026-03-02 19:55:15] [progress] Simulated a regular season day; 1 days until Midseason
+[2026-03-02 19:55:17] [progress] Simulated a regular season day; 2 days until Season End
+[2026-03-02 19:55:19] [progress] Simulated a regular season day; 1 days until Season End
+[2026-03-02 19:55:21] [progress] Simulated a regular season day; regular season complete
+[2026-03-02 19:55:25] [progress] Simulated week; 3 days until Midseason
+[2026-03-02 19:55:29] [progress] Simulated week; 3 days until Season End
+[2026-03-02 19:55:34] [progress] Simulated week; regular season complete
+[2026-03-02 19:55:48] [progress] Simulated month; 10 days until Season End
+[2026-03-02 19:55:50] [progress] Simulated month; regular season complete
+[2026-03-02 19:55:55] [progress] Simulated draft; regular season complete
+[2026-03-02 19:56:01] [progress] Simulated draft; 3 days until Season End
+[2026-03-02 19:56:05] [progress] Simulated regular season; regular season complete
+[2026-03-02 19:56:08] [progress] Simulated draft; 1 days until Season End
+[2026-03-02 19:56:08] Simulated playoffs; championship decided. Champion: A1
+[2026-03-02 19:56:08] Season advanced to Preseason
+[2026-03-02 19:56:08] No unsigned players available.
+[2026-03-02 19:56:08] Training camp completed. Players marked ready—review highlights in the Admin timeline.
+[2026-03-02 19:56:09] Generated regular season schedule with 162 games
+[2026-03-02 19:56:09] Generated regular season schedule with 162 games
+[2026-03-02 19:56:09] No unsigned players available.
+[2026-03-02 19:56:42] [progress] Simulated a regular season day; 1 days until Midseason
+[2026-03-02 19:56:44] [progress] Simulated a regular season day; 2 days until Season End
+[2026-03-02 19:56:46] [progress] Simulated a regular season day; 1 days until Season End
+[2026-03-02 19:56:48] [progress] Simulated a regular season day; regular season complete
+[2026-03-02 19:56:52] [progress] Simulated week; 3 days until Midseason
+[2026-03-02 19:56:56] [progress] Simulated week; 3 days until Season End
+[2026-03-02 19:57:00] [progress] Simulated week; regular season complete
+[2026-03-02 19:57:15] [progress] Simulated month; 10 days until Season End
+[2026-03-02 19:57:16] [progress] Simulated month; regular season complete
+[2026-03-02 19:57:22] [progress] Simulated draft; regular season complete
+[2026-03-02 19:57:28] [progress] Simulated draft; 3 days until Season End
+[2026-03-02 19:57:32] [progress] Simulated regular season; regular season complete
+[2026-03-02 19:57:35] [progress] Simulated draft; 1 days until Season End
+[2026-03-02 19:57:35] Simulated playoffs; championship decided. Champion: A1
+[2026-03-02 19:57:35] Season advanced to Preseason
+[2026-03-02 19:57:35] No unsigned players available.
+[2026-03-02 19:57:35] Training camp completed. Players marked ready—review highlights in the Admin timeline.
+[2026-03-02 19:57:35] Generated regular season schedule with 162 games
+[2026-03-02 19:57:35] Generated regular season schedule with 162 games
+[2026-03-02 19:57:35] No unsigned players available.
+[2026-03-03 09:49:55] Simulated playoffs; championship decided. Champion: A1
+[2026-03-03 09:49:55] Season advanced to Preseason
+[2026-03-03 09:49:55] No unsigned players available.
+[2026-03-03 09:49:55] Training camp completed. Players marked ready—review highlights in the Admin timeline.
+[2026-03-03 09:49:55] Generated regular season schedule with 162 games
+[2026-03-03 09:49:55] Generated regular season schedule with 162 games
+[2026-03-03 09:49:55] No unsigned players available.
+[2026-03-03 09:53:16] [progress] Simulated a regular season day; 1 days until Midseason
+[2026-03-03 09:53:18] [progress] Simulated a regular season day; 2 days until Season End
+[2026-03-03 09:53:20] [progress] Simulated a regular season day; 1 days until Season End
+[2026-03-03 09:53:22] [progress] Simulated a regular season day; regular season complete
+[2026-03-03 09:53:26] [progress] Simulated week; 3 days until Midseason
+[2026-03-03 09:53:31] [progress] Simulated week; 3 days until Season End
+[2026-03-03 09:53:35] [progress] Simulated week; regular season complete
+[2026-03-03 09:53:49] [progress] Simulated month; 10 days until Season End
+[2026-03-03 09:53:51] [progress] Simulated month; regular season complete
+[2026-03-03 09:53:57] [progress] Simulated draft; regular season complete
+[2026-03-03 09:54:02] [progress] Simulated draft; 3 days until Season End
+[2026-03-03 09:54:07] [progress] Simulated regular season; regular season complete
+[2026-03-03 09:54:10] [progress] Simulated draft; 1 days until Season End
+[2026-03-03 09:54:10] Simulated playoffs; championship decided. Champion: A1
+[2026-03-03 09:54:10] Season advanced to Preseason
+[2026-03-03 09:54:10] No unsigned players available.
+[2026-03-03 09:54:10] Training camp completed. Players marked ready—review highlights in the Admin timeline.
+[2026-03-03 09:54:10] Generated regular season schedule with 162 games
+[2026-03-03 09:54:10] Generated regular season schedule with 162 games
+[2026-03-03 09:54:10] No unsigned players available.
+[2026-03-03 09:54:19] [progress] Simulated a regular season day; 1 days until Midseason
+[2026-03-03 09:54:21] [progress] Simulated a regular season day; 2 days until Season End
+[2026-03-03 09:54:23] [progress] Simulated a regular season day; 1 days until Season End
+[2026-03-03 09:54:25] [progress] Simulated a regular season day; regular season complete
+[2026-03-03 09:54:29] [progress] Simulated week; 3 days until Midseason
+[2026-03-03 09:54:33] [progress] Simulated week; 3 days until Season End
+[2026-03-03 09:54:38] [progress] Simulated week; regular season complete
+[2026-03-03 09:54:52] [progress] Simulated month; 10 days until Season End
+[2026-03-03 09:54:54] [progress] Simulated month; regular season complete
+[2026-03-03 09:55:00] [progress] Simulated draft; regular season complete
+[2026-03-03 09:55:05] [progress] Simulated draft; 3 days until Season End
+[2026-03-03 09:55:10] [progress] Simulated regular season; regular season complete
+[2026-03-03 09:55:12] [progress] Simulated draft; 1 days until Season End
+[2026-03-03 09:55:13] Simulated playoffs; championship decided. Champion: A1
+[2026-03-03 09:55:13] Season advanced to Preseason
+[2026-03-03 09:55:13] No unsigned players available.
+[2026-03-03 09:55:13] Training camp completed. Players marked ready—review highlights in the Admin timeline.
+[2026-03-03 09:55:13] Generated regular season schedule with 162 games
+[2026-03-03 09:55:13] Generated regular season schedule with 162 games
+[2026-03-03 09:55:13] No unsigned players available.
+[2026-03-03 10:01:22] [progress] Simulated a regular season day; 1 days until Midseason
+[2026-03-03 10:01:24] [progress] Simulated a regular season day; 2 days until Season End
+[2026-03-03 10:01:26] [progress] Simulated a regular season day; 1 days until Season End
+[2026-03-03 10:01:28] [progress] Simulated a regular season day; regular season complete
+[2026-03-03 10:01:32] [progress] Simulated week; 3 days until Midseason
+[2026-03-03 10:01:36] [progress] Simulated week; 3 days until Season End
+[2026-03-03 10:01:41] [progress] Simulated week; regular season complete
+[2026-03-03 10:01:55] [progress] Simulated month; 10 days until Season End
+[2026-03-03 10:01:57] [progress] Simulated month; regular season complete
+[2026-03-03 10:02:02] [progress] Simulated draft; regular season complete
+[2026-03-03 10:02:08] [progress] Simulated draft; 3 days until Season End
+[2026-03-03 10:02:12] [progress] Simulated regular season; regular season complete
+[2026-03-03 10:02:15] [progress] Simulated draft; 1 days until Season End
+[2026-03-03 10:02:15] Simulated playoffs; championship decided. Champion: A1
+[2026-03-03 10:02:15] Season advanced to Preseason
+[2026-03-03 10:02:15] No unsigned players available.
+[2026-03-03 10:02:15] Training camp completed. Players marked ready—review highlights in the Admin timeline.
+[2026-03-03 10:02:16] Generated regular season schedule with 162 games
+[2026-03-03 10:02:16] Generated regular season schedule with 162 games
+[2026-03-03 10:02:16] No unsigned players available.
+[2026-03-03 10:02:59] [progress] Simulated a regular season day; 1 days until Midseason
+[2026-03-03 10:03:01] [progress] Simulated a regular season day; 2 days until Season End
+[2026-03-03 10:03:03] [progress] Simulated a regular season day; 1 days until Season End
+[2026-03-03 10:03:05] [progress] Simulated a regular season day; regular season complete
+[2026-03-03 10:03:09] [progress] Simulated week; 3 days until Midseason
+[2026-03-03 10:03:13] [progress] Simulated week; 3 days until Season End
+[2026-03-03 10:03:18] [progress] Simulated week; regular season complete
+[2026-03-03 10:03:32] [progress] Simulated month; 10 days until Season End
+[2026-03-03 10:03:34] [progress] Simulated month; regular season complete
+[2026-03-03 10:03:39] [progress] Simulated draft; regular season complete
+[2026-03-03 10:03:45] [progress] Simulated draft; 3 days until Season End
+[2026-03-03 10:03:50] [progress] Simulated regular season; regular season complete
+[2026-03-03 10:03:52] [progress] Simulated draft; 1 days until Season End
+[2026-03-03 10:03:53] Simulated playoffs; championship decided. Champion: A1
+[2026-03-03 10:03:53] Season advanced to Preseason
+[2026-03-03 10:03:53] No unsigned players available.
+[2026-03-03 10:03:53] Training camp completed. Players marked ready—review highlights in the Admin timeline.
+[2026-03-03 10:03:53] Generated regular season schedule with 162 games
+[2026-03-03 10:03:53] Generated regular season schedule with 162 games
+[2026-03-03 10:03:53] No unsigned players available.
+[2026-03-03 13:27:59] [progress] Simulated a regular season day; 1 days until Midseason
+[2026-03-03 13:28:01] [progress] Simulated a regular season day; 2 days until Season End
+[2026-03-03 13:28:02] [progress] Simulated a regular season day; 1 days until Season End
+[2026-03-03 13:28:04] [progress] Simulated a regular season day; regular season complete
+[2026-03-03 13:28:09] [progress] Simulated week; 3 days until Midseason
+[2026-03-03 13:28:13] [progress] Simulated week; 3 days until Season End
+[2026-03-03 13:28:17] [progress] Simulated week; regular season complete
+[2026-03-03 13:28:31] [progress] Simulated month; 10 days until Season End
+[2026-03-03 13:28:33] [progress] Simulated month; regular season complete
+[2026-03-03 13:28:39] [progress] Simulated draft; regular season complete
+[2026-03-03 13:28:45] [progress] Simulated draft; 3 days until Season End
+[2026-03-03 13:28:49] [progress] Simulated regular season; regular season complete
+[2026-03-03 13:28:52] [progress] Simulated draft; 1 days until Season End
+[2026-03-03 13:28:52] Simulated playoffs; championship decided. Champion: A1
+[2026-03-03 13:28:52] Season advanced to Preseason
+[2026-03-03 13:28:53] No unsigned players available.
+[2026-03-03 13:28:53] Training camp completed. Players marked ready—review highlights in the Admin timeline.
+[2026-03-03 13:28:53] Generated regular season schedule with 162 games
+[2026-03-03 13:28:53] Generated regular season schedule with 162 games
+[2026-03-03 13:28:53] No unsigned players available.
+[2026-03-08 15:38:29] [progress] Simulated a regular season day; 1 days until Midseason
+[2026-03-08 15:38:31] [progress] Simulated a regular season day; 2 days until Season End
+[2026-03-08 15:38:33] [progress] Simulated a regular season day; 1 days until Season End
+[2026-03-08 15:38:35] [progress] Simulated a regular season day; regular season complete
+[2026-03-08 15:38:39] [progress] Simulated week; 3 days until Midseason
+[2026-03-08 15:38:43] [progress] Simulated week; 3 days until Season End
+[2026-03-08 15:38:48] [progress] Simulated week; regular season complete
+[2026-03-08 15:39:02] [progress] Simulated month; 10 days until Season End
+[2026-03-08 15:39:04] [progress] Simulated month; regular season complete
+[2026-03-08 15:39:10] [progress] Simulated draft; regular season complete
+[2026-03-08 15:39:15] [progress] Simulated draft; 3 days until Season End
+[2026-03-08 15:39:20] [progress] Simulated regular season; regular season complete
+[2026-03-08 15:39:23] [progress] Simulated draft; 1 days until Season End
+[2026-03-08 15:39:23] Simulated playoffs; championship decided. Champion: A1
+[2026-03-08 15:39:23] Season advanced to Preseason
+[2026-03-08 15:39:23] No unsigned players available.
+[2026-03-08 15:39:23] Training camp completed. Players marked ready—review highlights in the Admin timeline.
+[2026-03-08 15:39:23] Generated regular season schedule with 162 games
+[2026-03-08 15:39:23] Generated regular season schedule with 162 games
+[2026-03-08 15:39:23] No unsigned players available.
+[2026-03-08 15:39:33] [progress] Simulated a regular season day; 1 days until Midseason
+[2026-03-08 15:39:35] [progress] Simulated a regular season day; 2 days until Season End
+[2026-03-08 15:39:37] [progress] Simulated a regular season day; 1 days until Season End
+[2026-03-08 15:39:39] [progress] Simulated a regular season day; regular season complete
+[2026-03-08 15:39:43] [progress] Simulated week; 3 days until Midseason
+[2026-03-08 15:39:47] [progress] Simulated week; 3 days until Season End
+[2026-03-08 15:39:52] [progress] Simulated week; regular season complete
+[2026-03-08 15:40:06] [progress] Simulated month; 10 days until Season End
+[2026-03-08 15:40:08] [progress] Simulated month; regular season complete
+[2026-03-08 15:40:13] [progress] Simulated draft; regular season complete
+[2026-03-08 15:40:19] [progress] Simulated draft; 3 days until Season End
+[2026-03-08 15:40:24] [progress] Simulated regular season; regular season complete
+[2026-03-08 15:40:26] [progress] Simulated draft; 1 days until Season End
+[2026-03-08 15:40:26] Simulated playoffs; championship decided. Champion: A1
+[2026-03-08 15:40:27] Season advanced to Preseason
+[2026-03-08 15:40:27] No unsigned players available.
+[2026-03-08 15:40:27] Training camp completed. Players marked ready—review highlights in the Admin timeline.
+[2026-03-08 15:40:27] Generated regular season schedule with 162 games
+[2026-03-08 15:40:27] Generated regular season schedule with 162 games
+[2026-03-08 15:40:27] No unsigned players available.

@@ -1,5 +1,5 @@
 {
-  "data_root": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_goyqfwtl\\data",
+  "data_root": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_7q8n_s2c\\data",
   "passed": 5,
   "failed": 0,
   "results": [
@@ -46,8 +46,8 @@
       "check": "snapshot_export_isolation",
       "status": "PASS",
       "details": {
-        "alpha_snapshot": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_goyqfwtl\\exports\\alpha\\league_snapshot_20260302_181410.zip",
-        "beta_snapshot": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_goyqfwtl\\exports\\beta\\league_snapshot_20260302_181410.zip",
+        "alpha_snapshot": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_7q8n_s2c\\exports\\alpha\\league_snapshot_20260310_012832.zip",
+        "beta_snapshot": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_7q8n_s2c\\exports\\beta\\league_snapshot_20260310_012832.zip",
         "alpha_manifest_league": "alpha",
         "beta_manifest_league": "beta",
         "alpha_marker": "Alpha",

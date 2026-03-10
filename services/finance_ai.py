@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 import json
 from pathlib import Path
 import random
@@ -59,6 +60,7 @@ class TeamFinanceStrategy:
     annual_payroll: int
     next_year_commitment: int = 0
     two_year_commitment: int = 0
+    raw_strategy_profile: str = "balanced"
 
 
 @dataclass(frozen=True)
@@ -123,6 +125,7 @@ def load_team_finance_strategies(
             projected_net = _safe_int(getattr(projection, "projected_net", 0), fallback=0)
         win_pct = _win_pct(standings.get(team_id))
         profile = _resolve_profile(win_pct, cash_on_hand=cash_on_hand, debt=debt, projected_net=projected_net)
+        raw_strategy_profile = "balanced"
         has_team_override = str(team_id or "").strip().upper() in override_team_ids
         if has_team_override or strategy_default != "balanced":
             try:
@@ -130,7 +133,8 @@ def load_team_finance_strategies(
                     team_id,
                     data_dir=resolved_data_dir,
                 )
-                profile = to_finance_strategy_profile(resolved_profile.profile)
+                raw_strategy_profile = str(getattr(resolved_profile, "profile", "balanced") or "balanced")
+                profile = to_finance_strategy_profile(raw_strategy_profile)
             except Exception:
                 pass
         budget_tone = _resolve_budget_tone(
@@ -141,6 +145,7 @@ def load_team_finance_strategies(
         strategies[team_id] = TeamFinanceStrategy(
             team_id=team_id,
             profile=profile,
+            raw_strategy_profile=raw_strategy_profile,
             budget_tone=budget_tone,
             win_pct=win_pct,
             cash_on_hand=cash_on_hand,
@@ -384,6 +389,16 @@ def build_cpu_free_agent_bid_book(
         if not team_id or not _is_cpu_team(team):
             continue
         strategy = strategy_map.get(team_id)
+        raw_strategy_profile = _raw_strategy_profile(strategy)
+        fit_score = _strategy_fit_score(player, raw_strategy_profile=raw_strategy_profile)
+        if not _strategy_profile_accepts_player(
+            player,
+            raw_strategy_profile=raw_strategy_profile,
+            fit_score=fit_score,
+            player_quality=player_quality,
+            fa_star_quality_threshold=fa_star_quality_threshold,
+        ):
+            continue
         if not _should_submit_bid(
             strategy,
             ask_salary=ask_salary,
@@ -395,6 +410,9 @@ def build_cpu_free_agent_bid_book(
             strategy,
             ai_level=level,
         )
+        fit_adjust = (fit_score - 0.5) * 0.24
+        low_mul = max(0.45, low_mul + (fit_adjust * 0.60))
+        high_mul = max(low_mul, high_mul + fit_adjust)
         if (
             strategy is not None
             and strategy.profile == PROFILE_CONTEND
@@ -529,6 +547,121 @@ def _free_agent_quality_score(player: object) -> int:
     if not values:
         return 60
     return max(20, min(95, int(round(sum(values) / len(values)))))
+
+
+def _raw_strategy_profile(strategy: TeamFinanceStrategy | None) -> str:
+    if strategy is None:
+        return "balanced"
+    token = str(strategy.raw_strategy_profile or "").strip().lower()
+    if token in {
+        "balanced",
+        "win_now",
+        "development_focus",
+        "defense_first",
+        "power_offense",
+    }:
+        return token
+    return "balanced"
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
+def _norm_rating(value: object) -> float:
+    return _clamp01(float(_safe_int(value, fallback=0)) / 99.0)
+
+
+def _player_age_years(player: object) -> int | None:
+    birthdate = str(getattr(player, "birthdate", "") or "").strip()
+    if not birthdate:
+        return None
+    token = birthdate.split("T", 1)[0]
+    try:
+        born = date.fromisoformat(token)
+    except ValueError:
+        return None
+    today = date.today()
+    return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+
+
+def _strategy_fit_score(player: object, *, raw_strategy_profile: str) -> float:
+    profile = str(raw_strategy_profile or "balanced").strip().lower()
+    if profile == "balanced":
+        return 0.5
+
+    is_pitcher = bool(getattr(player, "is_pitcher", False)) or str(
+        getattr(player, "primary_position", "") or ""
+    ).strip().upper() == "P"
+    age = _player_age_years(player)
+    youth = 0.0 if age is None else _clamp01(float(28 - age) / 10.0)
+    veteran = 0.0 if age is None else _clamp01(float(age - 24) / 10.0)
+
+    if is_pitcher:
+        arm = _norm_rating(getattr(player, "arm", getattr(player, "fb", 0)))
+        control = _norm_rating(getattr(player, "control", 0))
+        movement = _norm_rating(getattr(player, "movement", 0))
+        endurance = _norm_rating(getattr(player, "endurance", 0))
+        hold = _norm_rating(getattr(player, "hold_runner", 0))
+        if profile == "win_now":
+            return _clamp01(
+                (1.3 * control + 1.2 * movement + 0.8 * endurance + 0.5 * veteran)
+                / 3.8
+            )
+        if profile == "development_focus":
+            return _clamp01((1.2 * arm + 0.9 * control + 0.7 * movement + 0.9 * youth) / 3.7)
+        if profile == "defense_first":
+            return _clamp01((1.5 * control + 1.4 * movement + 1.0 * hold + 0.5 * endurance) / 4.4)
+        if profile == "power_offense":
+            return _clamp01((1.4 * arm + 1.0 * movement + 0.8 * endurance + 0.4 * veteran) / 3.6)
+        return 0.5
+
+    ch = _norm_rating(getattr(player, "ch", 0))
+    ph = _norm_rating(getattr(player, "ph", 0))
+    sp = _norm_rating(getattr(player, "sp", 0))
+    eye = _norm_rating(getattr(player, "eye", 0))
+    fa = _norm_rating(getattr(player, "fa", 0))
+    arm = _norm_rating(getattr(player, "arm", 0))
+    gf = _norm_rating(getattr(player, "gf", 0))
+    if profile == "win_now":
+        return _clamp01((1.2 * ch + 1.1 * ph + 0.9 * eye + 0.7 * fa + 0.5 * veteran) / 4.4)
+    if profile == "development_focus":
+        return _clamp01((1.0 * sp + 0.9 * ch + 0.8 * eye + 0.8 * fa + 0.9 * youth) / 4.4)
+    if profile == "defense_first":
+        return _clamp01((1.5 * fa + 1.1 * arm + 1.0 * gf + 0.5 * sp + 0.3 * ch) / 4.4)
+    if profile == "power_offense":
+        return _clamp01((1.6 * ph + 1.0 * ch + 0.7 * eye + 0.5 * sp + 0.3 * veteran) / 4.1)
+    return 0.5
+
+
+def _strategy_profile_accepts_player(
+    player: object,
+    *,
+    raw_strategy_profile: str,
+    fit_score: float,
+    player_quality: int,
+    fa_star_quality_threshold: int,
+) -> bool:
+    profile = str(raw_strategy_profile or "balanced").strip().lower()
+    if profile == "balanced":
+        return True
+    if player_quality >= (fa_star_quality_threshold + 6):
+        return True
+
+    age = _player_age_years(player)
+    if profile == "development_focus":
+        if age is not None and age >= 31 and player_quality < (fa_star_quality_threshold + 2):
+            return False
+        return fit_score >= 0.34
+    if profile == "win_now":
+        if age is not None and age <= 22 and player_quality < (fa_star_quality_threshold + 3):
+            return False
+        return fit_score >= 0.38
+    if profile == "defense_first":
+        return fit_score >= 0.40
+    if profile == "power_offense":
+        return fit_score >= 0.40
+    return True
 
 
 def _should_submit_bid(

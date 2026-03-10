@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from .components import ActionButtonPanel
 
 from physics_sim.config import DEFAULT_TUNING
 from services.physics_tuning_settings import (
@@ -356,15 +357,19 @@ class PhysicsTuningEditor(QDialog):
         content_layout.addStretch(1)
         scroll.setWidget(content)
 
-        button_row = QHBoxLayout()
-        button_row.addStretch(1)
+        button_row = ActionButtonPanel(
+            min_columns=1,
+            max_columns=2,
+            target_button_width=220,
+            min_button_width=160,
+            max_button_width=240,
+        )
         self.reset_button = QPushButton("Reset to Defaults")
         self.close_button = QPushButton("Close")
         self.reset_button.setObjectName("Secondary")
         self.close_button.setObjectName("Primary")
-        button_row.addWidget(self.reset_button)
-        button_row.addWidget(self.close_button)
-        layout.addLayout(button_row)
+        button_row.add_buttons([self.reset_button, self.close_button])
+        layout.addWidget(button_row)
 
         self.reset_button.clicked.connect(self._reset_defaults)
         self.close_button.clicked.connect(self.reject)

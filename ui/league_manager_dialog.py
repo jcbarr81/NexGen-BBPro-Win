@@ -4,7 +4,6 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
-    QHBoxLayout,
     QHeaderView,
     QInputDialog,
     QMessageBox,
@@ -13,6 +12,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
 )
+from .components import ActionButtonPanel
 
 from services import league_lifecycle, league_registry
 from utils.path_utils import get_active_league_id
@@ -65,8 +65,13 @@ class LeagueManagerDialog(QDialog):
         )
         layout.addWidget(self.table)
 
-        button_row = QHBoxLayout()
-        button_row.setSpacing(8)
+        button_row = ActionButtonPanel(
+            min_columns=1,
+            max_columns=3,
+            target_button_width=190,
+            min_button_width=140,
+            max_button_width=220,
+        )
 
         self.refresh_button = QPushButton("Refresh")
         self.set_active_button = QPushButton("Set Active")
@@ -75,14 +80,13 @@ class LeagueManagerDialog(QDialog):
         self.delete_button = QPushButton("Delete")
         self.close_button = QPushButton("Close")
 
-        button_row.addWidget(self.refresh_button)
-        button_row.addWidget(self.set_active_button)
-        button_row.addWidget(self.clone_button)
-        button_row.addWidget(self.archive_toggle_button)
-        button_row.addWidget(self.delete_button)
-        button_row.addStretch()
-        button_row.addWidget(self.close_button)
-        layout.addLayout(button_row)
+        button_row.add_button(self.refresh_button)
+        button_row.add_button(self.set_active_button)
+        button_row.add_button(self.clone_button)
+        button_row.add_button(self.archive_toggle_button)
+        button_row.add_button(self.delete_button)
+        button_row.add_button(self.close_button)
+        layout.addWidget(button_row)
 
         self.refresh_button.clicked.connect(self.refresh_table)
         self.set_active_button.clicked.connect(self.set_active_from_selection)

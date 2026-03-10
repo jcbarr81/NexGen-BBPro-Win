@@ -138,6 +138,9 @@ class QMessageBox:
     @staticmethod
     def warning(*args, **kwargs):
         pass
+    @staticmethod
+    def information(*args, **kwargs):
+        pass
 
 class QInputDialog:
     @staticmethod
@@ -235,3 +238,50 @@ def test_login_plain_and_hashed(tmp_path):
     win.password_input.setText("pw")
     win.handle_login()
     assert result == {'role': 'owner', 'team_id': 'team'}
+
+
+def test_login_admin_prompts_for_first_run_password_setup(tmp_path, monkeypatch):
+    data_root = tmp_path / "data_root"
+    data_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("NEXGEN_DATA_DIR", str(data_root))
+
+    import utils.path_utils as path_utils
+    path_utils._DATA_DIR = None
+    path_utils._DATA_DIR_KEY = None
+    path_utils._DATA_ROOT = None
+    path_utils._DATA_ROOT_KEY = None
+
+    from utils.user_manager import save_admin_bootstrap
+
+    save_admin_bootstrap(data_root=data_root, require_setup=True)
+
+    user_file = tmp_path / "users.txt"
+    user_file.write_text("admin,__setup_required__,admin,\n", encoding="utf-8")
+    login_window.USER_FILE = user_file
+
+    responses = iter([
+        ("newpass", True),
+        ("newpass", True),
+    ])
+    monkeypatch.setattr(
+        login_window.QInputDialog,
+        "getText",
+        staticmethod(lambda *args, **kwargs: next(responses)),
+    )
+
+    win = login_window.LoginWindow()
+    result = {}
+
+    def accept(role, team_id):
+        result["role"] = role
+        result["team_id"] = team_id
+
+    win.accept_login = accept
+    win.username_input.setText("admin")
+    win.password_input.setText("newpass")
+    win.handle_login()
+
+    assert result == {"role": "admin", "team_id": ""}
+    stored = user_file.read_text(encoding="utf-8")
+    assert "__setup_required__" not in stored
+    assert "newpass" not in stored

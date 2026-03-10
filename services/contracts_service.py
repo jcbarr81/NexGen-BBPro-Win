@@ -9,6 +9,8 @@ from typing import Dict, Mapping
 
 from playbalance.season_context import SeasonContext
 from services.finance_ledger import post_contract_buyout
+from services.prospect_event_log import record_option_decision_event
+from services.team_auto_reassign_settings import auto_reassign_team_if_enabled
 from utils.path_utils import get_data_dir
 from utils.roster_io import read_roster_csv
 from utils.roster_loader import save_roster
@@ -353,6 +355,20 @@ def set_contract_option_decision(
     contract["options"] = options
     players[pid] = contract
     save_contracts_payload(payload, data_dir=data_dir)
+    try:
+        record_option_decision_event(
+            team_id=str(contract.get("team_id") or "").strip(),
+            player_id=pid,
+            decision=str(updated.get("decision") or "pending"),
+            option_type=str(updated.get("type") or "").strip(),
+            option_index=option_index,
+            actor="user",
+            trigger="manual_option_decision",
+            details={"source": "contracts_service"},
+            data_dir=data_dir,
+        )
+    except Exception:
+        pass
     return _normalize_contract(contract)
 
 
@@ -457,10 +473,38 @@ def rollover_contracts_for_new_season(
                 )
                 updated_players[player_id] = exercised
                 option_exercised += 1
+                try:
+                    record_option_decision_event(
+                        team_id=str(contract.get("team_id") or "").strip(),
+                        player_id=player_id,
+                        decision="exercised",
+                        option_type=str(option.get("type") or "").strip(),
+                        option_index=0,
+                        actor="system",
+                        trigger="season_rollover",
+                        details={"season_year": target_year},
+                        data_dir=data_dir,
+                    )
+                except Exception:
+                    pass
                 continue
             if isinstance(option, Mapping):
                 option_declined += 1
                 buyout = max(0, int(_safe_number(option.get("buyout", 0))))
+                try:
+                    record_option_decision_event(
+                        team_id=str(contract.get("team_id") or "").strip(),
+                        player_id=player_id,
+                        decision="declined",
+                        option_type=str(option.get("type") or "").strip(),
+                        option_index=0,
+                        actor="system",
+                        trigger="season_rollover",
+                        details={"season_year": target_year, "buyout": buyout},
+                        data_dir=data_dir,
+                    )
+                except Exception:
+                    pass
                 if buyout > 0:
                     buyout_total += buyout
                     team_id = str(contract.get("team_id") or "").strip()
@@ -604,6 +648,15 @@ def _release_players_from_rosters(
             save_roster(team_id, roster, roster_dir=roster_dir)
         except Exception:
             continue
+        try:
+            auto_reassign_team_if_enabled(
+                team_id,
+                players_file=resolved_data_dir / "players.csv",
+                roster_dir=roster_dir,
+                data_dir=resolved_data_dir,
+            )
+        except Exception:
+            pass
 
         teams.add(team_id)
         released_count += len(removed_rows)

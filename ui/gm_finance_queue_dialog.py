@@ -4,7 +4,6 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
-    QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -12,6 +11,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
 )
+from .components import ActionButtonPanel
 
 from services.gm_finance_queue import (
     apply_approved_queue_decisions,
@@ -56,7 +56,13 @@ class GmFinanceQueueDialog(QDialog):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         root.addWidget(self.table, stretch=1)
 
-        buttons = QHBoxLayout()
+        buttons = ActionButtonPanel(
+            min_columns=1,
+            max_columns=3,
+            target_button_width=220,
+            min_button_width=150,
+            max_button_width=250,
+        )
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.clicked.connect(self.refresh)
         self.approve_button = QPushButton("Approve Selected")
@@ -68,13 +74,12 @@ class GmFinanceQueueDialog(QDialog):
         self.apply_button.clicked.connect(self._apply_approved)
         self.close_button = QPushButton("Close")
         self.close_button.clicked.connect(self.reject)
-        buttons.addWidget(self.refresh_button)
-        buttons.addWidget(self.approve_button)
-        buttons.addWidget(self.reject_button)
-        buttons.addWidget(self.apply_button)
-        buttons.addStretch(1)
-        buttons.addWidget(self.close_button)
-        root.addLayout(buttons)
+        buttons.add_button(self.refresh_button)
+        buttons.add_button(self.approve_button)
+        buttons.add_button(self.reject_button)
+        buttons.add_button(self.apply_button)
+        buttons.add_button(self.close_button)
+        root.addWidget(buttons)
 
         self.refresh()
 

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QVBoxLayout,
 )
+from .components import ActionButtonPanel
 
 from services.hall_of_fame import (
     DEFAULT_MIN_YEARS_RETIRED,
@@ -57,16 +58,25 @@ class HallOfFameSettingsDialog(QDialog):
         score_row.addWidget(self.score_spin, 1)
         layout.addLayout(score_row)
 
-        button_row = QHBoxLayout()
-        button_row.addStretch(1)
+        button_row = ActionButtonPanel(
+            min_columns=1,
+            max_columns=3,
+            target_button_width=210,
+            min_button_width=150,
+            max_button_width=240,
+        )
         self.reset_button = QPushButton("Reset to Defaults")
         self.save_button = QPushButton("Save")
         self.close_button = QPushButton("Close")
         self.save_button.setObjectName("Primary")
-        button_row.addWidget(self.reset_button)
-        button_row.addWidget(self.save_button)
-        button_row.addWidget(self.close_button)
-        layout.addLayout(button_row)
+        button_row.add_buttons(
+            [
+                self.reset_button,
+                self.save_button,
+                self.close_button,
+            ]
+        )
+        layout.addWidget(button_row)
 
         self.reset_button.clicked.connect(self._reset_defaults)
         self.save_button.clicked.connect(self._save)

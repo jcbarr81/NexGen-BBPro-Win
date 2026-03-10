@@ -719,7 +719,8 @@ class MainWindow(QMainWindow):
             TutorialStep(
                 "Create and Register Leagues",
                 "<p>Open <b>League Settings -> Create League</b> to build structure, schedule template, "
-                "and league mode. This action sets active league context and base policy files.</p>",
+                "league mode, and initial finance setup (preset or custom key modules). "
+                "This action sets active league context and base policy files.</p>",
             ),
             TutorialStep(
                 "Switch and Archive",
@@ -729,7 +730,7 @@ class MainWindow(QMainWindow):
             TutorialStep(
                 "Policy Baseline",
                 "<p>Before season start, review <b>Trade Settings</b>, <b>Financial System Settings</b>, "
-                "<b>Team Strategy Profiles</b>, <b>Injury Settings</b>, and <b>Hall of Fame Settings</b> "
+                "<b>Team Strategy Profiles</b> (including auto-reassign defaults), <b>Injury Settings</b>, and <b>Hall of Fame Settings</b> "
                 "to lock commissioner defaults.</p>",
             ),
         ]
@@ -844,7 +845,10 @@ class MainWindow(QMainWindow):
             TutorialStep(
                 "Reports and Snapshot Exports",
                 "<p>Open <b>Assets &amp; Exports</b> and run <b>Export Reports</b> or "
-                "<b>Export Owner Snapshot Zip</b> to distribute league state safely.</p>",
+                "<b>Export Almanac (HTML)</b> / <b>Export Owner Snapshot Zip</b> to "
+                "distribute league state safely. Almanac exports produce a browsable "
+                "landing page with cross-linked season, team, player, awards, "
+                "postseason, transactions, finance, and records sections.</p>",
             ),
             TutorialStep(
                 "Asset Generation",

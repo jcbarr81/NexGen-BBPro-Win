@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
+from .components import ActionButtonPanel
 
 from services.injury_settings import (
     DEFAULT_LEVEL,
@@ -48,14 +49,18 @@ class InjurySettingsDialog(QDialog):
         row.addWidget(self.level_combo, 1)
         layout.addLayout(row)
 
-        button_row = QHBoxLayout()
-        button_row.addStretch(1)
+        button_row = ActionButtonPanel(
+            min_columns=1,
+            max_columns=2,
+            target_button_width=200,
+            min_button_width=150,
+            max_button_width=230,
+        )
         self.save_button = QPushButton("Save")
         self.close_button = QPushButton("Close")
         self.save_button.setObjectName("Primary")
-        button_row.addWidget(self.save_button)
-        button_row.addWidget(self.close_button)
-        layout.addLayout(button_row)
+        button_row.add_buttons([self.save_button, self.close_button])
+        layout.addWidget(button_row)
 
         self.save_button.clicked.connect(self._save)
         self.close_button.clicked.connect(self.reject)

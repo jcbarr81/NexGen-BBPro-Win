@@ -225,6 +225,7 @@ def patch_qt() -> None:
         TransformationMode=_QtEnum(SmoothTransformation=None),
     )
     qt_core.QPoint = _QtDummy
+    qt_core.QSize = _QtDummy
     qt_core.QTimer = _QtDummy
     qt_gui = types.ModuleType("PyQt6.QtGui")
 
@@ -248,6 +249,7 @@ def patch_qt() -> None:
     qt_gui.QColor = _QtDummy
     qt_gui.QPainter = _QtDummy
     qt_gui.QAction = _QtDummy
+    qt_gui.QIcon = _QtDummy
 
     qt_widgets = types.ModuleType("PyQt6.QtWidgets")
     for name in [

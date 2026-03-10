@@ -100,6 +100,13 @@ from services.injury_manager import (
     place_on_injury_list,
     recover_from_injury,
 )
+from services.decision_explanations import summarize_decision_explanation
+from services.prospect_event_log import (
+    record_roster_level_movements,
+    roster_level_map,
+)
+from services.prospect_rules import apply_roster_move, evaluate_roster_move
+from services.team_auto_reassign_settings import auto_reassign_team_if_enabled
 from utils.news_logger import log_news_event
 try:
     from services.roster_auto_assign import ACTIVE_MAX, AAA_MAX, LOW_MAX
@@ -244,11 +251,17 @@ class InjuryCenterWindow(QDialog):
             (self.btn_recover, 0, 2),
             (self.btn_promote_best, 1, 0),
         ):
+            try:
+                btn.setMinimumWidth(150)
+                btn.setMaximumWidth(220)
+            except Exception:
+                pass
             buttons_grid.addWidget(btn, row, col)
         try:
-            buttons_grid.setColumnStretch(0, 1)
-            buttons_grid.setColumnStretch(1, 1)
-            buttons_grid.setColumnStretch(2, 1)
+            buttons_grid.setColumnStretch(0, 0)
+            buttons_grid.setColumnStretch(1, 0)
+            buttons_grid.setColumnStretch(2, 0)
+            buttons_grid.setColumnStretch(3, 1)
         except Exception:
             pass
         try:
@@ -616,6 +629,34 @@ class InjuryCenterWindow(QDialog):
         except Exception:
             pass
 
+    def _record_roster_lifecycle_events(
+        self,
+        team_id: str,
+        before_levels: Dict[str, str],
+        after_levels: Dict[str, str],
+        *,
+        trigger: str,
+        details: Optional[Dict[str, object]] = None,
+    ) -> None:
+        player_names: Dict[str, str] = {}
+        for player_id in set(before_levels) | set(after_levels):
+            player = self._players_index.get(player_id)
+            if player is None:
+                continue
+            player_names[player_id] = (
+                f"{getattr(player, 'first_name', '')} "
+                f"{getattr(player, 'last_name', '')}"
+            ).strip()
+        record_roster_level_movements(
+            before_levels,
+            after_levels,
+            team_id=team_id,
+            player_names=player_names,
+            actor="user",
+            trigger=trigger,
+            details=details or {},
+        )
+
     def _chosen_dl_code(self) -> str:
         codes = getattr(self, "_dl_codes", ["dl15"])
         try:
@@ -682,6 +723,17 @@ class InjuryCenterWindow(QDialog):
                 pass
             save_roster(team_id, roster)
             self._persist_player(player)
+            auto_applied = False
+            try:
+                data_dir = get_data_dir()
+                auto_applied = auto_reassign_team_if_enabled(
+                    team_id,
+                    players_file=data_dir / "players.csv",
+                    roster_dir=data_dir / "rosters",
+                    data_dir=data_dir,
+                )
+            except Exception:
+                auto_applied = False
             # Clear caches
             try:
                 load_roster.cache_clear()
@@ -691,6 +743,8 @@ class InjuryCenterWindow(QDialog):
             log_news_event(
                 f"Placed {getattr(player,'first_name','')} {getattr(player,'last_name','')} on {readable_list} ({team_id})"
             )
+            if auto_applied:
+                log_news_event(f"Auto-reassigned roster levels for {team_id}.")
             self.refresh()
         except Exception as exc:
             self.status.setText(f"Failed: {exc}")
@@ -742,6 +796,17 @@ class InjuryCenterWindow(QDialog):
                 pass
             save_roster(team_id, roster)
             self._persist_player(player)
+            auto_applied = False
+            try:
+                data_dir = get_data_dir()
+                auto_applied = auto_reassign_team_if_enabled(
+                    team_id,
+                    players_file=data_dir / "players.csv",
+                    roster_dir=data_dir / "rosters",
+                    data_dir=data_dir,
+                )
+            except Exception:
+                auto_applied = False
             try:
                 load_roster.cache_clear()
             except Exception:
@@ -749,6 +814,8 @@ class InjuryCenterWindow(QDialog):
             log_news_event(
                 f"Activated {getattr(player,'first_name','')} {getattr(player,'last_name','')} from {list_label} ({team_id})"
             )
+            if auto_applied:
+                log_news_event(f"Auto-reassigned roster levels for {team_id}.")
             self.refresh()
         except Exception as exc:
             self.status.setText(f"Failed: {exc}")
@@ -817,18 +884,70 @@ class InjuryCenterWindow(QDialog):
             self.status.setText("No suitable candidate found.")
             return
         # Promote: remove from AAA/Low and append to ACT
+        before_levels = roster_level_map(roster)
         try:
+            from_level = "aaa" if best_id in roster.aaa else "low"
+            decision = evaluate_roster_move(
+                team_id,
+                best_id,
+                from_level=from_level,
+                to_level="act",
+            )
+            if not decision.allowed:
+                summary = summarize_decision_explanation(
+                    getattr(decision, "decision_explanation", None),
+                    fallback=decision.reason or "Promotion blocked by prospect rules.",
+                    max_reasons=2,
+                )
+                self.status.setText(summary.replace("\n", " "))
+                return
             if best_id in roster.aaa:
                 roster.aaa.remove(best_id)
             elif best_id in roster.low:
                 roster.low.remove(best_id)
             roster.act.append(best_id)
+            try:
+                apply_roster_move(
+                    team_id,
+                    best_id,
+                    from_level=from_level,
+                    to_level="act",
+                    decision=decision,
+                    actor="user",
+                    trigger="promote_best_replacement",
+                )
+            except Exception:
+                pass
+            after_levels = roster_level_map(roster)
+            try:
+                self._record_roster_lifecycle_events(
+                    team_id,
+                    before_levels,
+                    after_levels,
+                    trigger="promote_best_replacement",
+                    details={"destination": "act"},
+                )
+            except Exception:
+                pass
             save_roster(team_id, roster)
+            auto_applied = False
+            try:
+                data_dir = get_data_dir()
+                auto_applied = auto_reassign_team_if_enabled(
+                    team_id,
+                    players_file=data_dir / "players.csv",
+                    roster_dir=data_dir / "rosters",
+                    data_dir=data_dir,
+                )
+            except Exception:
+                auto_applied = False
             try:
                 load_roster.cache_clear()
             except Exception:
                 pass
             log_news_event(f"Promoted {best_id} to ACT for {team_id}")
+            if auto_applied:
+                log_news_event(f"Auto-reassigned roster levels for {team_id}.")
             self.refresh()
         except Exception as exc:
             self.status.setText(f"Failed to promote: {exc}")

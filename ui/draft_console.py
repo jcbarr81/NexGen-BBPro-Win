@@ -951,6 +951,8 @@ class DraftConsole(QDialog):
     def _score_needaware(self, p: dict, team_id: str) -> int:
         try:
             from services.draft_ai import compute_team_needs, score_prospect
+            from services.team_strategy_profiles import resolve_team_strategy_profile
+
             cache = getattr(self, "_needs_cache", {})
             needs = cache.get(team_id)
             if needs is None:
@@ -958,7 +960,20 @@ class DraftConsole(QDialog):
                 if not hasattr(self, "_needs_cache"):
                     self._needs_cache = {}
                 self._needs_cache[team_id] = needs
-            return score_prospect(p, needs)
+
+            strategy_cache = getattr(self, "_team_strategy_cache", {})
+            strategy_profile = strategy_cache.get(team_id)
+            if strategy_profile is None:
+                resolved = resolve_team_strategy_profile(team_id)
+                strategy_profile = str(getattr(resolved, "profile", "balanced") or "balanced")
+                if not hasattr(self, "_team_strategy_cache"):
+                    self._team_strategy_cache = {}
+                self._team_strategy_cache[team_id] = strategy_profile
+            return score_prospect(
+                p,
+                needs,
+                strategy_profile=strategy_profile,
+            )
         except Exception:
             return self._score(p)
 

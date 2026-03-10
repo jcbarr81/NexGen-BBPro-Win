@@ -11,7 +11,7 @@ except Exception:  # pragma: no cover
             self._height = height
 from PyQt6.QtWidgets import QLabel, QPushButton, QVBoxLayout
 
-from ...components import Card, build_metric_row, section_title
+from ...components import ActionButtonPanel, Card, build_metric_row, section_title
 from ...theme_assets import load_enhanced_admin_action_icon
 from .base import DashboardPage
 
@@ -82,23 +82,30 @@ class AdminHomePage(DashboardPage):
         # Shortcuts -------------------------------------------------------
         actions = Card()
         actions.layout().addWidget(section_title("Priority Queues"))
+        action_panel = ActionButtonPanel(
+            min_columns=1,
+            max_columns=2,
+            target_button_width=220,
+            min_button_width=160,
+            max_button_width=240,
+        )
 
         review_btn = QPushButton("Review Trades", objectName="ActionButton")
         review_btn.setToolTip("Open pending trade approvals")
         review_btn.clicked.connect(self._dashboard.open_trade_review)
-        actions.layout().addWidget(review_btn)
+        action_panel.add_button(review_btn)
 
         change_requests_btn = QPushButton(
             "Review Change Requests", objectName="ActionButton"
         )
         change_requests_btn.setToolTip("Open owner-submitted change requests")
         change_requests_btn.clicked.connect(self._dashboard.open_change_requests_window)
-        actions.layout().addWidget(change_requests_btn)
+        action_panel.add_button(change_requests_btn)
 
         gm_queue_btn = QPushButton("Review GM Finance Queue", objectName="ActionButton")
         gm_queue_btn.setToolTip("Open commissioner review for owner GM finance decisions")
         gm_queue_btn.clicked.connect(self._dashboard.open_gm_finance_queue_review)
-        actions.layout().addWidget(gm_queue_btn)
+        action_panel.add_button(gm_queue_btn)
 
         self.gm_queue_status_label = QLabel("GM Finance Queue: --")
         self.gm_queue_status_label.setWordWrap(True)
@@ -108,7 +115,7 @@ class AdminHomePage(DashboardPage):
         season_btn = QPushButton("Open Season Hub", objectName="ActionButton")
         season_btn.setToolTip("Go to season simulation and schedule controls")
         season_btn.clicked.connect(lambda: self._dashboard._go("season"))
-        actions.layout().addWidget(season_btn)
+        action_panel.add_button(season_btn)
 
         command_center_btn = QPushButton(
             "Open League Command Center",
@@ -120,12 +127,12 @@ class AdminHomePage(DashboardPage):
         command_center_btn.clicked.connect(
             self._dashboard.open_league_command_center
         )
-        actions.layout().addWidget(command_center_btn)
+        action_panel.add_button(command_center_btn)
 
         draft_btn = QPushButton("Open Draft Hub", objectName="ActionButton")
         draft_btn.setToolTip("Go to draft controls and draft settings")
         draft_btn.clicked.connect(lambda: self._dashboard._go("draft"))
-        actions.layout().addWidget(draft_btn)
+        action_panel.add_button(draft_btn)
 
         self._action_buttons = [
             review_btn,
@@ -137,6 +144,7 @@ class AdminHomePage(DashboardPage):
         ]
         self.apply_theme_assets()
 
+        actions.layout().addWidget(action_panel)
         actions.layout().addStretch()
         layout.addWidget(actions)
 
