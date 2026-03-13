@@ -1,4 +1,4 @@
-<!-- last_build_ref: a9aebe7234aed5fb78445aba205980d57bd1a8f1 -->
+<!-- last_build_ref: b1d76459f655380a20accb1f6522936cca4b4ca1 -->
 # 4.5 Release Notes (Since 4.3.41)
 
 ## League Setup & Presets
@@ -1353,3 +1353,22 @@ Date: 2026-03-09
 - marked backlog item `#27` complete,
 - returned the implementation queue to `V5.4-01`.
 - Version bumped to `5.2.28` and installer `AppVersion` synchronized.
+
+# 5.2.31 Release Notes (Since last build a9aebe7)
+Date: 2026-03-09
+
+- 5.2.31
+
+# 5.2.32 Release Notes (Since last build b1d7645)
+Date: 2026-03-13
+
+- ?## 5.2.32 (2026-03-11)
+- Added an explicit upgrade-time choice in `packaging/NexGen-BBPro.iss` to either keep the current administrator password or reset existing league admin passwords to the installer password entered during upgrade.
+- Added runtime upgrade-reset handling in `utils/user_manager.py` and `ui/login_window.py` so existing `users.txt` stores are rewritten once when an installer-triggered admin reset is requested.
+- Updated installer/help guidance in `docs/owner_admin_guide.md` and `docs/post_installer_ui_checklist.md`.
+- Validation runs:
+- `./.venv2/Scripts/python.exe -m pytest tests/test_user_manager.py tests/test_login_window.py`
+- Result: `14 passed`.
+- `"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\NexGen-BBPro.iss`
+- Result: successful compile.
+- Version bumped to `5.2.32` and installer `AppVersion` synchronized.

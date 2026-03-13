@@ -18,6 +18,7 @@ from services import league_registry
 from utils.path_utils import get_data_dir
 from utils.league_settings import is_owner_league, verify_commissioner_password
 from utils.user_manager import (
+    apply_admin_upgrade_reset,
     apply_admin_bootstrap,
     admin_password_setup_required,
     set_admin_password,
@@ -84,6 +85,10 @@ class LoginWindow(QWidget):
                 return
 
             if username.strip() == "admin":
+                try:
+                    apply_admin_upgrade_reset()
+                except Exception:
+                    logger.exception("Failed to apply administrator upgrade reset")
                 try:
                     apply_admin_bootstrap(users_file)
                 except Exception:

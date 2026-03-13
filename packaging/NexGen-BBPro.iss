@@ -3,7 +3,7 @@
 [Setup]
 AppId={{1e5875ae-6b82-4c87-8172-ceafc7d08661}}
 AppName=NexGen BBPro
-AppVersion=5.2.31
+AppVersion=5.2.32
 AppPublisher=NexGen BBPro
 DefaultDirName={commonpf}\NexGen-BBPro
 DefaultGroupName=NexGen BBPro
@@ -50,8 +50,10 @@ const
 var
   ExistingUninstallString: string;
   ExistingInstallDir: string;
+  ExistingInstallDetected: Boolean;
   InstallModeResolved: Boolean;
   CleanReinstallSelected: Boolean;
+  ResetAdminPasswordOnUpgrade: Boolean;
   CleanReinstallCompleted: Boolean;
   AdminPasswordPage: TInputQueryWizardPage;
 
@@ -76,18 +78,31 @@ begin
   end;
 end;
 
-procedure WriteAdminBootstrapToPath(const TargetPath, PasswordValue: string; const RequireSetup: Boolean);
+function JsonBool(const Value: Boolean): string;
+begin
+  if Value then
+    Result := 'true'
+  else
+    Result := 'false';
+end;
+
+procedure WriteAdminBootstrapToPath(
+  const TargetPath, PasswordValue: string;
+  const RequireSetup, ResetExistingAdmin: Boolean
+);
 var
   Payload: string;
 begin
   if RequireSetup then
     Payload := '{' + #13#10 +
-      '  "require_setup": true' + #13#10 +
+      '  "require_setup": true,' + #13#10 +
+      '  "reset_existing_admin": ' + JsonBool(ResetExistingAdmin) + #13#10 +
       '}'
   else
     Payload := '{' + #13#10 +
       '  "password": "' + JsonEscape(PasswordValue) + '",' + #13#10 +
-      '  "require_setup": false' + #13#10 +
+      '  "require_setup": false,' + #13#10 +
+      '  "reset_existing_admin": ' + JsonBool(ResetExistingAdmin) + #13#10 +
       '}';
   SaveStringToFile(TargetPath, Payload, False);
 end;
@@ -96,8 +111,16 @@ procedure WriteAdminBootstrapFiles();
 var
   PasswordValue: string;
   RequireSetup: Boolean;
+  ResetExistingAdmin: Boolean;
 begin
+  if ExistingInstallDetected and (not CleanReinstallSelected) and
+     (not ResetAdminPasswordOnUpgrade) then
+    Exit;
+
   RequireSetup := WizardSilent or (AdminPasswordPage = nil);
+  ResetExistingAdmin :=
+    ExistingInstallDetected and (not CleanReinstallSelected) and
+    ResetAdminPasswordOnUpgrade;
   PasswordValue := '';
   if not RequireSetup then
     PasswordValue := Trim(AdminPasswordPage.Values[0]);
@@ -108,12 +131,14 @@ begin
   WriteAdminBootstrapToPath(
     ExpandConstant('{app}\_internal\data\admin_bootstrap.json'),
     PasswordValue,
-    RequireSetup
+    RequireSetup,
+    ResetExistingAdmin
   );
   WriteAdminBootstrapToPath(
     ExpandConstant('{app}\data\admin_bootstrap.json'),
     PasswordValue,
-    RequireSetup
+    RequireSetup,
+    ResetExistingAdmin
   );
 end;
 
@@ -390,12 +415,14 @@ var
   Choice: Integer;
   CandidateDir: string;
   PromptText: string;
+  ResetChoice: Integer;
 begin
   Result := True;
   if InstallModeResolved then
     Exit;
 
   ExistingInstallDir := '';
+  ExistingInstallDetected := False;
   ExistingUninstallString := GetInstalledUninstallString();
 
   CandidateDir := NormalizeDir(WizardDirValue);
@@ -411,6 +438,8 @@ begin
     InstallModeResolved := True;
     Exit;
   end;
+
+  ExistingInstallDetected := True;
 
   if ExistingInstallDir <> '' then
     PromptText :=
@@ -429,6 +458,14 @@ begin
   if Choice = IDYES then
   begin
     CleanReinstallSelected := False;
+    ResetChoice := MsgBox(
+      'Keep the current administrator password for existing leagues?' + #13#10 + #13#10 +
+      'Yes = Keep existing admin passwords.' + #13#10 +
+      'No = Reset existing admin passwords to the installer password you enter next.',
+      mbConfirmation,
+      MB_YESNO
+    );
+    ResetAdminPasswordOnUpgrade := ResetChoice = IDNO;
     InstallModeResolved := True;
     Exit;
   end;
@@ -436,6 +473,7 @@ begin
   if Choice = IDNO then
   begin
     CleanReinstallSelected := True;
+    ResetAdminPasswordOnUpgrade := False;
     InstallModeResolved := True;
     Exit;
   end;
@@ -449,6 +487,12 @@ var
   ConfirmValue: string;
 begin
   Result := True;
+  if CurPageID = wpSelectDir then
+  begin
+    Result := PromptInstallModeIfNeeded();
+    if not Result then
+      Exit;
+  end;
   if (AdminPasswordPage <> nil) and (CurPageID = AdminPasswordPage.ID) and (not WizardSilent) then
   begin
     PasswordValue := Trim(AdminPasswordPage.Values[0]);
@@ -490,17 +534,34 @@ procedure InitializeWizard();
 begin
   ExistingUninstallString := '';
   ExistingInstallDir := '';
+  ExistingInstallDetected := False;
   InstallModeResolved := False;
   CleanReinstallSelected := False;
+  ResetAdminPasswordOnUpgrade := False;
   CleanReinstallCompleted := False;
   AdminPasswordPage := CreateInputQueryPage(
     wpSelectDir,
     'Administrator Password',
     'Set the initial administrator password.',
-    'This password seeds fresh installs and newly created leagues. Silent installs will require first-run setup instead.'
+    'Fresh installs require an administrator password. Upgrades only ask for one when you choose to reset existing admin credentials.'
   );
   AdminPasswordPage.Add('Administrator password:', True);
   AdminPasswordPage.Add('Confirm administrator password:', True);
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  if (AdminPasswordPage = nil) or (PageID <> AdminPasswordPage.ID) then
+    Exit;
+  if WizardSilent then
+  begin
+    Result := True;
+    Exit;
+  end;
+  Result :=
+    InstallModeResolved and ExistingInstallDetected and
+    (not CleanReinstallSelected) and (not ResetAdminPasswordOnUpgrade);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

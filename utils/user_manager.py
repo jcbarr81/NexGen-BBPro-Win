@@ -4,7 +4,7 @@ import json
 
 import bcrypt
 
-from utils.path_utils import get_data_root, resolve_app_path
+from utils.path_utils import get_data_root, get_leagues_root, resolve_app_path
 
 _BOOTSTRAP_FILENAME = "admin_bootstrap.json"
 _SETUP_REQUIRED_SENTINEL = "__setup_required__"
@@ -76,6 +76,7 @@ def save_admin_bootstrap(
     password_scheme: str | None = None,
     password_plaintext: str | None = None,
     require_setup: bool | None = None,
+    reset_existing_admin: bool | None = None,
 ) -> Dict[str, Any]:
     payload = load_admin_bootstrap(data_root)
     if password_hash is not None:
@@ -95,6 +96,8 @@ def save_admin_bootstrap(
             payload.pop("password", None)
     if require_setup is not None:
         payload["require_setup"] = bool(require_setup)
+    if reset_existing_admin is not None:
+        payload["reset_existing_admin"] = bool(reset_existing_admin)
     path = _bootstrap_path(data_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -124,6 +127,80 @@ def _bootstrap_password_hash(data_root: str | Path | None = None) -> str:
         require_setup=False,
     )
     return hashed
+
+
+def _write_users(file_path: Path, users: List[Dict[str, str]]) -> None:
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with file_path.open("w", encoding="utf-8") as handle:
+        for user in users:
+            handle.write(
+                f"{user['username']},{user['password']},"
+                f"{user['role']},{user['team_id']}\n"
+            )
+
+
+def _set_admin_password_hash(file_path: Path, password_hash: str) -> bool:
+    users = load_users(file_path)
+    admin = next((u for u in users if u["username"] == "admin"), None)
+    if admin is None:
+        users.insert(
+            0,
+            {
+                "username": "admin",
+                "password": password_hash,
+                "role": "admin",
+                "team_id": "",
+            },
+        )
+    else:
+        admin["password"] = password_hash
+        admin["role"] = "admin"
+        admin["team_id"] = ""
+    _write_users(file_path, users)
+    return True
+
+
+def _iter_admin_user_files(
+    data_root: str | Path | None = None,
+) -> List[Path]:
+    root = Path(data_root) if data_root is not None else get_data_root()
+    candidates: List[Path] = []
+    root_users = root / "users.txt"
+    if root_users.exists():
+        candidates.append(root_users)
+    leagues_root = get_leagues_root(data_root=root)
+    if leagues_root.exists():
+        for users_path in sorted(leagues_root.glob("*/data/users.txt")):
+            if users_path.exists():
+                candidates.append(users_path)
+    unique: List[Path] = []
+    seen: set[Path] = set()
+    for path in candidates:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(path)
+    return unique
+
+
+def apply_admin_upgrade_reset(
+    *,
+    data_root: str | Path | None = None,
+) -> int:
+    payload = load_admin_bootstrap(data_root)
+    if not bool(payload.get("reset_existing_admin")):
+        return 0
+
+    bootstrap_hash = _bootstrap_password_hash(data_root)
+    updated_count = 0
+    if bootstrap_hash:
+        for users_path in _iter_admin_user_files(data_root):
+            if _set_admin_password_hash(users_path, bootstrap_hash):
+                updated_count += 1
+
+    save_admin_bootstrap(data_root=data_root, reset_existing_admin=False)
+    return updated_count
 
 
 def admin_password_setup_required(
@@ -171,12 +248,7 @@ def set_admin_password(
         admin["role"] = "admin"
         admin["team_id"] = ""
 
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    with file_path.open("w", encoding="utf-8") as f:
-        for user in users:
-            f.write(
-                f"{user['username']},{user['password']},{user['role']},{user['team_id']}\n"
-            )
+    _write_users(file_path, users)
 
     save_admin_bootstrap(
         data_root=data_root,
@@ -184,6 +256,7 @@ def set_admin_password(
         password_scheme="bcrypt",
         password_plaintext="",
         require_setup=False,
+        reset_existing_admin=False,
     )
 
 
@@ -213,12 +286,7 @@ def apply_admin_bootstrap(
     admin["password"] = bootstrap_hash
     admin["role"] = "admin"
     admin["team_id"] = ""
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    with file_path.open("w", encoding="utf-8") as f:
-        for user in users:
-            f.write(
-                f"{user['username']},{user['password']},{user['role']},{user['team_id']}\n"
-            )
+    _write_users(file_path, users)
     return True
 
 

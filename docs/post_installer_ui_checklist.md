@@ -14,6 +14,11 @@ Run this focused pass first for the changes shipped since the last build.
 - [ ] Launch the app, click `Start Game`, create a new league, and return to login.
 - [ ] Login as `admin` using the installer password and confirm access succeeds.
 - [ ] Attempt login with the old default password and confirm it fails.
+- [ ] Run the installer again over an existing install and choose `Upgrade`.
+- [ ] Confirm the installer asks whether to keep the current administrator password or reset existing admin passwords.
+- [ ] Choose `Keep existing admin passwords` and confirm the old admin password still works after upgrade.
+- [ ] Run upgrade again and choose `Reset existing admin passwords`.
+- [ ] Enter a new installer admin password and confirm the old admin password fails while the new one works for the existing league(s).
 
 ### B) Almanac Export (`#27`)
 - [ ] Login as admin and open `Assets & Exports`.

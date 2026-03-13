@@ -2,6 +2,7 @@ import bcrypt
 import pytest
 from utils.user_manager import (
     apply_admin_bootstrap,
+    apply_admin_upgrade_reset,
     add_user,
     admin_password_setup_required,
     clear_users,
@@ -181,3 +182,49 @@ def test_apply_admin_bootstrap_rewrites_default_admin_password(tmp_path, monkeyp
     users = load_users(users_file)
     admin = next(u for u in users if u["username"] == "admin")
     assert bcrypt.checkpw(b"bootstrap-secret", admin["password"].encode())
+
+
+def test_apply_admin_upgrade_reset_updates_root_and_league_users(
+    tmp_path, monkeypatch
+):
+    data_root = tmp_path / "data_root"
+    data_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("NEXGEN_DATA_DIR", str(data_root))
+
+    import utils.path_utils as path_utils
+
+    path_utils._DATA_DIR = None
+    path_utils._DATA_DIR_KEY = None
+    path_utils._DATA_ROOT = None
+    path_utils._DATA_ROOT_KEY = None
+
+    root_users = data_root / "users.txt"
+    root_users.write_text(
+        f"admin,{bcrypt.hashpw(b'old-root', bcrypt.gensalt()).decode()},admin,\n",
+        encoding="utf-8",
+    )
+    league_users = data_root / "leagues" / "alpha" / "data" / "users.txt"
+    league_users.parent.mkdir(parents=True, exist_ok=True)
+    league_users.write_text(
+        f"admin,{bcrypt.hashpw(b'old-league', bcrypt.gensalt()).decode()},admin,\n",
+        encoding="utf-8",
+    )
+
+    save_admin_bootstrap(
+        data_root=data_root,
+        password_plaintext="reset-me",
+        require_setup=False,
+        reset_existing_admin=True,
+    )
+
+    updated = apply_admin_upgrade_reset(data_root=data_root)
+
+    assert updated == 2
+    root_admin = next(u for u in load_users(root_users) if u["username"] == "admin")
+    league_admin = next(
+        u for u in load_users(league_users) if u["username"] == "admin"
+    )
+    assert bcrypt.checkpw(b"reset-me", root_admin["password"].encode())
+    assert bcrypt.checkpw(b"reset-me", league_admin["password"].encode())
+    bootstrap = load_admin_bootstrap(data_root)
+    assert bootstrap.get("reset_existing_admin") is False

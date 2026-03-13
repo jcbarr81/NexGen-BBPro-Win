@@ -212,6 +212,8 @@ fresh runtime data roots.
 
 - Interactive installer runs: enter and confirm the administrator password in
   the installer wizard.
+- Upgrade installs: choose whether to keep existing admin passwords or reset
+  all existing league admin accounts to the installer password you enter.
 - Silent/unattended installs: the app requires administrator password setup on
   the first admin login before admin access is granted.
 - Existing leagues keep their current `users.txt` credentials unless you

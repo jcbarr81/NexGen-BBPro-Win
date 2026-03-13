@@ -255,7 +255,7 @@ def test_login_admin_prompts_for_first_run_password_setup(tmp_path, monkeypatch)
 
     save_admin_bootstrap(data_root=data_root, require_setup=True)
 
-    user_file = tmp_path / "users.txt"
+    user_file = data_root / "users.txt"
     user_file.write_text("admin,__setup_required__,admin,\n", encoding="utf-8")
     login_window.USER_FILE = user_file
 
@@ -285,3 +285,48 @@ def test_login_admin_prompts_for_first_run_password_setup(tmp_path, monkeypatch)
     stored = user_file.read_text(encoding="utf-8")
     assert "__setup_required__" not in stored
     assert "newpass" not in stored
+
+
+def test_login_admin_applies_upgrade_reset_to_existing_league(
+    tmp_path, monkeypatch
+):
+    data_root = tmp_path / "data_root"
+    data_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("NEXGEN_DATA_DIR", str(data_root))
+
+    import utils.path_utils as path_utils
+
+    path_utils._DATA_DIR = None
+    path_utils._DATA_DIR_KEY = None
+    path_utils._DATA_ROOT = None
+    path_utils._DATA_ROOT_KEY = None
+
+    from utils.user_manager import save_admin_bootstrap
+
+    save_admin_bootstrap(
+        data_root=data_root,
+        password_plaintext="upgrade-reset",
+        require_setup=False,
+        reset_existing_admin=True,
+    )
+
+    user_file = data_root / "users.txt"
+    user_file.write_text(
+        f"admin,{bcrypt.hashpw(b'legacy-pass', bcrypt.gensalt()).decode()},admin,\n",
+        encoding="utf-8",
+    )
+    login_window.USER_FILE = user_file
+
+    win = login_window.LoginWindow()
+    result = {}
+
+    def accept(role, team_id):
+        result["role"] = role
+        result["team_id"] = team_id
+
+    win.accept_login = accept
+    win.username_input.setText("admin")
+    win.password_input.setText("upgrade-reset")
+    win.handle_login()
+
+    assert result == {"role": "admin", "team_id": ""}
