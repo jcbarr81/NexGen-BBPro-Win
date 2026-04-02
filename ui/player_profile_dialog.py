@@ -236,6 +236,7 @@ from utils.path_utils import get_base_dir, get_data_dir, resolve_app_path
 from utils.player_loader import load_players_from_csv
 from utils.rating_display import rating_display_value
 from .star_rating import star_label, star_pixmap, star_text
+from .player_profile_launcher import open_player_profile_dialog
 from .components import Card, section_title
 
 
@@ -1411,6 +1412,11 @@ class PlayerProfileDialog(QDialog):
         compare_btn.clicked.connect(self._prompt_comparison_player)
         _layout_add_widget(layout, compare_btn)
 
+        preview_btn = QPushButton("Preview V2...")
+        _safe_call(preview_btn, "setObjectName", "SecondaryButton")
+        preview_btn.clicked.connect(self._open_preview_v2_dialog)
+        _layout_add_widget(layout, preview_btn)
+
         clear_btn = QPushButton("Clear Compare")
         _safe_call(clear_btn, "setObjectName", "SecondaryButton")
         clear_btn.clicked.connect(self._clear_comparison)
@@ -1459,6 +1465,12 @@ class PlayerProfileDialog(QDialog):
                 QMessageBox.information(self, "Training Focus Updated", message)
             except Exception:
                 pass
+
+    def _open_preview_v2_dialog(self) -> None:
+        try:
+            open_player_profile_dialog(self.player, self, variant="v2")
+        except Exception:
+            pass
 
 
     def _load_avatar_pixmap(self) -> QPixmap:

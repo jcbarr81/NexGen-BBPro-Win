@@ -12,7 +12,7 @@ from typing import Dict, List
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from ui.player_profile_dialog import PlayerProfileDialog
+from ui.player_profile_launcher import open_player_profile_dialog
 from ui.training_focus_dialog import TrainingFocusDialog
 from ui.star_rating import star_pixmap
 
@@ -834,7 +834,7 @@ class PositionPlayersDialog(QtWidgets.QDialog):
         player = self.players.get(pid)
         if not player:
             return
-        PlayerProfileDialog(player, self).exec()
+        open_player_profile_dialog(player, self)
 
     # ------------------------------------------------------------------
     # Palette helpers

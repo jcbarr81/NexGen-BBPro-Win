@@ -1,4 +1,4 @@
-<!-- last_build_ref: b1d76459f655380a20accb1f6522936cca4b4ca1 -->
+<!-- last_build_ref: d1a2645544afe14c33299a9d548ca3976af8e2ff -->
 # 4.5 Release Notes (Since 4.3.41)
 
 ## League Setup & Presets
@@ -1372,3 +1372,20 @@ Date: 2026-03-13
 - `"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\NexGen-BBPro.iss`
 - Result: successful compile.
 - Version bumped to `5.2.32` and installer `AppVersion` synchronized.
+
+# 5.2.33 Release Notes (Since last build b1d7645)
+Date: 2026-03-19
+
+- 5.2.32
+- Added an opt-in Player Profile V2 preview dialog so the redesigned profile can
+- be tested without replacing the current player profile dialog.
+- Added a legacy profile preview action that opens the V2 dialog for the same
+- player while leaving existing player profile entry points on the current
+- dialog by default.
+- Added focused launcher/preview regression coverage so the preview path can be
+- exercised without changing legacy profile behavior.
+
+# 5.2.33 Release Notes (Since last build d1a2645)
+Date: 2026-03-19
+
+- No changes since last build and no draft notes were found.

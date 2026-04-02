@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ui.player_profile_dialog import PlayerProfileDialog
+from ui.player_profile_launcher import open_player_profile_dialog
 
 from models.base_player import BasePlayer
 from models.roster import Roster
@@ -110,5 +110,5 @@ class PitchersWindow(QDialog):
         player = self.players.get(pid)
         if not player:
             return
-        PlayerProfileDialog(player, self).exec()
+        open_player_profile_dialog(player, self)
 

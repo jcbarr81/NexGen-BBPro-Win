@@ -27,6 +27,8 @@ from services.finance_settings import (
     PRESET_PROFILES,
     PRESET_SIMPLE,
     PRESET_STANDARD,
+    build_finance_enforcement_tooltip,
+    build_finance_module_tooltip,
 )
 
 _PRESET_LABELS = {
@@ -142,6 +144,7 @@ class LeagueCreationFinanceDialog(QDialog):
         self.enforcement_combo.addItem(_LEVEL_LABELS[ENFORCEMENT_WARN], ENFORCEMENT_WARN)
         self.enforcement_combo.addItem(_LEVEL_LABELS[ENFORCEMENT_BLOCK], ENFORCEMENT_BLOCK)
         self.enforcement_combo.currentIndexChanged.connect(self._on_manual_change)
+        self.enforcement_combo.setToolTip(build_finance_enforcement_tooltip())
         top_layout.addWidget(self.enforcement_combo, 2, 1)
         root.addWidget(top_group)
 
@@ -151,14 +154,24 @@ class LeagueCreationFinanceDialog(QDialog):
         modules_layout.setHorizontalSpacing(12)
         modules_layout.setVerticalSpacing(8)
 
+        module_help_note = QLabel(
+            "Hover a module name or level selector to see what each level changes."
+        )
+        module_help_note.setWordWrap(True)
+        modules_layout.addWidget(module_help_note, 0, 0, 1, 2)
+
         for row, (module, label) in enumerate(_KEY_MODULES):
-            modules_layout.addWidget(QLabel(label), row, 0)
+            tooltip = build_finance_module_tooltip(module)
+            module_label = QLabel(label)
+            module_label.setToolTip(tooltip)
+            modules_layout.addWidget(module_label, row + 1, 0)
             combo = QComboBox()
             for level in MODULE_LEVELS.get(module, ()):
                 combo.addItem(_LEVEL_LABELS.get(level, level.title()), level)
             combo.currentIndexChanged.connect(self._on_manual_change)
+            combo.setToolTip(tooltip)
             self._module_combos[module] = combo
-            modules_layout.addWidget(combo, row, 1)
+            modules_layout.addWidget(combo, row + 1, 1)
 
         root.addWidget(modules_group)
 

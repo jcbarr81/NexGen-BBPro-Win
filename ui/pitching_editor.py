@@ -169,8 +169,8 @@ class PitchingEditor(QDialog):
         if player is None:
             return
         try:
-            from ui.player_profile_dialog import PlayerProfileDialog
-            PlayerProfileDialog(player, self).exec()
+            from .player_profile_launcher import open_player_profile_dialog
+            open_player_profile_dialog(player, self)
         except Exception:
             pass
 

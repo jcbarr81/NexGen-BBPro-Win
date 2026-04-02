@@ -122,3 +122,21 @@ def test_financial_settings_dialog_collects_and_clamps_scouting_tuning():
     assert values["passive_gain"] == 0.015
     assert values["max_banked_credits"] == 50.0
     assert values["auto_spend_cap"] == 80.0
+
+
+def test_financial_settings_dialog_formats_contract_backfill_message():
+    from ui.financial_settings_dialog import FinancialSettingsDialog
+
+    text = FinancialSettingsDialog._format_contract_backfill_message(
+        {
+            "mode": "mid_league",
+            "seeded": 3,
+            "teams": ["AAA", "BBB"],
+            "arb_eligible_seeded": 1,
+        }
+    )
+
+    assert "existing league" in text
+    assert "Contracts created: 3" in text
+    assert "AAA, BBB" in text
+    assert "Arbitration-ready contracts inferred: 1" in text

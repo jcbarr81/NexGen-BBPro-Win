@@ -33,12 +33,16 @@ __all__ = [
     "set_contract_option_decision",
     "contract_payroll_value",
     "estimate_salary_for_player",
+    "backfill_missing_contracts_from_rosters",
+    "seed_inaugural_contracts_from_rosters",
 ]
 
 CONTRACTS_VERSION = 1
 DEFAULT_CONTRACT_YEARS = 1
 DEFAULT_MIN_SALARY = 800_000
 MAX_ESTIMATED_SALARY = 35_000_000
+
+
 def load_contracts_payload(*, data_dir: Path | str | None = None) -> Dict[str, object]:
     """Load ``contracts.json`` for the current league."""
 
@@ -580,6 +584,69 @@ def estimate_salary_for_player(player: object | None) -> int:
     return max(DEFAULT_MIN_SALARY, min(MAX_ESTIMATED_SALARY, int(salary)))
 
 
+def seed_inaugural_contracts_from_rosters(
+    *,
+    data_dir: Path | str | None = None,
+    season_year: int | None = None,
+    force: bool = False,
+) -> Dict[str, object]:
+    """Seed default contracts for rostered players missing contract rows.
+
+    By default this only runs during a league's inaugural season so finance
+    enablement in year one creates a usable baseline payroll state without
+    inventing service-time history for established saves.
+    """
+
+    resolved_data_dir = get_data_dir() if data_dir is None else Path(data_dir)
+    resolved_year = _resolve_season_year(data_dir=resolved_data_dir, season_year=season_year)
+    summary = _base_seed_summary(resolved_year=resolved_year, mode="inaugural")
+    if not force and not _is_inaugural_season(data_dir=resolved_data_dir):
+        summary["skipped_non_inaugural"] = True
+        return summary
+
+    return _seed_missing_contracts_from_rosters(
+        data_dir=resolved_data_dir,
+        resolved_year=resolved_year,
+        summary=summary,
+        contract_builder=lambda team_id, player_id, player: _build_seed_contract(
+            team_id=team_id,
+            player_id=player_id,
+            player=player,
+            season_year=resolved_year,
+        ),
+    )
+
+
+def backfill_missing_contracts_from_rosters(
+    *,
+    data_dir: Path | str | None = None,
+    season_year: int | None = None,
+    force: bool = False,
+) -> Dict[str, object]:
+    """Generate missing contracts for established leagues when finance is enabled."""
+
+    resolved_data_dir = get_data_dir() if data_dir is None else Path(data_dir)
+    resolved_year = _resolve_season_year(data_dir=resolved_data_dir, season_year=season_year)
+    summary = _base_seed_summary(resolved_year=resolved_year, mode="mid_league")
+    if not force and _is_inaugural_season(data_dir=resolved_data_dir):
+        summary["skipped_inaugural"] = True
+        return summary
+
+    completed_seasons = _completed_league_seasons(data_dir=resolved_data_dir)
+    return _seed_missing_contracts_from_rosters(
+        data_dir=resolved_data_dir,
+        resolved_year=resolved_year,
+        summary=summary,
+        contract_builder=lambda team_id, player_id, player: _build_backfill_contract(
+            team_id=team_id,
+            player_id=player_id,
+            player=player,
+            season_year=resolved_year,
+            completed_seasons=completed_seasons,
+        ),
+    )
+
+
 def _contracts_path(*, data_dir: Path | str | None = None) -> Path:
     if data_dir is None:
         return get_data_dir() / "contracts.json"
@@ -702,6 +769,324 @@ def _resolve_season_year(
     except Exception:
         pass
     return date.today().year
+
+
+def _base_seed_summary(*, resolved_year: int, mode: str) -> Dict[str, object]:
+    return {
+        "season_year": resolved_year,
+        "mode": mode,
+        "seeded": 0,
+        "teams": [],
+        "skipped_non_inaugural": False,
+        "skipped_inaugural": False,
+        "inferred_service_time_days": 0,
+        "arb_eligible_seeded": 0,
+        "term_breakdown": {
+            "1y": 0,
+            "2y": 0,
+            "3y": 0,
+            "4y_plus": 0,
+        },
+    }
+
+
+def _seed_missing_contracts_from_rosters(
+    *,
+    data_dir: Path,
+    resolved_year: int,
+    summary: Dict[str, object],
+    contract_builder,
+) -> Dict[str, object]:
+    team_ids = _load_team_ids_for_contracts(data_dir)
+    roster_dir = data_dir / "rosters"
+    if not team_ids or not roster_dir.exists():
+        return summary
+
+    payload = load_contracts_payload(data_dir=data_dir)
+    players = payload.get("players")
+    if not isinstance(players, dict):
+        players = {}
+        payload["players"] = players
+
+    players_by_id = _load_players_by_id_for_contracts(data_dir)
+    seeded_teams: set[str] = set()
+    for team_id in team_ids:
+        roster_path = roster_dir / f"{team_id}.csv"
+        if not roster_path.exists():
+            continue
+        try:
+            roster = read_roster_csv(roster_path, team_id)
+        except Exception:
+            continue
+        for player_id in _roster_player_ids(roster):
+            if player_id in players:
+                continue
+            player = players_by_id.get(player_id)
+            contract, metadata = contract_builder(team_id, player_id, player)
+            players[player_id] = contract
+            summary["seeded"] = int(summary.get("seeded", 0) or 0) + 1
+            summary["inferred_service_time_days"] = int(
+                summary.get("inferred_service_time_days", 0) or 0
+            ) + int(metadata.get("service_time_days", 0) or 0)
+            if bool(metadata.get("arb_eligible")):
+                summary["arb_eligible_seeded"] = int(
+                    summary.get("arb_eligible_seeded", 0) or 0
+                ) + 1
+            term_breakdown = summary.get("term_breakdown")
+            if isinstance(term_breakdown, dict):
+                years_left = int(metadata.get("years_left", DEFAULT_CONTRACT_YEARS) or 0)
+                if years_left >= 4:
+                    term_breakdown["4y_plus"] = int(term_breakdown.get("4y_plus", 0) or 0) + 1
+                elif years_left >= 1:
+                    bucket = f"{years_left}y"
+                    term_breakdown[bucket] = int(term_breakdown.get(bucket, 0) or 0) + 1
+            seeded_teams.add(team_id)
+
+    if int(summary.get("seeded", 0) or 0) > 0:
+        save_contracts_payload(payload, data_dir=data_dir)
+    summary["teams"] = sorted(seeded_teams)
+    return summary
+
+
+def _build_seed_contract(
+    *,
+    team_id: str,
+    player_id: str,
+    player: object | None,
+    season_year: int,
+) -> tuple[Dict[str, object], Dict[str, object]]:
+    years_left = DEFAULT_CONTRACT_YEARS
+    contract = {
+        "team_id": team_id,
+        "years_left": years_left,
+        "annual_salary": estimate_salary_for_player(player),
+        "service_time_days": 0,
+        "arb_eligible": False,
+        "fa_year": season_year + years_left,
+        "guaranteed": True,
+        "buyout_guarantee": 0,
+        "options": [],
+        "incentives": [],
+    }
+    return contract, {
+        "player_id": player_id,
+        "service_time_days": 0,
+        "arb_eligible": False,
+        "years_left": years_left,
+    }
+
+
+def _build_backfill_contract(
+    *,
+    team_id: str,
+    player_id: str,
+    player: object | None,
+    season_year: int,
+    completed_seasons: int,
+) -> tuple[Dict[str, object], Dict[str, object]]:
+    service_time_days = _infer_service_time_days(
+        player,
+        completed_seasons=completed_seasons,
+        season_year=season_year,
+    )
+    years_left = _infer_backfill_years_left(
+        player,
+        service_time_days=service_time_days,
+        season_year=season_year,
+    )
+    arb_eligible = years_left <= 1 and service_time_days >= (3 * 172)
+    contract = {
+        "team_id": team_id,
+        "years_left": years_left,
+        "annual_salary": estimate_salary_for_player(player),
+        "service_time_days": service_time_days,
+        "arb_eligible": arb_eligible,
+        "fa_year": season_year + years_left,
+        "guaranteed": True,
+        "buyout_guarantee": 0,
+        "options": [],
+        "incentives": [],
+    }
+    return contract, {
+        "player_id": player_id,
+        "service_time_days": service_time_days,
+        "arb_eligible": arb_eligible,
+        "years_left": years_left,
+    }
+
+
+def _completed_league_seasons(*, data_dir: Path | str | None = None) -> int:
+    try:
+        if data_dir is None:
+            ctx = SeasonContext.load()
+        else:
+            ctx = SeasonContext.load(path=Path(data_dir) / "career_index.json")
+    except Exception:
+        return 0
+
+    seasons_count = len(list(ctx.seasons or []))
+    try:
+        sequence = int((ctx.current or {}).get("sequence", 0) or 0)
+    except Exception:
+        sequence = 0
+    return max(seasons_count, max(0, sequence - 1))
+
+
+def _is_inaugural_season(*, data_dir: Path | str | None = None) -> bool:
+    try:
+        if data_dir is None:
+            ctx = SeasonContext.load()
+        else:
+            ctx = SeasonContext.load(path=Path(data_dir) / "career_index.json")
+    except Exception:
+        return False
+
+    try:
+        sequence = int((ctx.current or {}).get("sequence", 0) or 0)
+    except Exception:
+        sequence = 0
+    if sequence == 1:
+        return True
+    return len(list(ctx.seasons or [])) == 0 and sequence <= 1
+
+
+def _load_team_ids_for_contracts(data_dir: Path) -> list[str]:
+    teams_path = data_dir / "teams.csv"
+    team_ids: list[str] = []
+    seen: set[str] = set()
+    if teams_path.exists():
+        try:
+            import csv
+
+            with teams_path.open("r", newline="", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                for row in reader:
+                    team_id = str(
+                        row.get("team_id")
+                        or row.get("abbreviation")
+                        or ""
+                    ).strip()
+                    if not team_id or team_id in seen:
+                        continue
+                    seen.add(team_id)
+                    team_ids.append(team_id)
+        except Exception:
+            team_ids = []
+    if team_ids:
+        return team_ids
+
+    roster_dir = data_dir / "rosters"
+    if not roster_dir.exists():
+        return []
+    for path in sorted(roster_dir.glob("*.csv")):
+        team_id = path.stem.strip()
+        if (
+            not team_id
+            or team_id.endswith("_pitching")
+            or team_id in seen
+        ):
+            continue
+        seen.add(team_id)
+        team_ids.append(team_id)
+    return team_ids
+
+
+def _load_players_by_id_for_contracts(data_dir: Path) -> Dict[str, object]:
+    players_path = data_dir / "players.csv"
+    if not players_path.exists():
+        return {}
+    try:
+        from utils.player_loader import load_players_from_csv
+
+        loaded = load_players_from_csv(players_path)
+    except Exception:
+        return {}
+    return {
+        str(getattr(player, "player_id", "") or "").strip(): player
+        for player in loaded
+        if str(getattr(player, "player_id", "") or "").strip()
+    }
+
+
+def _roster_player_ids(roster: object) -> list[str]:
+    player_ids: list[str] = []
+    seen: set[str] = set()
+    for group_name in ("act", "aaa", "low", "dl", "ir"):
+        for raw_player_id in getattr(roster, group_name, []) or []:
+            player_id = str(raw_player_id or "").strip()
+            if not player_id or player_id in seen:
+                continue
+            seen.add(player_id)
+            player_ids.append(player_id)
+    return player_ids
+
+
+def _player_age(
+    player: object | None,
+    *,
+    season_year: int | None = None,
+) -> int | None:
+    birthdate = str(getattr(player, "birthdate", "") or "").strip()
+    if not birthdate:
+        return None
+    token = birthdate.split("T", 1)[0]
+    try:
+        born = datetime.strptime(token, "%Y-%m-%d").date()
+    except Exception:
+        return None
+    reference_year = int(season_year) if season_year is not None else date.today().year
+    age = reference_year - born.year
+    if season_year is None and (date.today().month, date.today().day) < (born.month, born.day):
+        age -= 1
+    return max(0, age)
+
+
+def _player_history_seasons(player: object | None) -> int:
+    history = getattr(player, "career_history", None)
+    if isinstance(history, Mapping):
+        return len(history)
+    return 0
+
+
+def _infer_service_time_days(
+    player: object | None,
+    *,
+    completed_seasons: int,
+    season_year: int,
+) -> int:
+    if completed_seasons <= 0:
+        return 0
+
+    history_seasons = _player_history_seasons(player)
+    if history_seasons > 0:
+        return max(0, min(completed_seasons, history_seasons)) * 172
+
+    age = _player_age(player, season_year=season_year)
+    if age is None:
+        return min(1, completed_seasons) * 172
+
+    estimated_years = max(0, age - 22)
+    if estimated_years <= 0 and age >= 24:
+        estimated_years = 1
+    return max(0, min(completed_seasons, estimated_years)) * 172
+
+
+def _infer_backfill_years_left(
+    player: object | None,
+    *,
+    service_time_days: int,
+    season_year: int,
+) -> int:
+    age = _player_age(player, season_year=season_year)
+    if age is None:
+        return 1
+    if age <= 24:
+        return 3
+    if age <= 29:
+        return 2
+    if service_time_days >= (3 * 172):
+        return 1
+    return 2
 
 
 def _safe_number(value: object) -> float:

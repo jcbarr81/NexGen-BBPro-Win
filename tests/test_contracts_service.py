@@ -5,12 +5,14 @@ from types import SimpleNamespace
 
 from services.contracts_service import (
     DEFAULT_MIN_SALARY,
+    backfill_missing_contracts_from_rosters,
     contract_payroll_value,
     extend_contract,
     get_contract,
     remove_contract,
     rollover_contracts_for_new_season,
     set_contract_option_decision,
+    seed_inaugural_contracts_from_rosters,
     sign_free_agent_contract,
     transfer_contract,
     transfer_contracts,
@@ -69,6 +71,128 @@ def test_sign_free_agent_contract_estimates_salary(tmp_path):
 
     assert contract["team_id"] == "BBB"
     assert contract["annual_salary"] >= DEFAULT_MIN_SALARY
+    assert contract["fa_year"] == 2034
+
+
+def test_seed_inaugural_contracts_from_rosters_populates_missing_players(tmp_path):
+    data_dir = tmp_path / "league-data"
+    roster_dir = data_dir / "rosters"
+    roster_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "teams.csv").write_text(
+        (
+            "team_id,name,city,abbreviation,division,stadium,primary_color,"
+            "secondary_color,owner_id\n"
+            "AAA,Alphas,Alpha,AAA,East,Alpha Park,#111111,#222222,\n"
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "career_index.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "league": {"id": "alpha"},
+                "current": {"league_year": 2032, "sequence": 1},
+                "seasons": [],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (roster_dir / "AAA.csv").write_text(
+        "P100,ACT\nP101,AAA\n",
+        encoding="utf-8",
+    )
+
+    summary = seed_inaugural_contracts_from_rosters(data_dir=data_dir)
+
+    assert summary["seeded"] == 2
+    assert summary["teams"] == ["AAA"]
+    payload = json.loads((data_dir / "contracts.json").read_text(encoding="utf-8"))
+    assert payload["players"]["P100"]["team_id"] == "AAA"
+    assert payload["players"]["P101"]["annual_salary"] == DEFAULT_MIN_SALARY
+
+
+def test_seed_inaugural_contracts_from_rosters_skips_established_league(tmp_path):
+    data_dir = tmp_path / "league-data"
+    roster_dir = data_dir / "rosters"
+    roster_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "teams.csv").write_text(
+        (
+            "team_id,name,city,abbreviation,division,stadium,primary_color,"
+            "secondary_color,owner_id\n"
+            "AAA,Alphas,Alpha,AAA,East,Alpha Park,#111111,#222222,\n"
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "career_index.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "league": {"id": "alpha"},
+                "current": {"league_year": 2033, "sequence": 2},
+                "seasons": [{"season_id": "alpha-2032"}],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (roster_dir / "AAA.csv").write_text("P100,ACT\n", encoding="utf-8")
+
+    summary = seed_inaugural_contracts_from_rosters(data_dir=data_dir)
+
+    assert summary["seeded"] == 0
+    assert summary["skipped_non_inaugural"] is True
+
+
+def test_backfill_missing_contracts_from_rosters_for_established_league(tmp_path):
+    data_dir = tmp_path / "league-data"
+    roster_dir = data_dir / "rosters"
+    roster_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "teams.csv").write_text(
+        (
+            "team_id,name,city,abbreviation,division,stadium,primary_color,"
+            "secondary_color,owner_id\n"
+            "AAA,Alphas,Alpha,AAA,East,Alpha Park,#111111,#222222,\n"
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "players.csv").write_text(
+        (
+            "player_id,first_name,last_name,birthdate,height,weight,ethnicity,skin_tone,"
+            "hair_color,facial_hair,bats,primary_position,other_positions,gf,injured,"
+            "injury_description,return_date,injury_list,injury_start_date,"
+            "injury_minimum_days,injury_eligible_date,injury_rehab_assignment,"
+            "injury_rehab_days,durability,is_pitcher,ch,ph,sp,eye,pl,vl,sc,fa,arm\n"
+            "P100,Casey,Bat,2007-06-15,73,195,,,,,R,CF,,50,false,,,,,,,,0,55,false,72,70,64,68,60,61,59,58,57\n"
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "career_index.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "league": {"id": "alpha"},
+                "current": {"league_year": 2032, "sequence": 3},
+                "seasons": [{"season_id": "alpha-2030"}, {"season_id": "alpha-2031"}],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (roster_dir / "AAA.csv").write_text("P100,ACT\n", encoding="utf-8")
+
+    summary = backfill_missing_contracts_from_rosters(data_dir=data_dir)
+
+    contract = get_contract("P100", data_dir=data_dir)
+    assert summary["mode"] == "mid_league"
+    assert summary["seeded"] == 1
+    assert summary["teams"] == ["AAA"]
+    assert summary["inferred_service_time_days"] == 344
+    assert summary["term_breakdown"]["2y"] == 1
+    assert contract is not None
+    assert contract["team_id"] == "AAA"
+    assert contract["service_time_days"] == 344
+    assert contract["years_left"] == 2
     assert contract["fa_year"] == 2034
 
 

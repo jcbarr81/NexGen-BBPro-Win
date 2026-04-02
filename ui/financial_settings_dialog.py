@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -22,11 +23,14 @@ from .components import ActionButtonPanel
 from services.finance_settings import (
     DEFAULT_FINANCE_AI_TUNING,
     ENFORCEMENT_WARN,
+    FINANCE_MODULE_HELP,
     MODULE_LEVELS,
     PRESET_CUSTOM,
     PRESET_OFF,
     PRESET_PROFILES,
     apply_financial_preset,
+    build_finance_enforcement_tooltip,
+    build_finance_module_tooltip,
     load_financial_settings,
     update_financial_settings,
 )
@@ -73,19 +77,6 @@ _MODULE_LABELS = {
     "gm_free_agency": "GM: Free Agency",
     "gm_roster_cost_enforcement": "GM: Roster Cost Enforcement",
     "gm_finance_ai": "GM AI: Financial Behavior",
-}
-
-_MODULE_HELP = {
-    "owner_revenue": "Ticket, sponsorship, media, and concession revenue calculations.",
-    "owner_market_model": "Market-size and fan-interest effects on demand/revenue.",
-    "owner_budgets": "Owner budget allocations for training, scouting, development, and facilities.",
-    "owner_expenses": "Operating costs and non-payroll expense modeling.",
-    "gm_contracts": "Contract valuation, offer structure, and commitment behavior.",
-    "gm_payroll_rules": "Payroll threshold/floor checks and MLB-like rule enforcement.",
-    "gm_arbitration": "Arbitration candidate handling and award outcomes.",
-    "gm_free_agency": "AI free-agent offer behavior and risk posture.",
-    "gm_roster_cost_enforcement": "Owner/GM spending guardrails and overage handling.",
-    "gm_finance_ai": "CPU finance decision quality for signings, cuts, and payroll balancing.",
 }
 
 _MODULE_ORDER = [
@@ -265,6 +256,7 @@ class FinancialSettingsDialog(QDialog):
         for key in ("off", "warn", "block"):
             self.enforcement_combo.addItem(_LEVEL_LABELS[key], key)
         self.enforcement_combo.currentIndexChanged.connect(self._on_manual_change)
+        self.enforcement_combo.setToolTip(build_finance_enforcement_tooltip())
         top_layout.addWidget(self.enforcement_combo, 3, 1)
 
         self.preset_guidance_label = QLabel("")
@@ -312,6 +304,9 @@ class FinancialSettingsDialog(QDialog):
             "MLB-Like = strict MLB-style behavior, Warn/Block = enforcement severity."
         )
         legend.setWordWrap(True)
+        legend.setToolTip(
+            "Hover a module name or selector below for module-specific level details."
+        )
         modules_layout.addWidget(legend)
 
         module_grid = QGridLayout()
@@ -326,16 +321,20 @@ class FinancialSettingsDialog(QDialog):
             module_grid.addWidget(section, row, 0, 1, 3)
             row += 1
             for module in modules:
+                tooltip = build_finance_module_tooltip(module)
                 label = QLabel(_MODULE_LABELS.get(module, module))
                 label.setWordWrap(True)
-                details = QLabel(_MODULE_HELP.get(module, ""))
+                label.setToolTip(tooltip)
+                details = QLabel(FINANCE_MODULE_HELP.get(module, ""))
                 details.setWordWrap(True)
                 details.setStyleSheet("color: #6c757d;")
+                details.setToolTip(tooltip)
                 combo = QComboBox()
                 combo.setMinimumWidth(170)
                 for level in MODULE_LEVELS.get(module, ("off",)):
                     combo.addItem(_LEVEL_LABELS.get(level, level), level)
                 combo.currentIndexChanged.connect(self._on_manual_change)
+                combo.setToolTip(tooltip)
                 module_grid.addWidget(label, row, 0)
                 module_grid.addWidget(details, row, 1)
                 module_grid.addWidget(combo, row, 2)
@@ -719,6 +718,40 @@ class FinancialSettingsDialog(QDialog):
                     tuning[key] = float(default_value or 0.0)
         return tuning
 
+    @staticmethod
+    def _format_contract_backfill_message(summary: Dict[str, object]) -> str:
+        if not isinstance(summary, dict):
+            return ""
+        seeded = int(summary.get("seeded", 0) or 0)
+        if seeded <= 0:
+            return ""
+        teams = summary.get("teams") if isinstance(summary.get("teams"), list) else []
+        mode = str(summary.get("mode") or "").strip().lower()
+        if mode == "mid_league":
+            intro = (
+                "Finance was enabled for an existing league, so missing player "
+                "contracts were generated from current rosters."
+            )
+            inference = (
+                "Service time and term length were inferred conservatively from "
+                "available season history and player age."
+            )
+        else:
+            intro = "Initial roster contracts were generated for finance-enabled teams."
+            inference = "Contracts were seeded with baseline one-year terms."
+        lines = [
+            intro,
+            f"Contracts created: {seeded}",
+        ]
+        if teams:
+            lines.append(f"Teams affected: {', '.join(str(team) for team in teams)}")
+        if mode == "mid_league":
+            lines.append(inference)
+        arb_eligible = int(summary.get("arb_eligible_seeded", 0) or 0)
+        if arb_eligible > 0:
+            lines.append(f"Arbitration-ready contracts inferred: {arb_eligible}")
+        return "\n".join(lines)
+
     def _save(self) -> None:
         preset = self._preset_value()
         scouting_tuning = self._collect_scouting_tuning()
@@ -731,18 +764,22 @@ class FinancialSettingsDialog(QDialog):
             max_banked_credits=float(scouting_tuning["max_banked_credits"]),
             auto_spend_cap=float(scouting_tuning["auto_spend_cap"]),
         )
+        saved_settings = None
         if preset == PRESET_OFF:
-            apply_financial_preset(PRESET_OFF)
-            self.accept()
-            return
-
-        update_financial_settings(
-            enabled=self.enabled_checkbox.isChecked(),
-            preset=preset,
-            enforcement_mode=str(self.enforcement_combo.currentData() or ENFORCEMENT_WARN),
-            modules=self._collect_modules(),
-            finance_ai_tuning=self._collect_ai_tuning(),
+            saved_settings = apply_financial_preset(PRESET_OFF)
+        else:
+            saved_settings = update_financial_settings(
+                enabled=self.enabled_checkbox.isChecked(),
+                preset=preset,
+                enforcement_mode=str(self.enforcement_combo.currentData() or ENFORCEMENT_WARN),
+                modules=self._collect_modules(),
+                finance_ai_tuning=self._collect_ai_tuning(),
+            )
+        message = self._format_contract_backfill_message(
+            getattr(saved_settings, "contract_backfill_summary", {})
         )
+        if message:
+            QMessageBox.information(self, "Contracts Generated", message)
         self.accept()
 
 

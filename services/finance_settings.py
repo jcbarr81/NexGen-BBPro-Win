@@ -21,6 +21,9 @@ __all__ = [
     "DEFAULT_FINANCE_AI_TUNING",
     "MODULE_LEVELS",
     "PRESET_PROFILES",
+    "FINANCE_MODULE_HELP",
+    "build_finance_module_tooltip",
+    "build_finance_enforcement_tooltip",
     "load_financial_settings",
     "save_financial_settings",
     "update_financial_settings",
@@ -96,6 +99,70 @@ FINANCIAL_TRANSACTIONS_HEADER = (
     "memo",
 )
 
+LEVEL_LABELS: Dict[str, str] = {
+    LEVEL_OFF: "Off",
+    LEVEL_BASIC: "Basic",
+    LEVEL_ADVANCED: "Advanced",
+    LEVEL_MLB_LIKE: "MLB-Like",
+    ENFORCEMENT_WARN: "Warn",
+    ENFORCEMENT_BLOCK: "Block",
+}
+
+FINANCE_MODULE_HELP: Dict[str, str] = {
+    "owner_revenue": "Controls how team revenue is generated from attendance, media, sponsorship, and concessions.",
+    "owner_market_model": "Controls how market size and fan interest influence demand and earnings.",
+    "owner_budgets": "Controls whether owners split spending into budget buckets such as training, scouting, development, and facilities.",
+    "owner_expenses": "Controls whether non-payroll operating costs are modeled alongside payroll spending.",
+    "gm_contracts": "Controls how player contracts, commitment tracking, and advanced contract terms are handled.",
+    "gm_payroll_rules": "Controls payroll-limit behavior such as threshold pressure and realism-oriented payroll checks.",
+    "gm_arbitration": "Controls whether arbitration candidates and award decisions are part of roster management.",
+    "gm_free_agency": "Controls how teams value and pursue free agents under the financial system.",
+    "gm_roster_cost_enforcement": "Controls whether roster moves are allowed to exceed the league's roster-cost guardrails.",
+    "gm_finance_ai": "Controls how strongly CPU teams react to payroll pressure, contracts, and long-term commitments.",
+}
+
+_GENERIC_LEVEL_HELP: Dict[str, str] = {
+    LEVEL_OFF: "Disables this module and its related finance workflows.",
+    LEVEL_BASIC: "Enables the core version of the module with lighter rules and fewer edge-case systems.",
+    LEVEL_ADVANCED: "Enables the deeper simulation version with more detail, pressure, and realism.",
+    LEVEL_MLB_LIKE: "Uses the strictest MLB-style version of the module for realism-first behavior.",
+    ENFORCEMENT_WARN: "Allows the action but warns when limits are exceeded.",
+    ENFORCEMENT_BLOCK: "Prevents the action until costs or roster state return to a valid range.",
+}
+
+_MODULE_LEVEL_HELP: Dict[str, Dict[str, str]] = {
+    "owner_budgets": {
+        LEVEL_OFF: "No owner budget buckets are enforced for team-improvement spending.",
+        LEVEL_BASIC: "Uses simpler budget buckets so owners can guide spending without heavy micromanagement.",
+        LEVEL_ADVANCED: "Makes budget buckets a stronger planning layer with more meaningful tradeoffs between spending areas.",
+    },
+    "gm_contracts": {
+        LEVEL_OFF: "Players do not participate in the contract-management layer.",
+        LEVEL_BASIC: "Uses simpler contract handling focused on core salary and term decisions.",
+        LEVEL_ADVANCED: "Unlocks richer contract management, including advanced term handling where supported by the UI.",
+    },
+    "gm_payroll_rules": {
+        LEVEL_OFF: "Payroll-limit behavior is not enforced by this module.",
+        LEVEL_BASIC: "Applies simpler payroll guidance and threshold pressure without the strictest realism rules.",
+        LEVEL_MLB_LIKE: "Uses stricter MLB-style payroll behavior and realism-oriented roster pressure.",
+    },
+    "gm_arbitration": {
+        LEVEL_OFF: "Arbitration is skipped entirely.",
+        LEVEL_BASIC: "Enables standard arbitration eligibility and award handling.",
+        LEVEL_ADVANCED: "Adds deeper arbitration behavior and realism-focused decision handling.",
+    },
+    "gm_free_agency": {
+        LEVEL_OFF: "Free-agency bidding is not driven by the finance module.",
+        LEVEL_BASIC: "Uses simpler free-agent evaluation and contract bidding behavior.",
+        LEVEL_ADVANCED: "Uses richer bidding logic with stronger budget and roster-context pressure.",
+    },
+    "gm_roster_cost_enforcement": {
+        ENFORCEMENT_OFF: "Roster-cost guardrails are disabled for this league.",
+        ENFORCEMENT_WARN: "Moves can still be made, but the user is warned when limits are exceeded.",
+        ENFORCEMENT_BLOCK: "Moves that would violate roster-cost rules are blocked until the team is compliant.",
+    },
+}
+
 _OFF_MODULES = {module: levels[0] for module, levels in MODULE_LEVELS.items()}
 
 PRESET_PROFILES: Dict[str, Dict[str, object]] = {
@@ -155,6 +222,49 @@ PRESET_PROFILES: Dict[str, Dict[str, object]] = {
 }
 
 
+def _level_label(level: str) -> str:
+    token = str(level or "").strip().lower()
+    return LEVEL_LABELS.get(token, token.replace("_", " ").title())
+
+
+def _describe_module_level(module: str, level: str) -> str:
+    module_token = str(module or "").strip().lower()
+    level_token = str(level or "").strip().lower()
+    module_map = _MODULE_LEVEL_HELP.get(module_token, {})
+    if level_token in module_map:
+        return module_map[level_token]
+    return _GENERIC_LEVEL_HELP.get(
+        level_token,
+        "Enables this level for the selected module.",
+    )
+
+
+def build_finance_module_tooltip(module: str) -> str:
+    module_token = str(module or "").strip().lower()
+    lines = [FINANCE_MODULE_HELP.get(module_token, "Finance module settings.")]
+    levels = MODULE_LEVELS.get(module_token, ())
+    if levels:
+        lines.append("")
+        lines.append("Levels:")
+        for level in levels:
+            lines.append(
+                f"- {_level_label(level)}: {_describe_module_level(module_token, level)}"
+            )
+    return "\n".join(lines).strip()
+
+
+def build_finance_enforcement_tooltip() -> str:
+    lines = [
+        "Controls how strictly the overall finance system responds when teams exceed configured limits.",
+        "",
+        "Modes:",
+        f"- {_level_label(ENFORCEMENT_OFF)}: Finance enforcement is disabled.",
+        f"- {_level_label(ENFORCEMENT_WARN)}: Users can continue after a warning.",
+        f"- {_level_label(ENFORCEMENT_BLOCK)}: Actions are blocked until the issue is resolved.",
+    ]
+    return "\n".join(lines)
+
+
 @dataclass
 class FinancialSettings:
     league_id: str
@@ -165,6 +275,7 @@ class FinancialSettings:
     finance_ai_tuning: Dict[str, float | int] = field(
         default_factory=lambda: dict(DEFAULT_FINANCE_AI_TUNING)
     )
+    contract_backfill_summary: Dict[str, object] = field(default_factory=dict, repr=False)
 
     def normalized(self) -> "FinancialSettings":
         resolved_modules = _normalize_modules(self.modules)
@@ -178,6 +289,7 @@ class FinancialSettings:
                 enforcement_mode=_normalize_enforcement(self.enforcement_mode),
                 modules=resolved_modules,
                 finance_ai_tuning=resolved_tuning,
+                contract_backfill_summary=dict(self.contract_backfill_summary),
             )
         return FinancialSettings(
             league_id=_normalize_league_id(self.league_id),
@@ -186,6 +298,7 @@ class FinancialSettings:
             enforcement_mode=_normalize_enforcement(self.enforcement_mode),
             modules=resolved_modules,
             finance_ai_tuning=resolved_tuning,
+            contract_backfill_summary=dict(self.contract_backfill_summary),
         )
 
     def module_level(self, module: str) -> str:
@@ -275,7 +388,12 @@ def apply_financial_preset(
         finance_ai_tuning=dict(existing.finance_ai_tuning),
     )
     save_financial_settings(settings, path=path, league_id=resolved_league_id)
-    return settings.normalized()
+    normalized = settings.normalized()
+    normalized.contract_backfill_summary = _maybe_seed_or_backfill_contracts_for_enabled_finance(
+        normalized,
+        path=path,
+    )
+    return normalized
 
 
 def update_financial_settings(
@@ -315,7 +433,12 @@ def update_financial_settings(
         settings.preset = PRESET_CUSTOM
 
     save_financial_settings(settings, path=path, league_id=league_id)
-    return settings.normalized()
+    normalized = settings.normalized()
+    normalized.contract_backfill_summary = _maybe_seed_or_backfill_contracts_for_enabled_finance(
+        normalized,
+        path=path,
+    )
+    return normalized
 
 
 def ensure_financial_defaults(
@@ -474,6 +597,26 @@ def _resolve_league_id() -> str:
         return ctx.ensure_league()
     except Exception:
         return "league"
+
+
+def _maybe_seed_or_backfill_contracts_for_enabled_finance(
+    settings: FinancialSettings,
+    *,
+    path: Path | str | None = None,
+) -> Dict[str, object]:
+    normalized = settings.normalized()
+    if not normalized.enabled or normalized.module_level("gm_contracts") == LEVEL_OFF:
+        return {}
+    from services.contracts_service import (
+        backfill_missing_contracts_from_rosters,
+        seed_inaugural_contracts_from_rosters,
+    )
+
+    data_dir = _settings_path(path).parent
+    summary = seed_inaugural_contracts_from_rosters(data_dir=data_dir)
+    if bool(summary.get("skipped_non_inaugural")):
+        summary = backfill_missing_contracts_from_rosters(data_dir=data_dir)
+    return summary if isinstance(summary, dict) else {}
 
 
 def _settings_path(path: Path | str | None = None) -> Path:

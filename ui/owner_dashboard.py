@@ -146,6 +146,7 @@ from utils.league_settings import (
 )
 from ui.analytics import gather_owner_quick_metrics
 from ui.dashboard_core import DashboardContext, NavigationController, PageRegistry
+from ui.player_profile_launcher import open_player_profile_dialog
 from ui.window_utils import show_on_top
 from ui.version_badge import enable_version_badge
 from ui.sim_date_bus import sim_date_bus
@@ -1961,9 +1962,7 @@ class OwnerDashboard(QMainWindow):
         if player is None:
             return
         try:
-            from ui.player_profile_dialog import PlayerProfileDialog
-
-            show_on_top(PlayerProfileDialog(player, self))
+            open_player_profile_dialog(player, self)
         except Exception:
             pass
 

@@ -493,10 +493,8 @@ class LeagueLeadersWindow(QDialog):
             player = players.get(pid)
             if not player:
                 return
-            from .player_profile_dialog import PlayerProfileDialog
-            dlg = PlayerProfileDialog(player, self)
-            if callable(getattr(dlg, 'exec', None)):
-                dlg.exec()
+            from .player_profile_launcher import open_player_profile_dialog
+            open_player_profile_dialog(player, self)
         except Exception:
             pass
 

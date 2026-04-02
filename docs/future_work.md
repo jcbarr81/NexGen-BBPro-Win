@@ -686,3 +686,175 @@ land before channel-specific features.
   restore hang path for Owner Dashboard windows.
 - **Status:** Complete.
 
+## 34. Overwrite Existing League Should Refresh Admin Password
+- **Goal:** Ensure overwriting an existing league with the same name during
+  league creation resets that league's admin credential to the current
+  installer/bootstrap password instead of retaining the previous one.
+- **Scope:** Reproduce the overwrite path for same-name league creation after a
+  clean app install and identify why the prior league `users.txt` admin entry
+  survives instead of being reseeded.
+- **Scope:** Update the overwrite/create-league flow so replacing an existing
+  league also replaces or reseeds the admin account consistently with the
+  current installer bootstrap choice.
+- **Scope:** Add regression coverage for same-name overwrite flows and document
+  expected password behavior in installer/setup guidance if needed.
+- **Status:** Open.
+
+## 35. Single-User League Owner Setup Prompt
+- **Goal:** Improve first-run usability for single-user leagues by prompting
+  the player to create an owner username and choose a team immediately after
+  league creation.
+- **Scope:** Add a post-creation setup step for single-user league mode that
+  captures the owner username and managed team before the user lands in the
+  normal login/dashboard flow.
+- **Scope:** Seed the selected owner account/team assignment automatically and
+  avoid leaving newly created single-user leagues in an unclaimed/default
+  state.
+- **Scope:** Update related league-creation docs/tutorials and add regression
+  coverage for the new single-user onboarding path.
+- **Status:** Open.
+
+## 36. Player Profile Presentation Redesign
+- **Goal:** Improve the Player Profile page so key information is aligned more
+  clearly and the overall presentation feels more polished and readable.
+- **Scope:** Review the current Player Profile layout for alignment issues,
+  spacing inconsistencies, weak grouping, and visual hierarchy problems across
+  ratings, bio, stats, and action areas.
+- **Scope:** Redesign the page structure and presentation so core player info,
+  ratings, history, and related actions are easier to scan on desktop-sized
+  windows without feeling cramped or uneven.
+- **Scope:** Preserve existing functionality while improving layout quality,
+  then add/update visual regression or targeted UI tests where feasible.
+- **Status:** Open.
+
+## 37. Audit Player Star Rating Calculation
+- **Goal:** Revisit player star-rating calculation and presentation to verify
+  that displayed star values match the intended evaluation model and user
+  expectations.
+- **Scope:** Review the current star-rating formula, weighting inputs, role and
+  position adjustments, normalization ranges, and any separation between true,
+  displayed, or scouted values.
+- **Scope:** Reproduce cases where players with obviously elite component
+  ratings (for example 90+ contact and power) still display unexpectedly low
+  star ratings, and determine whether the issue is calculation logic,
+  defensive/positional balancing, or UI explanation clarity.
+- **Scope:** Fix incorrect rating behavior if found, or improve star-rating
+  transparency/tooltips/tests so the outcome is understandable and consistent.
+- **Status:** Open.
+
+## 38. Contract Details on Player Profile + Team Contracts Page
+- **Goal:** Make contract status easier to manage by showing full contract
+  details on each player profile and adding a dedicated contracts page for team
+  owners.
+- **Scope:** Extend the Player Profile view to display the player's current
+  contract details clearly, including core terms/status owners need when making
+  roster and finance decisions.
+- **Scope:** Add a dedicated contracts page or window where owners can review
+  the contract status of all players on their team in one place.
+- **Scope:** Ensure the contracts view supports practical owner workflows such
+  as spotting expiring deals, option decisions, arbitration/extension risk, and
+  other contract-related status at a glance.
+- **Scope:** Preserve existing contract functionality while improving
+  discoverability/presentation, then add targeted UI and data regression
+  coverage where feasible.
+- **Status:** Open.
+
+## 39. In-Season Contract Renegotiation for Final-Year Players
+- **Goal:** Let owners renegotiate contracts during the season for players who
+  are in the final year of their current deal.
+- **Scope:** Define eligibility rules for in-season renegotiation, including
+  limiting the feature to players with exactly one year remaining and honoring
+  any existing finance/contract-system constraints.
+- **Scope:** Add owner-facing workflow/UI to initiate and review renegotiation
+  offers from roster/player-profile/contracts surfaces.
+- **Scope:** Persist renegotiated terms safely, update contract/finance status
+  views accordingly, and prevent invalid duplicate or conflicting negotiations.
+- **Scope:** Add targeted coverage for eligibility, negotiation flow, and
+  contract-state updates.
+- **Status:** Open.
+
+## 40. Backfill Player Contracts When Finance Is Enabled Mid-League
+- **Goal:** Ensure that turning on the financial system for an already-created
+  league also creates and applies valid player contracts instead of leaving the
+  league in a finance-enabled but contract-empty state.
+- **Note:** Inaugural-season finance enablement now seeds default contracts for
+  rostered players automatically; remaining work here is the historical or
+  mid-league migration path where prior service time and term history must be
+  inferred.
+- **Scope:** Define the migration/backfill behavior when finance is enabled for
+  an existing league, including how initial contracts are generated for current
+  players and how terms are seeded.
+- **Scope:** Apply generated contracts to all relevant players and ensure
+  downstream finance/roster systems see a consistent contract state
+  immediately after the setting change.
+- **Scope:** Add safeguards, messaging, and regression coverage for the
+  finance-enable transition so commissioners understand what was generated and
+  leagues do not end up partially migrated.
+- **Status:** Complete (mid-league backfill flow delivered in v5.2.37).
+
+## 41. Season Progress Window Layout Simplification
+- **Goal:** Improve the Season Progress window layout so controls feel more
+  balanced, simpler, and easier to use during simulation.
+- **Scope:** Rework button alignment and spacing so the primary controls are
+  centered and visually organized instead of feeling uneven or overly stretched.
+- **Scope:** Simplify the dialog layout by reviewing labels, grouping,
+  whitespace, and control hierarchy to reduce clutter while preserving
+  important season-status information.
+- **Scope:** Keep all existing simulation functionality intact, then add/update
+- targeted UI regression coverage where feasible.
+- **Status:** Open.
+
+## 42. Owner Dashboard Readability and Layout Cleanup
+- **Goal:** Make the Owner Dashboard cleaner, easier to read, and less visually
+  noisy during normal team-management workflows.
+- **Scope:** Review the current owner dashboard layout for overcrowded sections,
+  weak visual hierarchy, inconsistent spacing, and readability issues across
+  the main dashboard surfaces.
+- **Scope:** Simplify and reorganize key owner-facing panels, labels, summary
+  areas, and action groupings so the most important information is easier to
+  scan quickly.
+- **Scope:** Preserve owner workflow functionality while improving presentation,
+  then add/update targeted UI regression coverage where feasible.
+- **Status:** Open.
+
+## 43. Research Draft Day Crash
+- **Goal:** Reproduce and isolate the draft day crash so the root cause can be
+  identified and fixed safely.
+- **Scope:** Investigate the draft-day flow across season progression, Draft
+  Console launch, roster/state persistence, and related UI/service handoffs to
+  determine where the crash occurs.
+- **Scope:** Capture any relevant error conditions, state prerequisites, and
+  reproduction steps so the failure can be consistently triggered in testing.
+- **Scope:** Add targeted regression coverage or diagnostic logging as needed to
+  support a later fix once the crash path is understood.
+- **Status:** Open.
+
+## 44. Player Profile V2 Preview Parity and Rollout
+- **Goal:** Finish the Player Profile V2 preview so it reaches functional parity
+  with the current player profile before any default-dialog swap occurs.
+- **Scope:** Compare the preview dialog against the current player profile
+  across hitters, pitchers, injury/training states, scouting-adjusted ratings,
+  and season/career stat history to identify missing or misleading behavior.
+- **Scope:** Bring over high-value legacy features that are deferred in the
+  first preview build, prioritizing areas owners rely on most when evaluating
+  players from roster, browser, and league views.
+- **Scope:** Keep the legacy player profile stable until parity, tests, and
+  manual validation are strong enough to justify routing normal entry points to
+  V2.
+- **Status:** Complete (Player Profile V2 reached rollout/default-launch parity in v5.2.38, with legacy still available as an explicit fallback).
+
+## 45. Finance Module Level Help Text and Tooltips
+- **Goal:** Make finance setup easier to understand by explaining what each
+  module level means directly in the UI.
+- **Scope:** Add tooltips, inline help text, or a small explainer affordance
+  for finance module controls in league creation and related finance settings
+  dialogs so users can quickly understand the difference between Off, Basic,
+  Advanced, MLB-Like, Warn, Block, and similar level choices.
+- **Scope:** Cover the key finance modules shown during setup, including Owner
+  Budgets, GM Contracts, Payroll Rules, Arbitration, Free Agency, and Roster
+  Cost Enforcement.
+- **Scope:** Keep the explanations concise and practical, focusing on gameplay
+  impact, unlocked workflows, and what changes at each level rather than
+  internal implementation details.
+- **Status:** Complete (baseline tooltip coverage delivered in v5.2.36).
+

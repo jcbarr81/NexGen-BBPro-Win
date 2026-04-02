@@ -223,7 +223,11 @@ def _run_startup_migration() -> None:
 
 def _run_startup_finance_maintenance() -> None:
     try:
-        from services.finance_settings import ensure_financial_defaults_for_all_leagues
+        from services.contracts_service import seed_inaugural_contracts_from_rosters
+        from services.finance_settings import (
+            ensure_financial_defaults_for_all_leagues,
+            load_financial_settings,
+        )
 
         seeded = ensure_financial_defaults_for_all_leagues()
         logging.info(
@@ -231,6 +235,15 @@ def _run_startup_finance_maintenance() -> None:
             len(seeded),
             ", ".join(sorted(seeded.keys())),
         )
+        active_settings = load_financial_settings()
+        if active_settings.enabled and active_settings.module_level("gm_contracts") != "off":
+            contract_summary = seed_inaugural_contracts_from_rosters()
+            logging.info(
+                "Startup inaugural contract seeding: seeded=%s teams=%s skipped_non_inaugural=%s",
+                contract_summary.get("seeded", 0),
+                ",".join(contract_summary.get("teams", []) or []),
+                contract_summary.get("skipped_non_inaugural", False),
+            )
     except Exception:
         logging.exception("Startup financial maintenance failed")
 

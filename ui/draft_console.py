@@ -1270,7 +1270,7 @@ class DraftConsole(QDialog):
 
     def _open_profile_from_selection(self, *_args) -> None:
         try:
-            from ui.player_profile_dialog import PlayerProfileDialog
+            from .player_profile_launcher import open_player_profile_dialog
             from models.player import Player as _Player
             from models.pitcher import Pitcher as _Pitcher
         except Exception:
@@ -1322,7 +1322,7 @@ class DraftConsole(QDialog):
                 arm=int(pr.get("arm",0) or 0),
             )
         try:
-            PlayerProfileDialog(player, self).exec()
+            open_player_profile_dialog(player, self)
         except Exception:
             pass
 

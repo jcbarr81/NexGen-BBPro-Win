@@ -673,11 +673,9 @@ class TeamStatsWindow(QDialog):
             player = players.get(pid)
             if not player:
                 return
-            from .player_profile_dialog import PlayerProfileDialog
+            from .player_profile_launcher import open_player_profile_dialog
             try:
-                dlg = PlayerProfileDialog(player, self)
-                if callable(getattr(dlg, 'exec', None)):
-                    dlg.exec()
+                open_player_profile_dialog(player, self)
             except Exception:
                 pass
         except Exception:

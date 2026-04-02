@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "season_year": 2154,
+  "season_year": 2170,
   "teams": {
     "WAS": {
-      "cash_on_hand": 1649895288,
+      "cash_on_hand": 1855642488,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -26,7 +26,7 @@
       }
     },
     "PHI": {
-      "cash_on_hand": 1842968130,
+      "cash_on_hand": 2072792130,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -49,7 +49,7 @@
       }
     },
     "IND": {
-      "cash_on_hand": 1737655662,
+      "cash_on_hand": 1954346862,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -72,7 +72,7 @@
       }
     },
     "SAN": {
-      "cash_on_hand": 1860520218,
+      "cash_on_hand": 2092533018,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -95,7 +95,7 @@
       }
     },
     "BOS": {
-      "cash_on_hand": 1895624364,
+      "cash_on_hand": 2132014764,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -118,7 +118,7 @@
       }
     },
     "SAN1": {
-      "cash_on_hand": 1614791112,
+      "cash_on_hand": 1816160712,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -141,7 +141,7 @@
       }
     },
     "PHO": {
-      "cash_on_hand": 1579686966,
+      "cash_on_hand": 1776678966,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -164,7 +164,7 @@
       }
     },
     "CHI": {
-      "cash_on_hand": 1614791112,
+      "cash_on_hand": 1816160712,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -187,7 +187,7 @@
       }
     },
     "OKL": {
-      "cash_on_hand": 1930728504,
+      "cash_on_hand": 2171496504,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -210,7 +210,7 @@
       }
     },
     "DET": {
-      "cash_on_hand": 1772759814,
+      "cash_on_hand": 1993828614,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -233,7 +233,7 @@
       }
     },
     "ELP": {
-      "cash_on_hand": 1842968130,
+      "cash_on_hand": 2072792130,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -256,7 +256,7 @@
       }
     },
     "MIL": {
-      "cash_on_hand": 1860520218,
+      "cash_on_hand": 2092533018,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -279,7 +279,7 @@
       }
     },
     "ALB": {
-      "cash_on_hand": 1895624364,
+      "cash_on_hand": 2132014764,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -302,7 +302,7 @@
       }
     },
     "HOU": {
-      "cash_on_hand": 1667447340,
+      "cash_on_hand": 1875383340,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -325,7 +325,7 @@
       }
     },
     "JAC": {
-      "cash_on_hand": 1878072276,
+      "cash_on_hand": 2112273876,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -348,7 +348,7 @@
       }
     },
     "POR": {
-      "cash_on_hand": 1755207750,
+      "cash_on_hand": 1974087750,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -371,7 +371,7 @@
       }
     },
     "LOU": {
-      "cash_on_hand": 1737655662,
+      "cash_on_hand": 1954346862,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -394,7 +394,7 @@
       }
     },
     "SAN2": {
-      "cash_on_hand": 1632343200,
+      "cash_on_hand": 1835901600,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -417,7 +417,7 @@
       }
     },
     "FOR": {
-      "cash_on_hand": 1579686966,
+      "cash_on_hand": 1776678966,
       "debt": 0,
       "revenue": {
         "tickets": 0,
@@ -440,7 +440,7 @@
       }
     },
     "NAS": {
-      "cash_on_hand": 1860520218,
+      "cash_on_hand": 2092533018,
       "debt": 0,
       "revenue": {
         "tickets": 0,

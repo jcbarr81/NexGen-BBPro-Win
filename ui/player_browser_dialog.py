@@ -22,7 +22,7 @@ from models.roster import Roster
 from services.training_settings import load_training_settings, set_player_training_weights
 from utils.pitcher_role import get_display_role, get_role
 from utils.rating_display import overall_rating
-from ui.player_profile_dialog import PlayerProfileDialog
+from ui.player_profile_launcher import open_player_profile_dialog
 from ui.training_focus_dialog import TrainingFocusDialog
 
 # Reuse the existing retro roster tables for consistent look/feel
@@ -172,7 +172,7 @@ class PlayerBrowserDialog(QDialog):
         player = self.players.get(pid)
         if not player:
             return
-        PlayerProfileDialog(player, self).exec()
+        open_player_profile_dialog(player, self)
 
     def _safe_age(self, birthdate: str):
         from datetime import datetime

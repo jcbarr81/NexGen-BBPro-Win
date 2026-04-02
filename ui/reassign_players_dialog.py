@@ -44,7 +44,7 @@ from PyQt6.QtWidgets import (
 
 from models.base_player import BasePlayer
 from models.roster import Roster
-from ui.player_profile_dialog import PlayerProfileDialog
+from .player_profile_launcher import open_player_profile_dialog
 from utils.path_utils import get_data_dir
 from utils.recovery_manager import (
     clear_recovery,
@@ -365,7 +365,7 @@ class ReassignPlayersDialog(QDialog):
         player = self.players.get(pid)
         if not player:
             return
-        PlayerProfileDialog(player, self).exec()
+        open_player_profile_dialog(player, self)
 
     def _resolve_selection(
         self, dialog_title: str

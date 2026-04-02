@@ -13,6 +13,8 @@ from services.finance_settings import (
     PRESET_MLB_LIKE,
     PRESET_SIMPLE,
     apply_financial_preset,
+    build_finance_enforcement_tooltip,
+    build_finance_module_tooltip,
     ensure_financial_defaults,
     ensure_financial_defaults_for_all_leagues,
     load_financial_settings,
@@ -38,6 +40,113 @@ def test_apply_simple_preset(tmp_path):
     assert settings.preset == PRESET_SIMPLE
     assert settings.module_level("owner_revenue") == "basic"
     assert settings.module_level("gm_arbitration") == "off"
+
+
+def test_build_finance_module_tooltip_lists_available_levels():
+    tooltip = build_finance_module_tooltip("gm_contracts")
+
+    assert "player contracts" in tooltip.lower()
+    assert "Levels:" in tooltip
+    assert "- Off:" in tooltip
+    assert "- Basic:" in tooltip
+    assert "- Advanced:" in tooltip
+
+
+def test_build_finance_enforcement_tooltip_lists_modes():
+    tooltip = build_finance_enforcement_tooltip()
+
+    assert "overall finance system" in tooltip.lower()
+    assert f"- Warn:" in tooltip
+    assert f"- Block:" in tooltip
+
+
+def test_apply_simple_preset_seeds_inaugural_contracts(tmp_path):
+    data_dir = tmp_path / "league-data"
+    roster_dir = data_dir / "rosters"
+    roster_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "teams.csv").write_text(
+        (
+            "team_id,name,city,abbreviation,division,stadium,primary_color,"
+            "secondary_color,owner_id\n"
+            "AAA,Alphas,Alpha,AAA,East,Alpha Park,#111111,#222222,\n"
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "career_index.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "league": {"id": "alpha"},
+                "current": {"league_year": 2032, "sequence": 1},
+                "seasons": [],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (roster_dir / "AAA.csv").write_text("P100,ACT\n", encoding="utf-8")
+
+    apply_financial_preset(
+        PRESET_SIMPLE,
+        path=data_dir / "league_financial_settings.json",
+        league_id="alpha",
+    )
+
+    contracts = json.loads((data_dir / "contracts.json").read_text(encoding="utf-8"))
+    assert "P100" in contracts.get("players", {})
+
+
+def test_update_financial_settings_backfills_established_league_contracts(tmp_path):
+    data_dir = tmp_path / "league-data"
+    roster_dir = data_dir / "rosters"
+    roster_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "teams.csv").write_text(
+        (
+            "team_id,name,city,abbreviation,division,stadium,primary_color,"
+            "secondary_color,owner_id\n"
+            "AAA,Alphas,Alpha,AAA,East,Alpha Park,#111111,#222222,\n"
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "players.csv").write_text(
+        (
+            "player_id,first_name,last_name,birthdate,height,weight,ethnicity,skin_tone,"
+            "hair_color,facial_hair,bats,primary_position,other_positions,gf,injured,"
+            "injury_description,return_date,injury_list,injury_start_date,"
+            "injury_minimum_days,injury_eligible_date,injury_rehab_assignment,"
+            "injury_rehab_days,durability,is_pitcher,ch,ph,sp,eye,pl,vl,sc,fa,arm\n"
+            "P100,Casey,Bat,2004-06-15,73,195,,,,,R,CF,,50,false,,,,,,,,0,55,false,72,70,64,68,60,61,59,58,57\n"
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "career_index.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "league": {"id": "alpha"},
+                "current": {"league_year": 2032, "sequence": 3},
+                "seasons": [{"season_id": "alpha-2030"}, {"season_id": "alpha-2031"}],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (roster_dir / "AAA.csv").write_text("P100,ACT\n", encoding="utf-8")
+
+    ensure_financial_defaults(data_dir=data_dir, league_id="alpha")
+    updated = update_financial_settings(
+        enabled=True,
+        preset=PRESET_CUSTOM,
+        enforcement_mode="warn",
+        modules={"gm_contracts": "advanced"},
+        path=data_dir / "league_financial_settings.json",
+        league_id="alpha",
+    )
+
+    contracts = json.loads((data_dir / "contracts.json").read_text(encoding="utf-8"))
+    assert "P100" in contracts.get("players", {})
+    assert updated.contract_backfill_summary["mode"] == "mid_league"
+    assert updated.contract_backfill_summary["seeded"] == 1
 
 
 def test_apply_mlb_like_preset_and_reload(tmp_path):

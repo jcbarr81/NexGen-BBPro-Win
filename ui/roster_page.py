@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 
 from .components import ActionButtonPanel, Card, section_title
 from .design_tokens import apply_status
-from .player_profile_dialog import PlayerProfileDialog
+from .player_profile_launcher import open_player_profile_dialog
 from utils.depth_chart import (
     DEPTH_CHART_POSITIONS,
     default_depth_chart,
@@ -366,8 +366,7 @@ class RosterPage(QWidget):
         if player is None:
             return
         try:
-            dlg = PlayerProfileDialog(player, self)
-            dlg.exec()
+            open_player_profile_dialog(player, self)
         except Exception:
             pass
 

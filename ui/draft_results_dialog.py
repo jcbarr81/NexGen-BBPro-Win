@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .components import Card, section_title
+from .player_profile_launcher import open_player_profile_dialog
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.team_loader import load_teams
@@ -287,9 +288,7 @@ class DraftResultsDialog(QDialog):
         if player is None:
             return
         try:
-            from ui.player_profile_dialog import PlayerProfileDialog
-
-            PlayerProfileDialog(player, self).exec()
+            open_player_profile_dialog(player, self)
         except Exception:
             pass
 
