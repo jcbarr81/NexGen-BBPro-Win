@@ -1,0 +1,631 @@
+/**
+ * Phase 4 port of ui/lineup_editor.py + ui/pitching_editor.py.
+ *
+ * Combined editor for a team's batting lineups (vs LHP / vs RHP) and its
+ * pitching-staff role slots. Everything edits the same CSV files the
+ * simulator reads, so a save here immediately affects the next Sim Day.
+ *
+ * Intentionally simple interactions -- no drag-and-drop. Move-up / move-
+ * down buttons per row keep the UX snappy on touchpads and work with
+ * keyboard focus. Autofill reuses the existing Python helper.
+ */
+
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ChevronsUpDown,
+  Loader2,
+  Save,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
+
+import {
+  api,
+  type Lineup,
+  type LineupRow,
+  type LineupVs,
+  type PitchingStaffEntry,
+  type RosterPlayer,
+} from "@/lib/api";
+import { useAuthStore } from "@/lib/auth-store";
+import { cn } from "@/lib/cn";
+import { AppShell } from "@/components/layout/AppShell";
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui";
+
+const HITTER_POSITIONS = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"];
+const STAFF_ROLES = [
+  "SP1",
+  "SP2",
+  "SP3",
+  "SP4",
+  "SP5",
+  "LR",
+  "MR1",
+  "MR2",
+  "MR3",
+  "SU",
+  "CL",
+];
+
+export function LineupPage() {
+  const user = useAuthStore();
+  const teamId = user.selectedTeamId ?? user.teamId ?? null;
+
+  const teams = useQuery({
+    queryKey: ["teams"],
+    queryFn: () => api.listTeams(),
+    enabled: !teamId,
+  });
+  const activeTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
+
+  if (!activeTeamId) {
+    return (
+      <AppShell title="Lineup">
+        <Card>
+          <CardContent className="flex items-center gap-3 py-10">
+            {teams.isLoading ? (
+              <>
+                <Loader2 className="h-5 w-5 animate-spin text-amber" />
+                <span className="text-sm text-muted">Loading teams…</span>
+              </>
+            ) : (
+              <>
+                <AlertTriangle className="h-5 w-5 text-warning" />
+                <span className="text-sm">No team available.</span>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </AppShell>
+    );
+  }
+
+  return (
+    <AppShell
+      title="Lineup"
+      subtitle={`Team ${activeTeamId} · batting order + pitching staff`}
+    >
+      <LineupEditor teamId={activeTeamId} />
+    </AppShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function LineupEditor({ teamId }: { teamId: string }) {
+  const queryClient = useQueryClient();
+  const roster = useQuery({
+    queryKey: ["team-roster", teamId],
+    queryFn: () => api.teamRoster(teamId),
+  });
+
+  const autofill = useMutation({
+    mutationFn: () => api.autofillLineup(teamId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["lineup", teamId] });
+    },
+  });
+
+  return (
+    <Tabs defaultValue="rhp">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <TabsList>
+          <TabsTrigger value="rhp">vs RHP</TabsTrigger>
+          <TabsTrigger value="lhp">vs LHP</TabsTrigger>
+          <TabsTrigger value="pitching">Pitching Staff</TabsTrigger>
+        </TabsList>
+        <Button
+          variant="outline"
+          onClick={() => autofill.mutate()}
+          disabled={autofill.isPending}
+        >
+          {autofill.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Sparkles className="h-4 w-4" />
+          )}
+          Autofill both lineups
+        </Button>
+      </div>
+
+      {autofill.isError && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+          <AlertTriangle className="h-4 w-4" />
+          {(autofill.error as Error).message}
+        </div>
+      )}
+
+      <TabsContent value="rhp">
+        <LineupTab teamId={teamId} vs="rhp" roster={roster.data?.levels.ACT ?? []} />
+      </TabsContent>
+      <TabsContent value="lhp">
+        <LineupTab teamId={teamId} vs="lhp" roster={roster.data?.levels.ACT ?? []} />
+      </TabsContent>
+      <TabsContent value="pitching">
+        <PitchingTab teamId={teamId} roster={roster.data?.levels.ACT ?? []} />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function LineupTab({
+  teamId,
+  vs,
+  roster,
+}: {
+  teamId: string;
+  vs: LineupVs;
+  roster: RosterPlayer[];
+}) {
+  const queryClient = useQueryClient();
+  const lineup = useQuery({
+    queryKey: ["lineup", teamId, vs],
+    queryFn: () => api.getLineup(teamId, vs),
+  });
+  const [rows, setRows] = useState<LineupRow[]>([]);
+  const [dirty, setDirty] = useState(false);
+
+  // Hydrate local state from the server response.
+  useEffect(() => {
+    if (lineup.data) {
+      const loaded = lineup.data.lineup.length
+        ? lineup.data.lineup
+        : emptyLineup();
+      setRows(loaded);
+      setDirty(false);
+    }
+  }, [lineup.data]);
+
+  const save = useMutation({
+    mutationFn: (payload: LineupRow[]) => api.saveLineup(teamId, vs, payload),
+    onSuccess: (data: Lineup) => {
+      queryClient.setQueryData(["lineup", teamId, vs], data);
+      setDirty(false);
+    },
+  });
+
+  const hitters = useMemo(
+    () => roster.filter((p) => !p.is_pitcher),
+    [roster],
+  );
+  const hittersById = useMemo(() => {
+    const m = new Map<string, RosterPlayer>();
+    for (const p of hitters) m.set(p.player_id, p);
+    return m;
+  }, [hitters]);
+
+  function update(idx: number, patch: Partial<LineupRow>) {
+    setRows((prev) => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], ...patch, order: idx + 1 } as LineupRow;
+      return copy.map((row, i) => ({ ...row, order: i + 1 }));
+    });
+    setDirty(true);
+  }
+
+  function move(idx: number, delta: number) {
+    setRows((prev) => {
+      const copy = [...prev];
+      const target = idx + delta;
+      if (target < 0 || target >= copy.length) return prev;
+      [copy[idx], copy[target]] = [copy[target]!, copy[idx]!];
+      return copy.map((row, i) => ({ ...row, order: i + 1 }));
+    });
+    setDirty(true);
+  }
+
+  function clearSlot(idx: number) {
+    update(idx, { player_id: "", position: rows[idx]?.position ?? "" });
+  }
+
+  if (lineup.isLoading) {
+    return <LoadingCard />;
+  }
+  if (lineup.isError) {
+    return <ErrorCard message={(lineup.error as Error).message} />;
+  }
+
+  const selectedIds = new Set(rows.map((r) => r.player_id).filter(Boolean));
+  const validEntries = rows.filter((r) => r.player_id && r.position).length;
+  const canSave = validEntries === 9 && dirty && !save.isPending;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>
+            Batting order · vs {vs.toUpperCase()}
+          </CardTitle>
+          <CardDescription>
+            {lineup.data?.exists
+              ? "Loaded from disk. Edits save to data/lineups."
+              : "No lineup file yet — build one below."}
+          </CardDescription>
+        </div>
+        <div className="flex items-center gap-2">
+          {dirty && <Badge tone="warning">Unsaved</Badge>}
+          <Badge tone={validEntries === 9 ? "success" : "amber"}>
+            {validEntries}/9 filled
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
+              <th className="px-6 py-2 text-left font-semibold">#</th>
+              <th className="px-3 py-2 text-left font-semibold">Player</th>
+              <th className="px-3 py-2 text-left font-semibold">Position</th>
+              <th className="px-6 py-2 text-right font-semibold">Order</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, idx) => (
+              <tr
+                key={idx}
+                className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
+              >
+                <td className="px-6 py-2 font-mono text-xs text-muted">
+                  {idx + 1}
+                </td>
+                <td className="px-3 py-2">
+                  <PlayerSelect
+                    value={row.player_id}
+                    hitters={hitters}
+                    disabledIds={selectedIds}
+                    onChange={(player_id) => {
+                      const p = hittersById.get(player_id);
+                      update(idx, {
+                        player_id,
+                        position: row.position || p?.primary_position || "",
+                      });
+                    }}
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <select
+                    value={row.position}
+                    onChange={(e) => update(idx, { position: e.target.value })}
+                    className="h-9 w-full rounded-md border border-border bg-canvas/60 px-2 text-xs font-semibold uppercase tracking-wider text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                  >
+                    <option value="">—</option>
+                    {HITTER_POSITIONS.map((pos) => (
+                      <option key={pos} value={pos}>
+                        {pos}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="px-6 py-2 text-right">
+                  <div className="inline-flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => move(idx, -1)}
+                      disabled={idx === 0}
+                      aria-label="Move up"
+                    >
+                      <ArrowUp className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => move(idx, 1)}
+                      disabled={idx === rows.length - 1}
+                      aria-label="Move down"
+                    >
+                      <ArrowDown className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => clearSlot(idx)}
+                      aria-label="Clear slot"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {save.isError && (
+          <div className="m-4 flex items-center gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            <AlertTriangle className="h-4 w-4" />
+            {(save.error as Error).message}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3 border-t border-border/60 bg-surfaceAlt/40 px-6 py-3">
+          <div className="text-xs text-muted">
+            Active roster pool: {hitters.length} hitters
+          </div>
+          <Button
+            onClick={() => save.mutate(rows)}
+            disabled={!canSave}
+          >
+            {save.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Save lineup
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PlayerSelect({
+  value,
+  hitters,
+  disabledIds,
+  onChange,
+}: {
+  value: string;
+  hitters: RosterPlayer[];
+  disabledIds: Set<string>;
+  onChange: (playerId: string) => void;
+}) {
+  // Keep the currently selected id available even if it's also in the
+  // "selected elsewhere" set for its own row.
+  const options = hitters.map((p) => ({
+    id: p.player_id,
+    label: `${p.last_name}, ${p.first_name} (${p.primary_position || "POS"})`,
+    disabled: disabledIds.has(p.player_id) && p.player_id !== value,
+  }));
+  options.sort((a, b) => a.label.localeCompare(b.label));
+
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          "h-9 w-full appearance-none rounded-md border border-border bg-canvas/60 px-2 pr-7 text-sm text-ink",
+          "focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40",
+        )}
+      >
+        <option value="">— select —</option>
+        {options.map((opt) => (
+          <option key={opt.id} value={opt.id} disabled={opt.disabled}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      <ChevronsUpDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted" />
+    </div>
+  );
+}
+
+function emptyLineup(): LineupRow[] {
+  return Array.from({ length: 9 }, (_, i) => ({
+    order: i + 1,
+    player_id: "",
+    position: "",
+  }));
+}
+
+// ---------------------------------------------------------------------------
+
+function PitchingTab({
+  teamId,
+  roster,
+}: {
+  teamId: string;
+  roster: RosterPlayer[];
+}) {
+  const queryClient = useQueryClient();
+  const staff = useQuery({
+    queryKey: ["pitching-staff", teamId],
+    queryFn: () => api.getPitchingStaff(teamId),
+  });
+  const [rows, setRows] = useState<PitchingStaffEntry[]>([]);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (staff.data) {
+      setRows([...staff.data.staff]);
+      setDirty(false);
+    }
+  }, [staff.data]);
+
+  const save = useMutation({
+    mutationFn: (payload: PitchingStaffEntry[]) =>
+      api.savePitchingStaff(teamId, payload),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["pitching-staff", teamId], data);
+      setDirty(false);
+    },
+  });
+
+  const pitchers = useMemo(
+    () => roster.filter((p) => p.is_pitcher),
+    [roster],
+  );
+  const pitchersById = useMemo(() => {
+    const m = new Map<string, RosterPlayer>();
+    for (const p of pitchers) m.set(p.player_id, p);
+    return m;
+  }, [pitchers]);
+  const assignedIds = new Set(rows.map((r) => r.player_id).filter(Boolean));
+
+  function updateRow(idx: number, patch: Partial<PitchingStaffEntry>) {
+    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+    setDirty(true);
+  }
+
+  function addRow() {
+    const nextRole = STAFF_ROLES.find((r) => !rows.some((x) => x.role === r))
+      ?? "MR";
+    setRows((prev) => [...prev, { player_id: "", role: nextRole }]);
+    setDirty(true);
+  }
+
+  function removeRow(idx: number) {
+    setRows((prev) => prev.filter((_, i) => i !== idx));
+    setDirty(true);
+  }
+
+  if (staff.isLoading) return <LoadingCard />;
+  if (staff.isError) return <ErrorCard message={(staff.error as Error).message} />;
+
+  const invalid = rows.some((r) => !r.player_id || !r.role);
+  const canSave = !invalid && dirty && !save.isPending;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Pitching staff</CardTitle>
+          <CardDescription>
+            Roles used by the sim: SP1–SP5 starters, LR/MR long/middle relief,
+            SU setup, CL closer.
+          </CardDescription>
+        </div>
+        <div className="flex items-center gap-2">
+          {dirty && <Badge tone="warning">Unsaved</Badge>}
+          <Badge tone="amber">{rows.length} assigned</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
+              <th className="px-6 py-2 text-left font-semibold">Role</th>
+              <th className="px-3 py-2 text-left font-semibold">Pitcher</th>
+              <th className="px-6 py-2 text-right font-semibold"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, idx) => (
+              <tr
+                key={idx}
+                className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
+              >
+                <td className="px-6 py-2">
+                  <select
+                    value={row.role}
+                    onChange={(e) => updateRow(idx, { role: e.target.value })}
+                    className="h-9 w-28 rounded-md border border-border bg-canvas/60 px-2 text-xs font-semibold uppercase tracking-wider text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                  >
+                    {STAFF_ROLES.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                    {!STAFF_ROLES.includes(row.role) && row.role && (
+                      <option value={row.role}>{row.role}</option>
+                    )}
+                  </select>
+                </td>
+                <td className="px-3 py-2">
+                  <select
+                    value={row.player_id}
+                    onChange={(e) =>
+                      updateRow(idx, { player_id: e.target.value })
+                    }
+                    className="h-9 w-full rounded-md border border-border bg-canvas/60 px-2 text-sm text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                  >
+                    <option value="">— select pitcher —</option>
+                    {pitchers.map((p) => {
+                      const taken =
+                        assignedIds.has(p.player_id) &&
+                        p.player_id !== row.player_id;
+                      return (
+                        <option
+                          key={p.player_id}
+                          value={p.player_id}
+                          disabled={taken}
+                        >
+                          {p.last_name}, {p.first_name}
+                          {pitchersById.get(p.player_id)?.role
+                            ? ` — ${pitchersById.get(p.player_id)?.role}`
+                            : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </td>
+                <td className="px-6 py-2 text-right">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeRow(idx)}
+                    aria-label="Remove"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {save.isError && (
+          <div className="m-4 flex items-center gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            <AlertTriangle className="h-4 w-4" />
+            {(save.error as Error).message}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3 border-t border-border/60 bg-surfaceAlt/40 px-6 py-3">
+          <Button variant="outline" onClick={addRow}>
+            Add role
+          </Button>
+          <Button onClick={() => save.mutate(rows)} disabled={!canSave}>
+            {save.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Save staff
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LoadingCard() {
+  return (
+    <Card>
+      <CardContent className="flex items-center gap-3 py-10">
+        <Loader2 className="h-5 w-5 animate-spin text-amber" />
+        <span className="text-sm text-muted">Loading…</span>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ErrorCard({ message }: { message: string }) {
+  return (
+    <Card>
+      <CardContent className="flex items-center gap-3 py-10 text-danger">
+        <AlertTriangle className="h-5 w-5" />
+        <span className="text-sm">{message}</span>
+      </CardContent>
+    </Card>
+  );
+}

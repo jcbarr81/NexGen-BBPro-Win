@@ -10,3 +10,12 @@ pyinstaller
 bcrypt
 tqdm
 pygame
+
+# --- Electron sidecar (api/) ---
+fastapi
+uvicorn[standard]
+pydantic>=2
+portalocker
+httpx
+websockets
+pytest

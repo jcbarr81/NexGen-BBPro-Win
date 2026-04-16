@@ -1,0 +1,69 @@
+/*
+ * Core design tokens, mapped from ui/design_tokens.py.
+ *
+ * Tailwind reads these via hsl(var(--token) / <alpha-value>) so utility
+ * classes like bg-surface / text-amber / border-border "just work" across
+ * dark and light modes. If you need a new color, add it here AND in
+ * tailwind.config.ts so both sides stay in sync.
+ *
+ * HSL tuples below were converted from the hex constants in design_tokens.py.
+ */
+
+:root,
+.light {
+  /* Neutrals — paper surfaces, espresso ink */
+  --canvas: 45 100% 96%;       /* CREAM     #fffdf0 */
+  --surface: 45 100% 99%;      /* lift above canvas */
+  --surface-alt: 48 89% 93%;   /* PARCHMENT #fff7dc */
+  --elevated: 45 100% 99%;
+  --border: 38 28% 78%;        /* TAN-tinted */
+  --border-strong: 32 45% 32%; /* WALNUT    #604d33 */
+  --ink: 31 69% 16%;           /* MAHOGANY  #462d0d */
+  --muted: 30 18% 44%;         /* TAN-ish   #968d7d */
+  --subtle: 30 22% 60%;
+
+  /* Brand */
+  --amber: 38 92% 50%;         /* AMBER       #F59E0B */
+  --amber-dim: 28 78% 40%;     /* AMBER_DIM   #b36b18 */
+  --amber-text: 32 53% 62%;    /* AMBER_TEXT  #d4a76a */
+  --cream: 45 100% 96%;        /* CREAM       #fffdf0 */
+  --parchment: 48 89% 93%;     /* PARCHMENT   #fff7dc */
+  --mahogany: 31 69% 16%;      /* MAHOGANY    #462d0d */
+  --espresso: 24 65% 8%;       /* ESPRESSO    #1e1207 */
+  --walnut: 32 30% 29%;        /* WALNUT      #604d33 */
+
+  /* Semantic */
+  --success: 137 55% 40%;      /* GREEN       #2f9e44 */
+  --warning: 28 96% 44%;       /*             #e67700 */
+  --danger: 359 68% 48%;       /* RED-ish     #c92a2a */
+  --info: 212 80% 22%;         /* NAVY        #0A3161 */
+}
+
+.dark {
+  /* Neutrals — warm-dark leather with cream ink */
+  --canvas: 24 65% 8%;          /* ESPRESSO     #1e1207 */
+  --surface: 26 76% 6%;         /* DEEP_ROAST   #160e04 */
+  --surface-alt: 31 69% 16%;    /* MAHOGANY     #462d0d */
+  --elevated: 32 30% 29%;       /* WALNUT       #604d33 */
+  --border: 31 40% 22%;         /* softened mahogany */
+  --border-strong: 32 45% 32%;  /* WALNUT */
+  --ink: 45 100% 96%;           /* CREAM        #fffdf0 */
+  --muted: 32 15% 66%;          /* softened tan */
+  --subtle: 32 11% 55%;
+
+  /* Brand */
+  --amber: 38 92% 50%;
+  --amber-dim: 28 78% 40%;
+  --amber-text: 32 53% 72%;
+  --cream: 45 100% 96%;
+  --parchment: 48 89% 93%;
+  --mahogany: 31 69% 16%;
+  --espresso: 24 65% 8%;
+  --walnut: 32 30% 29%;
+
+  /* Semantic (slightly lifted for dark contrast) */
+  --success: 137 48% 52%;
+  --warning: 32 90% 55%;
+  --danger: 2 75% 60%;
+  --info: 212 70% 55%;
+}

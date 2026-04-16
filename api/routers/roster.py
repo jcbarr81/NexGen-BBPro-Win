@@ -1,0 +1,240 @@
+"""Roster endpoint for a single team.
+
+Ports the data side of ``ui/roster_page.py``: returns the team's roster
+split by level (ACT / AAA / LOW / DL / IR) with each player hydrated to a
+lightweight summary so the React table can render without a second trip.
+
+Read-only in Phase 4 iteration 1. Editing moves (promote, demote, DL) ride
+on top in a follow-up and will use the existing ``services.roster_moves``
+module.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Literal, Optional
+
+from fastapi import APIRouter, Body, HTTPException, status
+
+from services.roster_moves import cut_player
+from services.transaction_log import record_transaction
+from utils.player_loader import load_players_from_csv
+from utils.roster_loader import load_roster, save_roster
+
+from ..security import CurrentIdentity
+
+router = APIRouter(prefix="/teams/{team_id}", tags=["roster"], dependencies=[CurrentIdentity])
+
+_RATING_FIELDS = (
+    "ch",
+    "ph",
+    "sp",
+    "eye",
+    "gf",
+    "pl",
+    "vl",
+    "sc",
+    "fa",
+    "arm",
+)
+_PITCHER_RATING_FIELDS = (
+    "endurance",
+    "control",
+    "movement",
+    "hold_runner",
+    "fb",
+    "cu",
+    "cb",
+    "sl",
+    "si",
+    "scb",
+    "kn",
+)
+
+
+def _player_summary(player: Any, level: str, dl_tier: str | None = None) -> Dict[str, Any]:
+    is_pitcher = bool(getattr(player, "is_pitcher", False))
+    ratings = {f: getattr(player, f, None) for f in _RATING_FIELDS}
+    if is_pitcher:
+        ratings.update({f: getattr(player, f, None) for f in _PITCHER_RATING_FIELDS})
+    # Drop None rating keys so the JSON is compact.
+    ratings = {k: v for k, v in ratings.items() if v is not None}
+
+    return {
+        "player_id": getattr(player, "player_id", ""),
+        "first_name": getattr(player, "first_name", ""),
+        "last_name": getattr(player, "last_name", ""),
+        "primary_position": getattr(player, "primary_position", ""),
+        "other_positions": getattr(player, "other_positions", "") or "",
+        "bats": getattr(player, "bats", "") or "",
+        "role": getattr(player, "role", "") or "",
+        "is_pitcher": is_pitcher,
+        "injured": bool(getattr(player, "injured", False)),
+        "injury_description": getattr(player, "injury_description", "") or "",
+        "level": level,
+        "dl_tier": dl_tier,
+        "ratings": ratings,
+    }
+
+
+@router.get("/roster")
+def team_roster(team_id: str) -> Dict[str, Any]:
+    try:
+        roster = load_roster(team_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load roster for {team_id}: {exc}",
+        ) from exc
+
+    try:
+        players_list = load_players_from_csv("data/players.csv")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load players.csv: {exc}",
+        ) from exc
+    players_by_id = {getattr(p, "player_id", ""): p for p in players_list}
+
+    def _hydrate(ids: List[str], level: str) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for pid in ids:
+            player = players_by_id.get(pid)
+            if player is None:
+                # Unknown id -- surface as a stub so the UI still shows
+                # something recognizable.
+                out.append(
+                    {
+                        "player_id": pid,
+                        "first_name": "",
+                        "last_name": pid,
+                        "primary_position": "",
+                        "other_positions": "",
+                        "bats": "",
+                        "role": "",
+                        "is_pitcher": False,
+                        "injured": False,
+                        "injury_description": "",
+                        "level": level,
+                        "dl_tier": None,
+                        "ratings": {},
+                    }
+                )
+                continue
+            dl_tier = roster.dl_tiers.get(pid) if level == "DL" else None
+            out.append(_player_summary(player, level, dl_tier))
+        return out
+
+    return {
+        "team_id": team_id,
+        "active_size": len(roster.act),
+        "levels": {
+            "ACT": _hydrate(roster.act, "ACT"),
+            "AAA": _hydrate(roster.aaa, "AAA"),
+            "LOW": _hydrate(roster.low, "LOW"),
+            "DL": _hydrate(roster.dl, "DL"),
+            "IR": _hydrate(roster.ir, "IR"),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Write actions (promote / demote / DL / IR / cut)
+
+_LEVEL_ATTR = {"ACT": "act", "AAA": "aaa", "LOW": "low", "DL": "dl", "IR": "ir"}
+Level = Literal["ACT", "AAA", "LOW", "DL", "IR"]
+
+
+def _find_level(roster, player_id: str) -> Optional[str]:
+    for label, attr in _LEVEL_ATTR.items():
+        if player_id in getattr(roster, attr, []):
+            return label
+    return None
+
+
+@router.post("/roster/move")
+def move_roster(
+    team_id: str,
+    payload: Dict[str, Any] = Body(...),
+) -> Dict[str, Any]:
+    player_id = str(payload.get("player_id", "")).strip()
+    to_level = str(payload.get("to", "")).strip().upper()
+    dl_tier = str(payload.get("dl_tier", "")).strip().lower() or None
+
+    if not player_id or to_level not in _LEVEL_ATTR:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="player_id and a valid 'to' level are required.",
+        )
+
+    try:
+        roster = load_roster(team_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load roster: {exc}",
+        ) from exc
+
+    from_level = _find_level(roster, player_id)
+    if from_level is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{player_id} is not on {team_id}'s roster.",
+        )
+    if from_level == to_level:
+        return team_roster(team_id)
+
+    try:
+        roster.move_player(player_id, _LEVEL_ATTR[from_level], _LEVEL_ATTR[to_level])
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    if to_level == "DL" and dl_tier in {"dl15", "dl45"}:
+        roster.dl_tiers[player_id] = dl_tier
+
+    try:
+        save_roster(team_id, roster)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save roster: {exc}",
+        ) from exc
+
+    try:
+        record_transaction(
+            action="assign",
+            team_id=team_id,
+            player_id=player_id,
+            from_level=from_level,
+            to_level=to_level,
+            details=(
+                f"Moved from {from_level} to {to_level}"
+                + (f" ({dl_tier})" if dl_tier else "")
+            ),
+        )
+    except Exception:
+        pass
+
+    return team_roster(team_id)
+
+
+@router.post("/roster/cut")
+def cut_roster(
+    team_id: str,
+    payload: Dict[str, Any] = Body(...),
+) -> Dict[str, Any]:
+    player_id = str(payload.get("player_id", "")).strip()
+    if not player_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="player_id is required.",
+        )
+    try:
+        cut_player(team_id, player_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cut: {exc}",
+        ) from exc
+    return team_roster(team_id)
