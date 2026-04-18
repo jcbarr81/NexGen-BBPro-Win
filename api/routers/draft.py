@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Body, HTTPException, Query, status
 
 from services import draft_state
 from services.trade_settings import current_league_year
@@ -82,3 +82,138 @@ def draft_results_view(
     y = _resolve_year(year)
     rows = _load_results(y)[:limit]
     return {"year": y, "count": len(rows), "picks": rows}
+
+
+# ---------------------------------------------------------------------------
+# Admin-only draft controls.
+from fastapi import Depends
+
+from ..security import require_bearer
+
+
+def _require_admin(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[str, Any]:
+    role = str(identity.get("r", "")).lower()
+    if role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required."
+        )
+    return identity
+
+
+AdminDep = Depends(_require_admin)
+
+
+@router.post("/admin/initialize")
+def admin_initialize(
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    _: Dict[str, Any] = AdminDep,
+) -> Dict[str, Any]:
+    """Seed a brand-new draft state for the given year."""
+
+    year = int(payload.get("year") or _resolve_year(None))
+    seed = payload.get("seed")
+    try:
+        seed_int = int(seed) if seed is not None else None
+    except (TypeError, ValueError):
+        seed_int = None
+    order = draft_state.compute_order_from_season_stats(seed=seed_int)
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot compute order — no season stats yet.",
+        )
+    state = draft_state.initialize_state(year, order=order, seed=seed_int)
+    return {"year": year, "order": state.get("order"), "seed": state.get("seed")}
+
+
+@router.post("/admin/reset")
+def admin_reset(
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    _: Dict[str, Any] = AdminDep,
+) -> Dict[str, Any]:
+    """Clear draft state + results CSV for the given year."""
+
+    year = int(payload.get("year") or _resolve_year(None))
+    state_path = get_data_dir() / f"draft_state_{year}.json"
+    results_path = get_data_dir() / f"draft_results_{year}.csv"
+    for p in (state_path, results_path):
+        try:
+            p.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return {"year": year, "reset": True}
+
+
+@router.post("/admin/generate-pool")
+def admin_generate_pool(
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    _: Dict[str, Any] = AdminDep,
+) -> Dict[str, Any]:
+    """Generate a fresh amateur draft pool."""
+
+    year = int(payload.get("year") or _resolve_year(None))
+    try:
+        from playbalance.draft_pool import generate_draft_pool
+
+        pool = generate_draft_pool(year=year)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Pool generation failed: {exc}",
+        ) from exc
+    return {
+        "year": year,
+        "pool_size": len(pool) if hasattr(pool, "__len__") else 0,
+    }
+
+
+@router.post("/admin/manual-pick")
+def admin_manual_pick(
+    payload: Dict[str, Any] = Body(...),
+    _: Dict[str, Any] = AdminDep,
+) -> Dict[str, Any]:
+    """Commissioner override: assign a player to the current pick."""
+
+    year = int(payload.get("year") or _resolve_year(None))
+    player_id = str(payload.get("player_id", "")).strip()
+    if not player_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="player_id is required.",
+        )
+    state = draft_state.load_state(year)
+    if not state:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active draft state for that year.",
+        )
+    order: List[str] = list(state.get("order") or [])
+    rnd = int(state.get("round", 1) or 1)
+    overall = int(state.get("overall_pick", 1) or 1)
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Draft order is empty.",
+        )
+    pick_idx = (overall - 1) % len(order)
+    team_id = order[pick_idx]
+
+    selected = list(state.get("selected") or [])
+    selected.append(
+        {"overall": overall, "round": rnd, "team_id": team_id, "player_id": player_id}
+    )
+    state["selected"] = selected
+    state["overall_pick"] = overall + 1
+    if (overall % len(order)) == 0:
+        state["round"] = rnd + 1
+    draft_state.save_state(year, state)
+    draft_state.append_result(
+        year, team_id=team_id, player_id=player_id, rnd=rnd, overall=overall
+    )
+    return {
+        "year": year,
+        "round": rnd,
+        "overall": overall,
+        "team_id": team_id,
+        "player_id": player_id,
+    }

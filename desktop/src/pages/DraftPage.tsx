@@ -12,7 +12,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowRight,
@@ -30,11 +30,14 @@ import { AppShell } from "@/components/layout/AppShell";
 import { StatCard } from "@/components/StatCard";
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
+  Input,
+  Label,
   Tabs,
   TabsContent,
   TabsList,
@@ -46,6 +49,7 @@ type Scope = "now" | "history";
 export function DraftPage() {
   const user = useAuthStore();
   const myTeamId = user.selectedTeamId ?? user.teamId ?? null;
+  const isAdmin = user.role === "admin";
   const [scope, setScope] = useState<Scope>("now");
 
   const state = useQuery({
@@ -86,6 +90,7 @@ export function DraftPage() {
           <TabsList>
             <TabsTrigger value="now">Now</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
+            {isAdmin && <TabsTrigger value="admin">Admin</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="now">
@@ -102,6 +107,12 @@ export function DraftPage() {
               myTeamId={myTeamId}
             />
           </TabsContent>
+
+          {isAdmin && (
+            <TabsContent value="admin">
+              <AdminDraftPanel currentYear={state.data?.year ?? null} />
+            </TabsContent>
+          )}
         </Tabs>
       )}
     </AppShell>
@@ -362,4 +373,188 @@ function PicksTable({
       </tbody>
     </table>
   );
+}
+
+function AdminDraftPanel({ currentYear }: { currentYear: number | null }) {
+  const [year, setYear] = useState<string>(
+    currentYear ? String(currentYear) : "",
+  );
+  const [seed, setSeed] = useState<string>("");
+  const [manualPlayerId, setManualPlayerId] = useState("");
+
+  const toYear = () => {
+    const n = Number(year);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  };
+
+  const initialize = useMutation({
+    mutationFn: () =>
+      api.adminDraftInitialize(toYear(), seed ? Number(seed) : undefined),
+  });
+  const reset = useMutation({
+    mutationFn: () => api.adminDraftReset(toYear()),
+  });
+  const generatePool = useMutation({
+    mutationFn: () => api.adminDraftGeneratePool(toYear()),
+  });
+  const manualPick = useMutation({
+    mutationFn: () => api.adminDraftManualPick(manualPlayerId.trim(), toYear()),
+  });
+
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Initialize draft</CardTitle>
+          <CardDescription>
+            Computes order from season stats (worst-first) and writes the
+            initial draft state file. Overwrites anything in progress.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label htmlFor="year">Year</Label>
+              <Input
+                id="year"
+                value={year}
+                onChange={(e) => setYear(e.target.value)}
+                placeholder={String(currentYear ?? "")}
+              />
+            </div>
+            <div>
+              <Label htmlFor="seed">Seed (optional)</Label>
+              <Input
+                id="seed"
+                value={seed}
+                onChange={(e) => setSeed(e.target.value)}
+                placeholder="42"
+              />
+            </div>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => {
+              if (window.confirm("Initialize draft state? Discards in-progress state for this year.")) {
+                initialize.mutate();
+              }
+            }}
+            disabled={initialize.isPending}
+          >
+            Initialize
+          </Button>
+          <AdminResult mut={initialize} okText="Draft state initialized." />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Generate pool</CardTitle>
+          <CardDescription>
+            Writes a fresh amateur draft pool for the year.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Button
+            size="sm"
+            onClick={() => generatePool.mutate()}
+            disabled={generatePool.isPending}
+          >
+            Generate pool
+          </Button>
+          <AdminResult
+            mut={generatePool}
+            okText={
+              generatePool.data
+                ? `Pool of ${generatePool.data.pool_size} players generated.`
+                : ""
+            }
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Manual pick</CardTitle>
+          <CardDescription>
+            Assigns a player to the current pick on behalf of the team on
+            the clock. Advances the draft state.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Label htmlFor="pick-pid">Player ID</Label>
+          <Input
+            id="pick-pid"
+            value={manualPlayerId}
+            onChange={(e) => setManualPlayerId(e.target.value)}
+            placeholder="PLR00042"
+          />
+          <Button
+            size="sm"
+            onClick={() => manualPick.mutate()}
+            disabled={!manualPlayerId.trim() || manualPick.isPending}
+          >
+            Submit pick
+          </Button>
+          <AdminResult
+            mut={manualPick}
+            okText={
+              manualPick.data
+                ? `${manualPick.data.team_id} selected ${manualPick.data.player_id} (overall #${manualPick.data.overall}).`
+                : ""
+            }
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Reset draft</CardTitle>
+          <CardDescription>
+            Deletes draft state + results CSV for the year. Does not touch
+            the player pool.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Delete draft state and results for this year? This cannot be undone.",
+                )
+              ) {
+                reset.mutate();
+              }
+            }}
+            disabled={reset.isPending}
+          >
+            Reset draft
+          </Button>
+          <AdminResult mut={reset} okText="Draft state and results cleared." />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function AdminResult({
+  mut,
+  okText,
+}: {
+  mut: { isSuccess: boolean; isError: boolean; error: unknown };
+  okText?: string;
+}) {
+  if (mut.isSuccess && okText) {
+    return <div className="text-xs text-success">{okText}</div>;
+  }
+  if (mut.isError) {
+    return (
+      <div className="whitespace-pre-line text-xs text-danger">
+        {(mut.error as Error)?.message ?? "Failed."}
+      </div>
+    );
+  }
+  return null;
 }

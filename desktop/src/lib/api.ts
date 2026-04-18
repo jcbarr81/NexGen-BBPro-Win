@@ -52,10 +52,23 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
     } catch {
       /* keep as text */
     }
-    const detail =
+    const rawDetail =
       (typeof parsed === "object" && parsed && "detail" in parsed && (parsed as any).detail) ||
       text ||
       res.statusText;
+    // Validation endpoints return detail as `{message, errors[], warnings[]}`.
+    // Flatten that so the default error text reads naturally.
+    const detail =
+      rawDetail && typeof rawDetail === "object" && !Array.isArray(rawDetail)
+        ? [
+            (rawDetail as any).message,
+            ...(Array.isArray((rawDetail as any).errors)
+              ? ((rawDetail as any).errors as unknown[]).map((e) => `• ${e}`)
+              : []),
+          ]
+            .filter(Boolean)
+            .join("\n") || JSON.stringify(rawDetail)
+        : rawDetail;
     throw new ApiError(res.status, parsed, `${res.status} ${detail}`);
   }
 
@@ -128,6 +141,104 @@ export interface DivisionStanding {
 export interface DivisionStandings {
   division: string;
   teams: DivisionStanding[];
+}
+
+// --- Commissioner settings ---
+
+export interface CommissionerSettings {
+  trade: {
+    league_id: string;
+    trades_enabled: boolean;
+    draft_pick_trading_enabled: boolean;
+    require_commissioner_approval: boolean;
+    cpu_initiated_trades_enabled: boolean;
+    cpu_proposal_cadence: string;
+    max_pick_trade_years: number;
+  };
+  injury: { league_id: string; level: string };
+  finance: {
+    league_id: string;
+    enabled: boolean;
+    preset: string;
+    enforcement_mode: string;
+    modules: Record<string, string>;
+  };
+  options: {
+    trade_cadences: string[];
+    injury_levels: string[];
+    finance_presets: string[];
+    finance_enforcement: string[];
+  };
+}
+
+// --- Dashboard widgets ---
+
+export interface BullpenArm {
+  name?: string;
+  role?: string;
+  status?: string;
+  days?: number;
+  available_pct?: number;
+  [key: string]: unknown;
+}
+
+export interface BullpenReadiness {
+  ready?: number;
+  limited?: number;
+  rest?: number;
+  total?: number;
+  avg_available_pct?: number;
+  probable_starter?: string | null;
+  detail?: BullpenArm[];
+  note?: string;
+  [key: string]: unknown;
+}
+
+export interface MatchupScout {
+  opponent?: string;
+  venue?: string;
+  opp_record?: string;
+  opp_run_diff?: string;
+  opp_streak?: string;
+  note?: string;
+  team_probable?: string;
+  opp_probable?: string;
+  date?: string;
+  [key: string]: unknown;
+}
+
+export interface PerformerRow {
+  name?: string;
+  player_id?: string;
+  delta_text?: string;
+  summary?: string;
+  [key: string]: unknown;
+}
+
+export interface Performers {
+  hitters?: { hot?: PerformerRow[]; cold?: PerformerRow[] };
+  pitchers?: { hot?: PerformerRow[]; cold?: PerformerRow[] };
+  window?: number;
+  range?: string;
+  [key: string]: unknown;
+}
+
+export interface DashboardLeader {
+  label?: string;
+  player_id?: string;
+  value_text?: string;
+  value?: number | string;
+  [key: string]: unknown;
+}
+
+export interface TeamWidgets {
+  team_id: string;
+  bullpen: BullpenReadiness;
+  matchup: MatchupScout;
+  performers: Performers;
+  batting_leaders: DashboardLeader[];
+  pitching_leaders: DashboardLeader[];
+  leader_meta: Record<string, unknown>;
 }
 
 export type RosterLevel = "ACT" | "AAA" | "LOW" | "DL" | "IR";
@@ -601,6 +712,8 @@ export const api = {
     apiRequest<TeamSnapshot>(`/teams/${encodeURIComponent(teamId)}/snapshot`),
   teamDivision: (teamId: string) =>
     apiRequest<DivisionStandings>(`/teams/${encodeURIComponent(teamId)}/division`),
+  teamWidgets: (teamId: string) =>
+    apiRequest<TeamWidgets>(`/teams/${encodeURIComponent(teamId)}/widgets`),
   teamRoster: (teamId: string) =>
     apiRequest<TeamRoster>(`/teams/${encodeURIComponent(teamId)}/roster`),
   moveRoster: (
@@ -638,6 +751,217 @@ export const api = {
       { method: "PUT", body: { staff } },
     ),
   leagueStandings: () => apiRequest<LeagueStandings>("/standings/league"),
+  leaguesFirstRun: () =>
+    apiRequest<{ has_leagues: boolean; count: number }>("/leagues/first-run"),
+  leaguePresets: () =>
+    apiRequest<{
+      rule_presets: Array<{ preset_id: string; name: string; description: string }>;
+      schedule_templates: Array<{
+        template_id: string;
+        name: string;
+        description: string;
+        games_per_team: number;
+      }>;
+      quickstart_presets: Array<{
+        preset_id: string;
+        name: string;
+        description: string;
+        divisions: string[];
+        teams_per_division: number;
+        rule_preset_id: string;
+        schedule_template_id: string;
+      }>;
+    }>("/leagues/presets"),
+  randomTeamName: () =>
+    apiRequest<{ city: string; name: string }>(
+      "/leagues/random-team",
+      { method: "POST" },
+    ),
+  resetRandomPool: () =>
+    apiRequest<{ status: string }>(
+      "/leagues/random-team/reset",
+      { method: "POST" },
+    ),
+  createLeague: (payload: Record<string, unknown>) =>
+    apiRequest<{
+      league_id: string;
+      display_name: string;
+      mode: string;
+      data_dir: string;
+      teams_total: number;
+    }>("/leagues/create", { method: "POST", body: payload }),
+  bootstrapAdmin: (password: string) =>
+    apiRequest<{ status: string }>("/admin/bootstrap", {
+      method: "POST",
+      body: { password },
+      token: "",
+    }),
+  tuning: () =>
+    apiRequest<{
+      sections: Array<{
+        label: string;
+        sliders: Array<{
+          key: string;
+          label: string;
+          description: string;
+          min_value: number;
+          max_value: number;
+          step: number;
+          fmt: string;
+        }>;
+      }>;
+      defaults: Record<string, number>;
+      overrides: Record<string, number>;
+    }>("/tuning"),
+  saveTuning: (overrides: Record<string, number>) =>
+    apiRequest<{
+      defaults: Record<string, number>;
+      overrides: Record<string, number>;
+    }>("/tuning", { method: "PUT", body: { overrides } }),
+  resetTuning: () =>
+    apiRequest<{
+      defaults: Record<string, number>;
+      overrides: Record<string, number>;
+    }>("/tuning/reset", { method: "POST" }),
+  leagueRecords: () =>
+    apiRequest<{
+      records: Record<string, Array<Record<string, unknown>>>;
+    }>("/league/records"),
+  teamRecords: (teamId: string) =>
+    apiRequest<{
+      team_id: string;
+      records: Array<Record<string, unknown>>;
+    }>(`/teams/${encodeURIComponent(teamId)}/records`),
+  exportReports: (
+    format: "csv" | "html" | "both" = "csv",
+    include_pdf = true,
+  ) =>
+    apiRequest<Record<string, unknown>>("/exports/reports", {
+      method: "POST",
+      body: { format, include_pdf },
+    }),
+  exportAlmanac: () =>
+    apiRequest<Record<string, unknown>>("/exports/almanac", {
+      method: "POST",
+    }),
+  exportSnapshot: () =>
+    apiRequest<Record<string, unknown>>("/exports/snapshot", {
+      method: "POST",
+    }),
+  generateLogos: (
+    options: { force_engine?: "openai" | "auto_logo" } = {},
+  ) =>
+    apiRequest<{
+      output_dir: string;
+      generated_at: number;
+      engine: "openai" | "auto_logo";
+    }>("/exports/logos", {
+      method: "POST",
+      body: { force_engine: options.force_engine },
+    }),
+  aiStatus: () =>
+    apiRequest<{
+      status: string;
+      ok: boolean;
+      message: string | null;
+    }>("/ai/status"),
+  setOpenAiKey: (api_key: string) =>
+    apiRequest<{
+      status: string;
+      ok: boolean;
+      message: string | null;
+    }>("/ai/api-key", { method: "POST", body: { api_key } }),
+  generateAvatars: () =>
+    apiRequest<Record<string, unknown>>("/exports/avatars", {
+      method: "POST",
+    }),
+  changeRequests: (statusFilter?: string) =>
+    apiRequest<{
+      count: number;
+      requests: Array<Record<string, unknown>>;
+    }>(`/change-requests${statusFilter ? `?status_filter=${encodeURIComponent(statusFilter)}` : ""}`),
+  updateChangeRequest: (payload: {
+    request_id: string;
+    status: string;
+    note?: string;
+  }) =>
+    apiRequest<{ request: Record<string, unknown> }>(
+      "/change-requests/status",
+      { method: "POST", body: payload },
+    ),
+  hallOfFame: () =>
+    apiRequest<{
+      inductees: Array<Record<string, unknown>>;
+      candidates: Array<Record<string, unknown>>;
+    }>("/hall-of-fame"),
+  hofInduct: (player_id: string, note?: string) =>
+    apiRequest<{ result: Record<string, unknown> }>("/hall-of-fame/induct", {
+      method: "POST",
+      body: { player_id, note },
+    }),
+  hofRemove: (player_id: string, reason?: string) =>
+    apiRequest<{ result: Record<string, unknown> }>("/hall-of-fame/remove", {
+      method: "POST",
+      body: { player_id, reason },
+    }),
+  hofRefresh: () =>
+    apiRequest<{ result: Record<string, unknown> }>(
+      "/hall-of-fame/refresh",
+      { method: "POST" },
+    ),
+  financeQueue: (queueType?: string) =>
+    apiRequest<{ count: number; rows: Array<Record<string, unknown>> }>(
+      `/finance-queue${queueType ? `?queue_type=${encodeURIComponent(queueType)}` : ""}`,
+    ),
+  reviewFinanceQueue: (payload: {
+    team_id: string;
+    queue_type: string;
+    item_id: string;
+    review_status: string;
+    notes?: string;
+  }) =>
+    apiRequest<{ row: Record<string, unknown> }>(
+      "/finance-queue/review",
+      { method: "POST", body: payload },
+    ),
+  applyFinanceQueue: () =>
+    apiRequest<Record<string, unknown>>("/finance-queue/apply-approved", {
+      method: "POST",
+    }),
+  commandCenter: () =>
+    apiRequest<{
+      generated_at_utc: string;
+      league_id: string;
+      phase: string;
+      sim_date: string | null;
+      overview: Record<string, number>;
+      cards: Array<{
+        card_id: string;
+        title: string;
+        severity: string;
+        summary: string;
+        count: number;
+        items: Array<Record<string, unknown>>;
+        actions: string[];
+      }>;
+    }>("/league/command-center"),
+  commissionerSettings: () =>
+    apiRequest<CommissionerSettings>("/commissioner/settings"),
+  saveCommishTrade: (payload: Partial<CommissionerSettings["trade"]>) =>
+    apiRequest<CommissionerSettings>("/commissioner/settings/trade", {
+      method: "PUT",
+      body: payload,
+    }),
+  saveCommishInjury: (level: string) =>
+    apiRequest<CommissionerSettings>("/commissioner/settings/injury", {
+      method: "PUT",
+      body: { level },
+    }),
+  saveCommishFinance: (payload: Partial<CommissionerSettings["finance"]>) =>
+    apiRequest<CommissionerSettings>("/commissioner/settings/finance", {
+      method: "PUT",
+      body: payload,
+    }),
   leagueHistory: () =>
     apiRequest<{
       count: number;
@@ -881,6 +1205,21 @@ export const api = {
       "/trades",
       { method: "POST", body: payload },
     ),
+  adminApproveTrade: (tradeId: string, force = false) =>
+    apiRequest<{
+      trade_id: string;
+      status: string;
+      forced: boolean;
+      warnings: string[];
+    }>(`/trades/${encodeURIComponent(tradeId)}/admin-approve`, {
+      method: "POST",
+      body: { force },
+    }),
+  adminVetoTrade: (tradeId: string, note = "") =>
+    apiRequest<{ trade_id: string; status: string; note: string }>(
+      `/trades/${encodeURIComponent(tradeId)}/veto`,
+      { method: "POST", body: { note } },
+    ),
   acceptTrade: (tradeId: string) =>
     apiRequest<{ trade_id: string; status: string }>(
       `/trades/${encodeURIComponent(tradeId)}/accept`,
@@ -918,5 +1257,295 @@ export const api = {
     if (params.limit !== undefined) q.set("limit", String(params.limit));
     const qs = q.toString();
     return apiRequest<ScheduleList>(`/schedule${qs ? `?${qs}` : ""}`);
+  },
+  depthChart: (teamId: string) =>
+    apiRequest<{
+      team_id: string;
+      positions: string[];
+      max_depth: number;
+      chart: Record<string, string[]>;
+    }>(`/teams/${encodeURIComponent(teamId)}/depth-chart`),
+  saveDepthChart: (teamId: string, chart: Record<string, string[]>) =>
+    apiRequest<{
+      team_id: string;
+      positions: string[];
+      max_depth: number;
+      chart: Record<string, string[]>;
+    }>(`/teams/${encodeURIComponent(teamId)}/depth-chart`, {
+      method: "PUT",
+      body: { chart },
+    }),
+  offseasonChecklist: () =>
+    apiRequest<{
+      stages: Array<{
+        id: string;
+        label: string;
+        description: string;
+        done: boolean;
+        done_at: string | null;
+      }>;
+      current_stage: string | null;
+      all_done: boolean;
+    }>("/offseason/checklist"),
+  offseasonOverview: () =>
+    apiRequest<Record<string, unknown>>("/offseason/overview"),
+  offseasonStage: (stageId: string) =>
+    apiRequest<Record<string, unknown>>(
+      `/offseason/stage/${encodeURIComponent(stageId)}`,
+    ),
+  offseasonRun: () =>
+    apiRequest<Record<string, unknown>>("/offseason/run-pipeline", {
+      method: "POST",
+    }),
+  offseasonMark: (stage_id: string) =>
+    apiRequest<Record<string, unknown>>("/offseason/stage/mark", {
+      method: "POST",
+      body: { stage_id },
+    }),
+  autoAssignTeam: (teamId: string) =>
+    apiRequest<{ team_id: string; status: string }>(
+      `/teams/${encodeURIComponent(teamId)}/auto-assign`,
+      { method: "POST" },
+    ),
+  autoAssignAll: () =>
+    apiRequest<{ status: string }>("/reassign/all", { method: "POST" }),
+  financeStabilityRun: (payload: {
+    seasons?: number;
+    seed?: number;
+    preset?: string;
+  }) =>
+    apiRequest<Record<string, unknown>>("/finance-stability/run", {
+      method: "POST",
+      body: payload,
+    }),
+  financeStabilityCompare: (payload: {
+    seasons?: number;
+    seed?: number;
+    presets?: string[];
+  }) =>
+    apiRequest<Record<string, unknown>>("/finance-stability/compare", {
+      method: "POST",
+      body: payload,
+    }),
+  financeStabilityEvaluate: (season_metrics: Array<Record<string, unknown>>) =>
+    apiRequest<Record<string, unknown>>("/finance-stability/evaluate", {
+      method: "POST",
+      body: { season_metrics },
+    }),
+  teamChangeRequests: (teamId: string) =>
+    apiRequest<{
+      team_id: string;
+      count: number;
+      requests: Array<Record<string, unknown>>;
+    }>(`/teams/${encodeURIComponent(teamId)}/change-requests`),
+  exportTeamChangeRequest: (
+    teamId: string,
+    payload: {
+      owner_name: string;
+      note: string;
+      sections: { roster: boolean; lineups: boolean; pitching: boolean; depth: boolean };
+    },
+  ) =>
+    apiRequest<{
+      request_id: string;
+      export_path: string;
+      filename: string;
+      summary: string;
+      file_count: number;
+    }>(`/teams/${encodeURIComponent(teamId)}/change-requests/export`, {
+      method: "POST",
+      body: payload,
+    }),
+  cancelTeamChangeRequest: (
+    teamId: string,
+    requestId: string,
+    ownerName: string,
+  ) =>
+    apiRequest<{ request_id: string; export_path: string; filename: string }>(
+      `/teams/${encodeURIComponent(teamId)}/change-requests/${encodeURIComponent(requestId)}/cancel`,
+      { method: "POST", body: { owner_name: ownerName } },
+    ),
+  changeRequestDownloadUrl: (teamId: string, filename: string) => {
+    const { apiBaseUrl } = getBridge();
+    return `${apiBaseUrl}/teams/${encodeURIComponent(teamId)}/change-requests/download/${encodeURIComponent(filename)}`;
+  },
+  teamStats: (teamId: string) =>
+    apiRequest<{
+      team_id: string;
+      columns: { batters: string[]; pitchers: string[]; team: string[] };
+      batters: Array<{
+        player_id: string;
+        first_name: string;
+        last_name: string;
+        primary_position: string;
+        is_pitcher: boolean;
+        stats: Record<string, number | string | null>;
+      }>;
+      pitchers: Array<{
+        player_id: string;
+        first_name: string;
+        last_name: string;
+        primary_position: string;
+        is_pitcher: boolean;
+        stats: Record<string, number | string | null>;
+      }>;
+      team_totals: Record<string, number | string | null>;
+    }>(`/teams/${encodeURIComponent(teamId)}/stats`),
+  adminLeagueScheduleTemplates: () =>
+    apiRequest<{
+      templates: Array<{
+        id: string;
+        name: string;
+        description: string;
+        games_per_team: number;
+      }>;
+    }>("/admin-league/schedule-templates"),
+  adminRegenerateSchedule: (template_id: string) =>
+    apiRequest<{
+      games: number;
+      template_id: string;
+      start_year: number;
+      schedule_path: string;
+    }>("/admin-league/regenerate-schedule", {
+      method: "POST",
+      body: { template_id },
+    }),
+  adminResetStats: () =>
+    apiRequest<{ reset: boolean; path: string }>("/admin-league/reset-stats", {
+      method: "POST",
+    }),
+  adminResetResults: () =>
+    apiRequest<{ reset: boolean; games: number }>(
+      "/admin-league/reset-results",
+      { method: "POST" },
+    ),
+  adminDraftInitialize: (year?: number, seed?: number) =>
+    apiRequest<{ year: number; order: string[]; seed: number | null }>(
+      "/draft/admin/initialize",
+      { method: "POST", body: { year, seed } },
+    ),
+  adminDraftReset: (year?: number) =>
+    apiRequest<{ year: number; reset: boolean }>("/draft/admin/reset", {
+      method: "POST",
+      body: { year },
+    }),
+  adminDraftGeneratePool: (year?: number) =>
+    apiRequest<{ year: number; pool_size: number }>(
+      "/draft/admin/generate-pool",
+      { method: "POST", body: { year } },
+    ),
+  adminDraftManualPick: (player_id: string, year?: number) =>
+    apiRequest<{
+      year: number;
+      round: number;
+      overall: number;
+      team_id: string;
+      player_id: string;
+    }>("/draft/admin/manual-pick", {
+      method: "POST",
+      body: { player_id, year },
+    }),
+  adminRepairLineups: () =>
+    apiRequest<{ fixed: string[]; failed: string[] }>(
+      "/admin-league/repair-lineups",
+      { method: "POST" },
+    ),
+  adminCloneLeague: (league_id: string, display_name: string) =>
+    apiRequest<{ league_id: string; display_name: string; path: string }>(
+      "/admin-league/clone",
+      { method: "POST", body: { league_id, display_name } },
+    ),
+  simulateExhibition: (home_team: string, away_team: string) =>
+    apiRequest<{
+      home_team: string;
+      away_team: string;
+      home: {
+        score: number;
+        batting: Array<{
+          player_id: string;
+          name: string;
+          ab: number;
+          h: number;
+          bb: number;
+          so: number;
+          sb: number;
+        }>;
+        pitching: Array<{
+          player_id: string;
+          name: string;
+          pitches: number;
+          bb: number;
+          so: number;
+        }>;
+      };
+      away: {
+        score: number;
+        batting: Array<{
+          player_id: string;
+          name: string;
+          ab: number;
+          h: number;
+          bb: number;
+          so: number;
+          sb: number;
+        }>;
+        pitching: Array<{
+          player_id: string;
+          name: string;
+          pitches: number;
+          bb: number;
+          so: number;
+        }>;
+      };
+      boxscore_path: string | null;
+      debug_log: string[];
+      field_positions: Record<string, string>;
+    }>("/exhibition/simulate", {
+      method: "POST",
+      body: { home_team, away_team },
+    }),
+  helpManual: () =>
+    apiRequest<{ format: string; source: string; content: string }>(
+      "/help/manual",
+    ),
+  helpTutorials: () =>
+    apiRequest<{
+      count: number;
+      tutorials: Array<{
+        tutorial_id: string;
+        title: string;
+        summary: string;
+        steps: Array<{ title: string; body_html: string }>;
+      }>;
+    }>("/help/tutorials"),
+  helpLegacyManuals: () =>
+    apiRequest<{
+      manuals: Array<{ doc_id: string; filename: string; available: boolean }>;
+    }>("/help/legacy-manuals"),
+  helpLegacyManualUrl: (doc_id: string) => {
+    const { apiBaseUrl } = getBridge();
+    return `${apiBaseUrl}/help/legacy-manuals/${encodeURIComponent(doc_id)}`;
+  },
+  listParks: () =>
+    apiRequest<{
+      count: number;
+      parks: Array<{
+        park_id: string;
+        name: string;
+        year: number;
+        lf: number | null;
+        cf: number | null;
+        rf: number | null;
+        foul_territory: string | null;
+        has_preview: boolean;
+      }>;
+    }>("/parks"),
+  parkPreviewUrl: (park_id: string, year: number) => {
+    const { apiBaseUrl } = getBridge();
+    const qp = new URLSearchParams({
+      park_id,
+      year: String(year),
+    });
+    return `${apiBaseUrl}/parks/preview?${qp.toString()}`;
   },
 };

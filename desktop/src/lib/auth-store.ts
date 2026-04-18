@@ -10,6 +10,9 @@ export interface AuthState {
   /** Team id the dashboard should render for. Defaults to the owner's team;
    *  admins can pick any team from the teams list. */
   selectedTeamId: string | null;
+  /** Incrementing version number used to invalidate cached team-logo blobs
+   *  after a bulk regenerate. Bumped from the Utilities page. */
+  logoVersion: number;
 
   setSession: (session: {
     token: string;
@@ -19,6 +22,7 @@ export interface AuthState {
   }) => void;
   setActiveLeague: (leagueId: string | null) => void;
   setSelectedTeam: (teamId: string | null) => void;
+  bumpLogoVersion: () => void;
   clear: () => void;
 }
 
@@ -29,6 +33,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   teamId: null,
   activeLeagueId: null,
   selectedTeamId: null,
+  logoVersion: 0,
 
   setSession: (session) =>
     set({
@@ -40,6 +45,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     }),
   setActiveLeague: (leagueId) => set({ activeLeagueId: leagueId }),
   setSelectedTeam: (teamId) => set({ selectedTeamId: teamId }),
+  bumpLogoVersion: () => set((s) => ({ logoVersion: s.logoVersion + 1 })),
   clear: () =>
     set({
       token: null,

@@ -27,6 +27,7 @@ import {
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
+import { useActiveTeamColor } from "@/lib/team-colors";
 import { AppShell } from "@/components/layout/AppShell";
 import { StatCard } from "@/components/StatCard";
 import {
@@ -48,6 +49,7 @@ export function FinancePage() {
     enabled: !teamId,
   });
   const fallbackTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
+  const teamAccentColor = useActiveTeamColor(fallbackTeamId ?? undefined);
 
   const snapshot = useQuery({
     queryKey: ["finance-snapshot", fallbackTeamId],
@@ -90,6 +92,7 @@ export function FinancePage() {
           ? `${fallbackTeamId} · ${snapshot.data.preset}${snapshot.data.financials_enabled ? "" : " (disabled)"}`
           : `Team ${fallbackTeamId}`
       }
+      teamAccentColor={teamAccentColor}
     >
       {snapshot.isLoading ? (
         <Card>

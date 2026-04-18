@@ -57,8 +57,14 @@ export function SplashGate({ children }: Props) {
   }
 
   return (
-    <div className="flex h-full w-full items-center justify-center bg-canvas">
-      <Card className="w-[420px] p-8">
+    <div
+      className="flex h-full w-full items-center justify-center bg-canvas"
+      style={{
+        backgroundImage:
+          "radial-gradient(circle at 50% 110%, hsl(var(--ballpark) / 0.25), transparent 65%)",
+      }}
+    >
+      <Card className="seam-accent relative w-[420px] overflow-hidden p-8">
         <div className="relative flex flex-col items-center gap-5 text-center">
           <Brand />
           {phase.kind === "checking" ? (

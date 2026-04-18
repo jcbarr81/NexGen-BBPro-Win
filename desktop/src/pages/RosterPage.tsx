@@ -28,6 +28,7 @@ import {
   type TeamRoster,
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
+import { useActiveTeamColor } from "@/lib/team-colors";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import {
@@ -35,6 +36,12 @@ import {
   Button,
   Card,
   CardContent,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -105,6 +112,7 @@ export function RosterPage() {
   });
 
   const fallbackTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
+  const teamAccentColor = useActiveTeamColor(fallbackTeamId ?? undefined);
 
   const roster = useQuery({
     queryKey: ["team-roster", fallbackTeamId],
@@ -166,6 +174,7 @@ export function RosterPage() {
     <AppShell
       title="Roster"
       subtitle={`Team ${fallbackTeamId} · ${roster.data?.active_size ?? "—"} active`}
+      teamAccentColor={teamAccentColor}
     >
       {roster.isLoading ? (
         <Card>
@@ -184,8 +193,9 @@ export function RosterPage() {
       ) : roster.data && actions ? (
         <>
           {actions.error && (
-            <div className="mb-4 flex items-center gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-              <AlertTriangle className="h-4 w-4" /> {actions.error}
+            <div className="mb-4 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="whitespace-pre-line">{actions.error}</span>
             </div>
           )}
           <RosterTabs roster={roster.data} actions={actions} />
@@ -433,6 +443,8 @@ function RosterRow({
 }) {
   const navigate = useNavigate();
   return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
     <tr className="border-b border-border/40 transition last:border-b-0 hover:bg-surfaceAlt/40">
       <td className="px-6 py-2">
         <div className="flex items-center gap-2">
@@ -477,8 +489,77 @@ function RosterRow({
         <RowActionsMenu player={player} level={level} actions={actions} />
       </td>
     </tr>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuLabel>
+          {player.last_name}
+          {player.first_name ? `, ${player.first_name}` : ""}
+        </ContextMenuLabel>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={() =>
+            navigate(`/player/${encodeURIComponent(player.player_id)}`)
+          }
+        >
+          Open profile
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        {ROSTER_DESTINATIONS
+          .filter((d) => d.target !== level)
+          .map((d) => (
+            <ContextMenuItem
+              key={d.target}
+              onSelect={() =>
+                actions.move({
+                  player_id: player.player_id,
+                  to: d.target,
+                  ...(d.target === "DL" ? { dl_tier: "dl15" } : {}),
+                })
+              }
+            >
+              {d.label}
+            </ContextMenuItem>
+          ))}
+        {level === "DL" && (
+          <ContextMenuItem
+            onSelect={() =>
+              actions.move({
+                player_id: player.player_id,
+                to: "DL",
+                dl_tier: "dl45",
+              })
+            }
+          >
+            Shift to 45-day DL
+          </ContextMenuItem>
+        )}
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          tone="danger"
+          onSelect={() => {
+            if (
+              window.confirm(
+                `Release ${player.last_name}? This drops them to free agency.`,
+              )
+            ) {
+              actions.cut(player.player_id);
+            }
+          }}
+        >
+          Release / Cut
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
+
+const ROSTER_DESTINATIONS: Array<{ target: RosterLevel; label: string }> = [
+  { target: "ACT", label: "Move to Active" },
+  { target: "AAA", label: "Send to AAA" },
+  { target: "LOW", label: "Send to Low-A" },
+  { target: "DL", label: "Place on DL (15)" },
+  { target: "IR", label: "Place on 60-day IR" },
+];
 
 function RowActionsMenu({
   player,
@@ -489,13 +570,7 @@ function RowActionsMenu({
   level: RosterLevel;
   actions: RosterActions;
 }) {
-  const destinations: Array<{ target: RosterLevel; label: string }> = [
-    { target: "ACT", label: "Move to Active" },
-    { target: "AAA", label: "Send to AAA" },
-    { target: "LOW", label: "Send to Low-A" },
-    { target: "DL", label: "Place on DL (15)" },
-    { target: "IR", label: "Place on 60-day IR" },
-  ];
+  const destinations = ROSTER_DESTINATIONS;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

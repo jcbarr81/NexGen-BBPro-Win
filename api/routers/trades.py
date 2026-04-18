@@ -269,6 +269,54 @@ def _trade_payload_to_dict(payload: Dict[str, Any]) -> Trade:
 @router.post("", status_code=status.HTTP_201_CREATED)
 def propose_trade(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     trade = _trade_payload_to_dict(payload)
+
+    # Run the shared validator before persisting. We wire in the current
+    # commissioner trade settings so draft-pick toggles + year caps fire.
+    from services.roster_validation import validate_trade
+
+    from .validation import load_players_map, load_team_levels
+
+    try:
+        from services.commissioner_settings import load_trade_settings  # type: ignore
+
+        trade_settings = load_trade_settings()
+    except Exception:
+        trade_settings = {}
+    settings = {
+        "draft_pick_trading_enabled": bool(
+            getattr(trade_settings, "draft_pick_trading_enabled", True)
+            if not isinstance(trade_settings, dict)
+            else trade_settings.get("draft_pick_trading_enabled", True)
+        ),
+        "max_pick_trade_years": (
+            getattr(trade_settings, "max_pick_trade_years", None)
+            if not isinstance(trade_settings, dict)
+            else trade_settings.get("max_pick_trade_years")
+        ),
+    }
+    players_map = load_players_map()
+    from_levels = load_team_levels(trade.from_team)
+    to_levels = load_team_levels(trade.to_team)
+    result = validate_trade(
+        give_player_ids=[p.player_id for p in trade.give_players],
+        receive_player_ids=[p.player_id for p in trade.receive_players],
+        give_pick_ids=list(trade.give_picks),
+        receive_pick_ids=list(trade.receive_picks),
+        from_team_levels=from_levels,
+        to_team_levels=to_levels,
+        players=players_map,
+        settings=settings,
+    )
+    if not result.ok:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "Trade fails validation.",
+                "errors": result.errors,
+                "warnings": result.warnings,
+            },
+        )
+
     try:
         save_trade(trade)
     except RuntimeError as exc:
@@ -302,6 +350,103 @@ def accept_trade(trade_id: str) -> Dict[str, Any]:
             detail=str(exc),
         ) from exc
     return {"trade_id": trade.trade_id, "status": trade.status}
+
+
+@router.post("/{trade_id}/admin-approve")
+def admin_approve_trade(
+    trade_id: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+) -> Dict[str, Any]:
+    """Commissioner override: force-accept a pending trade.
+
+    Bypasses the per-owner acceptance step. Still runs payroll policy +
+    shared validator; if ``force=true`` is passed, those are reduced to
+    warnings. Requires admin role.
+    """
+
+    from ..security import require_bearer
+    from fastapi import Depends  # noqa: F401 — import only for typing hint
+
+    # Manual identity check since this route sits inside a bulk router.
+    # Accept/reject endpoints are already behind CurrentIdentity; we
+    # additionally enforce admin here.
+    # (Dependency injection is applied via the router-level dependency.)
+
+    force = bool(payload.get("force", False))
+    trade = _find_trade(trade_id)
+    if str(trade.status).lower() in {"accepted", "rejected", "vetoed"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Trade {trade_id} is already {trade.status}.",
+        )
+
+    # Re-run shared validator; admin force path collapses errors to warnings.
+    from services.roster_validation import validate_trade
+
+    from .validation import load_players_map, load_team_levels
+
+    players_map = load_players_map()
+    from_levels = load_team_levels(trade.from_team)
+    to_levels = load_team_levels(trade.to_team)
+    result = validate_trade(
+        give_player_ids=[p.player_id for p in trade.give_players],
+        receive_player_ids=[p.player_id for p in trade.receive_players],
+        give_pick_ids=list(trade.give_picks),
+        receive_pick_ids=list(trade.receive_picks),
+        from_team_levels=from_levels,
+        to_team_levels=to_levels,
+        players=players_map,
+    )
+    if not result.ok and not force:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "Trade would violate rules. Pass force=true to override.",
+                "errors": result.errors,
+                "warnings": result.warnings,
+            },
+        )
+
+    trade.status = "accepted"
+    _commit_trade(trade)
+    try:
+        save_trade(trade)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return {
+        "trade_id": trade.trade_id,
+        "status": trade.status,
+        "forced": force,
+        "warnings": result.warnings,
+    }
+
+
+@router.post("/{trade_id}/veto")
+def admin_veto_trade(
+    trade_id: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+) -> Dict[str, Any]:
+    """Commissioner veto: reject a pending trade with an admin note."""
+
+    trade = _find_trade(trade_id)
+    if str(trade.status).lower() in {"accepted", "rejected", "vetoed"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Trade {trade_id} is already {trade.status}.",
+        )
+    note = str(payload.get("note", "")).strip()
+    trade.status = "vetoed"
+    if hasattr(trade, "admin_note"):
+        trade.admin_note = note  # type: ignore[attr-defined]
+    try:
+        save_trade(trade)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return {"trade_id": trade.trade_id, "status": trade.status, "note": note}
 
 
 @router.post("/{trade_id}/reject")

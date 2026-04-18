@@ -164,6 +164,7 @@ def generate_team_logos(
     allow_auto_logo: bool = True,
     status_callback: Optional[Callable[[str], None]] = None,
     prompt_builder: Optional[Callable[[object], str]] = None,
+    force_engine: Optional[str] = None,
 ) -> str:
     """Generate logos for all teams and return the output directory.
 
@@ -208,6 +209,19 @@ def generate_team_logos(
     # Remove any existing logos so stale files do not persist
     for existing in out_dir.glob("*.png"):
         existing.unlink(missing_ok=True)
+
+    # Explicit engine selection wins over the auto-detect path. This lets
+    # the UI force the simple/offline renderer even when an OpenAI key is
+    # configured, or require OpenAI and fail loudly.
+    if force_engine == "auto_logo":
+        _notify_status("auto_logo")
+        _auto_logo_fallback(teams, out_dir, size, progress_callback)
+        return str(out_dir)
+    if force_engine == "openai" and client is None:
+        raise RuntimeError(
+            "OpenAI client is not configured. Add an API key from Admin → "
+            "Utilities → AI Renderer, or use the Simple Logos button."
+        )
 
     if client is None:
         if allow_auto_logo:

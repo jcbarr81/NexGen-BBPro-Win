@@ -28,6 +28,22 @@ import {
   Settings,
   UserCog,
   Wrench,
+  Gavel,
+  Command,
+  ListChecks,
+  Inbox,
+  Medal,
+  BookOpen,
+  Sliders,
+  PlusSquare,
+  Layers,
+  Snowflake,
+  Shuffle,
+  LineChart,
+  Send,
+  HelpCircle,
+  Swords,
+  Settings2,
 } from "lucide-react";
 
 import { cn } from "@/lib/cn";
@@ -64,6 +80,7 @@ const SECTIONS: NavSection[] = [
     items: [
       { to: "/roster", label: "Roster", Icon: ClipboardList },
       { to: "/lineup", label: "Lineup", Icon: ListOrdered },
+      { to: "/depth-chart", label: "Depth Chart", Icon: Layers },
       { to: "/training", label: "Training", Icon: Target },
       { to: "/injuries", label: "Injuries", Icon: HeartPulse },
       { to: "/finance", label: "Finance", Icon: DollarSign },
@@ -81,6 +98,8 @@ const SECTIONS: NavSection[] = [
       { to: "/schedule", label: "Schedule", Icon: Calendar },
       { to: "/playoffs", label: "Playoffs", Icon: Crown },
       { to: "/history", label: "History", Icon: Archive },
+      { to: "/hall-of-fame", label: "Hall of Fame", Icon: Medal },
+      { to: "/records", label: "Records", Icon: BookOpen },
     ],
   },
   {
@@ -89,12 +108,24 @@ const SECTIONS: NavSection[] = [
       { to: "/free-agency", label: "Free Agency", Icon: Briefcase },
       { to: "/trades", label: "Trades", Icon: ArrowLeftRight },
       { to: "/draft", label: "Draft", Icon: GraduationCap },
+      { to: "/submit-change-request", label: "Submit Request", Icon: Send },
       { to: "/transactions", label: "Activity", Icon: Activity },
     ],
   },
   {
     label: "Admin",
     items: [
+      { to: "/commissioner", label: "Commissioner", Icon: Gavel, adminOnly: true },
+      { to: "/command-center", label: "Command Center", Icon: Command, adminOnly: true },
+      { to: "/finance-queue", label: "Finance Queue", Icon: ListChecks, adminOnly: true },
+      { to: "/change-requests", label: "Change Requests", Icon: Inbox, adminOnly: true },
+      { to: "/exhibition", label: "Exhibition Game", Icon: Swords, adminOnly: true },
+      { to: "/offseason", label: "Offseason Flow", Icon: Snowflake, adminOnly: true },
+      { to: "/reassign", label: "Reassign Players", Icon: Shuffle, adminOnly: true },
+      { to: "/finance-stability", label: "Finance Stability", Icon: LineChart, adminOnly: true },
+      { to: "/league-admin", label: "League Admin", Icon: Settings2, adminOnly: true },
+      { to: "/tuning", label: "Physics Tuning", Icon: Sliders, adminOnly: true },
+      { to: "/leagues/new", label: "New League", Icon: PlusSquare, adminOnly: true },
       { to: "/users", label: "Users", Icon: UserCog, adminOnly: true },
       { to: "/utilities", label: "Utilities", Icon: Wrench },
     ],
@@ -173,7 +204,16 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="relative z-10 flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar-gradient">
+    <aside
+      className="relative z-10 flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar-gradient"
+      style={{
+        backgroundImage: [
+          "linear-gradient(to right, hsl(var(--mahogany)), hsl(var(--espresso)))",
+          // Thin pinstripes over the dugout wood.
+          "repeating-linear-gradient(90deg, hsl(var(--cream) / 0.04) 0 1px, transparent 1px 7px)",
+        ].join(","),
+      }}
+    >
       <div className="border-b border-cream/10 px-4 py-4">
         <Brand />
       </div>
@@ -227,8 +267,21 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t border-cream/10 px-4 py-3 text-[10px] uppercase tracking-wider text-cream/40">
-        Electron UI · Phase 3
+      <div className="border-t border-cream/10 px-2 py-2">
+        <NavLink
+          to="/help"
+          className={({ isActive }) =>
+            cn(
+              "group relative flex items-center gap-3 rounded-lg border-l-[3px] border-transparent px-3 py-1.5 text-sm font-semibold transition",
+              isActive
+                ? "border-amber bg-cream/10 text-cream shadow-inset"
+                : "text-cream/70 hover:border-amber/50 hover:bg-cream/5 hover:text-cream",
+            )
+          }
+        >
+          <HelpCircle className="h-4 w-4 text-amber" aria-hidden />
+          <span>Help &amp; Tutorials</span>
+        </NavLink>
       </div>
     </aside>
   );

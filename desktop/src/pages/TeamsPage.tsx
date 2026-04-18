@@ -21,6 +21,7 @@ import { api, type Team } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
+import { TeamLogo } from "@/components/TeamLogo";
 import {
   Badge,
   Card,
@@ -147,6 +148,7 @@ function TeamTile({
   active: boolean;
   onClick: () => void;
 }) {
+  const logoVersion = useAuthStore((s) => s.logoVersion);
   return (
     <button
       type="button"
@@ -156,15 +158,14 @@ function TeamTile({
         active && "border-amber/60 bg-amber/10",
       )}
     >
-      <div
-        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg font-display text-lg font-bold"
-        style={{
-          backgroundColor: team.primary_color || "hsl(var(--surface))",
-          color: team.secondary_color || "hsl(var(--ink))",
-        }}
-      >
-        {team.abbreviation || team.team_id}
-      </div>
+      <TeamLogo
+        teamId={team.team_id}
+        abbreviation={team.abbreviation || team.team_id}
+        primaryColor={team.primary_color}
+        secondaryColor={team.secondary_color}
+        className="h-14 w-14 shrink-0 rounded-lg text-lg"
+        version={logoVersion}
+      />
       <div className="min-w-0 flex-1">
         <div className="truncate font-semibold">
           {team.city} {team.name}

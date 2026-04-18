@@ -55,6 +55,15 @@ const config: Config = {
         warning: withVar("--warning"),
         danger: withVar("--danger"),
         info: withVar("--info"),
+
+        // Baseball accents
+        ballpark: {
+          DEFAULT: withVar("--ballpark"),
+          deep: withVar("--ballpark-deep"),
+        },
+        clay: withVar("--clay"),
+        chalk: withVar("--chalk"),
+        seam: withVar("--seam"),
       },
       fontFamily: {
         sans: [
@@ -77,6 +86,8 @@ const config: Config = {
         panel: "0 1px 0 rgba(255,253,240,0.04) inset, 0 10px 30px rgba(0,0,0,0.35)",
         inset: "inset 0 1px 0 rgba(255,253,240,0.06)",
         glow: "0 0 0 1px hsl(var(--amber) / 0.35), 0 8px 24px hsl(var(--amber) / 0.15)",
+        scoreboard:
+          "0 0 0 1px hsl(var(--scoreboard-glow) / 0.25), 0 0 18px hsl(var(--scoreboard-glow) / 0.35)",
       },
       borderRadius: {
         xl: "14px",
@@ -87,6 +98,16 @@ const config: Config = {
           "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='64' height='64' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E\")",
         "sidebar-gradient":
           "linear-gradient(to right, hsl(var(--mahogany)), hsl(var(--espresso)))",
+        // Thin diagonal pinstripes (yankees-era, subtle) — layer on top of
+        // surface colors for a dugout/uniform feel on heroes + sidebar.
+        pinstripes:
+          "repeating-linear-gradient(90deg, hsl(var(--cream) / 0.06) 0 1px, transparent 1px 6px)",
+        // Ballpark gradient — deep outfield grass into shadow.
+        "field-gradient":
+          "radial-gradient(circle at 50% 120%, hsl(var(--ballpark) / 0.7), hsl(var(--ballpark-deep) / 0.95) 65%, transparent 100%)",
+        // Warning-track/clay arc for hero backdrops.
+        "clay-gradient":
+          "radial-gradient(circle at 50% 140%, hsl(var(--clay) / 0.55), transparent 60%)",
       },
       keyframes: {
         "fade-in": {

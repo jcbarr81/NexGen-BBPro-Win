@@ -33,7 +33,10 @@ import {
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
+import { useActiveTeamColor } from "@/lib/team-colors";
+import { useAutosaveDraft } from "@/lib/autosave";
 import { AppShell } from "@/components/layout/AppShell";
+import { DiamondDiagram, type DiamondPosition } from "@/components/lineup/DiamondDiagram";
 import {
   Badge,
   Button,
@@ -73,6 +76,7 @@ export function LineupPage() {
     enabled: !teamId,
   });
   const activeTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
+  const teamAccentColor = useActiveTeamColor(activeTeamId ?? undefined);
 
   if (!activeTeamId) {
     return (
@@ -100,6 +104,7 @@ export function LineupPage() {
     <AppShell
       title="Lineup"
       subtitle={`Team ${activeTeamId} · batting order + pitching staff`}
+      teamAccentColor={teamAccentColor}
     >
       <LineupEditor teamId={activeTeamId} />
     </AppShell>
@@ -183,6 +188,13 @@ function LineupTab({
   const [rows, setRows] = useState<LineupRow[]>([]);
   const [dirty, setDirty] = useState(false);
 
+  // Autosave rescue — localStorage-backed draft restored on mount.
+  const { autosavedDraft, clearDraft, lastSavedAt } = useAutosaveDraft({
+    key: `lineup:${teamId}:${vs}`,
+    data: rows,
+    dirty,
+  });
+
   // Hydrate local state from the server response.
   useEffect(() => {
     if (lineup.data) {
@@ -236,6 +248,29 @@ function LineupTab({
     update(idx, { player_id: "", position: rows[idx]?.position ?? "" });
   }
 
+  // Collapse the batting rows into a position→player map for the diamond.
+  // Picks up the first occurrence of each position, which is correct since
+  // a lineup slot should use a position at most once.
+  //
+  // IMPORTANT: this hook MUST sit before any early returns below so hook
+  // counts stay stable between loading and loaded renders (otherwise React
+  // throws "Rendered more hooks than during the previous render").
+  const diamondPositions: Partial<Record<string, DiamondPosition>> = useMemo(() => {
+    const out: Partial<Record<string, DiamondPosition>> = {};
+    for (const row of rows) {
+      if (!row.position || !row.player_id) continue;
+      if (out[row.position]) continue;
+      const p = hittersById.get(row.player_id);
+      const label = p ? `${p.first_name[0] ?? ""}. ${p.last_name}`.trim() : row.player_id;
+      out[row.position] = {
+        code: row.position,
+        label: label || row.player_id,
+        sub: `#${row.order}`,
+      };
+    }
+    return out;
+  }, [rows, hittersById]);
+
   if (lineup.isLoading) {
     return <LoadingCard />;
   }
@@ -248,7 +283,47 @@ function LineupTab({
   const canSave = validEntries === 9 && dirty && !save.isPending;
 
   return (
-    <Card>
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+      <Card className="p-3">
+        <DiamondDiagram positions={diamondPositions} />
+      </Card>
+      {autosavedDraft && !dirty && (
+        <Card className="xl:col-span-2">
+          <CardContent className="flex items-center justify-between gap-3 py-3 text-sm">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-warning" />
+              <span>
+                Unsaved changes from a previous session found
+                {lastSavedAt
+                  ? ` (autosaved ${new Date(lastSavedAt).toLocaleString()})`
+                  : ""}
+                .
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearDraft}
+                title="Discard the autosaved draft"
+              >
+                Dismiss
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setRows(autosavedDraft);
+                  setDirty(true);
+                  clearDraft();
+                }}
+              >
+                Restore
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      <Card>
       <CardHeader>
         <div>
           <CardTitle>
@@ -350,9 +425,11 @@ function LineupTab({
         </table>
 
         {save.isError && (
-          <div className="m-4 flex items-center gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-            <AlertTriangle className="h-4 w-4" />
-            {(save.error as Error).message}
+          <div className="m-4 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="whitespace-pre-line">
+              {(save.error as Error).message}
+            </div>
           </div>
         )}
 
@@ -374,6 +451,7 @@ function LineupTab({
         </div>
       </CardContent>
     </Card>
+    </div>
   );
 }
 
@@ -584,9 +662,11 @@ function PitchingTab({
         </table>
 
         {save.isError && (
-          <div className="m-4 flex items-center gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-            <AlertTriangle className="h-4 w-4" />
-            {(save.error as Error).message}
+          <div className="m-4 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="whitespace-pre-line">
+              {(save.error as Error).message}
+            </div>
           </div>
         )}
 

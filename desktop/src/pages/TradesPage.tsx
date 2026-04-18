@@ -106,9 +106,33 @@ export function TradesPage() {
     onError: (err) =>
       setActionError(err instanceof Error ? err.message : "Withdraw failed."),
   });
+  const adminApproveMutation = useMutation({
+    mutationFn: ({ id, force }: { id: string; force: boolean }) =>
+      api.adminApproveTrade(id, force),
+    onSuccess: () => {
+      setActionError(null);
+      refresh();
+    },
+    onError: (err) =>
+      setActionError(
+        err instanceof Error ? err.message : "Admin approve failed.",
+      ),
+  });
+  const adminVetoMutation = useMutation({
+    mutationFn: ({ id, note }: { id: string; note: string }) =>
+      api.adminVetoTrade(id, note),
+    onSuccess: () => {
+      setActionError(null);
+      refresh();
+    },
+    onError: (err) =>
+      setActionError(err instanceof Error ? err.message : "Veto failed."),
+  });
 
+  const isAdmin = useAuthStore((s) => s.role) === "admin";
   const actions = {
     teamId,
+    isAdmin,
     accept: (id: string) => acceptMutation.mutate(id),
     reject: (id: string) => rejectMutation.mutate(id),
     withdraw: (id: string) => {
@@ -116,10 +140,34 @@ export function TradesPage() {
         withdrawMutation.mutate(id);
       }
     },
+    adminApprove: (id: string) => {
+      if (window.confirm("Approve this pending trade as commissioner?")) {
+        adminApproveMutation.mutate({ id, force: false });
+      }
+    },
+    adminForceApprove: (id: string) => {
+      if (
+        window.confirm(
+          "FORCE-approve this trade, overriding all validation errors? This cannot be undone.",
+        )
+      ) {
+        adminApproveMutation.mutate({ id, force: true });
+      }
+    },
+    adminVeto: (id: string) => {
+      const note = window.prompt(
+        "Veto this trade. Optional note for the owners:",
+        "",
+      );
+      if (note === null) return;
+      adminVetoMutation.mutate({ id, note });
+    },
     pending:
       acceptMutation.isPending ||
       rejectMutation.isPending ||
-      withdrawMutation.isPending,
+      withdrawMutation.isPending ||
+      adminApproveMutation.isPending ||
+      adminVetoMutation.isPending,
   };
 
   // Stable ordered list of (status, rows) so the tab row doesn't reshuffle
@@ -259,9 +307,13 @@ export function TradesPage() {
 
 interface RowActions {
   teamId: string | null;
+  isAdmin: boolean;
   accept: (id: string) => void;
   reject: (id: string) => void;
   withdraw: (id: string) => void;
+  adminApprove: (id: string) => void;
+  adminForceApprove: (id: string) => void;
+  adminVeto: (id: string) => void;
   pending: boolean;
 }
 
@@ -341,8 +393,8 @@ function TradeCard({
           highlight={toActive}
         />
       </CardContent>
-      {(canRespond || canWithdraw) && (
-        <div className="flex items-center justify-end gap-2 border-t border-border/60 bg-surfaceAlt/40 px-6 py-3">
+      {(canRespond || canWithdraw || (isPending && actions.isAdmin)) && (
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/60 bg-surfaceAlt/40 px-6 py-3">
           {canWithdraw && (
             <Button
               variant="ghost"
@@ -369,6 +421,38 @@ function TradeCard({
                 disabled={actions.pending}
               >
                 <CheckCircle2 className="h-3 w-3" /> Accept
+              </Button>
+            </>
+          )}
+          {actions.isAdmin && isPending && (
+            <>
+              <div className="mx-2 h-4 w-px bg-border" aria-hidden />
+              <span className="text-[10px] uppercase tracking-wider text-amber">
+                Admin
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => actions.adminVeto(trade.trade_id)}
+                disabled={actions.pending}
+              >
+                <XCircle className="h-3 w-3" /> Veto
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => actions.adminForceApprove(trade.trade_id)}
+                disabled={actions.pending}
+                title="Force-approve, overriding validation errors"
+              >
+                Force approve
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => actions.adminApprove(trade.trade_id)}
+                disabled={actions.pending}
+              >
+                <CheckCircle2 className="h-3 w-3" /> Approve
               </Button>
             </>
           )}
@@ -597,7 +681,7 @@ function ProposeTradeDialog({
           </div>
 
           {error && (
-            <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            <p className="whitespace-pre-line rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
               {error}
             </p>
           )}

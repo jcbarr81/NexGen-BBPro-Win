@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
@@ -23,6 +23,26 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  // First-run detection: if the sidecar has no leagues registered, skip the
+  // login screen and drop straight into the setup wizard. The wizard
+  // handles admin-password bootstrap as its first step.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .leaguesFirstRun()
+      .then((info) => {
+        if (!cancelled && !info.has_leagues) {
+          navigate("/leagues/new?first-run=1", { replace: true });
+        }
+      })
+      .catch(() => {
+        /* endpoint optional; ignore */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -49,7 +69,17 @@ export function LoginPage() {
   }
 
   return (
-    <div className="relative z-10 flex h-full items-center justify-center bg-canvas">
+    <div
+      className="relative z-10 flex h-full items-center justify-center bg-canvas"
+      style={{
+        backgroundImage: [
+          // Subtle field-green glow rising from the bottom — reads as
+          // "night game at the ballpark" without being noisy.
+          "radial-gradient(circle at 50% 110%, hsl(var(--ballpark) / 0.25), transparent 60%)",
+          "radial-gradient(circle at 50% 140%, hsl(var(--clay) / 0.15), transparent 55%)",
+        ].join(","),
+      }}
+    >
       <div className="w-full max-w-md animate-fade-in space-y-6 px-6">
         <div className="flex justify-center">
           <Brand />

@@ -70,33 +70,35 @@ def save_lineup(
     payload: Dict[str, Any] = Body(...),
 ) -> Dict[str, Any]:
     rows_in = payload.get("lineup")
-    if not isinstance(rows_in, list) or len(rows_in) != 9:
+    if not isinstance(rows_in, list):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="lineup must be a list of exactly 9 entries.",
+            detail="lineup must be a list.",
         )
 
-    seen: set[str] = set()
+    # Run the full shared validator before we touch disk. Warnings don't
+    # block the save, but any error aborts with a 422 carrying the full
+    # error + warning list so the UI can display them.
+    from services.roster_validation import validate_lineup
+
+    from .validation import load_players_map
+
+    players = load_players_map()
+    result = validate_lineup(lineup_rows=rows_in, players=players, vs=vs)
+    if not result.ok:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "Lineup has validation errors.",
+                "errors": result.errors,
+                "warnings": result.warnings,
+            },
+        )
+
     parsed: List[tuple[str, str]] = []
     for entry in rows_in:
-        if not isinstance(entry, dict):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Each lineup entry must be an object.",
-            )
         pid = str(entry.get("player_id", "")).strip()
         pos = str(entry.get("position", "")).strip().upper()
-        if not pid or not pos:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Every entry needs player_id and position.",
-            )
-        if pid in seen:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"{pid} appears more than once in the lineup.",
-            )
-        seen.add(pid)
         parsed.append((pid, pos))
 
     path = _lineup_path(team_id, vs)
@@ -158,27 +160,29 @@ def save_pitching_staff(
             detail="staff must be a list.",
         )
 
-    seen: set[str] = set()
+    from services.roster_validation import validate_pitching_staff
+
+    from .validation import load_players_map, load_team_levels
+
+    players = load_players_map()
+    active_ids = load_team_levels(team_id).get("act", [])
+    result = validate_pitching_staff(
+        staff=rows_in, players=players, active_ids=active_ids
+    )
+    if not result.ok:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "Pitching staff has validation errors.",
+                "errors": result.errors,
+                "warnings": result.warnings,
+            },
+        )
+
     parsed: List[tuple[str, str]] = []
     for entry in rows_in:
-        if not isinstance(entry, dict):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Each staff entry must be an object.",
-            )
         pid = str(entry.get("player_id", "")).strip()
         role = str(entry.get("role", "")).strip().upper()
-        if not pid or not role:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Every entry needs player_id and role.",
-            )
-        if pid in seen:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"{pid} appears more than once on the staff.",
-            )
-        seen.add(pid)
         parsed.append((pid, role))
 
     path = _pitching_path(team_id)

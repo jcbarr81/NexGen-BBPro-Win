@@ -21,6 +21,7 @@ import {
 import { api, type TeamInjuryEntry } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
+import { useActiveTeamColor } from "@/lib/team-colors";
 import { AppShell } from "@/components/layout/AppShell";
 import { StatCard } from "@/components/StatCard";
 import {
@@ -41,6 +42,7 @@ export function InjuryPage() {
     enabled: !teamId,
   });
   const activeTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
+  const teamAccentColor = useActiveTeamColor(activeTeamId ?? undefined);
 
   const injuries = useQuery({
     queryKey: ["team-injuries", activeTeamId],
@@ -74,6 +76,7 @@ export function InjuryPage() {
     <AppShell
       title="Injury Center"
       subtitle={`${activeTeamId} · DL, IR, and day-to-day status`}
+      teamAccentColor={teamAccentColor}
     >
       {injuries.isLoading ? (
         <Card>

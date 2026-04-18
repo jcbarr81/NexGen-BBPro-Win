@@ -75,3 +75,84 @@ def team_division_standings(team_id: str) -> Dict[str, Any]:
             }
         )
     return {"division": str(division.get("division", "--")), "teams": rows}
+
+
+def _coerce(value: Any) -> Any:
+    """Turn arbitrary nested data into JSON-friendly primitives."""
+
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _coerce(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_coerce(v) for v in value]
+    return str(value)
+
+
+@router.get("/widgets")
+def team_dashboard_widgets(team_id: str) -> Dict[str, Any]:
+    """Secondary dashboard widgets: bullpen, matchup, performers, leaders.
+
+    All four come from ``gather_owner_quick_metrics``; we just trim the
+    noisy fields and coerce to JSON-safe primitives.
+    """
+
+    metrics = _safe_metrics(team_id)
+    bullpen = metrics.get("bullpen") or {}
+    matchup = metrics.get("matchup") or {}
+    performers = metrics.get("performers") or {}
+    batting_leaders = metrics.get("batting_leaders") or []
+    pitching_leaders = metrics.get("pitching_leaders") or []
+    leader_meta = metrics.get("leader_meta") or {}
+    return {
+        "team_id": team_id,
+        "bullpen": _coerce(bullpen),
+        "matchup": _coerce(matchup),
+        "performers": _coerce(performers),
+        "batting_leaders": _leader_rows(batting_leaders, leader_meta.get("batting")),
+        "pitching_leaders": _leader_rows(pitching_leaders, leader_meta.get("pitching")),
+        "leader_meta": _coerce(leader_meta),
+    }
+
+
+def _leader_rows(source: Any, meta: Any) -> List[Dict[str, Any]]:
+    """Normalize quick_metrics' dict-or-list leader shape to a flat list.
+
+    The PyQt quick_metrics helper returns these as ``{stat: formatted_value}``
+    dicts (plus a parallel ``leader_meta`` with player ids). The Electron
+    client expects a list of ``{label, value_text, player_id}`` rows.
+    """
+
+    rows: List[Dict[str, Any]] = []
+    meta_map = meta if isinstance(meta, dict) else {}
+    if isinstance(source, dict):
+        for key, value in source.items():
+            entry = meta_map.get(key) if isinstance(meta_map.get(key), dict) else {}
+            rows.append(
+                {
+                    "label": str(key),
+                    "value_text": _coerce(value),
+                    "value": _coerce(entry.get("value")) if entry else None,
+                    "player_id": str(entry.get("player_id"))
+                    if entry and entry.get("player_id")
+                    else None,
+                }
+            )
+        return rows
+    if isinstance(source, (list, tuple)):
+        for item in source:
+            if isinstance(item, dict):
+                rows.append(
+                    {
+                        "label": str(item.get("label") or ""),
+                        "value_text": _coerce(item.get("value_text")),
+                        "value": _coerce(item.get("value")),
+                        "player_id": (
+                            str(item.get("player_id"))
+                            if item.get("player_id")
+                            else None
+                        ),
+                    }
+                )
+        return rows
+    return rows

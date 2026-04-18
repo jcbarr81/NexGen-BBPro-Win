@@ -21,6 +21,7 @@ import {
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
+import { useActiveTeamColor } from "@/lib/team-colors";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Badge,
@@ -58,6 +59,7 @@ export function TrainingPage() {
     enabled: !teamId,
   });
   const activeTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
+  const teamAccentColor = useActiveTeamColor(activeTeamId ?? undefined);
 
   if (!activeTeamId) {
     return (
@@ -84,6 +86,7 @@ export function TrainingPage() {
     <AppShell
       title="Training Focus"
       subtitle={`Team ${activeTeamId} · split 100% across each group`}
+      teamAccentColor={teamAccentColor}
     >
       <TrainingEditor teamId={activeTeamId} />
     </AppShell>

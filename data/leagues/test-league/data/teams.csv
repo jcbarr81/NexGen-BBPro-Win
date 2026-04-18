@@ -1,0 +1,13 @@
+team_id,name,city,abbreviation,division,stadium,primary_color,secondary_color,owner_id
+DET,Wolves,Detroit,DET,North,Wolves Stadium,#F26060,#60F2F2,
+MIL,Giants,Milwaukee,MIL,North,Giants Stadium,#608BF2,#F2C760,
+JAC,Jets,Jacksonville,JAC,North,Jets Stadium,#B5F260,#9D60F2,
+LOU,Chiefs,Louisville,LOU,North,Chiefs Stadium,#F260E0,#60F273,
+ALB,Lions,Albuquerque,ALB,South,Lions Stadium,#60F2D9,#F26079,
+IND,Warriors,Indianapolis,IND,South,Warriors Stadium,#F2AF60,#60A3F2,
+POR,Rangers,Portland,POR,South,Rangers Stadium,#8560F2,#CEF260,
+CHA,Coyotes,Charlotte,CHA,South,Coyotes Stadium,#67F260,#EC60F2,
+SAN,Bears,San Diego,SAN,West,Bears Stadium,#F26091,#60F2C1,
+FOR,Thunder,Fort Worth,FOR,West,Thunder Stadium,#60BBF2,#F29760,
+LOS,Saints,Los Angeles,LOS,West,Saints Stadium,#E6F260,#6C60F2,
+CHI,Dragons,Chicago,CHI,West,Dragons Stadium,#D360F2,#7FF260,

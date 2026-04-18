@@ -62,4 +62,34 @@
   .text-balance {
     text-wrap: balance;
   }
+
+  /* Scoreboard numeral style — tabular, monospaced, amber LED glow. Reserve
+     for big stat values (record, run diff, overall rating). Don't use for
+     body text, only for the hero numerals where it reads as "stadium
+     scoreboard" and not "terminal". */
+  .scoreboard-digits {
+    font-family: theme("fontFamily.mono");
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+    color: hsl(var(--amber));
+    text-shadow: 0 0 6px hsl(var(--scoreboard-glow) / 0.55),
+      0 0 2px hsl(var(--scoreboard-glow) / 0.8);
+  }
+
+  /* Curved red stitch pattern — used as a top-accent on the app brand and
+     hero cards. Repeats two dashed arcs (one tilted each way) to fake the
+     "figure-8 baseball seam" without a full SVG. */
+  .seam-accent::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 3px;
+    background-image: repeating-linear-gradient(
+        90deg,
+        hsl(var(--seam)) 0 6px,
+        transparent 6px 12px
+      );
+    opacity: 0.7;
+    pointer-events: none;
+  }
 }

@@ -10,6 +10,16 @@
       "status": "active",
       "version_created": null,
       "version_last_opened": null
+    },
+    {
+      "id": "test-league",
+      "display_name": "Test League",
+      "created_at": "2026-04-17T00:54:29Z",
+      "last_opened_at": "2026-04-17T00:54:32Z",
+      "mode": "single_player",
+      "status": "active",
+      "version_created": null,
+      "version_last_opened": null
     }
   ]
 }

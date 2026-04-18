@@ -28,7 +28,9 @@ import {
 import { api, type TeamSettingsPatch } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
+import { useActiveTeamColor } from "@/lib/team-colors";
 import { AppShell } from "@/components/layout/AppShell";
+import { ParkBrowser } from "@/components/park/ParkBrowser";
 import {
   Badge,
   Button,
@@ -50,6 +52,7 @@ export function TeamSettingsPage() {
     enabled: !teamId,
   });
   const activeTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
+  const teamAccentColor = useActiveTeamColor(activeTeamId ?? undefined);
 
   if (!activeTeamId) {
     return (
@@ -76,6 +79,7 @@ export function TeamSettingsPage() {
     <AppShell
       title="Team Settings"
       subtitle={`Team ${activeTeamId} · colors, stadium, strategy`}
+      teamAccentColor={teamAccentColor}
     >
       <SettingsEditor teamId={activeTeamId} />
     </AppShell>
@@ -88,6 +92,8 @@ function SettingsEditor({ teamId }: { teamId: string }) {
     queryKey: ["team-settings", teamId],
     queryFn: () => api.getTeamSettings(teamId),
   });
+
+  const [parkBrowserOpen, setParkBrowserOpen] = useState(false);
 
   const [draft, setDraft] = useState<{
     primary_color: string;
@@ -205,7 +211,15 @@ function SettingsEditor({ teamId }: { teamId: string }) {
                   }
                   placeholder="Park name"
                 />
-                <Building2 className="h-9 w-9 shrink-0 rounded-md border border-border bg-surfaceAlt p-2 text-amber" />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  onClick={() => setParkBrowserOpen(true)}
+                  title="Browse ballpark catalog with previews"
+                >
+                  <Building2 className="h-4 w-4" />
+                </Button>
               </div>
               {data.options.ballparks.length > 0 && (
                 <datalist id="ballpark-list">
@@ -215,6 +229,15 @@ function SettingsEditor({ teamId }: { teamId: string }) {
                 </datalist>
               )}
             </div>
+
+            <ParkBrowser
+              open={parkBrowserOpen}
+              onOpenChange={setParkBrowserOpen}
+              currentStadium={draft.stadium}
+              onSelect={(park) =>
+                setDraft({ ...draft, stadium: park.name })
+              }
+            />
 
             <SwatchPreview
               primary={draft.primary_color}

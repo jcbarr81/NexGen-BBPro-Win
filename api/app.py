@@ -12,20 +12,38 @@ from utils import path_utils
 from .routers import (
     activity,
     admin,
+    admin_league,
+    ai_settings,
     auth,
     boxscore,
+    change_request_export,
+    change_requests,
+    command_center,
+    commissioner,
     dashboard,
+    depth_chart,
     draft,
+    exhibition,
+    exports,
     finance,
+    finance_queue,
+    finance_stability,
     free_agency,
+    help as help_router,
     history,
+    hof,
     injuries,
     leaders,
+    league_create,
     leagues,
     lineups,
     news,
+    offseason,
+    parks,
     players,
     playoffs,
+    reassign,
+    records,
     roster,
     schedule,
     season,
@@ -36,6 +54,8 @@ from .routers import (
     teams,
     trades,
     training,
+    tuning,
+    validation,
 )
 from .schemas import HealthResponse
 from .ws import sim as ws_sim
@@ -102,10 +122,33 @@ def create_app() -> FastAPI:
     app.include_router(free_agency.router)
     app.include_router(leaders.router)
     app.include_router(stats.router)
+    app.include_router(stats.team_router)
     app.include_router(history.router)
+    app.include_router(commissioner.router)
+    app.include_router(command_center.router)
+    app.include_router(finance_queue.router)
+    app.include_router(change_requests.router)
+    app.include_router(change_request_export.router)
+    app.include_router(hof.router)
+    app.include_router(exports.router)
+    app.include_router(ai_settings.router)
+    app.include_router(records.router)
+    app.include_router(help_router.router)
+    app.include_router(tuning.router)
+    app.include_router(league_create.router)
+    app.include_router(league_create.admin_router)
+    app.include_router(depth_chart.router)
     app.include_router(dashboard.router)
     app.include_router(roster.router)
     app.include_router(lineups.router)
+    app.include_router(offseason.router)
+    app.include_router(reassign.team_router)
+    app.include_router(reassign.all_router)
+    app.include_router(finance_stability.router)
+    app.include_router(parks.router)
+    app.include_router(validation.router)
+    app.include_router(exhibition.router)
+    app.include_router(admin_league.router)
     app.include_router(ws_sim.router)
 
     return app

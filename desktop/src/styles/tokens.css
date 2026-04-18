@@ -37,6 +37,14 @@
   --warning: 28 96% 44%;       /*             #e67700 */
   --danger: 359 68% 48%;       /* RED-ish     #c92a2a */
   --info: 212 80% 22%;         /* NAVY        #0A3161 */
+
+  /* Baseball accents */
+  --ballpark: 118 34% 28%;     /* outfield grass — muted ballpark green */
+  --ballpark-deep: 125 40% 18%;/* warning-track shadow */
+  --clay: 18 55% 42%;          /* infield dirt / warning track clay */
+  --chalk: 48 100% 97%;        /* foul-line chalk */
+  --seam: 2 78% 45%;           /* baseball-seam red */
+  --scoreboard-glow: 38 92% 60%; /* amber LED glow */
 }
 
 .dark {
@@ -66,4 +74,12 @@
   --warning: 32 90% 55%;
   --danger: 2 75% 60%;
   --info: 212 70% 55%;
+
+  /* Baseball accents (dark tuned) */
+  --ballpark: 118 38% 24%;
+  --ballpark-deep: 125 48% 12%;
+  --clay: 18 55% 38%;
+  --chalk: 45 100% 96%;
+  --seam: 2 82% 56%;
+  --scoreboard-glow: 38 100% 62%;
 }

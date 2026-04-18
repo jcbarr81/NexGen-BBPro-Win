@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 from typing import Any, Dict, List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 
 from utils.path_utils import get_data_dir
 from utils.stats_persistence import load_stats as _load_season_stats
@@ -18,6 +18,7 @@ from utils.stats_persistence import load_stats as _load_season_stats
 from ..security import CurrentIdentity
 
 router = APIRouter(prefix="/league", tags=["stats"], dependencies=[CurrentIdentity])
+team_router = APIRouter(prefix="/teams", tags=["stats"], dependencies=[CurrentIdentity])
 
 BATTING_COLUMNS: List[str] = [
     "g", "ab", "r", "h", "2b", "3b", "hr", "rbi", "bb", "so", "sb",
@@ -112,4 +113,79 @@ def league_stats() -> Dict[str, Any]:
         "batters": batters,
         "pitchers": pitchers,
         "teams": teams,
+    }
+
+
+@team_router.get("/{team_id}/stats")
+def team_stats(team_id: str) -> Dict[str, Any]:
+    """Port of ui/team_stats_window.py — roster-filtered player lines + team totals."""
+
+    try:
+        season = _load_season_stats()
+    except Exception:
+        season = {"players": {}, "teams": {}}
+
+    player_stats = season.get("players") or {}
+    team_stats_map = season.get("teams") or {}
+
+    players_path = get_data_dir() / "players.csv"
+    try:
+        with players_path.open("r", encoding="utf-8", newline="") as handle:
+            all_meta = {row["player_id"]: row for row in csv.DictReader(handle)}
+    except OSError:
+        all_meta = {}
+
+    # Restrict to players currently rostered by the target team. We read the
+    # roster CSVs directly rather than going through the full loader, so this
+    # stays cheap even for deep farm systems.
+    roster_ids: set[str] = set()
+    roster_path = get_data_dir() / "rosters" / f"{team_id}.csv"
+    try:
+        with roster_path.open("r", encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle):
+                pid = (row.get("player_id") or "").strip()
+                if pid:
+                    roster_ids.add(pid)
+    except OSError:
+        pass
+
+    if not roster_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No roster entries for team {team_id}.",
+        )
+
+    batters: List[Dict[str, Any]] = []
+    pitchers: List[Dict[str, Any]] = []
+    for pid in sorted(roster_ids):
+        info = all_meta.get(pid)
+        if not info:
+            continue
+        is_pitcher = str(info.get("is_pitcher", "")).strip().lower() in {"1", "true", "yes"}
+        block = _normalize_player(player_stats.get(pid))
+        if not block:
+            continue
+        entry = {
+            "player_id": pid,
+            "first_name": info.get("first_name", ""),
+            "last_name": info.get("last_name", ""),
+            "primary_position": info.get("primary_position", ""),
+            "is_pitcher": is_pitcher,
+            "stats": _row(block, PITCHING_COLUMNS if is_pitcher else BATTING_COLUMNS),
+        }
+        (pitchers if is_pitcher else batters).append(entry)
+
+    team_block = team_stats_map.get(team_id) or {}
+    team_totals = _row(dict(team_block), TEAM_COLUMNS)
+
+    return {
+        "team_id": team_id,
+        "columns": {
+            "batters": BATTING_COLUMNS,
+            "pitchers": PITCHING_COLUMNS,
+            "team": TEAM_COLUMNS,
+        },
+        "batters": batters,
+        "pitchers": pitchers,
+        "team_totals": team_totals,
     }

@@ -183,6 +183,30 @@ def move_roster(
     if from_level == to_level:
         return team_roster(team_id)
 
+    # Run the shared roster-move validator before mutating state.
+    from services.roster_validation import DEFAULT_LEVEL_CAPS, validate_roster_move
+
+    from .validation import load_players_map, load_team_levels
+
+    players_map = load_players_map()
+    current_levels = load_team_levels(team_id)
+    result = validate_roster_move(
+        current_levels=current_levels,
+        player_id=player_id,
+        target_level=to_level.lower(),
+        players=players_map,
+        level_caps=DEFAULT_LEVEL_CAPS,
+    )
+    if not result.ok:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "Roster move would violate league rules.",
+                "errors": result.errors,
+                "warnings": result.warnings,
+            },
+        )
+
     try:
         roster.move_player(player_id, _LEVEL_ATTR[from_level], _LEVEL_ATTR[to_level])
     except ValueError as exc:

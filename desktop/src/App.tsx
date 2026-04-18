@@ -30,7 +30,23 @@ import { LeadersPage } from "@/pages/LeadersPage";
 import { StatsPage } from "@/pages/StatsPage";
 import { PlayersBrowserPage } from "@/pages/PlayersBrowserPage";
 import { LeagueHistoryPage } from "@/pages/LeagueHistoryPage";
+import { CommissionerPage } from "@/pages/CommissionerPage";
+import { CommandCenterPage } from "@/pages/CommandCenterPage";
+import { FinanceQueuePage } from "@/pages/FinanceQueuePage";
+import { ChangeRequestsPage } from "@/pages/ChangeRequestsPage";
+import { HallOfFamePage } from "@/pages/HallOfFamePage";
+import { RecordsPage } from "@/pages/RecordsPage";
+import { TuningPage } from "@/pages/TuningPage";
+import { LeagueCreatePage } from "@/pages/LeagueCreatePage";
 import { ComingSoonPage } from "@/pages/ComingSoonPage";
+import { DepthChartPage } from "@/pages/DepthChartPage";
+import { OffseasonPage } from "@/pages/OffseasonPage";
+import { ReassignPage } from "@/pages/ReassignPage";
+import { FinanceStabilityPage } from "@/pages/FinanceStabilityPage";
+import { ChangeRequestExportPage } from "@/pages/ChangeRequestExportPage";
+import { HelpPage } from "@/pages/HelpPage";
+import { ExhibitionPage } from "@/pages/ExhibitionPage";
+import { AdminLeaguePage } from "@/pages/AdminLeaguePage";
 import { useAuthStore } from "@/lib/auth-store";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -59,6 +75,9 @@ export default function App() {
     <SplashGate>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        {/* Accessible without auth for first-run bootstrap; the page
+            component itself enforces admin when first-run=1 is absent. */}
+        <Route path="/leagues/new" element={<LeagueCreatePage />} />
         <Route
           path="/select-league"
           element={
@@ -268,6 +287,62 @@ export default function App() {
           }
         />
         <Route
+          path="/commissioner"
+          element={
+            <RequireLeague>
+              <CommissionerPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/command-center"
+          element={
+            <RequireLeague>
+              <CommandCenterPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/finance-queue"
+          element={
+            <RequireLeague>
+              <FinanceQueuePage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/change-requests"
+          element={
+            <RequireLeague>
+              <ChangeRequestsPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/hall-of-fame"
+          element={
+            <RequireLeague>
+              <HallOfFamePage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/records"
+          element={
+            <RequireLeague>
+              <RecordsPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/tuning"
+          element={
+            <RequireLeague>
+              <TuningPage />
+            </RequireLeague>
+          }
+        />
+        <Route
           path="/teams"
           element={
             <RequireLeague>
@@ -280,6 +355,70 @@ export default function App() {
           element={
             <RequireLeague>
               <UtilitiesPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/depth-chart"
+          element={
+            <RequireLeague>
+              <DepthChartPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/offseason"
+          element={
+            <RequireLeague>
+              <OffseasonPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/reassign"
+          element={
+            <RequireLeague>
+              <ReassignPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/finance-stability"
+          element={
+            <RequireLeague>
+              <FinanceStabilityPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/submit-change-request"
+          element={
+            <RequireLeague>
+              <ChangeRequestExportPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/help"
+          element={
+            <RequireAuth>
+              <HelpPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/exhibition"
+          element={
+            <RequireLeague>
+              <ExhibitionPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/league-admin"
+          element={
+            <RequireLeague>
+              <AdminLeaguePage />
             </RequireLeague>
           }
         />

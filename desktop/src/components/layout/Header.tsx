@@ -1,4 +1,5 @@
-import { LogOut } from "lucide-react";
+import { HelpCircle, LogOut } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui";
 import { useAuthStore } from "@/lib/auth-store";
@@ -30,14 +31,21 @@ export function Header({ title, subtitle }: HeaderProps) {
           </div>
         </div>
         {user.token && (
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Sign out"
-            onClick={() => user.clear()}
-          >
-            <LogOut className="h-4 w-4" />
-          </Button>
+          <>
+            <Link to="/help" title="Help & Tutorials">
+              <Button variant="ghost" size="icon" aria-label="Help">
+                <HelpCircle className="h-4 w-4" />
+              </Button>
+            </Link>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Sign out"
+              onClick={() => user.clear()}
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </>
         )}
       </div>
     </header>

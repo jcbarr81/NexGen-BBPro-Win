@@ -1,0 +1,331 @@
+/**
+ * Admin League Settings — port of the destructive commissioner actions in
+ * ui/admin_dashboard/actions/league.py. Regenerate schedule, reset stats,
+ * clear results, clone league. Each card confirms before running.
+ */
+
+import { useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+  Copy,
+  Eraser,
+  Loader2,
+  RefreshCcw,
+  Settings2,
+  Wrench,
+} from "lucide-react";
+
+import { api } from "@/lib/api";
+import { AppShell } from "@/components/layout/AppShell";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Input,
+  Label,
+} from "@/components/ui";
+
+export function AdminLeaguePage() {
+  return (
+    <AppShell
+      title="League Admin"
+      subtitle="Commissioner: schedule regeneration, stat resets, clone"
+    >
+      <AdminLeagueBody />
+    </AppShell>
+  );
+}
+
+function AdminLeagueBody() {
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <RegenerateScheduleCard />
+      <ResetStatsCard />
+      <ResetResultsCard />
+      <RepairLineupsCard />
+      <CloneLeagueCard />
+    </div>
+  );
+}
+
+function RepairLineupsCard() {
+  const mut = useMutation({ mutationFn: () => api.adminRepairLineups() });
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Wrench className="h-4 w-4 text-amber" /> Repair lineups
+        </CardTitle>
+        <CardDescription>
+          Runs lineup autofill for every team that fails validation. Useful
+          after a roster import or mid-season cleanup.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ConfirmButton
+          label="Repair lineups"
+          icon={<Wrench className="h-4 w-4" />}
+          confirmText="Autofill lineups for every team that currently fails validation?"
+          pending={mut.isPending}
+          onConfirm={() => mut.mutate()}
+        />
+        <ResultLine
+          ok={mut.isSuccess}
+          err={mut.isError}
+          okText={
+            mut.data
+              ? `Repaired ${mut.data.fixed.length} teams${mut.data.failed.length ? ` · ${mut.data.failed.length} still failed` : ""}.`
+              : ""
+          }
+          errText={(mut.error as Error | undefined)?.message}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function RegenerateScheduleCard() {
+  const templates = useQuery({
+    queryKey: ["admin-schedule-templates"],
+    queryFn: () => api.adminLeagueScheduleTemplates(),
+  });
+  const [template, setTemplate] = useState("mlb_162");
+  const mut = useMutation({
+    mutationFn: (id: string) => api.adminRegenerateSchedule(id),
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <CalendarClock className="h-4 w-4 text-amber" /> Regenerate schedule
+        </CardTitle>
+        <CardDescription>
+          Overwrites <code>schedule.csv</code> with a fresh template. All
+          previously-played results are discarded.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Label htmlFor="tpl">Schedule template</Label>
+        <select
+          id="tpl"
+          className="w-full rounded-md border border-border bg-surface px-2 py-1 text-sm"
+          value={template}
+          onChange={(e) => setTemplate(e.target.value)}
+        >
+          {(templates.data?.templates ?? []).map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name} ({t.games_per_team} games/team)
+            </option>
+          ))}
+        </select>
+        <ConfirmButton
+          label="Regenerate"
+          icon={<RefreshCcw className="h-4 w-4" />}
+          confirmText="Regenerate the schedule? All played results will be cleared."
+          pending={mut.isPending}
+          onConfirm={() => mut.mutate(template)}
+        />
+        <ResultLine
+          ok={mut.isSuccess}
+          err={mut.isError}
+          okText={
+            mut.data
+              ? `Wrote ${mut.data.games} games (${mut.data.template_id}).`
+              : ""
+          }
+          errText={(mut.error as Error | undefined)?.message}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function ResetStatsCard() {
+  const mut = useMutation({ mutationFn: () => api.adminResetStats() });
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Eraser className="h-4 w-4 text-amber" /> Reset season stats
+        </CardTitle>
+        <CardDescription>
+          Wipes <code>season_stats.json</code>. Schedule and rosters are
+          untouched.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ConfirmButton
+          label="Reset stats"
+          icon={<Eraser className="h-4 w-4" />}
+          confirmText="Clear every team + player stat line for the current season? This cannot be undone."
+          pending={mut.isPending}
+          onConfirm={() => mut.mutate()}
+        />
+        <ResultLine
+          ok={mut.isSuccess}
+          err={mut.isError}
+          okText="Season stats cleared."
+          errText={(mut.error as Error | undefined)?.message}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function ResetResultsCard() {
+  const mut = useMutation({ mutationFn: () => api.adminResetResults() });
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <RefreshCcw className="h-4 w-4 text-amber" /> Clear played results
+        </CardTitle>
+        <CardDescription>
+          Marks every scheduled game as unplayed — useful for re-running a
+          season without a full schedule regen.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ConfirmButton
+          label="Clear results"
+          icon={<RefreshCcw className="h-4 w-4" />}
+          confirmText="Clear results for every scheduled game? The matchups stay; this only clears the played flag + boxscore links."
+          pending={mut.isPending}
+          onConfirm={() => mut.mutate()}
+        />
+        <ResultLine
+          ok={mut.isSuccess}
+          err={mut.isError}
+          okText={mut.data ? `Cleared ${mut.data.games} games.` : ""}
+          errText={(mut.error as Error | undefined)?.message}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function CloneLeagueCard() {
+  const [leagueId, setLeagueId] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const mut = useMutation({
+    mutationFn: () => api.adminCloneLeague(leagueId.trim(), displayName.trim()),
+  });
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Copy className="h-4 w-4 text-amber" /> Clone this league
+        </CardTitle>
+        <CardDescription>
+          Deep-copies the active league into a new registry entry. Use this
+          before risky experiments.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <Label htmlFor="clone-id">New league id</Label>
+            <Input
+              id="clone-id"
+              value={leagueId}
+              onChange={(e) => setLeagueId(e.target.value)}
+              placeholder="alpha, sandbox-2027, …"
+            />
+          </div>
+          <div>
+            <Label htmlFor="clone-name">Display name</Label>
+            <Input
+              id="clone-name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Sandbox 2027"
+            />
+          </div>
+        </div>
+        <ConfirmButton
+          label="Clone"
+          icon={<Copy className="h-4 w-4" />}
+          confirmText={`Clone the active league into "${leagueId}"? Depending on league size this can take a minute.`}
+          pending={mut.isPending}
+          disabled={!leagueId.trim() || !displayName.trim()}
+          onConfirm={() => mut.mutate()}
+        />
+        <ResultLine
+          ok={mut.isSuccess}
+          err={mut.isError}
+          okText={mut.data ? `Cloned to ${mut.data.path}` : ""}
+          errText={(mut.error as Error | undefined)?.message}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function ConfirmButton({
+  label,
+  icon,
+  confirmText,
+  pending,
+  disabled,
+  onConfirm,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  confirmText: string;
+  pending: boolean;
+  disabled?: boolean;
+  onConfirm: () => void;
+}) {
+  return (
+    <Button
+      size="sm"
+      onClick={() => {
+        if (window.confirm(confirmText)) onConfirm();
+      }}
+      disabled={pending || disabled}
+    >
+      {pending ? (
+        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+      ) : (
+        <span className="mr-1">{icon}</span>
+      )}
+      {label}
+    </Button>
+  );
+}
+
+function ResultLine({
+  ok,
+  err,
+  okText,
+  errText,
+}: {
+  ok: boolean;
+  err: boolean;
+  okText?: string;
+  errText?: string;
+}) {
+  if (ok && okText) {
+    return (
+      <div className="mt-2 flex items-center gap-2 text-xs text-success">
+        <CheckCircle2 className="h-3 w-3" /> {okText}
+      </div>
+    );
+  }
+  if (err && errText) {
+    return (
+      <div className="mt-2 flex items-start gap-2 text-xs text-danger">
+        <AlertTriangle className="mt-0.5 h-3 w-3" />
+        <span className="whitespace-pre-line">{errText}</span>
+      </div>
+    );
+  }
+  return null;
+}
