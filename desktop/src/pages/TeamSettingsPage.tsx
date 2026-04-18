@@ -29,6 +29,7 @@ import { api, type TeamSettingsPatch } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { useActiveTeamColor } from "@/lib/team-colors";
+import { useHotkey } from "@/lib/use-hotkey";
 import { AppShell } from "@/components/layout/AppShell";
 import { ParkBrowser } from "@/components/park/ParkBrowser";
 import {
@@ -153,6 +154,22 @@ function SettingsEditor({ teamId }: { teamId: string }) {
       draft.auto_reassign !== initialAuto
     );
   }, [draft, settings.data]);
+
+  useHotkey(
+    "mod+s",
+    () => {
+      if (dirty && !save.isPending && draft) {
+        save.mutate({
+          primary_color: draft.primary_color,
+          secondary_color: draft.secondary_color,
+          stadium: draft.stadium,
+          strategy: draft.strategy,
+          auto_reassign: draft.auto_reassign,
+        });
+      }
+    },
+    { enabled: !!draft && dirty && !save.isPending },
+  );
 
   if (settings.isLoading) {
     return <LoadingCard />;

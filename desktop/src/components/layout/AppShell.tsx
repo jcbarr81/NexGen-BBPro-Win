@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { useHotkey } from "@/lib/use-hotkey";
 
 interface AppShellProps {
   title?: string;
@@ -24,6 +26,10 @@ export function AppShell({
   teamAccentColor,
   children,
 }: AppShellProps) {
+  const navigate = useNavigate();
+  // Alt+/ opens Help from anywhere signed-in. Alt-slash is untaken by
+  // Chrome/Electron and matches the "type / to search" convention elsewhere.
+  useHotkey("alt+/", () => navigate("/help"));
   return (
     <div className="relative z-10 flex h-full min-h-0">
       <Sidebar />

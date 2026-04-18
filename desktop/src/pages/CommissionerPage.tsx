@@ -12,11 +12,22 @@ import { Navigate } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowLeftRight,
+  Command,
   DollarSign,
+  GraduationCap,
   HeartPulse,
+  Inbox,
+  ListChecks,
   Loader2,
   Save,
+  Settings2,
+  Shuffle,
+  Sliders,
+  Snowflake,
+  Swords,
+  UserCog,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { api, type CommissionerSettings } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
@@ -48,6 +59,7 @@ export function CommissionerPage() {
       title="Commissioner"
       subtitle="League-wide rules and automation"
     >
+      <QuickAccessGrid />
       {settings.isLoading ? (
         <LoadingCard />
       ) : settings.isError ? (
@@ -373,5 +385,93 @@ function ErrorCard({ message }: { message: string }) {
         <span className="text-sm">{message}</span>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Card grid of the most-used admin actions. Sits at the top of the
+ * Commissioner page so admins don't have to hunt through the sidebar.
+ */
+function QuickAccessGrid() {
+  const actions = [
+    {
+      to: "/command-center",
+      label: "Command Center",
+      description: "League-wide attention cards",
+      Icon: Command,
+    },
+    {
+      to: "/finance-queue",
+      label: "Finance Queue",
+      description: "Pending GM decisions",
+      Icon: ListChecks,
+    },
+    {
+      to: "/change-requests",
+      label: "Change Requests",
+      description: "Owner-submitted bundles",
+      Icon: Inbox,
+    },
+    {
+      to: "/offseason",
+      label: "Offseason Flow",
+      description: "End-of-season checklist",
+      Icon: Snowflake,
+    },
+    {
+      to: "/reassign",
+      label: "Reassign Players",
+      description: "Bulk auto-assign rosters",
+      Icon: Shuffle,
+    },
+    {
+      to: "/finance-stability",
+      label: "Finance Stability",
+      description: "Multi-season sandbox",
+      Icon: DollarSign,
+    },
+    {
+      to: "/exhibition",
+      label: "Exhibition Game",
+      description: "One-off what-if sim",
+      Icon: Swords,
+    },
+    {
+      to: "/league-admin",
+      label: "League Admin",
+      description: "Schedule, reset, clone",
+      Icon: Settings2,
+    },
+    {
+      to: "/tuning",
+      label: "Physics Tuning",
+      description: "Engine knobs",
+      Icon: Sliders,
+    },
+    {
+      to: "/users",
+      label: "Users",
+      description: "Accounts + roles",
+      Icon: UserCog,
+    },
+  ];
+  return (
+    <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+      {actions.map(({ to, label, description, Icon }) => (
+        <Link
+          key={to}
+          to={to}
+          className="group flex items-start gap-2 rounded-md border border-border bg-surface p-3 transition hover:border-amber hover:bg-surfaceAlt"
+        >
+          <Icon className="mt-0.5 h-4 w-4 shrink-0 text-amber" aria-hidden />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold group-hover:text-amber-text">
+              {label}
+            </div>
+            <div className="truncate text-[11px] text-muted">{description}</div>
+          </div>
+        </Link>
+      ))}
+    </div>
   );
 }

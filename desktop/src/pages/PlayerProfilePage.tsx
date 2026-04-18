@@ -212,24 +212,27 @@ function RatingsCard({
         {rows.length === 0 ? (
           <div className="px-6 py-6 text-sm text-muted">No data.</div>
         ) : (
-          <ul className="divide-y divide-border/60">
+          // Definition list so screen readers read each row as
+          // "<label>: <value>". Visual layout is the same as the old <ul>.
+          <dl className="divide-y divide-border/60">
             {rows.map(([label, value], i) => (
-              <li
+              <div
                 key={`${label}-${i}`}
                 className="flex items-center justify-between px-6 py-2 text-sm"
               >
-                <span className="text-muted">{label}</span>
-                <span
+                <dt className="text-muted">{label}</dt>
+                <dd
                   className={cn(
                     "tabular-nums",
                     emphasize ? "font-display text-base text-amber-text" : "font-semibold",
                   )}
+                  aria-label={`${label}: ${value || "not set"}`}
                 >
                   {value || "—"}
-                </span>
-              </li>
+                </dd>
+              </div>
             ))}
-          </ul>
+          </dl>
         )}
       </CardContent>
     </Card>

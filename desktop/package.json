@@ -17,6 +17,9 @@
     "package": "npm run build && electron-builder"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@fontsource/inter": "^5.1.0",
     "@fontsource/space-grotesk": "^5.1.0",
     "@radix-ui/react-context-menu": "^2.2.16",

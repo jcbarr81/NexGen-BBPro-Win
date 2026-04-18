@@ -1258,6 +1258,20 @@ export const api = {
     const qs = q.toString();
     return apiRequest<ScheduleList>(`/schedule${qs ? `?${qs}` : ""}`);
   },
+  validateLineup: (
+    teamId: string,
+    vs: LineupVs,
+    lineup: LineupRow[],
+  ) =>
+    apiRequest<{ ok: boolean; errors: string[]; warnings: string[] }>(
+      `/teams/${encodeURIComponent(teamId)}/lineup/${vs}/validate`,
+      { method: "POST", body: { lineup } },
+    ),
+  validateDepthChart: (teamId: string, chart: Record<string, string[]>) =>
+    apiRequest<{ ok: boolean; errors: string[]; warnings: string[] }>(
+      `/teams/${encodeURIComponent(teamId)}/depth-chart/validate`,
+      { method: "POST", body: { chart } },
+    ),
   depthChart: (teamId: string) =>
     apiRequest<{
       team_id: string;

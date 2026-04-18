@@ -44,6 +44,7 @@ import {
   HelpCircle,
   Swords,
   Settings2,
+  Building2,
 } from "lucide-react";
 
 import { cn } from "@/lib/cn";
@@ -100,6 +101,7 @@ const SECTIONS: NavSection[] = [
       { to: "/history", label: "History", Icon: Archive },
       { to: "/hall-of-fame", label: "Hall of Fame", Icon: Medal },
       { to: "/records", label: "Records", Icon: BookOpen },
+      { to: "/parks", label: "Ballparks", Icon: Building2 },
     ],
   },
   {

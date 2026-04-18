@@ -62,6 +62,7 @@ export function TradesPage() {
   const [scope, setScope] = useState<Scope>(teamId ? "team" : "all");
   const [proposing, setProposing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [vetoTarget, setVetoTarget] = useState<string | null>(null);
   const effectiveScope: Scope = teamId ? scope : "all";
 
   const trades = useQuery({
@@ -155,12 +156,7 @@ export function TradesPage() {
       }
     },
     adminVeto: (id: string) => {
-      const note = window.prompt(
-        "Veto this trade. Optional note for the owners:",
-        "",
-      );
-      if (note === null) return;
-      adminVetoMutation.mutate({ id, note });
+      setVetoTarget(id);
     },
     pending:
       acceptMutation.isPending ||
@@ -301,7 +297,65 @@ export function TradesPage() {
         teams={teams.data ?? []}
         onProposed={refresh}
       />
+      <VetoDialog
+        tradeId={vetoTarget}
+        onOpenChange={(open) => !open && setVetoTarget(null)}
+        onConfirm={(note) => {
+          if (!vetoTarget) return;
+          adminVetoMutation.mutate({ id: vetoTarget, note });
+          setVetoTarget(null);
+        }}
+      />
     </AppShell>
+  );
+}
+
+function VetoDialog({
+  tradeId,
+  onOpenChange,
+  onConfirm,
+}: {
+  tradeId: string | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (note: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  return (
+    <Dialog open={!!tradeId} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Veto trade</DialogTitle>
+          <DialogDescription>
+            Vetoing marks the trade rejected as commissioner and notifies
+            both owners. The note appears in the trade's audit entry.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="veto-note">Note (shown to owners)</Label>
+          <textarea
+            id="veto-note"
+            className="h-28 w-full rounded-md border border-border bg-surface px-2 py-1 text-sm"
+            placeholder="e.g. Payroll impact too severe for both sides"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </div>
+        <div className="mt-3 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              onConfirm(note);
+              setNote("");
+            }}
+          >
+            Confirm veto
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

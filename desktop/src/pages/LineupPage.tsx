@@ -35,8 +35,26 @@ import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { useActiveTeamColor } from "@/lib/team-colors";
 import { useAutosaveDraft } from "@/lib/autosave";
+import { useHotkey } from "@/lib/use-hotkey";
+import { useLiveValidation } from "@/lib/use-live-validation";
 import { AppShell } from "@/components/layout/AppShell";
 import { DiamondDiagram, type DiamondPosition } from "@/components/lineup/DiamondDiagram";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical } from "lucide-react";
 import {
   Badge,
   Button,
@@ -233,6 +251,15 @@ function LineupTab({
     setDirty(true);
   }
 
+  function moveTo(from: number, to: number) {
+    if (from === to || from < 0 || to < 0) return;
+    setRows((prev) => {
+      if (from >= prev.length || to >= prev.length) return prev;
+      return arrayMove(prev, from, to).map((row, i) => ({ ...row, order: i + 1 }));
+    });
+    setDirty(true);
+  }
+
   function move(idx: number, delta: number) {
     setRows((prev) => {
       const copy = [...prev];
@@ -280,7 +307,29 @@ function LineupTab({
 
   const selectedIds = new Set(rows.map((r) => r.player_id).filter(Boolean));
   const validEntries = rows.filter((r) => r.player_id && r.position).length;
-  const canSave = validEntries === 9 && dirty && !save.isPending;
+
+  const liveValidation = useLiveValidation(
+    () => api.validateLineup(teamId, vs, rows),
+    [rows, vs, teamId],
+  );
+
+  // Save is gated by server-side validation too, but we pre-disable the
+  // button when the live probe says no-op.
+  const canSave =
+    validEntries === 9 &&
+    dirty &&
+    !save.isPending &&
+    (liveValidation.ok || liveValidation.pending);
+
+  // Ctrl+S / Cmd+S saves the lineup. Only active when something is
+  // actually saveable so the keystroke stays meaningful.
+  useHotkey(
+    "mod+s",
+    () => {
+      if (canSave) save.mutate(rows);
+    },
+    { enabled: canSave },
+  );
 
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
@@ -343,86 +392,46 @@ function LineupTab({
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
-              <th className="px-6 py-2 text-left font-semibold">#</th>
-              <th className="px-3 py-2 text-left font-semibold">Player</th>
-              <th className="px-3 py-2 text-left font-semibold">Position</th>
-              <th className="px-6 py-2 text-right font-semibold">Order</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, idx) => (
-              <tr
-                key={idx}
-                className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
-              >
-                <td className="px-6 py-2 font-mono text-xs text-muted">
-                  {idx + 1}
-                </td>
-                <td className="px-3 py-2">
-                  <PlayerSelect
-                    value={row.player_id}
-                    hitters={hitters}
-                    disabledIds={selectedIds}
-                    onChange={(player_id) => {
-                      const p = hittersById.get(player_id);
-                      update(idx, {
-                        player_id,
-                        position: row.position || p?.primary_position || "",
-                      });
-                    }}
-                  />
-                </td>
-                <td className="px-3 py-2">
-                  <select
-                    value={row.position}
-                    onChange={(e) => update(idx, { position: e.target.value })}
-                    className="h-9 w-full rounded-md border border-border bg-canvas/60 px-2 text-xs font-semibold uppercase tracking-wider text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
-                  >
-                    <option value="">—</option>
-                    {HITTER_POSITIONS.map((pos) => (
-                      <option key={pos} value={pos}>
-                        {pos}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-6 py-2 text-right">
-                  <div className="inline-flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => move(idx, -1)}
-                      disabled={idx === 0}
-                      aria-label="Move up"
-                    >
-                      <ArrowUp className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => move(idx, 1)}
-                      disabled={idx === rows.length - 1}
-                      aria-label="Move down"
-                    >
-                      <ArrowDown className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => clearSlot(idx)}
-                      aria-label="Clear slot"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {(liveValidation.errors.length > 0 || liveValidation.warnings.length > 0) && (
+          <div className="mx-4 mt-3 rounded-md border border-border bg-surface p-3 text-xs">
+            {liveValidation.errors.length > 0 && (
+              <div className="mb-1">
+                <div className="flex items-center gap-1 font-semibold text-danger">
+                  <AlertTriangle className="h-3 w-3" /> {liveValidation.errors.length} error
+                  {liveValidation.errors.length === 1 ? "" : "s"}
+                </div>
+                <ul className="mt-1 list-disc pl-5 text-danger/90">
+                  {liveValidation.errors.map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {liveValidation.warnings.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1 font-semibold text-warning">
+                  <AlertTriangle className="h-3 w-3" /> {liveValidation.warnings.length} warning
+                  {liveValidation.warnings.length === 1 ? "" : "s"}
+                </div>
+                <ul className="mt-1 list-disc pl-5 text-warning/90">
+                  {liveValidation.warnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+        <LineupTable
+          rows={rows}
+          hitters={hitters}
+          hittersById={hittersById}
+          selectedIds={selectedIds}
+          onUpdate={update}
+          onMove={move}
+          onReorder={moveTo}
+          onClear={clearSlot}
+        />
 
         {save.isError && (
           <div className="m-4 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
@@ -452,6 +461,195 @@ function LineupTab({
       </CardContent>
     </Card>
     </div>
+  );
+}
+
+/**
+ * Draggable batting-order table. Extracted from LineupTab so the
+ * DndContext lives at the smallest scope that needs it, and we don't
+ * fire onDragEnd during other renders of the page.
+ */
+function LineupTable({
+  rows,
+  hitters,
+  hittersById,
+  selectedIds,
+  onUpdate,
+  onMove,
+  onReorder,
+  onClear,
+}: {
+  rows: LineupRow[];
+  hitters: RosterPlayer[];
+  hittersById: Map<string, RosterPlayer>;
+  selectedIds: Set<string>;
+  onUpdate: (idx: number, patch: Partial<LineupRow>) => void;
+  onMove: (idx: number, delta: number) => void;
+  onReorder: (from: number, to: number) => void;
+  onClear: (idx: number) => void;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+  // dnd-kit needs stable string ids. Use `slot-<index>` — the ordering
+  // itself is the thing being dragged, so the id stays pinned to a
+  // positional slot rather than a player (which can be empty/identical).
+  const ids = rows.map((_, i) => `slot-${i}`);
+  function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const from = ids.indexOf(String(active.id));
+    const to = ids.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    onReorder(from, to);
+  }
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
+    >
+      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
+              <th className="px-2 py-2 text-left font-semibold"></th>
+              <th className="px-4 py-2 text-left font-semibold">#</th>
+              <th className="px-3 py-2 text-left font-semibold">Player</th>
+              <th className="px-3 py-2 text-left font-semibold">Position</th>
+              <th className="px-6 py-2 text-right font-semibold">Order</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, idx) => (
+              <SortableLineupRow
+                key={ids[idx]}
+                id={ids[idx]!}
+                row={row}
+                idx={idx}
+                rows={rows}
+                hitters={hitters}
+                hittersById={hittersById}
+                selectedIds={selectedIds}
+                onUpdate={onUpdate}
+                onMove={onMove}
+                onClear={onClear}
+              />
+            ))}
+          </tbody>
+        </table>
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+function SortableLineupRow({
+  id,
+  row,
+  idx,
+  rows,
+  hitters,
+  hittersById,
+  selectedIds,
+  onUpdate,
+  onMove,
+  onClear,
+}: {
+  id: string;
+  row: LineupRow;
+  idx: number;
+  rows: LineupRow[];
+  hitters: RosterPlayer[];
+  hittersById: Map<string, RosterPlayer>;
+  selectedIds: Set<string>;
+  onUpdate: (idx: number, patch: Partial<LineupRow>) => void;
+  onMove: (idx: number, delta: number) => void;
+  onClear: (idx: number) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+  };
+  return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
+    >
+      <td className="px-2 py-2">
+        <button
+          type="button"
+          className="cursor-grab touch-none rounded-sm p-1 text-muted hover:bg-surfaceAlt hover:text-ink"
+          aria-label="Drag to reorder"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-3 w-3" />
+        </button>
+      </td>
+      <td className="px-4 py-2 font-mono text-xs text-muted">{idx + 1}</td>
+      <td className="px-3 py-2">
+        <PlayerSelect
+          value={row.player_id}
+          hitters={hitters}
+          disabledIds={selectedIds}
+          onChange={(player_id) => {
+            const p = hittersById.get(player_id);
+            onUpdate(idx, {
+              player_id,
+              position: row.position || p?.primary_position || "",
+            });
+          }}
+        />
+      </td>
+      <td className="px-3 py-2">
+        <select
+          value={row.position}
+          onChange={(e) => onUpdate(idx, { position: e.target.value })}
+          className="h-9 w-full rounded-md border border-border bg-canvas/60 px-2 text-xs font-semibold uppercase tracking-wider text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+        >
+          <option value="">—</option>
+          {HITTER_POSITIONS.map((pos) => (
+            <option key={pos} value={pos}>
+              {pos}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="px-6 py-2 text-right">
+        <div className="inline-flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onMove(idx, -1)}
+            disabled={idx === 0}
+            aria-label="Move up"
+          >
+            <ArrowUp className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onMove(idx, 1)}
+            disabled={idx === rows.length - 1}
+            aria-label="Move down"
+          >
+            <ArrowDown className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onClear(idx)}
+            aria-label="Clear slot"
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -566,11 +764,19 @@ function PitchingTab({
     setDirty(true);
   }
 
-  if (staff.isLoading) return <LoadingCard />;
-  if (staff.isError) return <ErrorCard message={(staff.error as Error).message} />;
-
   const invalid = rows.some((r) => !r.player_id || !r.role);
   const canSave = !invalid && dirty && !save.isPending;
+
+  useHotkey(
+    "mod+s",
+    () => {
+      if (canSave) save.mutate(rows);
+    },
+    { enabled: canSave },
+  );
+
+  if (staff.isLoading) return <LoadingCard />;
+  if (staff.isError) return <ErrorCard message={(staff.error as Error).message} />;
 
   return (
     <Card>

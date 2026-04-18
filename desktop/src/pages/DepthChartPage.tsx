@@ -22,6 +22,8 @@ import { api, type RosterPlayer } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { useActiveTeamColor } from "@/lib/team-colors";
 import { useAutosaveDraft } from "@/lib/autosave";
+import { useHotkey } from "@/lib/use-hotkey";
+import { useLiveValidation } from "@/lib/use-live-validation";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Badge,
@@ -205,6 +207,19 @@ function DepthChartEditor({ teamId }: { teamId: string }) {
     saveMut.mutate(draft);
   }
 
+  const liveValidation = useLiveValidation(
+    () => api.validateDepthChart(teamId, draft),
+    [draft, teamId],
+  );
+
+  useHotkey(
+    "mod+s",
+    () => {
+      if (dirty && !saveMut.isPending) save();
+    },
+    { enabled: dirty && !saveMut.isPending },
+  );
+
   return (
     <div className="space-y-4">
       {autosavedDraft && !dirty && (
@@ -235,6 +250,38 @@ function DepthChartEditor({ teamId }: { teamId: string }) {
                 Restore
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+      {(liveValidation.errors.length > 0 || liveValidation.warnings.length > 0) && (
+        <Card>
+          <CardContent className="space-y-1 py-3 text-xs">
+            {liveValidation.errors.length > 0 && (
+              <>
+                <div className="flex items-center gap-1 font-semibold text-danger">
+                  <AlertTriangle className="h-3 w-3" /> {liveValidation.errors.length} error
+                  {liveValidation.errors.length === 1 ? "" : "s"}
+                </div>
+                <ul className="list-disc pl-5 text-danger/90">
+                  {liveValidation.errors.map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {liveValidation.warnings.length > 0 && (
+              <>
+                <div className="flex items-center gap-1 font-semibold text-warning">
+                  <AlertTriangle className="h-3 w-3" /> {liveValidation.warnings.length} warning
+                  {liveValidation.warnings.length === 1 ? "" : "s"}
+                </div>
+                <ul className="list-disc pl-5 text-warning/90">
+                  {liveValidation.warnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              </>
+            )}
           </CardContent>
         </Card>
       )}

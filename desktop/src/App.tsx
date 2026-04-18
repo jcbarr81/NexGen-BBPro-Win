@@ -47,6 +47,7 @@ import { ChangeRequestExportPage } from "@/pages/ChangeRequestExportPage";
 import { HelpPage } from "@/pages/HelpPage";
 import { ExhibitionPage } from "@/pages/ExhibitionPage";
 import { AdminLeaguePage } from "@/pages/AdminLeaguePage";
+import { ParksPage } from "@/pages/ParksPage";
 import { useAuthStore } from "@/lib/auth-store";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -419,6 +420,14 @@ export default function App() {
           element={
             <RequireLeague>
               <AdminLeaguePage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/parks"
+          element={
+            <RequireLeague>
+              <ParksPage />
             </RequireLeague>
           }
         />

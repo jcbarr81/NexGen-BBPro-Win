@@ -22,6 +22,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { useActiveTeamColor } from "@/lib/team-colors";
+import { useHotkey } from "@/lib/use-hotkey";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Badge,
@@ -129,6 +130,14 @@ function TrainingEditor({ teamId }: { teamId: string }) {
       setDirty(false);
     },
   });
+
+  useHotkey(
+    "mod+s",
+    () => {
+      if (dirty && !save.isPending) save.mutate({ hitters, pitchers });
+    },
+    { enabled: dirty && !save.isPending },
+  );
 
   function update(group: "hitters" | "pitchers", track: string, value: number) {
     const setter = group === "hitters" ? setHitters : setPitchers;

@@ -113,6 +113,7 @@ export function FinancePage() {
       ) : snapshot.data ? (
         <div className="space-y-6 animate-fade-in">
           <HeadlineStats snapshot={snapshot.data} />
+          <PayrollAlertCard snapshot={snapshot.data} />
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <BreakdownCard
               title="Revenue"
@@ -467,4 +468,87 @@ function sumValues(map: Record<string, number>): number {
   let total = 0;
   for (const v of Object.values(map)) total += v || 0;
   return total;
+}
+
+/**
+ * Proactive payroll alerts. Reads the snapshot and surfaces warnings
+ * when any of these hit:
+ *   - Cash on hand is negative or approaching zero (< $1M runway vs
+ *     projected net).
+ *   - Debt is high relative to projected revenue.
+ *   - Projected monthly net is negative for two categories combined.
+ *
+ * The ports payroll-policy-messaging gap from the parity audit — PyQt
+ * ran these checks during roster / free-agency moves; here we keep them
+ * front-and-center on the Finance page instead of waiting for stability
+ * sim to catch them.
+ */
+function PayrollAlertCard({ snapshot }: { snapshot: FinanceSnapshot }) {
+  const alerts: Array<{ tone: "danger" | "warning"; text: string }> = [];
+  if (snapshot.cash_on_hand < 0) {
+    alerts.push({
+      tone: "danger",
+      text: `Cash on hand is negative (${formatMoney(snapshot.cash_on_hand)}). Any new commitment risks breaking the ledger.`,
+    });
+  } else if (
+    snapshot.projected_net < 0 &&
+    snapshot.cash_on_hand + snapshot.projected_net * 3 < 0
+  ) {
+    alerts.push({
+      tone: "warning",
+      text: `At the current monthly burn (${formatMoney(snapshot.projected_net)}), cash runs out in under 3 months. Cut expenses or renegotiate contracts.`,
+    });
+  }
+  if (snapshot.debt > 0) {
+    const revenue = sumValues(snapshot.projected_revenue);
+    if (revenue > 0 && snapshot.debt > revenue * 12) {
+      alerts.push({
+        tone: "warning",
+        text: `Debt (${formatMoney(snapshot.debt)}) exceeds a year of projected revenue. Consider debt service before new signings.`,
+      });
+    }
+  }
+  if (snapshot.projected_net < 0) {
+    alerts.push({
+      tone: "warning",
+      text: `Projected monthly net is negative (${formatMoney(snapshot.projected_net)}). Review budgets below.`,
+    });
+  }
+  if (!snapshot.financials_enabled) {
+    alerts.push({
+      tone: "warning",
+      text: "Financial simulation is disabled for this league. Budgets and cash numbers won't drift with play.",
+    });
+  }
+  if (alerts.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <AlertTriangle className="h-4 w-4 text-warning" /> Payroll alerts
+        </CardTitle>
+        <CardDescription>
+          Proactive warnings surfaced from the current snapshot. Act before
+          these become blockers in Finance Stability.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        {alerts.map((a, i) => (
+          <div
+            key={i}
+            className={cn(
+              "flex items-start gap-2 rounded-md border p-2",
+              a.tone === "danger"
+                ? "border-danger/40 bg-danger/10 text-danger"
+                : "border-warning/40 bg-warning/10 text-warning",
+            )}
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{a.text}</span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
 }
