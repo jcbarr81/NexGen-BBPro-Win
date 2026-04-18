@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "leagues": {
+    "cbl": {
+      "settings": {
+        "base_monthly_credits": 120.0,
+        "finance_off_multiplier": 0.9,
+        "monthly_decay": 0.003,
+        "passive_gain": 0.003,
+        "confidence_floor": 0.05,
+        "confidence_ceiling": 0.98,
+        "max_banked_credits": 500.0,
+        "auto_spend_cap": 80.0
+      },
+      "teams": {
+        "HOU": {
+          "credits": 0.0,
+          "intensity": "normal",
+          "confidence": 0.35,
+          "last_period": "2026-04"
+        },
+        "BOS": {
+          "credits": 0.0,
+          "intensity": "normal",
+          "confidence": 0.35,
+          "last_period": "2026-04"
+        },
+        "DAL": {
+          "credits": 0.0,
+          "intensity": "normal",
+          "confidence": 0.35,
+          "last_period": "2026-04"
+        },
+        "SEA": {
+          "credits": 0.0,
+          "intensity": "normal",
+          "confidence": 0.35,
+          "last_period": "2026-04"
+        },
+        "CHI": {
+          "credits": 0.0,
+          "intensity": "normal",
+          "confidence": 0.35,
+          "last_period": "2026-04"
+        },
+        "LOU": {
+          "credits": 0.0,
+          "intensity": "normal",
+          "confidence": 0.35,
+          "last_period": "2026-04"
+        },
+        "SAN": {
+          "credits": 0.0,
+          "intensity": "normal",
+          "confidence": 0.35,
+          "last_period": "2026-04"
+        },
+        "SAN1": {
+          "credits": 0.0,
+          "intensity": "normal",
+          "confidence": 0.35,
+          "last_period": "2026-04"
+        },
+        "FOR": {
+          "credits": 0.0,
+          "intensity": "normal",
+          "confidence": 0.35,
+          "last_period": "2026-04"
+        },
+        "PHI": {
+          "credits": 0.0,
+          "intensity": "normal",
+          "confidence": 0.35,
+          "last_period": "2026-04"
+        },
+        "POR": {
+          "credits": 0.0,
+          "intensity": "normal",
+          "confidence": 0.35,
+          "last_period": "2026-04"
+        },
+        "MEM": {
+          "credits": 0.0,
+          "intensity": "normal",
+          "confidence": 0.35,
+          "last_period": "2026-04"
+        }
+      }
+    }
+  }
+}

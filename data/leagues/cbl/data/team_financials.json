@@ -1,0 +1,282 @@
+{
+  "version": 1,
+  "season_year": 2026,
+  "teams": {
+    "HOU": {
+      "cash_on_hand": 0,
+      "debt": 0,
+      "revenue": {
+        "tickets": 0,
+        "concessions": 0,
+        "media": 0,
+        "sponsorship": 0
+      },
+      "expenses": {
+        "payroll": 0,
+        "training": 0,
+        "scouting": 0,
+        "facilities": 0,
+        "operations": 0
+      },
+      "budgets": {
+        "training": 0,
+        "scouting": 0,
+        "development": 0,
+        "facilities": 0
+      }
+    },
+    "BOS": {
+      "cash_on_hand": 0,
+      "debt": 0,
+      "revenue": {
+        "tickets": 0,
+        "concessions": 0,
+        "media": 0,
+        "sponsorship": 0
+      },
+      "expenses": {
+        "payroll": 0,
+        "training": 0,
+        "scouting": 0,
+        "facilities": 0,
+        "operations": 0
+      },
+      "budgets": {
+        "training": 0,
+        "scouting": 0,
+        "development": 0,
+        "facilities": 0
+      }
+    },
+    "DAL": {
+      "cash_on_hand": 0,
+      "debt": 0,
+      "revenue": {
+        "tickets": 0,
+        "concessions": 0,
+        "media": 0,
+        "sponsorship": 0
+      },
+      "expenses": {
+        "payroll": 0,
+        "training": 0,
+        "scouting": 0,
+        "facilities": 0,
+        "operations": 0
+      },
+      "budgets": {
+        "training": 0,
+        "scouting": 0,
+        "development": 0,
+        "facilities": 0
+      }
+    },
+    "SEA": {
+      "cash_on_hand": 0,
+      "debt": 0,
+      "revenue": {
+        "tickets": 0,
+        "concessions": 0,
+        "media": 0,
+        "sponsorship": 0
+      },
+      "expenses": {
+        "payroll": 0,
+        "training": 0,
+        "scouting": 0,
+        "facilities": 0,
+        "operations": 0
+      },
+      "budgets": {
+        "training": 0,
+        "scouting": 0,
+        "development": 0,
+        "facilities": 0
+      }
+    },
+    "CHI": {
+      "cash_on_hand": 0,
+      "debt": 0,
+      "revenue": {
+        "tickets": 0,
+        "concessions": 0,
+        "media": 0,
+        "sponsorship": 0
+      },
+      "expenses": {
+        "payroll": 0,
+        "training": 0,
+        "scouting": 0,
+        "facilities": 0,
+        "operations": 0
+      },
+      "budgets": {
+        "training": 0,
+        "scouting": 0,
+        "development": 0,
+        "facilities": 0
+      }
+    },
+    "LOU": {
+      "cash_on_hand": 0,
+      "debt": 0,
+      "revenue": {
+        "tickets": 0,
+        "concessions": 0,
+        "media": 0,
+        "sponsorship": 0
+      },
+      "expenses": {
+        "payroll": 0,
+        "training": 0,
+        "scouting": 0,
+        "facilities": 0,
+        "operations": 0
+      },
+      "budgets": {
+        "training": 0,
+        "scouting": 0,
+        "development": 0,
+        "facilities": 0
+      }
+    },
+    "SAN": {
+      "cash_on_hand": 0,
+      "debt": 0,
+      "revenue": {
+        "tickets": 0,
+        "concessions": 0,
+        "media": 0,
+        "sponsorship": 0
+      },
+      "expenses": {
+        "payroll": 0,
+        "training": 0,
+        "scouting": 0,
+        "facilities": 0,
+        "operations": 0
+      },
+      "budgets": {
+        "training": 0,
+        "scouting": 0,
+        "development": 0,
+        "facilities": 0
+      }
+    },
+    "SAN1": {
+      "cash_on_hand": 0,
+      "debt": 0,
+      "revenue": {
+        "tickets": 0,
+        "concessions": 0,
+        "media": 0,
+        "sponsorship": 0
+      },
+      "expenses": {
+        "payroll": 0,
+        "training": 0,
+        "scouting": 0,
+        "facilities": 0,
+        "operations": 0
+      },
+      "budgets": {
+        "training": 0,
+        "scouting": 0,
+        "development": 0,
+        "facilities": 0
+      }
+    },
+    "FOR": {
+      "cash_on_hand": 0,
+      "debt": 0,
+      "revenue": {
+        "tickets": 0,
+        "concessions": 0,
+        "media": 0,
+        "sponsorship": 0
+      },
+      "expenses": {
+        "payroll": 0,
+        "training": 0,
+        "scouting": 0,
+        "facilities": 0,
+        "operations": 0
+      },
+      "budgets": {
+        "training": 0,
+        "scouting": 0,
+        "development": 0,
+        "facilities": 0
+      }
+    },
+    "PHI": {
+      "cash_on_hand": 0,
+      "debt": 0,
+      "revenue": {
+        "tickets": 0,
+        "concessions": 0,
+        "media": 0,
+        "sponsorship": 0
+      },
+      "expenses": {
+        "payroll": 0,
+        "training": 0,
+        "scouting": 0,
+        "facilities": 0,
+        "operations": 0
+      },
+      "budgets": {
+        "training": 0,
+        "scouting": 0,
+        "development": 0,
+        "facilities": 0
+      }
+    },
+    "POR": {
+      "cash_on_hand": 0,
+      "debt": 0,
+      "revenue": {
+        "tickets": 0,
+        "concessions": 0,
+        "media": 0,
+        "sponsorship": 0
+      },
+      "expenses": {
+        "payroll": 0,
+        "training": 0,
+        "scouting": 0,
+        "facilities": 0,
+        "operations": 0
+      },
+      "budgets": {
+        "training": 0,
+        "scouting": 0,
+        "development": 0,
+        "facilities": 0
+      }
+    },
+    "MEM": {
+      "cash_on_hand": 0,
+      "debt": 0,
+      "revenue": {
+        "tickets": 0,
+        "concessions": 0,
+        "media": 0,
+        "sponsorship": 0
+      },
+      "expenses": {
+        "payroll": 0,
+        "training": 0,
+        "scouting": 0,
+        "facilities": 0,
+        "operations": 0
+      },
+      "budgets": {
+        "training": 0,
+        "scouting": 0,
+        "development": 0,
+        "facilities": 0
+      }
+    }
+  }
+}

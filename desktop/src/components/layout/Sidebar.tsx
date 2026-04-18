@@ -48,6 +48,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/cn";
+import { useLeagueCapabilities, type LeagueCapabilities } from "@/lib/league-capabilities";
 import { Brand } from "./Brand";
 
 interface NavItem {
@@ -55,6 +56,11 @@ interface NavItem {
   label: string;
   Icon: ComponentType<SVGProps<SVGSVGElement>>;
   adminOnly?: boolean;
+  /** Optional predicate — if present and returns false, the item is
+   *  hidden from the sidebar. Used to suppress entries that don't apply
+   *  to the current league's mode or settings (e.g. Submit Request in a
+   *  single-player league, Finance when financials are disabled). */
+  showIf?: (caps: LeagueCapabilities) => boolean;
 }
 
 interface NavSection {
@@ -84,7 +90,12 @@ const SECTIONS: NavSection[] = [
       { to: "/depth-chart", label: "Depth Chart", Icon: Layers },
       { to: "/training", label: "Training", Icon: Target },
       { to: "/injuries", label: "Injuries", Icon: HeartPulse },
-      { to: "/finance", label: "Finance", Icon: DollarSign },
+      {
+        to: "/finance",
+        label: "Finance",
+        Icon: DollarSign,
+        showIf: (c) => c.financeEnabled,
+      },
       { to: "/settings", label: "Settings", Icon: Settings },
     ],
   },
@@ -110,7 +121,12 @@ const SECTIONS: NavSection[] = [
       { to: "/free-agency", label: "Free Agency", Icon: Briefcase },
       { to: "/trades", label: "Trades", Icon: ArrowLeftRight },
       { to: "/draft", label: "Draft", Icon: GraduationCap },
-      { to: "/submit-change-request", label: "Submit Request", Icon: Send },
+      {
+        to: "/submit-change-request",
+        label: "Submit Request",
+        Icon: Send,
+        showIf: (c) => c.multiOwner,
+      },
       { to: "/transactions", label: "Activity", Icon: Activity },
     ],
   },
@@ -119,12 +135,34 @@ const SECTIONS: NavSection[] = [
     items: [
       { to: "/commissioner", label: "Commissioner", Icon: Gavel, adminOnly: true },
       { to: "/command-center", label: "Command Center", Icon: Command, adminOnly: true },
-      { to: "/finance-queue", label: "Finance Queue", Icon: ListChecks, adminOnly: true },
-      { to: "/change-requests", label: "Change Requests", Icon: Inbox, adminOnly: true },
+      {
+        to: "/finance-queue",
+        label: "Finance Queue",
+        Icon: ListChecks,
+        adminOnly: true,
+        // Finance queue only has pending decisions when (a) financials
+        // are on and (b) commissioner approval is in play — both imply
+        // multi-owner. In single-player we auto-approve so there's
+        // nothing to review here.
+        showIf: (c) => c.financeEnabled && c.multiOwner,
+      },
+      {
+        to: "/change-requests",
+        label: "Change Requests",
+        Icon: Inbox,
+        adminOnly: true,
+        showIf: (c) => c.multiOwner,
+      },
       { to: "/exhibition", label: "Exhibition Game", Icon: Swords, adminOnly: true },
       { to: "/offseason", label: "Offseason Flow", Icon: Snowflake, adminOnly: true },
       { to: "/reassign", label: "Reassign Players", Icon: Shuffle, adminOnly: true },
-      { to: "/finance-stability", label: "Finance Stability", Icon: LineChart, adminOnly: true },
+      {
+        to: "/finance-stability",
+        label: "Finance Stability",
+        Icon: LineChart,
+        adminOnly: true,
+        showIf: (c) => c.financeEnabled,
+      },
       { to: "/league-admin", label: "League Admin", Icon: Settings2, adminOnly: true },
       { to: "/tuning", label: "Physics Tuning", Icon: Sliders, adminOnly: true },
       { to: "/leagues/new", label: "New League", Icon: PlusSquare, adminOnly: true },
@@ -160,15 +198,25 @@ export function Sidebar() {
   const role = useAuthStore((s) => s.role);
   const location = useLocation();
   const isAdmin = role === "admin";
+  const capabilities = useLeagueCapabilities();
 
-  // Filter admin-only items, then drop sections that end up empty.
+  // Filter admin-only items, then apply per-item capability predicates,
+  // then drop sections that end up empty. `capabilities` is a stable
+  // object reference per render — destructure for useMemo deps.
+  const { mode, multiOwner, financeEnabled } = capabilities;
   const visibleSections: NavSection[] = useMemo(
     () =>
       SECTIONS.map((section) => ({
         ...section,
-        items: section.items.filter((n) => !n.adminOnly || isAdmin),
+        items: section.items.filter((n) => {
+          if (n.adminOnly && !isAdmin) return false;
+          if (n.showIf && !n.showIf({ mode, multiOwner, financeEnabled, loading: false })) {
+            return false;
+          }
+          return true;
+        }),
       })).filter((section) => section.items.length > 0),
-    [isAdmin],
+    [isAdmin, mode, multiOwner, financeEnabled],
   );
 
   const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed());

@@ -10,7 +10,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { ArrowRight, CheckCircle2, Loader2, Trophy } from "lucide-react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Loader2,
+  PlusCircle,
+  Trophy,
+} from "lucide-react";
 
 import { api, type League } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
@@ -30,6 +36,8 @@ export function LeagueSelectPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const setActiveLeague = useAuthStore((s) => s.setActiveLeague);
+  const role = useAuthStore((s) => s.role);
+  const isAdmin = role === "admin";
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const leagues = useQuery({
@@ -87,8 +95,9 @@ export function LeagueSelectPage() {
             <div>
               <CardTitle>Choose a league</CardTitle>
               <CardDescription>
-                Select the league to load. You can switch leagues at any time
-                from the sidebar.
+                {isAdmin
+                  ? "Pick an existing league or create a new one. You can switch leagues at any time from the sidebar."
+                  : "Select the league to load. You can switch leagues at any time from the sidebar."}
               </CardDescription>
             </div>
           </CardHeader>
@@ -103,8 +112,10 @@ export function LeagueSelectPage() {
               </div>
             ) : !leagues.data || leagues.data.length === 0 ? (
               <div className="px-6 py-8 text-sm text-muted">
-                No leagues registered. Create one from the legacy app to get
-                started.
+                No leagues registered yet.
+                {isAdmin
+                  ? " Use the Create button below to set one up."
+                  : " Ask an admin to create one."}
               </div>
             ) : (
               <ul className="divide-y divide-border/60">
@@ -120,7 +131,7 @@ export function LeagueSelectPage() {
               </ul>
             )}
           </CardContent>
-          <div className="flex items-center justify-between border-t border-border/60 bg-surfaceAlt/40 px-6 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 bg-surfaceAlt/40 px-6 py-3">
             <div className="text-xs text-muted">
               {active.data?.league_id ? (
                 <>Active: <span className="font-semibold text-ink">{active.data.league_id}</span></>
@@ -128,14 +139,25 @@ export function LeagueSelectPage() {
                 "No league currently active"
               )}
             </div>
-            <Button
-              onClick={handleContinue}
-              disabled={!selectedId || activate.isPending}
-            >
-              {activate.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Continue
-              <ArrowRight className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              {isAdmin && (
+                <Button
+                  variant="outline"
+                  onClick={() => navigate("/leagues/new")}
+                >
+                  <PlusCircle className="h-4 w-4" />
+                  Create new league
+                </Button>
+              )}
+              <Button
+                onClick={handleContinue}
+                disabled={!selectedId || activate.isPending}
+              >
+                {activate.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Continue
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </Card>
 

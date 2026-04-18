@@ -139,6 +139,19 @@ function DepthChartEditor({ teamId }: { teamId: string }) {
     return m;
   }, [activePlayers]);
 
+  // All hooks MUST run unconditionally before any early return below.
+  const liveValidation = useLiveValidation(
+    () => api.validateDepthChart(teamId, draft),
+    [draft, teamId],
+  );
+  useHotkey(
+    "mod+s",
+    () => {
+      if (dirty && !saveMut.isPending) saveMut.mutate(draft);
+    },
+    { enabled: dirty && !saveMut.isPending },
+  );
+
   if (chartQuery.isLoading || rosterQuery.isLoading) {
     return (
       <Card>
@@ -206,19 +219,6 @@ function DepthChartEditor({ teamId }: { teamId: string }) {
   function save() {
     saveMut.mutate(draft);
   }
-
-  const liveValidation = useLiveValidation(
-    () => api.validateDepthChart(teamId, draft),
-    [draft, teamId],
-  );
-
-  useHotkey(
-    "mod+s",
-    () => {
-      if (dirty && !saveMut.isPending) save();
-    },
-    { enabled: dirty && !saveMut.isPending },
-  );
 
   return (
     <div className="space-y-4">

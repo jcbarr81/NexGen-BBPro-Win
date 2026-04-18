@@ -1,0 +1,13 @@
+team_id,name,city,abbreviation,division,stadium,primary_color,secondary_color,owner_id
+HOU,Raiders,Houston,HOU,North,Raiders Stadium,#F26060,#60F2F2,
+BOS,Spartans,Boston,BOS,North,Spartans Stadium,#608BF2,#F2C760,
+DAL,Falcons,Dallas,DAL,North,Falcons Stadium,#B5F260,#9D60F2,
+SEA,Thunder,Seattle,SEA,North,Thunder Stadium,#F260E0,#60F273,
+CHI,Jets,Chicago,CHI,South,Jets Stadium,#60F2D9,#F26079,
+LOU,Mariners,Louisville,LOU,South,Mariners Stadium,#F2AF60,#60A3F2,
+SAN,Hawks,San Diego,SAN,South,Hawks Stadium,#8560F2,#CEF260,
+SAN1,Warriors,San Antonio,SAN1,South,Warriors Stadium,#67F260,#EC60F2,
+FOR,Sharks,Fort Worth,FOR,West,Sharks Stadium,#F26091,#60F2C1,
+PHI,Dolphins,Philadelphia,PHI,West,Dolphins Stadium,#60BBF2,#F29760,
+POR,Wolves,Portland,POR,West,Wolves Stadium,#E6F260,#6C60F2,
+MEM,Dragons,Memphis,MEM,West,Dragons Stadium,#D360F2,#7FF260,

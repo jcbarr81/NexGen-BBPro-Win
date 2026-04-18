@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "leagues": {
+    "league": {
+      "trades_enabled": true,
+      "draft_pick_trading_enabled": true,
+      "require_commissioner_approval": false,
+      "cpu_initiated_trades_enabled": true,
+      "cpu_proposal_cadence": "normal",
+      "max_pick_trade_years": 3
+    }
+  }
+}

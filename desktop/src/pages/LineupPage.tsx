@@ -298,20 +298,17 @@ function LineupTab({
     return out;
   }, [rows, hittersById]);
 
-  if (lineup.isLoading) {
-    return <LoadingCard />;
-  }
-  if (lineup.isError) {
-    return <ErrorCard message={(lineup.error as Error).message} />;
-  }
-
-  const selectedIds = new Set(rows.map((r) => r.player_id).filter(Boolean));
-  const validEntries = rows.filter((r) => r.player_id && r.position).length;
-
+  // All hooks MUST sit before any early returns so hook counts stay stable
+  // between loading and loaded renders. Don't move these below the
+  // isLoading/isError guards — React will throw "Rendered more hooks than
+  // during the previous render".
   const liveValidation = useLiveValidation(
     () => api.validateLineup(teamId, vs, rows),
     [rows, vs, teamId],
   );
+
+  const selectedIds = new Set(rows.map((r) => r.player_id).filter(Boolean));
+  const validEntries = rows.filter((r) => r.player_id && r.position).length;
 
   // Save is gated by server-side validation too, but we pre-disable the
   // button when the live probe says no-op.
@@ -330,6 +327,14 @@ function LineupTab({
     },
     { enabled: canSave },
   );
+
+  // Early returns live here, AFTER every hook, so hook counts stay stable.
+  if (lineup.isLoading) {
+    return <LoadingCard />;
+  }
+  if (lineup.isError) {
+    return <ErrorCard message={(lineup.error as Error).message} />;
+  }
 
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
