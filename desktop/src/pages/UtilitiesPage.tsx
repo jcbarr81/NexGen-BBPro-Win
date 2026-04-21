@@ -83,8 +83,15 @@ export function UtilitiesPage() {
       recordResult("logos", false, e instanceof Error ? e.message : String(e)),
   });
   const avatars = useMutation({
-    mutationFn: () => api.generateAvatars(),
-    onSuccess: () => recordResult("avatars", true, "Avatars generated."),
+    mutationFn: (initial: boolean) => api.generateAvatars(initial),
+    onSuccess: (_res, initial) =>
+      recordResult(
+        "avatars",
+        true,
+        initial
+          ? "Initial creation complete — all avatars regenerated."
+          : "Avatars generated for players missing one.",
+      ),
     onError: (e) =>
       recordResult("avatars", false, e instanceof Error ? e.message : String(e)),
   });
@@ -197,12 +204,29 @@ export function UtilitiesPage() {
             />
             <ActionTile
               icon={<UserSquare2 className="h-5 w-5" />}
-              title="Generate Player Avatars"
-              description="Batch-generate avatar images for the active roster."
+              title="Fill missing avatars"
+              description="Only generate for players who don't have an avatar yet. Fast; safe to rerun."
               pending={avatars.isPending}
               result={results["avatars"]}
               disabled={!isAdmin}
-              onRun={() => avatars.mutate()}
+              onRun={() => avatars.mutate(false)}
+            />
+            <ActionTile
+              icon={<UserSquare2 className="h-5 w-5" />}
+              title="Regenerate all avatars"
+              description="Wipes every player avatar first, then regenerates from scratch. Slow."
+              pending={avatars.isPending}
+              result={results["avatars"]}
+              disabled={!isAdmin}
+              onRun={() => {
+                if (
+                  window.confirm(
+                    "This deletes every player avatar in the output folder (Template + default.png kept) and regenerates them from scratch. Continue?",
+                  )
+                ) {
+                  avatars.mutate(true);
+                }
+              }}
             />
           </CardContent>
         </Card>
@@ -312,13 +336,22 @@ function ActionTile({
             }
           >
             {result.ok ? (
-              <CheckCircle2 className="mt-0.5 h-3 w-3" />
+              <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />
             ) : (
-              <AlertTriangle className="mt-0.5 h-3 w-3" />
+              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
             )}
-            <span className="truncate" title={result.message}>
-              {result.message}
-            </span>
+            {result.ok ? (
+              <span className="truncate" title={result.message}>
+                {result.message}
+              </span>
+            ) : (
+              // Errors can be multi-line tracebacks; render them full
+              // width with a max height so long stacks are scrollable
+              // rather than truncated to a single line.
+              <pre className="max-h-40 flex-1 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-tight">
+                {result.message}
+              </pre>
+            )}
           </div>
         )}
       </div>

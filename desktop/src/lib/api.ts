@@ -871,9 +871,10 @@ export const api = {
       ok: boolean;
       message: string | null;
     }>("/ai/api-key", { method: "POST", body: { api_key } }),
-  generateAvatars: () =>
+  generateAvatars: (initial_creation: boolean = false) =>
     apiRequest<Record<string, unknown>>("/exports/avatars", {
       method: "POST",
+      body: { initial_creation },
     }),
   changeRequests: (statusFilter?: string) =>
     apiRequest<{

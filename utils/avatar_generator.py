@@ -83,7 +83,14 @@ def _select_template(ethnicity: str, facial_hair: str | None) -> Path:
         ``"clean.png"``. ``"clean_shaven"`` also maps to ``"clean.png"``.
     """
 
-    base = Path("images/avatars/Template")
+    # Template images live inside the install tree (bundled by PyInstaller
+    # in packaged builds, or in the repo during dev). Resolve via
+    # get_base_dir() so the relative CWD doesn't matter.
+    try:
+        from utils.path_utils import get_base_dir as _get_base_dir
+    except ModuleNotFoundError:  # direct-script invocation
+        from path_utils import get_base_dir as _get_base_dir
+    base = _get_base_dir() / "images" / "avatars" / "Template"
     key = ethnicity.strip().lower().replace("-", " ")
     ethnic_dir = base / _ETHNICITY_DIR.get(key, "Anglo")
 

@@ -146,17 +146,43 @@ async def generate_logos(
 
 
 @router.post("/avatars")
-async def generate_avatars(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
+async def generate_avatars(
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    _: Dict[str, Any] = AdminIdentity,
+) -> Dict[str, Any]:
+    """Generate player avatars.
+
+    ``initial_creation`` (default False): when True, wipes every existing
+    avatar in the output dir (except the Template/ tree + default.png)
+    before regenerating. When False, only players without an avatar get
+    one generated — matches the PyQt "yes = wipe-and-regen, no = fill-
+    in-only" prompt semantics.
+    """
+
+    initial = bool(payload.get("initial_creation", False))
     try:
         from utils.avatar_generator import generate_player_avatars
     except Exception as exc:
+        import traceback
+
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Avatar engine unavailable: {exc}\n{traceback.format_exc()}",
         ) from exc
     try:
-        result = await asyncio.to_thread(generate_player_avatars)
+        result = await asyncio.to_thread(
+            generate_player_avatars, initial_creation=initial
+        )
     except Exception as exc:
+        import logging
+        import traceback
+
+        logging.exception("Avatar generation failed")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            # Surface the actual traceback in detail so the UI can show
+            # the real cause (missing file, cv2 assertion, etc.) rather
+            # than a useless generic 500.
+            detail=f"{exc}\n\n{traceback.format_exc()}",
         ) from exc
     return _coerce(result or {"status": "completed"})
