@@ -11,8 +11,8 @@
  * shows an empty state rather than failing.
  */
 
-import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowRight,
@@ -381,6 +381,132 @@ function AdminDraftPanel({ currentYear }: { currentYear: number | null }) {
   );
   const [seed, setSeed] = useState<string>("");
   const [manualPlayerId, setManualPlayerId] = useState("");
+
+  return (
+    <div className="space-y-4">
+      <DraftSettingsCard />
+      <AdminDraftPanelInner
+        year={year}
+        setYear={setYear}
+        seed={seed}
+        setSeed={setSeed}
+        manualPlayerId={manualPlayerId}
+        setManualPlayerId={setManualPlayerId}
+        currentYear={currentYear}
+      />
+    </div>
+  );
+}
+
+function DraftSettingsCard() {
+  const queryClient = useQueryClient();
+  const settings = useQuery({
+    queryKey: ["draft-settings"],
+    queryFn: () => api.draftSettings(),
+  });
+  const [rounds, setRounds] = useState<string>("");
+  const [pool, setPool] = useState<string>("");
+
+  useEffect(() => {
+    if (settings.data) {
+      setRounds(String(settings.data.rounds));
+      setPool(String(settings.data.pool_size));
+    }
+  }, [settings.data]);
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.saveDraftSettings(
+        Number(rounds) || 10,
+        Number(pool) || 200,
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["draft-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["draft-state"] });
+    },
+  });
+
+  const limits = settings.data?.limits;
+  const dirty =
+    settings.data &&
+    (Number(rounds) !== settings.data.rounds ||
+      Number(pool) !== settings.data.pool_size);
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Draft configuration</CardTitle>
+        <CardDescription>
+          How many rounds the amateur draft runs and how many prospects to
+          generate for the pool. Saved per league, re-usable every season.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-[auto_auto_1fr]">
+        <div>
+          <Label htmlFor="draft-rounds">Rounds</Label>
+          <Input
+            id="draft-rounds"
+            type="number"
+            min={limits?.rounds.min ?? 1}
+            max={limits?.rounds.max ?? 50}
+            value={rounds}
+            onChange={(e) => setRounds(e.target.value)}
+            className="w-28"
+          />
+        </div>
+        <div>
+          <Label htmlFor="draft-pool">Pool size</Label>
+          <Input
+            id="draft-pool"
+            type="number"
+            min={limits?.pool_size.min ?? 20}
+            max={limits?.pool_size.max ?? 2000}
+            step={10}
+            value={pool}
+            onChange={(e) => setPool(e.target.value)}
+            className="w-32"
+          />
+        </div>
+        <div className="flex items-end gap-2">
+          <Button
+            size="sm"
+            onClick={() => save.mutate()}
+            disabled={!dirty || save.isPending}
+          >
+            {save.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+            Save
+          </Button>
+          {save.isSuccess && (
+            <span className="text-xs text-success">Saved.</span>
+          )}
+          {save.isError && (
+            <span className="text-xs text-danger">
+              {(save.error as Error).message}
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AdminDraftPanelInner({
+  year,
+  setYear,
+  seed,
+  setSeed,
+  manualPlayerId,
+  setManualPlayerId,
+  currentYear,
+}: {
+  year: string;
+  setYear: (v: string) => void;
+  seed: string;
+  setSeed: (v: string) => void;
+  manualPlayerId: string;
+  setManualPlayerId: (v: string) => void;
+  currentYear: number | null;
+}) {
 
   const toYear = () => {
     const n = Number(year);

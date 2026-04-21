@@ -15,8 +15,12 @@ import sys
 
 import uvicorn
 
-from .app import create_app
-from .security import issue_launch_token
+# Use absolute imports so this module works in all three launch modes:
+# (a) ``python -m api`` via the normal package path,
+# (b) PyInstaller's frozen bundle where __main__ has no parent package,
+# (c) direct ``python api/__main__.py`` invocation (rare, but handy).
+from api.app import create_app
+from api.security import issue_launch_token
 
 
 def _pick_port(requested: int) -> int:

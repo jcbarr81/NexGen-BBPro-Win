@@ -59,10 +59,13 @@ def _load_results(year: int) -> List[Dict[str, Any]]:
 def draft_state_view(
     year: Optional[int] = Query(default=None, description="Defaults to current league year"),
 ) -> Dict[str, Any]:
+    from services.draft_settings import load_draft_settings
+
     y = _resolve_year(year)
     state = draft_state.load_state(y) or {}
     order = list(state.get("order") or [])
     selected = list(state.get("selected") or [])
+    settings = load_draft_settings()
     return {
         "year": y,
         "round": int(state.get("round", 1) or 1),
@@ -71,6 +74,8 @@ def draft_state_view(
         "order": order,
         "selected": selected,
         "exists": bool(state),
+        "configured_rounds": settings.rounds,
+        "configured_pool_size": settings.pool_size,
     }
 
 
@@ -101,6 +106,53 @@ def _require_admin(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[s
 
 
 AdminDep = Depends(_require_admin)
+
+
+@router.get("/settings")
+def draft_settings_view() -> Dict[str, Any]:
+    """Current draft config (rounds + pool size). Readable to any signed-in
+    user so the league-create wizard can pre-populate defaults."""
+
+    from services.draft_settings import (
+        DEFAULT_POOL_SIZE,
+        DEFAULT_ROUNDS,
+        MAX_POOL_SIZE,
+        MAX_ROUNDS,
+        MIN_POOL_SIZE,
+        MIN_ROUNDS,
+        load_draft_settings,
+    )
+
+    settings = load_draft_settings()
+    return {
+        "rounds": settings.rounds,
+        "pool_size": settings.pool_size,
+        "limits": {
+            "rounds": {"min": MIN_ROUNDS, "max": MAX_ROUNDS, "default": DEFAULT_ROUNDS},
+            "pool_size": {
+                "min": MIN_POOL_SIZE,
+                "max": MAX_POOL_SIZE,
+                "default": DEFAULT_POOL_SIZE,
+            },
+        },
+    }
+
+
+@router.put("/settings")
+def draft_settings_save(
+    payload: Dict[str, Any] = Body(...),
+    _: Dict[str, Any] = AdminDep,
+) -> Dict[str, Any]:
+    """Admin save of draft config."""
+
+    from services.draft_settings import DraftSettings, save_draft_settings
+
+    incoming = DraftSettings(
+        rounds=int(payload.get("rounds", 0) or 0),
+        pool_size=int(payload.get("pool_size", 0) or 0),
+    )
+    saved = save_draft_settings(incoming)
+    return {"rounds": saved.rounds, "pool_size": saved.pool_size}
 
 
 @router.post("/admin/initialize")
@@ -149,13 +201,32 @@ def admin_generate_pool(
     payload: Dict[str, Any] = Body(default_factory=dict),
     _: Dict[str, Any] = AdminDep,
 ) -> Dict[str, Any]:
-    """Generate a fresh amateur draft pool."""
+    """Generate a fresh amateur draft pool of the configured size.
+
+    Caller can pass ``pool_size`` to override the saved settings (one-off);
+    otherwise we use the per-league default.
+    """
+
+    from services.draft_settings import load_draft_settings
 
     year = int(payload.get("year") or _resolve_year(None))
+    settings = load_draft_settings()
+    requested_size = payload.get("pool_size")
+    try:
+        size = int(requested_size) if requested_size is not None else settings.pool_size
+    except (TypeError, ValueError):
+        size = settings.pool_size
+
     try:
         from playbalance.draft_pool import generate_draft_pool
 
-        pool = generate_draft_pool(year=year)
+        # The underlying generator signature varies — most versions accept
+        # ``year`` and ``count``/``size``. Call the simplest positional form
+        # first, fall back to the year-only one if the signature's narrower.
+        try:
+            pool = generate_draft_pool(year=year, count=size)
+        except TypeError:
+            pool = generate_draft_pool(year=year)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -163,6 +234,7 @@ def admin_generate_pool(
         ) from exc
     return {
         "year": year,
+        "requested_size": size,
         "pool_size": len(pool) if hasattr(pool, "__len__") else 0,
     }
 

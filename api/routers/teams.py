@@ -59,9 +59,13 @@ def get_team(team_id: str) -> TeamOut:
 
 @router.get("/{team_id}/logo")
 def get_team_logo(team_id: str) -> Response:
-    """Serve a team's generated logo PNG from ``<base>/logo/teams``.
+    """Serve a team's generated logo PNG.
 
-    Returns 204 when no logo has been generated yet so the client can cleanly
+    Checks the user data dir first (where regenerated logos land) before
+    falling back to the seed logos bundled inside the install dir. Packaged
+    installs can't write to the install dir, so this split is essential.
+
+    Returns 204 when neither location has a logo so the client can cleanly
     fall back to the colored-abbreviation badge instead of error handling.
     """
 
@@ -70,11 +74,15 @@ def get_team_logo(team_id: str) -> Response:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid team id."
         )
-    path = get_base_dir() / "logo" / "teams" / f"{clean}.png"
-    if not path.exists():
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
-    return FileResponse(
-        str(path),
-        media_type="image/png",
-        headers={"Cache-Control": "no-cache"},
-    )
+    candidates = [
+        get_data_dir() / "logo" / "teams" / f"{clean}.png",
+        get_base_dir() / "logo" / "teams" / f"{clean}.png",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return FileResponse(
+                str(candidate),
+                media_type="image/png",
+                headers={"Cache-Control": "no-cache"},
+            )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

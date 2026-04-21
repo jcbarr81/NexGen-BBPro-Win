@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui";
 import { useAuthStore } from "@/lib/auth-store";
+import { ThemePicker } from "./ThemePicker";
 
 interface HeaderProps {
   title?: string;
@@ -32,6 +33,7 @@ export function Header({ title, subtitle }: HeaderProps) {
         </div>
         {user.token && (
           <>
+            <ThemePicker />
             <Link to="/help" title="Help & Tutorials">
               <Button variant="ghost" size="icon" aria-label="Help">
                 <HelpCircle className="h-4 w-4" />

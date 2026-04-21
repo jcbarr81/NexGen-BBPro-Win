@@ -209,7 +209,7 @@ def _recolor_by_hex(img, src_hex: str, dst_hex: str, feather: float = 3.0,
 
 
 def generate_player_avatars(
-    out_dir: str = "images/avatars",
+    out_dir: str | None = None,
     progress_callback=None,
     initial_creation: bool = False,
 ) -> str:
@@ -233,6 +233,7 @@ def generate_player_avatars(
 
     from utils.player_loader import load_players_from_csv
     from utils.roster_loader import load_roster
+    from utils.path_utils import get_data_dir
 
     import cv2
 
@@ -240,7 +241,13 @@ def generate_player_avatars(
         p.player_id: p for p in load_players_from_csv("data/players.csv")
     }
 
-    out_path = Path(out_dir)
+    # Default to the user data dir so packaged installs (Program Files =
+    # read-only) can still regenerate avatars. Callers that pass an
+    # explicit path still win.
+    if out_dir is None:
+        out_path = get_data_dir() / "images" / "avatars"
+    else:
+        out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
     if initial_creation:
         for item in out_path.iterdir():

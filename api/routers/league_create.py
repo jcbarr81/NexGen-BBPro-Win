@@ -233,6 +233,20 @@ def create_league_wizard(
         except Exception:
             pass
 
+    draft_cfg = payload.get("draft") or {}
+    if isinstance(draft_cfg, dict) and draft_cfg:
+        try:
+            from services.draft_settings import DraftSettings, save_draft_settings
+
+            save_draft_settings(
+                DraftSettings(
+                    rounds=int(draft_cfg.get("rounds", 10) or 10),
+                    pool_size=int(draft_cfg.get("pool_size", 200) or 200),
+                )
+            )
+        except Exception:
+            pass
+
     return {
         "league_id": record.id,
         "display_name": record.display_name,
@@ -274,22 +288,22 @@ def bootstrap_admin(
 
     users = load_users()
     admin = next((u for u in users if u["username"] == "admin"), None)
-    if admin is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="admin account missing"
-        )
-
-    # Only permit if the current password is the default "pass" sentinel.
-    stored = str(admin.get("password") or "").strip()
-    if stored and stored not in {"pass", "__setup_required__"}:
-        # Something non-default is already set; treat as already bootstrapped.
-        if verify_user_password("pass", stored):
-            pass  # still default
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Admin password already set. Use the Users admin page to change it.",
-            )
+    # First-run / fresh-data scenarios leave no admin account at all.
+    # In that case we just create one with the supplied password — that's
+    # literally what the wizard is asking for. When an admin does exist,
+    # we still only permit reset if the current password is the default
+    # sentinel, to avoid letting an anonymous caller hijack an account
+    # that's already been set up.
+    if admin is not None:
+        stored = str(admin.get("password") or "").strip()
+        if stored and stored not in {"pass", "__setup_required__"}:
+            if verify_user_password("pass", stored):
+                pass  # still default
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Admin password already set. Use the Users admin page to change it.",
+                )
 
     try:
         set_admin_password(password)

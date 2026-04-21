@@ -57,6 +57,10 @@ async function createMainWindow(handle: SidecarHandle): Promise<void> {
   });
 
   mainWindow.once("ready-to-show", () => {
+    // Maximize on first show so the app fills the screen regardless of
+    // the monitor size. The 1440x900 width/height above are the
+    // un-maximized fallback dimensions if the user restores the window.
+    mainWindow?.maximize();
     mainWindow?.show();
   });
 

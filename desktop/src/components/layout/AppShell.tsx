@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { useHotkey } from "@/lib/use-hotkey";
+import { FirstVisitTutorialAutoLauncher } from "@/components/help/FirstVisitTutorial";
 
 interface AppShellProps {
   title?: string;
@@ -46,6 +47,10 @@ export function AppShell({
           {children}
         </main>
       </div>
+      {/* Fires once per route-paired tutorial, on first visit, skippable,
+          respects the global tutorial-enabled toggle. Mounted here so it
+          works on every signed-in page without per-page wiring. */}
+      <FirstVisitTutorialAutoLauncher />
     </div>
   );
 }

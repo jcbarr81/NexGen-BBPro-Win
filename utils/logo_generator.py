@@ -24,11 +24,11 @@ except Exception:  # pragma: no cover - allow running without Pillow
 try:  # Allow running as a standalone script
     from utils.openai_client import client
     from utils.team_loader import load_teams
-    from utils.path_utils import get_base_dir
+    from utils.path_utils import get_base_dir, get_data_dir
 except ModuleNotFoundError:  # pragma: no cover - for direct script execution
     from openai_client import client
     from team_loader import load_teams
-    from path_utils import get_base_dir
+    from path_utils import get_base_dir, get_data_dir
 
 def _require_pillow() -> None:
     """Raise a helpful error if Pillow is not installed.
@@ -202,7 +202,11 @@ def generate_team_logos(
     teams = load_teams("data/teams.csv")
 
     if out_dir is None:
-        out_dir = get_base_dir() / "logo" / "teams"
+        # Write to the user data dir so packaged installs (where
+        # get_base_dir() lives under Program Files — read-only) can
+        # still regenerate logos. The read side checks the data dir
+        # first, then falls back to the seed logos bundled with the app.
+        out_dir = get_data_dir() / "logo" / "teams"
     else:
         out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

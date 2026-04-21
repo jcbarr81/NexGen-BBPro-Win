@@ -40,6 +40,7 @@ import {
 } from "@/components/ui";
 import { TutorialDialog, type TutorialStep } from "@/components/help/TutorialDialog";
 import { Input } from "@/components/ui";
+import { useTutorialStore } from "@/lib/tutorial-store";
 
 const MARKDOWN_SANITIZE = {
   ALLOWED_TAGS: [
@@ -291,11 +292,40 @@ function TutorialsTab() {
   });
 
   const [active, setActive] = useState<TutorialCatalogItem | null>(null);
+  const enabled = useTutorialStore((s) => s.enabled);
+  const toggleEnabled = useTutorialStore((s) => s.toggle);
+  const restart = useTutorialStore((s) => s.restartAll);
 
   const items: TutorialCatalogItem[] = tutorials.data?.tutorials ?? [];
 
   return (
     <>
+      <Card className="mb-4">
+        <CardHeader>
+          <CardTitle className="text-base">First-year tutorials</CardTitle>
+          <CardDescription>
+            When enabled, each page auto-opens its tutorial the first time
+            you visit it. Dismissing a tutorial marks it seen for good;
+            "Restart tutorials" rewinds the flags so you can walk the tour
+            again.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-amber"
+              checked={enabled}
+              onChange={(e) => toggleEnabled(e.target.checked)}
+            />
+            <span>Auto-open tutorials on first visit</span>
+          </label>
+          <Button variant="outline" size="sm" onClick={restart}>
+            Restart tutorials
+          </Button>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">

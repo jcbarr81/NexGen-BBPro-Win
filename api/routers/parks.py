@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
 
 from utils.park_utils import _load_latest_parks, list_ballpark_names, _park_config_path
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_base_dir, get_data_dir
 
 from ..security import CurrentIdentity
 
@@ -63,24 +63,32 @@ def park_preview(park_id: str, year: int) -> FileResponse:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="park_id and year required.",
         )
-    img_dir = get_base_dir() / "images" / "parks"
-    img_path = img_dir / f"{park_id}_{year}.png"
-    if not img_path.exists():
+    # Prefer existing bundled / previously-rendered diagrams; fall back to
+    # generating on demand into the user data dir (install dir is read-only
+    # in packaged mode).
+    candidates = [
+        get_data_dir() / "images" / "parks" / f"{park_id}_{year}.png",
+        get_base_dir() / "images" / "parks" / f"{park_id}_{year}.png",
+    ]
+    existing = next((p for p in candidates if p.exists()), None)
+    if existing is None:
+        target = get_data_dir() / "images" / "parks" / f"{park_id}_{year}.png"
         try:
             from scripts import generate_park_diagrams as gen
 
             parks = gen.load_parks(_park_config_path())
             matching = [r for r in parks if r.park_id == park_id and r.year == year]
             if matching:
-                img_dir.mkdir(parents=True, exist_ok=True)
-                gen.draw_diagram(matching[0], img_path)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                gen.draw_diagram(matching[0], target)
+                existing = target if target.exists() else None
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to render diagram: {exc}",
             ) from exc
-    if not img_path.exists():
+    if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="No diagram available."
         )
-    return FileResponse(str(img_path), media_type="image/png")
+    return FileResponse(str(existing), media_type="image/png")

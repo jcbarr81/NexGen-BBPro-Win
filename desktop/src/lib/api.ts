@@ -1433,6 +1433,20 @@ export const api = {
       "/admin-league/reset-results",
       { method: "POST" },
     ),
+  draftSettings: () =>
+    apiRequest<{
+      rounds: number;
+      pool_size: number;
+      limits: {
+        rounds: { min: number; max: number; default: number };
+        pool_size: { min: number; max: number; default: number };
+      };
+    }>("/draft/settings"),
+  saveDraftSettings: (rounds: number, pool_size: number) =>
+    apiRequest<{ rounds: number; pool_size: number }>("/draft/settings", {
+      method: "PUT",
+      body: { rounds, pool_size },
+    }),
   adminDraftInitialize: (year?: number, seed?: number) =>
     apiRequest<{ year: number; order: string[]; seed: number | null }>(
       "/draft/admin/initialize",

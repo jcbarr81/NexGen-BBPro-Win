@@ -62,6 +62,8 @@ interface WizardState {
   cpuInitiatedTrades: boolean;
   cpuProposalCadence: string;
   injuryLevel: string;
+  draftRounds: number;
+  draftPoolSize: number;
 }
 
 const INITIAL: WizardState = {
@@ -83,6 +85,8 @@ const INITIAL: WizardState = {
   cpuInitiatedTrades: true,
   cpuProposalCadence: "normal",
   injuryLevel: "normal",
+  draftRounds: 10,
+  draftPoolSize: 200,
 };
 
 export function LeagueCreatePage() {
@@ -144,6 +148,10 @@ export function LeagueCreatePage() {
           cpu_proposal_cadence: state.cpuProposalCadence,
         },
         injury_level: state.injuryLevel,
+        draft: {
+          rounds: state.draftRounds,
+          pool_size: state.draftPoolSize,
+        },
       });
       // Land the user on the league picker.
       navigate("/select-league", { replace: true });
@@ -899,6 +907,50 @@ function RulesStep({
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Draft rounds</Label>
+          <Input
+            type="number"
+            min={1}
+            max={50}
+            value={state.draftRounds}
+            onChange={(e) =>
+              onPatch({
+                draftRounds: Math.max(
+                  1,
+                  Math.min(50, Number(e.target.value) || 10),
+                ),
+              })
+            }
+          />
+          <p className="text-[11px] text-muted">
+            How many rounds your amateur draft runs. Typical MLB: 10–20.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Draft pool size</Label>
+          <Input
+            type="number"
+            min={20}
+            max={2000}
+            step={10}
+            value={state.draftPoolSize}
+            onChange={(e) =>
+              onPatch({
+                draftPoolSize: Math.max(
+                  20,
+                  Math.min(2000, Number(e.target.value) || 200),
+                ),
+              })
+            }
+          />
+          <p className="text-[11px] text-muted">
+            Total prospects generated for the pool. Should comfortably exceed
+            rounds × teams so undrafted players remain for later.
+          </p>
         </div>
 
         <div className="space-y-1.5">

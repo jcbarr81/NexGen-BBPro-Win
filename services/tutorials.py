@@ -25,6 +25,11 @@ class Tutorial:
     title: str
     summary: str
     steps: List[TutorialStep]
+    # Route path this tutorial pairs with. Used by the first-visit
+    # launcher in the Electron UI to auto-open a tutorial when the user
+    # lands on the relevant page. ``None`` means "not route-linked"
+    # (library-only tutorial).
+    route: str | None = None
 
 
 TUTORIALS: List[Tutorial] = [
@@ -32,6 +37,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="overview",
         title="Dashboard Overview",
         summary="Tour the owner dashboard — hero, scoreboard stats, division, widgets.",
+        route="/home",
         steps=[
             TutorialStep(
                 "Hero & team logo",
@@ -63,6 +69,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="season",
         title="Simulating Seasons",
         summary="Day-at-a-time sim flows: day, week, month, to-draft, to-playoffs.",
+        route="/season",
         steps=[
             TutorialStep(
                 "Open the Season page",
@@ -90,6 +97,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="roster_and_depth",
         title="Roster & Depth Chart",
         summary="Move players between ACT/AAA/LOW, right-click actions, set depth chart priorities.",
+        route="/roster",
         steps=[
             TutorialStep(
                 "Roster levels",
@@ -117,6 +125,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="lineup",
         title="Lineup & Diamond View",
         summary="Two lineups, pitching roles, baseball diamond visualization, drag-and-drop.",
+        route="/lineup",
         steps=[
             TutorialStep(
                 "Two lineups",
@@ -148,6 +157,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="training",
         title="Training Focus",
         summary="Allocate 100% training time across hitter and pitcher tracks.",
+        route="/training",
         steps=[
             TutorialStep(
                 "Open Training",
@@ -175,6 +185,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="injuries",
         title="Injury Center",
         summary="Place players on DL/IR, activate when eligible, promote replacements.",
+        route="/injuries",
         steps=[
             TutorialStep(
                 "Accessing injuries",
@@ -198,6 +209,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="free_agency",
         title="Free Agency",
         summary="Browse unsigned players and sign them to your roster.",
+        route="/free-agency",
         steps=[
             TutorialStep(
                 "Open Free Agency",
@@ -221,6 +233,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="trades",
         title="Trades",
         summary="Propose, respond, withdraw — and admin veto/approve flow.",
+        route="/trades",
         steps=[
             TutorialStep(
                 "Open Trades",
@@ -248,6 +261,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="draft",
         title="Amateur Draft",
         summary="Live board, results history, and commissioner draft controls.",
+        route="/draft",
         steps=[
             TutorialStep(
                 "When the draft runs",
@@ -277,6 +291,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="team_settings",
         title="Team Settings & Ballparks",
         summary="Colors, stadium, strategy profile, auto-reassign — plus park browser.",
+        route="/settings",
         steps=[
             TutorialStep(
                 "Access",
@@ -304,6 +319,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="finance",
         title="Finance Hub",
         summary="Snapshot, payroll alerts, budget projections, transactions log.",
+        route="/finance",
         steps=[
             TutorialStep(
                 "Open Finance",
@@ -331,6 +347,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="change_request",
         title="Submit Change Request",
         summary="Owners bundle edits into a ZIP for commissioner approval.",
+        route="/submit-change-request",
         steps=[
             TutorialStep(
                 "Open the page",
@@ -354,6 +371,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="league_hub",
         title="League Hub",
         summary="Standings, leaders, stats, teams, schedule, playoffs, history, ballparks.",
+        route="/league",
         steps=[
             TutorialStep(
                 "Standings",
@@ -381,6 +399,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="command_center",
         title="Admin Command Center",
         summary="League-wide attention cards and workflow shortcuts.",
+        route="/command-center",
         steps=[
             TutorialStep(
                 "Access",
@@ -400,6 +419,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="admin_tools",
         title="Admin Tools Overview",
         summary="Commissioner, finance queue, change requests, users, tuning, league admin, exhibition.",
+        route="/commissioner",
         steps=[
             TutorialStep(
                 "Quick-access grid",
@@ -431,6 +451,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="exhibition",
         title="Exhibition Game",
         summary="Run a one-off simulation outside the schedule.",
+        route="/exhibition",
         steps=[
             TutorialStep(
                 "When to use it",
@@ -454,6 +475,7 @@ TUTORIALS: List[Tutorial] = [
         tutorial_id="league_admin",
         title="League Admin",
         summary="Schedule regen, stat/result reset, repair lineups, clone league.",
+        route="/league-admin",
         steps=[
             TutorialStep(
                 "Open the page",
@@ -523,6 +545,7 @@ def tutorial_catalog() -> Dict[str, Dict[str, object]]:
             "tutorial_id": t.tutorial_id,
             "title": t.title,
             "summary": t.summary,
+            "route": t.route,
             "steps": [{"title": s.title, "body_html": s.body_html} for s in t.steps],
         }
     return out

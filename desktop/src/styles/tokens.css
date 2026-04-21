@@ -1,85 +1,262 @@
 /*
- * Core design tokens, mapped from ui/design_tokens.py.
+ * Multi-theme design tokens.
  *
- * Tailwind reads these via hsl(var(--token) / <alpha-value>) so utility
- * classes like bg-surface / text-amber / border-border "just work" across
- * dark and light modes. If you need a new color, add it here AND in
- * tailwind.config.ts so both sides stay in sync.
+ * Each visual theme is a CSS class on <html> (e.g. `theme-dugout`) that
+ * sets every `--token` variable. The `.dark` class is an orthogonal
+ * modifier — any theme can be light or dark. Tailwind reads these vars
+ * via `hsl(var(--token) / <alpha-value>)` so utility classes like
+ * `bg-surface` pick up whatever theme is active.
  *
- * HSL tuples below were converted from the hex constants in design_tokens.py.
+ * Themes shipped:
+ *   - Dugout   (warm leather retro — the original brown/amber palette)
+ *   - Night    (LED scoreboard navy + stadium amber + chalk)
+ *   - Grass    (daylight ballpark green + cream + clay)
+ *
+ * Every theme MUST define the full set of tokens (neutrals, brand,
+ * semantic, baseball accents) — anything left undefined cascades from
+ * the defaults below.
  */
 
-:root,
-.light {
-  /* Neutrals — paper surfaces, espresso ink */
-  --canvas: 45 100% 96%;       /* CREAM     #fffdf0 */
-  --surface: 45 100% 99%;      /* lift above canvas */
-  --surface-alt: 48 89% 93%;   /* PARCHMENT #fff7dc */
+/* -------------------------------------------------------------------
+ * Fallback defaults — picked up when no theme class is applied yet
+ * (avoids a flash of unstyled tokens on very first paint). Match the
+ * Dugout light palette so the "before JS hydrates" state still looks
+ * reasonable.
+ * ------------------------------------------------------------------- */
+:root {
+  --canvas: 45 100% 96%;
+  --surface: 45 100% 99%;
+  --surface-alt: 48 89% 93%;
   --elevated: 45 100% 99%;
-  --border: 38 28% 78%;        /* TAN-tinted */
-  --border-strong: 32 45% 32%; /* WALNUT    #604d33 */
-  --ink: 31 69% 16%;           /* MAHOGANY  #462d0d */
-  --muted: 30 18% 44%;         /* TAN-ish   #968d7d */
+  --border: 38 28% 78%;
+  --border-strong: 32 45% 32%;
+  --ink: 31 69% 16%;
+  --muted: 30 18% 44%;
   --subtle: 30 22% 60%;
 
-  /* Brand */
-  --amber: 38 92% 50%;         /* AMBER       #F59E0B */
-  --amber-dim: 28 78% 40%;     /* AMBER_DIM   #b36b18 */
-  --amber-text: 32 53% 62%;    /* AMBER_TEXT  #d4a76a */
-  --cream: 45 100% 96%;        /* CREAM       #fffdf0 */
-  --parchment: 48 89% 93%;     /* PARCHMENT   #fff7dc */
-  --mahogany: 31 69% 16%;      /* MAHOGANY    #462d0d */
-  --espresso: 24 65% 8%;       /* ESPRESSO    #1e1207 */
-  --walnut: 32 30% 29%;        /* WALNUT      #604d33 */
-
-  /* Semantic */
-  --success: 137 55% 40%;      /* GREEN       #2f9e44 */
-  --warning: 28 96% 44%;       /*             #e67700 */
-  --danger: 359 68% 48%;       /* RED-ish     #c92a2a */
-  --info: 212 80% 22%;         /* NAVY        #0A3161 */
-
-  /* Baseball accents */
-  --ballpark: 118 34% 28%;     /* outfield grass — muted ballpark green */
-  --ballpark-deep: 125 40% 18%;/* warning-track shadow */
-  --clay: 18 55% 42%;          /* infield dirt / warning track clay */
-  --chalk: 48 100% 97%;        /* foul-line chalk */
-  --seam: 2 78% 45%;           /* baseball-seam red */
-  --scoreboard-glow: 38 92% 60%; /* amber LED glow */
-}
-
-.dark {
-  /* Neutrals — warm-dark leather with cream ink */
-  --canvas: 24 65% 8%;          /* ESPRESSO     #1e1207 */
-  --surface: 26 76% 6%;         /* DEEP_ROAST   #160e04 */
-  --surface-alt: 31 69% 16%;    /* MAHOGANY     #462d0d */
-  --elevated: 32 30% 29%;       /* WALNUT       #604d33 */
-  --border: 31 40% 22%;         /* softened mahogany */
-  --border-strong: 32 45% 32%;  /* WALNUT */
-  --ink: 45 100% 96%;           /* CREAM        #fffdf0 */
-  --muted: 32 15% 66%;          /* softened tan */
-  --subtle: 32 11% 55%;
-
-  /* Brand */
   --amber: 38 92% 50%;
   --amber-dim: 28 78% 40%;
-  --amber-text: 32 53% 72%;
+  --amber-text: 32 53% 62%;
   --cream: 45 100% 96%;
   --parchment: 48 89% 93%;
   --mahogany: 31 69% 16%;
   --espresso: 24 65% 8%;
   --walnut: 32 30% 29%;
 
-  /* Semantic (slightly lifted for dark contrast) */
+  --success: 137 55% 40%;
+  --warning: 28 96% 44%;
+  --danger: 359 68% 48%;
+  --info: 212 80% 22%;
+
+  --ballpark: 118 34% 28%;
+  --ballpark-deep: 125 40% 18%;
+  --clay: 18 55% 42%;
+  --chalk: 48 100% 97%;
+  --seam: 2 78% 45%;
+  --scoreboard-glow: 38 92% 60%;
+}
+
+/* -------------------------------------------------------------------
+ * Dugout — warm leather retro. The original palette.
+ * ------------------------------------------------------------------- */
+.theme-dugout {
+  --canvas: 45 100% 96%;       /* CREAM */
+  --surface: 45 100% 99%;
+  --surface-alt: 48 89% 93%;   /* PARCHMENT */
+  --elevated: 45 100% 99%;
+  --border: 38 28% 78%;
+  --border-strong: 32 45% 32%;
+  --ink: 31 69% 16%;           /* MAHOGANY */
+  --muted: 30 18% 44%;
+  --subtle: 30 22% 60%;
+
+  --amber: 38 92% 50%;
+  --amber-dim: 28 78% 40%;
+  --amber-text: 32 53% 62%;
+  --cream: 45 100% 96%;
+  --parchment: 48 89% 93%;
+  --mahogany: 31 69% 16%;
+  --espresso: 24 65% 8%;
+  --walnut: 32 30% 29%;
+
+  --success: 137 55% 40%;
+  --warning: 28 96% 44%;
+  --danger: 359 68% 48%;
+  --info: 212 80% 22%;
+
+  --ballpark: 118 34% 28%;
+  --ballpark-deep: 125 40% 18%;
+  --clay: 18 55% 42%;
+  --chalk: 48 100% 97%;
+  --seam: 2 78% 45%;
+  --scoreboard-glow: 38 92% 60%;
+}
+
+.theme-dugout.dark {
+  --canvas: 24 65% 8%;          /* ESPRESSO */
+  --surface: 26 76% 6%;
+  --surface-alt: 31 69% 16%;    /* MAHOGANY */
+  --elevated: 32 30% 29%;       /* WALNUT */
+  --border: 31 40% 22%;
+  --border-strong: 32 45% 32%;
+  --ink: 45 100% 96%;           /* CREAM */
+  --muted: 32 15% 66%;
+  --subtle: 32 11% 55%;
+
+  --amber: 38 92% 50%;
+  --amber-dim: 28 78% 40%;
+  --amber-text: 32 53% 72%;
+
   --success: 137 48% 52%;
   --warning: 32 90% 55%;
   --danger: 2 75% 60%;
   --info: 212 70% 55%;
 
-  /* Baseball accents (dark tuned) */
   --ballpark: 118 38% 24%;
   --ballpark-deep: 125 48% 12%;
   --clay: 18 55% 38%;
   --chalk: 45 100% 96%;
   --seam: 2 82% 56%;
   --scoreboard-glow: 38 100% 62%;
+}
+
+/* -------------------------------------------------------------------
+ * Night Game — LED scoreboard aesthetic. Deep navy with amber LEDs +
+ * chalk text. The sidebar gradient and brand mark read as "night game
+ * at a modern park."
+ * ------------------------------------------------------------------- */
+.theme-night {
+  --canvas: 215 50% 96%;        /* pale sky */
+  --surface: 0 0% 100%;
+  --surface-alt: 215 35% 93%;
+  --elevated: 0 0% 100%;
+  --border: 215 25% 78%;
+  --border-strong: 215 40% 30%;
+  --ink: 215 55% 15%;           /* deep navy */
+  --muted: 215 15% 44%;
+  --subtle: 215 20% 60%;
+
+  --amber: 35 100% 50%;         /* LED amber */
+  --amber-dim: 28 80% 40%;
+  --amber-text: 30 55% 42%;
+  --cream: 210 20% 97%;
+  --parchment: 215 35% 93%;
+  --mahogany: 215 55% 18%;
+  --espresso: 215 60% 9%;
+  --walnut: 215 30% 28%;
+
+  --success: 145 50% 36%;
+  --warning: 28 96% 44%;
+  --danger: 355 72% 48%;
+  --info: 215 65% 42%;
+
+  --ballpark: 125 32% 30%;
+  --ballpark-deep: 210 45% 14%; /* dusk-leaning */
+  --clay: 22 55% 44%;
+  --chalk: 0 0% 98%;
+  --seam: 2 78% 48%;
+  --scoreboard-glow: 35 100% 60%;
+}
+
+.theme-night.dark {
+  --canvas: 215 55% 8%;         /* midnight */
+  --surface: 215 55% 12%;
+  --surface-alt: 215 48% 18%;
+  --elevated: 215 40% 24%;
+  --border: 215 30% 28%;
+  --border-strong: 215 40% 38%;
+  --ink: 210 20% 96%;           /* stadium chalk */
+  --muted: 215 20% 62%;
+  --subtle: 215 15% 55%;
+
+  --amber: 38 100% 58%;         /* brighter LED */
+  --amber-dim: 30 75% 45%;
+  --amber-text: 38 100% 70%;
+  --cream: 210 20% 96%;
+  --parchment: 215 40% 20%;
+  --mahogany: 215 55% 18%;
+  --espresso: 215 65% 6%;
+  --walnut: 215 30% 28%;
+
+  --success: 142 58% 52%;
+  --warning: 32 95% 58%;
+  --danger: 2 75% 60%;
+  --info: 215 65% 62%;
+
+  --ballpark: 125 32% 24%;
+  --ballpark-deep: 215 55% 10%;
+  --clay: 20 50% 40%;
+  --chalk: 0 0% 96%;
+  --seam: 2 82% 58%;
+  --scoreboard-glow: 38 100% 65%;
+}
+
+/* -------------------------------------------------------------------
+ * Grass — bright daylight ballpark. Crisp green + cream, clay accent
+ * replaces amber as the primary brand hue.
+ * ------------------------------------------------------------------- */
+.theme-grass {
+  --canvas: 120 35% 96%;        /* pale spring */
+  --surface: 0 0% 100%;
+  --surface-alt: 120 28% 92%;
+  --elevated: 0 0% 100%;
+  --border: 120 20% 78%;
+  --border-strong: 125 40% 28%;
+  --ink: 125 50% 16%;           /* deep forest */
+  --muted: 120 10% 40%;
+  --subtle: 120 15% 58%;
+
+  --amber: 22 80% 50%;          /* clay-orange brand */
+  --amber-dim: 18 70% 40%;
+  --amber-text: 22 55% 38%;
+  --cream: 120 30% 97%;
+  --parchment: 120 28% 92%;
+  --mahogany: 125 50% 16%;
+  --espresso: 130 45% 8%;
+  --walnut: 120 22% 30%;
+
+  --success: 140 55% 38%;
+  --warning: 28 96% 44%;
+  --danger: 359 68% 48%;
+  --info: 212 70% 42%;
+
+  --ballpark: 115 52% 38%;      /* bright spring grass */
+  --ballpark-deep: 125 50% 22%;
+  --clay: 20 65% 48%;
+  --chalk: 0 0% 98%;
+  --seam: 2 78% 45%;
+  --scoreboard-glow: 22 85% 55%;
+}
+
+.theme-grass.dark {
+  --canvas: 130 40% 9%;         /* deep forest */
+  --surface: 128 40% 13%;
+  --surface-alt: 125 35% 20%;
+  --elevated: 125 28% 27%;
+  --border: 125 24% 26%;
+  --border-strong: 125 30% 38%;
+  --ink: 120 25% 94%;
+  --muted: 120 12% 62%;
+  --subtle: 120 14% 55%;
+
+  --amber: 24 85% 55%;
+  --amber-dim: 20 75% 42%;
+  --amber-text: 24 70% 68%;
+  --cream: 120 25% 94%;
+  --parchment: 125 30% 20%;
+  --mahogany: 125 50% 16%;
+  --espresso: 130 50% 6%;
+  --walnut: 120 22% 30%;
+
+  --success: 140 58% 52%;
+  --warning: 32 90% 55%;
+  --danger: 2 75% 60%;
+  --info: 212 70% 60%;
+
+  --ballpark: 118 40% 26%;
+  --ballpark-deep: 125 50% 12%;
+  --clay: 22 60% 44%;
+  --chalk: 120 20% 94%;
+  --seam: 2 82% 58%;
+  --scoreboard-glow: 24 90% 60%;
 }
