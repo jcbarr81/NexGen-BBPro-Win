@@ -24,6 +24,7 @@ import {
 import {
   api,
   type RosterLevel,
+  type RatingContextEntry,
   type RosterPlayer,
   type TeamRoster,
 } from "@/lib/api";
@@ -205,6 +206,26 @@ export function RosterPage() {
   );
 }
 
+const POSITION_CONTEXT_KEY = "nexgen:roster:position-context";
+
+function readPositionContextPref(): boolean {
+  try {
+    const raw = window.localStorage.getItem(POSITION_CONTEXT_KEY);
+    if (raw === null) return true; // default on — matches PyQt
+    return raw === "1";
+  } catch {
+    return true;
+  }
+}
+
+function writePositionContextPref(value: boolean) {
+  try {
+    window.localStorage.setItem(POSITION_CONTEXT_KEY, value ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
 function RosterTabs({
   roster,
   actions,
@@ -212,27 +233,48 @@ function RosterTabs({
   roster: TeamRoster;
   actions: RosterActions;
 }) {
+  const [positionContext, setPositionContextState] = useState(readPositionContextPref);
+  const setPositionContext = (value: boolean) => {
+    setPositionContextState(value);
+    writePositionContextPref(value);
+  };
+
   return (
     <Tabs defaultValue="ACT">
-      <TabsList>
-        {LEVEL_ORDER.map((level) => {
-          const count = roster.levels[level]?.length ?? 0;
-          return (
-            <TabsTrigger key={level} value={level}>
-              <span>{LEVEL_LABEL[level]}</span>
-              <Badge tone="neutral" className="ml-2">
-                {count}
-              </Badge>
-            </TabsTrigger>
-          );
-        })}
-      </TabsList>
+      <div className="flex items-center justify-between gap-3">
+        <TabsList>
+          {LEVEL_ORDER.map((level) => {
+            const count = roster.levels[level]?.length ?? 0;
+            return (
+              <TabsTrigger key={level} value={level}>
+                <span>{LEVEL_LABEL[level]}</span>
+                <Badge tone="neutral" className="ml-2">
+                  {count}
+                </Badge>
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
+        <label
+          className="flex cursor-pointer items-center gap-2 rounded-md border border-border bg-surfaceAlt/50 px-3 py-1.5 text-xs uppercase tracking-wider text-muted hover:text-ink"
+          title="Show each hitter's percentile against other players at the same position (C/1B/2B/3B/SS/OF). Pitchers compare against the full pitcher pool."
+        >
+          <input
+            type="checkbox"
+            checked={positionContext}
+            onChange={(e) => setPositionContext(e.target.checked)}
+            className="h-3 w-3 accent-amber"
+          />
+          Position context
+        </label>
+      </div>
       {LEVEL_ORDER.map((level) => (
         <TabsContent key={level} value={level}>
           <RosterLevelTable
             players={roster.levels[level] ?? []}
             level={level}
             actions={actions}
+            positionContext={positionContext}
           />
         </TabsContent>
       ))}
@@ -244,10 +286,12 @@ function RosterLevelTable({
   players,
   level,
   actions,
+  positionContext,
 }: {
   players: RosterPlayer[];
   level: RosterLevel;
   actions: RosterActions;
+  positionContext: boolean;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -360,6 +404,7 @@ function RosterLevelTable({
                 columns={columns}
                 level={level}
                 actions={actions}
+                positionContext={positionContext}
               />
             ))}
           </tbody>
@@ -435,11 +480,13 @@ function RosterRow({
   columns,
   level,
   actions,
+  positionContext,
 }: {
   player: RosterPlayer;
   columns: Array<{ key: string; label: string }>;
   level: RosterLevel;
   actions: RosterActions;
+  positionContext: boolean;
 }) {
   const navigate = useNavigate();
   return (
@@ -482,7 +529,14 @@ function RosterRow({
       </td>
       {columns.map((col) => (
         <td key={col.key} className="px-3 py-2 text-right tabular-nums">
-          <RatingCell value={player.ratings[col.key]} />
+          <RatingCell
+            value={player.ratings[col.key]}
+            context={
+              positionContext
+                ? player.ratings_context?.[col.key]
+                : undefined
+            }
+          />
         </td>
       ))}
       <td className="px-4 py-2 text-right">
@@ -638,11 +692,30 @@ function RowActionsMenu({
   );
 }
 
-function RatingCell({ value }: { value: number | string | null | undefined }) {
+function RatingCell({
+  value,
+  context,
+}: {
+  value: number | string | null | undefined;
+  context?: RatingContextEntry;
+}) {
   if (value == null || value === "") return <span className="text-subtle">—</span>;
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return <>{String(value)}</>;
   const tone =
     n >= 85 ? "text-success" : n >= 70 ? "text-amber-text" : n >= 50 ? "text-ink" : "text-subtle";
-  return <span className={tone}>{Math.round(n)}</span>;
+  if (!context) {
+    return <span className={tone}>{Math.round(n)}</span>;
+  }
+  const bucket = context.bucket ?? "pool";
+  const avgText = context.avg == null ? "--" : String(context.avg);
+  return (
+    <span
+      className="inline-flex items-baseline justify-end gap-1"
+      title={`Top ${context.top_pct}% of ${bucket} (avg ${avgText})`}
+    >
+      <span className={tone}>{Math.round(n)}</span>
+      <span className="text-[10px] text-muted">({context.top_pct}%)</span>
+    </span>
+  );
 }

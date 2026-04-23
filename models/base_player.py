@@ -14,6 +14,12 @@ class BasePlayer:
     other_positions: List[str]
     gf: int  # Groundball-Flyball ratio
 
+    # Throwing hand ("L"/"R"/"S"). Defaults to empty string for
+    # backwards compatibility with pre-existing players.csv files that
+    # predate the throws column; the loader fills it in from the bats
+    # value when the CSV lacks the column.
+    throws: str = ""
+
     # Appearance attributes
     ethnicity: str = ""
     skin_tone: str = ""

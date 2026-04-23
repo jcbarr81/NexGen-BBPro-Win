@@ -20,7 +20,6 @@ import {
   Stethoscope,
   Target,
   Trophy,
-  User,
 } from "lucide-react";
 
 import {
@@ -29,6 +28,8 @@ import {
   type PlayerProfileNote,
 } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { StarRating } from "@/components/StarRating";
 import {
   Badge,
   Button,
@@ -108,14 +109,26 @@ export function PlayerProfilePage() {
   );
 }
 
+/** Backend ``overall_stars_text`` is a pre-formatted 1-5 string like
+ *  ``"4"`` or ``"4.5"``. Parse it back to a float for the star renderer;
+ *  fall back to 0 so the row stays visually stable. */
+function parseStarValue(raw: string | null | undefined): number {
+  if (!raw) return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function HeroCard({ profile }: { profile: PlayerProfile }) {
   return (
     <Card className="p-6">
       <div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-5">
-          <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-border bg-surfaceAlt font-display text-3xl font-bold text-amber-text shadow-panel">
-            {profile.initials || <User className="h-8 w-8" />}
-          </div>
+          <PlayerAvatar
+            playerId={profile.player_id}
+            initials={profile.initials}
+            className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl text-3xl shadow-panel"
+          />
+
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
               {profile.team_id ? (
@@ -151,8 +164,11 @@ function HeroCard({ profile }: { profile: PlayerProfile }) {
                 ? Math.round(profile.overall_display)
                 : "—"}
             </div>
-            <div className="mt-1 text-xs text-amber">
-              {profile.overall_stars_text}
+            <div className="mt-1 flex justify-end">
+              <StarRating
+                value={parseStarValue(profile.overall_stars_text)}
+                size="h-3.5 w-3.5"
+              />
             </div>
           </div>
           <div className="text-right">

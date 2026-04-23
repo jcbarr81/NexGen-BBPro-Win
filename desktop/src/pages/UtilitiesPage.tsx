@@ -26,7 +26,7 @@ import {
   UserSquare2,
 } from "lucide-react";
 
-import { api, type HealthPayload } from "@/lib/api";
+import { api, runExportJob, type ExportJobStatus, type HealthPayload } from "@/lib/api";
 import { getBridge } from "@/lib/bridge";
 import { useAuthStore } from "@/lib/auth-store";
 import { AppShell } from "@/components/layout/AppShell";
@@ -47,11 +47,22 @@ interface ActionResult {
   message: string;
 }
 
+interface ActionProgress {
+  done: number;
+  total: number;
+  phase?: string;
+}
+
 export function UtilitiesPage() {
   const user = useAuthStore();
   const role = user.role;
   const isAdmin = role === "admin";
   const [results, setResults] = useState<Record<string, ActionResult>>({});
+  const [progress, setProgress] = useState<Record<string, ActionProgress>>({});
+  // Which specific tile triggered the in-flight mutation. Logos + avatars
+  // each have two sibling tiles that share the same useMutation, so the
+  // "is this running" signal needs a finer key than the mutation itself.
+  const [activeAction, setActiveAction] = useState<string | null>(null);
 
   const health = useQuery({
     queryKey: ["healthz"],
@@ -63,37 +74,72 @@ export function UtilitiesPage() {
     setResults((prev) => ({ ...prev, [key]: { ok, message } }));
   }
 
+  function recordProgress(key: string, status: ExportJobStatus) {
+    setProgress((prev) => ({
+      ...prev,
+      [key]: { done: status.done, total: status.total, phase: status.phase },
+    }));
+  }
+
+  function clearProgress(key: string) {
+    setProgress((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
   const bumpLogoVersion = useAuthStore((s) => s.bumpLogoVersion);
   const logos = useMutation({
-    mutationFn: (forceEngine: "openai" | "auto_logo") =>
-      api.generateLogos({ force_engine: forceEngine }),
-    onSuccess: (res) => {
+    mutationFn: (args: { tileKey: string; engine: "openai" | "auto_logo" }) =>
+      runExportJob(
+        () => api.generateLogos({ force_engine: args.engine }),
+        (status) => recordProgress(args.tileKey, status),
+      ),
+    onSuccess: (res, args) => {
+      clearProgress(args.tileKey);
+      setActiveAction(null);
+      const engine = (res.result?.engine as string | undefined) ?? "auto_logo";
       const engineLabel =
-        res.engine === "openai"
+        engine === "openai"
           ? "OpenAI gpt-image-1 (detailed)"
           : "auto_logo fallback (simple vector)";
       recordResult(
-        "logos",
+        args.tileKey,
         true,
-        `Wrote ${res.output_dir} — engine: ${engineLabel}`,
+        `Wrote ${res.output_dir ?? "(unknown)"} — engine: ${engineLabel}`,
       );
       bumpLogoVersion();
     },
-    onError: (e) =>
-      recordResult("logos", false, e instanceof Error ? e.message : String(e)),
+    onError: (e, args) => {
+      clearProgress(args.tileKey);
+      setActiveAction(null);
+      recordResult(args.tileKey, false, e instanceof Error ? e.message : String(e));
+    },
   });
   const avatars = useMutation({
-    mutationFn: (initial: boolean) => api.generateAvatars(initial),
-    onSuccess: (_res, initial) =>
+    mutationFn: (args: { tileKey: string; initial: boolean }) =>
+      runExportJob(
+        () => api.generateAvatars(args.initial),
+        (status) => recordProgress(args.tileKey, status),
+      ),
+    onSuccess: (_res, args) => {
+      clearProgress(args.tileKey);
+      setActiveAction(null);
       recordResult(
-        "avatars",
+        args.tileKey,
         true,
-        initial
+        args.initial
           ? "Initial creation complete — all avatars regenerated."
           : "Avatars generated for players missing one.",
-      ),
-    onError: (e) =>
-      recordResult("avatars", false, e instanceof Error ? e.message : String(e)),
+      );
+    },
+    onError: (e, args) => {
+      clearProgress(args.tileKey);
+      setActiveAction(null);
+      recordResult(args.tileKey, false, e instanceof Error ? e.message : String(e));
+    },
   });
   const reportsHtml = useMutation({
     mutationFn: () => api.exportReports("html"),
@@ -188,43 +234,57 @@ export function UtilitiesPage() {
               icon={<Palette className="h-5 w-5" />}
               title="Detailed Logos (AI)"
               description="Uses OpenAI gpt-image-1 with a rich per-team prompt. Requires a configured API key."
-              pending={logos.isPending}
-              result={results["logos"]}
-              disabled={!isAdmin}
-              onRun={() => logos.mutate("openai")}
+              pending={activeAction === "logos-openai"}
+              progress={progress["logos-openai"]}
+              result={results["logos-openai"]}
+              disabled={!isAdmin || activeAction !== null}
+              onRun={() => {
+                setActiveAction("logos-openai");
+                logos.mutate({ tileKey: "logos-openai", engine: "openai" });
+              }}
             />
             <ActionTile
               icon={<Palette className="h-5 w-5" />}
               title="Simple Logos (fallback)"
               description="Uses the built-in vector renderer. No network call; runs offline."
-              pending={logos.isPending}
-              result={results["logos"]}
-              disabled={!isAdmin}
-              onRun={() => logos.mutate("auto_logo")}
+              pending={activeAction === "logos-auto"}
+              progress={progress["logos-auto"]}
+              result={results["logos-auto"]}
+              disabled={!isAdmin || activeAction !== null}
+              onRun={() => {
+                setActiveAction("logos-auto");
+                logos.mutate({ tileKey: "logos-auto", engine: "auto_logo" });
+              }}
             />
             <ActionTile
               icon={<UserSquare2 className="h-5 w-5" />}
               title="Fill missing avatars"
               description="Only generate for players who don't have an avatar yet. Fast; safe to rerun."
-              pending={avatars.isPending}
-              result={results["avatars"]}
-              disabled={!isAdmin}
-              onRun={() => avatars.mutate(false)}
+              pending={activeAction === "avatars-fill"}
+              progress={progress["avatars-fill"]}
+              result={results["avatars-fill"]}
+              disabled={!isAdmin || activeAction !== null}
+              onRun={() => {
+                setActiveAction("avatars-fill");
+                avatars.mutate({ tileKey: "avatars-fill", initial: false });
+              }}
             />
             <ActionTile
               icon={<UserSquare2 className="h-5 w-5" />}
               title="Regenerate all avatars"
               description="Wipes every player avatar first, then regenerates from scratch. Slow."
-              pending={avatars.isPending}
-              result={results["avatars"]}
-              disabled={!isAdmin}
+              pending={activeAction === "avatars-regen"}
+              progress={progress["avatars-regen"]}
+              result={results["avatars-regen"]}
+              disabled={!isAdmin || activeAction !== null}
               onRun={() => {
                 if (
                   window.confirm(
                     "This deletes every player avatar in the output folder (Template + default.png kept) and regenerates them from scratch. Continue?",
                   )
                 ) {
-                  avatars.mutate(true);
+                  setActiveAction("avatars-regen");
+                  avatars.mutate({ tileKey: "avatars-regen", initial: true });
                 }
               }}
             />
@@ -292,6 +352,7 @@ function ActionTile({
   title,
   description,
   pending,
+  progress,
   result,
   disabled,
   onRun,
@@ -300,10 +361,15 @@ function ActionTile({
   title: string;
   description: string;
   pending: boolean;
+  progress?: ActionProgress;
   result: ActionResult | undefined;
   disabled?: boolean;
   onRun: () => void;
 }) {
+  const showBar = pending && progress && progress.total > 0;
+  const pct = showBar
+    ? Math.min(100, Math.round((progress.done / progress.total) * 100))
+    : 0;
   return (
     <div className="flex items-start gap-3 rounded-xl border border-border bg-surfaceAlt/40 p-3">
       <div className="rounded-lg border border-border bg-surface p-2 text-amber">
@@ -327,6 +393,24 @@ function ActionTile({
           )}
           Run
         </Button>
+        {pending && (
+          <div className="mt-2">
+            <div className="h-2 w-full overflow-hidden rounded-full border border-border bg-surface">
+              <div
+                className="h-full bg-amber transition-[width] duration-150 ease-out"
+                style={{ width: showBar ? `${pct}%` : "25%" }}
+              />
+            </div>
+            <div className="mt-1 flex items-center justify-between text-[10px] uppercase tracking-wider text-muted">
+              <span>
+                {showBar
+                  ? `${progress.done} / ${progress.total}`
+                  : progress?.phase || "Starting…"}
+              </span>
+              {showBar && <span>{pct}%</span>}
+            </div>
+          </div>
+        )}
         {result && (
           <div
             className={

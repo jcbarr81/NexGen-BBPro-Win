@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable
 
 from playbalance.season_context import slugify_league_id
 from services import league_registry
+from utils import path_utils
 from utils.path_utils import get_data_root, get_leagues_root
 
 
@@ -313,7 +314,8 @@ def delete_league(
         raise ValueError("Cannot delete the last league.")
 
     active = league_registry.get_active_league()
-    if active is not None and active.id == record.id and not force_if_active:
+    deleting_active = active is not None and active.id == record.id
+    if deleting_active and not force_if_active:
         raise ValueError("Cannot delete the active league without force_if_active=True.")
 
     removed = league_registry.remove_league(record.id)
@@ -324,6 +326,21 @@ def delete_league(
         target = _league_dir(record.id)
         if target.exists():
             shutil.rmtree(target)
+
+    # When the active league is the one we just removed, re-point the
+    # active pointer at any surviving non-archived league so downstream
+    # calls to get_data_dir() don't resolve to a deleted directory and
+    # leave the sidecar in a half-broken state.
+    if deleting_active:
+        remaining = [
+            item
+            for item in league_registry.list_leagues()
+            if item.id != record.id and item.status != "archived"
+        ]
+        if remaining:
+            league_registry.set_active_league(remaining[0].id, ensure_data_dir=True)
+        else:
+            path_utils.clear_active_league_id()
     return True
 
 

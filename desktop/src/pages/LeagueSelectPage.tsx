@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Loader2,
   PlusCircle,
+  Trash2,
   Trophy,
 } from "lucide-react";
 
@@ -29,6 +30,11 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui";
 import { Brand } from "@/components/layout/Brand";
 
@@ -39,6 +45,7 @@ export function LeagueSelectPage() {
   const role = useAuthStore((s) => s.role);
   const isAdmin = role === "admin";
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<League | null>(null);
 
   const leagues = useQuery({
     queryKey: ["leagues"],
@@ -67,6 +74,16 @@ export function LeagueSelectPage() {
       setActiveLeague(res.league_id);
       queryClient.invalidateQueries({ queryKey: ["active-league"] });
       navigate("/home", { replace: true });
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => api.deleteLeague(id),
+    onSuccess: (res) => {
+      if (selectedId === res.league_id) setSelectedId(null);
+      setActiveLeague(res.active_league ?? null);
+      queryClient.invalidateQueries({ queryKey: ["leagues"] });
+      queryClient.invalidateQueries({ queryKey: ["active-league"] });
     },
   });
 
@@ -126,6 +143,9 @@ export function LeagueSelectPage() {
                     isActive={active.data?.league_id === league.id}
                     isSelected={selectedId === league.id}
                     onSelect={() => setSelectedId(league.id)}
+                    canDelete={isAdmin && (leagues.data?.length ?? 0) > 1}
+                    onDelete={() => setConfirmDelete(league)}
+                    isDeleting={remove.isPending && remove.variables === league.id}
                   />
                 ))}
               </ul>
@@ -166,7 +186,48 @@ export function LeagueSelectPage() {
             {(activate.error as Error).message}
           </p>
         )}
+        {remove.isError && (
+          <p className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
+            {(remove.error as Error).message}
+          </p>
+        )}
       </div>
+
+      {/* React-based confirm instead of window.confirm. The native confirm
+          dialog leaves Electron's BrowserWindow in a state where keyboard
+          input doesn't reach focused inputs anymore (reported on 6.10.8-9
+          after delete-then-add-user). */}
+      <Dialog
+        open={!!confirmDelete}
+        onOpenChange={(next) => !next && setConfirmDelete(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete league?</DialogTitle>
+            <DialogDescription>
+              Permanently delete{" "}
+              <span className="font-semibold text-ink">
+                {confirmDelete?.display_name ?? ""}
+              </span>{" "}
+              and all of its data. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-6 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                if (confirmDelete) remove.mutate(confirmDelete.id);
+                setConfirmDelete(null);
+              }}
+            >
+              <Trash2 className="h-4 w-4" /> Delete league
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -176,18 +237,31 @@ interface LeagueRowProps {
   isActive: boolean;
   isSelected: boolean;
   onSelect: () => void;
+  canDelete: boolean;
+  onDelete: () => void;
+  isDeleting: boolean;
 }
 
-function LeagueRow({ league, isActive, isSelected, onSelect }: LeagueRowProps) {
+function LeagueRow({
+  league,
+  isActive,
+  isSelected,
+  onSelect,
+  canDelete,
+  onDelete,
+  isDeleting,
+}: LeagueRowProps) {
   return (
-    <li>
+    <li
+      className={cn(
+        "flex items-center gap-2 pr-3 transition",
+        isSelected ? "bg-amber/10" : "hover:bg-surfaceAlt/40",
+      )}
+    >
       <button
         type="button"
         onClick={onSelect}
-        className={cn(
-          "flex w-full items-center justify-between gap-4 px-6 py-4 text-left transition",
-          isSelected ? "bg-amber/10" : "hover:bg-surfaceAlt/40",
-        )}
+        className="flex flex-1 items-center justify-between gap-4 px-6 py-4 text-left"
       >
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -217,6 +291,30 @@ function LeagueRow({ league, isActive, isSelected, onSelect }: LeagueRowProps) {
           aria-hidden
         />
       </button>
+
+      {canDelete && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          disabled={isDeleting}
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted transition",
+            "hover:bg-danger/10 hover:text-danger",
+            "disabled:cursor-not-allowed disabled:opacity-50",
+          )}
+          aria-label={`Delete league ${league.display_name}`}
+          title={`Delete ${league.display_name}`}
+        >
+          {isDeleting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+        </button>
+      )}
     </li>
   );
 }

@@ -8,13 +8,16 @@ can take seconds, logos/avatars can take minutes on CPU.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
+import traceback
 from dataclasses import asdict, is_dataclass
 from typing import Any, Dict
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from ..security import require_bearer
+from ..services import job_registry
 
 router = APIRouter(prefix="/exports", tags=["exports"])
 
@@ -43,6 +46,23 @@ def _coerce(value: Any) -> Any:
     return str(value)
 
 
+def _coerce_top_level(value: Any) -> Dict[str, Any]:
+    """Every export endpoint declares ``Dict[str, Any]`` as its response
+    type, so we must always return a dict. Several underlying services
+    return a plain string (the output directory) — wrap those so FastAPI's
+    response validator doesn't blow up.
+    """
+
+    coerced = _coerce(value)
+    if isinstance(coerced, dict):
+        return coerced
+    if coerced is None:
+        return {"status": "completed"}
+    if isinstance(coerced, (list, tuple, set)):
+        return {"status": "completed", "items": list(coerced)}
+    return {"status": "completed", "output": coerced}
+
+
 @router.post("/reports")
 async def export_reports(
     payload: Dict[str, Any] = Body(default_factory=dict),
@@ -65,7 +85,7 @@ async def export_reports(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
-    return _coerce(result)
+    return _coerce_top_level(result)
 
 
 @router.post("/almanac")
@@ -82,7 +102,7 @@ async def export_almanac(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
-    return _coerce(result)
+    return _coerce_top_level(result)
 
 
 @router.post("/snapshot")
@@ -99,7 +119,7 @@ async def export_snapshot(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
-    return _coerce(result)
+    return _coerce_top_level(result)
 
 
 @router.post("/logos")
@@ -107,6 +127,12 @@ async def generate_logos(
     payload: Dict[str, Any] = Body(default_factory=dict),
     _: Dict[str, Any] = AdminIdentity,
 ) -> Dict[str, Any]:
+    """Kick off team-logo generation in a background thread.
+
+    Returns a ``job_id`` immediately. Poll ``/exports/jobs/{job_id}`` for
+    progress and the final ``output_dir`` / ``engine`` payload.
+    """
+
     try:
         from utils.logo_generator import generate_team_logos
     except Exception as exc:
@@ -117,32 +143,46 @@ async def generate_logos(
     allow_auto_logo = bool(payload.get("allow_auto_logo", True))
     raw_engine = str(payload.get("force_engine", "") or "").strip().lower()
     force_engine = raw_engine if raw_engine in {"openai", "auto_logo"} else None
-    engine_used: Dict[str, str] = {"value": "auto_logo"}
 
-    def _track(value: str) -> None:
-        engine_used["value"] = value
+    job_id = job_registry.create("logos")
 
-    try:
-        out_dir = await asyncio.to_thread(
-            generate_team_logos,
-            allow_auto_logo=allow_auto_logo,
-            status_callback=_track,
-            force_engine=force_engine,
+    def _run() -> None:
+        engine_used: Dict[str, str] = {"value": "auto_logo"}
+
+        def _track_engine(value: str) -> None:
+            engine_used["value"] = value
+            job_registry.update_phase(job_id, f"engine:{value}")
+
+        def _track_progress(done: int, total: int) -> None:
+            job_registry.update_progress(job_id, done, total)
+
+        try:
+            out_dir = generate_team_logos(
+                allow_auto_logo=allow_auto_logo,
+                status_callback=_track_engine,
+                force_engine=force_engine,
+                progress_callback=_track_progress,
+            )
+        except RuntimeError as exc:
+            job_registry.fail(job_id, str(exc))
+            return
+        except Exception as exc:
+            logging.exception("Logo generation failed")
+            job_registry.fail(
+                job_id, f"{exc}\n\n{traceback.format_exc()}"
+            )
+            return
+        job_registry.complete(
+            job_id,
+            output_dir=str(out_dir) if out_dir else None,
+            result={
+                "engine": engine_used["value"],
+                "generated_at": int(time.time()),
+            },
         )
-    except RuntimeError as exc:
-        # Raised when OpenAI is not configured and allow_auto_logo=False.
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
-        ) from exc
-    return {
-        "output_dir": str(out_dir),
-        "generated_at": int(time.time()),
-        "engine": engine_used["value"],
-    }
+
+    asyncio.get_running_loop().run_in_executor(None, _run)
+    return {"job_id": job_id, "kind": "logos"}
 
 
 @router.post("/avatars")
@@ -150,39 +190,70 @@ async def generate_avatars(
     payload: Dict[str, Any] = Body(default_factory=dict),
     _: Dict[str, Any] = AdminIdentity,
 ) -> Dict[str, Any]:
-    """Generate player avatars.
+    """Kick off player-avatar generation in a background thread.
 
     ``initial_creation`` (default False): when True, wipes every existing
     avatar in the output dir (except the Template/ tree + default.png)
     before regenerating. When False, only players without an avatar get
     one generated — matches the PyQt "yes = wipe-and-regen, no = fill-
     in-only" prompt semantics.
+
+    Returns a ``job_id`` immediately. Poll ``/exports/jobs/{job_id}`` for
+    progress and the final ``output_dir``.
     """
 
     initial = bool(payload.get("initial_creation", False))
     try:
         from utils.avatar_generator import generate_player_avatars
     except Exception as exc:
-        import traceback
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Avatar engine unavailable: {exc}\n{traceback.format_exc()}",
         ) from exc
-    try:
-        result = await asyncio.to_thread(
-            generate_player_avatars, initial_creation=initial
-        )
-    except Exception as exc:
-        import logging
-        import traceback
 
-        logging.exception("Avatar generation failed")
+    job_id = job_registry.create("avatars")
+
+    def _run() -> None:
+        def _track_progress(done: int, total: int) -> None:
+            job_registry.update_progress(job_id, done, total)
+
+        try:
+            out_dir = generate_player_avatars(
+                initial_creation=initial,
+                progress_callback=_track_progress,
+            )
+        except Exception as exc:
+            logging.exception("Avatar generation failed")
+            job_registry.fail(
+                job_id, f"{exc}\n\n{traceback.format_exc()}"
+            )
+            return
+        job_registry.complete(
+            job_id,
+            output_dir=str(out_dir) if out_dir else None,
+            result={"initial_creation": initial},
+        )
+
+    asyncio.get_running_loop().run_in_executor(None, _run)
+    return {"job_id": job_id, "kind": "avatars"}
+
+
+@router.get("/jobs/{job_id}")
+def get_job(
+    job_id: str,
+    _: Dict[str, Any] = AdminIdentity,
+) -> Dict[str, Any]:
+    """Return the current state of a background export/generation job.
+
+    Status is one of ``running``, ``completed``, or ``failed``. While
+    running, clients should poll every ~500ms and render progress from
+    ``done`` / ``total``. When finished, ``output_dir`` and ``result``
+    are populated (or ``error`` on failure).
+    """
+
+    job = job_registry.get(job_id)
+    if job is None:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            # Surface the actual traceback in detail so the UI can show
-            # the real cause (missing file, cv2 assertion, etc.) rather
-            # than a useless generic 500.
-            detail=f"{exc}\n\n{traceback.format_exc()}",
-        ) from exc
-    return _coerce(result or {"status": "completed"})
+            status_code=status.HTTP_404_NOT_FOUND, detail="Unknown job id"
+        )
+    return job

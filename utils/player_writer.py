@@ -5,7 +5,7 @@ from models.pitcher import Pitcher
 def save_players_to_csv(players, file_path):
     fieldnames = [
         "player_id", "first_name", "last_name", "birthdate", "height", "weight",
-        "ethnicity", "skin_tone", "hair_color", "facial_hair", "bats",
+        "ethnicity", "skin_tone", "hair_color", "facial_hair", "bats", "throws",
         "primary_position", "other_positions", "is_pitcher", "role", "preferred_pitching_role",
         "ch", "ph", "sp", "eye", "gf", "pl", "vl", "sc", "fa", "arm",
         "endurance", "control", "movement", "hold_runner",
@@ -38,6 +38,7 @@ def save_players_to_csv(players, file_path):
                 "hair_color": p.hair_color,
                 "facial_hair": p.facial_hair,
                 "bats": p.bats,
+                "throws": getattr(p, "throws", "") or "",
                 "primary_position": p.primary_position,
                 "other_positions": "|".join(p.other_positions),
                 "is_pitcher": "1" if is_pitcher else "0",

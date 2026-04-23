@@ -6,7 +6,7 @@
  * reassignment). Non-admin users are bounced back to the dashboard.
  */
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate } from "react-router-dom";
 import {
@@ -228,6 +228,8 @@ function CreateUserDialog({
   const [teamId, setTeamId] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const usernameRef = useRef<HTMLInputElement>(null);
+
   const mutation = useMutation({
     mutationFn: () =>
       api.adminCreateUser({ username, password, role, team_id: teamId }),
@@ -253,7 +255,12 @@ function CreateUserDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          usernameRef.current?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Add user</DialogTitle>
           <DialogDescription>
@@ -265,7 +272,7 @@ function CreateUserDialog({
             <Label htmlFor="new-username">Username</Label>
             <Input
               id="new-username"
-              autoFocus
+              ref={usernameRef}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required

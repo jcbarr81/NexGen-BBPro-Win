@@ -14,9 +14,11 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import FileResponse
 
-from utils.path_utils import get_data_dir
+from utils.path_utils import get_base_dir, get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.rating_display import rating_display_value
 
 from ..schemas import PlayerSummary
 from ..security import CurrentIdentity
@@ -27,8 +29,26 @@ _HEADLINE_RATINGS = ("ch", "ph", "sp", "eye", "arm", "fa", "control", "movement"
 
 
 def _row_to_summary(row: dict) -> PlayerSummary:
-    ratings = {key: row.get(key) for key in _HEADLINE_RATINGS if row.get(key)}
     is_pitcher = str(row.get("is_pitcher", "")).strip().lower() in {"1", "true", "yes"}
+    position = row.get("primary_position") or None
+
+    ratings: Dict[str, Any] = {}
+    for key in _HEADLINE_RATINGS:
+        raw = row.get(key)
+        if not raw:
+            continue
+        try:
+            scaled = rating_display_value(
+                int(raw),
+                key=key.upper(),
+                position=position,
+                is_pitcher=is_pitcher,
+                mode="scale_99",
+            )
+            ratings[key] = int(round(float(scaled)))
+        except (TypeError, ValueError):
+            ratings[key] = raw
+
     return PlayerSummary(
         player_id=row.get("player_id", ""),
         first_name=row.get("first_name", ""),
@@ -158,6 +178,35 @@ def get_player(player_id: str) -> PlayerSummary:
         if row.get("player_id") == player_id:
             return _row_to_summary(row)
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found")
+
+
+@router.get("/{player_id}/avatar")
+def get_player_avatar(player_id: str) -> FileResponse:
+    """Serve the generated avatar PNG for *player_id*.
+
+    Avatars are produced by utils.avatar_generator and saved under
+    <data_dir>/images/avatars/<player_id>.png. Falls back to the bundled
+    default.png when a per-player image hasn't been generated yet, so the
+    client can always render something.
+    """
+
+    clean = "".join(ch for ch in player_id if ch.isalnum() or ch in {"-", "_"})
+    if not clean:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid player id")
+
+    candidates = [
+        get_data_dir() / "images" / "avatars" / f"{clean}.png",
+        get_data_dir() / "images" / "avatars" / "default.png",
+        get_base_dir() / "images" / "avatars" / "default.png",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return FileResponse(
+                str(candidate),
+                media_type="image/png",
+                headers={"Cache-Control": "no-cache"},
+            )
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avatar not found")
 
 
 def _coerce(value: Any) -> Any:

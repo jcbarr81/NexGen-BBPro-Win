@@ -56,8 +56,11 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
       (typeof parsed === "object" && parsed && "detail" in parsed && (parsed as any).detail) ||
       text ||
       res.statusText;
-    // Validation endpoints return detail as `{message, errors[], warnings[]}`.
-    // Flatten that so the default error text reads naturally.
+    // Flatten object-shaped details so the default error text reads naturally.
+    // Two shapes we know about:
+    //   - validation:  {message, errors[], warnings[]}
+    //   - unhandled:   {message, traceback}
+    // Any other object shape falls through to JSON so nothing is lost.
     const detail =
       rawDetail && typeof rawDetail === "object" && !Array.isArray(rawDetail)
         ? [
@@ -65,6 +68,9 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
             ...(Array.isArray((rawDetail as any).errors)
               ? ((rawDetail as any).errors as unknown[]).map((e) => `• ${e}`)
               : []),
+            (rawDetail as any).traceback
+              ? `\n${(rawDetail as any).traceback}`
+              : "",
           ]
             .filter(Boolean)
             .join("\n") || JSON.stringify(rawDetail)
@@ -81,6 +87,50 @@ export interface HealthPayload {
   version: string;
   data_root: string;
   active_league: string | null;
+}
+
+/** Response shape from POST /exports/logos and /exports/avatars — the
+ *  actual generation runs in a background thread; poll ``getExportJob``
+ *  for progress/result. */
+export interface ExportJobStart {
+  job_id: string;
+  kind: "logos" | "avatars";
+}
+
+/** Response shape from GET /exports/jobs/{id}. */
+export interface ExportJobStatus {
+  id: string;
+  kind: "logos" | "avatars";
+  status: "running" | "completed" | "failed";
+  done: number;
+  total: number;
+  phase: string;
+  output_dir: string | null;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  started_at: number;
+  finished_at: number | null;
+}
+
+/** Start an export job and poll until it finishes. Calls ``onProgress``
+ *  after each poll tick so the UI can render a progress bar. Throws on
+ *  ``failed`` with the server-side error message. */
+export async function runExportJob(
+  start: () => Promise<ExportJobStart>,
+  onProgress?: (status: ExportJobStatus) => void,
+  { pollMs = 500, signal }: { pollMs?: number; signal?: AbortSignal } = {},
+): Promise<ExportJobStatus> {
+  const { job_id } = await start();
+  for (;;) {
+    if (signal?.aborted) throw new Error("Cancelled");
+    const status = await api.getExportJob(job_id);
+    onProgress?.(status);
+    if (status.status === "completed") return status;
+    if (status.status === "failed") {
+      throw new Error(status.error || "Job failed");
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
 }
 
 export interface LoginPayload {
@@ -243,6 +293,17 @@ export interface TeamWidgets {
 
 export type RosterLevel = "ACT" | "AAA" | "LOW" | "DL" | "IR";
 
+/** Position-bucket percentile annotation for a hitter's rating, mirroring
+ *  the "Top X% of <bucket> (avg Y)" tooltip from PyQt's
+ *  position_players_dialog. Pitchers compare against the whole pitcher
+ *  pool and don't carry this — ``ratings_context`` is absent or missing
+ *  the key. */
+export interface RatingContextEntry {
+  top_pct: number;
+  bucket: string | null;
+  avg: number | null;
+}
+
 export interface RosterPlayer {
   player_id: string;
   first_name: string;
@@ -257,6 +318,7 @@ export interface RosterPlayer {
   level: RosterLevel;
   dl_tier: string | null;
   ratings: Record<string, number | string | null>;
+  ratings_context?: Record<string, RatingContextEntry>;
 }
 
 export interface TeamRoster {
@@ -705,6 +767,11 @@ export const api = {
     apiRequest<{ league_id: string | null }>(`/leagues/active/${encodeURIComponent(leagueId)}`, {
       method: "POST",
     }),
+  deleteLeague: (leagueId: string) =>
+    apiRequest<{ deleted: boolean; league_id: string; active_league: string | null }>(
+      `/leagues/${encodeURIComponent(leagueId)}`,
+      { method: "DELETE" },
+    ),
   listTeams: () => apiRequest<Team[]>("/teams"),
   getTeam: (teamId: string) =>
     apiRequest<Team>(`/teams/${encodeURIComponent(teamId)}`),
@@ -851,11 +918,7 @@ export const api = {
   generateLogos: (
     options: { force_engine?: "openai" | "auto_logo" } = {},
   ) =>
-    apiRequest<{
-      output_dir: string;
-      generated_at: number;
-      engine: "openai" | "auto_logo";
-    }>("/exports/logos", {
+    apiRequest<ExportJobStart>("/exports/logos", {
       method: "POST",
       body: { force_engine: options.force_engine },
     }),
@@ -872,10 +935,12 @@ export const api = {
       message: string | null;
     }>("/ai/api-key", { method: "POST", body: { api_key } }),
   generateAvatars: (initial_creation: boolean = false) =>
-    apiRequest<Record<string, unknown>>("/exports/avatars", {
+    apiRequest<ExportJobStart>("/exports/avatars", {
       method: "POST",
       body: { initial_creation },
     }),
+  getExportJob: (jobId: string) =>
+    apiRequest<ExportJobStatus>(`/exports/jobs/${encodeURIComponent(jobId)}`),
   changeRequests: (statusFilter?: string) =>
     apiRequest<{
       count: number;

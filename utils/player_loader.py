@@ -194,6 +194,14 @@ def _read_players_from_csv(csv_path: Path):
                 "hair_color": row.get("hair_color", ""),
                 "facial_hair": row.get("facial_hair", ""),
                 "bats": row["bats"],
+                # ``throws`` was only added to the CSV schema in 6.10.12.
+                # Pre-existing leagues' CSVs have no throws column, so fall
+                # back to ``bats`` (most players throw with the same hand
+                # they bat) and default the switch-hitter edge case to "R".
+                "throws": (
+                    (row.get("throws") or "").strip()
+                    or ("R" if row.get("bats") == "S" else (row.get("bats") or "R"))
+                ),
                 "primary_position": row["primary_position"],
                 "other_positions": row.get("other_positions", "").split("|") if row.get("other_positions") else [],
                 "gf": gf,

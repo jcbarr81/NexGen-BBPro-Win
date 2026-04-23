@@ -169,7 +169,14 @@ def create_league_wizard(
 
     data_dir = league_registry.get_league_data_dir(record.id, create=True)
 
-    # 2. Build teams.csv + initial roster files.
+    # 2. Flip to active FIRST so player_generator's NAME_PATH / PLAYER_PATH
+    # resolve to this league's data dir. get_data_dir() seeds names.csv
+    # into it as a side effect; without this, every generated player
+    # falls back to the "John Doe" sentinel because the name pool loads
+    # from data_root/names.csv (which isn't seeded).
+    switch_active_league(record.id)
+
+    # 3. Build teams.csv + initial roster files.
     try:
         create_league(str(data_dir), structure, display_name)
     except Exception as exc:
@@ -177,9 +184,6 @@ def create_league_wizard(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"League data generation failed: {exc}",
         ) from exc
-
-    # 3. Flip to active so downstream settings write to the right files.
-    switch_active_league(record.id)
 
     # 4. Apply the optional preset bundle.
     rule_preset_id = str(payload.get("rule_preset_id", "")).strip()

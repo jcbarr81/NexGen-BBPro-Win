@@ -1,7 +1,7 @@
 {
   "name": "nexgen-bbpro-desktop",
   "private": true,
-  "version": "6.10.2",
+  "version": "6.10.14",
   "description": "Electron + React UI for NexGen-BBPro, talking to the Python FastAPI sidecar.",
   "main": "dist-electron/main.js",
   "scripts": {

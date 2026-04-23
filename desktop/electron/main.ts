@@ -74,6 +74,18 @@ async function createMainWindow(handle: SidecarHandle): Promise<void> {
   } else {
     await mainWindow.loadFile(path.join(__here, "..", "dist", "index.html"));
   }
+
+  // Allow end users to open DevTools in packaged builds (Ctrl+Shift+I
+  // or F12) so we can diagnose renderer-only bugs without shipping a
+  // debug flag. before-input-event fires before the keystroke reaches
+  // any focused input, so this is opt-in by key combo.
+  mainWindow.webContents.on("before-input-event", (_event, input) => {
+    if (input.type !== "keyDown") return;
+    const key = (input.key || "").toLowerCase();
+    if (key === "f12" || (input.control && input.shift && key === "i")) {
+      mainWindow?.webContents.toggleDevTools();
+    }
+  });
 }
 
 /**

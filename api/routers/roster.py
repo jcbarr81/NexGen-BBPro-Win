@@ -18,6 +18,7 @@ from fastapi import APIRouter, Body, HTTPException, status
 from services.roster_moves import cut_player
 from services.transaction_log import record_transaction
 from utils.player_loader import load_players_from_csv
+from utils.rating_display import rating_display_details, rating_display_value
 from utils.roster_loader import load_roster, save_roster
 
 from ..security import CurrentIdentity
@@ -53,11 +54,72 @@ _PITCHER_RATING_FIELDS = (
 
 def _player_summary(player: Any, level: str, dl_tier: str | None = None) -> Dict[str, Any]:
     is_pitcher = bool(getattr(player, "is_pitcher", False))
-    ratings = {f: getattr(player, f, None) for f in _RATING_FIELDS}
+    position = getattr(player, "primary_position", None)
+
+    def _display(key: str, raw: Any) -> Any:
+        """Scale raw ratings the same way the player profile view-model
+        does (position-aware, 35-99), so the roster table and the profile
+        card show the same numbers. PyQt's position_players_dialog applied
+        the same transform — this line keeps parity."""
+
+        if raw in (None, "", 0):
+            return raw
+        try:
+            scaled = rating_display_value(
+                raw,
+                key=key.upper(),
+                position=position,
+                is_pitcher=is_pitcher,
+                mode="scale_99",
+            )
+            return int(round(float(scaled)))
+        except (TypeError, ValueError):
+            return raw
+
+    def _context(key: str, raw: Any) -> Dict[str, Any] | None:
+        """Position-bucket percentile info (top_pct + bucket + avg) for
+        hitters, mirroring the ``use_position_context=True`` branch in
+        PyQt's position_players_dialog. Pitchers are compared against the
+        whole pitcher pool (no position bucket) so this returns None."""
+
+        if is_pitcher or raw in (None, "", 0):
+            return None
+        try:
+            _display_val, top_pct, avg, bucket = rating_display_details(
+                raw,
+                key=key.upper(),
+                position=position,
+                is_pitcher=False,
+                mode="scale_99",
+                curve=None,
+                use_position_bucket=True,
+            )
+        except (TypeError, ValueError):
+            return None
+        if top_pct is None:
+            return None
+        return {
+            "top_pct": int(top_pct),
+            "bucket": bucket or (position or "").upper() or None,
+            "avg": None if avg is None else int(round(float(avg))),
+        }
+
+    ratings: Dict[str, Any] = {}
+    ratings_context: Dict[str, Dict[str, Any]] = {}
+    for key in _RATING_FIELDS:
+        raw = getattr(player, key, None)
+        if raw is None:
+            continue
+        ratings[key] = _display(key, raw)
+        ctx = _context(key, raw)
+        if ctx is not None:
+            ratings_context[key] = ctx
     if is_pitcher:
-        ratings.update({f: getattr(player, f, None) for f in _PITCHER_RATING_FIELDS})
-    # Drop None rating keys so the JSON is compact.
-    ratings = {k: v for k, v in ratings.items() if v is not None}
+        for key in _PITCHER_RATING_FIELDS:
+            raw = getattr(player, key, None)
+            if raw is None:
+                continue
+            ratings[key] = _display(key, raw)
 
     return {
         "player_id": getattr(player, "player_id", ""),
@@ -70,6 +132,7 @@ def _player_summary(player: Any, level: str, dl_tier: str | None = None) -> Dict
         "is_pitcher": is_pitcher,
         "injured": bool(getattr(player, "injured", False)),
         "injury_description": getattr(player, "injury_description", "") or "",
+        "ratings_context": ratings_context,
         "level": level,
         "dl_tier": dl_tier,
         "ratings": ratings,
