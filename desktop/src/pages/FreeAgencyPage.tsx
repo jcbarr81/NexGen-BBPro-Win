@@ -21,10 +21,13 @@ import {
   Users,
 } from "lucide-react";
 
-import { api } from "@/lib/api";
+import { api, type RatingContextEntry } from "@/lib/api";
+import { toast } from "@/lib/toast-store";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { StarRating } from "@/components/StarRating";
 import {
   Badge,
   Button,
@@ -63,6 +66,26 @@ type FreeAgent = NonNullable<
   Awaited<ReturnType<typeof api.freeAgents>>
 >["free_agents"][number];
 
+const POSITION_CONTEXT_KEY = "nexgen:free-agency:position-context";
+
+function readPositionContextPref(): boolean {
+  try {
+    const raw = window.localStorage.getItem(POSITION_CONTEXT_KEY);
+    if (raw === null) return true; // default on — matches PyQt
+    return raw === "1";
+  } catch {
+    return true;
+  }
+}
+
+function writePositionContextPref(value: boolean) {
+  try {
+    window.localStorage.setItem(POSITION_CONTEXT_KEY, value ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
 export function FreeAgencyPage() {
   const user = useAuthStore();
   const teamId = user.selectedTeamId ?? user.teamId ?? null;
@@ -72,6 +95,11 @@ export function FreeAgencyPage() {
   const [signing, setSigning] = useState<FreeAgent | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [positionContext, setPositionContextState] = useState(readPositionContextPref);
+  const setPositionContext = (value: boolean) => {
+    setPositionContextState(value);
+    writePositionContextPref(value);
+  };
 
   const list = useQuery({
     queryKey: ["free-agents"],
@@ -175,6 +203,18 @@ export function FreeAgencyPage() {
             ))}
           </select>
         </div>
+        <label
+          className="flex cursor-pointer items-center gap-2 rounded-md border border-border bg-surfaceAlt/50 px-3 py-1.5 text-xs uppercase tracking-wider text-muted hover:text-ink"
+          title="Show each hitter's percentile against other players at the same position (C/1B/2B/3B/SS/OF). Pitchers compare against the full pitcher pool."
+        >
+          <input
+            type="checkbox"
+            checked={positionContext}
+            onChange={(e) => setPositionContext(e.target.checked)}
+            className="h-3 w-3 accent-amber"
+          />
+          Position context
+        </label>
         <span className="text-xs text-muted">{filtered.length} shown</span>
       </div>
 
@@ -209,6 +249,7 @@ export function FreeAgencyPage() {
                     <HeaderCell label="Pos" keyId="pos" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                     <HeaderCell label="B" keyId="bats" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                     <HeaderCell label="Role" keyId="role" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
+                    <HeaderCell label="OVR" keyId="overall" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                     {columns.map((c) => (
                       <HeaderCell
                         key={c.key}
@@ -229,13 +270,20 @@ export function FreeAgencyPage() {
                       className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
                     >
                       <td className="px-6 py-2">
-                        <Link
-                          to={`/player/${encodeURIComponent(fa.player_id)}`}
-                          className="font-semibold hover:text-amber"
-                        >
-                          {fa.last_name}
-                          {fa.first_name ? `, ${fa.first_name}` : ""}
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <PlayerAvatar
+                            playerId={fa.player_id}
+                            initials={`${fa.first_name?.[0] ?? ""}${fa.last_name?.[0] ?? ""}`}
+                            className="h-7 w-7 shrink-0 overflow-hidden rounded-md text-[10px]"
+                          />
+                          <Link
+                            to={`/player/${encodeURIComponent(fa.player_id)}`}
+                            className="font-semibold hover:text-amber"
+                          >
+                            {fa.last_name}
+                            {fa.first_name ? `, ${fa.first_name}` : ""}
+                          </Link>
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
                         {fa.primary_position || "—"}
@@ -244,9 +292,22 @@ export function FreeAgencyPage() {
                       <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
                         {fa.role || (fa.is_pitcher ? "PIT" : "POS")}
                       </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        <OverallCell
+                          display={fa.overall_display ?? fa.overall_raw ?? null}
+                          starsText={fa.overall_stars_text ?? null}
+                        />
+                      </td>
                       {columns.map((col) => (
                         <td key={col.key} className="px-3 py-2 text-right tabular-nums">
-                          <RatingCell value={fa.ratings[col.key]} />
+                          <RatingCell
+                            value={fa.ratings[col.key]}
+                            context={
+                              positionContext
+                                ? fa.ratings_context?.[col.key]
+                                : undefined
+                            }
+                          />
                         </td>
                       ))}
                       <td className="px-4 py-2 text-right">
@@ -292,6 +353,9 @@ function SignDialog({
   const [error, setError] = useState<string | null>(null);
 
   const sign = useMutation({
+    // The in-dialog error line + dismissal UX is already wired, so
+    // silence the auto-toast and keep the inline message alone.
+    meta: { suppressToast: true },
     mutationFn: () => {
       if (!player || !teamId) return Promise.reject(new Error("No team"));
       return api.signFreeAgent(teamId, {
@@ -304,6 +368,12 @@ function SignDialog({
       queryClient.invalidateQueries({ queryKey: ["free-agents"] });
       queryClient.invalidateQueries({ queryKey: ["team-roster"] });
       queryClient.invalidateQueries({ queryKey: ["activity"] });
+      const name = player
+        ? `${player.first_name} ${player.last_name}`.trim() || player.player_id
+        : "Player";
+      toast.success(`Signed ${name}`, {
+        description: `Assigned to ${level}.`,
+      });
       onClose();
     },
     onError: (err) =>
@@ -378,6 +448,8 @@ function sortValue(p: FreeAgent, key: SortKey): string | number | null {
       return p.bats;
     case "role":
       return p.role;
+    case "overall":
+      return p.overall_display ?? p.overall_raw ?? null;
     default: {
       const raw = p.ratings[key];
       if (raw == null) return null;
@@ -427,13 +499,61 @@ function HeaderCell({
   );
 }
 
-function RatingCell({ value }: { value: number | string | null | undefined }) {
+function RatingCell({
+  value,
+  context,
+}: {
+  value: number | string | null | undefined;
+  context?: RatingContextEntry;
+}) {
   if (value == null || value === "") return <span className="text-subtle">—</span>;
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return <>{String(value)}</>;
   const tone =
     n >= 85 ? "text-success" : n >= 70 ? "text-amber-text" : n >= 50 ? "text-ink" : "text-subtle";
-  return <span className={tone}>{Math.round(n)}</span>;
+  if (!context) {
+    return <span className={tone}>{Math.round(n)}</span>;
+  }
+  const bucket = context.bucket ?? "pool";
+  const avgText = context.avg == null ? "--" : String(context.avg);
+  return (
+    <span
+      className="inline-flex items-baseline justify-end gap-1"
+      title={`Top ${context.top_pct}% of ${bucket} (avg ${avgText})`}
+    >
+      <span className={tone}>{Math.round(n)}</span>
+      <span className="text-[10px] text-muted">({context.top_pct}%)</span>
+    </span>
+  );
+}
+
+function OverallCell({
+  display,
+  starsText,
+}: {
+  display: number | null;
+  starsText: string | null;
+}) {
+  if (display == null) return <span className="text-subtle">—</span>;
+  const stars = parseFloat(starsText ?? "");
+  const tone =
+    display >= 85
+      ? "text-success"
+      : display >= 70
+      ? "text-amber-text"
+      : display >= 50
+      ? "text-ink"
+      : "text-subtle";
+  return (
+    <div className="inline-flex flex-col items-end gap-0.5">
+      <span className={cn("font-display font-semibold tabular-nums", tone)}>
+        {Math.round(display)}
+      </span>
+      {Number.isFinite(stars) && stars > 0 && (
+        <StarRating value={stars} size="h-2.5 w-2.5" />
+      )}
+    </div>
+  );
 }
 
 function Pill({

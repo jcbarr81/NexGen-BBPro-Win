@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -23,11 +24,15 @@ import {
   Trophy,
 } from "lucide-react";
 
-import { api, type DraftSelection, type DraftState } from "@/lib/api";
+import { api, type DraftSelection, type DraftState, type Team } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import { StatCard } from "@/components/StatCard";
+import { StarRating } from "@/components/StarRating";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { TeamLogo } from "@/components/TeamLogo";
+import { useConfirmDialog } from "@/lib/use-confirm";
 import {
   Badge,
   Button,
@@ -61,6 +66,15 @@ export function DraftPage() {
     queryFn: () => api.draftResults(state.data?.year),
     enabled: !!state.data?.year,
   });
+  const teamsQ = useQuery({
+    queryKey: ["teams"],
+    queryFn: () => api.listTeams(),
+  });
+  const teamById = useMemo(() => {
+    const m = new Map<string, Team>();
+    for (const t of teamsQ.data ?? []) m.set(t.team_id, t);
+    return m;
+  }, [teamsQ.data]);
 
   return (
     <AppShell
@@ -94,7 +108,11 @@ export function DraftPage() {
           </TabsList>
 
           <TabsContent value="now">
-            <LiveDraftView state={state.data!} myTeamId={myTeamId} />
+            <LiveDraftView
+              state={state.data!}
+              myTeamId={myTeamId}
+              teamById={teamById}
+            />
           </TabsContent>
 
           <TabsContent value="history">
@@ -105,6 +123,7 @@ export function DraftPage() {
               isError={results.isError}
               error={results.error}
               myTeamId={myTeamId}
+              teamById={teamById}
             />
           </TabsContent>
 
@@ -122,9 +141,11 @@ export function DraftPage() {
 function LiveDraftView({
   state,
   myTeamId,
+  teamById,
 }: {
   state: DraftState;
   myTeamId: string | null;
+  teamById: Map<string, Team>;
 }) {
   const onClock = useMemo(() => {
     if (!state.exists || state.order.length === 0) return null;
@@ -248,7 +269,11 @@ function LiveDraftView({
                 No picks yet.
               </div>
             ) : (
-              <PicksTable picks={recentPicks} myTeamId={myTeamId} />
+              <PicksTable
+                picks={recentPicks}
+                myTeamId={myTeamId}
+                teamById={teamById}
+              />
             )}
           </CardContent>
         </Card>
@@ -264,6 +289,7 @@ function HistoryView({
   isError,
   error,
   myTeamId,
+  teamById,
 }: {
   year: number | null;
   picks: DraftSelection[];
@@ -271,6 +297,7 @@ function HistoryView({
   isError: boolean;
   error?: unknown;
   myTeamId: string | null;
+  teamById: Map<string, Team>;
 }) {
   if (isLoading) {
     return (
@@ -328,7 +355,11 @@ function HistoryView({
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <PicksTable picks={roundPicks} myTeamId={myTeamId} />
+            <PicksTable
+              picks={roundPicks}
+              myTeamId={myTeamId}
+              teamById={teamById}
+            />
           </CardContent>
         </Card>
       ))}
@@ -339,9 +370,11 @@ function HistoryView({
 function PicksTable({
   picks,
   myTeamId,
+  teamById,
 }: {
   picks: DraftSelection[];
   myTeamId: string | null;
+  teamById: Map<string, Team>;
 }) {
   return (
     <table className="w-full text-sm">
@@ -350,26 +383,84 @@ function PicksTable({
           <th className="px-6 py-2 text-left font-semibold">Pick</th>
           <th className="px-3 py-2 text-left font-semibold">Team</th>
           <th className="px-3 py-2 text-left font-semibold">Player</th>
+          <th className="px-3 py-2 text-right font-semibold">OVR</th>
           <th className="px-6 py-2 text-right font-semibold">Rd</th>
         </tr>
       </thead>
       <tbody>
-        {picks.map((pick) => (
-          <tr
-            key={`${pick.round}-${pick.overall}`}
-            className={cn(
-              "border-b border-border/40 transition last:border-b-0 hover:bg-surfaceAlt/40",
-              pick.team_id === myTeamId && "bg-amber/10 hover:bg-amber/15",
-            )}
-          >
-            <td className="px-6 py-2 font-mono text-xs text-muted">
-              #{pick.overall}
-            </td>
-            <td className="px-3 py-2 font-semibold">{pick.team_id}</td>
-            <td className="px-3 py-2 font-mono text-xs">{pick.player_id}</td>
-            <td className="px-6 py-2 text-right tabular-nums">{pick.round}</td>
-          </tr>
-        ))}
+        {picks.map((pick) => {
+          const playerName =
+            pick.last_name
+              ? `${pick.last_name}${pick.first_name ? `, ${pick.first_name}` : ""}`
+              : pick.player_id;
+          const stars = parseFloat(pick.overall_stars_text ?? "");
+          const display = pick.overall_display ?? pick.overall_raw ?? null;
+          return (
+            <tr
+              key={`${pick.round}-${pick.overall}`}
+              className={cn(
+                "border-b border-border/40 transition last:border-b-0 hover:bg-surfaceAlt/40",
+                pick.team_id === myTeamId && "bg-amber/10 hover:bg-amber/15",
+              )}
+            >
+              <td className="px-6 py-2 font-mono text-xs text-muted">
+                #{pick.overall}
+              </td>
+              <td className="px-3 py-2">
+                {(() => {
+                  const t = teamById.get(pick.team_id);
+                  return (
+                    <div className="flex items-center gap-2 font-semibold">
+                      <TeamLogo
+                        teamId={pick.team_id}
+                        abbreviation={t?.abbreviation || pick.team_id}
+                        primaryColor={t?.primary_color}
+                        secondaryColor={t?.secondary_color}
+                        className="h-6 w-6 shrink-0 rounded text-[10px]"
+                      />
+                      <span>{pick.team_id}</span>
+                    </div>
+                  );
+                })()}
+              </td>
+              <td className="px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <PlayerAvatar
+                    playerId={pick.player_id}
+                    initials={`${pick.first_name?.[0] ?? ""}${pick.last_name?.[0] ?? ""}`}
+                    className="h-6 w-6 shrink-0 overflow-hidden rounded-md text-[9px]"
+                  />
+                  <Link
+                    to={`/player/${encodeURIComponent(pick.player_id)}`}
+                    className="font-semibold hover:text-amber"
+                  >
+                    {playerName}
+                  </Link>
+                  {pick.primary_position && (
+                    <span className="ml-1 text-[10px] uppercase tracking-wider text-muted">
+                      {pick.primary_position}
+                    </span>
+                  )}
+                </div>
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums">
+                {display == null ? (
+                  <span className="text-subtle">—</span>
+                ) : (
+                  <div className="inline-flex flex-col items-end gap-0.5">
+                    <span className="font-display font-semibold">
+                      {Math.round(display)}
+                    </span>
+                    {Number.isFinite(stars) && stars > 0 && (
+                      <StarRating value={stars} size="h-2.5 w-2.5" />
+                    )}
+                  </div>
+                )}
+              </td>
+              <td className="px-6 py-2 text-right tabular-nums">{pick.round}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -507,6 +598,7 @@ function AdminDraftPanelInner({
   setManualPlayerId: (v: string) => void;
   currentYear: number | null;
 }) {
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
   const toYear = () => {
     const n = Number(year);
@@ -560,8 +652,16 @@ function AdminDraftPanelInner({
           </div>
           <Button
             size="sm"
-            onClick={() => {
-              if (window.confirm("Initialize draft state? Discards in-progress state for this year.")) {
+            onClick={async () => {
+              if (
+                await confirm({
+                  title: "Initialize draft state?",
+                  description:
+                    "Discards any in-progress draft state for this year.",
+                  confirmLabel: "Initialize",
+                  danger: true,
+                })
+              ) {
                 initialize.mutate();
               }
             }}
@@ -645,11 +745,15 @@ function AdminDraftPanelInner({
           <Button
             size="sm"
             variant="outline"
-            onClick={() => {
+            onClick={async () => {
               if (
-                window.confirm(
-                  "Delete draft state and results for this year? This cannot be undone.",
-                )
+                await confirm({
+                  title: "Reset draft?",
+                  description:
+                    "Delete draft state and results for this year. This cannot be undone.",
+                  confirmLabel: "Reset draft",
+                  danger: true,
+                })
               ) {
                 reset.mutate();
               }
@@ -661,6 +765,7 @@ function AdminDraftPanelInner({
           <AdminResult mut={reset} okText="Draft state and results cleared." />
         </CardContent>
       </Card>
+      {confirmDialog}
     </div>
   );
 }

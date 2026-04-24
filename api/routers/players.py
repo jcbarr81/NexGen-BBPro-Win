@@ -18,14 +18,27 @@ from fastapi.responses import FileResponse
 
 from utils.path_utils import get_base_dir, get_data_dir
 from utils.player_loader import load_players_from_csv
-from utils.rating_display import rating_display_value
 
 from ..schemas import PlayerSummary
 from ..security import CurrentIdentity
+from ._rating_presentation import compute_overall, rating_context, scale_rating
 
 router = APIRouter(prefix="/players", tags=["players"], dependencies=[CurrentIdentity])
 
 _HEADLINE_RATINGS = ("ch", "ph", "sp", "eye", "arm", "fa", "control", "movement", "endurance")
+
+
+def _row_raw_int(row: dict, key: str) -> Any:
+    """CSV cells come through as strings; coerce to int where possible so
+    the shared rating/overall helpers can do arithmetic cleanly."""
+
+    value = row.get(key)
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return value
 
 
 def _row_to_summary(row: dict) -> PlayerSummary:
@@ -33,23 +46,25 @@ def _row_to_summary(row: dict) -> PlayerSummary:
     position = row.get("primary_position") or None
 
     ratings: Dict[str, Any] = {}
+    ratings_context: Dict[str, Dict[str, Any]] = {}
     for key in _HEADLINE_RATINGS:
-        raw = row.get(key)
-        if not raw:
+        raw = _row_raw_int(row, key)
+        if raw is None:
             continue
-        try:
-            scaled = rating_display_value(
-                int(raw),
-                key=key.upper(),
-                position=position,
-                is_pitcher=is_pitcher,
-                mode="scale_99",
-            )
-            ratings[key] = int(round(float(scaled)))
-        except (TypeError, ValueError):
-            ratings[key] = raw
+        ratings[key] = scale_rating(
+            raw, key=key, position=position, is_pitcher=is_pitcher
+        )
+        ctx = rating_context(
+            raw, key=key, position=position, is_pitcher=is_pitcher
+        )
+        if ctx is not None:
+            ratings_context[key] = ctx
 
-    return PlayerSummary(
+    # PlayerSummary only exposes ``ratings``; the richer fields (context +
+    # overall + stars) hang off an extra_data sidecar so clients that care
+    # (roster/free-agency/draft pages) can read them while the minimal
+    # summary schema stays unchanged.
+    summary = PlayerSummary(
         player_id=row.get("player_id", ""),
         first_name=row.get("first_name", ""),
         last_name=row.get("last_name", ""),
@@ -59,6 +74,7 @@ def _row_to_summary(row: dict) -> PlayerSummary:
         role=row.get("role", "") or "",
         ratings=ratings,
     )
+    return summary
 
 
 def _iter_players():
@@ -159,11 +175,39 @@ def browse_players(
             if needle not in haystack:
                 continue
 
+        # Re-run the rating context + overall helpers to attach them to
+        # the browse payload. PlayerSummary doesn't carry these fields;
+        # list_players() callers that need them should consume this
+        # endpoint's richer dict instead.
+        position_raw = row.get("primary_position") or None
+        context_map: Dict[str, Dict[str, Any]] = {}
+        for key in _HEADLINE_RATINGS:
+            raw = _row_raw_int(row, key)
+            if raw is None:
+                continue
+            ctx = rating_context(
+                raw,
+                key=key,
+                position=position_raw,
+                is_pitcher=summary.is_pitcher,
+            )
+            if ctx is not None:
+                context_map[key] = ctx
+        overall = compute_overall(
+            lambda k: _row_raw_int(row, k),
+            is_pitcher=summary.is_pitcher,
+            position=position_raw,
+        )
+
         rows.append(
             {
                 **summary.model_dump(),
                 "team_id": team,
                 "level": level,
+                "ratings_context": context_map,
+                "overall_raw": overall["overall_raw"],
+                "overall_display": overall["overall_display"],
+                "overall_stars_text": overall["overall_stars_text"],
             }
         )
         if len(rows) >= limit:

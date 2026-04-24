@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import date, datetime
 import csv
+import json
 import math
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
@@ -158,6 +159,16 @@ class PlayerProfileViewModel:
     stats_columns: Tuple[str, ...]
     overall_details: Tuple[Tuple[str, str], ...] = ()
     contract_details: Tuple[Tuple[str, str], ...] = ()
+    # Rolling metric chart: parallel lists — ``dates`` is a list of date-ish
+    # labels (snapshot stems) and ``series`` maps metric label -> list of
+    # values. Hitters: AVG/OPS. Pitchers: ERA/WHIP. Same shape PyQt's
+    # RollingStatsWidget consumed.
+    rolling_stats: Dict[str, Any] = None  # type: ignore[assignment]
+    # Career ledger tabs ported from ``ui/player_profile_dialog.py``.
+    ratings_history: Tuple[Dict[str, Any], ...] = ()
+    awards_history: Tuple[Dict[str, str], ...] = ()
+    transactions_log: Tuple[Dict[str, str], ...] = ()
+    trade_log: Tuple[Dict[str, str], ...] = ()
 
 
 def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
@@ -216,6 +227,20 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
         stats_columns=stats_columns,
         overall_details=overall_details,
         contract_details=contract_details,
+        rolling_stats=_compute_rolling_stats(
+            str(getattr(player, "player_id", "") or ""),
+            is_pitcher=is_pitcher,
+        ),
+        ratings_history=tuple(
+            _collect_ratings_history_entries(player, is_pitcher=is_pitcher)
+        ),
+        awards_history=tuple(_collect_awards_history(player)),
+        transactions_log=tuple(
+            _collect_transactions_entries(player, trade_only=False)
+        ),
+        trade_log=tuple(
+            _collect_transactions_entries(player, trade_only=True)
+        ),
     )
 
 
@@ -945,6 +970,282 @@ def _safe_float(value: Any) -> float:
     except (TypeError, ValueError):
         return 0.0
     return numeric if math.isfinite(numeric) else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Rolling stats chart data (hitter AVG/OPS or pitcher ERA/WHIP across the
+# last ~12 season_history snapshots). Ports ``_compute_rolling_stats`` from
+# ``ui/player_profile_dialog.py`` so the React chart consumes exactly the
+# same payload the PyQt widget did.
+
+
+def _calc_obp(stats: Mapping[str, Any]) -> float:
+    ab = _safe_float(stats.get("ab"))
+    hits = _safe_float(stats.get("h"))
+    bb = _safe_float(stats.get("bb"))
+    hbp = _safe_float(stats.get("hbp"))
+    sf = _safe_float(stats.get("sf"))
+    denom = ab + bb + hbp + sf
+    if denom <= 0:
+        return 0.0
+    return (hits + bb + hbp) / denom
+
+
+def _calc_slg(stats: Mapping[str, Any]) -> float:
+    ab = _safe_float(stats.get("ab"))
+    if ab <= 0:
+        return 0.0
+    doubles = _safe_float(stats.get("2b", stats.get("b2", 0)))
+    triples = _safe_float(stats.get("3b", stats.get("b3", 0)))
+    homers = _safe_float(stats.get("hr"))
+    hits = _safe_float(stats.get("h"))
+    singles = max(0.0, hits - doubles - triples - homers)
+    return (singles + 2 * doubles + 3 * triples + 4 * homers) / ab
+
+
+def _compute_rolling_stats(player_id: str, *, is_pitcher: bool) -> Dict[str, Any]:
+    if not player_id:
+        return {"dates": [], "series": {}}
+    history_dir = get_data_dir() / "season_history"
+    if not history_dir.exists():
+        return {"dates": [], "series": {}}
+
+    dates: List[str] = []
+    if is_pitcher:
+        metric_specs = [("ERA", "era"), ("WHIP", "whip")]
+    else:
+        metric_specs = [("AVG", "avg"), ("OPS", "ops")]
+    series: Dict[str, List[float]] = {label: [] for label, _ in metric_specs}
+
+    snapshots = sorted(history_dir.glob("*.json"))
+    for path in snapshots[-12:]:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        stats = (payload.get("players") or {}).get(player_id)
+        if not stats:
+            continue
+        dates.append(path.stem)
+        for label, metric_id in metric_specs:
+            if metric_id == "avg":
+                ab = _safe_float(stats.get("ab"))
+                hits = _safe_float(stats.get("h"))
+                value = hits / ab if ab else 0.0
+            elif metric_id == "ops":
+                value = _calc_obp(stats) + _calc_slg(stats)
+            elif metric_id == "era":
+                outs = _safe_float(stats.get("outs"))
+                ip = outs / 3 if outs else 0.0
+                er = _safe_float(stats.get("er"))
+                value = (er * 9) / ip if ip else 0.0
+            elif metric_id == "whip":
+                outs = _safe_float(stats.get("outs"))
+                ip = outs / 3 if outs else 0.0
+                walks = _safe_float(stats.get("bb"))
+                hits_allowed = _safe_float(stats.get("h"))
+                value = (walks + hits_allowed) / ip if ip else 0.0
+            else:
+                value = 0.0
+            series[label].append(round(value, 3))
+    return {"dates": dates, "series": series}
+
+
+# ---------------------------------------------------------------------------
+# Career ledger: ratings history + awards + transactions/trades. Ports the
+# matching collectors in ``ui/player_profile_dialog.py``.
+
+
+_HITTER_RATING_HISTORY = ("ch", "ph", "sp", "eye", "fa", "arm")
+_PITCHER_RATING_HISTORY = ("endurance", "control", "movement", "arm", "fa")
+
+
+def _collect_ratings_history_entries(
+    player: Any,
+    *,
+    is_pitcher: bool,
+) -> List[Dict[str, Any]]:
+    """Per-season rating snapshot list. Each entry is
+    ``{label, ratings: {key: value}}``. Walks SeasonContext history + the
+    live player to avoid duplicating the current year."""
+
+    player_id = str(getattr(player, "player_id", "") or "").strip()
+    if not player_id:
+        return []
+    entries: List[Dict[str, Any]] = []
+    seen_years: set[int] = set()
+
+    try:
+        ctx = SeasonContext.load()
+        seasons = list(ctx.seasons)
+    except Exception:
+        seasons = []
+
+    keys = _PITCHER_RATING_HISTORY if is_pitcher else _HITTER_RATING_HISTORY
+
+    for season in seasons:
+        if not isinstance(season, dict):
+            continue
+        season_id = str(season.get("season_id") or "").strip()
+        if not season_id:
+            continue
+        league_year = season.get("league_year")
+        try:
+            year_val = int(league_year) if league_year is not None else 0
+        except (TypeError, ValueError):
+            year_val = 0
+        path = get_data_dir() / "careers" / season_id / "players.csv"
+        if not path.exists():
+            continue
+        with path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            row_match: Optional[Mapping[str, Any]] = None
+            for row in reader:
+                if str(row.get("player_id", "")).strip() == player_id:
+                    row_match = row
+                    break
+        if not row_match:
+            continue
+        ratings: Dict[str, Any] = {}
+        for k in keys:
+            raw = row_match.get(k)
+            try:
+                ratings[k] = int(raw) if raw not in ("", None) else None
+            except (TypeError, ValueError):
+                ratings[k] = None
+        label = f"{year_val:04d}" if year_val else season_id
+        entries.append({"label": label, "ratings": ratings})
+        if year_val:
+            seen_years.add(year_val)
+
+    # Append current season so the table trails off at "now".
+    current_year = date.today().year
+    if current_year not in seen_years:
+        current_ratings: Dict[str, Any] = {}
+        for k in keys:
+            try:
+                raw = getattr(player, k, None)
+                current_ratings[k] = int(raw) if raw not in ("", None) else None
+            except (TypeError, ValueError):
+                current_ratings[k] = None
+        if any(v is not None for v in current_ratings.values()):
+            entries.append(
+                {"label": f"{current_year:04d}", "ratings": current_ratings}
+            )
+
+    def _year(entry: Dict[str, Any]) -> int:
+        try:
+            return int(entry["label"])
+        except (TypeError, ValueError):
+            return -1
+
+    entries.sort(key=_year)
+    return entries
+
+
+def _collect_awards_history(player: Any) -> List[Dict[str, str]]:
+    """Best-effort award list. Awards live in ``career_players.json`` and
+    ``season_history/*.json`` depending on the sim version; read both and
+    dedupe. Each entry is ``{year, award, description}``."""
+
+    player_id = str(getattr(player, "player_id", "") or "").strip()
+    if not player_id:
+        return []
+
+    entries: List[Dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    # career_players.json — per-season "awards" list.
+    career_path = (
+        get_data_dir() / "career_players.json"
+    )  # path mirror; see playbalance.season_context.CAREER_DATA_DIR
+    try:
+        from playbalance.season_context import CAREER_DATA_DIR
+
+        career_path = CAREER_DATA_DIR / "career_players.json"
+    except Exception:
+        pass
+    try:
+        if career_path.exists():
+            payload = json.loads(career_path.read_text(encoding="utf-8"))
+            players = payload.get("players") if isinstance(payload, dict) else None
+            entry = (players or {}).get(player_id) if isinstance(players, dict) else None
+            seasons = (entry or {}).get("seasons") if isinstance(entry, dict) else None
+            if isinstance(seasons, dict):
+                for season_id, data in seasons.items():
+                    awards = data.get("awards") if isinstance(data, dict) else None
+                    if not awards:
+                        continue
+                    year_label = str(data.get("year") or season_id)
+                    for award in awards:
+                        if isinstance(award, dict):
+                            name = str(award.get("name", "")).strip()
+                            desc = str(award.get("description", "")).strip()
+                        else:
+                            name = str(award).strip()
+                            desc = ""
+                        if not name:
+                            continue
+                        key = (year_label, name)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        entries.append(
+                            {
+                                "year": year_label,
+                                "award": name,
+                                "description": desc,
+                            }
+                        )
+    except Exception:
+        pass
+
+    entries.sort(key=lambda e: (e.get("year") or "", e.get("award") or ""))
+    return entries
+
+
+def _collect_transactions_entries(
+    player: Any,
+    *,
+    trade_only: bool,
+) -> List[Dict[str, str]]:
+    """Transaction log rows from ``financial_transactions.csv`` filtered to
+    this player. When ``trade_only`` is True, restrict to trade-type rows.
+    Each entry is ``{date, description, from_team, to_team}``."""
+
+    player_id = str(getattr(player, "player_id", "") or "").strip()
+    if not player_id:
+        return []
+    path = get_data_dir() / "financial_transactions.csv"
+    if not path.exists():
+        return []
+    entries: List[Dict[str, str]] = []
+    try:
+        with path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                pid = str(row.get("player_id", "")).strip()
+                if pid != player_id:
+                    continue
+                kind = str(row.get("type") or row.get("transaction_type") or "").strip()
+                if trade_only and "trade" not in kind.lower():
+                    continue
+                entries.append(
+                    {
+                        "date": str(row.get("date") or row.get("season_day") or ""),
+                        "description": str(
+                            row.get("description") or row.get("note") or kind or ""
+                        ),
+                        "from_team": str(
+                            row.get("from_team") or row.get("from") or ""
+                        ),
+                        "to_team": str(row.get("to_team") or row.get("to") or ""),
+                    }
+                )
+    except OSError:
+        return []
+    entries.sort(key=lambda e: e.get("date") or "")
+    return entries
 
 
 __all__ = [

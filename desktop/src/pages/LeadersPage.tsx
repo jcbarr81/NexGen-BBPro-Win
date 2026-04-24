@@ -18,6 +18,8 @@ import {
 
 import { api, type LeaderBoard, type LeaderRow } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { TeamLogo } from "@/components/TeamLogo";
 import {
   Badge,
   Card,
@@ -186,6 +188,16 @@ function BoardCard({ board }: { board: LeaderBoard }) {
 }
 
 function Row({ row, decimals }: { row: LeaderRow; decimals: number }) {
+  // Reuse the app-wide ["teams"] cache (populated by many other pages);
+  // React Query dedupes this fetch so it doesn't hit the sidecar again
+  // when teams are already hydrated.
+  const teamsQ = useQuery({
+    queryKey: ["teams"],
+    queryFn: () => api.listTeams(),
+  });
+  const team = row.player.team_id
+    ? teamsQ.data?.find((t) => t.team_id === row.player.team_id)
+    : undefined;
   return (
     <tr className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40">
       <td className="px-6 py-2 text-xs font-mono text-muted">
@@ -198,17 +210,31 @@ function Row({ row, decimals }: { row: LeaderRow; decimals: number }) {
       <td className="px-3 py-2">
         <Link
           to={`/player/${encodeURIComponent(row.player.player_id)}`}
-          className="font-semibold hover:text-amber"
+          className="flex items-center gap-2 hover:text-amber"
         >
-          {row.player.last_name}, {row.player.first_name}
+          <PlayerAvatar
+            playerId={row.player.player_id}
+            initials={`${row.player.first_name?.[0] ?? ""}${row.player.last_name?.[0] ?? ""}`}
+            className="h-6 w-6 shrink-0 overflow-hidden rounded-md text-[9px]"
+          />
+          <span className="font-semibold">
+            {row.player.last_name}, {row.player.first_name}
+          </span>
         </Link>
       </td>
       <td className="px-3 py-2">
         {row.player.team_id ? (
           <Link
             to={`/team/${encodeURIComponent(row.player.team_id)}`}
-            className="text-xs uppercase tracking-wider text-muted hover:text-amber"
+            className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted hover:text-amber"
           >
+            <TeamLogo
+              teamId={row.player.team_id}
+              abbreviation={team?.abbreviation || row.player.team_id}
+              primaryColor={team?.primary_color}
+              secondaryColor={team?.secondary_color}
+              className="h-5 w-5 shrink-0 rounded text-[9px]"
+            />
             {row.player.team_id}
           </Link>
         ) : (

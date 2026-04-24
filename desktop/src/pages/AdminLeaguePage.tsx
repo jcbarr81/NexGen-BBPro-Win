@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { useConfirmDialog } from "@/lib/use-confirm";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Button,
@@ -283,21 +284,33 @@ function ConfirmButton({
   disabled?: boolean;
   onConfirm: () => void;
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   return (
-    <Button
-      size="sm"
-      onClick={() => {
-        if (window.confirm(confirmText)) onConfirm();
-      }}
-      disabled={pending || disabled}
-    >
-      {pending ? (
-        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-      ) : (
-        <span className="mr-1">{icon}</span>
-      )}
-      {label}
-    </Button>
+    <>
+      <Button
+        size="sm"
+        onClick={async () => {
+          if (
+            await confirm({
+              title: "Confirm action",
+              description: confirmText,
+              danger: true,
+            })
+          ) {
+            onConfirm();
+          }
+        }}
+        disabled={pending || disabled}
+      >
+        {pending ? (
+          <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+        ) : (
+          <span className="mr-1">{icon}</span>
+        )}
+        {label}
+      </Button>
+      {dialog}
+    </>
   );
 }
 

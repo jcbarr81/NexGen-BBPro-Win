@@ -32,6 +32,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed for deterministic CPU FA bidding.")
     parser.add_argument("--max-fa-rounds", type=int, help="Optional cap on FA rounds per season.")
+    parser.add_argument(
+        "--warmup-seasons",
+        type=int,
+        default=0,
+        help="Drop the first N seasons from guardrail evaluation to ignore cold-start transients.",
+    )
     parser.add_argument("--json-out", type=Path, help="Optional path to write full JSON results.")
     parser.add_argument("--csv-out", type=Path, help="Optional path to write season metrics CSV.")
     parser.add_argument(
@@ -95,6 +101,7 @@ def main() -> int:
         seed=args.seed,
         max_fa_rounds=args.max_fa_rounds,
         guardrails=thresholds,
+        warmup_seasons=max(0, int(args.warmup_seasons)),
     )
     season_metrics = list(result.get("season_metrics", []) or [])
     guardrails = result.get("guardrails", {})

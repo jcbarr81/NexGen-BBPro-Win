@@ -19,6 +19,7 @@ from services.transaction_log import record_transaction
 from utils.roster_loader import load_roster, save_roster
 
 from ..security import CurrentIdentity
+from ._rating_presentation import compute_overall, rating_context, scale_rating
 
 router = APIRouter(tags=["free-agency"], dependencies=[CurrentIdentity])
 
@@ -32,11 +33,29 @@ _SUMMARY_RATING_KEYS = (
 
 def _summarize(player: Any) -> Dict[str, Any]:
     is_pitcher = bool(getattr(player, "is_pitcher", False))
-    ratings = {
-        k: getattr(player, k, None)
-        for k in _SUMMARY_RATING_KEYS
-    }
-    ratings = {k: v for k, v in ratings.items() if v is not None}
+    position = getattr(player, "primary_position", None)
+
+    ratings: Dict[str, Any] = {}
+    ratings_context: Dict[str, Dict[str, Any]] = {}
+    for key in _SUMMARY_RATING_KEYS:
+        raw = getattr(player, key, None)
+        if raw is None:
+            continue
+        ratings[key] = scale_rating(
+            raw, key=key, position=position, is_pitcher=is_pitcher
+        )
+        ctx = rating_context(
+            raw, key=key, position=position, is_pitcher=is_pitcher
+        )
+        if ctx is not None:
+            ratings_context[key] = ctx
+
+    overall = compute_overall(
+        lambda k: getattr(player, k, None),
+        is_pitcher=is_pitcher,
+        position=position,
+    )
+
     return {
         "player_id": getattr(player, "player_id", ""),
         "first_name": getattr(player, "first_name", ""),
@@ -47,6 +66,10 @@ def _summarize(player: Any) -> Dict[str, Any]:
         "is_pitcher": is_pitcher,
         "role": getattr(player, "role", "") or "",
         "ratings": ratings,
+        "ratings_context": ratings_context,
+        "overall_raw": overall["overall_raw"],
+        "overall_display": overall["overall_display"],
+        "overall_stars_text": overall["overall_stars_text"],
     }
 
 

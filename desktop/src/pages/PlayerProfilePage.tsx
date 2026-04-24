@@ -8,11 +8,13 @@
  * stats table, contract details, and injury history.
  */
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowLeftRight,
   ChevronRight,
   Loader2,
   ShieldCheck,
@@ -29,7 +31,17 @@ import {
 } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { PlayerPickerDialog } from "@/components/PlayerPickerDialog";
+import { PlayerTrainingDialog } from "@/components/PlayerTrainingDialog";
+import { RollingStatsChart } from "@/components/RollingStatsChart";
+import { SprayChart } from "@/components/SprayChart";
 import { StarRating } from "@/components/StarRating";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui";
 import {
   Badge,
   Button,
@@ -44,6 +56,8 @@ import { cn } from "@/lib/cn";
 export function PlayerProfilePage() {
   const { playerId } = useParams<{ playerId: string }>();
   const navigate = useNavigate();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [trainingOpen, setTrainingOpen] = useState(false);
   const profile = useQuery({
     queryKey: ["player-profile", playerId],
     queryFn: () => api.playerProfile(playerId as string),
@@ -59,11 +73,40 @@ export function PlayerProfilePage() {
           : "Loading…"
       }
     >
-      <div className="mb-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
         <Button variant="ghost" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
+        {profile.data && (
+          <Button variant="outline" onClick={() => setPickerOpen(true)}>
+            <ArrowLeftRight className="h-4 w-4" /> Compare
+          </Button>
+        )}
       </div>
+
+      {playerId && (
+        <PlayerPickerDialog
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          excludeId={playerId}
+          title="Pick a player to compare"
+          description={`Compare side-by-side with ${profile.data?.full_name ?? "this player"}.`}
+          onPick={(pid) =>
+            navigate(
+              `/compare/${encodeURIComponent(playerId)}/${encodeURIComponent(pid)}`,
+            )
+          }
+        />
+      )}
+      {playerId && profile.data && (
+        <PlayerTrainingDialog
+          open={trainingOpen}
+          onOpenChange={setTrainingOpen}
+          playerId={playerId}
+          playerName={profile.data.full_name}
+          teamId={profile.data.team_id || null}
+        />
+      )}
 
       {profile.isLoading ? (
         <LoadingCard />
@@ -74,9 +117,17 @@ export function PlayerProfilePage() {
           <HeroCard profile={profile.data} />
           <RatingsRow profile={profile.data} />
           {profile.data.training_focus && (
-            <TrainingCard focus={profile.data.training_focus} />
+            <TrainingCard
+              focus={profile.data.training_focus}
+              onEdit={() => setTrainingOpen(true)}
+            />
           )}
+          {!profile.data.is_pitcher && (
+            <SprayChartCard profile={profile.data} />
+          )}
+          <RollingStatsCard profile={profile.data} />
           <StatsCard profile={profile.data} />
+          <CareerLedgerCard profile={profile.data} />
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <DetailsCard
               title="Overall"
@@ -255,10 +306,59 @@ function RatingsCard({
   );
 }
 
+function SprayChartCard({ profile }: { profile: PlayerProfile }) {
+  // First stats row is the most-relevant season (typically the current
+  // year). Look up raw hit counts by key; the view-model stores both
+  // ``b2`` and ``2b`` aliases so we fall back across both.
+  const row = profile.stats_rows[0];
+  if (!row) return null;
+  const [label, data] = row;
+
+  const num = (key: string, alt?: string): number => {
+    const raw = data[key] ?? (alt ? data[alt] : undefined);
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const singles = num("b1", "1b");
+  const doubles = num("b2", "2b");
+  const triples = num("b3", "3b");
+  const homers = num("hr");
+  if (singles + doubles + triples + homers <= 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Spray chart</CardTitle>
+          <CardDescription>
+            {label} · dots placed from hit totals + handedness (synthetic, not
+            batted-ball coordinates)
+          </CardDescription>
+        </div>
+        <Badge tone="amber">
+          <Target className="h-3 w-3" /> {singles + doubles + triples + homers} hits
+        </Badge>
+      </CardHeader>
+      <CardContent>
+        <SprayChart
+          playerId={profile.player_id}
+          bats={profile.bats_text}
+          singles={singles}
+          doubles={doubles}
+          triples={triples}
+          homers={homers}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
 function TrainingCard({
   focus,
+  onEdit,
 }: {
   focus: NonNullable<PlayerProfile["training_focus"]>;
+  onEdit?: () => void;
 }) {
   return (
     <Card>
@@ -267,9 +367,16 @@ function TrainingCard({
           <CardTitle>Training focus</CardTitle>
           <CardDescription>{focus.source_text}</CardDescription>
         </div>
-        <Badge tone="amber">
-          <Target className="h-3 w-3" /> Active
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge tone="amber">
+            <Target className="h-3 w-3" /> Active
+          </Badge>
+          {onEdit && (
+            <Button variant="outline" size="sm" onClick={onEdit}>
+              Edit for player
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <FocusBlock label="Hitters" body={focus.hitters_text} />
@@ -287,6 +394,231 @@ function FocusBlock({ label, body }: { label: string; body: string }) {
       </div>
       <p className="mt-1 text-sm">{body || "—"}</p>
     </div>
+  );
+}
+
+function RollingStatsCard({ profile }: { profile: PlayerProfile }) {
+  const rolling = profile.rolling_stats;
+  if (!rolling || rolling.dates.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Rolling metrics</CardTitle>
+          <CardDescription>
+            {profile.is_pitcher
+              ? "ERA and WHIP across the most recent season-history snapshots."
+              : "AVG and OPS across the most recent season-history snapshots."}
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <RollingStatsChart dates={rolling.dates} series={rolling.series} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function CareerLedgerCard({ profile }: { profile: PlayerProfile }) {
+  const ratings = profile.ratings_history ?? [];
+  const awards = profile.awards_history ?? [];
+  const transactions = profile.transactions_log ?? [];
+  const trades = profile.trade_log ?? [];
+
+  if (
+    ratings.length === 0 &&
+    awards.length === 0 &&
+    transactions.length === 0 &&
+    trades.length === 0
+  ) {
+    return null;
+  }
+
+  // Keep the PyQt tab order so the muscle memory lines up.
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Career ledger</CardTitle>
+          <CardDescription>
+            Year-by-year ratings, awards, and transaction history.
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        <Tabs defaultValue="ratings" className="px-3 pb-3">
+          <TabsList>
+            <TabsTrigger value="ratings">Ratings</TabsTrigger>
+            <TabsTrigger value="awards">Awards</TabsTrigger>
+            <TabsTrigger value="transactions">Transactions</TabsTrigger>
+            <TabsTrigger value="trades">Trades</TabsTrigger>
+          </TabsList>
+          <TabsContent value="ratings">
+            <RatingsHistoryTable rows={ratings} isPitcher={profile.is_pitcher} />
+          </TabsContent>
+          <TabsContent value="awards">
+            <AwardsTable rows={awards} />
+          </TabsContent>
+          <TabsContent value="transactions">
+            <TransactionsTable rows={transactions} />
+          </TabsContent>
+          <TabsContent value="trades">
+            <TransactionsTable rows={trades} />
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RatingsHistoryTable({
+  rows,
+  isPitcher,
+}: {
+  rows: NonNullable<PlayerProfile["ratings_history"]>;
+  isPitcher: boolean;
+}) {
+  const columns = isPitcher
+    ? [
+        { key: "endurance", label: "END" },
+        { key: "control", label: "CTRL" },
+        { key: "movement", label: "MOV" },
+        { key: "arm", label: "AS" },
+        { key: "fa", label: "FA" },
+      ]
+    : [
+        { key: "ch", label: "CH" },
+        { key: "ph", label: "PH" },
+        { key: "sp", label: "SP" },
+        { key: "eye", label: "EYE" },
+        { key: "fa", label: "FA" },
+        { key: "arm", label: "ARM" },
+      ];
+  if (rows.length === 0) {
+    return <EmptyPanel message="No historical ratings recorded yet." />;
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
+            <th className="px-4 py-2 text-left font-semibold">Year</th>
+            {columns.map((c) => (
+              <th key={c.key} className="px-3 py-2 text-right font-semibold">
+                {c.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr
+              key={row.label}
+              className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
+            >
+              <td className="px-4 py-2 font-mono text-xs">{row.label}</td>
+              {columns.map((c) => {
+                const v = row.ratings[c.key];
+                return (
+                  <td
+                    key={c.key}
+                    className="px-3 py-2 text-right tabular-nums"
+                  >
+                    {v == null ? (
+                      <span className="text-subtle">—</span>
+                    ) : (
+                      Math.round(v)
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AwardsTable({
+  rows,
+}: {
+  rows: NonNullable<PlayerProfile["awards_history"]>;
+}) {
+  if (rows.length === 0) {
+    return <EmptyPanel message="No awards recorded yet." />;
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
+            <th className="px-4 py-2 text-left font-semibold">Year</th>
+            <th className="px-3 py-2 text-left font-semibold">Award</th>
+            <th className="px-3 py-2 text-left font-semibold">Detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr
+              key={`${row.year}-${row.award}-${i}`}
+              className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
+            >
+              <td className="px-4 py-2 font-mono text-xs">{row.year || "—"}</td>
+              <td className="px-3 py-2 font-semibold">{row.award}</td>
+              <td className="px-3 py-2 text-muted">{row.description || ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TransactionsTable({
+  rows,
+}: {
+  rows: NonNullable<PlayerProfile["transactions_log"]>;
+}) {
+  if (rows.length === 0) {
+    return <EmptyPanel message="No transactions recorded yet." />;
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
+            <th className="px-4 py-2 text-left font-semibold">Date</th>
+            <th className="px-3 py-2 text-left font-semibold">Description</th>
+            <th className="px-3 py-2 text-right font-semibold">From</th>
+            <th className="px-3 py-2 text-right font-semibold">To</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr
+              key={`${row.date}-${i}`}
+              className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
+            >
+              <td className="px-4 py-2 font-mono text-xs">{row.date || "—"}</td>
+              <td className="px-3 py-2">{row.description || "—"}</td>
+              <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
+                {row.from_team || "—"}
+              </td>
+              <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
+                {row.to_team || "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EmptyPanel({ message }: { message: string }) {
+  return (
+    <div className="px-4 py-6 text-sm text-muted">{message}</div>
   );
 }
 

@@ -741,6 +741,15 @@ function PitchingTab({
     },
   });
 
+  const autofill = useMutation({
+    mutationFn: () => api.autofillPitchingStaff(teamId),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["pitching-staff", teamId], data);
+      setRows([...data.staff]);
+      setDirty(false);
+    },
+  });
+
   const pitchers = useMemo(
     () => roster.filter((p) => p.is_pitcher),
     [roster],
@@ -772,6 +781,17 @@ function PitchingTab({
   const invalid = rows.some((r) => !r.player_id || !r.role);
   const canSave = !invalid && dirty && !save.isPending;
 
+  // Status mirror of PyQt's "Filled: X/Y | Duplicates: Z" label.
+  const filledCount = rows.filter((r) => r.player_id && r.role).length;
+  const duplicatePlayers = (() => {
+    const seen = new Map<string, number>();
+    for (const r of rows) {
+      if (!r.player_id) continue;
+      seen.set(r.player_id, (seen.get(r.player_id) ?? 0) + 1);
+    }
+    return Array.from(seen.values()).filter((n) => n > 1).length;
+  })();
+
   useHotkey(
     "mod+s",
     () => {
@@ -795,7 +815,10 @@ function PitchingTab({
         </div>
         <div className="flex items-center gap-2">
           {dirty && <Badge tone="warning">Unsaved</Badge>}
-          <Badge tone="amber">{rows.length} assigned</Badge>
+          <Badge tone={duplicatePlayers > 0 ? "danger" : "amber"}>
+            Filled {filledCount}/{STAFF_ROLES.length}
+            {duplicatePlayers > 0 && ` · ${duplicatePlayers} dup`}
+          </Badge>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -880,11 +903,42 @@ function PitchingTab({
             </div>
           </div>
         )}
+        {autofill.isError && (
+          <div className="m-4 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="whitespace-pre-line">
+              {(autofill.error as Error).message}
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between gap-3 border-t border-border/60 bg-surfaceAlt/40 px-6 py-3">
-          <Button variant="outline" onClick={addRow}>
-            Add role
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={addRow}>
+              Add role
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => autofill.mutate()}
+              disabled={autofill.isPending}
+              title="Auto-assign SP1–SP5 + LR/MR/SU/CL from the active roster"
+            >
+              {autofill.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              Auto-fill
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setRows([]);
+                setDirty(true);
+              }}
+              disabled={rows.length === 0}
+            >
+              Clear
+            </Button>
+          </div>
           <Button onClick={() => save.mutate(rows)} disabled={!canSave}>
             {save.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />

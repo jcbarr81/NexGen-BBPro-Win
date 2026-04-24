@@ -14,8 +14,10 @@ from fastapi import APIRouter, Body, HTTPException, status
 from services.training_settings import (
     HITTER_TRACKS,
     PITCHER_TRACKS,
+    clear_player_training_weights,
     clear_team_training_weights,
     load_training_settings,
+    set_player_training_weights,
     set_team_training_weights,
 )
 
@@ -23,6 +25,15 @@ from ..security import CurrentIdentity
 
 router = APIRouter(
     prefix="/teams/{team_id}/training",
+    tags=["training"],
+    dependencies=[CurrentIdentity],
+)
+
+# Sibling router for per-player overrides — ported from
+# ``ui/training_focus_dialog.py`` (mode="player"). Player overrides shadow
+# the team default which shadows the league default.
+player_router = APIRouter(
+    prefix="/players/{player_id}/training",
     tags=["training"],
     dependencies=[CurrentIdentity],
 )
@@ -83,3 +94,78 @@ def save_training(
 def reset_training(team_id: str) -> Dict[str, Any]:
     clear_team_training_weights(team_id)
     return _serialize(team_id)
+
+
+def _serialize_player(player_id: str, team_id: str | None) -> Dict[str, Any]:
+    settings = load_training_settings()
+    weights = settings.for_player(player_id, team_id)
+    pid = str(player_id)
+    if pid in settings.player_overrides:
+        source = "player"
+    elif team_id and team_id in settings.team_overrides:
+        source = "team"
+    else:
+        source = "defaults"
+    return {
+        "player_id": pid,
+        "team_id": team_id,
+        "source": source,
+        "league_id": settings.league_id,
+        "tracks": {
+            "hitters": list(HITTER_TRACKS),
+            "pitchers": list(PITCHER_TRACKS),
+        },
+        "hitters": {k: float(weights.hitters.get(k, 0.0)) for k in HITTER_TRACKS},
+        "pitchers": {
+            k: float(weights.pitchers.get(k, 0.0)) for k in PITCHER_TRACKS
+        },
+        "defaults": {
+            "hitters": {
+                k: float(settings.defaults.hitters.get(k, 0.0))
+                for k in HITTER_TRACKS
+            },
+            "pitchers": {
+                k: float(settings.defaults.pitchers.get(k, 0.0))
+                for k in PITCHER_TRACKS
+            },
+        },
+    }
+
+
+@player_router.get("")
+def get_player_training(
+    player_id: str,
+    team_id: str | None = None,
+) -> Dict[str, Any]:
+    return _serialize_player(player_id, team_id)
+
+
+@player_router.put("")
+def save_player_training(
+    player_id: str,
+    payload: Dict[str, Any] = Body(...),
+    team_id: str | None = None,
+) -> Dict[str, Any]:
+    hitters = payload.get("hitters")
+    pitchers = payload.get("pitchers")
+    if not isinstance(hitters, dict) or not isinstance(pitchers, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="hitters and pitchers must be objects mapping track -> percent.",
+        )
+    try:
+        set_player_training_weights(player_id, hitters, pitchers)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return _serialize_player(player_id, team_id)
+
+
+@player_router.delete("")
+def reset_player_training(
+    player_id: str,
+    team_id: str | None = None,
+) -> Dict[str, Any]:
+    clear_player_training_weights(player_id)
+    return _serialize_player(player_id, team_id)

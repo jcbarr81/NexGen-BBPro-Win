@@ -11,6 +11,7 @@ module.
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Body, HTTPException, status
@@ -18,10 +19,10 @@ from fastapi import APIRouter, Body, HTTPException, status
 from services.roster_moves import cut_player
 from services.transaction_log import record_transaction
 from utils.player_loader import load_players_from_csv
-from utils.rating_display import rating_display_details, rating_display_value
 from utils.roster_loader import load_roster, save_roster
 
 from ..security import CurrentIdentity
+from ._rating_presentation import compute_overall, rating_context, scale_rating
 
 router = APIRouter(prefix="/teams/{team_id}", tags=["roster"], dependencies=[CurrentIdentity])
 
@@ -56,62 +57,18 @@ def _player_summary(player: Any, level: str, dl_tier: str | None = None) -> Dict
     is_pitcher = bool(getattr(player, "is_pitcher", False))
     position = getattr(player, "primary_position", None)
 
-    def _display(key: str, raw: Any) -> Any:
-        """Scale raw ratings the same way the player profile view-model
-        does (position-aware, 35-99), so the roster table and the profile
-        card show the same numbers. PyQt's position_players_dialog applied
-        the same transform — this line keeps parity."""
-
-        if raw in (None, "", 0):
-            return raw
-        try:
-            scaled = rating_display_value(
-                raw,
-                key=key.upper(),
-                position=position,
-                is_pitcher=is_pitcher,
-                mode="scale_99",
-            )
-            return int(round(float(scaled)))
-        except (TypeError, ValueError):
-            return raw
-
-    def _context(key: str, raw: Any) -> Dict[str, Any] | None:
-        """Position-bucket percentile info (top_pct + bucket + avg) for
-        hitters, mirroring the ``use_position_context=True`` branch in
-        PyQt's position_players_dialog. Pitchers are compared against the
-        whole pitcher pool (no position bucket) so this returns None."""
-
-        if is_pitcher or raw in (None, "", 0):
-            return None
-        try:
-            _display_val, top_pct, avg, bucket = rating_display_details(
-                raw,
-                key=key.upper(),
-                position=position,
-                is_pitcher=False,
-                mode="scale_99",
-                curve=None,
-                use_position_bucket=True,
-            )
-        except (TypeError, ValueError):
-            return None
-        if top_pct is None:
-            return None
-        return {
-            "top_pct": int(top_pct),
-            "bucket": bucket or (position or "").upper() or None,
-            "avg": None if avg is None else int(round(float(avg))),
-        }
-
     ratings: Dict[str, Any] = {}
     ratings_context: Dict[str, Dict[str, Any]] = {}
     for key in _RATING_FIELDS:
         raw = getattr(player, key, None)
         if raw is None:
             continue
-        ratings[key] = _display(key, raw)
-        ctx = _context(key, raw)
+        ratings[key] = scale_rating(
+            raw, key=key, position=position, is_pitcher=is_pitcher
+        )
+        ctx = rating_context(
+            raw, key=key, position=position, is_pitcher=is_pitcher
+        )
         if ctx is not None:
             ratings_context[key] = ctx
     if is_pitcher:
@@ -119,7 +76,27 @@ def _player_summary(player: Any, level: str, dl_tier: str | None = None) -> Dict
             raw = getattr(player, key, None)
             if raw is None:
                 continue
-            ratings[key] = _display(key, raw)
+            ratings[key] = scale_rating(
+                raw, key=key, position=position, is_pitcher=is_pitcher
+            )
+
+    overall = compute_overall(
+        lambda k: getattr(player, k, None),
+        is_pitcher=is_pitcher,
+        position=position,
+    )
+
+    birthdate = getattr(player, "birthdate", "") or ""
+    age: Optional[int] = None
+    if birthdate:
+        try:
+            birth = datetime.strptime(str(birthdate), "%Y-%m-%d").date()
+            today = date.today()
+            age = today.year - birth.year - (
+                (today.month, today.day) < (birth.month, birth.day)
+            )
+        except ValueError:
+            age = None
 
     return {
         "player_id": getattr(player, "player_id", ""),
@@ -128,11 +105,20 @@ def _player_summary(player: Any, level: str, dl_tier: str | None = None) -> Dict
         "primary_position": getattr(player, "primary_position", ""),
         "other_positions": getattr(player, "other_positions", "") or "",
         "bats": getattr(player, "bats", "") or "",
+        "throws": getattr(player, "throws", "") or "",
         "role": getattr(player, "role", "") or "",
+        "preferred_pitching_role": (
+            getattr(player, "preferred_pitching_role", "") or ""
+        ),
+        "birthdate": str(birthdate) if birthdate else "",
+        "age": age,
         "is_pitcher": is_pitcher,
         "injured": bool(getattr(player, "injured", False)),
         "injury_description": getattr(player, "injury_description", "") or "",
         "ratings_context": ratings_context,
+        "overall_raw": overall["overall_raw"],
+        "overall_display": overall["overall_display"],
+        "overall_stars_text": overall["overall_stars_text"],
         "level": level,
         "dl_tier": dl_tier,
         "ratings": ratings,
@@ -173,7 +159,11 @@ def team_roster(team_id: str) -> Dict[str, Any]:
                         "primary_position": "",
                         "other_positions": "",
                         "bats": "",
+                        "throws": "",
                         "role": "",
+                        "preferred_pitching_role": "",
+                        "birthdate": "",
+                        "age": None,
                         "is_pitcher": False,
                         "injured": False,
                         "injury_description": "",

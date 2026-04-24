@@ -15,11 +15,21 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  GripVertical,
   HeartPulse,
   Loader2,
   MoreHorizontal,
   Users,
 } from "lucide-react";
+import {
+  DndContext,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
 
 import {
   api,
@@ -29,9 +39,13 @@ import {
   type TeamRoster,
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
+import { useConfirmDialog } from "@/lib/use-confirm";
+import { toast } from "@/lib/toast-store";
 import { useActiveTeamColor } from "@/lib/team-colors";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { StarRating } from "@/components/StarRating";
 import {
   Badge,
   Button,
@@ -124,8 +138,9 @@ export function RosterPage() {
   const moveMutation = useMutation({
     mutationFn: (args: MoveArgs) =>
       api.moveRoster(fallbackTeamId as string, args),
-    onSuccess: (data) => {
+    onSuccess: (data, args) => {
       queryClient.setQueryData(["team-roster", fallbackTeamId], data);
+      toast.success(`Moved to ${args.to}`);
     },
   });
   const cutMutation = useMutation({
@@ -133,6 +148,7 @@ export function RosterPage() {
       api.cutRoster(fallbackTeamId as string, playerId),
     onSuccess: (data) => {
       queryClient.setQueryData(["team-roster", fallbackTeamId], data);
+      toast.success("Released to free agency");
     },
   });
 
@@ -239,46 +255,88 @@ function RosterTabs({
     writePositionContextPref(value);
   };
 
+  // Require a small drag distance before activating so single clicks
+  // (open profile, context menu, sort) aren't consumed by DnD.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over) return;
+    const toLevel = String(over.id) as RosterLevel;
+    const from = active.data.current?.level as RosterLevel | undefined;
+    const pid = String(active.id);
+    if (!pid || !toLevel || toLevel === from) return;
+    if (toLevel === "DL") {
+      actions.move({ player_id: pid, to: toLevel, dl_tier: "dl15" });
+    } else {
+      actions.move({ player_id: pid, to: toLevel });
+    }
+  }
+
   return (
-    <Tabs defaultValue="ACT">
-      <div className="flex items-center justify-between gap-3">
-        <TabsList>
-          {LEVEL_ORDER.map((level) => {
-            const count = roster.levels[level]?.length ?? 0;
-            return (
-              <TabsTrigger key={level} value={level}>
-                <span>{LEVEL_LABEL[level]}</span>
-                <Badge tone="neutral" className="ml-2">
-                  {count}
-                </Badge>
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-        <label
-          className="flex cursor-pointer items-center gap-2 rounded-md border border-border bg-surfaceAlt/50 px-3 py-1.5 text-xs uppercase tracking-wider text-muted hover:text-ink"
-          title="Show each hitter's percentile against other players at the same position (C/1B/2B/3B/SS/OF). Pitchers compare against the full pitcher pool."
-        >
-          <input
-            type="checkbox"
-            checked={positionContext}
-            onChange={(e) => setPositionContext(e.target.checked)}
-            className="h-3 w-3 accent-amber"
-          />
-          Position context
-        </label>
-      </div>
-      {LEVEL_ORDER.map((level) => (
-        <TabsContent key={level} value={level}>
-          <RosterLevelTable
-            players={roster.levels[level] ?? []}
-            level={level}
-            actions={actions}
-            positionContext={positionContext}
-          />
-        </TabsContent>
-      ))}
-    </Tabs>
+    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <Tabs defaultValue="ACT">
+        <div className="flex items-center justify-between gap-3">
+          <TabsList>
+            {LEVEL_ORDER.map((level) => {
+              const count = roster.levels[level]?.length ?? 0;
+              return (
+                <DroppableTabTrigger key={level} level={level} count={count} />
+              );
+            })}
+          </TabsList>
+          <label
+            className="flex cursor-pointer items-center gap-2 rounded-md border border-border bg-surfaceAlt/50 px-3 py-1.5 text-xs uppercase tracking-wider text-muted hover:text-ink"
+            title="Show each hitter's percentile against other players at the same position (C/1B/2B/3B/SS/OF). Pitchers compare against the full pitcher pool."
+          >
+            <input
+              type="checkbox"
+              checked={positionContext}
+              onChange={(e) => setPositionContext(e.target.checked)}
+              className="h-3 w-3 accent-amber"
+            />
+            Position context
+          </label>
+        </div>
+        {LEVEL_ORDER.map((level) => (
+          <TabsContent key={level} value={level}>
+            <RosterLevelTable
+              players={roster.levels[level] ?? []}
+              level={level}
+              actions={actions}
+              positionContext={positionContext}
+            />
+          </TabsContent>
+        ))}
+      </Tabs>
+    </DndContext>
+  );
+}
+
+/** A TabsTrigger that also accepts dropped player rows. Highlights while
+ *  a valid drag hovers. DnD identity = the roster level string. */
+function DroppableTabTrigger({
+  level,
+  count,
+}: {
+  level: RosterLevel;
+  count: number;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: level });
+  return (
+    <TabsTrigger
+      value={level}
+      ref={setNodeRef}
+      className={cn(
+        "transition",
+        isOver && "ring-2 ring-amber/60 ring-offset-1 ring-offset-transparent",
+      )}
+    >
+      <span>{LEVEL_LABEL[level]}</span>
+      <Badge tone="neutral" className="ml-2">
+        {count}
+      </Badge>
+    </TabsTrigger>
   );
 }
 
@@ -383,6 +441,7 @@ function RosterLevelTable({
               <HeaderCell label="Pos" keyId="pos" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
               <HeaderCell label="B" keyId="bats" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
               <HeaderCell label="Role" keyId="role" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
+              <HeaderCell label="OVR" keyId="overall" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
               {columns.map((col) => (
                 <HeaderCell
                   key={col.key}
@@ -424,6 +483,8 @@ function getSortValue(p: RosterPlayer, key: SortKey): string | number | null {
       return p.bats;
     case "role":
       return p.role;
+    case "overall":
+      return p.overall_display ?? p.overall_raw ?? null;
     default: {
       const raw = p.ratings[key];
       if (raw == null) return null;
@@ -489,12 +550,39 @@ function RosterRow({
   positionContext: boolean;
 }) {
   const navigate = useNavigate();
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  // Each row is draggable — drop on a sibling TabsTrigger to move
+  // between levels. Stored ``level`` lets handleDragEnd skip no-op drops.
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: player.player_id,
+    data: { level },
+  });
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-    <tr className="border-b border-border/40 transition last:border-b-0 hover:bg-surfaceAlt/40">
+    <tr
+      ref={setNodeRef}
+      className={cn(
+        "border-b border-border/40 transition last:border-b-0 hover:bg-surfaceAlt/40",
+        isDragging && "opacity-40",
+      )}
+    >
       <td className="px-6 py-2">
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="cursor-grab touch-none text-muted hover:text-amber active:cursor-grabbing"
+            aria-label={`Drag ${player.last_name} to another roster level`}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+          <PlayerAvatar
+            playerId={player.player_id}
+            initials={`${player.first_name?.[0] ?? ""}${player.last_name?.[0] ?? ""}`}
+            className="h-7 w-7 shrink-0 overflow-hidden rounded-md text-[10px]"
+          />
           <button
             type="button"
             onClick={() => navigate(`/player/${encodeURIComponent(player.player_id)}`)}
@@ -526,6 +614,9 @@ function RosterRow({
       <td className="px-3 py-2 text-right">{player.bats || "—"}</td>
       <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
         {player.role || (player.is_pitcher ? "PIT" : "POS")}
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums">
+        <OverallCell player={player} />
       </td>
       {columns.map((col) => (
         <td key={col.key} className="px-3 py-2 text-right tabular-nums">
@@ -590,11 +681,14 @@ function RosterRow({
         <ContextMenuSeparator />
         <ContextMenuItem
           tone="danger"
-          onSelect={() => {
+          onSelect={async () => {
             if (
-              window.confirm(
-                `Release ${player.last_name}? This drops them to free agency.`,
-              )
+              await confirm({
+                title: `Release ${player.last_name}?`,
+                description: "The player drops to free agency.",
+                confirmLabel: "Release",
+                danger: true,
+              })
             ) {
               actions.cut(player.player_id);
             }
@@ -603,6 +697,7 @@ function RosterRow({
           Release / Cut
         </ContextMenuItem>
       </ContextMenuContent>
+      {confirmDialog}
     </ContextMenu>
   );
 }
@@ -624,6 +719,7 @@ function RowActionsMenu({
   level: RosterLevel;
   actions: RosterActions;
 }) {
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const destinations = ROSTER_DESTINATIONS;
   return (
     <DropdownMenu>
@@ -675,11 +771,14 @@ function RowActionsMenu({
         <DropdownMenuSeparator />
         <DropdownMenuItem
           tone="danger"
-          onSelect={() => {
+          onSelect={async () => {
             if (
-              window.confirm(
-                `Release ${player.last_name}? This drops them to free agency.`,
-              )
+              await confirm({
+                title: `Release ${player.last_name}?`,
+                description: "The player drops to free agency.",
+                confirmLabel: "Release",
+                danger: true,
+              })
             ) {
               actions.cut(player.player_id);
             }
@@ -688,7 +787,35 @@ function RowActionsMenu({
           Release / Cut
         </DropdownMenuItem>
       </DropdownMenuContent>
+      {confirmDialog}
     </DropdownMenu>
+  );
+}
+
+function OverallCell({ player }: { player: RosterPlayer }) {
+  const display = player.overall_display ?? player.overall_raw;
+  if (display == null) return <span className="text-subtle">—</span>;
+  const stars = parseFloat(player.overall_stars_text ?? "");
+  return (
+    <div className="inline-flex flex-col items-end gap-0.5">
+      <span
+        className={cn(
+          "font-display font-semibold tabular-nums",
+          display >= 85
+            ? "text-success"
+            : display >= 70
+            ? "text-amber-text"
+            : display >= 50
+            ? "text-ink"
+            : "text-subtle",
+        )}
+      >
+        {Math.round(display)}
+      </span>
+      {Number.isFinite(stars) && stars > 0 && (
+        <StarRating value={stars} size="h-2.5 w-2.5" />
+      )}
+    </div>
   );
 }
 

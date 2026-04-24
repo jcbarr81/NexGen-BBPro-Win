@@ -1,53 +1,168 @@
+import { Suspense, lazy, useEffect, useRef } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 
 import { SplashGate } from "@/pages/SplashGate";
+import { Toaster } from "@/components/Toaster";
+import { CommandPalette } from "@/components/CommandPalette";
+// Eagerly loaded — these are on the critical path before / immediately
+// after login, so deferring them only adds flicker without saving real
+// bytes up-front.
 import { LoginPage } from "@/pages/LoginPage";
 import { LeagueSelectPage } from "@/pages/LeagueSelectPage";
 import { OwnerDashboardPage } from "@/pages/OwnerDashboardPage";
-import { RosterPage } from "@/pages/RosterPage";
-import { StandingsPage } from "@/pages/StandingsPage";
-import { SchedulePage } from "@/pages/SchedulePage";
-import { LiveGamePage } from "@/pages/LiveGamePage";
-import { TradesPage } from "@/pages/TradesPage";
-import { DraftPage } from "@/pages/DraftPage";
-import { PlayoffsPage } from "@/pages/PlayoffsPage";
-import { FinancePage } from "@/pages/FinancePage";
-import { AdminUsersPage } from "@/pages/AdminUsersPage";
-import { TeamsPage } from "@/pages/TeamsPage";
-import { UtilitiesPage } from "@/pages/UtilitiesPage";
-import { SeasonPage } from "@/pages/SeasonPage";
-import { LineupPage } from "@/pages/LineupPage";
-import { TrainingPage } from "@/pages/TrainingPage";
-import { TeamSettingsPage } from "@/pages/TeamSettingsPage";
-import { PlayerProfilePage } from "@/pages/PlayerProfilePage";
-import { BoxscorePage } from "@/pages/BoxscorePage";
-import { TeamDetailPage } from "@/pages/TeamDetailPage";
-import { ActivityPage } from "@/pages/ActivityPage";
-import { NewsPage } from "@/pages/NewsPage";
-import { InjuryPage } from "@/pages/InjuryPage";
-import { FreeAgencyPage } from "@/pages/FreeAgencyPage";
-import { LeadersPage } from "@/pages/LeadersPage";
-import { StatsPage } from "@/pages/StatsPage";
-import { PlayersBrowserPage } from "@/pages/PlayersBrowserPage";
-import { LeagueHistoryPage } from "@/pages/LeagueHistoryPage";
-import { CommissionerPage } from "@/pages/CommissionerPage";
-import { CommandCenterPage } from "@/pages/CommandCenterPage";
-import { FinanceQueuePage } from "@/pages/FinanceQueuePage";
-import { ChangeRequestsPage } from "@/pages/ChangeRequestsPage";
-import { HallOfFamePage } from "@/pages/HallOfFamePage";
-import { RecordsPage } from "@/pages/RecordsPage";
-import { TuningPage } from "@/pages/TuningPage";
-import { LeagueCreatePage } from "@/pages/LeagueCreatePage";
-import { ComingSoonPage } from "@/pages/ComingSoonPage";
-import { DepthChartPage } from "@/pages/DepthChartPage";
-import { OffseasonPage } from "@/pages/OffseasonPage";
-import { ReassignPage } from "@/pages/ReassignPage";
-import { FinanceStabilityPage } from "@/pages/FinanceStabilityPage";
-import { ChangeRequestExportPage } from "@/pages/ChangeRequestExportPage";
-import { HelpPage } from "@/pages/HelpPage";
-import { ExhibitionPage } from "@/pages/ExhibitionPage";
-import { AdminLeaguePage } from "@/pages/AdminLeaguePage";
-import { ParksPage } from "@/pages/ParksPage";
+
+// Everything else is code-split with ``React.lazy``. Vite emits one chunk
+// per lazy import, so the initial bundle trims ~500 KB and each page is
+// downloaded on demand. Named-export pages need a tiny adapter to
+// produce the ``{ default }`` shape ``lazy()`` expects.
+const named = <K extends string, T>(
+  key: K,
+  loader: () => Promise<Record<K, T>>,
+) => loader().then((m) => ({ default: m[key] })) as Promise<{ default: T }>;
+
+const RosterPage = lazy(() =>
+  named("RosterPage", () => import("@/pages/RosterPage")),
+);
+const PitchersPage = lazy(() =>
+  named("PitchersPage", () => import("@/pages/PitchersPage")),
+);
+const ComparePage = lazy(() =>
+  named("ComparePage", () => import("@/pages/ComparePage")),
+);
+const StandingsPage = lazy(() =>
+  named("StandingsPage", () => import("@/pages/StandingsPage")),
+);
+const SchedulePage = lazy(() =>
+  named("SchedulePage", () => import("@/pages/SchedulePage")),
+);
+const LiveGamePage = lazy(() =>
+  named("LiveGamePage", () => import("@/pages/LiveGamePage")),
+);
+const TradesPage = lazy(() =>
+  named("TradesPage", () => import("@/pages/TradesPage")),
+);
+const DraftPage = lazy(() =>
+  named("DraftPage", () => import("@/pages/DraftPage")),
+);
+const PlayoffsPage = lazy(() =>
+  named("PlayoffsPage", () => import("@/pages/PlayoffsPage")),
+);
+const FinancePage = lazy(() =>
+  named("FinancePage", () => import("@/pages/FinancePage")),
+);
+const AdminUsersPage = lazy(() =>
+  named("AdminUsersPage", () => import("@/pages/AdminUsersPage")),
+);
+const TeamsPage = lazy(() =>
+  named("TeamsPage", () => import("@/pages/TeamsPage")),
+);
+const UtilitiesPage = lazy(() =>
+  named("UtilitiesPage", () => import("@/pages/UtilitiesPage")),
+);
+const SeasonPage = lazy(() =>
+  named("SeasonPage", () => import("@/pages/SeasonPage")),
+);
+const LineupPage = lazy(() =>
+  named("LineupPage", () => import("@/pages/LineupPage")),
+);
+const TrainingPage = lazy(() =>
+  named("TrainingPage", () => import("@/pages/TrainingPage")),
+);
+const TeamSettingsPage = lazy(() =>
+  named("TeamSettingsPage", () => import("@/pages/TeamSettingsPage")),
+);
+const PlayerProfilePage = lazy(() =>
+  named("PlayerProfilePage", () => import("@/pages/PlayerProfilePage")),
+);
+const BoxscorePage = lazy(() =>
+  named("BoxscorePage", () => import("@/pages/BoxscorePage")),
+);
+const TeamDetailPage = lazy(() =>
+  named("TeamDetailPage", () => import("@/pages/TeamDetailPage")),
+);
+const ActivityPage = lazy(() =>
+  named("ActivityPage", () => import("@/pages/ActivityPage")),
+);
+const NewsPage = lazy(() =>
+  named("NewsPage", () => import("@/pages/NewsPage")),
+);
+const InjuryPage = lazy(() =>
+  named("InjuryPage", () => import("@/pages/InjuryPage")),
+);
+const FreeAgencyPage = lazy(() =>
+  named("FreeAgencyPage", () => import("@/pages/FreeAgencyPage")),
+);
+const LeadersPage = lazy(() =>
+  named("LeadersPage", () => import("@/pages/LeadersPage")),
+);
+const StatsPage = lazy(() =>
+  named("StatsPage", () => import("@/pages/StatsPage")),
+);
+const PlayersBrowserPage = lazy(() =>
+  named("PlayersBrowserPage", () => import("@/pages/PlayersBrowserPage")),
+);
+const LeagueHistoryPage = lazy(() =>
+  named("LeagueHistoryPage", () => import("@/pages/LeagueHistoryPage")),
+);
+const CommissionerPage = lazy(() =>
+  named("CommissionerPage", () => import("@/pages/CommissionerPage")),
+);
+const CommandCenterPage = lazy(() =>
+  named("CommandCenterPage", () => import("@/pages/CommandCenterPage")),
+);
+const FinanceQueuePage = lazy(() =>
+  named("FinanceQueuePage", () => import("@/pages/FinanceQueuePage")),
+);
+const ChangeRequestsPage = lazy(() =>
+  named("ChangeRequestsPage", () => import("@/pages/ChangeRequestsPage")),
+);
+const HallOfFamePage = lazy(() =>
+  named("HallOfFamePage", () => import("@/pages/HallOfFamePage")),
+);
+const RecordsPage = lazy(() =>
+  named("RecordsPage", () => import("@/pages/RecordsPage")),
+);
+const TuningPage = lazy(() =>
+  named("TuningPage", () => import("@/pages/TuningPage")),
+);
+const LeagueCreatePage = lazy(() =>
+  named("LeagueCreatePage", () => import("@/pages/LeagueCreatePage")),
+);
+const ComingSoonPage = lazy(() =>
+  named("ComingSoonPage", () => import("@/pages/ComingSoonPage")),
+);
+const DepthChartPage = lazy(() =>
+  named("DepthChartPage", () => import("@/pages/DepthChartPage")),
+);
+const OffseasonPage = lazy(() =>
+  named("OffseasonPage", () => import("@/pages/OffseasonPage")),
+);
+const ReassignPage = lazy(() =>
+  named("ReassignPage", () => import("@/pages/ReassignPage")),
+);
+const FinanceStabilityPage = lazy(() =>
+  named("FinanceStabilityPage", () => import("@/pages/FinanceStabilityPage")),
+);
+const ChangeRequestExportPage = lazy(() =>
+  named(
+    "ChangeRequestExportPage",
+    () => import("@/pages/ChangeRequestExportPage"),
+  ),
+);
+const HelpPage = lazy(() =>
+  named("HelpPage", () => import("@/pages/HelpPage")),
+);
+const ExhibitionPage = lazy(() =>
+  named("ExhibitionPage", () => import("@/pages/ExhibitionPage")),
+);
+const AdminLeaguePage = lazy(() =>
+  named("AdminLeaguePage", () => import("@/pages/AdminLeaguePage")),
+);
+const ParksPage = lazy(() =>
+  named("ParksPage", () => import("@/pages/ParksPage")),
+);
 import { useAuthStore } from "@/lib/auth-store";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -71,10 +186,45 @@ function RequireLeague({ children }: { children: React.ReactNode }) {
 
 const STUB_ROUTES: Array<{ path: string; label: string }> = [];
 
+/**
+ * Clear every React Query cache entry when the active league changes. Each
+ * league has its own teams, roster, lineups, players, standings, stats,
+ * etc. — without a wipe we serve stale data from the previous league until
+ * the user manually refreshes. This runs once at mount with the initial
+ * league id, then fires only on actual change. Safe to call ``clear()``
+ * since auth/token lives in Zustand, not React Query.
+ */
+function LeagueCacheInvalidator() {
+  const queryClient = useQueryClient();
+  const activeLeagueId = useAuthStore((s) => s.activeLeagueId);
+  const prevRef = useRef<string | null>(activeLeagueId);
+  useEffect(() => {
+    if (prevRef.current !== activeLeagueId) {
+      queryClient.clear();
+      prevRef.current = activeLeagueId;
+    }
+  }, [activeLeagueId, queryClient]);
+  return null;
+}
+
+/** Fallback while a lazy-loaded route chunk downloads. Matches the
+ *  SplashGate aesthetic so switching pages feels consistent. */
+function RouteFallback() {
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-canvas">
+      <Loader2 className="h-6 w-6 animate-spin text-amber" />
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <SplashGate>
-      <Routes>
+      <LeagueCacheInvalidator />
+      <Toaster />
+      <CommandPalette />
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
         <Route path="/login" element={<LoginPage />} />
         {/* Accessible without auth for first-run bootstrap; the page
             component itself enforces admin when first-run=1 is absent. */}
@@ -108,6 +258,14 @@ export default function App() {
           element={
             <RequireLeague>
               <RosterPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/pitchers"
+          element={
+            <RequireLeague>
+              <PitchersPage />
             </RequireLeague>
           }
         />
@@ -180,6 +338,14 @@ export default function App() {
           element={
             <RequireLeague>
               <PlayerProfilePage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/compare/:playerA/:playerB"
+          element={
+            <RequireLeague>
+              <ComparePage />
             </RequireLeague>
           }
         />
@@ -444,7 +610,8 @@ export default function App() {
         ))}
         <Route path="/" element={<Navigate to="/home" replace />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
+        </Routes>
+      </Suspense>
     </SplashGate>
   );
 }

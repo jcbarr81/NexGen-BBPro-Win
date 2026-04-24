@@ -22,6 +22,8 @@ import {
 
 import { api, type Team, type TradePlayer, type TradeRecord } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
+import { useConfirmDialog } from "@/lib/use-confirm";
+import { toast } from "@/lib/toast-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import {
@@ -63,6 +65,7 @@ export function TradesPage() {
   const [proposing, setProposing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [vetoTarget, setVetoTarget] = useState<string | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const effectiveScope: Scope = teamId ? scope : "all";
 
   const trades = useQuery({
@@ -80,39 +83,50 @@ export function TradesPage() {
     queryClient.invalidateQueries({ queryKey: ["team-roster"] });
   }
 
+  // ``actionError`` still renders the inline banner with the full
+  // (often multi-line) error — suppressToast avoids firing the default
+  // toast alongside it. Success is new: toast for the happy path.
   const acceptMutation = useMutation({
+    meta: { suppressToast: true },
     mutationFn: (id: string) => api.acceptTrade(id),
     onSuccess: () => {
       setActionError(null);
       refresh();
+      toast.success("Trade accepted");
     },
     onError: (err) =>
       setActionError(err instanceof Error ? err.message : "Accept failed."),
   });
   const rejectMutation = useMutation({
+    meta: { suppressToast: true },
     mutationFn: (id: string) => api.rejectTrade(id),
     onSuccess: () => {
       setActionError(null);
       refresh();
+      toast.info("Trade rejected");
     },
     onError: (err) =>
       setActionError(err instanceof Error ? err.message : "Reject failed."),
   });
   const withdrawMutation = useMutation({
+    meta: { suppressToast: true },
     mutationFn: (id: string) => api.withdrawTrade(id),
     onSuccess: () => {
       setActionError(null);
       refresh();
+      toast.info("Trade withdrawn");
     },
     onError: (err) =>
       setActionError(err instanceof Error ? err.message : "Withdraw failed."),
   });
   const adminApproveMutation = useMutation({
+    meta: { suppressToast: true },
     mutationFn: ({ id, force }: { id: string; force: boolean }) =>
       api.adminApproveTrade(id, force),
     onSuccess: () => {
       setActionError(null);
       refresh();
+      toast.success("Trade approved");
     },
     onError: (err) =>
       setActionError(
@@ -120,11 +134,13 @@ export function TradesPage() {
       ),
   });
   const adminVetoMutation = useMutation({
+    meta: { suppressToast: true },
     mutationFn: ({ id, note }: { id: string; note: string }) =>
       api.adminVetoTrade(id, note),
     onSuccess: () => {
       setActionError(null);
       refresh();
+      toast.info("Trade vetoed");
     },
     onError: (err) =>
       setActionError(err instanceof Error ? err.message : "Veto failed."),
@@ -136,21 +152,37 @@ export function TradesPage() {
     isAdmin,
     accept: (id: string) => acceptMutation.mutate(id),
     reject: (id: string) => rejectMutation.mutate(id),
-    withdraw: (id: string) => {
-      if (window.confirm("Withdraw this pending trade?")) {
+    withdraw: async (id: string) => {
+      if (
+        await confirm({
+          title: "Withdraw trade?",
+          description: "The proposal is removed from both teams' inboxes.",
+          confirmLabel: "Withdraw",
+        })
+      ) {
         withdrawMutation.mutate(id);
       }
     },
-    adminApprove: (id: string) => {
-      if (window.confirm("Approve this pending trade as commissioner?")) {
+    adminApprove: async (id: string) => {
+      if (
+        await confirm({
+          title: "Approve trade?",
+          description: "Commissioner approval commits this trade.",
+          confirmLabel: "Approve",
+        })
+      ) {
         adminApproveMutation.mutate({ id, force: false });
       }
     },
-    adminForceApprove: (id: string) => {
+    adminForceApprove: async (id: string) => {
       if (
-        window.confirm(
-          "FORCE-approve this trade, overriding all validation errors? This cannot be undone.",
-        )
+        await confirm({
+          title: "Force-approve trade?",
+          description:
+            "Overrides all validation errors. This cannot be undone.",
+          confirmLabel: "Force-approve",
+          danger: true,
+        })
       ) {
         adminApproveMutation.mutate({ id, force: true });
       }
@@ -306,6 +338,7 @@ export function TradesPage() {
           setVetoTarget(null);
         }}
       />
+      {confirmDialog}
     </AppShell>
   );
 }

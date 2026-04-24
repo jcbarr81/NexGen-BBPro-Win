@@ -54,6 +54,7 @@ def run_finance_stability_simulation(
     seed: int | None = None,
     max_fa_rounds: int | None = None,
     guardrails: Mapping[str, float] | None = None,
+    warmup_seasons: int = 0,
 ) -> Dict[str, object]:
     """Run multi-season finance cycles and return metrics + guardrail status."""
 
@@ -108,6 +109,7 @@ def run_finance_stability_simulation(
     guardrail_report = evaluate_finance_stability_guardrails(
         season_metrics,
         thresholds=guardrails,
+        warmup_seasons=warmup_seasons,
     )
     return {
         "league_id": effective_league_id,
@@ -190,10 +192,19 @@ def evaluate_finance_stability_guardrails(
     season_metrics: list[Mapping[str, object]] | tuple[Mapping[str, object], ...],
     *,
     thresholds: Mapping[str, float] | None = None,
+    warmup_seasons: int = 0,
 ) -> Dict[str, object]:
-    """Evaluate stability guardrails over one or more season metric rows."""
+    """Evaluate stability guardrails over one or more season metric rows.
 
-    rows = [row for row in season_metrics if isinstance(row, Mapping)]
+    ``warmup_seasons`` drops the first N rows before computing maxes/mins so
+    cold-start transients (empty rosters, first-cycle FA) don't trip the
+    steady-state checks. Falls back to the full series if skipping would
+    leave nothing to evaluate.
+    """
+
+    all_rows = [row for row in season_metrics if isinstance(row, Mapping)]
+    skip = max(0, int(warmup_seasons))
+    rows = all_rows[skip:] if skip < len(all_rows) else all_rows
     merged = dict(DEFAULT_STABILITY_GUARDRAILS)
     if isinstance(thresholds, Mapping):
         for key, value in thresholds.items():
@@ -210,6 +221,7 @@ def evaluate_finance_stability_guardrails(
             "reason": "no_season_metrics",
             "checks": [],
             "thresholds": merged,
+            "warmup_seasons": skip,
         }
 
     max_distressed = max(_safe_float(row.get("distressed_debt_ratio"), fallback=0.0) for row in rows)
@@ -264,6 +276,8 @@ def evaluate_finance_stability_guardrails(
         "passed": all(bool(item.get("passed")) for item in checks),
         "checks": checks,
         "thresholds": merged,
+        "warmup_seasons": skip,
+        "seasons_evaluated": len(rows),
     }
 
 

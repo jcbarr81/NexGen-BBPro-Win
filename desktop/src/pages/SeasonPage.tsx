@@ -15,6 +15,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowRight,
@@ -29,6 +30,8 @@ import {
   Sparkles,
   Trophy,
 } from "lucide-react";
+
+import { useAuthStore } from "@/lib/auth-store";
 
 import { api, type SeasonPhase, type SeasonState } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -155,11 +158,19 @@ export function SeasonPage() {
         <ErrorCard message={(state.error as Error).message} />
       ) : state.data ? (
         <div className="space-y-6 animate-fade-in">
+          {state.data.days_total === 0 && <NoScheduleBanner />}
+          {(state.data.draft_blocked ||
+            state.data.phase === "AMATEUR_DRAFT") && <DraftReadyBanner />}
           <PhaseHeader state={state.data} />
           <MetricsRow state={state.data} />
           <ActionsCard
             state={state.data}
-            disabled={anyPending}
+            disabled={
+              anyPending ||
+              state.data.days_total === 0 ||
+              !!state.data.draft_blocked ||
+              state.data.phase === "AMATEUR_DRAFT"
+            }
             activeLabel={activeLabel}
             onSimDay={() => simDay.mutate()}
             onSimWeek={() => simWeek.mutate()}
@@ -172,6 +183,72 @@ export function SeasonPage() {
         </div>
       ) : null}
     </AppShell>
+  );
+}
+
+function DraftReadyBanner() {
+  return (
+    <Card className="border-amber/50 bg-amber/10">
+      <CardContent className="flex items-start gap-3 py-4">
+        <GraduationCap className="mt-0.5 h-5 w-5 shrink-0 text-amber" />
+        <div className="flex-1 text-sm">
+          <div className="font-semibold text-amber-text">
+            Amateur draft is ready
+          </div>
+          <p className="mt-1 text-muted">
+            The calendar reached draft day. Sim actions are paused until the
+            commissioner commits the draft — head to the Draft page to
+            generate the pool and run the selections.
+          </p>
+          <p className="mt-2 text-xs">
+            <Link
+              to="/draft"
+              className="font-semibold text-amber underline-offset-2 hover:underline"
+            >
+              Open Draft →
+            </Link>
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function NoScheduleBanner() {
+  const role = useAuthStore((s) => s.role);
+  const isAdmin = role === "admin";
+  return (
+    <Card className="border-warning/40 bg-warning/10">
+      <CardContent className="flex items-start gap-3 py-4">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+        <div className="flex-1 text-sm">
+          <div className="font-semibold text-warning">No schedule loaded</div>
+          <p className="mt-1 text-muted">
+            The league has no <code>schedule.csv</code>, so "Sim Day",
+            "Sim Week", and the milestone jumps have nothing to play. If
+            you advance the phase anyway the calendar ticks over without
+            any games being simulated.
+          </p>
+          {isAdmin ? (
+            <p className="mt-2 text-xs text-muted">
+              Generate one now:{" "}
+              <Link
+                to="/admin-league"
+                className="font-semibold text-amber underline-offset-2 hover:underline"
+              >
+                Admin → Regenerate schedule
+              </Link>
+              .
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-muted">
+              Ask the commissioner to regenerate the schedule from{" "}
+              <span className="font-semibold">Admin → Regenerate schedule</span>.
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

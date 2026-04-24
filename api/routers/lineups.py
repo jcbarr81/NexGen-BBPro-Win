@@ -148,6 +148,52 @@ def get_pitching_staff(team_id: str) -> Dict[str, Any]:
     return {"team_id": team_id, "exists": path.exists(), "staff": entries}
 
 
+@router.post("/pitching/autofill")
+def autofill_pitching_staff_endpoint(team_id: str) -> Dict[str, Any]:
+    """Auto-assign SP1-SP5 + LR/MR/SU/CL using the same heuristic the
+    PyQt Pitching Editor's "Auto-Fill Staff" button fires
+    (``utils.pitching_autofill.autofill_pitching_staff``). Persists the
+    result to ``<team_id>_pitching.csv`` and returns the fresh staff.
+    """
+
+    from utils.pitching_autofill import autofill_pitching_staff
+
+    from .validation import load_players_map, load_team_levels
+
+    active_ids = load_team_levels(team_id).get("act", [])
+    players = load_players_map()
+
+    candidates: List[tuple[str, Dict[str, Any]]] = []
+    for pid in active_ids:
+        entry = players.get(pid)
+        if not entry:
+            continue
+        # The autofill helper wants the ``role`` / ``endurance`` /
+        # ``preferred_pitching_role`` fields. ``load_players_map`` already
+        # surfaces those; skip non-pitchers via the stored role check.
+        role = str(entry.get("role", "")).strip().upper()
+        primary = str(entry.get("primary_position", "")).strip().upper()
+        if role not in {"SP", "RP"} and primary != "P":
+            continue
+        candidates.append((pid, entry))
+
+    assignments = autofill_pitching_staff(candidates)
+    rows = [
+        {"player_id": pid, "role": role}
+        for role, pid in assignments.items()
+        if pid
+    ]
+
+    path = _pitching_path(team_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        for row in rows:
+            writer.writerow([row["player_id"], row["role"]])
+
+    return get_pitching_staff(team_id)
+
+
 @router.put("/pitching")
 def save_pitching_staff(
     team_id: str,

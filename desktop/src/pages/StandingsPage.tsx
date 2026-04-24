@@ -22,6 +22,7 @@ import { api, type LeagueStandingsRow } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
+import { TeamLogo } from "@/components/TeamLogo";
 import {
   Badge,
   Card,
@@ -172,10 +173,12 @@ function DivisionCard({
                     to={`/team/${encodeURIComponent(team.team_id)}`}
                     className="flex items-center gap-2 hover:text-amber"
                   >
-                    <span
-                      className="h-4 w-4 shrink-0 rounded-full border border-border"
-                      style={{ backgroundColor: team.primary_color || undefined }}
-                      aria-hidden
+                    <TeamLogo
+                      teamId={team.team_id}
+                      abbreviation={team.abbreviation || team.team_id}
+                      primaryColor={team.primary_color}
+                      secondaryColor={team.secondary_color}
+                      className="h-7 w-7 shrink-0 rounded-md text-[10px]"
                     />
                     <span className="font-semibold">
                       {team.city} {team.name}

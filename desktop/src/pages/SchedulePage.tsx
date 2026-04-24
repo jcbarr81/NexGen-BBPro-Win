@@ -18,7 +18,8 @@ import {
   Plane,
 } from "lucide-react";
 
-import { api, type ScheduleGame } from "@/lib/api";
+import { api, type ScheduleGame, type Team } from "@/lib/api";
+import { TeamLogo } from "@/components/TeamLogo";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
@@ -47,6 +48,18 @@ export function SchedulePage() {
         effectiveScope === "team" && teamId ? { teamId } : { limit: 1000 },
       ),
   });
+
+  // Shared teams query (other pages populate the same cache). Used to
+  // hydrate TeamLogo colors alongside each game row.
+  const teamsQ = useQuery({
+    queryKey: ["teams"],
+    queryFn: () => api.listTeams(),
+  });
+  const teamById = useMemo(() => {
+    const m = new Map<string, Team>();
+    for (const t of teamsQ.data ?? []) m.set(t.team_id, t);
+    return m;
+  }, [teamsQ.data]);
 
   const { upcoming, results } = useMemo(() => {
     const up: ScheduleGame[] = [];
@@ -113,6 +126,7 @@ export function SchedulePage() {
             empty="No upcoming games."
             games={upcoming}
             teamId={effectiveScope === "team" ? teamId : null}
+            teamById={teamById}
           />
           <ScheduleCard
             title="Results"
@@ -121,6 +135,7 @@ export function SchedulePage() {
             empty="No games played yet."
             games={results}
             teamId={effectiveScope === "team" ? teamId : null}
+            teamById={teamById}
             reverseChrono
           />
         </div>
@@ -165,6 +180,7 @@ interface ScheduleCardProps {
   empty: string;
   games: ScheduleGame[];
   teamId: string | null;
+  teamById: Map<string, Team>;
   reverseChrono?: boolean;
 }
 
@@ -175,6 +191,7 @@ function ScheduleCard({
   empty,
   games,
   teamId,
+  teamById,
 }: ScheduleCardProps) {
   return (
     <Card>
@@ -193,7 +210,12 @@ function ScheduleCard({
         ) : (
           <ul className="divide-y divide-border/60">
             {games.map((game, idx) => (
-              <GameRow key={`${game.date}-${game.home}-${game.away}-${idx}`} game={game} teamId={teamId} />
+              <GameRow
+                key={`${game.date}-${game.home}-${game.away}-${idx}`}
+                game={game}
+                teamId={teamId}
+                teamById={teamById}
+              />
             ))}
           </ul>
         )}
@@ -205,13 +227,29 @@ function ScheduleCard({
 function GameRow({
   game,
   teamId,
+  teamById,
 }: {
   game: ScheduleGame;
   teamId: string | null;
+  teamById: Map<string, Team>;
 }) {
   const isTeamView = !!teamId;
   const isHome = game.is_home ?? game.home === teamId;
   const opponent = game.opponent ?? (isHome ? game.away : game.home);
+
+  const logoFor = (tid: string | undefined, size = "h-5 w-5") => {
+    if (!tid) return null;
+    const t = teamById.get(tid);
+    return (
+      <TeamLogo
+        teamId={tid}
+        abbreviation={t?.abbreviation || tid}
+        primaryColor={t?.primary_color}
+        secondaryColor={t?.secondary_color}
+        className={`${size} shrink-0 rounded text-[9px]`}
+      />
+    );
+  };
 
   return (
     <li className="flex items-center justify-between gap-4 px-6 py-3 text-sm transition hover:bg-surfaceAlt/40">
@@ -229,11 +267,16 @@ function GameRow({
             <span className="text-xs font-semibold uppercase tracking-wider text-muted">
               {isHome ? "vs" : "@"}
             </span>
+            {logoFor(opponent, "h-5 w-5")}
             <span className="font-semibold">{opponent}</span>
           </div>
         ) : (
-          <div className="font-semibold">
-            {game.away} <span className="text-muted">@</span> {game.home}
+          <div className="flex items-center gap-2 font-semibold">
+            {logoFor(game.away, "h-5 w-5")}
+            <span>{game.away}</span>
+            <span className="text-muted">@</span>
+            {logoFor(game.home, "h-5 w-5")}
+            <span>{game.home}</span>
           </div>
         )}
       </div>

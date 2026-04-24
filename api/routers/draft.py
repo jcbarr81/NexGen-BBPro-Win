@@ -15,8 +15,10 @@ from fastapi import APIRouter, Body, HTTPException, Query, status
 from services import draft_state
 from services.trade_settings import current_league_year
 from utils.path_utils import get_data_dir
+from utils.player_loader import load_players_from_csv
 
 from ..security import CurrentIdentity
+from ._rating_presentation import compute_overall
 
 router = APIRouter(prefix="/draft", tags=["draft"], dependencies=[CurrentIdentity])
 
@@ -30,6 +32,17 @@ def _resolve_year(year: Optional[int]) -> int:
         from datetime import date
 
         return date.today().year
+
+
+def _player_lookup() -> Dict[str, Any]:
+    """Cache players.csv by id for the duration of one request so pick rows
+    can carry player metadata without N+1 load_players calls."""
+
+    try:
+        players = load_players_from_csv("data/players.csv")
+    except Exception:
+        return {}
+    return {getattr(p, "player_id", ""): p for p in players}
 
 
 def _load_results(year: int) -> List[Dict[str, Any]]:
@@ -52,6 +65,36 @@ def _load_results(year: int) -> List[Dict[str, Any]]:
     except OSError:
         return []
     rows.sort(key=lambda r: r["overall"])
+
+    # Join each pick with its player's name + position + overall display so
+    # the UI can render stars inline with the pick card, matching the
+    # PyQt draft_console presentation.
+    players = _player_lookup()
+    for row in rows:
+        player = players.get(row["player_id"])
+        if player is None:
+            row["first_name"] = ""
+            row["last_name"] = ""
+            row["primary_position"] = ""
+            row["is_pitcher"] = False
+            row["overall_raw"] = None
+            row["overall_display"] = None
+            row["overall_stars_text"] = None
+            continue
+        is_pitcher = bool(getattr(player, "is_pitcher", False))
+        position = getattr(player, "primary_position", None)
+        overall = compute_overall(
+            lambda k, p=player: getattr(p, k, None),
+            is_pitcher=is_pitcher,
+            position=position,
+        )
+        row["first_name"] = getattr(player, "first_name", "") or ""
+        row["last_name"] = getattr(player, "last_name", "") or ""
+        row["primary_position"] = position or ""
+        row["is_pitcher"] = is_pitcher
+        row["overall_raw"] = overall["overall_raw"]
+        row["overall_display"] = overall["overall_display"]
+        row["overall_stars_text"] = overall["overall_stars_text"]
     return rows
 
 

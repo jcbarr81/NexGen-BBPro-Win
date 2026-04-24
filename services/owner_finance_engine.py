@@ -46,10 +46,10 @@ _BUDGET_CATEGORIES = ("training", "scouting", "development", "facilities")
 _OFF = "off"
 
 _BASIC_MONTHLY_REVENUE = {
-    "tickets": 900_000,
-    "concessions": 180_000,
-    "media": 250_000,
-    "sponsorship": 150_000,
+    "tickets": 4_800_000,
+    "concessions": 970_000,
+    "media": 1_340_000,
+    "sponsorship": 810_000,
 }
 _BASIC_MONTHLY_EXPENSES = {
     "training": 110_000,
@@ -58,10 +58,10 @@ _BASIC_MONTHLY_EXPENSES = {
     "operations": 240_000,
 }
 _ADVANCED_MONTHLY_REVENUE = {
-    "tickets": 1_050_000,
-    "concessions": 230_000,
-    "media": 320_000,
-    "sponsorship": 220_000,
+    "tickets": 5_570_000,
+    "concessions": 1_220_000,
+    "media": 1_700_000,
+    "sponsorship": 1_170_000,
 }
 _ADVANCED_MONTHLY_EXPENSES = {
     "training": 140_000,

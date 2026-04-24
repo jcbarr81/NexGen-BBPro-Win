@@ -213,11 +213,24 @@ export interface CommissionerSettings {
     enforcement_mode: string;
     modules: Record<string, string>;
   };
+  strategy: {
+    default_profile: string | null;
+    teams: Record<string, string>;
+  };
+  auto_reassign: {
+    default_enabled: boolean;
+    teams: Record<string, boolean>;
+  };
   options: {
     trade_cadences: string[];
     injury_levels: string[];
     finance_presets: string[];
     finance_enforcement: string[];
+    strategy_profiles: Array<{
+      id: string;
+      label: string;
+      description: string;
+    }>;
   };
 }
 
@@ -311,7 +324,14 @@ export interface RosterPlayer {
   primary_position: string;
   other_positions: string;
   bats: string;
+  throws?: string;
   role: string;
+  /** Pitcher-only: SP/RP preference from the generator (CL, SP, RP, etc.). */
+  preferred_pitching_role?: string;
+  /** ISO ``YYYY-MM-DD``; empty when unknown. */
+  birthdate?: string;
+  /** Years old as of today; null when birthdate is missing/unparseable. */
+  age?: number | null;
   is_pitcher: boolean;
   injured: boolean;
   injury_description: string;
@@ -319,6 +339,12 @@ export interface RosterPlayer {
   dl_tier: string | null;
   ratings: Record<string, number | string | null>;
   ratings_context?: Record<string, RatingContextEntry>;
+  /** Raw average across component ratings (0-99). */
+  overall_raw?: number | null;
+  /** Overall scaled through the 35-99 display transform. */
+  overall_display?: number | null;
+  /** Pre-formatted star text (e.g. ``"4"`` or ``"4.5"``). */
+  overall_stars_text?: string | null;
 }
 
 export interface TeamRoster {
@@ -445,6 +471,16 @@ export interface DraftSelection {
   round: number;
   team_id: string;
   player_id: string;
+  /** Hydrated from players.csv by the results endpoint. Absent when the
+   *  live draft state carries selections that haven't been matched to a
+   *  player row yet. */
+  first_name?: string;
+  last_name?: string;
+  primary_position?: string;
+  is_pitcher?: boolean;
+  overall_raw?: number | null;
+  overall_display?: number | null;
+  overall_stars_text?: string | null;
 }
 
 export interface DraftState {
@@ -674,6 +710,33 @@ export interface PlayerProfile {
   stats_columns: string[];
   overall_details: Array<[string, string]>;
   contract_details: Array<[string, string]>;
+  /** Rolling metric chart data — parallel snapshots across the last ~12
+   *  season_history JSON files. Hitters: AVG/OPS. Pitchers: ERA/WHIP. */
+  rolling_stats?: {
+    dates: string[];
+    series: Record<string, number[]>;
+  } | null;
+  /** Per-season rating snapshot list for the Career Ledger "Ratings" tab. */
+  ratings_history?: Array<{
+    label: string;
+    ratings: Record<string, number | null>;
+  }>;
+  /** Per-season awards earned. */
+  awards_history?: Array<{ year: string; award: string; description: string }>;
+  /** All transaction rows (signing, release, trade, DL moves). */
+  transactions_log?: Array<{
+    date: string;
+    description: string;
+    from_team: string;
+    to_team: string;
+  }>;
+  /** Trade-only filter of transactions_log. */
+  trade_log?: Array<{
+    date: string;
+    description: string;
+    from_team: string;
+    to_team: string;
+  }>;
 }
 
 // --- Team settings ---
@@ -730,6 +793,20 @@ export interface TrainingFocus {
   };
 }
 
+export interface PlayerTrainingFocus {
+  player_id: string;
+  team_id: string | null;
+  source: "player" | "team" | "defaults";
+  league_id: string;
+  tracks: { hitters: string[]; pitchers: string[] };
+  hitters: Record<string, number>;
+  pitchers: Record<string, number>;
+  defaults: {
+    hitters: Record<string, number>;
+    pitchers: Record<string, number>;
+  };
+}
+
 // --- Season progression ---
 
 export type SeasonPhase =
@@ -752,6 +829,22 @@ export interface SeasonState {
   played_dates?: string[];
   errors?: string[];
   new_phase?: SeasonPhase;
+  /** True when the simulator hit the draft date — owner must run the
+   *  draft in /draft before any more days will advance. */
+  draft_blocked?: boolean;
+  /** Summary returned after each simulated batch: finance cadence,
+   *  CPU trade offers, and DL activations. */
+  automations?: {
+    finance?: Record<string, unknown>;
+    finance_error?: string;
+    cpu_trades?: Record<string, unknown>;
+    cpu_trades_error?: string;
+    dl_updates?: { activated: number; alerts: number; blocked: number };
+    dl_updates_error?: string;
+  };
+  /** Set when advance_phase steps into PLAYOFFS. */
+  playoffs?: { saved?: boolean; path?: string; reused_existing?: boolean; teams_seeded?: number; error?: string };
+  playoffs_error?: string;
 }
 
 export const api = {
@@ -816,6 +909,11 @@ export const api = {
     apiRequest<PitchingStaff>(
       `/teams/${encodeURIComponent(teamId)}/pitching`,
       { method: "PUT", body: { staff } },
+    ),
+  autofillPitchingStaff: (teamId: string) =>
+    apiRequest<PitchingStaff>(
+      `/teams/${encodeURIComponent(teamId)}/pitching/autofill`,
+      { method: "POST" },
     ),
   leagueStandings: () => apiRequest<LeagueStandings>("/standings/league"),
   leaguesFirstRun: () =>
@@ -975,6 +1073,21 @@ export const api = {
       "/hall-of-fame/refresh",
       { method: "POST" },
     ),
+  hofSettings: () =>
+    apiRequest<{
+      min_years_retired: number;
+      score_threshold: number;
+      defaults: { min_years_retired: number; score_threshold: number };
+    }>("/hall-of-fame/settings"),
+  hofSaveSettings: (payload: {
+    min_years_retired: number;
+    score_threshold: number;
+  }) =>
+    apiRequest<{
+      min_years_retired: number;
+      score_threshold: number;
+      defaults: { min_years_retired: number; score_threshold: number };
+    }>("/hall-of-fame/settings", { method: "PUT", body: payload }),
   financeQueue: (queueType?: string) =>
     apiRequest<{ count: number; rows: Array<Record<string, unknown>> }>(
       `/finance-queue${queueType ? `?queue_type=${encodeURIComponent(queueType)}` : ""}`,
@@ -1028,6 +1141,16 @@ export const api = {
       method: "PUT",
       body: payload,
     }),
+  saveCommishStrategy: (payload: {
+    default_profile?: string;
+    default_auto_reassign?: boolean;
+    team_strategies?: Record<string, string>;
+    team_auto_reassigns?: Record<string, boolean>;
+  }) =>
+    apiRequest<CommissionerSettings>(
+      "/commissioner/settings/strategy",
+      { method: "PUT", body: payload },
+    ),
   leagueHistory: () =>
     apiRequest<{
       count: number;
@@ -1122,6 +1245,10 @@ export const api = {
         is_pitcher: boolean;
         role: string;
         ratings: Record<string, number | string | null>;
+        ratings_context?: Record<string, RatingContextEntry>;
+        overall_raw?: number | null;
+        overall_display?: number | null;
+        overall_stars_text?: string | null;
       }>;
     }>(`/free-agents?limit=${limit}`),
   signFreeAgent: (
@@ -1212,6 +1339,36 @@ export const api = {
     apiRequest<TrainingFocus>(`/teams/${encodeURIComponent(teamId)}/training`, {
       method: "DELETE",
     }),
+  getPlayerTraining: (playerId: string, teamId?: string) => {
+    const qs = teamId ? `?team_id=${encodeURIComponent(teamId)}` : "";
+    return apiRequest<PlayerTrainingFocus>(
+      `/players/${encodeURIComponent(playerId)}/training${qs}`,
+    );
+  },
+  savePlayerTraining: (
+    playerId: string,
+    payload: {
+      hitters: Record<string, number>;
+      pitchers: Record<string, number>;
+      team_id?: string;
+    },
+  ) => {
+    const qs = payload.team_id
+      ? `?team_id=${encodeURIComponent(payload.team_id)}`
+      : "";
+    const { team_id: _ignored, ...body } = payload;
+    return apiRequest<PlayerTrainingFocus>(
+      `/players/${encodeURIComponent(playerId)}/training${qs}`,
+      { method: "PUT", body },
+    );
+  },
+  resetPlayerTraining: (playerId: string, teamId?: string) => {
+    const qs = teamId ? `?team_id=${encodeURIComponent(teamId)}` : "";
+    return apiRequest<PlayerTrainingFocus>(
+      `/players/${encodeURIComponent(playerId)}/training${qs}`,
+      { method: "DELETE" },
+    );
+  },
   seasonState: () => apiRequest<SeasonState>("/season/state"),
   seasonSimulateDay: () =>
     apiRequest<SeasonState>("/season/simulate/day", { method: "POST" }),

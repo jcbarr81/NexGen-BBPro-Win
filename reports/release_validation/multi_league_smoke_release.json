@@ -1,5 +1,5 @@
 {
-  "data_root": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_pa_l4kuv\\data",
+  "data_root": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_kr1oqvs9\\data",
   "passed": 5,
   "failed": 0,
   "results": [
@@ -46,8 +46,8 @@
       "check": "snapshot_export_isolation",
       "status": "PASS",
       "details": {
-        "alpha_snapshot": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_pa_l4kuv\\exports\\alpha\\league_snapshot_20260319_221524.zip",
-        "beta_snapshot": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_pa_l4kuv\\exports\\beta\\league_snapshot_20260319_221524.zip",
+        "alpha_snapshot": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_kr1oqvs9\\exports\\alpha\\league_snapshot_20260424_220107.zip",
+        "beta_snapshot": "C:\\Users\\james\\AppData\\Local\\Temp\\nexgen_smoke_kr1oqvs9\\exports\\beta\\league_snapshot_20260424_220107.zip",
         "alpha_manifest_league": "alpha",
         "beta_manifest_league": "beta",
         "alpha_marker": "Alpha",
@@ -61,7 +61,7 @@
         "alpha_enabled": true,
         "beta_enabled": false,
         "alpha_cycle_applied": true,
-        "alpha_cash": 945000,
+        "alpha_cash": 7385000,
         "beta_cash": 0,
         "alpha_finance_tx_count": 8,
         "beta_finance_tx_count": 0

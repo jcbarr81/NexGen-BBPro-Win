@@ -19,6 +19,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from services import finance_settings as fs
 from services import injury_settings as insj
+from services import team_auto_reassign_settings as tar
+from services import team_strategy_profiles as tsp
 from services import trade_settings as ts
 
 from ..security import require_bearer
@@ -42,6 +44,18 @@ def _serialize() -> Dict[str, Any]:
     trade = ts.load_trade_settings()
     injury = insj.load_injury_settings()
     finance = fs.load_financial_settings()
+
+    strategy_settings = tsp.load_team_strategy_settings()
+    auto_reassign_settings = tar.load_team_auto_reassign_settings()
+    strategy_options = [
+        {
+            "id": pid,
+            "label": str(meta.get("label", pid.title())),
+            "description": str(meta.get("description", "")),
+        }
+        for pid, meta in tsp.STRATEGY_PROFILES.items()
+    ]
+
     return {
         "trade": asdict(trade),
         "injury": asdict(injury),
@@ -51,6 +65,16 @@ def _serialize() -> Dict[str, Any]:
             "preset": finance.preset,
             "enforcement_mode": finance.enforcement_mode,
             "modules": dict(finance.modules),
+        },
+        "strategy": {
+            "default_profile": strategy_settings.get("default_profile"),
+            "teams": strategy_settings.get("teams") or {},
+        },
+        "auto_reassign": {
+            "default_enabled": bool(
+                auto_reassign_settings.get("default_enabled", tar.DEFAULT_ENABLED)
+            ),
+            "teams": auto_reassign_settings.get("teams") or {},
         },
         "options": {
             "trade_cadences": list(ts.CPU_PROPOSAL_CADENCE_VALUES),
@@ -67,6 +91,7 @@ def _serialize() -> Dict[str, Any]:
                 fs.ENFORCEMENT_WARN,
                 fs.ENFORCEMENT_BLOCK,
             ],
+            "strategy_profiles": strategy_options,
         },
     }
 
@@ -127,6 +152,41 @@ def save_finance_settings(
             preset=payload.get("preset"),
             enforcement_mode=payload.get("enforcement_mode"),
         )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return _serialize()
+
+
+@router.put("/settings/strategy")
+def save_strategy_defaults(
+    payload: Dict[str, Any] = Body(...),
+    _: Dict[str, Any] = AdminIdentity,
+) -> Dict[str, Any]:
+    """Update league-default strategy + auto-reassign, and optionally a
+    batch of per-team overrides in one call. Mirrors PyQt's
+    ``TeamStrategySettingsDialog`` which let commissioners edit both
+    defaults and each team's override in a single save.
+    """
+
+    default_profile = payload.get("default_profile")
+    default_auto_reassign = payload.get("default_auto_reassign")
+    team_strategies = payload.get("team_strategies") or {}
+    team_auto_reassigns = payload.get("team_auto_reassigns") or {}
+
+    try:
+        if default_profile is not None:
+            tsp.update_league_default_strategy(str(default_profile))
+        if default_auto_reassign is not None:
+            tar.update_league_default_auto_reassign(bool(default_auto_reassign))
+
+        if isinstance(team_strategies, dict):
+            for team_id, profile in team_strategies.items():
+                tsp.set_team_strategy_profile(str(team_id), profile)
+        if isinstance(team_auto_reassigns, dict):
+            for team_id, enabled in team_auto_reassigns.items():
+                tar.set_team_auto_reassign(str(team_id), enabled)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)

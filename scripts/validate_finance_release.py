@@ -90,6 +90,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional cap for FA rounds (0 = auto).",
     )
     parser.add_argument(
+        "--warmup-seasons",
+        type=int,
+        default=2,
+        help="Seasons to skip before evaluating stability guardrails (cold-start warmup).",
+    )
+    parser.add_argument(
         "--report-dir",
         type=Path,
         default=ROOT / "reports" / "release_validation",
@@ -144,6 +150,8 @@ def main(argv: list[str]) -> int:
         ]
         if int(args.max_fa_rounds) > 0:
             cmd.extend(["--max-fa-rounds", str(int(args.max_fa_rounds))])
+        if int(args.warmup_seasons) > 0:
+            cmd.extend(["--warmup-seasons", str(int(args.warmup_seasons))])
         run_command(cmd, cwd=ROOT)
 
     print("Finance release validation passed.")

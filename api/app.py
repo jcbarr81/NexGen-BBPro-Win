@@ -173,6 +173,7 @@ def create_app() -> FastAPI:
     app.include_router(admin.router)
     app.include_router(season.router)
     app.include_router(training.router)
+    app.include_router(training.player_router)
     app.include_router(team_settings.router)
     app.include_router(boxscore.router)
     app.include_router(activity.router)

@@ -1,7 +1,11 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { HashRouter } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  MutationCache,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 
 // Self-hosted fonts (CSP forbids Google Fonts). @fontsource ships the
 // weights/axes we actually use; anything else falls back via the stack in
@@ -15,8 +19,24 @@ import "@fontsource/space-grotesk/700.css";
 
 import App from "./App";
 import "./styles/globals.css";
+import { toast } from "./lib/toast-store";
+
+/**
+ * Fallback mutation error handler. Pages that supply their own ``onError``
+ * can opt out by setting ``meta: { suppressToast: true }`` on the mutation.
+ * Otherwise every un-handled mutation failure fires a toast so the user
+ * never sees a silent red flash and then nothing.
+ */
+const mutationCache = new MutationCache({
+  onError: (error, _variables, _context, mutation) => {
+    if (mutation.meta?.suppressToast) return;
+    const message = error instanceof Error ? error.message : String(error);
+    toast.error("Action failed", { description: message });
+  },
+});
 
 const queryClient = new QueryClient({
+  mutationCache,
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,

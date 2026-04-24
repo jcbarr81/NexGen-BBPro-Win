@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { useConfirmDialog } from "@/lib/use-confirm";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Badge,
@@ -223,6 +224,7 @@ function OffseasonFlowBody() {
  * one place. Deep-links to the full page for inline review/apply.
  */
 function FinanceQueueInline() {
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const queue = useQuery({
     queryKey: ["finance-queue", "all"],
     queryFn: () => api.financeQueue(),
@@ -252,8 +254,15 @@ function FinanceQueueInline() {
       <CardContent className="flex items-center gap-2">
         <Button
           size="sm"
-          onClick={() => {
-            if (window.confirm("Apply every approved row in the finance queue now?")) {
+          onClick={async () => {
+            if (
+              await confirm({
+                title: "Apply approved rows?",
+                description:
+                  "Commits every approved row in the finance queue in one pass.",
+                confirmLabel: "Apply",
+              })
+            ) {
               apply.mutate();
             }
           }}
@@ -281,6 +290,7 @@ function FinanceQueueInline() {
           </span>
         )}
       </CardContent>
+      {confirmDialog}
     </Card>
   );
 }

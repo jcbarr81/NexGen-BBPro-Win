@@ -1,4 +1,4 @@
-<!-- last_build_ref: d1a2645544afe14c33299a9d548ca3976af8e2ff -->
+<!-- last_build_ref: 79882e43bc2ca284855a0621d24028e4c52b1d6f -->
 # 4.5 Release Notes (Since 4.3.41)
 
 ## League Setup & Presets
@@ -1389,3 +1389,30 @@ Date: 2026-03-19
 Date: 2026-03-19
 
 - No changes since last build and no draft notes were found.
+
+# 6.10.26 Release Notes (Since last build d1a2645)
+Date: 2026-04-24
+
+- 6.10.10
+- 6.10.2
+- 6.10.0
+- 6.8.0 - Minor changes to Electron UI
+- 6.7.0 - Final port before beta testing
+- 6.6.0 - last of the ports from the oldy PyQt UI
+- Major UI overhaul
+- Promote Player Profile V2 to the default dialog
+- Promoted Player Profile V2 to the default profile dialog while keeping the legacy profile available as an explicit fallback.
+- Removed the hidden legacy-dialog proxy from Player Profile V2 and replaced it with native compare, stats summary, and career ledger flows.
+- Added regression coverage for V2-native comparison behavior and the new launcher default/fallback routing.
+- Added established-league contract backfill when finance is enabled so existing rosters receive inferred contracts instead of remaining contract-empty.
+- Added commissioner-facing save-time messaging summarizing generated contracts for mid-league finance enablement.
+- Added regression coverage for established-league backfill heuristics and finance-settings-triggered contract migration.
+- Added finance module tooltips in league creation and league finance settings so commissioners can compare Off/Basic/Advanced/MLB-Like/Warn/Block behaviors directly in the UI.
+- Added shared finance-level help text builders to keep module and enforcement explanations consistent across finance setup surfaces.
+- Seed inaugural roster contracts automatically when finance is enabled so first-year preseason teams no longer open the Finance hub with empty payroll/contract state.
+- Added startup repair coverage for inaugural finance-enabled saves that were created before contracts were seeded.
+- Added regression coverage for inaugural contract seeding and established-league skip behavior.
+- Hardened player profile routing with explicit launcher fallback behavior.
+- Added regression coverage for default, override, and invalid-variant profile launches.
+- Added V2 compare-selection safety coverage without expanding UI dependencies.
+- Added compact Player Profile V2 contract snapshot details and overall rating transparency rows for raw, displayed, scouted, and star values.

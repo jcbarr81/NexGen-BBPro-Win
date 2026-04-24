@@ -110,9 +110,19 @@ def _overall_from_row(row: Dict[str, object], keys: Tuple[str, ...]) -> Optional
     for key in keys:
         raw = row.get(key)
         try:
-            values.append(float(raw or 0))
+            numeric = float(raw or 0)
         except (TypeError, ValueError):
-            values.append(0.0)
+            continue
+        # Skip unused pitch-type ratings so a pitcher who throws four
+        # pitches isn't averaged down by five 0s for the pitches he
+        # doesn't use. This matches ui.player_profile_v2_viewmodel's
+        # ``_estimate_overall_rating`` and api.routers._rating_presentation
+        # ``compute_overall`` so the league-wide distribution agrees with
+        # per-player overalls — otherwise every pitcher percentiles to
+        # 100 and the UI shows 99 OVR across the board.
+        if key in _PITCH_KEYS and numeric <= 0:
+            continue
+        values.append(numeric)
     if not values:
         return None
     avg = sum(values) / len(values)

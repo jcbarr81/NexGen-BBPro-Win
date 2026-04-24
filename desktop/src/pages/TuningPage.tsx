@@ -19,6 +19,7 @@ import {
 
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
+import { useConfirmDialog } from "@/lib/use-confirm";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import {
@@ -49,6 +50,7 @@ interface Section {
 export function TuningPage() {
   const role = useAuthStore((s) => s.role);
   const queryClient = useQueryClient();
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
   const tuning = useQuery({
     queryKey: ["tuning"],
@@ -106,8 +108,15 @@ export function TuningPage() {
       <div className="mb-4 flex items-center justify-end gap-2">
         <Button
           variant="ghost"
-          onClick={() => {
-            if (!window.confirm("Reset every override to the engine default?"))
+          onClick={async () => {
+            if (
+              !(await confirm({
+                title: "Reset tuning overrides?",
+                description: "Every override reverts to the engine default.",
+                confirmLabel: "Reset all",
+                danger: true,
+              }))
+            )
               return;
             reset.mutate();
           }}
@@ -179,6 +188,7 @@ export function TuningPage() {
           ))}
         </div>
       ) : null}
+      {confirmDialog}
     </AppShell>
   );
 }

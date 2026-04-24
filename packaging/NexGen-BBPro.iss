@@ -3,7 +3,7 @@
 [Setup]
 AppId={{1e5875ae-6b82-4c87-8172-ceafc7d08661}}
 AppName=NexGen BBPro
-AppVersion=5.2.38
+AppVersion=6.10.26
 AppPublisher=NexGen BBPro
 DefaultDirName={commonpf}\NexGen-BBPro
 DefaultGroupName=NexGen BBPro

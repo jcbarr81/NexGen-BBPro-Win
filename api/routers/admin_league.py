@@ -39,13 +39,13 @@ def schedule_templates(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
     """List available schedule templates for regenerate."""
 
     try:
-        from services.league_presets import list_schedule_templates
+        from services.league_presets import load_schedule_templates
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Template catalog unavailable: {exc}",
         ) from exc
-    templates = list_schedule_templates()
+    templates = load_schedule_templates()
     return {
         "templates": [
             {
@@ -67,10 +67,8 @@ async def regenerate_schedule(
     template_id = str(payload.get("template_id", "mlb_162")).strip() or "mlb_162"
 
     from utils.team_loader import load_teams
-    from utils.schedule_generator import (
-        generate_schedule_from_template,
-        save_schedule,
-    )
+    from services.league_presets import generate_schedule_from_template
+    from playbalance.schedule_generator import save_schedule
 
     data_root = get_data_dir()
     teams_path = data_root / "teams.csv"

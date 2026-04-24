@@ -18,9 +18,11 @@ import {
   Search,
 } from "lucide-react";
 
-import { api } from "@/lib/api";
+import { api, type Team } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { TeamLogo } from "@/components/TeamLogo";
 import {
   Badge,
   Card,
@@ -48,6 +50,11 @@ export function PlayersBrowserPage() {
     queryKey: ["teams"],
     queryFn: () => api.listTeams(),
   });
+  const teamById = useMemo(() => {
+    const m = new Map<string, Team>();
+    for (const t of teams.data ?? []) m.set(t.team_id, t);
+    return m;
+  }, [teams.data]);
 
   const players = useQuery({
     queryKey: [
@@ -241,21 +248,42 @@ export function PlayersBrowserPage() {
                     className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
                   >
                     <td className="px-6 py-2">
-                      <Link
-                        to={`/player/${encodeURIComponent(p.player_id)}`}
-                        className="font-semibold hover:text-amber"
-                      >
-                        {p.last_name}, {p.first_name}
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <PlayerAvatar
+                          playerId={p.player_id}
+                          initials={`${p.first_name?.[0] ?? ""}${p.last_name?.[0] ?? ""}`}
+                          className="h-7 w-7 shrink-0 overflow-hidden rounded-md text-[10px]"
+                        />
+                        <Link
+                          to={`/player/${encodeURIComponent(p.player_id)}`}
+                          className="font-semibold hover:text-amber"
+                        >
+                          {p.last_name}, {p.first_name}
+                        </Link>
+                      </div>
                     </td>
                     <td className="px-3 py-2">
                       {p.team_id ? (
-                        <Link
-                          to={`/team/${encodeURIComponent(p.team_id)}`}
-                          className="text-xs font-semibold uppercase tracking-wider hover:text-amber"
-                        >
-                          {p.team_id}
-                        </Link>
+                        (() => {
+                          const t = teamById.get(p.team_id);
+                          return (
+                            <Link
+                              to={`/team/${encodeURIComponent(p.team_id)}`}
+                              className="inline-flex items-center gap-2 hover:text-amber"
+                            >
+                              <TeamLogo
+                                teamId={p.team_id}
+                                abbreviation={t?.abbreviation || p.team_id}
+                                primaryColor={t?.primary_color}
+                                secondaryColor={t?.secondary_color}
+                                className="h-6 w-6 shrink-0 rounded-md text-[10px]"
+                              />
+                              <span className="text-xs font-semibold uppercase tracking-wider">
+                                {p.team_id}
+                              </span>
+                            </Link>
+                          );
+                        })()
                       ) : (
                         <span className="text-xs text-muted">FA</span>
                       )}

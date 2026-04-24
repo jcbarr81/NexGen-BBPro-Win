@@ -69,6 +69,7 @@ export function CommissionerPage() {
           <TradeCard data={settings.data} />
           <InjuryCard data={settings.data} />
           <FinanceCard data={settings.data} />
+          <StrategyCard data={settings.data} />
         </div>
       ) : null}
     </AppShell>
@@ -363,6 +364,218 @@ function Toggle({
         className="h-4 w-4 accent-amber"
       />
     </label>
+  );
+}
+
+function StrategyCard({ data }: { data: CommissionerSettings }) {
+  const queryClient = useQueryClient();
+  const profiles = data.options.strategy_profiles ?? [];
+  const teamsQ = useQuery({
+    queryKey: ["teams"],
+    queryFn: () => api.listTeams(),
+  });
+
+  const [defaultProfile, setDefaultProfile] = useState(
+    data.strategy.default_profile ?? "",
+  );
+  const [defaultAutoReassign, setDefaultAutoReassign] = useState(
+    data.auto_reassign.default_enabled,
+  );
+  const [teamStrategies, setTeamStrategies] = useState<Record<string, string>>(
+    { ...data.strategy.teams },
+  );
+  const [teamAutoReassigns, setTeamAutoReassigns] = useState<
+    Record<string, boolean>
+  >({ ...data.auto_reassign.teams });
+
+  // Dirty tracking against the loaded server data — reset after save.
+  const dirty =
+    defaultProfile !== (data.strategy.default_profile ?? "") ||
+    defaultAutoReassign !== data.auto_reassign.default_enabled ||
+    JSON.stringify(teamStrategies) !==
+      JSON.stringify(data.strategy.teams ?? {}) ||
+    JSON.stringify(teamAutoReassigns) !==
+      JSON.stringify(data.auto_reassign.teams ?? {});
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.saveCommishStrategy({
+        default_profile: defaultProfile || undefined,
+        default_auto_reassign: defaultAutoReassign,
+        team_strategies: teamStrategies,
+        team_auto_reassigns: teamAutoReassigns,
+      }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["commissioner-settings"], next);
+      setDefaultProfile(next.strategy.default_profile ?? "");
+      setDefaultAutoReassign(next.auto_reassign.default_enabled);
+      setTeamStrategies({ ...next.strategy.teams });
+      setTeamAutoReassigns({ ...next.auto_reassign.teams });
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>
+            <span className="inline-flex items-center gap-2">
+              <Settings2 className="h-4 w-4" /> Strategy &amp; auto-reassign
+            </span>
+          </CardTitle>
+          <CardDescription>
+            League defaults plus per-team overrides. Ports PyQt's
+            TeamStrategySettingsDialog.
+          </CardDescription>
+        </div>
+        <div className="flex items-center gap-2">
+          {dirty && <Badge tone="warning">Unsaved</Badge>}
+          <Button
+            onClick={() => save.mutate()}
+            disabled={!dirty || save.isPending}
+          >
+            {save.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Save strategy
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="commish-default-strategy">
+              League default strategy
+            </Label>
+            <select
+              id="commish-default-strategy"
+              value={defaultProfile}
+              onChange={(e) => setDefaultProfile(e.target.value)}
+              className="h-9 w-full rounded-md border border-border bg-canvas/60 px-2 text-sm text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+            >
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>League default auto-reassign</Label>
+            <div className="flex rounded-lg border border-border bg-surfaceAlt p-1">
+              {[
+                { value: true, label: "Enabled" },
+                { value: false, label: "Disabled" },
+              ].map((opt) => (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  onClick={() => setDefaultAutoReassign(opt.value)}
+                  className={cn(
+                    "flex-1 rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider transition",
+                    defaultAutoReassign === opt.value
+                      ? "bg-amber text-espresso"
+                      : "text-muted hover:bg-surface hover:text-ink",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+            Team overrides
+          </div>
+          <div className="max-h-80 overflow-y-auto rounded-lg border border-border bg-canvas/30">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/60 text-[10px] uppercase tracking-wider text-muted">
+                  <th className="px-4 py-2 text-left">Team</th>
+                  <th className="px-3 py-2 text-left">Strategy</th>
+                  <th className="px-3 py-2 text-left">Auto-reassign</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(teamsQ.data ?? []).map((team) => {
+                  const sid = teamStrategies[team.team_id] ?? "";
+                  const ar = teamAutoReassigns[team.team_id];
+                  return (
+                    <tr
+                      key={team.team_id}
+                      className="border-b border-border/30 last:border-b-0 hover:bg-surfaceAlt/30"
+                    >
+                      <td className="px-4 py-2 font-semibold">
+                        {team.city} {team.name}
+                        <span className="ml-2 text-[10px] uppercase tracking-wider text-muted">
+                          {team.abbreviation || team.team_id}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <select
+                          value={sid}
+                          onChange={(e) =>
+                            setTeamStrategies({
+                              ...teamStrategies,
+                              [team.team_id]: e.target.value,
+                            })
+                          }
+                          className="h-8 w-full rounded-md border border-border bg-canvas/60 px-2 text-xs text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                        >
+                          <option value="">League default</option>
+                          {profiles.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-3 py-2">
+                        <select
+                          value={
+                            ar == null ? "default" : ar ? "enabled" : "disabled"
+                          }
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setTeamAutoReassigns((prev) => {
+                              const next = { ...prev };
+                              if (v === "default") {
+                                delete next[team.team_id];
+                              } else {
+                                next[team.team_id] = v === "enabled";
+                              }
+                              return next;
+                            });
+                          }}
+                          className="h-8 w-full rounded-md border border-border bg-canvas/60 px-2 text-xs text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                        >
+                          <option value="default">League default</option>
+                          <option value="enabled">Enabled</option>
+                          <option value="disabled">Disabled</option>
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {save.isError && (
+          <div className="flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span className="whitespace-pre-line">
+              {(save.error as Error).message}
+            </span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

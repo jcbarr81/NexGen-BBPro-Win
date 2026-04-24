@@ -19,6 +19,7 @@ import {
   Crown,
   Award,
   BarChart3,
+  Flame,
   Archive,
   UserSearch,
   Activity,
@@ -86,6 +87,7 @@ const SECTIONS: NavSection[] = [
     label: "My Team",
     items: [
       { to: "/roster", label: "Roster", Icon: ClipboardList },
+      { to: "/pitchers", label: "Pitchers", Icon: Flame },
       { to: "/lineup", label: "Lineup", Icon: ListOrdered },
       { to: "/depth-chart", label: "Depth Chart", Icon: Layers },
       { to: "/training", label: "Training", Icon: Target },

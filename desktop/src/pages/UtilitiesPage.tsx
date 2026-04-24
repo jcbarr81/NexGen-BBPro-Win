@@ -29,6 +29,7 @@ import {
 import { api, runExportJob, type ExportJobStatus, type HealthPayload } from "@/lib/api";
 import { getBridge } from "@/lib/bridge";
 import { useAuthStore } from "@/lib/auth-store";
+import { useConfirmDialog } from "@/lib/use-confirm";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Badge,
@@ -59,6 +60,7 @@ export function UtilitiesPage() {
   const isAdmin = role === "admin";
   const [results, setResults] = useState<Record<string, ActionResult>>({});
   const [progress, setProgress] = useState<Record<string, ActionProgress>>({});
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   // Which specific tile triggered the in-flight mutation. Logos + avatars
   // each have two sibling tiles that share the same useMutation, so the
   // "is this running" signal needs a finer key than the mutation itself.
@@ -277,11 +279,15 @@ export function UtilitiesPage() {
               progress={progress["avatars-regen"]}
               result={results["avatars-regen"]}
               disabled={!isAdmin || activeAction !== null}
-              onRun={() => {
+              onRun={async () => {
                 if (
-                  window.confirm(
-                    "This deletes every player avatar in the output folder (Template + default.png kept) and regenerates them from scratch. Continue?",
-                  )
+                  await confirm({
+                    title: "Regenerate every player avatar?",
+                    description:
+                      "Deletes every avatar in the output folder (Template + default.png kept) and regenerates from scratch.",
+                    confirmLabel: "Regenerate all",
+                    danger: true,
+                  })
                 ) {
                   setActiveAction("avatars-regen");
                   avatars.mutate({ tileKey: "avatars-regen", initial: true });
@@ -343,6 +349,7 @@ export function UtilitiesPage() {
           </CardContent>
         </Card>
       </div>
+      {confirmDialog}
     </AppShell>
   );
 }
