@@ -88,6 +88,15 @@ const ActivityPage = lazy(() =>
 const NewsPage = lazy(() =>
   named("NewsPage", () => import("@/pages/NewsPage")),
 );
+const NotificationsPage = lazy(() =>
+  named("NotificationsPage", () => import("@/pages/NotificationsPage")),
+);
+const HubPage = lazy(() =>
+  named("HubPage", () => import("@/pages/HubPage")),
+);
+const MyTeamRedirect = lazy(() =>
+  named("MyTeamRedirect", () => import("@/pages/MyTeamRedirect")),
+);
 const InjuryPage = lazy(() =>
   named("InjuryPage", () => import("@/pages/InjuryPage")),
 );
@@ -173,14 +182,14 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 /**
  * Dashboard + descendant routes also require a selected league. If none is
- * set yet, bounce to the picker. LeagueSelectPage itself sits outside this
- * guard so the user can reach it without a selection.
+ * set yet, bounce to the picker (entry point of the app). LeagueSelectPage
+ * itself sits outside this guard so the user can reach it without auth.
  */
 function RequireLeague({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
   const league = useAuthStore((s) => s.activeLeagueId);
-  if (!token) return <Navigate to="/login" replace />;
   if (!league) return <Navigate to="/select-league" replace />;
+  if (!token) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
@@ -229,14 +238,10 @@ export default function App() {
         {/* Accessible without auth for first-run bootstrap; the page
             component itself enforces admin when first-run=1 is absent. */}
         <Route path="/leagues/new" element={<LeagueCreatePage />} />
-        <Route
-          path="/select-league"
-          element={
-            <RequireAuth>
-              <LeagueSelectPage />
-            </RequireAuth>
-          }
-        />
+        {/* League picker is the first screen shown — public so users can
+            choose (or create) a league before signing in. The picker sets
+            the active league, then routes to /login. */}
+        <Route path="/select-league" element={<LeagueSelectPage />} />
         <Route
           path="/home"
           element={
@@ -290,6 +295,22 @@ export default function App() {
           element={
             <RequireLeague>
               <InjuryPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/notifications"
+          element={
+            <RequireLeague>
+              <NotificationsPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/hub/:hubKey"
+          element={
+            <RequireLeague>
+              <HubPage />
             </RequireLeague>
           }
         />
@@ -362,6 +383,14 @@ export default function App() {
           element={
             <RequireLeague>
               <TeamDetailPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/my-team-stats"
+          element={
+            <RequireLeague>
+              <MyTeamRedirect />
             </RequireLeague>
           }
         />
@@ -608,8 +637,8 @@ export default function App() {
             }
           />
         ))}
-        <Route path="/" element={<Navigate to="/home" replace />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<Navigate to="/select-league" replace />} />
+        <Route path="*" element={<Navigate to="/select-league" replace />} />
         </Routes>
       </Suspense>
     </SplashGate>

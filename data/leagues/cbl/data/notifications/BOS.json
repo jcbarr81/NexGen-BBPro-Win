@@ -1,0 +1,150 @@
+{
+  "rules": {
+    "all_star_break": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false
+    },
+    "clinched_division": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": true
+    },
+    "commissioner_action_required": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": true
+    },
+    "contract_expiring": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false
+    },
+    "draft_approaching": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false,
+      "threshold": 14.0
+    },
+    "draft_results_posted": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false
+    },
+    "eliminated": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false
+    },
+    "fa_signed_elsewhere": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false
+    },
+    "finance_cash_low": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": true,
+      "threshold": 2000000.0
+    },
+    "finance_negative_net": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false
+    },
+    "finance_payroll_over": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false
+    },
+    "injury_day_to_day": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false
+    },
+    "injury_dl15": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": true
+    },
+    "injury_dl45": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": true
+    },
+    "injury_ir60": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": true
+    },
+    "injury_returned": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false
+    },
+    "injury_season_ending": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": true
+    },
+    "lineup_invalid": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": true
+    },
+    "losing_streak": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false,
+      "threshold": 5.0
+    },
+    "phase_transition": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": true
+    },
+    "pitching_staff_invalid": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": true
+    },
+    "player_milestone": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false
+    },
+    "roster_cap_violation": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": true
+    },
+    "schedule_regenerated": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false
+    },
+    "trade_deadline_approaching": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false,
+      "threshold": 7.0
+    },
+    "trade_decided": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false
+    },
+    "trade_offer_received": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": true
+    },
+    "win_streak": {
+      "enabled": true,
+      "notify": true,
+      "stop_sim": false,
+      "threshold": 5.0
+    }
+  },
+  "team_id": "BOS"
+}

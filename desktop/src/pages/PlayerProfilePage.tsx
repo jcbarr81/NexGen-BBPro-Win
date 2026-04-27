@@ -16,6 +16,7 @@ import {
   ArrowLeft,
   ArrowLeftRight,
   ChevronRight,
+  Handshake,
   Loader2,
   ShieldCheck,
   Star,
@@ -29,6 +30,7 @@ import {
   type PlayerProfile,
   type PlayerProfileNote,
 } from "@/lib/api";
+import { useAuthStore } from "@/lib/auth-store";
 import { AppShell } from "@/components/layout/AppShell";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { PlayerPickerDialog } from "@/components/PlayerPickerDialog";
@@ -58,11 +60,24 @@ export function PlayerProfilePage() {
   const navigate = useNavigate();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [trainingOpen, setTrainingOpen] = useState(false);
+  const userTeamId = useAuthStore(
+    (s) => s.selectedTeamId ?? s.teamId,
+  );
   const profile = useQuery({
     queryKey: ["player-profile", playerId],
     queryFn: () => api.playerProfile(playerId as string),
     enabled: !!playerId,
   });
+  // "Trade for Player" only makes sense when:
+  //   - the player is on a real team (not a free agent — that's a sign,
+  //     not a trade), and
+  //   - the user has a team of their own to trade from, and
+  //   - it's somebody else's team.
+  const canTradeFor = !!(
+    profile.data?.team_id &&
+    userTeamId &&
+    profile.data.team_id !== userTeamId
+  );
 
   return (
     <AppShell
@@ -77,11 +92,31 @@ export function PlayerProfilePage() {
         <Button variant="ghost" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
-        {profile.data && (
-          <Button variant="outline" onClick={() => setPickerOpen(true)}>
-            <ArrowLeftRight className="h-4 w-4" /> Compare
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {canTradeFor && profile.data && playerId && userTeamId && (
+            <Button
+              onClick={() =>
+                navigate("/trades", {
+                  state: {
+                    proposeTrade: {
+                      fromTeam: userTeamId,
+                      toTeam: profile.data?.team_id ?? "",
+                      receivePlayers: [playerId],
+                    },
+                  },
+                })
+              }
+              title={`Open Propose Trade with ${profile.data.full_name} from ${profile.data.team_id} pre-loaded`}
+            >
+              <Handshake className="h-4 w-4" /> Trade for Player
+            </Button>
+          )}
+          {profile.data && (
+            <Button variant="outline" onClick={() => setPickerOpen(true)}>
+              <ArrowLeftRight className="h-4 w-4" /> Compare
+            </Button>
+          )}
+        </div>
       </div>
 
       {playerId && (
@@ -116,6 +151,8 @@ export function PlayerProfilePage() {
         <div className="space-y-6 animate-fade-in">
           <HeroCard profile={profile.data} />
           <RatingsRow profile={profile.data} />
+          <StatsCard profile={profile.data} />
+          <CareerLedgerCard profile={profile.data} />
           {profile.data.training_focus && (
             <TrainingCard
               focus={profile.data.training_focus}
@@ -126,8 +163,6 @@ export function PlayerProfilePage() {
             <SprayChartCard profile={profile.data} />
           )}
           <RollingStatsCard profile={profile.data} />
-          <StatsCard profile={profile.data} />
-          <CareerLedgerCard profile={profile.data} />
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <DetailsCard
               title="Overall"

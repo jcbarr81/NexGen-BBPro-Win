@@ -1,0 +1,31 @@
+{
+  "_comment": "Per-position weights used by api.routers._rating_presentation.compute_overall to weight the *displayed* (already percentile-scaled) hitter ratings into a single OVR. Pitchers use their existing pitch-mix-aware formula and ignore this file. Edit and the change takes effect on the next request — no rebuild required.",
+  "_keys_legend": {
+    "ch": "Contact",
+    "ph": "Power",
+    "eye": "Plate discipline / strike-zone judgement",
+    "sp": "Speed (range + base running)",
+    "fa": "Fielding (glove)",
+    "arm": "Throwing arm",
+    "pl": "Plate Lab modifier",
+    "vl": "Vision modifier",
+    "sc": "Scouting",
+    "gf": "Ground / fly tendency"
+  },
+  "default": {
+    "ch": 2.0, "ph": 2.0, "eye": 1.5, "sp": 1.5,
+    "fa": 1.5, "arm": 1.0,
+    "pl": 0.5, "vl": 0.5, "sc": 0.5, "gf": 0.5
+  },
+  "positions": {
+    "C":  { "ch": 2.0, "ph": 1.0, "eye": 1.0, "sp": 0.5, "fa": 3.0, "arm": 3.0, "pl": 0.5, "vl": 0.5, "sc": 2.0, "gf": 0.5 },
+    "1B": { "ch": 3.0, "ph": 3.0, "eye": 2.0, "sp": 0.5, "fa": 2.0, "arm": 1.0, "pl": 1.0, "vl": 1.0, "sc": 0.5, "gf": 0.5 },
+    "2B": { "ch": 2.0, "ph": 1.0, "eye": 1.0, "sp": 2.0, "fa": 3.0, "arm": 2.0, "pl": 0.5, "vl": 0.5, "sc": 0.5, "gf": 0.5 },
+    "3B": { "ch": 2.0, "ph": 2.0, "eye": 1.0, "sp": 1.0, "fa": 3.0, "arm": 3.0, "pl": 0.5, "vl": 0.5, "sc": 0.5, "gf": 0.5 },
+    "SS": { "ch": 2.0, "ph": 1.0, "eye": 1.0, "sp": 2.0, "fa": 3.0, "arm": 3.0, "pl": 0.5, "vl": 0.5, "sc": 0.5, "gf": 0.5 },
+    "LF": { "ch": 3.0, "ph": 3.0, "eye": 2.0, "sp": 1.0, "fa": 2.0, "arm": 1.0, "pl": 1.0, "vl": 1.0, "sc": 0.5, "gf": 0.5 },
+    "CF": { "ch": 2.0, "ph": 2.0, "eye": 1.0, "sp": 3.0, "fa": 3.0, "arm": 2.0, "pl": 0.5, "vl": 0.5, "sc": 0.5, "gf": 0.5 },
+    "RF": { "ch": 3.0, "ph": 2.0, "eye": 2.0, "sp": 1.0, "fa": 2.0, "arm": 3.0, "pl": 1.0, "vl": 1.0, "sc": 0.5, "gf": 0.5 },
+    "DH": { "ch": 3.0, "ph": 3.0, "eye": 3.0, "sp": 0.5, "fa": 0.0, "arm": 0.0, "pl": 1.0, "vl": 1.0, "sc": 0.5, "gf": 0.5 }
+  }
+}

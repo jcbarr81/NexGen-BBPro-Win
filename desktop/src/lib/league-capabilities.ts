@@ -30,6 +30,9 @@ export interface LeagueCapabilities {
   multiOwner: boolean;
   /** True when financial simulation is enabled for this league. */
   financeEnabled: boolean;
+  /** Current season phase string ("PRESEASON", "REGULAR_SEASON",
+   *  "AMATEUR_DRAFT", "PLAYOFFS", "OFFSEASON", or "" while loading). */
+  phase: string;
   /** True while either query is still fetching — callers may want to
    *  delay hiding items until capabilities are resolved. */
   loading: boolean;
@@ -52,6 +55,14 @@ export function useLeagueCapabilities(): LeagueCapabilities {
     // Finance toggles rarely change; cache for the session.
     staleTime: 60_000,
   });
+  const seasonState = useQuery({
+    queryKey: ["season-state"],
+    queryFn: () => api.seasonState(),
+    enabled: !!token,
+    // Phase changes only on Sim Day / Advance Phase — every page that
+    // already invalidates ``season-state`` will refresh us automatically.
+    staleTime: 30_000,
+  });
 
   const activeLeague = leagues.data?.find((l) => l.id === activeLeagueId) ?? null;
   const mode = activeLeague?.mode ?? "unknown";
@@ -62,11 +73,13 @@ export function useLeagueCapabilities(): LeagueCapabilities {
   const financeEnabled =
     snapshot.data?.financials_enabled ??
     (!snapshot.isLoading || snapshot.data !== undefined ? true : true);
+  const phase = String(seasonState.data?.phase ?? "");
 
   return {
     mode,
     multiOwner,
     financeEnabled,
+    phase,
     loading: leagues.isLoading || snapshot.isLoading,
   };
 }

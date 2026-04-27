@@ -61,7 +61,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Sidebar navigation",
-                "<p>The sidebar is grouped into <b>Today</b>, <b>My Team</b>, <b>League</b>, <b>Transactions</b>, and <b>Admin</b>. Click any section header to collapse it; your layout preference persists across launches.</p>",
+                "<p>The sidebar shrinks to seven top-level destinations: <b>Today</b> (Dashboard / Season / News), four hub links (<b>My Team</b>, <b>League</b>, <b>Transactions</b>, <b>Admin</b>), <b>Notifications</b>, and <b>Help</b>. Click a hub to land on a card grid of every page in that category — capability-gated cards auto-hide. Right-click any sidebar entry or hub card to <b>Pin</b> it to a Favorites section, and use the chevron at the very top of the rail to collapse the sidebar to icons-only. See the <b>Navigation</b> tutorial for a full tour.</p>",
             ),
         ],
     ),
@@ -105,7 +105,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Right-click context menu",
-                "<p><b>Right-click any player row</b> for a quick menu with Open profile, Move to Active, Send to AAA, Send to Low-A, Place on DL (15), Place on 60-day IR, Shift to 45-day DL, and Release / Cut. The three-dot button at the end of the row opens the same menu.</p>",
+                "<p><b>Right-click any player row</b> for a quick menu with Open profile, <b>Training focus…</b> (opens the per-player override dialog), Move to Active, Send to AAA, Send to Low-A, Place on DL (15), Place on 60-day IR, Shift to 45-day DL, and Release / Cut. The three-dot button at the end of the row opens the same menu.</p>",
             ),
             TutorialStep(
                 "Move validation",
@@ -114,6 +114,10 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Depth chart",
                 "<p>Open <b>My Team → Depth Chart</b> to set up to three players per position (C/SS/CF/3B/2B/1B/LF/RF/DH). The top entry is the primary starter; the rest feed injury replacement + lineup autofill. Errors and warnings appear inline as you edit.</p>",
+            ),
+            TutorialStep(
+                "Auto-generate depth chart",
+                "<p>Click <b>Auto-generate</b> to seed every position with the best three available players from your roster — primary fits first, sorted by level (ACT before AAA / LOW) and overall rating. The button overwrites the current chart and saves immediately, so use it as a starting point or after a roster shake-up. Tweak from there with the move buttons.</p>",
             ),
             TutorialStep(
                 "Saving with Ctrl+S",
@@ -140,8 +144,13 @@ TUTORIALS: List[Tutorial] = [
                 "<p>Grab the <b>⋮⋮</b> handle on any row and drag to reorder the batting order. The ↑ / ↓ buttons still work for one-slot moves.</p>",
             ),
             TutorialStep(
-                "Autofill",
-                "<p>Click <b>Autofill</b> to generate lineups from ratings. The generator respects your depth chart priorities where possible; fine-tune from there.</p>",
+                "Autofill — current side or both",
+                "<p>Two autofill buttons sit above the lineup tabs:</p>"
+                "<ul>"
+                "<li><b>Autofill vs RHP / vs LHP</b> — fills only the side you're viewing, useful for tweaking platoon splits.</li>"
+                "<li><b>Autofill both</b> — fills both batting orders in one click (the original behavior).</li>"
+                "</ul>"
+                "<p>Both buttons honour your depth chart priorities first, then fall back to a contact/power/speed/defense score.</p>",
             ),
             TutorialStep(
                 "Live validation",
@@ -149,7 +158,11 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Pitching staff roles",
-                "<p>The <b>Pitching</b> tab exposes SP1–SP5, LR, MR1–MR3, SU, CL slots. Drag or use move buttons to reorder — the simulator schedules starts and calls relievers based on these roles. Low-rating warnings appear for starters or closers without the right ratings.</p>",
+                "<p>The <b>Pitching</b> tab exposes 11 slots: <b>SP1–SP5</b>, <b>LR</b>, <b>MR1–MR3</b>, <b>SU</b>, <b>CL</b>. Drag or use move buttons to reorder — the simulator schedules starts and calls relievers based on these roles. Low-rating warnings appear for starters or closers without the right ratings.</p>",
+            ),
+            TutorialStep(
+                "Pitching staff Auto-fill",
+                "<p>The <b>Auto-fill</b> button on the Pitching tab seeds all 11 slots from the active roster. Priority order: rotation goes to the five highest-endurance starters (or relievers preferring SP), then bullpen fills as <b>LR → CL → SU → MR1 → MR2 → MR3</b>. Long relief gets a high-endurance arm, closer gets the lowest-endurance arm (preferring anyone whose preferred role is CL), setup gets the next-lowest. The thinning order means a 9-pitcher staff still gets a usable LR/CL/SU before MR2/MR3 get filled.</p>",
             ),
         ],
     ),
@@ -427,11 +440,19 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Commissioner settings",
-                "<p><b>Admin → Commissioner</b> controls trade rules, global injury level, and finance preset. The old injury-settings dialog is consolidated here.</p>",
+                "<p><b>Admin → Commissioner</b> controls trade rules, global injury level, finance preset + enforcement, the new <b>module-level finance toggles</b> (10 modules from Owner Revenue to GM Finance AI), <b>CPU finance AI tuning</b> (19 numeric knobs — star thresholds, salary share caps, arbitration raise %, FA avoidance bands), and a separate <b>Scouting fog-of-war</b> card with its own enable + 6 pacing knobs. Module / AI sections are collapsed by default; expand them in Custom mode for fine-grained edits.</p>",
+            ),
+            TutorialStep(
+                "Strategy &amp; auto-reassign",
+                "<p>The <b>Strategy &amp; auto-reassign</b> card on the Commissioner page sets the league-default strategy profile and auto-reassign behavior, plus per-team overrides in a scrollable table. Mirrors PyQt's TeamStrategySettingsDialog.</p>",
             ),
             TutorialStep(
                 "Finance queue & change requests",
                 "<p><b>Admin → Finance Queue</b> reviews pending GM decisions (contracts, arbitration) that need commissioner approval. <b>Admin → Change Requests</b> lists owner-submitted bundles with approve/reject/requeue.</p>",
+            ),
+            TutorialStep(
+                "Offseason review tabs",
+                "<p><b>Admin → Offseason Flow</b> now has a Review section with four tabs: <b>Contracts</b> (expirations next year), <b>Arbitration</b> (filed awards + delta), <b>Budgets</b> (per-team year-over-year delta with category breakdown), and <b>GM Queue</b> (pending owner decisions with team / queue / status filters and inline Approve / Reject buttons for the row in focus).</p>",
             ),
             TutorialStep(
                 "Users",
@@ -500,6 +521,58 @@ TUTORIALS: List[Tutorial] = [
         ],
     ),
     Tutorial(
+        tutorial_id="player_avatars",
+        title="Player Avatars",
+        summary="Auto-generate avatars from team templates or override per player.",
+        steps=[
+            TutorialStep(
+                "Auto-generate avatars",
+                "<p>Open <b>Admin → Utilities → Generate Player Avatars</b>.</p>"
+                "<ul>"
+                "<li>Choose <b>Yes</b> on initial creation to rebuild every avatar (keeps only <code>Template</code> and <code>default.png</code>).</li>"
+                "<li>Choose <b>No</b> to fill only missing avatars.</li>"
+                "<li>Output PNGs land at <code>images/avatars/&lt;player_id&gt;.png</code>.</li>"
+                "<li>Templates live in <code>images/avatars/Template</code> and are recolored from the team's primary/secondary colors.</li>"
+                "</ul>",
+            ),
+            TutorialStep(
+                "Manual overrides",
+                "<p>Drop a custom PNG into <code>images/avatars/</code> to override the generated image.</p>"
+                "<ul>"
+                "<li>Name the file <code>&lt;player_id&gt;.png</code>; player IDs come from <code>data/players.csv</code>.</li>"
+                "<li>Square images work best — 256×256 or 512×512.</li>"
+                "<li>Profiles fall back to <code>images/avatars/default.png</code> if no file matches.</li>"
+                "<li>Reopen the player profile after replacing an avatar to refresh the cached image.</li>"
+                "</ul>",
+            ),
+        ],
+    ),
+    Tutorial(
+        tutorial_id="team_logos",
+        title="Team Logos",
+        summary="Auto-generate team logos or drop in your own square PNG.",
+        steps=[
+            TutorialStep(
+                "Auto-generate logos",
+                "<p>Open <b>Admin → Utilities → Generate Team Logos</b>.</p>"
+                "<ul>"
+                "<li>Output PNGs land at <code>logo/teams/&lt;team_id&gt;.png</code> (team_id is lower-case).</li>"
+                "<li>Running the generator replaces existing logos in <code>logo/teams</code>.</li>"
+                "<li>If the OpenAI client is not configured, the legacy auto-logo generator is used.</li>"
+                "</ul>",
+            ),
+            TutorialStep(
+                "Manual overrides",
+                "<p>Drop a custom PNG into <code>logo/teams/</code> to override the generated logo.</p>"
+                "<ul>"
+                "<li>Name the file <code>&lt;team_id&gt;.png</code>; team IDs come from <code>data/teams.csv</code>.</li>"
+                "<li>Square images work best — 512×512 or 1024×1024.</li>"
+                "<li>Reopen the team screen after replacing a logo to refresh the view.</li>"
+                "</ul>",
+            ),
+        ],
+    ),
+    Tutorial(
         tutorial_id="shortcuts",
         title="Keyboard Shortcuts",
         summary="Save with Ctrl+S, open Help with Alt+/, right-click rosters.",
@@ -530,6 +603,80 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Escape closes dialogs",
                 "<p><b>Esc</b> closes any open dialog — park browser, propose-trade, veto-note, tutorial step-through. The diamond diagram stays open because it's a panel, not a dialog.</p>",
+            ),
+        ],
+    ),
+    Tutorial(
+        tutorial_id="notifications",
+        title="Notifications & Stop-Sim Rules",
+        summary="Pick which league events fire alerts and which pause a multi-day sim.",
+        route="/notifications",
+        steps=[
+            TutorialStep(
+                "Why this page exists",
+                "<p>The notification engine runs after each simulated day. When something you care about happens — a player goes on the DL, the trade deadline approaches, cash runs low — a banner appears on the <b>Season</b> page and the event is logged here. Optionally, multi-day sims pause the second a flagged event fires so you can react before any more days tick over.</p>",
+            ),
+            TutorialStep(
+                "Three checkboxes per rule",
+                "<p>Each rule has three knobs:</p>"
+                "<ul>"
+                "<li><b>Enabled</b> — log the event to history at all.</li>"
+                "<li><b>Notify</b> — show a banner on the Season page after the sim batch finishes.</li>"
+                "<li><b>Stop sim</b> — pause a Sim Day / Week / Month / To Draft run the moment this rule fires.</li>"
+                "</ul>"
+                "<p>Some rules carry a <b>Threshold</b> too — e.g. losing-streak length, cash-low dollar floor, days-out horizon for the trade deadline.</p>",
+            ),
+            TutorialStep(
+                "Default safety net",
+                "<p>Out of the box, <b>15-day DL / 45-day DL / 60-day IR / season-ending injuries</b> all stop the sim — that's the most common reason owners want to be interrupted. Day-to-day injuries notify-only by default so the AI can keep going and you only see them in the banner. Edit any of these on this page if you'd rather have the AI auto-handle a tier or be paused for a different one.</p>",
+            ),
+            TutorialStep(
+                "Categories at a glance",
+                "<p>Rules are grouped into seven categories: <b>Health & roster</b>, <b>Performance & milestones</b>, <b>Transactions</b>, <b>Calendar & deadlines</b>, <b>Finance</b>, <b>League & admin</b>, and <b>Draft</b>. Saving writes to <code>data/notifications/&lt;team_id&gt;.json</code>; the engine reads it on every <b>/season/simulate/*</b> call.</p>",
+            ),
+            TutorialStep(
+                "Recent events tab",
+                "<p>The <b>Recent events</b> tab shows the last ~100 notifications generated for this team — newest first, with severity badge, sim date, and message. Use it to audit what the engine has been firing on or to confirm a rule you just enabled is actually catching events.</p>",
+            ),
+            TutorialStep(
+                "Resuming after a stop",
+                "<p>When a sim stops early, a warning banner above the Season page tells you which rule fired (e.g. <i>Sim paused: Player on 15-day DL</i>). Fix what needs fixing — adjust the lineup, claim a free agent, place the player on the DL — then re-click your sim button to keep going. Existing DL automation already moved the player, so the AI has done its part.</p>",
+            ),
+        ],
+    ),
+    Tutorial(
+        tutorial_id="navigation",
+        title="Navigation: Hubs, Breadcrumbs & Favorites",
+        summary="The sidebar shrunk from 30 entries to 8 — here's how to find anything fast.",
+        route="/hub/my-team",
+        steps=[
+            TutorialStep(
+                "Top-level destinations",
+                "<p>The sidebar collapses into seven top-level items: <b>Today</b> (Dashboard, Season, News), four <b>hubs</b> (My Team, League, Transactions, Admin — admin-only), <b>Notifications</b>, and <b>Help</b>. Every other page lives behind a hub click.</p>",
+            ),
+            TutorialStep(
+                "Hubs are landing pages",
+                "<p>Click a hub (e.g. <b>My Team</b>) to land on a card grid of every page in that category — Roster, Pitchers, Lineup, Depth Chart, Training, Injuries, Notifications, Finance, Settings. Capability-gated cards (Finance when finance is off, Submit Request in single-player) auto-hide based on your league.</p>",
+            ),
+            TutorialStep(
+                "Breadcrumbs above every page",
+                "<p>The header shows a trail like <code>Home / My Team / Roster</code>. Earlier segments are links — click <b>My Team</b> to jump back to the hub without using the sidebar.</p>",
+            ),
+            TutorialStep(
+                "Pin to favorites",
+                "<p>Right-click any sidebar entry or hub card → <b>Pin to sidebar</b>. Pinned items show in a <b>Favorites</b> section above the hubs. Right-click again to <b>Unpin</b>. Pins are per browser profile and persist across launches.</p>",
+            ),
+            TutorialStep(
+                "Collapse to icons-only",
+                "<p>The chevron at the very top of the sidebar collapses the rail to a 56-px icon strip. Hover any icon for its label. Click the chevron again to expand. The preference persists across sessions.</p>",
+            ),
+            TutorialStep(
+                "Phase-aware filtering",
+                "<p>The sidebar's Favorites section auto-hides routes that don't apply to the current phase — e.g. <b>Draft</b> outside <code>AMATEUR_DRAFT</code> / <code>PRESEASON</code>, <b>Offseason Flow</b> outside <code>OFFSEASON</code> / <code>PRESEASON</code>. The hubs still show every card so you can pre-explore.</p>",
+            ),
+            TutorialStep(
+                "Command palette",
+                "<p>Power users can press <b>Cmd+K</b> / <b>Ctrl+K</b> to open the command palette and jump straight to any page by name without clicking a hub. The palette is the fastest path when you know exactly where you want to go.</p>",
             ),
         ],
     ),

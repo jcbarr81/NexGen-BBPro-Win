@@ -224,6 +224,325 @@ def repair_lineups(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
     return {"fixed": fixed, "failed": failed}
 
 
+@router.post("/reset-to-opening-day")
+def reset_to_opening_day(
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    _: Dict[str, Any] = AdminIdentity,
+) -> Dict[str, Any]:
+    """Rewind the current league to Opening Day.
+
+    Ports ``ui/admin_dashboard/actions/league.reset_season_to_opening_day``.
+    Clears regular-season results, standings, stats, season history,
+    draft + playoff artifacts for the current year, injuries, and
+    pitcher recovery state; sets phase back to REGULAR_SEASON.
+
+    Optional opt-in purges via payload flags:
+      - ``purge_boxscores`` — also delete ``boxscores/season``.
+      - ``clear_news`` — also delete ``news_feed.txt`` + ``news_feed.jsonl``.
+      - ``clear_transactions`` — also clear ``transactions.csv``.
+    """
+
+    import csv
+
+    purge_box = bool(payload.get("purge_boxscores", False))
+    clear_news = bool(payload.get("clear_news", False))
+    clear_transactions = bool(payload.get("clear_transactions", False))
+
+    data_root = get_data_dir()
+    sched = data_root / "schedule.csv"
+    if not sched.exists():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot reset: schedule.csv not found. Generate a schedule first.",
+        )
+
+    notes: list[str] = []
+
+    # 1. Clear schedule result/played/boxscore columns.
+    try:
+        rows: list[Dict[str, str]] = []
+        with sched.open(newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            for record in reader:
+                record = dict(record)
+                record["result"] = ""
+                record["played"] = ""
+                record["boxscore"] = ""
+                rows.append(record)
+        fieldnames = ["date", "home", "away", "result", "played", "boxscore"]
+        with sched.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            writer.writeheader()
+            for record in rows:
+                writer.writerow({key: record.get(key, "") for key in fieldnames})
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed rewriting schedule: {exc}",
+        ) from exc
+
+    # 2. Determine league's opening-day year from the schedule.
+    first_year: int | None = None
+    try:
+        if rows and rows[0].get("date"):
+            first_year = int(str(rows[0]["date"]).split("-")[0])
+    except Exception:
+        first_year = None
+
+    # 3. Reset season_progress.json (keep other years' draft_completed).
+    progress = data_root / "season_progress.json"
+    try:
+        data: Dict[str, Any] = {
+            "preseason_done": {
+                "free_agency": True,
+                "training_camp": True,
+                "schedule": True,
+            },
+            "sim_index": 0,
+            "playoffs_done": False,
+        }
+        if progress.exists():
+            try:
+                current = json.loads(progress.read_text(encoding="utf-8"))
+                completed = set(current.get("draft_completed_years", []))
+                if first_year is not None:
+                    completed.discard(first_year)
+                if completed:
+                    data["draft_completed_years"] = sorted(completed)
+            except Exception:
+                pass
+        progress.parent.mkdir(parents=True, exist_ok=True)
+        progress.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed resetting progress: {exc}",
+        ) from exc
+
+    # 4. Empty standings.
+    try:
+        from services.standings_repository import save_standings
+
+        save_standings({})
+    except Exception as exc:
+        notes.append(f"Standings reset failed: {exc}")
+
+    # 5. Reset season stats JSON.
+    try:
+        from utils.stats_persistence import reset_stats
+
+        reset_stats(data_root / "season_stats.json")
+    except Exception as exc:
+        notes.append(f"Season stats reset failed: {exc}")
+
+    # 6. Delete season_history/ directory.
+    history_dir = data_root / "season_history"
+    try:
+        if history_dir.exists():
+            shutil.rmtree(history_dir)
+    except Exception as exc:
+        notes.append(f"Failed clearing season history: {exc}")
+
+    # 7. Delete draft artifacts for the current year.
+    if first_year is not None:
+        draft_files = [
+            f"draft_pool_{first_year}.json",
+            f"draft_pool_{first_year}.csv",
+            f"draft_state_{first_year}.json",
+            f"draft_results_{first_year}.csv",
+        ]
+        for name in draft_files:
+            target = data_root / name
+            try:
+                lock = target.with_suffix(target.suffix + ".lock")
+                if lock.exists():
+                    lock.unlink()
+            except Exception:
+                pass
+            try:
+                if target.exists():
+                    target.unlink()
+            except Exception:
+                pass
+
+    # 8. Delete playoff bracket files.
+    try:
+        playoff_candidates = [data_root / "playoffs.json"]
+        if first_year is not None:
+            playoff_candidates.append(data_root / f"playoffs_{first_year}.json")
+        try:
+            playoff_candidates.extend(data_root.glob("playoffs_*.json"))
+        except Exception:
+            pass
+        for candidate in playoff_candidates:
+            try:
+                if candidate.exists():
+                    bak = candidate.with_suffix(candidate.suffix + ".bak")
+                    lock = candidate.with_suffix(candidate.suffix + ".lock")
+                    if lock.exists():
+                        lock.unlink()
+                    if bak.exists():
+                        bak.unlink()
+                    candidate.unlink()
+            except Exception:
+                pass
+        for candidate in data_root.glob("playoffs_summary_*.md"):
+            try:
+                if candidate.exists():
+                    candidate.unlink()
+            except Exception:
+                pass
+    except Exception as exc:
+        notes.append(f"Playoff cleanup failed: {exc}")
+
+    # 9. Clear player injury flags + reconcile rosters.
+    try:
+        from utils.player_loader import load_players_from_csv
+        from services.players_repository import save_players
+        from utils.roster_loader import load_roster, save_roster
+        from services.injury_manager import recover_from_injury
+
+        players_path = data_root / "players.csv"
+        players = list(load_players_from_csv(players_path))
+        players_by_id: Dict[str, Any] = {}
+        if players:
+            for player in players:
+                player.injured = False
+                player.injury_description = None
+                player.return_date = None
+                player.injury_list = None
+                player.injury_start_date = None
+                player.injury_minimum_days = None
+                player.injury_eligible_date = None
+                player.injury_rehab_assignment = None
+                player.injury_rehab_days = 0
+                if hasattr(player, "ready"):
+                    player.ready = True
+            players_by_id = {p.player_id: p for p in players}
+            save_players(players, players_path)
+
+        roster_dir = data_root / "rosters"
+        if roster_dir.exists():
+            for roster_file in roster_dir.glob("*.csv"):
+                team_id = roster_file.stem
+                try:
+                    roster = load_roster(team_id, roster_dir)
+                except Exception:
+                    continue
+                changed = False
+                injured_ids = list(getattr(roster, "dl", []) or []) + list(
+                    getattr(roster, "ir", []) or []
+                )
+                for pid in injured_ids:
+                    player = players_by_id.get(pid)
+                    if player is None:
+                        if pid in roster.dl:
+                            roster.dl.remove(pid)
+                            changed = True
+                        if pid in roster.ir:
+                            roster.ir.remove(pid)
+                            changed = True
+                        roster.dl_tiers.pop(pid, None)
+                        continue
+                    try:
+                        recover_from_injury(player, roster, destination="act", force=True)
+                        changed = True
+                    except Exception:
+                        if pid in roster.dl:
+                            roster.dl.remove(pid)
+                            changed = True
+                        if pid in roster.ir:
+                            roster.ir.remove(pid)
+                            changed = True
+                        roster.dl_tiers.pop(pid, None)
+                if changed:
+                    try:
+                        roster.promote_replacements()
+                    except Exception:
+                        pass
+                    save_roster(team_id, roster)
+    except Exception as exc:
+        notes.append(f"Failed clearing injuries: {exc}")
+
+    # 10. Set phase back to REGULAR_SEASON.
+    try:
+        from playbalance.season_manager import SeasonManager, SeasonPhase
+
+        manager = SeasonManager()
+        manager.phase = SeasonPhase.REGULAR_SEASON
+        manager.save()
+        try:
+            manager.finalize_rosters()
+        except Exception:
+            pass
+    except Exception as exc:
+        notes.append(f"Failed setting phase: {exc}")
+
+    # 11. Reset pitcher recovery tracker.
+    try:
+        from utils.pitcher_recovery import PitcherRecoveryTracker
+
+        PitcherRecoveryTracker.instance().reset()
+    except Exception as exc:
+        notes.append(f"Pitcher recovery reset failed: {exc}")
+
+    # 12. Log news event (only if not also purging news).
+    if not clear_news:
+        try:
+            from utils.news_logger import log_news_event
+
+            log_news_event("League reset to Opening Day")
+        except Exception:
+            pass
+
+    # 13. Optional purges.
+    boxscores_cleared = False
+    if purge_box:
+        try:
+            box_dir = data_root / "boxscores" / "season"
+            if box_dir.exists():
+                shutil.rmtree(box_dir)
+            boxscores_cleared = True
+            try:
+                from utils.news_logger import log_news_event
+
+                log_news_event("Purged saved season boxscores")
+            except Exception:
+                pass
+        except Exception as exc:
+            notes.append(f"Boxscore purge failed: {exc}")
+
+    news_cleared = False
+    if clear_news:
+        try:
+            for name in ("news_feed.txt", "news_feed.jsonl"):
+                target = data_root / name
+                if target.exists():
+                    target.unlink()
+            news_cleared = True
+        except Exception as exc:
+            notes.append(f"News feed purge failed: {exc}")
+
+    transactions_cleared = False
+    if clear_transactions:
+        try:
+            from services.transaction_log import clear_transactions as clear_txn_log
+
+            clear_txn_log(path=data_root / "transactions.csv")
+            transactions_cleared = True
+        except Exception as exc:
+            notes.append(f"Transactions purge failed: {exc}")
+
+    return {
+        "reset": True,
+        "opening_day_year": first_year,
+        "boxscores_cleared": boxscores_cleared,
+        "news_cleared": news_cleared,
+        "transactions_cleared": transactions_cleared,
+        "notes": notes,
+    }
+
+
 @router.post("/clone")
 def clone_league(
     payload: Dict[str, Any] = Body(...),

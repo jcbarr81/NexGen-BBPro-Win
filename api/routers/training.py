@@ -19,6 +19,7 @@ from services.training_settings import (
     load_training_settings,
     set_player_training_weights,
     set_team_training_weights,
+    update_league_training_defaults,
 )
 
 from ..security import CurrentIdentity
@@ -34,6 +35,14 @@ router = APIRouter(
 # the team default which shadows the league default.
 player_router = APIRouter(
     prefix="/players/{player_id}/training",
+    tags=["training"],
+    dependencies=[CurrentIdentity],
+)
+
+# Sibling router for league-level defaults — ported from
+# ``ui/training_focus_dialog.py`` (mode="league"). Commissioner-only edits.
+league_router = APIRouter(
+    prefix="/training/league",
     tags=["training"],
     dependencies=[CurrentIdentity],
 )
@@ -169,3 +178,43 @@ def reset_player_training(
 ) -> Dict[str, Any]:
     clear_player_training_weights(player_id)
     return _serialize_player(player_id, team_id)
+
+
+def _serialize_league() -> Dict[str, Any]:
+    settings = load_training_settings()
+    return {
+        "league_id": settings.league_id,
+        "tracks": {
+            "hitters": list(HITTER_TRACKS),
+            "pitchers": list(PITCHER_TRACKS),
+        },
+        "hitters": {
+            k: float(settings.defaults.hitters.get(k, 0.0)) for k in HITTER_TRACKS
+        },
+        "pitchers": {
+            k: float(settings.defaults.pitchers.get(k, 0.0)) for k in PITCHER_TRACKS
+        },
+    }
+
+
+@league_router.get("")
+def get_league_training() -> Dict[str, Any]:
+    return _serialize_league()
+
+
+@league_router.put("")
+def save_league_training(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    hitters = payload.get("hitters")
+    pitchers = payload.get("pitchers")
+    if not isinstance(hitters, dict) or not isinstance(pitchers, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="hitters and pitchers must be objects mapping track -> percent.",
+        )
+    try:
+        update_league_training_defaults(hitters, pitchers)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return _serialize_league()

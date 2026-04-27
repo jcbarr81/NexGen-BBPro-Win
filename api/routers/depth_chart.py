@@ -16,6 +16,7 @@ from utils.depth_chart import (
     load_depth_chart,
     save_depth_chart,
 )
+from utils.depth_chart_autofill import auto_generate_depth_chart
 
 from ..security import CurrentIdentity
 
@@ -73,4 +74,24 @@ def save(
         )
 
     save_depth_chart(team_id, cleaned)
+    return get_depth_chart(team_id)
+
+
+@router.post("/auto-fill")
+def auto_fill(team_id: str) -> Dict[str, Any]:
+    """Auto-generate the depth chart from the current roster + ratings.
+
+    Mirrors the PyQt depth-chart dialog's "Auto Populate" button: each
+    position is seeded with up to ``MAX_DEPTH`` best-fit non-pitchers,
+    preferring primary-position players from the active roster sorted
+    by overall rating.
+    """
+
+    try:
+        auto_generate_depth_chart(team_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Auto-generate failed: {exc}",
+        ) from exc
     return get_depth_chart(team_id)

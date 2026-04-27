@@ -651,7 +651,11 @@ function AiStatusCard() {
  * can restore it with one click afterwards.
  */
 function AdminElevateCard({ currentUsername }: { currentUsername: string | null }) {
-  const setSession = useAuthStore((s) => s.setSession);
+  // Use ``elevateSession`` (not ``setSession``) so the current owner
+  // identity is captured as ``previousSession`` and the header banner
+  // can offer a one-click switch back. Owners no longer have to type
+  // their password again to return to My Team.
+  const elevateSession = useAuthStore((s) => s.elevateSession);
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -666,7 +670,7 @@ function AdminElevateCard({ currentUsername }: { currentUsername: string | null 
         return;
       }
       setError(null);
-      setSession({
+      elevateSession({
         token: data.token,
         username: data.username,
         role: data.role,

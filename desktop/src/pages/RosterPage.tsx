@@ -15,10 +15,11 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  ChevronDown,
   GripVertical,
   HeartPulse,
   Loader2,
-  MoreHorizontal,
+  Shuffle,
   Users,
 } from "lucide-react";
 import {
@@ -45,6 +46,7 @@ import { useActiveTeamColor } from "@/lib/team-colors";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { PlayerTrainingDialog } from "@/components/PlayerTrainingDialog";
 import { StarRating } from "@/components/StarRating";
 import {
   Badge,
@@ -151,6 +153,18 @@ export function RosterPage() {
       toast.success("Released to free agency");
     },
   });
+  const autoAssignMutation = useMutation({
+    mutationFn: () => api.autoAssignTeam(fallbackTeamId as string),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["team-roster", fallbackTeamId],
+      });
+      toast.success("Auto-assign complete — roster levels rebalanced");
+    },
+    onError: (err) => {
+      toast.error((err as Error).message);
+    },
+  });
 
   const actions: RosterActions | null = fallbackTeamId
     ? {
@@ -215,10 +229,55 @@ export function RosterPage() {
               <span className="whitespace-pre-line">{actions.error}</span>
             </div>
           )}
+          <div className="mb-4 flex items-center justify-end">
+            <ConfirmAutoAssignButton
+              pending={autoAssignMutation.isPending}
+              onConfirm={() => autoAssignMutation.mutate()}
+            />
+          </div>
           <RosterTabs roster={roster.data} actions={actions} />
         </>
       ) : null}
     </AppShell>
+  );
+}
+
+function ConfirmAutoAssignButton({
+  pending,
+  onConfirm,
+}: {
+  pending: boolean;
+  onConfirm: () => void;
+}) {
+  const { confirm, dialog } = useConfirmDialog();
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={pending}
+        onClick={async () => {
+          if (
+            await confirm({
+              title: "Auto-assign roster levels?",
+              description:
+                "Rebuild ACT/AAA/LOW assignments for this team based on each player's position and ratings. Injured players (DL/IR) stay where they are; nobody is released.",
+              confirmLabel: "Auto-assign",
+            })
+          ) {
+            onConfirm();
+          }
+        }}
+      >
+        {pending ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Shuffle className="h-4 w-4" />
+        )}
+        Auto-assign roster
+      </Button>
+      {dialog}
+    </>
   );
 }
 
@@ -452,7 +511,9 @@ function RosterLevelTable({
                   onClick={toggleSort}
                 />
               ))}
-              <th className="px-4 py-2" />
+              <th className="px-4 py-2 text-right text-[11px] uppercase tracking-wider text-muted">
+                Move
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -551,6 +612,7 @@ function RosterRow({
 }) {
   const navigate = useNavigate();
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const [trainingOpen, setTrainingOpen] = useState(false);
   // Each row is draggable — drop on a sibling TabsTrigger to move
   // between levels. Stored ``level`` lets handleDragEnd skip no-op drops.
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -648,6 +710,9 @@ function RosterRow({
         >
           Open profile
         </ContextMenuItem>
+        <ContextMenuItem onSelect={() => setTrainingOpen(true)}>
+          Training focus…
+        </ContextMenuItem>
         <ContextMenuSeparator />
         {ROSTER_DESTINATIONS
           .filter((d) => d.target !== level)
@@ -698,6 +763,13 @@ function RosterRow({
         </ContextMenuItem>
       </ContextMenuContent>
       {confirmDialog}
+      <PlayerTrainingDialog
+        open={trainingOpen}
+        onOpenChange={setTrainingOpen}
+        playerId={player.player_id}
+        playerName={`${player.first_name ?? ""} ${player.last_name ?? ""}`.trim()}
+        teamId={actions.teamId}
+      />
     </ContextMenu>
   );
 }
@@ -725,12 +797,14 @@ function RowActionsMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="ghost"
-          size="icon"
-          aria-label={`Actions for ${player.last_name}`}
+          variant="outline"
+          size="sm"
+          aria-label={`Move ${player.last_name} between roster levels`}
           disabled={actions.pending}
+          className="h-8 gap-1 px-2 text-xs"
         >
-          <MoreHorizontal className="h-4 w-4" />
+          Move
+          <ChevronDown className="h-3 w-3" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">

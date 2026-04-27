@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
 import { ApiError, api } from "@/lib/api";
@@ -19,14 +19,22 @@ import { Brand } from "@/components/layout/Brand";
 export function LoginPage() {
   const setSession = useAuthStore((s) => s.setSession);
   const navigate = useNavigate();
-  const [username, setUsername] = useState("admin");
+  const [params] = useSearchParams();
+  // ``?next=`` lets a previous page send the user here for auth and then
+  // continue to a specific destination on success (e.g. clicking
+  // "Create new league" pre-login routes to /login?next=/leagues/new).
+  const nextPath = params.get("next");
+  const requireRole = params.get("require"); // "admin" → reject non-admin
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  // First-run detection: if the sidecar has no leagues registered, skip the
-  // login screen and drop straight into the setup wizard. The wizard
-  // handles admin-password bootstrap as its first step.
+  // First-run detection: if the sidecar has no leagues registered, skip
+  // straight into the setup wizard. The wizard handles admin-password
+  // bootstrap as its first step. The picker is the user's normal entry,
+  // but if someone deep-links to /login on a fresh install we still want
+  // to bounce them through setup.
   useEffect(() => {
     let cancelled = false;
     api
@@ -50,13 +58,20 @@ export function LoginPage() {
     setError(null);
     try {
       const session = await api.login(username, password);
+      if (requireRole && session.role !== requireRole) {
+        setError(
+          `This action requires the ${requireRole} role. Sign in with an ${requireRole} account.`,
+        );
+        setPending(false);
+        return;
+      }
       setSession({
         token: session.token,
         username: session.username,
         role: session.role,
         teamId: session.team_id,
       });
-      navigate("/select-league", { replace: true });
+      navigate(nextPath || "/home", { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError("Invalid username or password.");
@@ -88,8 +103,16 @@ export function LoginPage() {
         <Card>
           <CardHeader>
             <div>
-              <CardTitle>Welcome back</CardTitle>
-              <CardDescription>Sign in to continue to your league.</CardDescription>
+              <CardTitle>
+                {requireRole === "admin"
+                  ? "Sign in as admin"
+                  : "Welcome back"}
+              </CardTitle>
+              <CardDescription>
+                {requireRole === "admin"
+                  ? "Creating a new league requires the admin role."
+                  : "Sign in to continue to your league."}
+              </CardDescription>
             </div>
           </CardHeader>
 

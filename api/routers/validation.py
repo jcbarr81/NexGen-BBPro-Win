@@ -51,6 +51,12 @@ def load_players_map() -> Dict[str, Dict[str, Any]]:
                 "other_positions": row.get("other_positions", ""),
                 "is_pitcher": row.get("is_pitcher", ""),
                 "age": row.get("age", "") or None,
+                # Fields used by utils.pitching_autofill — without these the
+                # pitching-staff auto-fill would silently filter every pitcher
+                # because get_role() / get_display_role() see no signal.
+                "role": row.get("role", ""),
+                "preferred_pitching_role": row.get("preferred_pitching_role", ""),
+                "endurance": row.get("endurance", ""),
                 "ratings": {
                     k[len("rating_") :]: row[k]
                     for k in row

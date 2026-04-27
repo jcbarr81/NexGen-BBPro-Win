@@ -24,23 +24,28 @@ def test_autofill_prefers_sp_and_low_endurance_closer():
     assert assignments["SP4"] == "rp1"
     assert assignments["SP5"] == "rp2"
 
-    # Bullpen: long/middle/setup use remaining highest-endurance RPs
+    # Bullpen priority is LR → CL → SU → MR1 → MR2 → MR3. With 4
+    # remaining relievers after SP4/SP5 consumed rp1 + rp2:
+    #   LR  takes the highest-endurance left (rp3),
+    #   CL  takes the lowest (rp6),
+    #   SU  takes the next-lowest (rp5),
+    #   MR1 takes the remaining high-end (rp4).
     assert assignments["LR"] == "rp3"
-    assert assignments["MR"] == "rp4"
-    assert assignments["SU"] == "rp5"
-
-    # Closer should get the lowest-endurance RP
     assert assignments["CL"] == "rp6"
+    assert assignments["SU"] == "rp5"
+    assert assignments["MR1"] == "rp4"
 
     # Ensure each pitcher is used only once
     assert len(set(assignments.values())) == len(assignments)
 
 
 def test_autofill_falls_back_to_starters_for_bullpen_roles():
-    # Only starters provided; bullpen slots should still be filled without duplicates.
+    # Only starters provided; bullpen slots should still be filled without
+    # duplicates. With 11 starters and 11 staff slots (SP1-5, LR, CL, SU,
+    # MR1-3) every slot fills.
     players = [
-        (f"sp{i}", {"role": "SP", "endurance": 90 - i * 5})
-        for i in range(10)
+        (f"sp{i}", {"role": "SP", "endurance": 90 - i * 4})
+        for i in range(11)
     ]
 
     assignments = autofill_pitching_staff(players)
@@ -51,7 +56,7 @@ def test_autofill_falls_back_to_starters_for_bullpen_roles():
     )
 
     # Bullpen roles should all be present and unique.
-    for role in ("LR", "MR", "SU", "CL"):
+    for role in ("LR", "MR1", "MR2", "MR3", "SU", "CL"):
         assert role in assignments and assignments[role]
 
     values = list(assignments.values())
@@ -73,11 +78,16 @@ def test_autofill_assigns_closer_when_relivers_insufficient():
 
     assignments = autofill_pitching_staff(players)
 
+    # Three RPs available after SP1-5 consumed five starters. The
+    # priority order is LR → CL → SU → MR1, so:
+    #   LR uses the highest-endurance reliever (rp1),
+    #   CL uses the lowest (rp3),
+    #   SU uses the remaining (rp2),
+    #   MR1 falls back to the next starter, since RPs are exhausted.
     assert assignments["LR"] == "rp1"
-    assert assignments["MR"] == "rp2"
-    # Only one RP left, so SU should use rp3 and CL should fall back to a starter.
-    assert assignments["SU"] == "rp3"
-    assert assignments["CL"].startswith("sp")
+    assert assignments["CL"] == "rp3"
+    assert assignments["SU"] == "rp2"
+    assert assignments["MR1"].startswith("sp")
     assert len(set(assignments.values())) == len(assignments)
 
 
@@ -103,7 +113,12 @@ def test_autofill_prefers_designated_closer():
     assignments = autofill_pitching_staff(players)
 
     assert assignments["CL"] == "cl2"  # lower-endurance closer should finish games
-    assert assignments["CL"] not in {assignments["LR"], assignments["MR"], assignments["SU"]}
+    bullpen_used = {
+        assignments.get(slot)
+        for slot in ("LR", "MR1", "MR2", "MR3", "SU")
+        if slot in assignments and assignments.get(slot)
+    }
+    assert assignments["CL"] not in bullpen_used
 
 
 def test_autofill_elevates_preferred_starter_relief():

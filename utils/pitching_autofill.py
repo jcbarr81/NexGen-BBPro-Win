@@ -115,19 +115,31 @@ def autofill_pitching_staff(players: Iterable[PlayerEntry]) -> Assignments:
         assignment[f"SP{i + 1}"] = pid
 
     # Bullpen roles use remaining relievers (unique by pid).
+    # The simulator slots are: LR, MR1, MR2, MR3, SU, CL — match the
+    # eleven-row PyQt pitching-staff layout. Fill in priority order so
+    # the essentials (LR / CL / SU) are claimed before optional MR2/MR3
+    # spots, and so a thin pool still produces a usable staff:
+    #   LR  — long relief (high endurance)
+    #   CL  — closer (low endurance, prefers preferred_pitching_role="CL")
+    #   SU  — setup (low-ish endurance, just before closer)
+    #   MR1 — primary middle relief (high endurance)
+    #   MR2 — depth middle relief (high endurance)
+    #   MR3 — depth middle relief (high endurance)
     pid = _pop_relief_high()
     if pid is not None:
-        assignment["LR"] = pid  # Long reliever prefers high endurance
-    pid = _pop_relief_high()
-    if pid is not None:
-        assignment["MR"] = pid  # Middle reliever
-    pid = _pop_relief_high()
-    if pid is not None:
-        assignment["SU"] = pid  # Setup
+        assignment["LR"] = pid
     pid = _pop_relief_low(prefer_closer=True)
     if pid is None:
         pid = _pop_relief_low()
     if pid is not None:
-        assignment["CL"] = pid  # Closer prefers low endurance
+        assignment["CL"] = pid
+    pid = _pop_relief_low()
+    if pid is not None:
+        assignment["SU"] = pid
+    for slot in ("MR1", "MR2", "MR3"):
+        pid = _pop_relief_high()
+        if pid is None:
+            break
+        assignment[slot] = pid
 
     return assignment

@@ -25,6 +25,29 @@ const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
 let sidecar: SidecarHandle | null = null;
 let mainWindow: BrowserWindow | null = null;
 
+function resolveAppIcon(): string {
+  // Packaged: electron-builder copies extraResources into ``resourcesPath``
+  // (next to the .exe). Dev: walk up to the repo root's ``packaging/``.
+  const candidates = app.isPackaged
+    ? [
+        path.join(process.resourcesPath, "NexGen-BBPro.ico"),
+        path.join(process.resourcesPath, "icon.ico"),
+      ]
+    : [path.join(__here, "..", "..", "packaging", "NexGen-BBPro.ico")];
+  for (const candidate of candidates) {
+    try {
+      // require fs lazily so we don't pay the import cost in dev hot reloads
+      // when the icon isn't actually queried.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const fs = require("node:fs") as typeof import("node:fs");
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      /* ignore */
+    }
+  }
+  return candidates[0];
+}
+
 async function createMainWindow(handle: SidecarHandle): Promise<void> {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -35,6 +58,7 @@ async function createMainWindow(handle: SidecarHandle): Promise<void> {
     show: false,
     autoHideMenuBar: true,
     title: "NexGen-BBPro",
+    icon: resolveAppIcon(),
     webPreferences: {
       preload: path.join(__here, "preload.js"),
       contextIsolation: true,

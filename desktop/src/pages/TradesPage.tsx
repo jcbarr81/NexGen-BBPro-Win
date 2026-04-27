@@ -7,7 +7,8 @@
  * (validates pick ownership, deadline, etc., on the server).
  */
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -57,16 +58,42 @@ const STATUS_ORDER: Array<{ key: string; label: string }> = [
   { key: "rejected", label: "Rejected" },
 ];
 
+interface ProposeTradePrefill {
+  fromTeam?: string;
+  toTeam?: string;
+  givePlayers?: string[];
+  receivePlayers?: string[];
+}
+
 export function TradesPage() {
   const user = useAuthStore();
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const navigate = useNavigate();
   const teamId = user.selectedTeamId ?? user.teamId ?? null;
   const [scope, setScope] = useState<Scope>(teamId ? "team" : "all");
   const [proposing, setProposing] = useState(false);
+  const [prefill, setPrefill] = useState<ProposeTradePrefill | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [vetoTarget, setVetoTarget] = useState<string | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const effectiveScope: Scope = teamId ? scope : "all";
+
+  // Honor location.state.proposeTrade so flows like the player-profile
+  // "Trade for Player" button can deep-link straight into a pre-filled
+  // ProposeTradeDialog. We clear the state via replace() so a manual
+  // reload doesn't keep popping the dialog.
+  useEffect(() => {
+    const state = location.state as
+      | { proposeTrade?: ProposeTradePrefill }
+      | null;
+    const pre = state?.proposeTrade;
+    if (pre) {
+      setPrefill(pre);
+      setProposing(true);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, navigate]);
 
   const trades = useQuery({
     queryKey: ["trades", effectiveScope, teamId],
@@ -324,8 +351,14 @@ export function TradesPage() {
 
       <ProposeTradeDialog
         open={proposing}
-        onOpenChange={setProposing}
-        defaultFromTeam={teamId ?? ""}
+        onOpenChange={(open) => {
+          setProposing(open);
+          if (!open) setPrefill(null);
+        }}
+        defaultFromTeam={prefill?.fromTeam || teamId || ""}
+        defaultToTeam={prefill?.toTeam || ""}
+        defaultGivePlayers={prefill?.givePlayers || []}
+        defaultReceivePlayers={prefill?.receivePlayers || []}
         teams={teams.data ?? []}
         onProposed={refresh}
       />
@@ -649,22 +682,53 @@ function ProposeTradeDialog({
   open,
   onOpenChange,
   defaultFromTeam,
+  defaultToTeam = "",
+  defaultGivePlayers = [],
+  defaultReceivePlayers = [],
   teams,
   onProposed,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultFromTeam: string;
+  defaultToTeam?: string;
+  defaultGivePlayers?: string[];
+  defaultReceivePlayers?: string[];
   teams: Team[];
   onProposed: () => void;
 }) {
   const [fromTeam, setFromTeam] = useState(defaultFromTeam);
-  const [toTeam, setToTeam] = useState("");
-  const [givePlayers, setGivePlayers] = useState("");
-  const [receivePlayers, setReceivePlayers] = useState("");
+  const [toTeam, setToTeam] = useState(defaultToTeam);
+  const [givePlayers, setGivePlayers] = useState(defaultGivePlayers.join(", "));
+  const [receivePlayers, setReceivePlayers] = useState(
+    defaultReceivePlayers.join(", "),
+  );
   const [givePicks, setGivePicks] = useState("");
   const [receivePicks, setReceivePicks] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  // Re-sync the local form state when the dialog re-opens with new
+  // defaults. Without this useEffect the prefill from a "Trade for
+  // Player" deep-link only applies on the very first open, and a later
+  // open from a different player would keep the previous values.
+  useEffect(() => {
+    if (open) {
+      setFromTeam(defaultFromTeam);
+      setToTeam(defaultToTeam);
+      setGivePlayers(defaultGivePlayers.join(", "));
+      setReceivePlayers(defaultReceivePlayers.join(", "));
+      setError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    open,
+    defaultFromTeam,
+    defaultToTeam,
+    // Stringify list defaults so the dep-comparison is by content, not
+    // by array identity (a parent might pass a fresh array each render).
+    defaultGivePlayers.join(","),
+    defaultReceivePlayers.join(","),
+  ]);
 
   const mutation = useMutation({
     mutationFn: () =>

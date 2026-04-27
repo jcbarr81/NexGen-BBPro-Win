@@ -212,6 +212,17 @@ export interface CommissionerSettings {
     preset: string;
     enforcement_mode: string;
     modules: Record<string, string>;
+    finance_ai_tuning: Record<string, number>;
+  };
+  scouting: {
+    league_id: string;
+    enabled: boolean;
+    base_monthly_credits: number;
+    finance_off_multiplier: number;
+    monthly_decay: number;
+    passive_gain: number;
+    max_banked_credits: number;
+    auto_spend_cap: number;
   };
   strategy: {
     default_profile: string | null;
@@ -226,6 +237,13 @@ export interface CommissionerSettings {
     injury_levels: string[];
     finance_presets: string[];
     finance_enforcement: string[];
+    finance_modules: Array<{
+      id: string;
+      label: string;
+      help: string;
+      levels: string[];
+    }>;
+    finance_ai_tuning_defaults: Record<string, number>;
     strategy_profiles: Array<{
       id: string;
       label: string;
@@ -826,6 +844,14 @@ export interface SeasonState {
   mid_remaining: number;
   all_star_played: boolean;
   draft_triggered: boolean;
+  /** Per-step "this preseason workflow has been completed" flags read
+   *  from season_progress.json. The UI uses these to lock out repeat
+   *  runs of the corresponding preseason buttons. */
+  preseason_done?: {
+    free_agency?: boolean;
+    training_camp?: boolean;
+    schedule?: boolean;
+  };
   played_dates?: string[];
   errors?: string[];
   new_phase?: SeasonPhase;
@@ -845,6 +871,54 @@ export interface SeasonState {
   /** Set when advance_phase steps into PLAYOFFS. */
   playoffs?: { saved?: boolean; path?: string; reused_existing?: boolean; teams_seeded?: number; error?: string };
   playoffs_error?: string;
+  /** Notification events emitted while this batch ran. */
+  notifications?: NotificationEvent[];
+  /** Set when the multi-day sim was stopped early because a notification
+   *  rule with stop_sim=true fired. The string is the rule's title. */
+  sim_stopped_reason?: string | null;
+}
+
+// --- Notifications ---
+
+export interface NotificationRuleSpec {
+  id: string;
+  label: string;
+  default_notify: boolean;
+  default_stop: boolean;
+  threshold?: number | null;
+  threshold_label?: string | null;
+  threshold_min?: number | null;
+  threshold_max?: number | null;
+}
+
+export interface NotificationCategory {
+  id: string;
+  label: string;
+  rules: NotificationRuleSpec[];
+}
+
+export interface NotificationRulePayload {
+  enabled: boolean;
+  notify: boolean;
+  stop_sim: boolean;
+  threshold?: number | null;
+}
+
+export interface NotificationSettings {
+  team_id: string;
+  rules: Record<string, NotificationRulePayload>;
+}
+
+export interface NotificationEvent {
+  rule_id: string;
+  severity: "info" | "warning" | "critical";
+  title: string;
+  message: string;
+  sim_date?: string | null;
+  timestamp: string;
+  payload?: Record<string, unknown>;
+  stop_sim: boolean;
+  notify: boolean;
 }
 
 export const api = {
@@ -864,6 +938,16 @@ export const api = {
     apiRequest<{ deleted: boolean; league_id: string; active_league: string | null }>(
       `/leagues/${encodeURIComponent(leagueId)}`,
       { method: "DELETE" },
+    ),
+  archiveLeague: (leagueId: string) =>
+    apiRequest<{ archived: boolean; league_id: string; status: string }>(
+      `/leagues/${encodeURIComponent(leagueId)}/archive`,
+      { method: "POST" },
+    ),
+  unarchiveLeague: (leagueId: string) =>
+    apiRequest<{ archived: boolean; league_id: string; status: string }>(
+      `/leagues/${encodeURIComponent(leagueId)}/unarchive`,
+      { method: "POST" },
     ),
   listTeams: () => apiRequest<Team[]>("/teams"),
   getTeam: (teamId: string) =>
@@ -898,9 +982,9 @@ export const api = {
       `/teams/${encodeURIComponent(teamId)}/lineup/${vs}`,
       { method: "PUT", body: { lineup } },
     ),
-  autofillLineup: (teamId: string) =>
+  autofillLineup: (teamId: string, vs?: "lhp" | "rhp") =>
     apiRequest<{ team_id: string; lhp: Lineup; rhp: Lineup }>(
-      `/teams/${encodeURIComponent(teamId)}/lineup/autofill`,
+      `/teams/${encodeURIComponent(teamId)}/lineup/autofill${vs ? `?vs=${vs}` : ""}`,
       { method: "POST" },
     ),
   getPitchingStaff: (teamId: string) =>
@@ -1141,6 +1225,33 @@ export const api = {
       method: "PUT",
       body: payload,
     }),
+  saveCommishScouting: (payload: Partial<CommissionerSettings["scouting"]>) =>
+    apiRequest<CommissionerSettings>("/commissioner/settings/scouting", {
+      method: "PUT",
+      body: payload,
+    }),
+  notificationSchema: () =>
+    apiRequest<{ categories: NotificationCategory[] }>("/notifications/schema"),
+  notificationSettings: (teamId: string) =>
+    apiRequest<NotificationSettings>(
+      `/notifications/settings/${encodeURIComponent(teamId)}`,
+    ),
+  saveNotificationSettings: (
+    teamId: string,
+    payload: { rules: Record<string, NotificationRulePayload> },
+  ) =>
+    apiRequest<NotificationSettings>(
+      `/notifications/settings/${encodeURIComponent(teamId)}`,
+      { method: "PUT", body: payload },
+    ),
+  notificationHistory: (teamId: string, limit = 100) =>
+    apiRequest<{
+      team_id: string;
+      count: number;
+      events: NotificationEvent[];
+    }>(
+      `/notifications/history/${encodeURIComponent(teamId)}?limit=${limit}`,
+    ),
   saveCommishStrategy: (payload: {
     default_profile?: string;
     default_auto_reassign?: boolean;
@@ -1369,6 +1480,44 @@ export const api = {
       { method: "DELETE" },
     );
   },
+  getLeagueTraining: () =>
+    apiRequest<{
+      league_id: string;
+      tracks: { hitters: string[]; pitchers: string[] };
+      hitters: Record<string, number>;
+      pitchers: Record<string, number>;
+    }>("/training/league"),
+  saveLeagueTraining: (payload: {
+    hitters: Record<string, number>;
+    pitchers: Record<string, number>;
+  }) =>
+    apiRequest<{
+      league_id: string;
+      tracks: { hitters: string[]; pitchers: string[] };
+      hitters: Record<string, number>;
+      pitchers: Record<string, number>;
+    }>("/training/league", { method: "PUT", body: payload }),
+  preseasonListUnsigned: (run_cpu = true) =>
+    apiRequest<{
+      unsigned_count: number;
+      unsigned_names: string[];
+      cpu_signed: number;
+      cpu_rounds: number;
+      cpu_applied: boolean;
+    }>("/season/preseason/list-unsigned", {
+      method: "POST",
+      body: { run_cpu },
+    }),
+  preseasonTrainingCamp: () =>
+    apiRequest<{
+      players_processed: number;
+      top_gainers: Array<{
+        player_id: string;
+        name: string;
+        focus: string;
+        total_gain: number;
+      }>;
+    }>("/season/preseason/training-camp", { method: "POST" }),
   seasonState: () => apiRequest<SeasonState>("/season/state"),
   seasonSimulateDay: () =>
     apiRequest<SeasonState>("/season/simulate/day", { method: "POST" }),
@@ -1512,6 +1661,15 @@ export const api = {
       method: "PUT",
       body: { chart },
     }),
+  autofillDepthChart: (teamId: string) =>
+    apiRequest<{
+      team_id: string;
+      positions: string[];
+      max_depth: number;
+      chart: Record<string, string[]>;
+    }>(`/teams/${encodeURIComponent(teamId)}/depth-chart/auto-fill`, {
+      method: "POST",
+    }),
   offseasonChecklist: () =>
     apiRequest<{
       stages: Array<{
@@ -1530,6 +1688,16 @@ export const api = {
     apiRequest<Record<string, unknown>>(
       `/offseason/stage/${encodeURIComponent(stageId)}`,
     ),
+  offseasonDetails: () =>
+    apiRequest<{
+      ended_season_year: number;
+      next_season_year: number;
+      contract_expirations: Array<Record<string, unknown>>;
+      arbitration_details: Array<Record<string, unknown>>;
+      payroll_accounting_details: Array<Record<string, unknown>>;
+      budget_deltas: Array<Record<string, unknown>>;
+      gm_finance_queue: Array<Record<string, unknown>>;
+    }>("/offseason/details"),
   offseasonRun: () =>
     apiRequest<Record<string, unknown>>("/offseason/run-pipeline", {
       method: "POST",
@@ -1706,6 +1874,22 @@ export const api = {
       "/admin-league/clone",
       { method: "POST", body: { league_id, display_name } },
     ),
+  adminResetToOpeningDay: (options: {
+    purge_boxscores?: boolean;
+    clear_news?: boolean;
+    clear_transactions?: boolean;
+  }) =>
+    apiRequest<{
+      reset: boolean;
+      opening_day_year: number | null;
+      boxscores_cleared: boolean;
+      news_cleared: boolean;
+      transactions_cleared: boolean;
+      notes: string[];
+    }>("/admin-league/reset-to-opening-day", {
+      method: "POST",
+      body: options,
+    }),
   simulateExhibition: (home_team: string, away_team: string) =>
     apiRequest<{
       home_team: string;

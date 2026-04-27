@@ -9,9 +9,13 @@ model.py``) owns its own transform; this helper exists for list views.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional, Tuple
+import json
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
 from ui.star_rating import star_text
+from utils.path_utils import get_base_dir
 from utils.rating_display import rating_display_details, rating_display_value
 
 
@@ -102,6 +106,157 @@ def rating_context(
     }
 
 
+_DEFAULT_HITTER_WEIGHTS: Dict[str, float] = {
+    "ch": 2.0, "ph": 2.0, "eye": 1.5, "sp": 1.5,
+    "fa": 1.5, "arm": 1.0,
+    "pl": 0.5, "vl": 0.5, "sc": 0.5, "gf": 0.5,
+}
+
+
+@lru_cache(maxsize=1)
+def _load_hitter_weight_table() -> Tuple[
+    Dict[str, float], Dict[str, Dict[str, float]]
+]:
+    """Read ``config/rating_weights.json`` once and cache it. Returns a
+    tuple of ``(default_weights, position_weights)``. Falls back to the
+    in-code defaults if the file is missing or malformed — that way a
+    bad edit can't 500 the whole roster API.
+    """
+
+    path = get_base_dir() / "config" / "rating_weights.json"
+    if not path.exists():
+        return dict(_DEFAULT_HITTER_WEIGHTS), {}
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return dict(_DEFAULT_HITTER_WEIGHTS), {}
+
+    raw_default = data.get("default") if isinstance(data, Mapping) else None
+    if isinstance(raw_default, Mapping):
+        default = {
+            str(k): float(v)
+            for k, v in raw_default.items()
+            if isinstance(v, (int, float))
+        }
+    else:
+        default = dict(_DEFAULT_HITTER_WEIGHTS)
+
+    raw_positions = data.get("positions") if isinstance(data, Mapping) else None
+    positions: Dict[str, Dict[str, float]] = {}
+    if isinstance(raw_positions, Mapping):
+        for pos, weights in raw_positions.items():
+            if isinstance(weights, Mapping):
+                positions[str(pos).upper()] = {
+                    str(k): float(v)
+                    for k, v in weights.items()
+                    if isinstance(v, (int, float))
+                }
+    return default, positions
+
+
+def _hitter_weights_for(position: Optional[str]) -> Dict[str, float]:
+    default, positions = _load_hitter_weight_table()
+    pos = (position or "").strip().upper()
+    return positions.get(pos, default)
+
+
+def _compute_hitter_overall(
+    get_raw: Callable[[str], Any],
+    position: Optional[str],
+) -> Tuple[Optional[int], Optional[int]]:
+    """Position-weighted average of the *displayed* (scaled) hitter
+    ratings. Returns ``(raw_overall, display_overall)``. ``raw_overall``
+    is the unweighted plain average of raw values for callers that
+    still want the legacy semantic; ``display_overall`` is the headline
+    number the UI shows.
+
+    Computing from displayed ratings means the OVR always matches what
+    the user sees in the per-rating cards, fixing the long-standing
+    "98 OVR with 35 power" mismatch caused by the previous percentile
+    rescale of the raw average.
+    """
+
+    weights = _hitter_weights_for(position)
+
+    raw_values: list[float] = []
+    weighted_sum = 0.0
+    weight_sum = 0.0
+
+    for key in _HITTER_OVERALL_KEYS:
+        try:
+            raw_numeric = float(get_raw(key) or 0)
+        except (TypeError, ValueError):
+            continue
+        raw_values.append(raw_numeric)
+
+        weight = float(weights.get(key, 0.0))
+        if weight <= 0:
+            continue
+        # Use the *displayed* value (percentile-scaled per stat) so the
+        # weighted OVR matches the per-stat numbers the UI renders.
+        try:
+            scaled = rating_display_value(
+                raw_numeric,
+                key=key.upper(),
+                position=position,
+                is_pitcher=False,
+                mode="scale_99",
+            )
+            display_numeric = float(scaled)
+        except (TypeError, ValueError):
+            display_numeric = raw_numeric
+
+        weighted_sum += display_numeric * weight
+        weight_sum += weight
+
+    if not raw_values:
+        return None, None
+
+    raw_overall = max(0, min(99, int(round(sum(raw_values) / len(raw_values)))))
+    if weight_sum <= 0:
+        return raw_overall, raw_overall
+    display_overall = max(0, min(99, int(round(weighted_sum / weight_sum))))
+    return raw_overall, display_overall
+
+
+def _compute_pitcher_overall(
+    get_raw: Callable[[str], Any],
+    position: Optional[str],
+) -> Tuple[Optional[int], Optional[int]]:
+    """Pitcher OVR keeps the existing pitch-mix-aware logic — a pitcher
+    who throws four pitches isn't averaged down by zeros for the pitches
+    he doesn't use. The display value still goes through the percentile
+    rescale because the pitcher distribution doesn't have the same
+    cluster-around-50 problem the hitter side does.
+    """
+
+    values: list[float] = []
+    for key in _PITCHER_OVERALL_KEYS:
+        try:
+            numeric = float(get_raw(key) or 0)
+        except (TypeError, ValueError):
+            continue
+        if key in _PITCH_KEYS and numeric <= 0:
+            continue
+        values.append(numeric)
+    if not values:
+        return None, None
+    raw_overall = max(0, min(99, int(round(sum(values) / len(values)))))
+    try:
+        scaled = rating_display_value(
+            raw_overall,
+            key="OVR",
+            position=position,
+            is_pitcher=True,
+            mode="scale_99",
+        )
+        display_overall = int(round(float(scaled)))
+    except (TypeError, ValueError):
+        display_overall = raw_overall
+    return raw_overall, display_overall
+
+
 def compute_overall(
     get_raw: Callable[[str], Any],
     *,
@@ -114,37 +269,24 @@ def compute_overall(
     dicts (``row.get``) so every list-view router can share one code path.
     Returns a dict with ``overall_raw``, ``overall_display``, and
     ``overall_stars_text`` (all nullable when ratings are absent).
+
+    Hitters use a position-weighted average of the *displayed* (scaled)
+    ratings — the weights live in ``config/rating_weights.json`` so
+    commissioners can tune them without a rebuild. Pitchers continue to
+    use the legacy pitch-mix-aware percentile rescale.
     """
 
-    keys = _PITCHER_OVERALL_KEYS if is_pitcher else _HITTER_OVERALL_KEYS
-    values: list[float] = []
-    for key in keys:
-        raw = get_raw(key)
-        try:
-            numeric = float(raw or 0)
-        except (TypeError, ValueError):
-            continue
-        if key in _PITCH_KEYS and numeric <= 0:
-            continue
-        values.append(numeric)
-    if not values:
+    if is_pitcher:
+        raw_overall, display_overall = _compute_pitcher_overall(get_raw, position)
+    else:
+        raw_overall, display_overall = _compute_hitter_overall(get_raw, position)
+
+    if raw_overall is None:
         return {
             "overall_raw": None,
             "overall_display": None,
             "overall_stars_text": None,
         }
-    raw_overall = max(0, min(99, int(round(sum(values) / len(values)))))
-    try:
-        scaled = rating_display_value(
-            raw_overall,
-            key="OVR",
-            position=position,
-            is_pitcher=is_pitcher,
-            mode="scale_99",
-        )
-        display_overall = int(round(float(scaled)))
-    except (TypeError, ValueError):
-        display_overall = raw_overall
     star_source = display_overall if display_overall is not None else raw_overall
     stars = star_text(star_source, min_rating=35.0, max_rating=99.0)
     return {

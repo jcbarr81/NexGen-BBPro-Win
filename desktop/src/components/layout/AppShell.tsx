@@ -1,10 +1,11 @@
-import type { ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, type ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { useHotkey } from "@/lib/use-hotkey";
 import { FirstVisitTutorialAutoLauncher } from "@/components/help/FirstVisitTutorial";
+import { recordNavigation } from "@/lib/nav-history";
 
 interface AppShellProps {
   title?: string;
@@ -28,6 +29,13 @@ export function AppShell({
   children,
 }: AppShellProps) {
   const navigate = useNavigate();
+  const location = useLocation();
+  // Track in-app navigation so the Header's Back button can pop the
+  // previous page. ``recordNavigation`` ignores auth/splash routes
+  // so Back never strands the user on the login screen.
+  useEffect(() => {
+    recordNavigation(location.pathname);
+  }, [location.pathname]);
   // Alt+/ opens Help from anywhere signed-in. Alt-slash is untaken by
   // Chrome/Electron and matches the "type / to search" convention elsewhere.
   useHotkey("alt+/", () => navigate("/help"));

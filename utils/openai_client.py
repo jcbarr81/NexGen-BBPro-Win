@@ -44,6 +44,28 @@ _CLIENT_STATUS_MESSAGES = {
 }
 
 
+def _candidate_config_paths() -> list[Path]:
+    """Where ``config.ini`` might live.
+
+    Priority: writable user data dir (where the AI Settings page now
+    saves keys), then the bundle / dev base dir (legacy / dev only).
+    First existing file wins.
+    """
+
+    candidates: list[Path] = []
+    try:
+        # Inline import to avoid bootstrapping path_utils before it's ready.
+        from utils.path_utils import get_data_dir as _get_data_dir
+
+        candidates.append(_get_data_dir() / "config.ini")
+    except Exception:
+        pass
+    base_root = Path(__file__).resolve().parent.parent
+    base_dir = Path(getattr(sys, "_MEIPASS", base_root))
+    candidates.append(base_dir / "config.ini")
+    return candidates
+
+
 def _read_api_key() -> Optional[str]:
     """Return the OpenAI API key from environment or ``config.ini``."""
 
@@ -51,9 +73,16 @@ def _read_api_key() -> Optional[str]:
     if env_key:
         return env_key
 
-    base_root = Path(__file__).resolve().parent.parent
-    base_dir = Path(getattr(sys, "_MEIPASS", base_root))
-    config_path = base_dir / "config.ini"
+    config_path: Optional[Path] = None
+    for cand in _candidate_config_paths():
+        if cand.exists():
+            config_path = cand
+            break
+    if config_path is None:
+        # Fall through with a non-existent path — parser.read() handles
+        # the missing file silently and we drop back to the no-key path.
+        candidates = _candidate_config_paths()
+        config_path = candidates[-1] if candidates else Path("config.ini")
     parser = configparser.ConfigParser()
     try:
         parser.read(config_path)

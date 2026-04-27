@@ -133,38 +133,66 @@ export function LineupPage() {
 
 function LineupEditor({ teamId }: { teamId: string }) {
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<"rhp" | "lhp" | "pitching">("rhp");
   const roster = useQuery({
     queryKey: ["team-roster", teamId],
     queryFn: () => api.teamRoster(teamId),
   });
 
   const autofill = useMutation({
-    mutationFn: () => api.autofillLineup(teamId),
+    mutationFn: (vs?: "lhp" | "rhp") => api.autofillLineup(teamId, vs),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["lineup", teamId] });
     },
   });
+  const currentSide: "lhp" | "rhp" | null =
+    activeTab === "lhp" ? "lhp" : activeTab === "rhp" ? "rhp" : null;
 
   return (
-    <Tabs defaultValue="rhp">
+    <Tabs
+      value={activeTab}
+      onValueChange={(v) => setActiveTab(v as typeof activeTab)}
+    >
       <div className="mb-4 flex items-center justify-between gap-3">
         <TabsList>
           <TabsTrigger value="rhp">vs RHP</TabsTrigger>
           <TabsTrigger value="lhp">vs LHP</TabsTrigger>
           <TabsTrigger value="pitching">Pitching Staff</TabsTrigger>
         </TabsList>
-        <Button
-          variant="outline"
-          onClick={() => autofill.mutate()}
-          disabled={autofill.isPending}
-        >
-          {autofill.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Sparkles className="h-4 w-4" />
-          )}
-          Autofill both lineups
-        </Button>
+        {activeTab !== "pitching" && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => currentSide && autofill.mutate(currentSide)}
+              disabled={autofill.isPending || !currentSide}
+              title={
+                currentSide
+                  ? `Autofill the vs ${currentSide.toUpperCase()} lineup only`
+                  : ""
+              }
+            >
+              {autofill.isPending && autofill.variables === currentSide ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              Autofill vs {currentSide ? currentSide.toUpperCase() : ""}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => autofill.mutate(undefined)}
+              disabled={autofill.isPending}
+              title="Autofill both vs LHP and vs RHP lineups"
+            >
+              {autofill.isPending && autofill.variables === undefined ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              Autofill both
+            </Button>
+          </div>
+        )}
       </div>
 
       {autofill.isError && (

@@ -1,0 +1,1 @@
+{"rule_id": "injury_dl15", "severity": "warning", "title": "Player on 15-day DL", "message": "Pitcher P1 placed on 15-day DL with elbow strain", "sim_date": "2026-05-01", "timestamp": "2026-04-26T19:09:43Z", "payload": {"team_id": "BOS", "category": "injury"}, "stop_sim": true, "notify": true}

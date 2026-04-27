@@ -18,6 +18,7 @@ from fastapi import APIRouter, Body, HTTPException, status
 
 from services.roster_moves import cut_player
 from services.transaction_log import record_transaction
+from utils.pitcher_role import get_display_role, get_role
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster, save_roster
 
@@ -98,6 +99,21 @@ def _player_summary(player: Any, level: str, dl_tier: str | None = None) -> Dict
         except ValueError:
             age = None
 
+    # For pitchers, prefer ``preferred_pitching_role`` (the granular
+    # SP/RP/CL/LR/MR/SU value the user actually maintains) over the raw
+    # ``role`` CSV column, which is stale on every row in the seed data
+    # (all 272 pitchers ship with role="RP" even when they're starters).
+    # Bucket the granular value to SP/RP for the high-level role tab; the
+    # raw granular value is exposed below as ``preferred_pitching_role``.
+    raw_role = str(getattr(player, "role", "") or "").strip()
+    if is_pitcher:
+        display = get_display_role(player)
+        resolved_role = "SP" if str(display).upper() == "SP" else (
+            "RP" if display else (get_role(player) or raw_role)
+        )
+    else:
+        resolved_role = raw_role
+
     return {
         "player_id": getattr(player, "player_id", ""),
         "first_name": getattr(player, "first_name", ""),
@@ -106,7 +122,7 @@ def _player_summary(player: Any, level: str, dl_tier: str | None = None) -> Dict
         "other_positions": getattr(player, "other_positions", "") or "",
         "bats": getattr(player, "bats", "") or "",
         "throws": getattr(player, "throws", "") or "",
-        "role": getattr(player, "role", "") or "",
+        "role": resolved_role,
         "preferred_pitching_role": (
             getattr(player, "preferred_pitching_role", "") or ""
         ),

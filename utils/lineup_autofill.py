@@ -26,6 +26,7 @@ def auto_fill_lineup_for_team(
     roster_dir: str | Path = "data/rosters",
     lineup_dir: str | Path = "data/lineups",
     strategy_profile: str | None = None,
+    vs: str | None = None,
 ) -> list[tuple[str, str]]:
     """Create sound, coverage-first lineups for ``team_id`` from ACT.
 
@@ -177,8 +178,15 @@ def auto_fill_lineup_for_team(
     lineup_root.mkdir(parents=True, exist_ok=True)
     # Order batting by hitter_score (best bats earlier)
     result = sorted(lineup[:9], key=lambda pair: hitter_score(pair[0]), reverse=True)
-    for vs in ("vs_lhp", "vs_rhp"):
-        path = lineup_root / f"{team_id}_{vs}.csv"
+    # ``vs`` filters which lineup file(s) to overwrite. ``None`` (default)
+    # writes both vs_lhp and vs_rhp. Pass "lhp" or "rhp" to target one only.
+    vs_token = (vs or "").strip().lower()
+    if vs_token in {"lhp", "rhp"}:
+        targets: tuple[str, ...] = (f"vs_{vs_token}",)
+    else:
+        targets = ("vs_lhp", "vs_rhp")
+    for target in targets:
+        path = lineup_root / f"{team_id}_{target}.csv"
         with path.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["order", "player_id", "position"])

@@ -74,6 +74,7 @@ from .routers import (
     leagues,
     lineups,
     news,
+    notifications,
     offseason,
     parks,
     players,
@@ -174,10 +175,12 @@ def create_app() -> FastAPI:
     app.include_router(season.router)
     app.include_router(training.router)
     app.include_router(training.player_router)
+    app.include_router(training.league_router)
     app.include_router(team_settings.router)
     app.include_router(boxscore.router)
     app.include_router(activity.router)
     app.include_router(news.router)
+    app.include_router(notifications.router)
     app.include_router(injuries.router)
     app.include_router(free_agency.router)
     app.include_router(leaders.router)

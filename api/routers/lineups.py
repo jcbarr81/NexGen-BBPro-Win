@@ -18,6 +18,7 @@ from fastapi import APIRouter, Body, HTTPException, status
 from utils.lineup_autofill import auto_fill_lineup_for_team
 from utils.lineup_loader import load_lineup
 from utils.path_utils import get_data_dir, resolve_app_path
+from utils.roster_loader import load_roster
 
 from ..security import CurrentIdentity
 
@@ -113,9 +114,22 @@ def save_lineup(
 
 
 @router.post("/lineup/autofill")
-def autofill_lineup(team_id: str) -> Dict[str, Any]:
+def autofill_lineup(team_id: str, vs: str | None = None) -> Dict[str, Any]:
+    """Autofill the team's batting order(s).
+
+    ``vs`` is optional — pass ``"lhp"`` or ``"rhp"`` to write only that
+    side, or omit to overwrite both. Mirrors PyQt's per-side autofill
+    affordance from the lineup editor.
+    """
+
+    target = (vs or "").strip().lower()
+    if target and target not in {"lhp", "rhp"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="vs must be 'lhp' or 'rhp' (or omitted for both).",
+        )
     try:
-        auto_fill_lineup_for_team(team_id)
+        auto_fill_lineup_for_team(team_id, vs=target or None)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -158,9 +172,19 @@ def autofill_pitching_staff_endpoint(team_id: str) -> Dict[str, Any]:
 
     from utils.pitching_autofill import autofill_pitching_staff
 
-    from .validation import load_players_map, load_team_levels
+    from .validation import load_players_map
 
-    active_ids = load_team_levels(team_id).get("act", [])
+    # ``load_team_levels`` in validation.py uses DictReader and expects a
+    # header row, which the per-team roster CSVs don't have. Use the
+    # canonical loader instead so we get the actual ACT roster.
+    try:
+        roster_obj = load_roster(team_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load roster for {team_id}: {exc}",
+        ) from exc
+    active_ids = list(roster_obj.act)
     players = load_players_map()
 
     candidates: List[tuple[str, Dict[str, Any]]] = []

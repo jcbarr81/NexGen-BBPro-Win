@@ -22,6 +22,7 @@ you're getting familiar with the new flows.
    - [Depth Chart](#depth-chart)
    - [Training](#training)
    - [Injuries](#injuries)
+   - [Notifications](#notifications)
    - [Finance](#finance)
    - [Settings](#team-settings)
 5. [League](#league)
@@ -81,23 +82,76 @@ switch leagues without logging out.
 
 ## Sidebar layout
 
-The sidebar is grouped into five collapsible sections plus a pinned
+The sidebar shrinks to **seven top-level destinations** plus a pinned
 **Help & Tutorials** link at the bottom:
 
-- **Today** – Dashboard, Season, News
-- **My Team** – Roster, Lineup, Depth Chart, Training, Injuries, Finance,
-  Settings
-- **League** – Standings, Leaders, Stats, Players, Teams, Schedule,
-  Playoffs, History, Hall of Fame, Records, Ballparks
-- **Transactions** – Free Agency, Trades, Draft, Submit Request, Activity
-- **Admin** (admin-only) – Commissioner, Command Center, Finance Queue,
-  Change Requests, Exhibition Game, Offseason Flow, Reassign Players,
-  Finance Stability, League Admin, Physics Tuning, New League, Users,
-  Utilities
+- **Today** – Dashboard, Season, News (always-on quick links).
+- **Favorites** – appears only when you've pinned routes (right-click
+  any sidebar entry or hub card → *Pin to sidebar*).
+- **My Team** *(hub)* – `/hub/my-team`. Card grid of Roster, Pitchers,
+  Lineup, Depth Chart, Training, Injuries, Notifications, Finance,
+  Team Settings.
+- **League** *(hub)* – `/hub/league`. Standings, Leaders, Stats, Players,
+  Teams, Schedule, Playoffs, History, Hall of Fame, Records, Ballparks.
+- **Transactions** *(hub)* – `/hub/transactions`. Free Agency, Trades,
+  Draft, Submit Request, Activity.
+- **Admin** *(hub, admin-only)* – `/hub/admin`. Commissioner, Command
+  Center, Finance Queue, Change Requests, Exhibition Game, Offseason
+  Flow, Reassign Players, Finance Stability, League Admin, Physics
+  Tuning, New League, Users, Utilities.
+- **Notifications** – top-level because it's how owners pause the sim.
+- **Help & Tutorials**.
 
-Click a section header to collapse/expand. The section containing your
-current route always auto-expands. Preferences are stored in
-`localStorage` and persist across launches.
+### Hubs
+
+Click any hub to land on a card grid of every page in that category.
+Each card shows the page title, a one-line description, and a pin
+indicator if you've favorited it. Capability-gated cards auto-hide
+based on your league: Finance pages require finance enabled, Submit
+Request requires multi-owner, etc. Right-click any card to **Pin to
+sidebar** or **Unpin from sidebar**.
+
+### Breadcrumbs
+
+Every page header now shows a trail like `Home / My Team / Roster`. The
+last segment is the current page; earlier segments are clickable links
+that jump up one level. Dynamic routes (player profile, team detail,
+compare, boxscore) include the parent hub crumb so the trail still reads
+naturally.
+
+### Collapse to icons-only
+
+The chevron at the top-left of the sidebar collapses the rail from
+256 px to a 56 px icon strip. Hover any icon to see its label; click
+the chevron again to expand. The preference is stored per browser
+profile (`nexgen:sidebar:rail-collapsed`).
+
+### Favorites
+
+Right-click any sidebar entry or hub card to **Pin to sidebar**.
+Pinned routes appear in a Favorites section above the hubs. Right-click
+again to unpin. Favorites are stored as `nexgen:sidebar:favorites` in
+localStorage. Pin indicators (the small pin icon) show on both the hub
+card and the sidebar row when pinned.
+
+### Phase-aware filtering
+
+The Favorites section auto-hides routes that don't apply to the current
+season phase:
+
+- **Draft** is hidden outside `AMATEUR_DRAFT` / `PRESEASON`.
+- **Offseason Flow** is hidden outside `OFFSEASON` / `PRESEASON`.
+
+Hub cards still show every page so you can pre-explore.
+
+### Section collapse + active route
+
+Each section header has its own chevron — collapse a section to free
+up space without losing the others. The section containing your current
+route always auto-expands. Section preferences persist as
+`nexgen:sidebar:collapsed` in localStorage.
+
+### Team-color stripe
 
 The UI picks up your team's primary color for a thin accent stripe on
 every team-specific page (Dashboard, Team Detail, Roster, Lineup, Depth
@@ -157,13 +211,20 @@ Tabular view of your whole roster, grouped by level (Active / AAA / Low
 / DL / IR).
 
 - Columns: position, role, bats, ratings (overall + role-specific).
-- **Right-click any row** for a context menu: Open profile, Move to
-  Active, Send to AAA, Send to Low-A, Place on DL (15), Place on 60-day
-  IR, Shift to 45-day DL (DL rows), Release / Cut.
+- **Right-click any row** for a context menu: Open profile,
+  **Training focus…** (per-player override dialog), Move to Active,
+  Send to AAA, Send to Low-A, Place on DL (15), Place on 60-day IR,
+  Shift to 45-day DL (DL rows), Release / Cut.
 - Or click the three-dot action button at the row's right for the same
   options.
 - **Cut** triggers a confirmation dialog and writes a release transaction.
 - Click any player's name to open their profile.
+
+**Pitcher SP/RP labeling.** The role column reflects each pitcher's
+display role — `preferred_pitching_role` if set, otherwise the stored
+`role`, otherwise an endurance-based fallback (>55 = SP). Granular roles
+(SP, RP, CL, LR, MR, SU) collapse to the SP/RP bucket here; the
+fine-grained value drives the Lineup → Pitching staff editor.
 
 ### Lineup
 
@@ -176,13 +237,29 @@ plus a **Pitching Staff** tab for role assignments.
 - **Drag-and-drop** the grip handle on any row to reorder the batting
   order, or use the ↑ / ↓ buttons for one-slot moves.
 - Assign positions (C/1B/2B/3B/SS/LF/CF/RF/DH) in the grid.
-- **Autofill** rebuilds both lineups from ratings + depth chart.
+- **Autofill — current side or both.** Two buttons sit above the lineup
+  tabs: **Autofill vs RHP / vs LHP** (current side only — useful for
+  platoon tweaks) and **Autofill both** (both batting orders in one
+  click). Both honor depth-chart priority first, then a contact / power
+  / speed / defense score.
 - **Live validation** — errors and warnings appear above the table as
   you edit, so you know the moment a lineup slot is invalid.
 - **Ctrl+S** (or Cmd+S on macOS) saves. **Autosave** debounces every
   ~1.5 seconds; if you reload mid-edit, a "Restore unsaved changes"
   banner offers to reinstate the draft.
-- **Pitching** tab exposes SP1–SP5, LR, MR1–MR3, SU, CL role slots.
+
+**Pitching Staff tab.** Eleven slots: **SP1–SP5**, **LR**, **MR1–MR3**,
+**SU**, **CL**. The **Auto-fill** button seeds all 11 from the active
+roster:
+
+1. Rotation goes to the five highest-endurance starters (or relievers
+   tagged `preferred_pitching_role="SP"`).
+2. Bullpen fills in priority order **LR → CL → SU → MR1 → MR2 → MR3**.
+3. LR / MR slots prefer high-endurance arms; CL / SU prefer
+   low-endurance arms (closer favors anyone tagged
+   `preferred_pitching_role="CL"`).
+4. With a thin pool the helper still produces a usable LR / CL / SU
+   before MR2 / MR3 get filled, falling back to starters if needed.
 
 ### Depth Chart
 
@@ -193,6 +270,11 @@ C/SS/CF/3B/2B/1B/LF/RF/DH).
   starter is injured, rested, or promoted.
 - Used by **Autofill** in the Lineup editor and by the injury
   replacement engine during sim.
+- **Auto-generate** button seeds every position with the best three
+  available players from your roster — primary fits first, sorted by
+  level (ACT before AAA / LOW) and overall rating. Saves the chart
+  immediately on click; use it as a starting point or after a major
+  roster shake-up. Tweak from there with the move buttons.
 - **Live validation** fires as you edit (eligibility errors + low-depth
   warnings).
 - **Ctrl+S** saves; **autosave** covers crashes.
@@ -219,6 +301,75 @@ Three sections: DL, IR, day-to-day.
 - IR is open-ended — stash long-term injuries there to clear the active
   roster, then manually activate when ready.
 - Every event writes to the news feed and transactions log.
+
+### Notifications
+
+Per-team rules engine that fires alerts during multi-day sims and can
+optionally pause a Sim Day / Week / Month / To Draft run the moment a
+flagged event occurs. Settings are stored at
+`data/notifications/<team_id>.json`; history is appended to
+`data/notifications/<team_id>.history.jsonl`.
+
+#### Preferences tab
+
+Each rule has three checkboxes plus an optional numeric threshold:
+
+- **Enabled** – log the event to history.
+- **Notify** – show a banner on the Season page after the sim batch
+  finishes.
+- **Stop sim** – break the multi-day sim loop the moment this rule
+  fires. The Season page shows a warning banner with the rule title
+  (e.g. *"Sim paused: Player on 15-day DL"*).
+- **Threshold** – for streak / cash / horizon rules (losing-streak
+  length, cash-low dollar floor, days-out window for the trade
+  deadline).
+
+Rules are grouped into seven categories:
+
+- **Health & roster** – day-to-day, 15-day DL, 45-day DL, 60-day IR,
+  season-ending, returned-from-injury, lineup-invalid, pitching-staff-
+  incomplete, roster-cap violation.
+- **Performance & milestones** – win/losing streak (configurable
+  length), player milestone (no-hitter, perfect game, 50 HR, hitting
+  streak — fed by the `special_event` + `record` news categories),
+  division clinched, eliminated.
+- **Transactions** – trade offer received, trade decided, watched FA
+  signed elsewhere, contract expiring.
+- **Calendar & deadlines** – trade deadline approaching, phase
+  transition, All-Star break.
+- **Finance** – cash low, payroll over luxury threshold, projected
+  monthly net negative.
+- **League & admin** – commissioner action required, schedule
+  regenerated.
+- **Draft** – draft approaching, draft results posted.
+
+#### Defaults
+
+Out of the box the four serious injury tiers (15-day DL, 45-day DL,
+60-day IR, season-ending) all stop the sim — that's the most common
+reason owners want to be interrupted. Day-to-day defaults to notify-only
+so the AI can keep going. Edit any of these to match your style.
+
+#### Recent events tab
+
+The last ~100 notifications generated for this team, newest first, with
+severity badge, sim date, and message. Use it to audit what the engine
+has been firing on or to confirm a rule you just enabled is actually
+catching events.
+
+#### How it integrates with the sim
+
+When `team_id` is on the bearer token, every `/season/simulate/*`
+endpoint snapshots pre-day state, runs the day, then runs the engine.
+News-based detectors parse `[injury]`, `[special_event]`, `[record]`,
+`[change_request]`, `[trade]` lines emitted during the day. State-based
+detectors check standings (streaks), `manager.phase` (transitions), and
+`team_financials.json` (cash low). When any event has `stop_sim=true`
+the loop breaks early, the response includes
+`notifications: [...]` and `sim_stopped_reason: "..."`, and the Season
+page surfaces the banner. DL/injury automation still runs the same day,
+so the AI has already moved the player to the DL by the time you see
+the alert.
 
 ### Finance
 
@@ -336,7 +487,21 @@ finance posting. Filter by team and action type.
   approval, CPU cadence, max pick trade years.
 - **Injury level** – global injury-frequency setting (consolidates the
   old PyQt injury settings dialog).
-- **Finance preset** – simple / standard / MLB-like + enforcement mode.
+- **Finance card** – preset (off / simple / standard / MLB-like /
+  custom) + enforcement mode (off / warn / block) + collapsible
+  **Module levels** (10 finance modules: Owner Revenue / Market /
+  Budgets / Expenses, GM Contracts / Payroll Rules / Arbitration /
+  Free Agency / Roster Cost Enforcement / Finance AI) + collapsible
+  **CPU finance AI tuning** (19 numeric knobs — star thresholds, salary
+  share caps, arbitration raise %, FA avoidance bands). Editing any
+  module or AI value flips the preset to **custom**.
+- **Scouting card** – fog-of-war enable plus six pacing knobs (base
+  monthly credits, finance-off pace multiplier, monthly decay, passive
+  gain, max banked credits, auto spend cap). Works whether or not the
+  finance system is enabled.
+- **Strategy & auto-reassign** – league-default strategy profile and
+  auto-reassign behavior, plus a scrollable per-team override table
+  (mirrors PyQt's TeamStrategySettingsDialog).
 
 ### Command Center
 
@@ -357,6 +522,17 @@ approvals, roster conflicts, deadlines, finance risks.
 - Checklist with status + completion timestamps; mark individual stages
   done when handled manually.
 - **Run pipeline** executes the full offseason rollover.
+- **Review** card with four tabs (matches PyQt's offseason finance
+  dialog):
+    - **Contracts** – every contract expiring next year (player, team,
+      years left, salary, service days, arb-eligible flag).
+    - **Arbitration** – filed arbitration awards with old → new salary
+      and delta.
+    - **Budgets** – year-over-year budget delta per team with category
+      breakdown (training / scouting / development / facilities).
+    - **GM Queue** – pending owner finance decisions with team / queue /
+      status / search filters and inline **Approve** / **Reject**
+      buttons for the selected pending row.
 - **Finance Queue inline** – pending count + Apply-all button, deep-
   links to the standalone Finance Queue page.
 
@@ -453,12 +629,19 @@ localStorage every ~1.5 seconds. Reload the app and you'll see a
 
 - **Ctrl+S / Cmd+S** — Save (Lineup, Pitching, Depth Chart, Training,
   Team Settings). Disabled when nothing is unsaved.
+- **Ctrl+K / Cmd+K** — Open the command palette to jump to any page by
+  name without clicking through the sidebar.
 - **Alt+/** — Jump to Help & Tutorials from anywhere.
-- **Right-click** on roster rows — context menu with move/cut actions.
+- **Right-click** on roster rows — context menu with Open profile,
+  Training focus, move/cut actions.
+- **Right-click** on hub cards or sidebar entries — Pin to / unpin from
+  Favorites.
 - **Grip handle** (⋮⋮) on lineup rows — drag to reorder.
 - **Esc** — closes dialogs + the park browser.
 - **Ctrl+Shift+I** — opens DevTools in dev mode.
 - Click any player name anywhere in the UI to open their profile.
+- The **chevron** at the top of the sidebar collapses the rail to a
+  56-px icon strip; hover any icon for its label.
 
 ---
 
@@ -468,8 +651,14 @@ localStorage every ~1.5 seconds. Reload the app and you'll see a
   Help page.
 - **Manual tab** — renders this guide with a sticky table of contents
   and a live keyword search.
-- **Tutorials tab** — 15 multi-step walkthroughs covering every major
-  flow. Click a card to launch the tutorial as a step-through dialog.
+- **Tutorials tab** — multi-step walkthroughs covering every major
+  flow (Dashboard, Season, Roster & Depth, Lineup, Training, Injuries,
+  Free Agency, Trades, Draft, Team Settings, Finance, Submit Change
+  Request, League Hub, Command Center, Admin Tools, Exhibition, League
+  Admin, Keyboard Shortcuts, Player Avatars, Team Logos,
+  **Notifications & Stop-Sim Rules**, **Navigation: Hubs &
+  Breadcrumbs**). Click a card to launch the tutorial as a step-through
+  dialog.
 - **Legacy manuals tab** — the three PyQt-era HTML manuals (game,
   finance system, installer) open in a new window.
 

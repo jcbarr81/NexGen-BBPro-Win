@@ -4032,7 +4032,14 @@ def render_boxscore_html(
     away_abbr = away_abbr or away_name
 
     template_path = get_base_dir() / "samples" / "espn_boxscore_template.html"
-    template = template_path.read_text(encoding="utf-8")
+    try:
+        template = template_path.read_text(encoding="utf-8")
+    except OSError:
+        # Template missing from a packaged build — degrade gracefully so
+        # the season sim doesn't bubble [Errno 2] up into the UI. The
+        # box dict still drives the in-app boxscore card; only the
+        # exported HTML view is unavailable.
+        return ""
 
     repl: Dict[str, object] = {
         "league": league,

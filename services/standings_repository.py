@@ -38,6 +38,40 @@ def _read_standings(path: Path) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _derive_from_season_stats(base_path: Path | str | None) -> dict[str, dict[str, Any]]:
+    """Best-effort recovery: pull team W/L/RF/RA out of season_stats.json
+    when standings.json hasn't been seeded yet (or got reset). The full
+    simulator updates the season_stats teams block but historically did
+    not write standings.json, so without this fallback the standings
+    page reads zeros even after a Sim Day."""
+
+    if base_path is None:
+        return {}
+    base = Path(base_path)
+    candidate = base / "season_stats.json" if not base.suffix else base.parent / "season_stats.json"
+    if not candidate.exists():
+        return {}
+    try:
+        with candidate.open("r", encoding="utf-8") as handle:
+            stats = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    teams_block = (stats or {}).get("teams") or {}
+    if not isinstance(teams_block, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for team_id, raw in teams_block.items():
+        if not isinstance(raw, dict):
+            continue
+        out[str(team_id)] = {
+            "wins": int(raw.get("w", 0) or 0),
+            "losses": int(raw.get("l", 0) or 0),
+            "runs_for": int(raw.get("r", 0) or 0),
+            "runs_against": int(raw.get("ra", 0) or 0),
+        }
+    return out
+
+
 def load_standings(
     *,
     base_path: Path | str | None = None,
@@ -49,6 +83,17 @@ def load_standings(
     target = _resolve_target(base_path)
 
     document = service.get_document(target, _read_standings, topic=_TOPIC)
+    # Fallback: standings.json is the canonical source, but historically
+    # only league_creator / league_rollover wrote to it. The full sim
+    # populates the team rollup in ``season_stats.json`` instead, so an
+    # empty standings.json means "the sim has run but never persisted
+    # standings". Derive on the fly so the standings + dashboard pages
+    # show real records without the user having to wait for the next
+    # Sim Day to trigger the new persistence path.
+    if not document:
+        derived = _derive_from_season_stats(base_path)
+        if derived:
+            document = derived
     if not normalize:
         return document
     return {team_id: normalize_record(data) for team_id, data in document.items()}

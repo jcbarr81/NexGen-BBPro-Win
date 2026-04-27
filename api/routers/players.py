@@ -13,14 +13,14 @@ import csv
 from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 
 from utils.path_utils import get_base_dir, get_data_dir
 from utils.player_loader import load_players_from_csv
 
 from ..schemas import PlayerSummary
-from ..security import CurrentIdentity
+from ..security import CurrentIdentity, require_bearer
 from ._rating_presentation import compute_overall, rating_context, scale_rating
 
 router = APIRouter(prefix="/players", tags=["players"], dependencies=[CurrentIdentity])
@@ -268,8 +268,15 @@ def _coerce(value: Any) -> Any:
 
 
 @router.get("/{player_id}/profile")
-def get_player_profile(player_id: str) -> Dict[str, Any]:
-    """Hydrate a player and run the existing v2 view-model builder."""
+def get_player_profile(
+    player_id: str,
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Hydrate a player and run the existing v2 view-model builder.
+
+    Non-admin viewers see only Scouted + Stars in the overall detail card,
+    so raw/uncalibrated underlying ratings stay hidden from team owners.
+    """
 
     try:
         from ui.player_profile_v2_viewmodel import build_player_profile_view_model
@@ -302,4 +309,19 @@ def get_player_profile(player_id: str) -> Dict[str, Any]:
             detail=f"Failed to build profile: {exc}",
         ) from exc
 
-    return _coerce(view_model)
+    payload = _coerce(view_model)
+    role = str(identity.get("r", "")).lower()
+    if role != "admin":
+        details = payload.get("overall_details")
+        if isinstance(details, list):
+            # Strip the inner-game (Raw) and pre-scouting (Displayed) rows
+            # so owners only see Scouted + Stars. Admins still see the
+            # full breakdown for tuning/verification.
+            payload["overall_details"] = [
+                row
+                for row in details
+                if isinstance(row, list)
+                and len(row) >= 1
+                and str(row[0]).strip().lower() not in {"raw", "displayed"}
+            ]
+    return payload

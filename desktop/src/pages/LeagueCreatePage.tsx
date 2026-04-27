@@ -95,9 +95,11 @@ export function LeagueCreatePage() {
   const role = useAuthStore((s) => s.role);
   const navigate = useNavigate();
 
-  // Admin-only once past first-run bootstrap.
+  // Admin-only once past first-run bootstrap. Send unauthenticated /
+  // non-admin users through the login flow with a return path so they
+  // come back here after signing in as admin.
   if (!isFirstRun && role !== "admin") {
-    return <Navigate to="/home" replace />;
+    return <Navigate to="/login?require=admin&next=/leagues/new" replace />;
   }
 
   const [step, setStep] = useState(isFirstRun ? 0 : 1);

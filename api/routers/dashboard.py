@@ -22,9 +22,35 @@ from ..security import CurrentIdentity
 router = APIRouter(prefix="/teams/{team_id}", tags=["dashboard"], dependencies=[CurrentIdentity])
 
 
+def _load_roster_and_players(team_id: str):
+    """Best-effort load of the team's roster + the player map. Without
+    these, ``gather_owner_quick_metrics`` skips the bullpen, hot/cold,
+    leaders, and probable-SP widgets entirely (they all early-return on
+    a None roster). Failures degrade gracefully by returning ``None``
+    so the dashboard still renders the standings + matchup-record bits."""
+
+    try:
+        from utils.roster_loader import load_roster
+
+        roster = load_roster(team_id)
+    except Exception:
+        roster = None
+    try:
+        from utils.player_loader import load_players_from_csv
+
+        players_list = load_players_from_csv("data/players.csv")
+        players = {
+            getattr(p, "player_id", ""): p for p in players_list
+        }
+    except Exception:
+        players = None
+    return roster, players
+
+
 def _safe_metrics(team_id: str) -> Dict[str, Any]:
     try:
-        return gather_owner_quick_metrics(team_id, roster=None, players=None)
+        roster, players = _load_roster_and_players(team_id)
+        return gather_owner_quick_metrics(team_id, roster=roster, players=players)
     except Exception as exc:  # defensive: never let a helper failure 500 the UI
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -99,11 +125,27 @@ def team_dashboard_widgets(team_id: str) -> Dict[str, Any]:
 
     metrics = _safe_metrics(team_id)
     bullpen = metrics.get("bullpen") or {}
-    matchup = metrics.get("matchup") or {}
+    matchup_raw = metrics.get("matchup") or {}
     performers = metrics.get("performers") or {}
     batting_leaders = metrics.get("batting_leaders") or []
     pitching_leaders = metrics.get("pitching_leaders") or []
     leader_meta = metrics.get("leader_meta") or {}
+
+    # Map quick_metrics' matchup field names to the React MatchupCard's
+    # expected shape. The Python helper returns ``record / run_diff /
+    # streak / opponent_probable`` but the React reads ``opp_record /
+    # opp_run_diff / opp_streak / opp_probable``. Without this mapping
+    # the matchup card on the dashboard renders three blank tiles.
+    matchup: Dict[str, Any] = {**matchup_raw}
+    if "record" in matchup_raw:
+        matchup["opp_record"] = matchup_raw["record"]
+    if "run_diff" in matchup_raw:
+        matchup["opp_run_diff"] = matchup_raw["run_diff"]
+    if "streak" in matchup_raw:
+        matchup["opp_streak"] = matchup_raw["streak"]
+    if "opponent_probable" in matchup_raw:
+        matchup["opp_probable"] = matchup_raw["opponent_probable"]
+
     return {
         "team_id": team_id,
         "bullpen": _coerce(bullpen),

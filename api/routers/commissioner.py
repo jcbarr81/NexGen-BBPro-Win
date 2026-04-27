@@ -19,6 +19,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from services import finance_settings as fs
 from services import injury_settings as insj
+from services import scouting_service as scout
 from services import team_auto_reassign_settings as tar
 from services import team_strategy_profiles as tsp
 from services import trade_settings as ts
@@ -40,10 +41,77 @@ def _require_admin(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[s
 AdminIdentity = Depends(_require_admin)
 
 
+_MODULE_LABELS: Dict[str, str] = {
+    "owner_revenue": "Owner: Revenue Model",
+    "owner_market_model": "Owner: Market / Fan Interest",
+    "owner_budgets": "Owner: Budget Buckets",
+    "owner_expenses": "Owner: Operating Expenses",
+    "gm_contracts": "GM: Contracts",
+    "gm_payroll_rules": "GM: Payroll Rules",
+    "gm_arbitration": "GM: Arbitration",
+    "gm_free_agency": "GM: Free Agency",
+    "gm_roster_cost_enforcement": "GM: Roster Cost Enforcement",
+    "gm_finance_ai": "GM AI: Financial Behavior",
+}
+
+_MODULE_ORDER = (
+    "owner_revenue",
+    "owner_market_model",
+    "owner_budgets",
+    "owner_expenses",
+    "gm_contracts",
+    "gm_payroll_rules",
+    "gm_arbitration",
+    "gm_free_agency",
+    "gm_roster_cost_enforcement",
+    "gm_finance_ai",
+)
+
+
+def _serialize_finance_modules() -> list[Dict[str, Any]]:
+    return [
+        {
+            "id": module,
+            "label": _MODULE_LABELS.get(module, module),
+            "help": fs.FINANCE_MODULE_HELP.get(module, ""),
+            "levels": list(fs.MODULE_LEVELS.get(module, ())),
+        }
+        for module in _MODULE_ORDER
+    ]
+
+
+def _serialize_scouting(settings: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "league_id": str(settings.get("league_id", "")),
+        "enabled": bool(settings.get("enabled", False)),
+        "base_monthly_credits": float(
+            settings.get("base_monthly_credits", scout.DEFAULT_BASE_MONTHLY_CREDITS)
+        ),
+        "finance_off_multiplier": float(
+            settings.get(
+                "finance_off_multiplier", scout.DEFAULT_FINANCE_OFF_MULTIPLIER
+            )
+        ),
+        "monthly_decay": float(
+            settings.get("monthly_decay", scout.DEFAULT_MONTHLY_DECAY)
+        ),
+        "passive_gain": float(
+            settings.get("passive_gain", scout.DEFAULT_PASSIVE_GAIN)
+        ),
+        "max_banked_credits": float(
+            settings.get("max_banked_credits", scout.DEFAULT_MAX_BANKED_CREDITS)
+        ),
+        "auto_spend_cap": float(
+            settings.get("auto_spend_cap", scout.DEFAULT_AUTO_SPEND_CAP)
+        ),
+    }
+
+
 def _serialize() -> Dict[str, Any]:
     trade = ts.load_trade_settings()
     injury = insj.load_injury_settings()
     finance = fs.load_financial_settings()
+    scouting = scout.load_scouting_settings()
 
     strategy_settings = tsp.load_team_strategy_settings()
     auto_reassign_settings = tar.load_team_auto_reassign_settings()
@@ -65,7 +133,9 @@ def _serialize() -> Dict[str, Any]:
             "preset": finance.preset,
             "enforcement_mode": finance.enforcement_mode,
             "modules": dict(finance.modules),
+            "finance_ai_tuning": dict(finance.finance_ai_tuning),
         },
+        "scouting": _serialize_scouting(scouting),
         "strategy": {
             "default_profile": strategy_settings.get("default_profile"),
             "teams": strategy_settings.get("teams") or {},
@@ -91,6 +161,8 @@ def _serialize() -> Dict[str, Any]:
                 fs.ENFORCEMENT_WARN,
                 fs.ENFORCEMENT_BLOCK,
             ],
+            "finance_modules": _serialize_finance_modules(),
+            "finance_ai_tuning_defaults": dict(fs.DEFAULT_FINANCE_AI_TUNING),
             "strategy_profiles": strategy_options,
         },
     }
@@ -146,12 +218,56 @@ def save_finance_settings(
     payload: Dict[str, Any] = Body(...),
     _: Dict[str, Any] = AdminIdentity,
 ) -> Dict[str, Any]:
+    modules = payload.get("modules")
+    finance_ai_tuning = payload.get("finance_ai_tuning")
     try:
         fs.update_financial_settings(
             enabled=payload.get("enabled"),
             preset=payload.get("preset"),
             enforcement_mode=payload.get("enforcement_mode"),
+            modules=modules if isinstance(modules, dict) else None,
+            finance_ai_tuning=(
+                finance_ai_tuning if isinstance(finance_ai_tuning, dict) else None
+            ),
         )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return _serialize()
+
+
+@router.put("/settings/scouting")
+def save_scouting_settings(
+    payload: Dict[str, Any] = Body(...),
+    _: Dict[str, Any] = AdminIdentity,
+) -> Dict[str, Any]:
+    """Update league-wide scouting fog-of-war tuning."""
+
+    def _maybe_float(key: str) -> float | None:
+        value = payload.get(key)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{key} must be numeric.",
+            ) from exc
+
+    try:
+        scout.update_scouting_settings(
+            enabled=payload.get("enabled"),
+            base_monthly_credits=_maybe_float("base_monthly_credits"),
+            finance_off_multiplier=_maybe_float("finance_off_multiplier"),
+            monthly_decay=_maybe_float("monthly_decay"),
+            passive_gain=_maybe_float("passive_gain"),
+            max_banked_credits=_maybe_float("max_banked_credits"),
+            auto_spend_cap=_maybe_float("auto_spend_cap"),
+        )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)

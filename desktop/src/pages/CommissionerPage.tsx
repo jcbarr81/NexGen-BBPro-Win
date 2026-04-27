@@ -12,13 +12,17 @@ import { Navigate } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowLeftRight,
+  ChevronDown,
+  ChevronRight,
   Command,
   DollarSign,
+  Eye,
   GraduationCap,
   HeartPulse,
   Inbox,
   ListChecks,
   Loader2,
+  RefreshCw,
   Save,
   Settings2,
   Shuffle,
@@ -69,6 +73,7 @@ export function CommissionerPage() {
           <TradeCard data={settings.data} />
           <InjuryCard data={settings.data} />
           <FinanceCard data={settings.data} />
+          <ScoutingCard data={settings.data} />
           <StrategyCard data={settings.data} />
         </div>
       ) : null}
@@ -248,25 +253,71 @@ function InjuryCard({ data }: { data: CommissionerSettings }) {
   );
 }
 
+const FINANCE_LEVEL_LABELS: Record<string, string> = {
+  off: "Off",
+  basic: "Basic",
+  advanced: "Advanced",
+  mlb_like: "MLB-Like",
+  warn: "Warn",
+  block: "Block",
+};
+
 function FinanceCard({ data }: { data: CommissionerSettings }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState(data.finance);
+  const [showModules, setShowModules] = useState(false);
+  const [showAiTuning, setShowAiTuning] = useState(false);
+
+  // The "Custom" preset is what unlocks per-module + AI tuning. When the user
+  // edits modules/AI directly we flip the preset to custom client-side; the
+  // server does the same on the writes that include those fields.
   const mutation = useMutation({
     mutationFn: () =>
       api.saveCommishFinance({
         enabled: draft.enabled,
         preset: draft.preset,
         enforcement_mode: draft.enforcement_mode,
+        modules: draft.modules,
+        finance_ai_tuning: draft.finance_ai_tuning,
       }),
-    onSuccess: (next) => queryClient.setQueryData(["commissioner-settings"], next),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["commissioner-settings"], next);
+      setDraft(next.finance);
+    },
   });
   const dirty = useMemo(
-    () =>
-      draft.enabled !== data.finance.enabled ||
-      draft.preset !== data.finance.preset ||
-      draft.enforcement_mode !== data.finance.enforcement_mode,
+    () => JSON.stringify(draft) !== JSON.stringify(data.finance),
     [draft, data.finance],
   );
+
+  const modules = data.options.finance_modules ?? [];
+  const aiDefaults = data.options.finance_ai_tuning_defaults ?? {};
+
+  function applyPreset(preset: string) {
+    // Selecting a non-custom preset clears module/AI overrides locally; the
+    // server fully rebuilds the modules block from PRESET_PROFILES on save.
+    setDraft({ ...draft, preset });
+  }
+
+  function setModuleLevel(moduleId: string, level: string) {
+    setDraft({
+      ...draft,
+      preset: "custom",
+      modules: { ...draft.modules, [moduleId]: level },
+    });
+  }
+
+  function setAiValue(key: string, raw: string) {
+    const parsed = Number(raw);
+    setDraft({
+      ...draft,
+      preset: "custom",
+      finance_ai_tuning: {
+        ...draft.finance_ai_tuning,
+        [key]: Number.isFinite(parsed) ? parsed : draft.finance_ai_tuning[key],
+      },
+    });
+  }
 
   return (
     <Card>
@@ -274,7 +325,8 @@ function FinanceCard({ data }: { data: CommissionerSettings }) {
         <div>
           <CardTitle>Finance</CardTitle>
           <CardDescription>
-            League financial preset + enforcement mode
+            League finance preset, enforcement, per-module levels, and CPU
+            tuning. Mirrors PyQt's FinancialSettingsDialog.
           </CardDescription>
         </div>
         <Badge tone={draft.enabled ? "amber" : "neutral"}>
@@ -294,7 +346,7 @@ function FinanceCard({ data }: { data: CommissionerSettings }) {
             <select
               value={draft.preset}
               disabled={!draft.enabled}
-              onChange={(e) => setDraft({ ...draft, preset: e.target.value })}
+              onChange={(e) => applyPreset(e.target.value)}
               className="h-10 w-full rounded-lg border border-border bg-canvas/60 px-3 text-sm text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40 disabled:opacity-50"
             >
               {data.options.finance_presets.map((p) => (
@@ -322,12 +374,131 @@ function FinanceCard({ data }: { data: CommissionerSettings }) {
             </select>
           </div>
         </div>
+
+        {modules.length > 0 && (
+          <div className="rounded-lg border border-border bg-surfaceAlt/40">
+            <button
+              type="button"
+              onClick={() => setShowModules((v) => !v)}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-semibold"
+            >
+              <span className="inline-flex items-center gap-2">
+                {showModules ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+                Module levels
+              </span>
+              <span className="text-xs text-muted">
+                {modules.length} modules · {draft.preset}
+              </span>
+            </button>
+            {showModules && (
+              <div className="space-y-2 border-t border-border/60 px-3 py-3">
+                {modules.map((m) => {
+                  const level = draft.modules[m.id] ?? m.levels[0] ?? "off";
+                  return (
+                    <div
+                      key={m.id}
+                      className="grid grid-cols-1 items-start gap-2 md:grid-cols-[minmax(0,1fr)_180px]"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold">{m.label}</div>
+                        <div className="text-xs text-muted">{m.help}</div>
+                      </div>
+                      <select
+                        value={level}
+                        disabled={!draft.enabled}
+                        onChange={(e) => setModuleLevel(m.id, e.target.value)}
+                        className="h-8 w-full rounded-md border border-border bg-canvas/60 px-2 text-xs text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40 disabled:opacity-50"
+                      >
+                        {m.levels.map((lvl) => (
+                          <option key={lvl} value={lvl}>
+                            {FINANCE_LEVEL_LABELS[lvl] ?? lvl}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {Object.keys(aiDefaults).length > 0 && (
+          <div className="rounded-lg border border-border bg-surfaceAlt/40">
+            <button
+              type="button"
+              onClick={() => setShowAiTuning((v) => !v)}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-semibold"
+            >
+              <span className="inline-flex items-center gap-2">
+                {showAiTuning ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+                CPU finance AI tuning
+              </span>
+              <span className="text-xs text-muted">
+                {Object.keys(aiDefaults).length} knobs
+              </span>
+            </button>
+            {showAiTuning && (
+              <div className="space-y-2 border-t border-border/60 px-3 py-3">
+                <p className="text-xs text-muted">
+                  Star/underperformer thresholds, salary share caps, arbitration
+                  raise %, and free-agency avoidance bands. Only edit these in
+                  Custom mode.
+                </p>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  {Object.entries(aiDefaults).map(([key, defValue]) => {
+                    const value =
+                      draft.finance_ai_tuning[key] ?? Number(defValue);
+                    return (
+                      <div
+                        key={key}
+                        className="grid grid-cols-[minmax(0,1fr)_120px] items-center gap-2"
+                      >
+                        <Label
+                          htmlFor={`ai-${key}`}
+                          className="text-xs font-normal text-muted"
+                        >
+                          {key.replace(/_/g, " ")}
+                        </Label>
+                        <input
+                          id={`ai-${key}`}
+                          type="number"
+                          step="any"
+                          value={value}
+                          disabled={!draft.enabled}
+                          onChange={(e) => setAiValue(key, e.target.value)}
+                          className="h-8 w-full rounded-md border border-border bg-canvas/60 px-2 text-xs text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40 disabled:opacity-50"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {mutation.isError && (
           <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
             {(mutation.error as Error).message}
           </div>
         )}
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setDraft(data.finance)}
+            disabled={!dirty || mutation.isPending}
+          >
+            <RefreshCw className="h-4 w-4" /> Reset
+          </Button>
           <Button
             onClick={() => mutation.mutate()}
             disabled={!dirty || mutation.isPending}
@@ -338,6 +509,107 @@ function FinanceCard({ data }: { data: CommissionerSettings }) {
               <Save className="h-4 w-4" />
             )}
             Save finance settings
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ScoutingCard({ data }: { data: CommissionerSettings }) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState(data.scouting);
+  const mutation = useMutation({
+    mutationFn: () => api.saveCommishScouting(draft),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["commissioner-settings"], next);
+      setDraft(next.scouting);
+    },
+  });
+  const dirty = useMemo(
+    () => JSON.stringify(draft) !== JSON.stringify(data.scouting),
+    [draft, data.scouting],
+  );
+
+  function setNumber(key: keyof typeof draft, raw: string) {
+    const parsed = Number(raw);
+    setDraft({
+      ...draft,
+      [key]: Number.isFinite(parsed) ? parsed : (draft[key] as number),
+    });
+  }
+
+  const fields: Array<{ key: keyof typeof draft; label: string; step?: number }> = [
+    { key: "base_monthly_credits", label: "Base monthly credits", step: 1 },
+    { key: "finance_off_multiplier", label: "Finance-off pace multiplier", step: 0.01 },
+    { key: "monthly_decay", label: "Monthly decay", step: 0.001 },
+    { key: "passive_gain", label: "Passive gain", step: 0.001 },
+    { key: "max_banked_credits", label: "Max banked credits", step: 1 },
+    { key: "auto_spend_cap", label: "Auto spend cap", step: 1 },
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>
+            <span className="inline-flex items-center gap-2">
+              <Eye className="h-4 w-4" /> Scouting fog-of-war
+            </span>
+          </CardTitle>
+          <CardDescription>
+            Tune the scouting system that hides ratings until owners spend
+            credits. Works whether the finance system is on or off.
+          </CardDescription>
+        </div>
+        <Badge tone={draft.enabled ? "amber" : "neutral"}>
+          <Eye className="h-3 w-3" /> {draft.enabled ? "enabled" : "disabled"}
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Toggle
+          label="Scouting fog-of-war enabled"
+          checked={draft.enabled}
+          onChange={(v) => setDraft({ ...draft, enabled: v })}
+        />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {fields.map(({ key, label, step }) => (
+            <div key={String(key)} className="space-y-1.5">
+              <Label htmlFor={`scout-${String(key)}`}>{label}</Label>
+              <input
+                id={`scout-${String(key)}`}
+                type="number"
+                step={step ?? "any"}
+                value={Number(draft[key])}
+                onChange={(e) => setNumber(key, e.target.value)}
+                className="h-9 w-full rounded-md border border-border bg-canvas/60 px-2 text-sm text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+              />
+            </div>
+          ))}
+        </div>
+        {mutation.isError && (
+          <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            {(mutation.error as Error).message}
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setDraft(data.scouting)}
+            disabled={!dirty || mutation.isPending}
+          >
+            <RefreshCw className="h-4 w-4" /> Reset
+          </Button>
+          <Button
+            onClick={() => mutation.mutate()}
+            disabled={!dirty || mutation.isPending}
+          >
+            {mutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Save scouting settings
           </Button>
         </div>
       </CardContent>

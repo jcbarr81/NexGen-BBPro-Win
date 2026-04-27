@@ -56,10 +56,31 @@ def overview(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
         ) from exc
 
 
+@router.get("/details")
+def details(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
+    """Return full review payload (contract expirations, arbitration,
+    budget deltas, GM finance queue) the PyQt offseason dialog rendered
+    in tabs.
+    """
+
+    try:
+        return get_offseason_stage_details()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        ) from exc
+
+
 @router.get("/stage/{stage_id}")
 def stage_details(stage_id: str, _: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
+    """Per-stage details (kept for compatibility; returns the same payload
+    as /details since the underlying service builds all rows in one pass).
+    """
+
     try:
-        return get_offseason_stage_details(stage_id)
+        payload = get_offseason_stage_details()
+        payload["stage_id"] = stage_id
+        return payload
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)

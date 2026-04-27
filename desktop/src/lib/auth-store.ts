@@ -1,5 +1,12 @@
 import { create } from "zustand";
 
+export interface SessionPayload {
+  token: string;
+  username: string;
+  role: string;
+  teamId: string;
+}
+
 export interface AuthState {
   token: string | null;
   username: string | null;
@@ -13,20 +20,28 @@ export interface AuthState {
   /** Incrementing version number used to invalidate cached team-logo blobs
    *  after a bulk regenerate. Bumped from the Utilities page. */
   logoVersion: number;
+  /** Previous session captured by ``elevateSession`` — populated when the
+   *  owner clicks "Sign in as admin" on the Utilities page (or any other
+   *  in-place elevation entry point). The header banner uses this to
+   *  offer a one-click switch back. Tokens have a 12h TTL on the sidecar
+   *  so the saved token is still valid for the rest of the work session. */
+  previousSession: SessionPayload | null;
 
-  setSession: (session: {
-    token: string;
-    username: string;
-    role: string;
-    teamId: string;
-  }) => void;
+  setSession: (session: SessionPayload) => void;
+  /** Save the current session as ``previousSession``, then replace it
+   *  with ``next``. Used by the AdminElevateCard so the owner can come
+   *  back to their team without re-typing their password. */
+  elevateSession: (next: SessionPayload) => void;
+  /** Restore ``previousSession`` to current and clear it. Returns false
+   *  if there's no previous session to switch back to. */
+  switchBackToPrevious: () => boolean;
   setActiveLeague: (leagueId: string | null) => void;
   setSelectedTeam: (teamId: string | null) => void;
   bumpLogoVersion: () => void;
   clear: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
   username: null,
   role: null,
@@ -34,15 +49,66 @@ export const useAuthStore = create<AuthState>((set) => ({
   activeLeagueId: null,
   selectedTeamId: null,
   logoVersion: 0,
+  previousSession: null,
 
   setSession: (session) =>
-    set({
-      token: session.token,
-      username: session.username,
-      role: session.role,
-      teamId: session.teamId,
-      selectedTeamId: session.teamId || null,
+    set((state) => {
+      // If the new session matches a saved previousSession (the user
+      // came back manually via the login screen), drop the previous —
+      // no banner needed, they've already returned to their owner role.
+      const prev = state.previousSession;
+      const matchesPrevious =
+        prev && prev.username === session.username && prev.role === session.role;
+      return {
+        token: session.token,
+        username: session.username,
+        role: session.role,
+        teamId: session.teamId,
+        selectedTeamId: session.teamId || null,
+        previousSession: matchesPrevious ? null : state.previousSession,
+      };
     }),
+  elevateSession: (next) =>
+    set((state) => {
+      // Capture the current session if any, so the banner can offer
+      // "Switch back to <username>" until the user explicitly logs out
+      // or returns to the previous identity.
+      const current: SessionPayload | null = state.token
+        ? {
+            token: state.token,
+            username: state.username ?? "",
+            role: state.role ?? "",
+            teamId: state.teamId ?? "",
+          }
+        : null;
+      // Avoid stacking — if we're elevating from already-elevated state,
+      // keep the original previousSession (it's the "real" owner login).
+      const previousSession =
+        current && current.username !== next.username
+          ? state.previousSession ?? current
+          : state.previousSession;
+      return {
+        token: next.token,
+        username: next.username,
+        role: next.role,
+        teamId: next.teamId,
+        selectedTeamId: next.teamId || null,
+        previousSession,
+      };
+    }),
+  switchBackToPrevious: () => {
+    const prev = get().previousSession;
+    if (!prev) return false;
+    set({
+      token: prev.token,
+      username: prev.username,
+      role: prev.role,
+      teamId: prev.teamId,
+      selectedTeamId: prev.teamId || null,
+      previousSession: null,
+    });
+    return true;
+  },
   setActiveLeague: (leagueId) => set({ activeLeagueId: leagueId }),
   setSelectedTeam: (teamId) => set({ selectedTeamId: teamId }),
   bumpLogoVersion: () => set((s) => ({ logoVersion: s.logoVersion + 1 })),
@@ -54,5 +120,6 @@ export const useAuthStore = create<AuthState>((set) => ({
       teamId: null,
       activeLeagueId: null,
       selectedTeamId: null,
+      previousSession: null,
     }),
 }));

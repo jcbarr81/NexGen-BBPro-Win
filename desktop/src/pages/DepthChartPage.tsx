@@ -15,6 +15,7 @@ import {
   Loader2,
   RotateCcw,
   Save,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 
@@ -120,6 +121,21 @@ function DepthChartEditor({ teamId }: { teamId: string }) {
     onSuccess: (data) => {
       queryClient.setQueryData(["depth-chart", teamId], data);
       setDirty(false);
+    },
+  });
+  const autofillMut = useMutation({
+    mutationFn: () => api.autofillDepthChart(teamId),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["depth-chart", teamId], data);
+      const next: Record<string, string[]> = {};
+      for (const pos of data.positions) {
+        next[pos] = [...(data.chart[pos] ?? [])];
+      }
+      setDraft(next);
+      // Server already persisted the regenerated chart, so we're back
+      // to a clean state — clear the dirty flag and the autosaved draft.
+      setDirty(false);
+      clearDraft();
     },
   });
 
@@ -292,6 +308,20 @@ function DepthChartEditor({ teamId }: { teamId: string }) {
         </div>
         <div className="flex items-center gap-2">
           <Button
+            variant="outline"
+            size="sm"
+            onClick={() => autofillMut.mutate()}
+            disabled={autofillMut.isPending || saveMut.isPending}
+            title="Auto-populate every position from the current roster + ratings (overwrites the existing chart)"
+          >
+            {autofillMut.isPending ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="mr-1 h-4 w-4" />
+            )}
+            Auto-generate
+          </Button>
+          <Button
             variant="ghost"
             size="sm"
             onClick={reset}
@@ -313,6 +343,14 @@ function DepthChartEditor({ teamId }: { teamId: string }) {
           </Button>
         </div>
       </div>
+      {autofillMut.isError && (
+        <Card>
+          <CardContent className="flex items-center gap-2 py-3 text-sm text-danger">
+            <AlertTriangle className="h-4 w-4" />
+            <span>{(autofillMut.error as Error).message}</span>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {positions.map((pos) => {

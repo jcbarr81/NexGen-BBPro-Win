@@ -11,9 +11,9 @@ from services import league_lifecycle, league_registry
 from utils import path_utils
 
 from ..schemas import LeagueRecordOut
-from ..security import CurrentIdentity, require_bearer
+from ..security import require_bearer
 
-router = APIRouter(prefix="/leagues", tags=["leagues"], dependencies=[CurrentIdentity])
+router = APIRouter(prefix="/leagues", tags=["leagues"])
 
 
 def _require_admin(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[str, Any]:
@@ -41,8 +41,63 @@ def set_active(league_id: str) -> dict:
     record = league_registry.get_league(league_id)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown league")
-    path_utils.set_active_league_id(league_id)
+    try:
+        league_lifecycle.switch_active_league(record.id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
     return {"league_id": path_utils.get_active_league_id()}
+
+
+@router.post("/{league_id}/archive")
+def archive_league(
+    league_id: str,
+    _: Dict[str, Any] = Depends(_require_admin),
+) -> dict:
+    """Archive a league (hide from active selection but keep its data)."""
+
+    record = league_registry.get_league(league_id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Unknown league"
+        )
+    try:
+        updated = league_lifecycle.archive_league(league_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return {
+        "archived": True,
+        "league_id": updated.id,
+        "status": updated.status,
+    }
+
+
+@router.post("/{league_id}/unarchive")
+def unarchive_league(
+    league_id: str,
+    _: Dict[str, Any] = Depends(_require_admin),
+) -> dict:
+    """Restore an archived league."""
+
+    record = league_registry.get_league(league_id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Unknown league"
+        )
+    try:
+        updated = league_lifecycle.unarchive_league(league_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return {
+        "archived": False,
+        "league_id": updated.id,
+        "status": updated.status,
+    }
 
 
 @router.delete("/{league_id}")

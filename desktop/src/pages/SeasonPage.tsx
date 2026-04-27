@@ -19,9 +19,11 @@ import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowRight,
+  Bell,
   Calendar,
   CalendarDays,
   CalendarRange,
+  Dumbbell,
   FastForward,
   Flag,
   GraduationCap,
@@ -29,13 +31,23 @@ import {
   Play,
   Sparkles,
   Trophy,
+  UserMinus,
+  X,
 } from "lucide-react";
 
 import { useAuthStore } from "@/lib/auth-store";
 
-import { api, type SeasonPhase, type SeasonState } from "@/lib/api";
+import {
+  api,
+  type NotificationEvent,
+  type SeasonPhase,
+  type SeasonState,
+} from "@/lib/api";
+import { toast } from "@/lib/toast-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
+import { LeagueTrainingDialog } from "@/components/LeagueTrainingDialog";
+import { SimProgressOverlay } from "@/components/SimProgressOverlay";
 import { StatCard } from "@/components/StatCard";
 import {
   Badge,
@@ -73,6 +85,8 @@ const PHASE_ORDER: SeasonPhase[] = [
 export function SeasonPage() {
   const queryClient = useQueryClient();
   const [recent, setRecent] = useState<RecentJump[]>([]);
+  const [lastNotifications, setLastNotifications] = useState<NotificationEvent[]>([]);
+  const [stopReason, setStopReason] = useState<string | null>(null);
 
   const state = useQuery({
     queryKey: ["season-state"],
@@ -89,6 +103,8 @@ export function SeasonPage() {
       };
       return [entry, ...prev].slice(0, 8);
     });
+    setLastNotifications(result.notifications ?? []);
+    setStopReason(result.sim_stopped_reason ?? null);
   }
 
   function useSimMutation(
@@ -100,11 +116,13 @@ export function SeasonPage() {
       onSuccess: (result) => {
         recordJump(label, result);
         queryClient.setQueryData(["season-state"], result);
-        // Side-effect queries that depend on schedule / standings state.
-        queryClient.invalidateQueries({ queryKey: ["league-standings"] });
-        queryClient.invalidateQueries({ queryKey: ["schedule"] });
-        queryClient.invalidateQueries({ queryKey: ["team-snapshot"] });
-        queryClient.invalidateQueries({ queryKey: ["team-division"] });
+        // A sim batch touches almost every cached query (standings,
+        // stats, leaders, news, finance, rosters, lineups, dashboard
+        // widgets, history, …). Rather than enumerate every key —
+        // which is brittle as new pages get added — invalidate
+        // everything. React Query refetches lazily, so only the
+        // queries the user has open actually re-fire.
+        queryClient.invalidateQueries();
       },
     });
   }
@@ -152,6 +170,7 @@ export function SeasonPage() {
       title="Season"
       subtitle="Advance the calendar a day, a week, a month, or to a milestone."
     >
+      <SimProgressOverlay open={anyPending} label={activeLabel} />
       {state.isLoading ? (
         <LoadingCard />
       ) : state.isError ? (
@@ -161,6 +180,17 @@ export function SeasonPage() {
           {state.data.days_total === 0 && <NoScheduleBanner />}
           {(state.data.draft_blocked ||
             state.data.phase === "AMATEUR_DRAFT") && <DraftReadyBanner />}
+          {(lastNotifications.length > 0 || stopReason) && (
+            <NotificationsBanner
+              events={lastNotifications}
+              stopReason={stopReason}
+              onDismiss={() => {
+                setLastNotifications([]);
+                setStopReason(null);
+              }}
+            />
+          )}
+          <NextStepBanner state={state.data} />
           <PhaseHeader state={state.data} />
           <MetricsRow state={state.data} />
           <ActionsCard
@@ -179,11 +209,95 @@ export function SeasonPage() {
             onSimToPlayoffs={() => simToPlayoffs.mutate()}
             onAdvancePhase={() => advancePhase.mutate()}
           />
+          {state.data.phase === "PRESEASON" && (
+            <PreseasonActionsCard state={state.data} />
+          )}
           <RecentCard recent={recent} />
         </div>
       ) : null}
     </AppShell>
   );
+}
+
+function NextStepBanner({ state }: { state: SeasonState }) {
+  // Draft-ready and no-schedule each have their own richer banner — don't
+  // double-prompt.
+  if (state.draft_blocked || state.phase === "AMATEUR_DRAFT") return null;
+  if (state.days_total === 0) return null;
+
+  const guidance = buildNextStep(state);
+  if (!guidance) return null;
+
+  return (
+    <Card className="border-amber/30 bg-amber/5">
+      <CardContent className="flex items-start gap-3 py-4">
+        <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-amber" />
+        <div className="flex-1 text-sm">
+          <div className="font-semibold text-amber-text">
+            {guidance.title}
+          </div>
+          <p className="mt-1 text-muted">{guidance.body}</p>
+          {guidance.cta && (
+            <p className="mt-2 text-xs">
+              <Link
+                to={guidance.cta.to}
+                className="font-semibold text-amber underline-offset-2 hover:underline"
+              >
+                {guidance.cta.label} →
+              </Link>
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface NextStep {
+  title: string;
+  body: string;
+  cta?: { label: string; to: string };
+}
+
+function buildNextStep(state: SeasonState): NextStep | null {
+  switch (state.phase) {
+    case "PRESEASON":
+      return {
+        title: "Preseason — get the league ready to play",
+        body:
+          "Run spring training to mark every player as ready, review free agents, and confirm league-wide training focus. When you're done, click Advance Phase to start the Regular Season.",
+      };
+    case "REGULAR_SEASON": {
+      const remaining = state.days_remaining ?? 0;
+      const draftDate = state.draft_date;
+      const nextLabel = draftDate
+        ? `Amateur Draft on ${formatDate(draftDate)}`
+        : "the end of the schedule";
+      return {
+        title: `Regular Season — next milestone is ${nextLabel}`,
+        body:
+          remaining > 0
+            ? `${remaining} scheduled day${remaining === 1 ? "" : "s"} remain. Use Sim Day/Week/Month to advance incrementally, or ${draftDate ? "'To Draft' to fast-forward to draft day" : "'To Playoffs' to finish the regular season"}.`
+            : "All regular-season games are played. Click Advance Phase when you're ready to move on.",
+      };
+    }
+    case "PLAYOFFS":
+      return {
+        title: "Playoffs — resolve the bracket",
+        body:
+          "Play out the playoff rounds on the Playoffs page. Once a champion is crowned, Advance Phase will move the league into the Offseason.",
+        cta: { label: "Open Playoffs", to: "/playoffs" },
+      };
+    case "OFFSEASON":
+      return {
+        title: "Offseason — run the finance rollover",
+        body:
+          "Work through the offseason checklist (arbitration, contract rollover, GM finance queue, free agency kickoff). When the checklist is complete, Advance Phase begins the next Preseason.",
+        cta: { label: "Open Offseason", to: "/offseason" },
+      };
+    default:
+      return null;
+  }
 }
 
 function DraftReadyBanner() {
@@ -438,6 +552,125 @@ function ActionsCard({
   );
 }
 
+function PreseasonActionsCard({ state }: { state: SeasonState }) {
+  const queryClient = useQueryClient();
+  const [leagueTrainingOpen, setLeagueTrainingOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const freeAgencyDone = !!state.preseason_done?.free_agency;
+  const trainingCampDone = !!state.preseason_done?.training_camp;
+
+  const refreshSeasonState = () => {
+    queryClient.invalidateQueries({ queryKey: ["season-state"] });
+  };
+
+  const listUnsigned = useMutation({
+    mutationFn: () => api.preseasonListUnsigned(true),
+    onSuccess: (data) => {
+      refreshSeasonState();
+      const cpuMsg =
+        data.cpu_signed > 0
+          ? `CPU signed ${data.cpu_signed} across ${data.cpu_rounds} round${data.cpu_rounds === 1 ? "" : "s"}. `
+          : "";
+      const msg =
+        data.unsigned_count === 0
+          ? `${cpuMsg}No unsigned players remaining.`
+          : `${cpuMsg}${data.unsigned_count} unsigned player${data.unsigned_count === 1 ? "" : "s"} available${data.unsigned_names.length ? `: ${data.unsigned_names.slice(0, 5).join(", ")}${data.unsigned_names.length > 5 ? "…" : ""}` : ""}.`;
+      setNotice(msg);
+      toast.info(msg);
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+
+  const trainingCamp = useMutation({
+    mutationFn: () => api.preseasonTrainingCamp(),
+    onSuccess: (data) => {
+      refreshSeasonState();
+      const topNames = data.top_gainers
+        .map((g) => `${g.name} (+${g.total_gain})`)
+        .join(", ");
+      const msg = `Training camp completed for ${data.players_processed} players.${topNames ? ` Top gainers: ${topNames}.` : ""}`;
+      setNotice(msg);
+      toast.success(msg);
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <div>
+            <CardTitle>Preseason Actions</CardTitle>
+            <CardDescription>
+              Run spring training, review unsigned free agents, and set the
+              league-wide training focus split.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+            <Button
+              variant="ghost"
+              onClick={() => listUnsigned.mutate()}
+              disabled={listUnsigned.isPending || freeAgencyDone}
+              className="justify-start"
+              title={
+                freeAgencyDone
+                  ? "Free agency review already completed for this preseason"
+                  : "Run the CPU free-agency cycle and list remaining unsigned players"
+              }
+            >
+              {listUnsigned.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <UserMinus className="h-4 w-4" />
+              )}
+              {freeAgencyDone ? "List Unsigned Players ✓" : "List Unsigned Players"}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => trainingCamp.mutate()}
+              disabled={trainingCamp.isPending || trainingCampDone}
+              className="justify-start"
+              title={
+                trainingCampDone
+                  ? "Training camp already completed for this preseason"
+                  : "Runs spring training for every player"
+              }
+            >
+              {trainingCamp.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Dumbbell className="h-4 w-4" />
+              )}
+              {trainingCampDone ? "Run Training Camp ✓" : "Run Training Camp"}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setLeagueTrainingOpen(true)}
+              className="justify-start"
+              title="Edit league-wide default training split"
+            >
+              <GraduationCap className="h-4 w-4" />
+              Training Focus…
+            </Button>
+          </div>
+          {notice && (
+            <div className="rounded-md border border-border bg-surfaceAlt/40 px-3 py-2 text-xs text-muted">
+              {notice}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <LeagueTrainingDialog
+        open={leagueTrainingOpen}
+        onOpenChange={setLeagueTrainingOpen}
+      />
+    </>
+  );
+}
+
 function RecentCard({ recent }: { recent: RecentJump[] }) {
   return (
     <Card>
@@ -528,5 +761,89 @@ function ErrorCard({ message }: { message: string }) {
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * Banner that surfaces notification events from the most recent sim
+ * batch. When ``stopReason`` is set the multi-day sim broke early
+ * because a stop_sim rule fired — we make that obvious so the owner
+ * understands why fewer days advanced than expected.
+ */
+function NotificationsBanner({
+  events,
+  stopReason,
+  onDismiss,
+}: {
+  events: NotificationEvent[];
+  stopReason: string | null;
+  onDismiss: () => void;
+}) {
+  const tone = stopReason
+    ? "border-warning/40 bg-warning/5"
+    : "border-amber/30 bg-amber/5";
+  return (
+    <Card className={tone}>
+      <CardHeader className="flex-row items-start justify-between gap-2 pb-2">
+        <div>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Bell className="h-4 w-4 text-amber" />
+            {stopReason
+              ? `Sim paused: ${stopReason}`
+              : `${events.length} new notification${events.length === 1 ? "" : "s"}`}
+          </CardTitle>
+          <CardDescription>
+            {stopReason
+              ? "The sim stopped on this event because you marked it 'stop sim' on the Notifications page. Review and resume when ready."
+              : "Events from your latest sim batch — review on the Notifications page for the full history."}
+          </CardDescription>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="rounded-md p-1 text-muted hover:bg-surfaceAlt hover:text-ink"
+          aria-label="Dismiss"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </CardHeader>
+      {events.length > 0 && (
+        <CardContent className="space-y-1.5">
+          {events.slice(0, 6).map((ev, idx) => (
+            <div
+              key={`${ev.timestamp}-${idx}`}
+              className="flex items-start gap-2 rounded-md border border-border bg-surface px-2 py-1.5 text-xs"
+            >
+              <Badge tone={severityTone(ev.severity)}>{ev.severity}</Badge>
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold">{ev.title}</div>
+                <div className="text-muted">{ev.message}</div>
+                {ev.sim_date && (
+                  <div className="mt-0.5 text-[10px] text-muted">
+                    {ev.sim_date}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          {events.length > 6 && (
+            <Link
+              to="/notifications"
+              className="inline-block text-xs font-semibold text-amber underline-offset-2 hover:underline"
+            >
+              + {events.length - 6} more — view full history →
+            </Link>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function severityTone(
+  severity: string,
+): "amber" | "warning" | "danger" | "neutral" | "success" {
+  if (severity === "critical") return "danger";
+  if (severity === "warning") return "warning";
+  return "amber";
 }
 

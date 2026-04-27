@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Copy,
   Eraser,
+  History,
   Loader2,
   RefreshCcw,
   Settings2,
@@ -50,8 +51,82 @@ function AdminLeagueBody() {
       <ResetStatsCard />
       <ResetResultsCard />
       <RepairLineupsCard />
+      <ResetToOpeningDayCard />
       <CloneLeagueCard />
     </div>
+  );
+}
+
+function ResetToOpeningDayCard() {
+  const [purgeBoxscores, setPurgeBoxscores] = useState(false);
+  const [clearNews, setClearNews] = useState(false);
+  const [clearTransactions, setClearTransactions] = useState(false);
+  const mut = useMutation({
+    mutationFn: () =>
+      api.adminResetToOpeningDay({
+        purge_boxscores: purgeBoxscores,
+        clear_news: clearNews,
+        clear_transactions: clearTransactions,
+      }),
+  });
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <History className="h-4 w-4 text-amber" /> Reset to Opening Day
+        </CardTitle>
+        <CardDescription>
+          Rewinds the current season — clears results, standings, stats,
+          history, draft + playoff artifacts, injuries, and pitcher recovery;
+          phase returns to Regular Season.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-1.5 text-xs">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={purgeBoxscores}
+              onChange={(e) => setPurgeBoxscores(e.target.checked)}
+            />
+            Also delete saved season boxscores
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={clearNews}
+              onChange={(e) => setClearNews(e.target.checked)}
+            />
+            Also purge league news feed
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={clearTransactions}
+              onChange={(e) => setClearTransactions(e.target.checked)}
+            />
+            Also clear transactions log
+          </label>
+        </div>
+        <ConfirmButton
+          label="Reset to Opening Day"
+          icon={<History className="h-4 w-4" />}
+          confirmText="Rewind the season to Opening Day? All played results, standings, stats, season history, draft results, and playoff brackets for the current year will be cleared."
+          pending={mut.isPending}
+          onConfirm={() => mut.mutate()}
+        />
+        <ResultLine
+          ok={mut.isSuccess}
+          err={mut.isError}
+          okText={
+            mut.data
+              ? `Reset to Opening Day${mut.data.opening_day_year ? ` ${mut.data.opening_day_year}` : ""}.${mut.data.boxscores_cleared ? " Boxscores purged." : ""}${mut.data.news_cleared ? " News cleared." : ""}${mut.data.transactions_cleared ? " Transactions cleared." : ""}${mut.data.notes.length ? ` Notes: ${mut.data.notes.join("; ")}` : ""}`
+              : ""
+          }
+          errText={(mut.error as Error | undefined)?.message}
+        />
+      </CardContent>
+    </Card>
   );
 }
 

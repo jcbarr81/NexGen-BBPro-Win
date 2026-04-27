@@ -11,6 +11,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import {
+  Archive,
+  ArchiveRestore,
   ArrowRight,
   CheckCircle2,
   Loader2,
@@ -43,7 +45,11 @@ export function LeagueSelectPage() {
   const navigate = useNavigate();
   const setActiveLeague = useAuthStore((s) => s.setActiveLeague);
   const role = useAuthStore((s) => s.role);
+  const token = useAuthStore((s) => s.token);
+  // Pre-login the user has no role; we still need a Create button so the
+  // first-run flow (which bootstraps the admin password) is reachable.
   const isAdmin = role === "admin";
+  const canCreate = isAdmin || !token;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<League | null>(null);
 
@@ -62,6 +68,14 @@ export function LeagueSelectPage() {
     }
   }, [active.data, selectedId]);
 
+  // First-run: no leagues registered yet → bounce to the setup wizard,
+  // which handles admin-password bootstrap in addition to league creation.
+  useEffect(() => {
+    if (leagues.data && leagues.data.length === 0) {
+      navigate("/leagues/new?first-run=1", { replace: true });
+    }
+  }, [leagues.data, navigate]);
+
   useEffect(() => {
     if (active.data?.league_id) {
       setActiveLeague(active.data.league_id);
@@ -73,7 +87,8 @@ export function LeagueSelectPage() {
     onSuccess: (res) => {
       setActiveLeague(res.league_id);
       queryClient.invalidateQueries({ queryKey: ["active-league"] });
-      navigate("/home", { replace: true });
+      // Pre-login: head to sign-in. Already-signed-in users go straight home.
+      navigate(token ? "/home" : "/login", { replace: true });
     },
   });
 
@@ -87,11 +102,24 @@ export function LeagueSelectPage() {
     },
   });
 
+  const archive = useMutation({
+    mutationFn: (id: string) => api.archiveLeague(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["leagues"] });
+    },
+  });
+  const unarchive = useMutation({
+    mutationFn: (id: string) => api.unarchiveLeague(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["leagues"] });
+    },
+  });
+
   async function handleContinue() {
     if (!selectedId) return;
     if (selectedId === active.data?.league_id) {
       setActiveLeague(selectedId);
-      navigate("/home", { replace: true });
+      navigate(token ? "/home" : "/login", { replace: true });
       return;
     }
     activate.mutate(selectedId);
@@ -112,8 +140,8 @@ export function LeagueSelectPage() {
             <div>
               <CardTitle>Choose a league</CardTitle>
               <CardDescription>
-                {isAdmin
-                  ? "Pick an existing league or create a new one. You can switch leagues at any time from the sidebar."
+                {canCreate
+                  ? "Pick an existing league or create a new one. After you choose, sign in to continue."
                   : "Select the league to load. You can switch leagues at any time from the sidebar."}
               </CardDescription>
             </div>
@@ -130,7 +158,7 @@ export function LeagueSelectPage() {
             ) : !leagues.data || leagues.data.length === 0 ? (
               <div className="px-6 py-8 text-sm text-muted">
                 No leagues registered yet.
-                {isAdmin
+                {canCreate
                   ? " Use the Create button below to set one up."
                   : " Ask an admin to create one."}
               </div>
@@ -146,6 +174,18 @@ export function LeagueSelectPage() {
                     canDelete={isAdmin && (leagues.data?.length ?? 0) > 1}
                     onDelete={() => setConfirmDelete(league)}
                     isDeleting={remove.isPending && remove.variables === league.id}
+                    canArchive={isAdmin && active.data?.league_id !== league.id}
+                    onToggleArchive={() => {
+                      if (league.status === "archived") {
+                        unarchive.mutate(league.id);
+                      } else {
+                        archive.mutate(league.id);
+                      }
+                    }}
+                    isTogglingArchive={
+                      (archive.isPending && archive.variables === league.id) ||
+                      (unarchive.isPending && unarchive.variables === league.id)
+                    }
                   />
                 ))}
               </ul>
@@ -160,10 +200,20 @@ export function LeagueSelectPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              {isAdmin && (
+              {canCreate && (
                 <Button
                   variant="outline"
-                  onClick={() => navigate("/leagues/new")}
+                  onClick={() => {
+                    // Pre-login or non-admin: route through /login with a
+                    // hard requirement on the admin role, then resume to
+                    // the create wizard. Already-signed-in admins go
+                    // directly.
+                    if (isAdmin) {
+                      navigate("/leagues/new");
+                    } else {
+                      navigate("/login?require=admin&next=/leagues/new");
+                    }
+                  }}
                 >
                   <PlusCircle className="h-4 w-4" />
                   Create new league
@@ -174,7 +224,7 @@ export function LeagueSelectPage() {
                 disabled={!selectedId || activate.isPending}
               >
                 {activate.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                Continue
+                {token ? "Continue" : "Sign in"}
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </div>
@@ -240,6 +290,9 @@ interface LeagueRowProps {
   canDelete: boolean;
   onDelete: () => void;
   isDeleting: boolean;
+  canArchive: boolean;
+  onToggleArchive: () => void;
+  isTogglingArchive: boolean;
 }
 
 function LeagueRow({
@@ -250,6 +303,9 @@ function LeagueRow({
   canDelete,
   onDelete,
   isDeleting,
+  canArchive,
+  onToggleArchive,
+  isTogglingArchive,
 }: LeagueRowProps) {
   return (
     <li
@@ -292,6 +348,39 @@ function LeagueRow({
         />
       </button>
 
+      {canArchive && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleArchive();
+          }}
+          disabled={isTogglingArchive}
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted transition",
+            "hover:bg-amber/10 hover:text-amber",
+            "disabled:cursor-not-allowed disabled:opacity-50",
+          )}
+          aria-label={
+            league.status === "archived"
+              ? `Restore league ${league.display_name}`
+              : `Archive league ${league.display_name}`
+          }
+          title={
+            league.status === "archived"
+              ? `Restore ${league.display_name}`
+              : `Archive ${league.display_name}`
+          }
+        >
+          {isTogglingArchive ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : league.status === "archived" ? (
+            <ArchiveRestore className="h-4 w-4" />
+          ) : (
+            <Archive className="h-4 w-4" />
+          )}
+        </button>
+      )}
       {canDelete && (
         <button
           type="button"
