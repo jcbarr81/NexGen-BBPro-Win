@@ -1,6 +1,10 @@
 param(
     [switch]$SkipSidecar,
-    [switch]$SkipInstaller
+    [switch]$SkipInstaller,
+    # Number of most-recent installers to retain in desktop/release/.
+    # Older installer .exe files (and their .blockmap siblings) are pruned
+    # after a successful build. Pass 0 to disable pruning.
+    [int]$KeepInstallers = 3
 )
 
 # Build the complete NexGen-BBPro Electron installer end-to-end.
@@ -50,6 +54,39 @@ try {
     }
 } finally {
     Pop-Location
+}
+
+# Prune old installers — each NSIS .exe is ~240 MB so it adds up fast.
+# Keep the N most recent by mtime; remove older .exe + matching .blockmap
+# files. Also sweep orphan .blockmap files left over from prior cleanups.
+if (-not $SkipInstaller -and $KeepInstallers -gt 0) {
+    $releaseDir = Join-Path $Desktop "release"
+    if (Test-Path $releaseDir) {
+        $installers = @(
+            Get-ChildItem -Path $releaseDir -Filter "NexGen-BBPro Setup *.exe" -File -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending
+        )
+        if ($installers.Count -gt $KeepInstallers) {
+            $toRemove = $installers | Select-Object -Skip $KeepInstallers
+            Write-Host ("`n[prune] Removing {0} old installer(s); keeping {1} most recent." -f $toRemove.Count, $KeepInstallers) -ForegroundColor Cyan
+            foreach ($file in $toRemove) {
+                Write-Host "  rm $($file.Name)"
+                Remove-Item $file.FullName -Force
+                $blockmap = "$($file.FullName).blockmap"
+                if (Test-Path $blockmap) { Remove-Item $blockmap -Force }
+            }
+        }
+        # Sweep orphan .blockmap files (no matching .exe in the keep set).
+        $kept = @($installers | Select-Object -First $KeepInstallers | ForEach-Object { $_.Name })
+        $blockmaps = @(Get-ChildItem -Path $releaseDir -Filter "NexGen-BBPro Setup *.exe.blockmap" -File -ErrorAction SilentlyContinue)
+        foreach ($bm in $blockmaps) {
+            $exeName = $bm.Name -replace '\.blockmap$', ''
+            if ($kept -notcontains $exeName) {
+                Write-Host "  rm $($bm.Name) (orphan blockmap)"
+                Remove-Item $bm.FullName -Force
+            }
+        }
+    }
 }
 
 Write-Host "`nDone. Look in desktop/release/ for the installer." -ForegroundColor Green

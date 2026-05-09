@@ -8,6 +8,8 @@
  */
 
 import { useMemo, useState } from "react";
+
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -313,6 +315,10 @@ function RosterTabs({
     setPositionContextState(value);
     writePositionContextPref(value);
   };
+  const [tabLevel, setTabLevel] = usePersistedState<RosterLevel>(
+    "roster:level",
+    "ACT",
+  );
 
   // Require a small drag distance before activating so single clicks
   // (open profile, context menu, sort) aren't consumed by DnD.
@@ -334,7 +340,10 @@ function RosterTabs({
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <Tabs defaultValue="ACT">
+      <Tabs
+        value={tabLevel}
+        onValueChange={(v) => setTabLevel(v as RosterLevel)}
+      >
         <div className="flex items-center justify-between gap-3">
           <TabsList>
             {LEVEL_ORDER.map((level) => {
@@ -410,9 +419,18 @@ function RosterLevelTable({
   actions: RosterActions;
   positionContext: boolean;
 }) {
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [filter, setFilter] = useState<"all" | "hitters" | "pitchers">("all");
+  const [sortKey, setSortKey] = usePersistedState<SortKey>(
+    "roster:sortKey",
+    "name",
+  );
+  const [sortDir, setSortDir] = usePersistedState<SortDir>(
+    "roster:sortDir",
+    "asc",
+  );
+  const [filter, setFilter] = usePersistedState<"all" | "hitters" | "pitchers">(
+    "roster:filter",
+    "all",
+  );
 
   // Use a pitcher-weighted column set if the filter narrows to pitchers or
   // if the level is mostly pitchers.

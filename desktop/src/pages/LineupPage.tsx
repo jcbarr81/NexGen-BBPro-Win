@@ -11,6 +11,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -133,7 +135,9 @@ export function LineupPage() {
 
 function LineupEditor({ teamId }: { teamId: string }) {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"rhp" | "lhp" | "pitching">("rhp");
+  const [activeTab, setActiveTab] = usePersistedState<
+    "rhp" | "lhp" | "pitching"
+  >("lineup:tab", "rhp");
   const roster = useQuery({
     queryKey: ["team-roster", teamId],
     queryFn: () => api.teamRoster(teamId),
@@ -365,6 +369,7 @@ function LineupTab({
   }
 
   return (
+    <>
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
       <Card className="p-3">
         <DiamondDiagram positions={diamondPositions} />
@@ -494,6 +499,8 @@ function LineupTab({
       </CardContent>
     </Card>
     </div>
+    <EligiblePoolPanel players={hitters} kind="hitters" />
+    </>
   );
 }
 
@@ -832,6 +839,7 @@ function PitchingTab({
   if (staff.isError) return <ErrorCard message={(staff.error as Error).message} />;
 
   return (
+    <>
     <Card>
       <CardHeader>
         <div>
@@ -978,6 +986,267 @@ function PitchingTab({
         </div>
       </CardContent>
     </Card>
+    <EligiblePoolPanel players={pitchers} kind="pitchers" />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Eligible-pool comparison panel
+//
+// Renders a sortable table of every active-roster player eligible for the
+// editor above (hitters for the lineup tabs, pitchers for the staff tab)
+// so the user can compare ratings side-by-side before placing someone in
+// a slot. Read-only — assignment still happens through the dropdowns in
+// the editor card.
+
+const HITTER_POOL_COLUMNS: Array<{ key: string; label: string }> = [
+  { key: "ch", label: "CH" },
+  { key: "ph", label: "PH" },
+  { key: "sp", label: "SP" },
+  { key: "eye", label: "EYE" },
+  { key: "fa", label: "FA" },
+  { key: "arm", label: "ARM" },
+];
+const PITCHER_POOL_COLUMNS: Array<{ key: string; label: string }> = [
+  { key: "arm", label: "AS" },
+  { key: "endurance", label: "EN" },
+  { key: "control", label: "CTRL" },
+  { key: "movement", label: "MOV" },
+  { key: "fb", label: "FB" },
+  { key: "sl", label: "SL" },
+  { key: "cu", label: "CU" },
+  { key: "cb", label: "CB" },
+  { key: "si", label: "SI" },
+];
+
+function EligiblePoolPanel({
+  players,
+  kind,
+}: {
+  players: RosterPlayer[];
+  kind: "hitters" | "pitchers";
+}) {
+  const columns = kind === "hitters" ? HITTER_POOL_COLUMNS : PITCHER_POOL_COLUMNS;
+  const [sortKey, setSortKey] = usePersistedState<string>(
+    `lineup:eligible:${kind}:sortKey`,
+    "overall",
+  );
+  const [sortDir, setSortDir] = usePersistedState<"asc" | "desc">(
+    `lineup:eligible:${kind}:sortDir`,
+    "desc",
+  );
+
+  const sorted = useMemo(() => {
+    const arr = [...players];
+    arr.sort((a, b) => {
+      const av = poolSortValue(a, sortKey);
+      const bv = poolSortValue(b, sortKey);
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === "number" && typeof bv === "number") {
+        return sortDir === "asc" ? av - bv : bv - av;
+      }
+      const as = String(av).toLowerCase();
+      const bs = String(bv).toLowerCase();
+      if (as < bs) return sortDir === "asc" ? -1 : 1;
+      if (as > bs) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return arr;
+  }, [players, sortKey, sortDir]);
+
+  function toggleSort(key: string) {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+  }
+
+  if (players.length === 0) return null;
+
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <div>
+          <CardTitle className="text-base">
+            {kind === "hitters" ? "Eligible hitters" : "Eligible pitchers"}
+          </CardTitle>
+          <CardDescription>
+            Active-roster {kind} with their ratings — read-only reference for
+            comparing options before placing them above.
+          </CardDescription>
+        </div>
+        <Badge tone="neutral">{players.length}</Badge>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
+                <PoolHeader
+                  label="Player"
+                  keyId="name"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onClick={toggleSort}
+                  align="left"
+                />
+                <PoolHeader
+                  label={kind === "hitters" ? "Pos" : "Role"}
+                  keyId={kind === "hitters" ? "pos" : "role"}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onClick={toggleSort}
+                />
+                <PoolHeader
+                  label="Age"
+                  keyId="age"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onClick={toggleSort}
+                />
+                <PoolHeader
+                  label="B/T"
+                  keyId="bats"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onClick={toggleSort}
+                />
+                <PoolHeader
+                  label="OVR"
+                  keyId="overall"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onClick={toggleSort}
+                />
+                {columns.map((col) => (
+                  <PoolHeader
+                    key={col.key}
+                    label={col.label}
+                    keyId={col.key}
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onClick={toggleSort}
+                  />
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((p) => (
+                <tr
+                  key={p.player_id}
+                  className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
+                >
+                  <td className="px-6 py-2 font-semibold">
+                    {p.last_name}
+                    {p.first_name ? `, ${p.first_name}` : ""}
+                  </td>
+                  <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
+                    {kind === "hitters"
+                      ? (p.primary_position || "—")
+                      : (p.role || "—")}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {p.age ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right text-xs">
+                    {p.bats || "—"}/{p.throws || "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums font-semibold">
+                    {p.overall_display ?? p.overall_raw ?? "—"}
+                  </td>
+                  {columns.map((col) => {
+                    const raw = p.ratings[col.key];
+                    const display =
+                      raw == null || raw === ""
+                        ? "—"
+                        : typeof raw === "number"
+                          ? Math.round(raw)
+                          : Number.isFinite(Number(raw))
+                            ? Math.round(Number(raw))
+                            : String(raw);
+                    return (
+                      <td
+                        key={col.key}
+                        className="px-3 py-2 text-right tabular-nums"
+                      >
+                        {display}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function poolSortValue(p: RosterPlayer, key: string): string | number | null {
+  switch (key) {
+    case "name":
+      return `${p.last_name}, ${p.first_name}`;
+    case "age":
+      return p.age ?? null;
+    case "pos":
+      return p.primary_position ?? "";
+    case "role":
+      return p.role ?? "";
+    case "bats":
+      return p.bats ?? "";
+    case "overall":
+      return p.overall_display ?? p.overall_raw ?? null;
+    default: {
+      const raw = p.ratings[key];
+      if (raw == null) return null;
+      const n = typeof raw === "number" ? raw : Number(raw);
+      return Number.isFinite(n) ? n : String(raw);
+    }
+  }
+}
+
+function PoolHeader({
+  label,
+  keyId,
+  sortKey,
+  sortDir,
+  onClick,
+  align = "right",
+}: {
+  label: string;
+  keyId: string;
+  sortKey: string;
+  sortDir: "asc" | "desc";
+  onClick: (key: string) => void;
+  align?: "left" | "right";
+}) {
+  const active = sortKey === keyId;
+  const Arrow = !active ? ChevronsUpDown : sortDir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th
+      className={cn(
+        "select-none px-3 py-2 font-semibold",
+        align === "left" ? "text-left px-6" : "text-right",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onClick(keyId)}
+        className={cn(
+          "inline-flex items-center gap-1 transition",
+          active ? "text-ink" : "hover:text-ink",
+        )}
+      >
+        {label}
+        <Arrow className="h-3 w-3 opacity-60" />
+      </button>
+    </th>
   );
 }
 

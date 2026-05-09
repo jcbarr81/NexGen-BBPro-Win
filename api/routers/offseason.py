@@ -1,8 +1,13 @@
-"""Offseason finance flow endpoints (admin-only).
+"""Offseason finance flow endpoints.
 
 Exposes the checklist + pipeline runner + stage-mark helpers from
-``services.offseason_finance_flow`` so the Electron UI can walk an admin
-through the end-of-season finance rollover.
+``services.offseason_finance_flow``.
+
+**Auth model**: read endpoints (checklist, overview, details, stage
+details) are open to any signed-in user so the owner can see their
+own offseason status. Write endpoints (pipeline, stage-mark) follow
+``can_run_season_progression``: in solo-player leagues the owner
+drives them; in owner leagues the commissioner/admin does.
 """
 
 from __future__ import annotations
@@ -18,26 +23,36 @@ from services.offseason_finance_flow import (
     mark_offseason_stage,
     run_offseason_financial_rollover,
 )
+from utils.league_settings import can_run_season_progression
 
 from ..security import require_bearer
 
 router = APIRouter(prefix="/offseason", tags=["offseason"])
 
 
-def _require_admin(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[str, Any]:
+def _require_phase_actor(
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Allow the owner in solo leagues; require commish/admin in owner leagues."""
+
     role = str(identity.get("r", "")).lower()
-    if role != "admin":
+    if not can_run_season_progression(role):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required."
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "This action is restricted to the commissioner in owner "
+                "leagues."
+            ),
         )
     return identity
 
 
-AdminIdentity = Depends(_require_admin)
+SignedIn = Depends(require_bearer)
+PhaseActor = Depends(_require_phase_actor)
 
 
 @router.get("/checklist")
-def checklist(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
+def checklist(_: Dict[str, Any] = SignedIn) -> Dict[str, Any]:
     try:
         return get_offseason_checklist()
     except Exception as exc:
@@ -47,7 +62,7 @@ def checklist(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
 
 
 @router.get("/overview")
-def overview(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
+def overview(_: Dict[str, Any] = SignedIn) -> Dict[str, Any]:
     try:
         return collect_offseason_finance_overview()
     except Exception as exc:
@@ -57,7 +72,7 @@ def overview(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
 
 
 @router.get("/details")
-def details(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
+def details(_: Dict[str, Any] = SignedIn) -> Dict[str, Any]:
     """Return full review payload (contract expirations, arbitration,
     budget deltas, GM finance queue) the PyQt offseason dialog rendered
     in tabs.
@@ -72,7 +87,7 @@ def details(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
 
 
 @router.get("/stage/{stage_id}")
-def stage_details(stage_id: str, _: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
+def stage_details(stage_id: str, _: Dict[str, Any] = SignedIn) -> Dict[str, Any]:
     """Per-stage details (kept for compatibility; returns the same payload
     as /details since the underlying service builds all rows in one pass).
     """
@@ -90,7 +105,7 @@ def stage_details(stage_id: str, _: Dict[str, Any] = AdminIdentity) -> Dict[str,
 @router.post("/run-pipeline")
 def run_pipeline(
     payload: Dict[str, Any] = Body(default_factory=dict),
-    _: Dict[str, Any] = AdminIdentity,
+    _: Dict[str, Any] = PhaseActor,
 ) -> Dict[str, Any]:
     try:
         overview = collect_offseason_finance_overview()
@@ -109,7 +124,7 @@ def run_pipeline(
 @router.post("/stage/mark")
 def mark_stage(
     payload: Dict[str, Any] = Body(...),
-    _: Dict[str, Any] = AdminIdentity,
+    _: Dict[str, Any] = PhaseActor,
 ) -> Dict[str, Any]:
     stage_id = str(payload.get("stage_id", "")).strip()
     if not stage_id:

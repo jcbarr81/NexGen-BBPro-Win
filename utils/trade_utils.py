@@ -1,16 +1,54 @@
 import csv
 from datetime import date
 from pathlib import Path
+from typing import Optional
 
 from models.trade import Trade
 from services.draft_pick_ledger import get_pick_owner, parse_pick_id
 from services.trade_settings import current_league_year, load_trade_settings
 from utils.path_utils import resolve_app_path
+from utils.sim_date import get_current_sim_date
 from playbalance.season_manager import TRADE_DEADLINE
 
 
 def _today() -> date:
+    """Sim-date-aware "today" — falls back to calendar today if no sim
+    date is set yet (which can happen pre-opening-day)."""
+
+    sim = get_current_sim_date()
+    if sim:
+        try:
+            return date.fromisoformat(str(sim)[:10])
+        except Exception:
+            pass
     return date.today()
+
+
+def trade_deadline_for_year(year: int) -> date:
+    """Return the trade deadline (July 31) for a given calendar year.
+
+    Kept consistent with the legacy ``TRADE_DEADLINE`` constant but
+    parameterized so the same helper works for any league year.
+    """
+
+    return date(int(year), 7, 31)
+
+
+def current_trade_deadline() -> date:
+    """Return the trade deadline for whatever year the sim is in."""
+
+    today = _today()
+    return trade_deadline_for_year(today.year)
+
+
+def is_past_trade_deadline() -> bool:
+    return _today() > current_trade_deadline()
+
+
+def days_until_trade_deadline() -> int:
+    """Positive while open, 0 on deadline day, negative once past."""
+
+    return (current_trade_deadline() - _today()).days
 
 
 def _resolve(file_path: str | Path) -> Path:
@@ -27,6 +65,11 @@ def load_trades(file_path: str | Path = "data/trades_pending.csv"):
         with path.open(newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
+                # Old rows that predate the field default to "human" so
+                # the existing "Pending" inbox keeps showing them.
+                initiated_by = str(row.get("initiated_by") or "human").strip().lower()
+                if initiated_by not in {"human", "cpu"}:
+                    initiated_by = "human"
                 trade = Trade(
                     trade_id=row["trade_id"],
                     from_team=row["from_team"],
@@ -36,6 +79,7 @@ def load_trades(file_path: str | Path = "data/trades_pending.csv"):
                     status=str(row.get("status") or "pending"),
                     give_pick_ids=_split_pick_ids(row.get("give_pick_ids")),
                     receive_pick_ids=_split_pick_ids(row.get("receive_pick_ids")),
+                    initiated_by=initiated_by,
                 )
                 trades.append(trade)
     except FileNotFoundError:
@@ -52,8 +96,10 @@ def save_trade(trade: Trade, file_path: str | Path = "data/trades_pending.csv"):
     before writing the updated list back to disk.
     """
 
-    if _today() > TRADE_DEADLINE and str(trade.status).lower() == "pending":
-        raise RuntimeError("Trade deadline has passed")
+    if is_past_trade_deadline() and str(trade.status).lower() == "pending":
+        raise RuntimeError(
+            f"Trade deadline ({current_trade_deadline().isoformat()}) has passed."
+        )
 
     if str(trade.status).lower() == "pending":
         _validate_pending_trade(trade)
@@ -71,6 +117,7 @@ def save_trade(trade: Trade, file_path: str | Path = "data/trades_pending.csv"):
             "status",
             "give_pick_ids",
             "receive_pick_ids",
+            "initiated_by",
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -85,6 +132,7 @@ def save_trade(trade: Trade, file_path: str | Path = "data/trades_pending.csv"):
                     "status": t.status,
                     "give_pick_ids": _join_pick_ids(getattr(t, "give_pick_ids", []) or []),
                     "receive_pick_ids": _join_pick_ids(getattr(t, "receive_pick_ids", []) or []),
+                    "initiated_by": getattr(t, "initiated_by", "human") or "human",
                 }
             )
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from functools import lru_cache
-import math
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
+
+from utils.star_rating import star_rating_value, star_text
 
 try:
     from PyQt6 import QtCore, QtGui, QtWidgets
@@ -73,43 +74,6 @@ STAR_COUNT = 5
 
 def _asset_path(name: str) -> Path:
     return Path(get_base_dir()) / "assets" / name
-
-
-def _quantize_stars(value: float) -> float:
-    return math.floor(value * 2 + 0.5) / 2.0
-
-
-def star_rating_value(
-    value: object,
-    *,
-    min_rating: float = 0.0,
-    max_rating: float = 99.0,
-) -> Optional[float]:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    if max_rating <= min_rating:
-        return 1.0
-    clamped = max(min_rating, min(max_rating, numeric))
-    normalized = (clamped - min_rating) / (max_rating - min_rating)
-    stars = 1.0 + normalized * 4.0
-    stars = _quantize_stars(stars)
-    return max(1.0, min(5.0, stars))
-
-
-def star_text(
-    value: object,
-    *,
-    min_rating: float = 0.0,
-    max_rating: float = 99.0,
-) -> Optional[str]:
-    stars = star_rating_value(value, min_rating=min_rating, max_rating=max_rating)
-    if stars is None:
-        return None
-    if stars.is_integer():
-        return str(int(stars))
-    return f"{stars:.1f}"
 
 
 def _star_steps(

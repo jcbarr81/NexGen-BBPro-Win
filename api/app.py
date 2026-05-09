@@ -50,12 +50,15 @@ from .routers import (
     admin,
     admin_league,
     ai_settings,
+    all_star,
     auth,
+    awards,
     boxscore,
     change_request_export,
     change_requests,
     command_center,
     commissioner,
+    contracts,
     dashboard,
     depth_chart,
     draft,
@@ -171,6 +174,9 @@ def create_app() -> FastAPI:
     app.include_router(draft.router)
     app.include_router(playoffs.router)
     app.include_router(finance.router)
+    app.include_router(contracts.router)
+    app.include_router(awards.router)
+    app.include_router(all_star.router)
     app.include_router(admin.router)
     app.include_router(season.router)
     app.include_router(training.router)

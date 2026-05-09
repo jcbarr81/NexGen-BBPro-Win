@@ -58,7 +58,7 @@ from PyQt6.QtWidgets import (
 from .components import Card, section_title, build_metric_row
 from . import theme as app_theme
 from .theme_assets import load_enhanced_owner_action_icon
-from .stat_helpers import format_ip
+from utils.stat_helpers import format_ip
 from services.owner_finance_engine import get_team_finance_snapshot
 
 

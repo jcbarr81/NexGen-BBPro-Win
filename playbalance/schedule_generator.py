@@ -133,6 +133,8 @@ def generate_mlb_schedule(
     *,
     include_all_star_break: bool = True,
     all_star_break_days: int = 6,
+    weekly_off_weekday: int | None = 0,
+    extra_off_every_n_rounds: int = 0,
 ) -> List[Dict[str, str]]:
     """Generate a full 162-game schedule for each team.
 
@@ -155,6 +157,15 @@ def generate_mlb_schedule(
         When True, inserts a midseason break before the second half.
     all_star_break_days:
         Number of days to pause for the All-Star break.
+    weekly_off_weekday:
+        ISO weekday number (0=Monday, 6=Sunday) on which no series should
+        start. Models the MLB convention of light Monday game days. Pass
+        ``None`` to disable. Default ``0`` (Monday).
+    extra_off_every_n_rounds:
+        When > 0, insert an extra day off after every Nth round in
+        addition to the standard 1-day inter-round buffer. Adds the
+        weekly off-day cadence MLB observes beyond pure travel days.
+        Default ``0`` (no extra off days).
 
     Returns
     -------
@@ -174,6 +185,8 @@ def generate_mlb_schedule(
         start_date,
         include_all_star_break=include_all_star_break,
         all_star_break_days=all_star_break_days,
+        weekly_off_weekday=weekly_off_weekday,
+        extra_off_every_n_rounds=extra_off_every_n_rounds,
     )
 
 
@@ -308,6 +321,8 @@ def _build_series_schedule(
     *,
     include_all_star_break: bool = True,
     all_star_break_days: int = 6,
+    weekly_off_weekday: int | None = 0,
+    extra_off_every_n_rounds: int = 0,
 ) -> List[Dict[str, str]]:
     """Expand a series plan into a day-by-day schedule."""
 
@@ -340,11 +355,18 @@ def _build_series_schedule(
     current = start_date
     games_scheduled = 0
     pattern_index = 0
+    rounds_played = 0
     all_star_inserted = False
 
     while _series_remaining(queues):
         round_games = patterns[pattern_index % len(patterns)]
         pattern_index += 1
+
+        # Skip weekly off day before starting a new series so MLB-style
+        # Monday rest stays intact between series rather than mid-series.
+        if weekly_off_weekday is not None:
+            while current.weekday() == weekly_off_weekday:
+                current += timedelta(days=1)
 
         assignments: List[Series] = []
         for home, away in round_games:
@@ -365,6 +387,7 @@ def _build_series_schedule(
 
         round_length = max(series.length for series in assignments)
         current += timedelta(days=round_length)
+        rounds_played += 1
 
         if (
             include_all_star_break
@@ -377,6 +400,14 @@ def _build_series_schedule(
 
         if _series_remaining(queues):
             current += timedelta(days=1)
+            # Periodic extra off day on top of the standard travel buffer
+            # — gives every team a roughly weekly off day when the cadence
+            # is set to a small number relative to the round count.
+            if (
+                extra_off_every_n_rounds > 0
+                and rounds_played % extra_off_every_n_rounds == 0
+            ):
+                current += timedelta(days=1)
 
     schedule.sort(key=lambda g: (g["date"], g["home"], g["away"]))
     return schedule

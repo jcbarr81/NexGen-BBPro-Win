@@ -14,7 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
-from ui.star_rating import star_text
+from utils.star_rating import star_text
 from utils.path_utils import get_base_dir
 from utils.rating_display import rating_display_details, rating_display_value
 
@@ -113,24 +113,38 @@ _DEFAULT_HITTER_WEIGHTS: Dict[str, float] = {
 }
 
 
+_DEFAULT_TOP_N = 4
+_DEFAULT_TOP_N_BLEND = 0.65
+
+
 @lru_cache(maxsize=1)
 def _load_hitter_weight_table() -> Tuple[
-    Dict[str, float], Dict[str, Dict[str, float]]
+    Dict[str, float], Dict[str, Dict[str, float]], int, float
 ]:
     """Read ``config/rating_weights.json`` once and cache it. Returns a
-    tuple of ``(default_weights, position_weights)``. Falls back to the
-    in-code defaults if the file is missing or malformed — that way a
-    bad edit can't 500 the whole roster API.
+    tuple of ``(default_weights, position_weights, top_n, top_n_blend)``.
+    Falls back to the in-code defaults if the file is missing or
+    malformed — that way a bad edit can't 500 the whole roster API.
     """
 
     path = get_base_dir() / "config" / "rating_weights.json"
     if not path.exists():
-        return dict(_DEFAULT_HITTER_WEIGHTS), {}
+        return (
+            dict(_DEFAULT_HITTER_WEIGHTS),
+            {},
+            _DEFAULT_TOP_N,
+            _DEFAULT_TOP_N_BLEND,
+        )
     try:
         with path.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
     except (OSError, json.JSONDecodeError):
-        return dict(_DEFAULT_HITTER_WEIGHTS), {}
+        return (
+            dict(_DEFAULT_HITTER_WEIGHTS),
+            {},
+            _DEFAULT_TOP_N,
+            _DEFAULT_TOP_N_BLEND,
+        )
 
     raw_default = data.get("default") if isinstance(data, Mapping) else None
     if isinstance(raw_default, Mapping):
@@ -152,11 +166,28 @@ def _load_hitter_weight_table() -> Tuple[
                     for k, v in weights.items()
                     if isinstance(v, (int, float))
                 }
-    return default, positions
+
+    raw_top_n = data.get("top_n") if isinstance(data, Mapping) else None
+    try:
+        top_n = max(1, int(raw_top_n)) if raw_top_n is not None else _DEFAULT_TOP_N
+    except (TypeError, ValueError):
+        top_n = _DEFAULT_TOP_N
+
+    raw_blend = data.get("top_n_blend") if isinstance(data, Mapping) else None
+    try:
+        top_n_blend = (
+            max(0.0, min(1.0, float(raw_blend)))
+            if raw_blend is not None
+            else _DEFAULT_TOP_N_BLEND
+        )
+    except (TypeError, ValueError):
+        top_n_blend = _DEFAULT_TOP_N_BLEND
+
+    return default, positions, top_n, top_n_blend
 
 
 def _hitter_weights_for(position: Optional[str]) -> Dict[str, float]:
-    default, positions = _load_hitter_weight_table()
+    default, positions, _top_n, _blend = _load_hitter_weight_table()
     pos = (position or "").strip().upper()
     return positions.get(pos, default)
 
@@ -165,21 +196,27 @@ def _compute_hitter_overall(
     get_raw: Callable[[str], Any],
     position: Optional[str],
 ) -> Tuple[Optional[int], Optional[int]]:
-    """Position-weighted average of the *displayed* (scaled) hitter
-    ratings. Returns ``(raw_overall, display_overall)``. ``raw_overall``
-    is the unweighted plain average of raw values for callers that
-    still want the legacy semantic; ``display_overall`` is the headline
-    number the UI shows.
+    """Compute hitter OVR by blending two views of the player's
+    *displayed* (already percentile-scaled) ratings:
 
-    Computing from displayed ratings means the OVR always matches what
-    the user sees in the per-rating cards, fixing the long-standing
-    "98 OVR with 35 power" mismatch caused by the previous percentile
-    rescale of the raw average.
+    1. **Top-N average** — the average of the player's N best displayed
+       ratings. Rewards specialists with elite skills (a slugger gets
+       credit for elite contact + power even if his glove is a 35).
+    2. **Position-weighted average** — keeps positional context so a
+       glove-only SS isn't reduced to "what's your top-4 average"
+       alone.
+
+    The blend ratio is configurable in ``config/rating_weights.json``
+    via ``top_n_blend`` (default 0.65 = 65% top-N, 35% position-
+    weighted). Both legs use displayed values, so the headline OVR
+    can never disagree with the per-rating cards rendered next to it.
     """
 
     weights = _hitter_weights_for(position)
+    _default_w, _position_w, top_n, top_n_blend = _load_hitter_weight_table()
 
     raw_values: list[float] = []
+    display_values: list[float] = []
     weighted_sum = 0.0
     weight_sum = 0.0
 
@@ -190,11 +227,8 @@ def _compute_hitter_overall(
             continue
         raw_values.append(raw_numeric)
 
-        weight = float(weights.get(key, 0.0))
-        if weight <= 0:
-            continue
         # Use the *displayed* value (percentile-scaled per stat) so the
-        # weighted OVR matches the per-stat numbers the UI renders.
+        # OVR is always comparable to the per-stat numbers the UI shows.
         try:
             scaled = rating_display_value(
                 raw_numeric,
@@ -206,17 +240,36 @@ def _compute_hitter_overall(
             display_numeric = float(scaled)
         except (TypeError, ValueError):
             display_numeric = raw_numeric
+        display_values.append(display_numeric)
 
-        weighted_sum += display_numeric * weight
-        weight_sum += weight
+        weight = float(weights.get(key, 0.0))
+        if weight > 0:
+            weighted_sum += display_numeric * weight
+            weight_sum += weight
 
     if not raw_values:
         return None, None
 
     raw_overall = max(0, min(99, int(round(sum(raw_values) / len(raw_values)))))
-    if weight_sum <= 0:
-        return raw_overall, raw_overall
-    display_overall = max(0, min(99, int(round(weighted_sum / weight_sum))))
+
+    # Position-weighted leg.
+    if weight_sum > 0:
+        weighted_avg = weighted_sum / weight_sum
+    elif display_values:
+        weighted_avg = sum(display_values) / len(display_values)
+    else:
+        weighted_avg = float(raw_overall)
+
+    # Top-N leg — rewards elite specialists.
+    if display_values:
+        sorted_display = sorted(display_values, reverse=True)
+        n = max(1, min(top_n, len(sorted_display)))
+        top_avg = sum(sorted_display[:n]) / n
+    else:
+        top_avg = weighted_avg
+
+    blended = top_n_blend * top_avg + (1.0 - top_n_blend) * weighted_avg
+    display_overall = max(0, min(99, int(round(blended))))
     return raw_overall, display_overall
 
 

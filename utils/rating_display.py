@@ -13,6 +13,31 @@ from models.player import Player
 from utils.path_utils import get_data_dir
 
 DISPLAY_ENV = "PB_RATING_DISPLAY"
+RAW_BLEND_ENV = "PB_RATING_DISPLAY_RAW_BLEND"
+# Fraction of the displayed value contributed by the *raw* underlying
+# rating (vs. the percentile-rescaled one). Default 0.5 means a player
+# with raw 63 in a stat ends up displayed as ``0.5 * 63 + 0.5 * scaled``,
+# which keeps the league percentile signal visible but stops the display
+# from inflating raw 63 all the way to 99 when the league distribution
+# is tightly clustered around 50. Override via PB_RATING_DISPLAY_RAW_BLEND
+# at sidecar launch (no rebuild needed). Set to 0.0 for the legacy
+# pure-percentile behavior; 1.0 effectively disables the rescale.
+#
+# Note: this only affects what users see on the UI. The simulator reads
+# raw player attrs directly, so changes here have zero impact on stat
+# output, BABIP, ERA, or anything the engine produces.
+_DEFAULT_RAW_BLEND = 0.5
+
+
+def _get_raw_blend() -> float:
+    raw = os.getenv(RAW_BLEND_ENV)
+    if raw is None:
+        return _DEFAULT_RAW_BLEND
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_RAW_BLEND
+    return max(0.0, min(1.0, value))
 
 _ABBREV_MAP = {
     "as": "arm",
@@ -359,7 +384,17 @@ def rating_display_details(
         return "*" * stars, top_pct, avg, bucket
 
     scale_span = max(1, display_max - display_min)
-    scaled = int(round(display_min + adj_pct * scale_span))
+    scaled_pct = display_min + adj_pct * scale_span
+    # Hybrid: blend the raw rating with the percentile-rescaled value so
+    # the display reflects what the player actually has (raw signal)
+    # while still surfacing where they sit in the league (percentile
+    # signal). Pure percentile inflated mediocre raws to 99 because the
+    # league distribution clusters tightly around 50; pure raw lost the
+    # comparative reading entirely. The 70/30 default (raw / percentile)
+    # gives both. ``PB_RATING_DISPLAY_RAW_BLEND=0`` reverts to legacy.
+    raw_blend = _get_raw_blend()
+    blended = raw_blend * numeric + (1.0 - raw_blend) * scaled_pct
+    scaled = int(round(blended))
     top_pct = int(round((1.0 - pct) * 100))
     top_pct = max(1, min(99, top_pct))
     return (

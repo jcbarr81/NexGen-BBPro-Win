@@ -12,6 +12,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   ArrowRight,
   CheckCircle2,
   Clock,
@@ -21,9 +22,16 @@ import {
   XCircle,
 } from "lucide-react";
 
-import { api, type Team, type TradePlayer, type TradeRecord } from "@/lib/api";
+import {
+  api,
+  type Team,
+  type TradeCpuEvaluation,
+  type TradePlayer,
+  type TradeRecord,
+} from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { useConfirmDialog } from "@/lib/use-confirm";
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { toast } from "@/lib/toast-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
@@ -174,11 +182,13 @@ export function TradesPage() {
   });
 
   const isAdmin = useAuthStore((s) => s.role) === "admin";
+  const [counterTarget, setCounterTarget] = useState<TradeRecord | null>(null);
   const actions = {
     teamId,
     isAdmin,
     accept: (id: string) => acceptMutation.mutate(id),
     reject: (id: string) => rejectMutation.mutate(id),
+    counter: (trade: TradeRecord) => setCounterTarget(trade),
     withdraw: async (id: string) => {
       if (
         await confirm({
@@ -226,15 +236,35 @@ export function TradesPage() {
   };
 
   // Stable ordered list of (status, rows) so the tab row doesn't reshuffle
-  // when counts change.
+  // when counts change. We also pull pending CPU offers into a dedicated
+  // first tab so the owner can find their inbox without scrolling.
   const statusGroups = useMemo(() => {
-    if (!trades.data) return [] as Array<{ key: string; label: string; rows: TradeRecord[] }>;
+    if (!trades.data)
+      return [] as Array<{ key: string; label: string; rows: TradeRecord[] }>;
     const groups = trades.data.grouped ?? {};
-    const known = STATUS_ORDER.map(({ key, label }) => ({
-      key,
-      label,
-      rows: groups[key] ?? [],
-    }));
+
+    // Synthetic tab: pending offers from the CPU addressed to the user.
+    // These are the ones that need a response right now, so they get
+    // top billing.
+    const cpuInbox = (groups["pending"] ?? []).filter(
+      (t) =>
+        t.initiated_by === "cpu" && !!teamId && t.to_team === teamId,
+    );
+
+    const known: Array<{ key: string; label: string; rows: TradeRecord[] }> = [];
+    if (teamId) {
+      known.push({ key: "from_cpu", label: "Offers from CPU", rows: cpuInbox });
+    }
+    for (const { key, label } of STATUS_ORDER) {
+      let rows = groups[key] ?? [];
+      // Don't double-list the CPU offers in the regular Pending tab —
+      // they're already visible in From CPU.
+      if (key === "pending" && cpuInbox.length > 0) {
+        const cpuIds = new Set(cpuInbox.map((t) => t.trade_id));
+        rows = rows.filter((t) => !cpuIds.has(t.trade_id));
+      }
+      known.push({ key, label, rows });
+    }
     // Append any unknown statuses the data happens to have.
     const unknown = Object.keys(groups).filter(
       (k) => !STATUS_ORDER.some((s) => s.key === k),
@@ -243,12 +273,22 @@ export function TradesPage() {
       known.push({ key, label: key, rows: groups[key] ?? [] });
     }
     return known;
-  }, [trades.data]);
+  }, [trades.data, teamId]);
 
   const firstWithRows =
     statusGroups.find((g) => g.rows.length > 0)?.key ??
     statusGroups[0]?.key ??
     "pending";
+  const [tradesTab, setTradesTab] = usePersistedState<string>(
+    "trades:tab",
+    "",
+  );
+
+  const deadlineQ = useQuery({
+    queryKey: ["trades-deadline"],
+    queryFn: () => api.tradeDeadline(),
+    refetchOnWindowFocus: false,
+  });
 
   return (
     <AppShell
@@ -279,11 +319,47 @@ export function TradesPage() {
           {trades.data && (
             <div className="text-xs text-muted">{trades.data.count} trades</div>
           )}
-          <Button onClick={() => setProposing(true)}>
+          <Button
+            onClick={() => setProposing(true)}
+            disabled={deadlineQ.data?.is_past === true}
+            title={
+              deadlineQ.data?.is_past
+                ? "Trade deadline has passed"
+                : "Propose a new trade"
+            }
+          >
             <Plus className="h-4 w-4" /> Propose Trade
           </Button>
         </div>
       </div>
+
+      {/* Deadline banner. Tone tightens as the date approaches: amber
+          inside ~30 days, red on/past the deadline, neutral when
+          there's plenty of time. */}
+      {deadlineQ.data && (
+        <div
+          className={cn(
+            "mb-4 flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm",
+            deadlineQ.data.is_past
+              ? "border-danger/50 bg-danger/10 text-danger"
+              : deadlineQ.data.days_remaining <= 30
+                ? "border-amber/60 bg-amber/10 text-amber-text"
+                : "border-border bg-surfaceAlt/40 text-muted",
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            <span className="font-semibold">
+              Trade deadline: {deadlineQ.data.deadline_date}
+            </span>
+          </div>
+          <div className="text-xs">
+            {deadlineQ.data.is_past
+              ? "Closed for the season — pending offers can no longer be saved."
+              : `${deadlineQ.data.days_remaining} day${deadlineQ.data.days_remaining === 1 ? "" : "s"} remaining (sim date ${deadlineQ.data.current_sim_date})`}
+          </div>
+        </div>
+      )}
 
       {actionError && (
         <div className="mb-4 flex items-center gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
@@ -313,7 +389,10 @@ export function TradesPage() {
           </CardContent>
         </Card>
       ) : (
-        <Tabs defaultValue={firstWithRows}>
+        <Tabs
+          value={tradesTab || firstWithRows}
+          onValueChange={(v) => setTradesTab(v)}
+        >
           <TabsList>
             {statusGroups.map((group) => (
               <TabsTrigger key={group.key} value={group.key}>
@@ -348,6 +427,12 @@ export function TradesPage() {
           ))}
         </Tabs>
       )}
+
+      <CounterTradeDialog
+        trade={counterTarget}
+        teamId={teamId}
+        onClose={() => setCounterTarget(null)}
+      />
 
       <ProposeTradeDialog
         open={proposing}
@@ -430,6 +515,7 @@ interface RowActions {
   isAdmin: boolean;
   accept: (id: string) => void;
   reject: (id: string) => void;
+  counter: (trade: TradeRecord) => void;
   withdraw: (id: string) => void;
   adminApprove: (id: string) => void;
   adminForceApprove: (id: string) => void;
@@ -492,7 +578,14 @@ function TradeCard({
           </CardTitle>
           <CardDescription>id: {trade.trade_id}</CardDescription>
         </div>
-        <StatusBadge status={trade.status} />
+        <div className="flex items-center gap-2">
+          {trade.initiated_by === "cpu" && (
+            <Badge tone="amber" className="text-[10px]">
+              CPU offer
+            </Badge>
+          )}
+          <StatusBadge status={trade.status} />
+        </div>
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto_1fr]">
         <TradeSide
@@ -513,6 +606,7 @@ function TradeCard({
           highlight={toActive}
         />
       </CardContent>
+      {trade.cpu_eval && <CpuEvalBlock evaluation={trade.cpu_eval} />}
       {(canRespond || canWithdraw || (isPending && actions.isAdmin)) && (
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/60 bg-surfaceAlt/40 px-6 py-3">
           {canWithdraw && (
@@ -535,6 +629,20 @@ function TradeCard({
               >
                 <XCircle className="h-3 w-3" /> Reject
               </Button>
+              {/* Counter only makes sense on CPU offers — owner-to-owner
+                  trades have a different back-and-forth (the recipient
+                  can withdraw and submit their own from scratch). */}
+              {trade.initiated_by === "cpu" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => actions.counter(trade)}
+                  disabled={actions.pending}
+                  title="Send back a modified offer"
+                >
+                  <ArrowLeftRight className="h-3 w-3" /> Counter
+                </Button>
+              )}
               <Button
                 size="sm"
                 onClick={() => actions.accept(trade.trade_id)}
@@ -658,6 +766,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function toneFor(status: string): "amber" | "success" | "danger" | "neutral" {
   const key = status.toLowerCase();
+  if (key === "from_cpu") return "amber";
   if (key === "pending" || key === "owner_accepted") return "amber";
   if (key === "accepted") return "success";
   if (key === "rejected") return "danger";
@@ -669,6 +778,183 @@ function iconFor(status: string) {
   if (key === "accepted") return CheckCircle2;
   if (key === "rejected") return XCircle;
   return Clock;
+}
+
+function CpuEvalBlock({ evaluation }: { evaluation: TradeCpuEvaluation }) {
+  const action = evaluation.action;
+  const tone =
+    action === "accept"
+      ? "border-success/50 bg-success/10 text-success"
+      : action === "reject"
+        ? "border-danger/50 bg-danger/10 text-danger"
+        : "border-amber/50 bg-amber/10 text-amber-text";
+  const verb =
+    action === "accept"
+      ? "accepted"
+      : action === "reject"
+        ? "rejected the offer"
+        : "countered with their own offer";
+  return (
+    <div className={cn("border-t px-6 py-3 text-xs", tone)}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="font-semibold uppercase tracking-wider">
+          {evaluation.team_id} {verb}
+        </div>
+        <div className="font-mono tabular-nums text-[10px] opacity-80">
+          score {evaluation.total_score.toFixed(1)} / threshold{" "}
+          {evaluation.threshold.toFixed(1)} ·{" "}
+          {evaluation.strategy_profile} / {evaluation.competitive_window}
+        </div>
+      </div>
+      {evaluation.reasons.length > 0 && (
+        <ul className="mt-1 list-disc space-y-0.5 pl-5 leading-snug">
+          {evaluation.reasons.slice(0, 4).map((reason, i) => (
+            <li key={i}>{reason}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Counter Trade dialog — owner sends back a modified version of a CPU offer.
+//
+// Pre-fills with the CPU's terms but flipped to the OWNER's perspective:
+// "Give" = the players the owner is now offering up (originally the CPU's
+// "Receive" list); "Receive" = what the owner wants back (originally the
+// CPU's "Give" list). Owner edits, submits, backend rejects the original
+// and runs the counter through the same CPU evaluation as a fresh
+// proposal.
+
+function CounterTradeDialog({
+  trade,
+  teamId,
+  onClose,
+}: {
+  trade: TradeRecord | null;
+  teamId: string | null;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  // Initialize from the original trade (if any) flipped to owner POV.
+  const [give, setGive] = useState("");
+  const [receive, setReceive] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  // Refresh the form when the target trade changes.
+  useEffect(() => {
+    if (!trade) {
+      setGive("");
+      setReceive("");
+      setError(null);
+      return;
+    }
+    // Original trade is CPU → owner. From the owner's POV, what they
+    // would "give" up = the CPU's "receive_players"; what they get =
+    // CPU's "give_players". So just swap.
+    setGive(trade.receive_players.map((p) => p.player_id).join(", "));
+    setReceive(trade.give_players.map((p) => p.player_id).join(", "));
+    setError(null);
+  }, [trade]);
+
+  const counter = useMutation({
+    meta: { suppressToast: true },
+    mutationFn: () => {
+      if (!trade) return Promise.reject(new Error("No trade selected"));
+      return api.counterTrade(trade.trade_id, {
+        give_player_ids: parseIds(give),
+        receive_player_ids: parseIds(receive),
+      });
+    },
+    onSuccess: (data) => {
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ["trades"] });
+      const action = data.cpu_response?.action;
+      if (action === "accept") {
+        toast.success("Counter accepted", {
+          description: "Trade committed.",
+        });
+      } else if (action === "counter") {
+        toast.info("CPU re-countered your offer");
+      } else if (action === "reject") {
+        toast.info("CPU rejected your counter");
+      } else {
+        toast.info("Counter submitted");
+      }
+      onClose();
+    },
+    onError: (err) =>
+      setError(err instanceof Error ? err.message : "Counter failed."),
+  });
+
+  function handleSubmit(ev: FormEvent<HTMLFormElement>) {
+    ev.preventDefault();
+    counter.mutate();
+  }
+
+  if (!trade) return null;
+  return (
+    <Dialog open={!!trade} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            Counter {trade.from_team}'s offer
+          </DialogTitle>
+          <DialogDescription>
+            Edit the terms below. The CPU will re-evaluate and may
+            accept, reject, or counter again.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="counter-give">
+              You give ({teamId ?? "your team"} → {trade.from_team})
+            </Label>
+            <Input
+              id="counter-give"
+              value={give}
+              onChange={(e) => setGive(e.target.value)}
+              placeholder="player_id, player_id, …"
+            />
+            <p className="text-[11px] text-muted">
+              Comma- or pipe-separated player IDs from {teamId ?? "your"}{" "}
+              roster.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="counter-receive">
+              You receive ({trade.from_team} → {teamId ?? "your team"})
+            </Label>
+            <Input
+              id="counter-receive"
+              value={receive}
+              onChange={(e) => setReceive(e.target.value)}
+              placeholder="player_id, player_id, …"
+            />
+            <p className="text-[11px] text-muted">
+              Comma- or pipe-separated player IDs from {trade.from_team}'s
+              roster.
+            </p>
+          </div>
+          {error && (
+            <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+              {error}
+            </p>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={counter.isPending}>
+              {counter.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Submit counter
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // ---------------------------------------------------------------------------

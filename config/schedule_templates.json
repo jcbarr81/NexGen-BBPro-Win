@@ -2,11 +2,13 @@
   {
     "id": "mlb_162",
     "name": "MLB 162",
-    "description": "Full-length season with an All-Star break.",
+    "description": "Full-length season with an All-Star break and MLB-style off days.",
     "games_per_team": 162,
     "start_month": 4,
     "start_day": 1,
-    "include_all_star_break": true
+    "include_all_star_break": true,
+    "weekly_off_weekday": 0,
+    "extra_off_every_n_rounds": 4
   },
   {
     "id": "balanced_120",
@@ -15,7 +17,9 @@
     "games_per_team": 120,
     "start_month": 4,
     "start_day": 1,
-    "include_all_star_break": true
+    "include_all_star_break": true,
+    "weekly_off_weekday": 0,
+    "extra_off_every_n_rounds": 4
   },
   {
     "id": "compact_84",
@@ -24,7 +28,9 @@
     "games_per_team": 84,
     "start_month": 4,
     "start_day": 1,
-    "include_all_star_break": true
+    "include_all_star_break": true,
+    "weekly_off_weekday": 0,
+    "extra_off_every_n_rounds": 5
   },
   {
     "id": "short_48",
@@ -33,6 +39,8 @@
     "games_per_team": 48,
     "start_month": 4,
     "start_day": 1,
-    "include_all_star_break": false
+    "include_all_star_break": false,
+    "weekly_off_weekday": null,
+    "extra_off_every_n_rounds": 0
   }
 ]

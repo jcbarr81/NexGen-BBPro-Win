@@ -207,6 +207,17 @@ def _append_players(rows: list[Dict[str, Any]]) -> None:
             payload = {k: row.get(k, "") for k in header}
             writer.writerow(payload)
     reset_player_cache()
+    # reset_player_cache only clears the transaction log's name lookup —
+    # the unified data service holds a separate cached players list that
+    # the draft results endpoint reads from. Without this clear, the
+    # /draft/results join can't find the just-drafted players (so the
+    # console shows empty Player + OVR cells until restart).
+    try:
+        from utils.player_loader import load_players_from_csv
+
+        load_players_from_csv.cache_clear()  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 
 def _assign_to_low(team_id: str, player_id: str) -> tuple[bool, str | None, bool]:
@@ -358,4 +369,74 @@ def commit_draft_results(
     return summary
 
 
-__all__ = ["commit_draft_results"]
+def commit_single_pick(
+    year: int,
+    *,
+    team_id: str,
+    player_id: str,
+    round_number: int | None = None,
+    overall_pick: int | None = None,
+    season_date: str | None = None,
+) -> dict[str, object]:
+    """Append one drafted player to players.csv + place them on the team's LOW roster.
+
+    Used by the live pick-by-pick draft flow so each pick immediately
+    affects rosters instead of deferring the entire commit to the end
+    of the draft. Returns ``{added, assigned, note}`` and never raises
+    on roster-overflow / compliance — callers should surface ``note``
+    in the API response so the user can resolve it manually.
+    """
+
+    pool_map = _load_pool_map(year)
+    players_index = _players_index()
+    pool_row = pool_map.get(player_id, {})
+
+    added = False
+    if player_id not in players_index:
+        _append_players(
+            [_default_row_from_pool(pool_row | {"player_id": player_id})]
+        )
+        added = True
+
+    ok, note, _ = _assign_to_low(team_id, player_id)
+
+    player_name = _prospect_name(pool_row, players_index, player_id)
+    detail = f"Drafted in {year} Amateur Draft"
+    if not ok:
+        detail += " (pending roster space)"
+    elif note:
+        detail += f" ({note})"
+    try:
+        record_transaction(
+            action="draft",
+            team_id=team_id,
+            player_id=player_id,
+            player_name=player_name,
+            to_level="LOW",
+            details=detail,
+            season_date=season_date,
+        )
+    except Exception:
+        pass
+    try:
+        pos = str(pool_row.get("primary_position", "")).strip()
+        player_label = f"{pos} {player_name}".strip() if pos else (player_name or player_id)
+        suffix = _pick_suffix(round_number, overall_pick)
+        log_news_event(
+            f"{team_id} drafted {player_label}{suffix}.",
+            category="draft",
+            team_id=team_id,
+            file_path=_data_dir() / "news_feed.txt",
+        )
+    except Exception:
+        pass
+
+    return {
+        "added": added,
+        "assigned": bool(ok),
+        "note": note,
+        "player_name": player_name,
+    }
+
+
+__all__ = ["commit_draft_results", "commit_single_pick"]

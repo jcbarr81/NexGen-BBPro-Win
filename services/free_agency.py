@@ -89,7 +89,11 @@ def list_unsigned_players_from_files(
     *,
     data_dir: Path | str | None = None,
 ) -> List[Player]:
-    """Load league data from disk and return unsigned players."""
+    """Load league data from disk and return unsigned players.
+
+    Excludes retired players so the free-agency UI never offers a
+    signing for someone who's already left the league.
+    """
 
     resolved_data_dir = get_data_dir() if data_dir is None else Path(data_dir)
     players = load_players_from_csv(resolved_data_dir / "players.csv")
@@ -103,6 +107,21 @@ def list_unsigned_players_from_files(
         team.aaa_roster = list(roster.aaa)
         team.low_roster = list(roster.low)
     players_by_id = {player.player_id: player for player in players}
+
+    # Filter out retirees. Their player rows still live in players.csv
+    # so career history queries keep working, but they shouldn't show
+    # up as signable free agents.
+    try:
+        from services.player_retirement import load_retirees
+
+        retired_ids = set(load_retirees(resolved_data_dir).keys())
+        if retired_ids:
+            players_by_id = {
+                pid: p for pid, p in players_by_id.items() if pid not in retired_ids
+            }
+    except Exception:
+        pass
+
     return list_unsigned_players(players_by_id, teams)
 
 

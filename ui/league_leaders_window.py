@@ -71,7 +71,7 @@ def _set_style(widget: Any, style: str) -> None:
         pass
 
 
-from .stat_helpers import format_number, top_players
+from utils.stat_helpers import format_number, top_players
 from utils.player_loader import load_players_from_csv
 from utils.path_utils import ActivePath, get_data_dir
 from utils.stats_persistence import load_stats as _load_season_stats

@@ -144,7 +144,7 @@ from utils.league_settings import (
     is_owner_league,
     verify_commissioner_password,
 )
-from ui.analytics import gather_owner_quick_metrics
+from services.quick_metrics import gather_owner_quick_metrics
 from ui.dashboard_core import DashboardContext, NavigationController, PageRegistry
 from ui.player_profile_launcher import open_player_profile_dialog
 from ui.window_utils import show_on_top

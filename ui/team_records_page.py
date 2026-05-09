@@ -48,7 +48,7 @@ except ImportError:  # pragma: no cover - test stubs
             ResizeToContents = None
 
 from .components import Card, section_title
-from .stat_helpers import format_number
+from utils.stat_helpers import format_number
 from services.record_book import team_record_book
 
 _BATTING_LEADERS: List[Tuple[str, str, bool, int]] = [

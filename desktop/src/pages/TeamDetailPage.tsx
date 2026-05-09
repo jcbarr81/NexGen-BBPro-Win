@@ -12,8 +12,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
+  ArrowUpDown,
   BarChart3,
   Calendar,
   CalendarClock,
@@ -23,6 +26,8 @@ import {
   TrendingUp,
   Users as UsersIcon,
 } from "lucide-react";
+
+import { usePersistedState } from "@/lib/use-persisted-state";
 
 import {
   api,
@@ -215,6 +220,8 @@ function TeamDetailBody({
         />
       </section>
 
+      <TeamStatsPanel teamId={teamId} />
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <div className="lg:col-span-3">
           <DivisionStandingsCard
@@ -244,8 +251,6 @@ function TeamDetailBody({
           />
         </div>
       </div>
-
-      <TeamStatsPanel teamId={teamId} />
     </div>
   );
 }
@@ -291,14 +296,20 @@ function TeamStatsPanel({ teamId }: { teamId: string }) {
             </TabsList>
             <TabsContent value="batting">
               <PlayerStatsTable
+                storageKey="team-stats:batting"
                 columns={stats.data.columns.batters}
                 rows={stats.data.batters}
+                defaultSort="hr"
+                defaultDir="desc"
               />
             </TabsContent>
             <TabsContent value="pitching">
               <PlayerStatsTable
+                storageKey="team-stats:pitching"
                 columns={stats.data.columns.pitchers}
                 rows={stats.data.pitchers}
+                defaultSort="era"
+                defaultDir="asc"
               />
             </TabsContent>
             <TabsContent value="team">
@@ -314,19 +325,67 @@ function TeamStatsPanel({ teamId }: { teamId: string }) {
   );
 }
 
+type StatRow = {
+  player_id: string;
+  first_name: string;
+  last_name: string;
+  primary_position: string;
+  stats: Record<string, number | string | null>;
+};
+
 function PlayerStatsTable({
+  storageKey,
   columns,
   rows,
+  defaultSort,
+  defaultDir = "desc",
 }: {
+  storageKey: string;
   columns: string[];
-  rows: Array<{
-    player_id: string;
-    first_name: string;
-    last_name: string;
-    primary_position: string;
-    stats: Record<string, number | string | null>;
-  }>;
+  rows: StatRow[];
+  defaultSort: string;
+  defaultDir?: "asc" | "desc";
 }) {
+  const [sortKey, setSortKey] = usePersistedState<string>(
+    `${storageKey}:sortKey`,
+    defaultSort,
+  );
+  const [sortDir, setSortDir] = usePersistedState<"asc" | "desc">(
+    `${storageKey}:sortDir`,
+    defaultDir,
+  );
+
+  function toggleSort(key: string) {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      // Numeric/stat columns default to descending (best first), name/pos
+      // default to ascending (alphabetical).
+      setSortDir(key === "name" || key === "pos" ? "asc" : "desc");
+    }
+  }
+
+  const sorted = useMemo(() => {
+    const arr = [...rows];
+    arr.sort((a, b) => {
+      const av = sortValue(a, sortKey);
+      const bv = sortValue(b, sortKey);
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === "number" && typeof bv === "number") {
+        return sortDir === "asc" ? av - bv : bv - av;
+      }
+      const as = String(av).toLowerCase();
+      const bs = String(bv).toLowerCase();
+      if (as < bs) return sortDir === "asc" ? -1 : 1;
+      if (as > bs) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return arr;
+  }, [rows, sortKey, sortDir]);
+
   if (rows.length === 0) {
     return <div className="py-3 text-sm italic text-muted">No data yet.</div>;
   }
@@ -334,18 +393,37 @@ function PlayerStatsTable({
     <div className="mt-2 max-h-[420px] overflow-auto">
       <table className="w-full text-xs">
         <thead className="sticky top-0 bg-surface">
-          <tr className="border-b border-border text-left text-muted">
-            <th className="px-2 py-1 font-medium">Player</th>
-            <th className="px-2 py-1 font-medium">Pos</th>
+          <tr className="border-b border-border text-muted">
+            <SortHeader
+              label="Player"
+              keyId="name"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onClick={toggleSort}
+              align="left"
+            />
+            <SortHeader
+              label="Pos"
+              keyId="pos"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onClick={toggleSort}
+              align="left"
+            />
             {columns.map((c) => (
-              <th key={c} className="px-2 py-1 text-right font-medium uppercase">
-                {c}
-              </th>
+              <SortHeader
+                key={c}
+                label={c.toUpperCase()}
+                keyId={c}
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onClick={toggleSort}
+              />
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {sorted.map((r) => (
             <tr key={r.player_id} className="border-b border-border/50">
               <td className="px-2 py-1">
                 <Link
@@ -366,6 +444,55 @@ function PlayerStatsTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function sortValue(row: StatRow, key: string): string | number | null {
+  if (key === "name") return `${row.last_name}, ${row.first_name}`;
+  if (key === "pos") return row.primary_position;
+  const v = row.stats[key];
+  if (v == null) return null;
+  if (typeof v === "number") return v;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : String(v);
+}
+
+function SortHeader({
+  label,
+  keyId,
+  sortKey,
+  sortDir,
+  onClick,
+  align = "right",
+}: {
+  label: string;
+  keyId: string;
+  sortKey: string;
+  sortDir: "asc" | "desc";
+  onClick: (key: string) => void;
+  align?: "left" | "right";
+}) {
+  const active = sortKey === keyId;
+  const Arrow = !active ? ArrowUpDown : sortDir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th
+      className={cn(
+        "select-none px-2 py-1 font-medium uppercase",
+        align === "left" ? "text-left" : "text-right",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onClick(keyId)}
+        className={cn(
+          "inline-flex items-center gap-1 transition",
+          active ? "text-ink" : "hover:text-ink",
+        )}
+      >
+        {label}
+        <Arrow className="h-3 w-3 opacity-60" />
+      </button>
+    </th>
   );
 }
 

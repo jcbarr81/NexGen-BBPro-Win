@@ -58,6 +58,15 @@ def get_news(
     raw_lines: List[str] = read_latest_news(n=limit)
     parsed = [_parse_line(line) for line in raw_lines if line.strip()]
 
+    # Build a category histogram BEFORE filtering by category so the UI
+    # can render every available chip even after the user picks one.
+    category_counts: Dict[str, int] = {}
+    for entry in parsed:
+        cat = (entry.get("category") or "").strip().lower()
+        if not cat:
+            continue
+        category_counts[cat] = category_counts.get(cat, 0) + 1
+
     if q:
         needle = q.lower()
         parsed = [p for p in parsed if needle in p["raw"].lower()]
@@ -68,4 +77,13 @@ def get_news(
         cat_norm = category.lower()
         parsed = [p for p in parsed if p["category"].lower() == cat_norm]
 
-    return {"count": len(parsed), "items": parsed}
+    return {
+        "count": len(parsed),
+        "items": parsed,
+        "categories": [
+            {"id": cat, "count": cnt}
+            for cat, cnt in sorted(
+                category_counts.items(), key=lambda kv: (-kv[1], kv[0])
+            )
+        ],
+    }

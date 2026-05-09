@@ -47,6 +47,11 @@ class ScheduleTemplate:
     start_month: int
     start_day: int
     include_all_star_break: bool = True
+    # Travel/off-day cadence. weekday 0=Monday; None disables the
+    # weekly-off rule. extra_off_every_n_rounds=0 disables the
+    # periodic-rest rule.
+    weekly_off_weekday: Optional[int] = 0
+    extra_off_every_n_rounds: int = 4
 
 
 @dataclass(frozen=True)
@@ -101,6 +106,18 @@ def load_schedule_templates() -> List[ScheduleTemplate]:
             games_per_team = int(entry.get("games_per_team", 0))
         except Exception:
             games_per_team = 0
+        weekly_off_raw = entry.get("weekly_off_weekday", 0)
+        if weekly_off_raw is None:
+            weekly_off: Optional[int] = None
+        else:
+            try:
+                weekly_off = int(weekly_off_raw)
+            except (TypeError, ValueError):
+                weekly_off = 0
+        try:
+            extra_off = int(entry.get("extra_off_every_n_rounds", 4) or 0)
+        except (TypeError, ValueError):
+            extra_off = 4
         templates.append(
             ScheduleTemplate(
                 template_id=str(entry.get("id", "")).strip(),
@@ -112,6 +129,8 @@ def load_schedule_templates() -> List[ScheduleTemplate]:
                 include_all_star_break=bool(
                     entry.get("include_all_star_break", True)
                 ),
+                weekly_off_weekday=weekly_off,
+                extra_off_every_n_rounds=extra_off,
             )
         )
     return [t for t in templates if t.template_id and t.games_per_team > 0]
@@ -224,6 +243,8 @@ def generate_schedule_from_template(
         start,
         games_per_team=template.games_per_team,
         include_all_star_break=template.include_all_star_break,
+        weekly_off_weekday=template.weekly_off_weekday,
+        extra_off_every_n_rounds=template.extra_off_every_n_rounds,
     )
     return schedule
 

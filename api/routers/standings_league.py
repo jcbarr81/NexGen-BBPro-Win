@@ -64,12 +64,54 @@ def _format_last10(record: Dict[str, Any]) -> str:
     return "--"
 
 
+def _games_remaining_by_team() -> Dict[str, int]:
+    """Count unplayed games per team_id from schedule.csv."""
+
+    remaining: Dict[str, int] = {}
+    schedule_path = get_data_dir() / "schedule.csv"
+    if not schedule_path.exists():
+        return remaining
+    try:
+        with schedule_path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                played_flag = str(row.get("played", "")).strip().lower() in {
+                    "1",
+                    "true",
+                    "yes",
+                }
+                has_result = bool(str(row.get("result", "")).strip())
+                if played_flag or has_result:
+                    continue
+                for key in ("home", "away"):
+                    tid = str(row.get(key, "") or "").strip()
+                    if tid:
+                        remaining[tid] = remaining.get(tid, 0) + 1
+    except OSError:
+        return remaining
+    return remaining
+
+
 @router.get("/league")
 def league_standings() -> Dict[str, Any]:
-    """Return standings grouped by division."""
+    """Return standings grouped by division.
+
+    Each row carries the canonical W/L/pct/streak fields plus
+    ``games_remaining`` and either:
+      - ``status="clinched_division"`` and ``magic_number=0`` for a
+        team that has clinched
+      - ``status="leader"`` and ``magic_number=N`` (games needed to
+        clinch over the runner-up) for the division leader
+      - ``status="in_race"`` and ``magic_number=N`` (elimination
+        number — combined leader-wins-plus-this-team's-losses needed
+        to eliminate this team) for chasers
+      - ``status="eliminated"`` and ``magic_number=0`` for chasers
+        whose best-possible record can't catch the leader
+    """
 
     standings = load_standings(base_path=get_data_dir())
     meta = _load_team_meta()
+    remaining_map = _games_remaining_by_team()
 
     # Build per-division list of rows.
     divisions: Dict[str, List[Dict[str, Any]]] = {}
@@ -97,22 +139,61 @@ def league_standings() -> Dict[str, Any]:
                 "run_diff": runs_for - runs_against,
                 "streak": _format_streak(record),
                 "last10": _format_last10(record),
+                "games_remaining": int(remaining_map.get(team_id, 0)),
             }
         )
 
-    # Sort teams within each division and compute games behind.
+    # Sort teams within each division and compute games behind +
+    # magic numbers + clinch / elimination status.
     out_divisions: List[Dict[str, Any]] = []
     for division, rows in divisions.items():
         rows.sort(key=lambda r: (-r["pct"], -r["wins"]))
         if rows:
-            leader_w = rows[0]["wins"]
-            leader_l = rows[0]["losses"]
+            leader = rows[0]
+            leader_w = leader["wins"]
+            leader_l = leader["losses"]
+            leader_remaining = leader["games_remaining"]
+            leader_max_wins = leader_w + leader_remaining
             for r in rows:
                 gb = ((leader_w - r["wins"]) + (r["losses"] - leader_l)) / 2
                 if abs(gb) < 1e-6:
                     r["gb"] = "—"
                 else:
                     r["gb"] = f"{gb:.1f}".rstrip("0").rstrip(".")
+
+            # Leader's magic number = games to clinch over the closest
+            # plausible chaser (the runner-up by current standings).
+            if len(rows) >= 2:
+                runner = rows[1]
+                runner_max_wins = runner["wins"] + runner["games_remaining"]
+                magic_to_clinch = max(
+                    0, (runner_max_wins - leader_w) + 1,
+                )
+                if magic_to_clinch == 0:
+                    leader["status"] = "clinched_division"
+                    leader["magic_number"] = 0
+                else:
+                    leader["status"] = "leader"
+                    leader["magic_number"] = magic_to_clinch
+            else:
+                # Single-team division — leader trivially clinches.
+                leader["status"] = "clinched_division"
+                leader["magic_number"] = 0
+
+            # Non-leaders: eliminated if best-possible < leader's
+            # current wins; otherwise their tragic number is leader's
+            # remaining wins to clinch.
+            for r in rows[1:]:
+                best_possible = r["wins"] + r["games_remaining"]
+                if best_possible < leader_w:
+                    r["status"] = "eliminated"
+                    r["magic_number"] = 0
+                else:
+                    r["status"] = "in_race"
+                    # Elimination number: combined leader wins + this
+                    # team's losses needed to put them out.
+                    elim = max(0, leader_max_wins - best_possible + 1)
+                    r["magic_number"] = elim
         out_divisions.append({"division": division, "teams": rows})
 
     # Divisions themselves sorted alphabetically for stable order.

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { StatusRibbon } from "./StatusRibbon";
 import { useHotkey } from "@/lib/use-hotkey";
 import { FirstVisitTutorialAutoLauncher } from "@/components/help/FirstVisitTutorial";
 import { recordNavigation } from "@/lib/nav-history";
@@ -51,6 +52,7 @@ export function AppShell({
             aria-hidden
           />
         )}
+        <StatusRibbon />
         <main className="min-h-0 flex-1 overflow-auto px-8 py-6">
           {children}
         </main>

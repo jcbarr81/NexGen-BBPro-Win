@@ -16,15 +16,29 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowRight,
+  ArrowUp,
+  ArrowUpDown,
+  Bot,
+  FastForward,
   GraduationCap,
   Hourglass,
   Loader2,
+  Sparkles,
   Timer,
   Trophy,
 } from "lucide-react";
 
-import { api, type DraftSelection, type DraftState, type Team } from "@/lib/api";
+import { usePersistedState } from "@/lib/use-persisted-state";
+
+import {
+  api,
+  type DraftProspect,
+  type DraftSelection,
+  type DraftState,
+  type Team,
+} from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
@@ -214,6 +228,12 @@ function LiveDraftView({
         />
       </section>
 
+      <DraftControlsPanel
+        year={state.year}
+        myTeamId={myTeamId}
+        onClockTeamId={onClock}
+      />
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -279,6 +299,509 @@ function LiveDraftView({
         </Card>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Live draft controls — pick selector + auto-advance buttons.
+
+type DraftKind = "all" | "hitters" | "pitchers";
+type DraftSortKey = "name" | "pos" | "age" | "overall" | "bats" | string;
+type DraftSortDir = "asc" | "desc";
+
+const DRAFT_HITTER_COLS: Array<{ key: string; label: string }> = [
+  { key: "ch", label: "CH" },
+  { key: "ph", label: "PH" },
+  { key: "sp", label: "SP" },
+  { key: "eye", label: "EYE" },
+  { key: "fa", label: "FA" },
+  { key: "arm", label: "ARM" },
+];
+const DRAFT_PITCHER_COLS: Array<{ key: string; label: string }> = [
+  { key: "endurance", label: "EN" },
+  { key: "control", label: "CTRL" },
+  { key: "movement", label: "MOV" },
+  { key: "fb", label: "FB" },
+  { key: "sl", label: "SL" },
+  { key: "cu", label: "CU" },
+  { key: "cb", label: "CB" },
+  { key: "si", label: "SI" },
+];
+
+function DraftControlsPanel({
+  year,
+  myTeamId,
+  onClockTeamId,
+}: {
+  year: number;
+  myTeamId: string | null;
+  onClockTeamId: string | null;
+}) {
+  const queryClient = useQueryClient();
+  const isMyTurn = !!myTeamId && myTeamId === onClockTeamId;
+  const [selectedPid, setSelectedPid] = useState<string>("");
+  const [filter, setFilter] = usePersistedState("draft:pool:filter", "");
+  const [kind, setKind] = usePersistedState<DraftKind>(
+    "draft:pool:kind",
+    "all",
+  );
+  const [sortKey, setSortKey] = usePersistedState<DraftSortKey>(
+    "draft:pool:sortKey",
+    "overall",
+  );
+  const [sortDir, setSortDir] = usePersistedState<DraftSortDir>(
+    "draft:pool:sortDir",
+    "desc",
+  );
+
+  const poolQ = useQuery({
+    queryKey: ["draft-pool", year],
+    queryFn: () => api.draftPool(year, { available_only: true, limit: 1000 }),
+    enabled: !!year,
+  });
+
+  function refreshAll() {
+    queryClient.invalidateQueries({ queryKey: ["draft-state"] });
+    queryClient.invalidateQueries({ queryKey: ["draft-results"] });
+    queryClient.invalidateQueries({ queryKey: ["draft-pool", year] });
+    queryClient.invalidateQueries({ queryKey: ["team-roster"] });
+  }
+
+  const pickMut = useMutation({
+    mutationFn: (pid: string) => api.draftMakePick(pid, year),
+    onSuccess: () => {
+      setSelectedPid("");
+      refreshAll();
+    },
+  });
+  const autoPickMut = useMutation({
+    mutationFn: () => api.draftAutoPick(year),
+    onSuccess: refreshAll,
+  });
+  const advanceToMyMut = useMutation({
+    mutationFn: () => api.draftAutoAdvance("my_pick", { year }),
+    onSuccess: refreshAll,
+  });
+  const advanceRoundMut = useMutation({
+    mutationFn: () => api.draftAutoAdvance("end_of_round", { year }),
+    onSuccess: refreshAll,
+  });
+  const advanceDraftMut = useMutation({
+    mutationFn: () => api.draftAutoAdvance("end_of_draft", { year }),
+    onSuccess: refreshAll,
+  });
+
+  const anyPending =
+    pickMut.isPending ||
+    autoPickMut.isPending ||
+    advanceToMyMut.isPending ||
+    advanceRoundMut.isPending ||
+    advanceDraftMut.isPending;
+
+  const filteredProspects: DraftProspect[] = useMemo(() => {
+    const all = poolQ.data?.prospects ?? [];
+    const needle = filter.trim().toLowerCase();
+    let rows = all.filter((p) => {
+      if (kind === "hitters" && p.is_pitcher) return false;
+      if (kind === "pitchers" && !p.is_pitcher) return false;
+      if (!needle) return true;
+      return `${p.first_name} ${p.last_name} ${p.primary_position} ${p.player_id}`
+        .toLowerCase()
+        .includes(needle);
+    });
+    rows = [...rows].sort((a, b) => {
+      const av = sortValueProspect(a, sortKey);
+      const bv = sortValueProspect(b, sortKey);
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === "number" && typeof bv === "number") {
+        return sortDir === "asc" ? av - bv : bv - av;
+      }
+      const as = String(av).toLowerCase();
+      const bs = String(bv).toLowerCase();
+      if (as < bs) return sortDir === "asc" ? -1 : 1;
+      if (as > bs) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return rows.slice(0, 300);
+  }, [poolQ.data, filter, kind, sortKey, sortDir]);
+
+  const ratingCols = kind === "pitchers" ? DRAFT_PITCHER_COLS : DRAFT_HITTER_COLS;
+
+  function toggleSort(key: DraftSortKey) {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir(key === "name" || key === "pos" || key === "bats" ? "asc" : "desc");
+    }
+  }
+
+  const lastError =
+    pickMut.error ||
+    autoPickMut.error ||
+    advanceToMyMut.error ||
+    advanceRoundMut.error ||
+    advanceDraftMut.error;
+
+  const selectedProspect =
+    filteredProspects.find((p) => p.player_id === selectedPid) ??
+    poolQ.data?.prospects.find((p) => p.player_id === selectedPid) ??
+    null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Sparkles className="h-4 w-4 text-amber" /> Draft controls
+          </CardTitle>
+          <CardDescription>
+            {isMyTurn
+              ? "Your pick — click a prospect below and choose a column to sort by, then Make pick."
+              : onClockTeamId
+                ? `${onClockTeamId} is on the clock. Auto-advance through CPU picks until your turn or the round ends.`
+                : "Draft idle."}
+          </CardDescription>
+        </div>
+        {isMyTurn && <Badge tone="success">Your turn</Badge>}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Action row */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            onClick={() => selectedPid && pickMut.mutate(selectedPid)}
+            disabled={!isMyTurn || !selectedPid || anyPending}
+            title={
+              !isMyTurn
+                ? "You can only submit a pick when your team is on the clock."
+                : !selectedPid
+                  ? "Click a prospect row first."
+                  : ""
+            }
+          >
+            {pickMut.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : null}
+            Make pick
+            {selectedProspect ? (
+              <span className="ml-1 text-[11px] text-muted">
+                {selectedProspect.last_name}, {selectedProspect.first_name}
+              </span>
+            ) : null}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => autoPickMut.mutate()}
+            disabled={!isMyTurn || anyPending}
+            title="Auto-pick best available for the team on the clock"
+          >
+            {autoPickMut.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Bot className="h-4 w-4" />
+            )}
+            Auto-pick (best avail)
+          </Button>
+          <span className="mx-1 text-muted">|</span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => advanceToMyMut.mutate()}
+            disabled={!myTeamId || isMyTurn || anyPending}
+            title={
+              !myTeamId
+                ? "No team associated with your user."
+                : isMyTurn
+                  ? "It's already your pick."
+                  : "Run CPU picks until your team is back on the clock"
+            }
+          >
+            {advanceToMyMut.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FastForward className="h-4 w-4" />
+            )}
+            Advance to my next pick
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => advanceRoundMut.mutate()}
+            disabled={anyPending}
+            title="Run CPU picks to the end of the current round"
+          >
+            {advanceRoundMut.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FastForward className="h-4 w-4" />
+            )}
+            Finish round
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => advanceDraftMut.mutate()}
+            disabled={anyPending}
+            title="Auto-pick the rest of the entire draft (CPU picks for everyone)"
+          >
+            {advanceDraftMut.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FastForward className="h-4 w-4" />
+            )}
+            Auto-finish draft
+          </Button>
+        </div>
+
+        {/* Filter row */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="min-w-[220px] flex-1 space-y-1">
+            <Input
+              placeholder="Filter by name, position, id…"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-1 rounded-lg border border-border bg-surfaceAlt p-1">
+            {(["all", "hitters", "pitchers"] as DraftKind[]).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKind(k)}
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider transition",
+                  kind === k
+                    ? "bg-amber text-espresso"
+                    : "text-muted hover:bg-surface hover:text-ink",
+                )}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+          <div className="text-xs text-muted">
+            {poolQ.data
+              ? `${poolQ.data.count} available · ${filteredProspects.length} shown`
+              : poolQ.isLoading
+                ? "Loading…"
+                : ""}
+          </div>
+        </div>
+
+        {/* Roster-style table */}
+        {poolQ.isLoading ? (
+          <div className="flex items-center gap-2 py-6 text-sm text-muted">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading pool…
+          </div>
+        ) : filteredProspects.length === 0 ? (
+          <div className="rounded-md border border-border bg-surfaceAlt/40 px-4 py-6 text-sm text-muted">
+            No prospects match — try clearing the filter or generating a pool
+            from the Admin tab.
+          </div>
+        ) : (
+          <div className="max-h-[520px] overflow-auto rounded-md border border-border">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-surface">
+                <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
+                  <th className="w-8 px-2 py-2"></th>
+                  <DraftHeader
+                    label="Player"
+                    keyId="name"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onClick={toggleSort}
+                    align="left"
+                  />
+                  <DraftHeader
+                    label="Pos"
+                    keyId="pos"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onClick={toggleSort}
+                  />
+                  <DraftHeader
+                    label="Age"
+                    keyId="age"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onClick={toggleSort}
+                  />
+                  <DraftHeader
+                    label="B/T"
+                    keyId="bats"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onClick={toggleSort}
+                  />
+                  <DraftHeader
+                    label="OVR"
+                    keyId="overall"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onClick={toggleSort}
+                  />
+                  {ratingCols.map((c) => (
+                    <DraftHeader
+                      key={c.key}
+                      label={c.label}
+                      keyId={c.key}
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onClick={toggleSort}
+                    />
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredProspects.map((p) => {
+                  const isSelected = selectedPid === p.player_id;
+                  return (
+                    <tr
+                      key={p.player_id}
+                      onClick={() => setSelectedPid(p.player_id)}
+                      className={cn(
+                        "cursor-pointer border-b border-border/40 transition last:border-b-0 hover:bg-surfaceAlt/40",
+                        isSelected && "bg-amber/10 hover:bg-amber/15",
+                      )}
+                    >
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="radio"
+                          name="draft-prospect"
+                          checked={isSelected}
+                          onChange={() => setSelectedPid(p.player_id)}
+                          className="h-3 w-3 accent-amber"
+                          aria-label={`Select ${p.last_name}, ${p.first_name}`}
+                        />
+                      </td>
+                      <td className="px-3 py-2 font-semibold">
+                        {p.last_name}, {p.first_name}
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
+                        {p.primary_position || "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {p.age ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs">
+                        {p.bats || "—"}/{p.throws || "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums font-semibold">
+                        {p.overall ?? "—"}
+                      </td>
+                      {ratingCols.map((c) => {
+                        const raw = p.ratings[c.key];
+                        const display =
+                          raw == null || raw === ""
+                            ? "—"
+                            : typeof raw === "number"
+                              ? Math.round(raw)
+                              : Number.isFinite(Number(raw))
+                                ? Math.round(Number(raw))
+                                : String(raw);
+                        return (
+                          <td
+                            key={c.key}
+                            className="px-3 py-2 text-right tabular-nums"
+                          >
+                            {display}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {advanceToMyMut.data && advanceToMyMut.data.picks_made > 0 && (
+          <div className="rounded-md border border-border bg-surfaceAlt/40 px-3 py-2 text-xs text-muted">
+            Auto-advanced {advanceToMyMut.data.picks_made} CPU pick(s).
+          </div>
+        )}
+        {advanceRoundMut.data && advanceRoundMut.data.picks_made > 0 && (
+          <div className="rounded-md border border-border bg-surfaceAlt/40 px-3 py-2 text-xs text-muted">
+            Finished round with {advanceRoundMut.data.picks_made} CPU pick(s).
+          </div>
+        )}
+        {advanceDraftMut.data && advanceDraftMut.data.picks_made > 0 && (
+          <div className="rounded-md border border-border bg-surfaceAlt/40 px-3 py-2 text-xs text-muted">
+            Auto-finished {advanceDraftMut.data.picks_made} pick(s).
+          </div>
+        )}
+        {lastError && (
+          <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            {(lastError as Error).message}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function sortValueProspect(p: DraftProspect, key: DraftSortKey): string | number | null {
+  switch (key) {
+    case "name":
+      return `${p.last_name}, ${p.first_name}`;
+    case "pos":
+      return p.primary_position ?? "";
+    case "age":
+      return p.age ?? null;
+    case "bats":
+      return p.bats ?? "";
+    case "overall":
+      return p.overall ?? null;
+    default: {
+      const raw = p.ratings[key];
+      if (raw == null) return null;
+      const n = typeof raw === "number" ? raw : Number(raw);
+      return Number.isFinite(n) ? n : String(raw);
+    }
+  }
+}
+
+function DraftHeader({
+  label,
+  keyId,
+  sortKey,
+  sortDir,
+  onClick,
+  align = "right",
+}: {
+  label: string;
+  keyId: DraftSortKey;
+  sortKey: DraftSortKey;
+  sortDir: DraftSortDir;
+  onClick: (key: DraftSortKey) => void;
+  align?: "left" | "right";
+}) {
+  const active = sortKey === keyId;
+  const Arrow = !active ? ArrowUpDown : sortDir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th
+      className={cn(
+        "select-none px-3 py-2 font-semibold",
+        align === "left" ? "text-left" : "text-right",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onClick(keyId)}
+        className={cn(
+          "inline-flex items-center gap-1 transition",
+          active ? "text-ink" : "hover:text-ink",
+        )}
+      >
+        {label}
+        <Arrow className="h-3 w-3 opacity-60" />
+      </button>
+    </th>
   );
 }
 

@@ -1042,8 +1042,17 @@ def _refresh_position_averages() -> None:
 
 
 def _current_name_source_path() -> Path:
-    source = Path(PLAYER_PATH) if Path(PLAYER_PATH).exists() else Path(NAME_PATH)
-    return source.resolve(strict=False)
+    """Return a representative source path for cache-invalidation.
+
+    The pool itself is the *union* of names.csv + players.csv (see
+    ``_load_name_pool``), so this just needs to be a stable identifier
+    that changes when we switch leagues. Always anchor on names.csv since
+    it's the curated, never-mutated source — players.csv changes shape
+    during play and would falsely invalidate the cache after every roster
+    move.
+    """
+
+    return Path(NAME_PATH).resolve(strict=False)
 
 
 def _refresh_name_pool() -> None:
@@ -1056,18 +1065,47 @@ def _refresh_name_pool() -> None:
     _NAME_SOURCE_PATH = current_source
 
 
-def _load_name_pool() -> Dict[str, List[Tuple[str, str]]]:
-    pool: Dict[str, List[Tuple[str, str]]] = {}
-    source = Path(PLAYER_PATH) if Path(PLAYER_PATH).exists() else Path(NAME_PATH)
-    if source.exists():
+def _read_name_rows(source: Path) -> List[Tuple[str, str, str]]:
+    """Yield ``(first, last, ethnicity)`` triples from ``source`` if usable."""
+
+    rows: List[Tuple[str, str, str]] = []
+    if not source.exists():
+        return rows
+    try:
         with source.open(newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                ethnicity = row.get("ethnicity", "").strip()
-                first = row.get("first_name")
-                last = row.get("last_name")
+                ethnicity = (row.get("ethnicity") or "").strip()
+                first = (row.get("first_name") or "").strip()
+                last = (row.get("last_name") or "").strip()
                 if ethnicity and first and last:
-                    pool.setdefault(ethnicity, []).append((first, last))
+                    rows.append((first, last, ethnicity))
+    except Exception:
+        return rows
+    return rows
+
+
+def _load_name_pool() -> Dict[str, List[Tuple[str, str]]]:
+    """Build the (ethnicity -> [(first, last)]) pool from every available source.
+
+    Prefer names.csv (the curated 3,000+-entry name list bundled with the
+    install) but also union in players.csv if present. Earlier behavior
+    *only* read players.csv when it existed, falling back to names.csv —
+    that meant a freshly-seeded league with a 600-row players.csv would
+    cap the name supply far below what's needed for a 400+ player roster
+    refresh, eventually exhausting unique names and falling back to the
+    "John Doe" sentinel for the rest.
+    """
+
+    pool: Dict[str, List[Tuple[str, str]]] = {}
+    seen: Set[Tuple[str, str]] = set()
+    for source in (Path(NAME_PATH), Path(PLAYER_PATH)):
+        for first, last, ethnicity in _read_name_rows(source):
+            key = (first, last)
+            if key in seen:
+                continue
+            seen.add(key)
+            pool.setdefault(ethnicity, []).append(key)
     return pool
 
 

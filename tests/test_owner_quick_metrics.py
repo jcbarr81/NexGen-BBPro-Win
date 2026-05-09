@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ui.analytics.quick_metrics import gather_owner_quick_metrics
+from services.quick_metrics import gather_owner_quick_metrics
 
 
 def test_gather_owner_quick_metrics_handles_missing(tmp_path):
@@ -158,7 +158,7 @@ def test_gather_owner_quick_metrics_bullpen_available_pct(tmp_path, monkeypatch)
         def instance():
             return tracker
 
-    monkeypatch.setattr("ui.analytics.quick_metrics.PitcherRecoveryTracker", _DummyRecovery)
+    monkeypatch.setattr("services.quick_metrics.PitcherRecoveryTracker", _DummyRecovery)
 
     roster = SimpleNamespace(dl=[], ir=[], act=["RP1"])
     players = {

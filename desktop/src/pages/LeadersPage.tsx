@@ -6,8 +6,9 @@
  * profiles; team chips link to the team page.
  */
 
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -34,7 +35,11 @@ import {
 } from "@/components/ui";
 
 export function LeadersPage() {
-  const [limit, setLimit] = useState(5);
+  const [limit, setLimit] = usePersistedState("leaders:limit", 5);
+  const [tab, setTab] = usePersistedState<"batting" | "pitching">(
+    "leaders:tab",
+    "batting",
+  );
   const leaders = useQuery({
     queryKey: ["league-leaders", limit],
     queryFn: () => api.leaders(limit),
@@ -49,48 +54,47 @@ export function LeadersPage() {
           : "Top performers across the league"
       }
     >
-      <div className="mb-4 flex items-center justify-between">
-        <Tabs defaultValue="batting">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "batting" | "pitching")}>
+        <div className="mb-4 flex items-center gap-3">
           <TabsList>
             <TabsTrigger value="batting">Batting</TabsTrigger>
             <TabsTrigger value="pitching">Pitching</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="batting">
-            <Body
-              isLoading={leaders.isLoading}
-              isError={leaders.isError}
-              error={leaders.error}
-              boards={leaders.data?.batting ?? []}
-            />
-          </TabsContent>
-          <TabsContent value="pitching">
-            <Body
-              isLoading={leaders.isLoading}
-              isError={leaders.isError}
-              error={leaders.error}
-              boards={leaders.data?.pitching ?? []}
-            />
-          </TabsContent>
-        </Tabs>
-
-        <div className="ml-4 flex gap-1 rounded-lg border border-border bg-surfaceAlt p-1">
-          {[5, 10, 15].map((n) => (
-            <button
-              key={n}
-              type="button"
-              onClick={() => setLimit(n)}
-              className={
-                limit === n
-                  ? "rounded-md bg-amber px-3 py-1 text-xs font-semibold uppercase tracking-wider text-espresso"
-                  : "rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted hover:bg-surface hover:text-ink"
-              }
-            >
-              Top {n}
-            </button>
-          ))}
+          <div className="flex gap-1 rounded-lg border border-border bg-surfaceAlt p-1">
+            {[5, 10, 15].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setLimit(n)}
+                className={
+                  limit === n
+                    ? "rounded-md bg-amber px-3 py-1 text-xs font-semibold uppercase tracking-wider text-espresso"
+                    : "rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted hover:bg-surface hover:text-ink"
+                }
+              >
+                Top {n}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+
+        <TabsContent value="batting">
+          <Body
+            isLoading={leaders.isLoading}
+            isError={leaders.isError}
+            error={leaders.error}
+            boards={leaders.data?.batting ?? []}
+          />
+        </TabsContent>
+        <TabsContent value="pitching">
+          <Body
+            isLoading={leaders.isLoading}
+            isError={leaders.isError}
+            error={leaders.error}
+            boards={leaders.data?.pitching ?? []}
+          />
+        </TabsContent>
+      </Tabs>
     </AppShell>
   );
 }

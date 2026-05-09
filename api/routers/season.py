@@ -76,16 +76,103 @@ def _compute_draft_date(first_game_date: Optional[str]) -> Optional[str]:
     return tuesdays[2].isoformat()
 
 
+def _auto_initialize_draft(draft_date: str) -> Dict[str, Any]:
+    """Seed draft order + pool when the sim first hits draft day.
+
+    Idempotent: if the draft state file for this year already exists,
+    the call is a no-op so re-runs (or admins who already initialized
+    manually) don't get clobbered. Failures are returned in the result
+    rather than raised so the sim's draft-day intercept stays robust.
+    """
+
+    out: Dict[str, Any] = {"order_seeded": False, "pool_seeded": False}
+    try:
+        year = int(str(draft_date).split("-")[0])
+    except Exception as exc:
+        out["error"] = f"bad draft_date {draft_date!r}: {exc}"
+        return out
+
+    try:
+        from services import draft_state as _ds
+    except Exception as exc:
+        out["error"] = f"draft_state import failed: {exc}"
+        return out
+
+    existing = _ds.load_state(year) or {}
+    if not existing:
+        try:
+            order = _ds.compute_order_for_draft_year(year)
+        except Exception as exc:
+            out["error"] = f"order compute failed: {exc}"
+            return out
+        if not order:
+            out["error"] = "no season stats yet — cannot compute draft order"
+            return out
+        try:
+            _ds.initialize_state(year, order=order)
+            out["order_seeded"] = True
+            out["order_count"] = len(order)
+        except Exception as exc:
+            out["error"] = f"order init failed: {exc}"
+            return out
+    else:
+        out["order_already_existed"] = True
+
+    # Seed the amateur pool only if it's not already on disk for this year.
+    pool_path = get_data_dir() / f"draft_pool_{year}.csv"
+    if not pool_path.exists():
+        try:
+            from services.draft_settings import load_draft_settings
+            from playbalance.draft_pool import generate_draft_pool, save_draft_pool
+
+            settings = load_draft_settings()
+            pool = generate_draft_pool(year=year, size=settings.pool_size)
+            # generate_draft_pool returns the list — save_draft_pool is
+            # what actually writes it to disk for the draft endpoints.
+            save_draft_pool(year, pool)
+            out["pool_seeded"] = True
+            out["pool_size"] = settings.pool_size
+        except Exception as exc:
+            out["pool_error"] = f"pool generation failed: {exc}"
+    else:
+        out["pool_already_existed"] = True
+
+    return out
+
+
 def _build_manager_and_simulator() -> tuple[SeasonManager, SeasonSimulator, Optional[str]]:
     schedule = _load_schedule()
     first_date = schedule[0].get("date") if schedule else None
     draft_date = _compute_draft_date(first_date)
+
+    # When the sim crosses the All-Star break midpoint, run the actual
+    # game (roster select + flavor sim + MVP) instead of letting the
+    # break exist as a 6-day calendar gap with no event.
+    def _fire_all_star() -> None:
+        try:
+            from services.all_star_game import play_all_star_game
+
+            year = None
+            if first_date:
+                try:
+                    year = int(str(first_date).split("-")[0])
+                except Exception:
+                    year = None
+            if year is None:
+                from datetime import date as _date
+
+                year = _date.today().year
+            play_all_star_game(year=year)
+        except Exception:
+            # Flavor feature — never block the sim if it errors.
+            pass
 
     manager = SeasonManager()
     simulator = SeasonSimulator(
         schedule,
         simulate_game_scores,
         draft_date=draft_date,
+        on_all_star_break=_fire_all_star,
     )
     # Skip past any dates whose games are fully played so simulate_next_day
     # truly advances the sim instead of replaying finished dates.
@@ -215,6 +302,17 @@ def _simulate_n(
                 manager.save()
             except Exception:
                 pass
+            # Auto-seed draft order + pool so the owner doesn't have to
+            # log in as admin and run the two prep buttons before the
+            # draft is usable. Idempotent, error-tolerant.
+            try:
+                draft_init = _auto_initialize_draft(draft_date)
+                if draft_init.get("error"):
+                    errors.append(
+                        f"Draft auto-init: {draft_init['error']}"
+                    )
+            except Exception as exc:  # pragma: no cover - defensive
+                errors.append(f"Draft auto-init crashed: {exc}")
             draft_blocked = True
             break
 
@@ -550,7 +648,23 @@ def simulate_to_playoffs(
 @router.post("/advance-phase")
 def advance_phase(
     payload: Dict[str, Any] = Body(default_factory=dict),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
+    # In owner leagues phase advancement belongs to the commissioner;
+    # in solo leagues the owner is the only one who can do it (and is
+    # allowed to). ``can_run_season_progression`` collapses both cases.
+    from utils.league_settings import can_run_season_progression
+
+    role = str(identity.get("r", "")).lower()
+    if not can_run_season_progression(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Phase advancement is restricted to the commissioner in "
+                "owner leagues."
+            ),
+        )
+
     manager, simulator, draft_date = _build_manager_and_simulator()
 
     # Guard: if there's no schedule AND the caller didn't explicitly opt
@@ -650,7 +764,60 @@ def advance_phase(
         except Exception as exc:  # pragma: no cover - defensive
             extra["playoffs_error"] = str(exc)
 
+    # OFFSEASON → PRESEASON: spring training camp normally requires a
+    # manual click on the preseason checklist. In solo-player leagues
+    # there's no reason to gate it — auto-run so opening day finds
+    # players with their fresh ratings already applied.
+    if new_phase == SeasonPhase.PRESEASON:
+        try:
+            extra["training_camp"] = _auto_run_training_camp_if_needed()
+        except Exception as exc:  # pragma: no cover - defensive
+            extra["training_camp_error"] = str(exc)
+
+    # REGULAR_SEASON → AMATEUR_DRAFT (manual phase advance, not via the
+    # sim hitting draft day): make sure the order + pool are seeded so
+    # the user lands on a usable draft console.
+    if new_phase == SeasonPhase.AMATEUR_DRAFT and draft_date:
+        try:
+            init_summary = _auto_initialize_draft(draft_date)
+            extra["draft_init"] = init_summary
+        except Exception as exc:  # pragma: no cover - defensive
+            extra["draft_init_error"] = str(exc)
+
     return _state_payload(manager, simulator, draft_date, extra=extra)
+
+
+def _auto_run_training_camp_if_needed() -> Dict[str, Any]:
+    """Trigger spring training automatically when entering PRESEASON.
+
+    Idempotent: skips if ``preseason_done.training_camp`` is already
+    set in season_progress.json. Owner leagues can still re-run from
+    the preseason checklist; this just removes the click for solo
+    players who otherwise hit "I have to log in as admin to start a
+    new season" frustration.
+    """
+
+    out: Dict[str, Any] = {"ran": False}
+    progress_path = get_data_dir() / "season_progress.json"
+    try:
+        if progress_path.exists():
+            import json as _json
+
+            payload = _json.loads(progress_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                done = payload.get("preseason_done") or {}
+                if isinstance(done, dict) and done.get("training_camp"):
+                    out["skipped"] = "already_done"
+                    return out
+    except Exception:
+        pass
+    try:
+        result = preseason_training_camp()
+        out["ran"] = True
+        out.update(result)
+    except HTTPException as exc:
+        out["error"] = str(exc.detail)
+    return out
 
 
 def _draft_completed_for_current_year() -> bool:
@@ -835,6 +1002,43 @@ def preseason_training_camp() -> Dict[str, Any]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Training complete but saving players failed: {exc}",
         ) from exc
+
+    # Persist this year's per-player rating deltas so the player-profile
+    # career ledger can show "(+x)" badges next to the current ratings.
+    # Overwrites each year so the file always reflects the most recent
+    # spring training rather than accumulating noise.
+    try:
+        import json as _json
+        from datetime import date as _date
+
+        deltas_path = data_dir / "spring_training_last.json"
+        deltas_payload: Dict[str, Any] = {
+            "year": _date.today().year,
+            "players": {},
+        }
+        for report in reports:
+            pid = getattr(report, "player_id", None)
+            if not pid:
+                continue
+            changes = {
+                str(k): int(v)
+                for k, v in (getattr(report, "changes", {}) or {}).items()
+                if v
+            }
+            if not changes:
+                continue
+            deltas_payload["players"][str(pid)] = {
+                "focus": str(getattr(report, "focus", "") or ""),
+                "changes": changes,
+            }
+        deltas_path.parent.mkdir(parents=True, exist_ok=True)
+        deltas_path.write_text(
+            _json.dumps(deltas_payload, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        # Non-fatal: the deltas badge is a nice-to-have, training itself
+        # already succeeded.
+        pass
 
     # Build a compact top-gainers summary for the UI toast.
     top_gainers: list[Dict[str, Any]] = []

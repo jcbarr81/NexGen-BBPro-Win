@@ -67,19 +67,37 @@ def load_players_map() -> Dict[str, Dict[str, Any]]:
 
 
 def load_team_levels(team_id: str) -> Dict[str, List[str]]:
-    """Return a {level: [player_id...]} map loaded from rosters/{team}.csv."""
+    """Return a {level: [player_id...]} map loaded from rosters/{team}.csv.
+
+    Roster files are written headerless by ``utils.roster_io.write_roster_csv``
+    as ``[player_id, level]`` rows, with ``DL15``/``DL45``/``IR`` mapped onto
+    the ``dl``/``ir`` buckets — match that exactly so depth-chart and
+    pitching-staff validation see the same roster the rest of the app does.
+    """
 
     path = get_data_dir() / "rosters" / f"{team_id}.csv"
     levels: Dict[str, List[str]] = {"act": [], "aaa": [], "low": [], "dl": [], "ir": []}
     if not path.exists():
         return levels
     with path.open("r", encoding="utf-8", newline="") as fh:
-        reader = csv.DictReader(fh)
+        reader = csv.reader(fh)
         for row in reader:
-            pid = (row.get("player_id") or "").strip()
-            level = (row.get("level") or "").strip().lower()
-            if pid and level in levels:
-                levels[level].append(pid)
+            if len(row) < 2:
+                continue
+            pid = (row[0] or "").strip()
+            if not pid:
+                continue
+            tag = (row[1] or "").strip().upper()
+            if tag == "ACT":
+                levels["act"].append(pid)
+            elif tag == "AAA":
+                levels["aaa"].append(pid)
+            elif tag == "LOW":
+                levels["low"].append(pid)
+            elif tag in {"DL", "DL15"}:
+                levels["dl"].append(pid)
+            elif tag in {"DL45", "IR"}:
+                levels["ir"].append(pid)
     return levels
 
 

@@ -330,4 +330,15 @@ def cut_roster(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to cut: {exc}",
         ) from exc
+
+    # Tear down the contract too. Without this the cut player remains
+    # in contracts.json forever, distorting payroll calculations and
+    # leaving stale entries when the player is eventually re-signed.
+    try:
+        from services.contracts_service import release_contracts_to_free_agency
+
+        release_contracts_to_free_agency([player_id])
+    except Exception:
+        pass
+
     return team_roster(team_id)

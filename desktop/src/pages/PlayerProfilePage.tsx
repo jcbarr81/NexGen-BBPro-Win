@@ -9,7 +9,7 @@
  */
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -18,6 +18,7 @@ import {
   ChevronRight,
   Handshake,
   Loader2,
+  Pencil,
   ShieldCheck,
   Star,
   Stethoscope,
@@ -27,6 +28,10 @@ import {
 
 import {
   api,
+  ApiError,
+  type ExtensionEligibility,
+  type ExtensionEvaluation,
+  type ExtensionRejection,
   type PlayerProfile,
   type PlayerProfileNote,
 } from "@/lib/api";
@@ -169,10 +174,15 @@ export function PlayerProfilePage() {
               icon={<Star className="h-3 w-3" />}
               rows={profile.data.overall_details}
             />
-            <DetailsCard
-              title="Contract"
-              icon={<Trophy className="h-3 w-3" />}
+            <ContractCard
               rows={profile.data.contract_details}
+              playerId={playerId ?? null}
+              playerName={profile.data.full_name}
+              ownsPlayer={
+                !!profile.data.team_id &&
+                !!userTeamId &&
+                profile.data.team_id === userTeamId
+              }
             />
           </div>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -459,6 +469,7 @@ function CareerLedgerCard({ profile }: { profile: PlayerProfile }) {
   const awards = profile.awards_history ?? [];
   const transactions = profile.transactions_log ?? [];
   const trades = profile.trade_log ?? [];
+  const springGains = profile.spring_training_gains ?? null;
 
   if (
     ratings.length === 0 &&
@@ -489,7 +500,11 @@ function CareerLedgerCard({ profile }: { profile: PlayerProfile }) {
             <TabsTrigger value="trades">Trades</TabsTrigger>
           </TabsList>
           <TabsContent value="ratings">
-            <RatingsHistoryTable rows={ratings} isPitcher={profile.is_pitcher} />
+            <RatingsHistoryTable
+              rows={ratings}
+              isPitcher={profile.is_pitcher}
+              springGains={springGains}
+            />
           </TabsContent>
           <TabsContent value="awards">
             <AwardsTable rows={awards} />
@@ -509,9 +524,11 @@ function CareerLedgerCard({ profile }: { profile: PlayerProfile }) {
 function RatingsHistoryTable({
   rows,
   isPitcher,
+  springGains,
 }: {
   rows: NonNullable<PlayerProfile["ratings_history"]>;
   isPitcher: boolean;
+  springGains?: PlayerProfile["spring_training_gains"] | null;
 }) {
   const columns = isPitcher
     ? [
@@ -532,8 +549,31 @@ function RatingsHistoryTable({
   if (rows.length === 0) {
     return <EmptyPanel message="No historical ratings recorded yet." />;
   }
+
+  // Spring-training gains apply to the most recent row only; the older
+  // year snapshots already capture their own deltas as part of the
+  // year-to-year arc.
+  const lastIdx = rows.length - 1;
+  const gainsByStat: Record<string, number> = {};
+  if (springGains?.changes) {
+    for (const [k, v] of Object.entries(springGains.changes)) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n !== 0) {
+        gainsByStat[k] = n;
+      }
+    }
+  }
+  const hasAnyGain = Object.keys(gainsByStat).length > 0;
+
   return (
     <div className="overflow-x-auto">
+      {hasAnyGain && (
+        <div className="px-4 pt-2 pb-1 text-[11px] text-muted">
+          Green <span className="text-success font-semibold">(+x)</span> tags
+          show this season's spring-training gains
+          {springGains?.focus ? ` · focus: ${springGains.focus}` : ""}.
+        </div>
+      )}
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
@@ -546,7 +586,7 @@ function RatingsHistoryTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {rows.map((row, idx) => (
             <tr
               key={row.label}
               className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
@@ -554,6 +594,8 @@ function RatingsHistoryTable({
               <td className="px-4 py-2 font-mono text-xs">{row.label}</td>
               {columns.map((c) => {
                 const v = row.ratings[c.key];
+                const gain =
+                  idx === lastIdx ? gainsByStat[c.key] ?? 0 : 0;
                 return (
                   <td
                     key={c.key}
@@ -562,7 +604,22 @@ function RatingsHistoryTable({
                     {v == null ? (
                       <span className="text-subtle">—</span>
                     ) : (
-                      Math.round(v)
+                      <span className="inline-flex items-baseline gap-1 justify-end">
+                        <span>{Math.round(v)}</span>
+                        {gain !== 0 && (
+                          <span
+                            className={
+                              gain > 0
+                                ? "text-[10px] font-semibold text-success"
+                                : "text-[10px] font-semibold text-danger"
+                            }
+                            title={`Spring training change: ${gain > 0 ? "+" : ""}${gain}`}
+                          >
+                            ({gain > 0 ? "+" : ""}
+                            {gain})
+                          </span>
+                        )}
+                      </span>
                     )}
                   </td>
                 );
@@ -715,6 +772,312 @@ function formatStat(value: unknown): string {
     return value.toFixed(3).replace(/^0/, "");
   }
   return String(value);
+}
+
+function ContractCard({
+  rows,
+  playerId,
+  playerName,
+  ownsPlayer,
+}: {
+  rows: Array<[string, string]>;
+  playerId: string | null;
+  playerName: string;
+  ownsPlayer: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [years, setYears] = useState("1");
+  const [salary, setSalary] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [response, setResponse] = useState<ExtensionEvaluation | null>(null);
+  const [ineligibility, setIneligibility] = useState<ExtensionEligibility | null>(
+    null,
+  );
+
+  // Pull initial fair-market estimate (with the existing salary as the
+  // implied offer) the moment the dialog opens. Re-runs whenever the
+  // user edits the form.
+  const previewQ = useQuery({
+    queryKey: [
+      "extension-preview",
+      playerId,
+      years,
+      salary,
+    ],
+    queryFn: () =>
+      api.evaluateExtension(playerId!, {
+        years: Number(years) || 1,
+        annual_salary: salary ? Number(salary) : undefined,
+      }),
+    enabled: open && !!playerId,
+  });
+
+  // Surface ineligibility from the preview so the form gates BEFORE
+  // the user wastes time crafting an offer.
+  const eligibilityFromPreview = previewQ.data?.eligibility ?? null;
+  const isIneligible =
+    !!eligibilityFromPreview && eligibilityFromPreview.eligible === false;
+
+  const extendMut = useMutation({
+    mutationFn: () =>
+      api.extendContract(playerId!, {
+        additional_years: Number(years) || 1,
+        annual_salary: salary ? Number(salary) : undefined,
+      }),
+    onSuccess: (data) => {
+      setOpen(false);
+      setError(null);
+      setSalary("");
+      setYears("1");
+      setResponse(null);
+      setIneligibility(null);
+      queryClient.invalidateQueries({ queryKey: ["player-profile", playerId] });
+      queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["team-roster"] });
+      void data;
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 409) {
+        const body = err.body as { detail?: ExtensionRejection } | undefined;
+        const detail = body?.detail;
+        // Server returns one of: countered/rejected (negotiation result)
+        // OR an eligibility code (phase_blocked, fa_year_lockout, etc.)
+        if (detail?.eligibility) {
+          setIneligibility(detail.eligibility);
+          setResponse(null);
+          setError(null);
+          return;
+        }
+        if (detail?.negotiation) {
+          setResponse(detail.negotiation);
+          setIneligibility(null);
+          setError(null);
+          return;
+        }
+      }
+      setResponse(null);
+      setIneligibility(null);
+      setError((err as Error).message);
+    },
+  });
+
+  function acceptCounter() {
+    if (!response) return;
+    if (response.counter_salary != null) {
+      setSalary(String(response.counter_salary));
+    }
+    if (response.counter_years != null) {
+      setYears(String(response.counter_years));
+    }
+    setResponse(null);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Contract</CardTitle>
+        <div className="flex items-center gap-2">
+          {ownsPlayer && playerId && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setOpen(true);
+                setError(null);
+                setResponse(null);
+              }}
+              title="Negotiate an extension with this player"
+            >
+              <Pencil className="mr-1 h-3 w-3" /> Negotiate
+            </Button>
+          )}
+          <Badge tone="neutral">
+            <Trophy className="h-3 w-3" />
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        {rows.length === 0 ? (
+          <div className="px-6 py-6 text-sm text-muted">No details.</div>
+        ) : (
+          <ul className="divide-y divide-border/60">
+            {rows.map(([label, value], i) => (
+              <li
+                key={`${label}-${i}`}
+                className="flex items-center justify-between px-6 py-2 text-sm"
+              >
+                <span className="text-muted">{label}</span>
+                <span className="font-semibold">{value || "—"}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setOpen(false);
+          }}
+        >
+          <Card className="w-full max-w-lg">
+            <CardHeader>
+              <div>
+                <CardTitle>Negotiate extension · {playerName}</CardTitle>
+                <CardDescription>
+                  Make the player an offer. They'll evaluate based on
+                  market value, age, and service time.
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Ineligibility banner — render first so the user
+                  immediately understands why the form is disabled. */}
+              {(ineligibility || (isIneligible && eligibilityFromPreview)) && (
+                <div className="rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-xs text-warning">
+                  <div className="font-semibold uppercase tracking-wider">
+                    Cannot negotiate right now
+                  </div>
+                  <div className="mt-1 leading-snug">
+                    {(ineligibility ?? eligibilityFromPreview!).reason}
+                  </div>
+                </div>
+              )}
+
+              {/* Fair-market hint — refreshes as user types. */}
+              {previewQ.data && (
+                <div className="rounded-md border border-border bg-surfaceAlt/40 px-3 py-2 text-xs">
+                  <div className="font-semibold text-muted uppercase tracking-wider">
+                    Market estimate
+                  </div>
+                  <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                    <span className="text-muted">Fair salary</span>
+                    <span className="text-right tabular-nums font-semibold">
+                      ${previewQ.data.fair_market_salary.toLocaleString()}/yr
+                    </span>
+                    <span className="text-muted">Fair length</span>
+                    <span className="text-right tabular-nums font-semibold">
+                      {previewQ.data.fair_market_years} yrs
+                    </span>
+                    <span className="text-muted">Service tier</span>
+                    <span className="text-right text-xs uppercase">
+                      {previewQ.data.service_tier.replace("_", " ")}
+                    </span>
+                    {previewQ.data.current_annual_salary != null && (
+                      <>
+                        <span className="text-muted">Current salary</span>
+                        <span className="text-right tabular-nums">
+                          ${previewQ.data.current_annual_salary.toLocaleString()}/yr
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <label className="block space-y-1">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+                  Additional years
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={years}
+                  onChange={(e) => setYears(e.target.value)}
+                  className="h-9 w-full rounded-md border border-border bg-canvas/60 px-2 text-sm"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+                  Annual salary
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  step={50000}
+                  value={salary}
+                  onChange={(e) => setSalary(e.target.value)}
+                  placeholder={
+                    previewQ.data
+                      ? `Defaults to current ($${previewQ.data.current_annual_salary?.toLocaleString() ?? ""})`
+                      : "Annual salary $"
+                  }
+                  className="h-9 w-full rounded-md border border-border bg-canvas/60 px-2 text-sm"
+                />
+              </label>
+
+              {/* Player's response on rejection / counter-offer */}
+              {response && (
+                <div
+                  className={cn(
+                    "rounded-md border px-3 py-2 text-xs",
+                    response.decision === "rejected"
+                      ? "border-danger/40 bg-danger/10 text-danger"
+                      : "border-amber/60 bg-amber/10 text-amber-text",
+                  )}
+                >
+                  <div className="font-semibold uppercase tracking-wider">
+                    {response.decision === "rejected"
+                      ? "Player rejected the offer"
+                      : "Player countered"}
+                  </div>
+                  <div className="mt-1 leading-snug">{response.reason}</div>
+                  {response.decision === "countered" && response.counter_salary && (
+                    <button
+                      type="button"
+                      onClick={acceptCounter}
+                      className="mt-2 inline-flex items-center gap-1 rounded border border-amber/60 bg-amber/20 px-2 py-1 text-xs font-semibold uppercase tracking-wider text-amber-text hover:bg-amber/30"
+                    >
+                      Use ${response.counter_salary.toLocaleString()}/yr ×{" "}
+                      {response.counter_years} yrs
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {error && (
+                <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+                  {error}
+                </div>
+              )}
+              <div className="flex justify-end gap-2 pt-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setOpen(false)}
+                  disabled={extendMut.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setResponse(null);
+                    setIneligibility(null);
+                    extendMut.mutate();
+                  }}
+                  disabled={extendMut.isPending || isIneligible || !!ineligibility}
+                  title={
+                    isIneligible || ineligibility
+                      ? "Player isn't open to extension talks right now"
+                      : ""
+                  }
+                >
+                  {extendMut.isPending ? (
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  ) : null}
+                  Submit offer
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </Card>
+  );
 }
 
 function DetailsCard({

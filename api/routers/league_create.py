@@ -193,21 +193,127 @@ def create_league_wizard(
         except Exception:
             pass
 
-    schedule_template_id = str(payload.get("schedule_template_id", "")).strip()
-    if schedule_template_id:
+    # Always generate a schedule so the league is playable the moment
+    # creation finishes. Without this the Season page shows "No
+    # schedule loaded" and the owner has to send an admin to League
+    # Admin → Regenerate Schedule before any sim button works. If the
+    # wizard didn't supply a template id (older client, or someone
+    # POST'd directly), fall back to the standard MLB-162 layout.
+    schedule_template_id = str(payload.get("schedule_template_id", "")).strip() or "mlb_162"
+    schedule_generated = False
+    try:
+        schedule = generate_schedule_from_template(
+            schedule_template_id, structure
+        )
+        save_schedule_from_template(schedule)
+        schedule_generated = True
+    except Exception:
+        if schedule_template_id != "mlb_162":
+            try:
+                schedule = generate_schedule_from_template("mlb_162", structure)
+                save_schedule_from_template(schedule)
+                schedule_generated = True
+            except Exception:
+                pass
+
+    # Mark the preseason "schedule" checklist item complete so the UI
+    # doesn't keep nagging the owner about a missing schedule.
+    if schedule_generated:
         try:
-            schedule = generate_schedule_from_template(
-                schedule_template_id, structure
-            )
-            save_schedule_from_template(schedule)
+            import json as _json
+
+            progress_path = data_dir / "season_progress.json"
+            progress: Dict[str, Any] = {}
+            if progress_path.exists():
+                try:
+                    progress = _json.loads(progress_path.read_text(encoding="utf-8"))
+                    if not isinstance(progress, dict):
+                        progress = {}
+                except Exception:
+                    progress = {}
+            done_block = progress.get("preseason_done") or {}
+            if not isinstance(done_block, dict):
+                done_block = {}
+            done_block["schedule"] = True
+            progress["preseason_done"] = done_block
+            progress_path.write_text(_json.dumps(progress, indent=2), encoding="utf-8")
         except Exception:
             pass
 
     # 5. Settings blocks.
     finance_cfg = payload.get("finance") or {}
-    if isinstance(finance_cfg, dict) and finance_cfg.get("preset"):
+    if isinstance(finance_cfg, dict):
+        # Apply the named preset first so module defaults seed properly,
+        # then layer any per-module / AI tuning overrides on top.
+        if finance_cfg.get("preset"):
+            try:
+                apply_financial_preset(str(finance_cfg["preset"]))
+            except Exception:
+                pass
+        modules_override = finance_cfg.get("modules")
+        ai_override = finance_cfg.get("finance_ai_tuning")
+        enabled_override = finance_cfg.get("enabled")
+        enforcement_override = finance_cfg.get("enforcement_mode")
+        # Only call update_financial_settings when the wizard actually
+        # forwarded overrides — apply_financial_preset above already
+        # covers the simple "preset only" case.
+        if (
+            (isinstance(modules_override, dict) and modules_override)
+            or (isinstance(ai_override, dict) and ai_override)
+            or enabled_override is not None
+            or (enforcement_override and finance_cfg.get("preset") is None)
+        ):
+            try:
+                from services.finance_settings import update_financial_settings
+
+                update_financial_settings(
+                    enabled=(
+                        bool(enabled_override)
+                        if enabled_override is not None
+                        else None
+                    ),
+                    enforcement_mode=(
+                        str(enforcement_override)
+                        if enforcement_override
+                        else None
+                    ),
+                    modules=(
+                        {str(k): str(v) for k, v in modules_override.items()}
+                        if isinstance(modules_override, dict)
+                        else None
+                    ),
+                    finance_ai_tuning=(
+                        {str(k): v for k, v in ai_override.items()}
+                        if isinstance(ai_override, dict)
+                        else None
+                    ),
+                )
+            except Exception:
+                pass
+
+    scouting_cfg = payload.get("scouting") or {}
+    if isinstance(scouting_cfg, dict) and scouting_cfg:
         try:
-            apply_financial_preset(str(finance_cfg["preset"]))
+            from services.scouting_service import update_scouting_settings
+
+            kwargs: Dict[str, Any] = {}
+            if "enabled" in scouting_cfg:
+                kwargs["enabled"] = bool(scouting_cfg.get("enabled"))
+            for key in (
+                "base_monthly_credits",
+                "finance_off_multiplier",
+                "monthly_decay",
+                "passive_gain",
+                "max_banked_credits",
+                "auto_spend_cap",
+            ):
+                if key in scouting_cfg and scouting_cfg[key] is not None:
+                    try:
+                        kwargs[key] = float(scouting_cfg[key])
+                    except (TypeError, ValueError):
+                        continue
+            if kwargs:
+                update_scouting_settings(**kwargs)
         except Exception:
             pass
 

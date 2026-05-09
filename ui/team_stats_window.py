@@ -91,7 +91,7 @@ try:
     from utils.stats_persistence import merge_daily_history as _merge_daily_history  # type: ignore
 except Exception:  # pragma: no cover - optional import
     _merge_daily_history = None  # type: ignore
-from .stat_helpers import (
+from utils.stat_helpers import (
     format_number,
     format_ip,
     batting_summary,

@@ -6,8 +6,10 @@
  * pages; level chip shows where on the org chart they sit.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -38,13 +40,28 @@ const RATING_COLS = ["ch", "ph", "sp", "eye", "fa", "arm"];
 const PITCHER_RATING_COLS = ["fb", "control", "movement", "endurance"];
 
 export function PlayersBrowserPage() {
-  const [search, setSearch] = useState("");
-  const [position, setPosition] = useState("");
-  const [team, setTeam] = useState("");
-  const [role, setRole] = useState<RoleFilter>("All");
-  const [freeOnly, setFreeOnly] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [search, setSearch] = usePersistedState("players-browser:search", "");
+  const [position, setPosition] = usePersistedState(
+    "players-browser:position",
+    "",
+  );
+  const [team, setTeam] = usePersistedState("players-browser:team", "");
+  const [role, setRole] = usePersistedState<RoleFilter>(
+    "players-browser:role",
+    "All",
+  );
+  const [freeOnly, setFreeOnly] = usePersistedState(
+    "players-browser:freeOnly",
+    false,
+  );
+  const [sortKey, setSortKey] = usePersistedState<SortKey>(
+    "players-browser:sortKey",
+    "name",
+  );
+  const [sortDir, setSortDir] = usePersistedState<SortDir>(
+    "players-browser:sortDir",
+    "asc",
+  );
 
   const teams = useQuery({
     queryKey: ["teams"],
@@ -94,33 +111,27 @@ export function PlayersBrowserPage() {
 
   const sorted = useMemo(() => {
     const arr = [...(players.data?.players ?? [])];
-    arr.sort((a, b) => {
-      const av =
-        sortKey === "name"
-          ? `${a.last_name}, ${a.first_name}`
-          : sortKey === "team"
-            ? a.team_id
-            : sortKey === "pos"
-              ? a.primary_position
-              : sortKey === "level"
-                ? a.level
-                : sortKey === "role"
-                  ? a.role
-                  : a.ratings[sortKey];
-      const bv =
-        sortKey === "name"
-          ? `${b.last_name}, ${b.first_name}`
-          : sortKey === "team"
-            ? b.team_id
-            : sortKey === "pos"
-              ? b.primary_position
-              : sortKey === "level"
-                ? b.level
-                : sortKey === "role"
-                  ? b.role
-                  : b.ratings[sortKey];
-      return cmp(av, bv, sortDir);
-    });
+    const valueFor = (
+      p: (typeof arr)[number],
+    ): string | number | null | undefined => {
+      switch (sortKey) {
+        case "name":
+          return `${p.last_name}, ${p.first_name}`;
+        case "team":
+          return p.team_id;
+        case "pos":
+          return p.primary_position;
+        case "level":
+          return p.level;
+        case "role":
+          return p.role;
+        case "overall":
+          return p.overall_display ?? p.overall_raw ?? null;
+        default:
+          return p.ratings[sortKey];
+      }
+    };
+    arr.sort((a, b) => cmp(valueFor(a), valueFor(b), sortDir));
     return arr;
   }, [players.data, sortKey, sortDir]);
 
@@ -229,6 +240,7 @@ export function PlayersBrowserPage() {
                   <Header label="Lvl" keyId="level" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                   <Header label="Pos" keyId="pos" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                   <Header label="Role" keyId="role" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
+                  <Header label="OVR" keyId="overall" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                   {ratingCols.map((c) => (
                     <Header
                       key={c}
@@ -297,6 +309,13 @@ export function PlayersBrowserPage() {
                     <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
                       {p.role || (p.is_pitcher ? "PIT" : "POS")}
                     </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      <OverallCell
+                        display={p.overall_display}
+                        raw={p.overall_raw}
+                        stars={p.overall_stars_text}
+                      />
+                    </td>
                     {ratingCols.map((c) => (
                       <td key={c} className="px-3 py-2 text-right tabular-nums">
                         <RatingCell value={p.ratings[c]} />
@@ -360,6 +379,32 @@ function Header({
         {label}
       </button>
     </th>
+  );
+}
+
+function OverallCell({
+  display,
+  raw,
+  stars,
+}: {
+  display?: number | null;
+  raw?: number | null;
+  stars?: string | null;
+}) {
+  const value = display ?? raw;
+  if (value == null) return <span className="text-subtle">—</span>;
+  const tone =
+    value >= 90
+      ? "text-success"
+      : value >= 75
+        ? "text-amber-text"
+        : value >= 60
+          ? "text-ink"
+          : "text-subtle";
+  return (
+    <span title={stars ? `${stars} stars` : undefined} className={tone}>
+      {Math.round(value)}
+    </span>
   );
 }
 

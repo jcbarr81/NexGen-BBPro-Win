@@ -1,11 +1,8 @@
 /**
- * Pitcher-only roster view. Ports ui/pitchers_window.py — the PyQt dialog
- * that grouped every pitcher on the team by roster level (ACT/AAA/LOW)
- * and split each level into SP / RP tabs with pitcher-specific columns
- * (arm / endurance / control + pitch mix).
+ * Position-player roster view — the hitter-side counterpart to PitchersPage.
  *
- * Reuses the ``/teams/{id}/roster`` payload — the sidecar already returns
- * every player with ratings + is_pitcher + role; we just filter.
+ * Same level tabs (ACT/AAA/LOW), but filters out pitchers and shows
+ * hitter-specific columns. Reuses the ``/teams/{id}/roster`` payload.
  */
 
 import { useMemo, useState } from "react";
@@ -18,9 +15,9 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
-  Flame,
   HeartPulse,
   Loader2,
+  Users,
 } from "lucide-react";
 
 import {
@@ -56,36 +53,19 @@ const LEVEL_LABEL: Record<RosterLevel, string> = {
   IR: "Injured Res.",
 };
 
-// Pitcher stat columns — arm + endurance + control + movement, then pitch mix.
-// Mirrors the fields PyQt surfaced (AS/EN/CO in the label, plus the pitch
-// columns from pitchers_dialog.py). Sort by any column.
 const COLUMNS: Array<{ key: string; label: string }> = [
-  { key: "arm", label: "AS" },
-  { key: "endurance", label: "EN" },
-  { key: "control", label: "CTRL" },
-  { key: "movement", label: "MOV" },
-  { key: "fb", label: "FB" },
-  { key: "sl", label: "SL" },
-  { key: "cu", label: "CU" },
-  { key: "cb", label: "CB" },
-  { key: "si", label: "SI" },
-  { key: "scb", label: "SCB" },
-  { key: "kn", label: "KN" },
+  { key: "ch", label: "CH" },
+  { key: "ph", label: "PH" },
+  { key: "sp", label: "SP" },
+  { key: "eye", label: "EYE" },
+  { key: "fa", label: "FA" },
+  { key: "arm", label: "ARM" },
 ];
 
-type SortKey = "name" | "age" | "role" | "overall" | string;
+type SortKey = "name" | "age" | "pos" | "overall" | "bats" | string;
 type SortDir = "asc" | "desc";
 
-/** PyQt's get_role() fallback: if ``role`` is empty, infer from endurance
- *  — pitchers with endurance > 50 are starters, otherwise relievers. */
-function pitcherRole(p: RosterPlayer): "SP" | "RP" {
-  const stored = (p.role || "").toUpperCase();
-  if (stored === "SP" || stored === "RP") return stored;
-  const endurance = Number(p.ratings.endurance);
-  return Number.isFinite(endurance) && endurance > 50 ? "SP" : "RP";
-}
-
-export function PitchersPage() {
+export function PositionPlayersPage() {
   const user = useAuthStore();
   const teamId = user.selectedTeamId ?? user.teamId ?? null;
 
@@ -106,7 +86,7 @@ export function PitchersPage() {
 
   if (!fallbackTeamId) {
     return (
-      <AppShell title="Pitchers">
+      <AppShell title="Position Players">
         <Card>
           <CardContent className="flex items-center gap-3 py-10">
             {teams.isLoading ? (
@@ -128,15 +108,15 @@ export function PitchersPage() {
 
   return (
     <AppShell
-      title="Pitchers"
-      subtitle={`Team ${fallbackTeamId} · staff overview`}
+      title="Position Players"
+      subtitle={`Team ${fallbackTeamId} · hitters by level`}
       teamAccentColor={teamAccentColor}
     >
       {roster.isLoading ? (
         <Card>
           <CardContent className="flex items-center gap-3 py-10">
             <Loader2 className="h-5 w-5 animate-spin text-amber" />
-            <span className="text-sm text-muted">Loading staff…</span>
+            <span className="text-sm text-muted">Loading roster…</span>
           </CardContent>
         </Card>
       ) : roster.isError ? (
@@ -147,15 +127,15 @@ export function PitchersPage() {
           </CardContent>
         </Card>
       ) : roster.data ? (
-        <PitcherTabs roster={roster.data} />
+        <PositionTabs roster={roster.data} />
       ) : null}
     </AppShell>
   );
 }
 
-function PitcherTabs({ roster }: { roster: TeamRoster }) {
+function PositionTabs({ roster }: { roster: TeamRoster }) {
   const [level, setLevel] = usePersistedState<RosterLevel>(
-    "pitchers:level",
+    "position-players:level",
     "ACT",
   );
   return (
@@ -163,7 +143,7 @@ function PitcherTabs({ roster }: { roster: TeamRoster }) {
       <TabsList>
         {LEVEL_ORDER.map((level) => {
           const count = (roster.levels[level] ?? []).filter(
-            (p) => p.is_pitcher,
+            (p) => !p.is_pitcher,
           ).length;
           return (
             <TabsTrigger key={level} value={level}>
@@ -177,9 +157,11 @@ function PitcherTabs({ roster }: { roster: TeamRoster }) {
       </TabsList>
       {LEVEL_ORDER.map((level) => (
         <TabsContent key={level} value={level}>
-          <LevelPitcherTabs
+          <PositionTable
             level={level}
-            pitchers={(roster.levels[level] ?? []).filter((p) => p.is_pitcher)}
+            players={(roster.levels[level] ?? []).filter(
+              (p) => !p.is_pitcher,
+            )}
           />
         </TabsContent>
       ))}
@@ -187,78 +169,20 @@ function PitcherTabs({ roster }: { roster: TeamRoster }) {
   );
 }
 
-function LevelPitcherTabs({
+function PositionTable({
   level,
-  pitchers,
+  players,
 }: {
   level: RosterLevel;
-  pitchers: RosterPlayer[];
+  players: RosterPlayer[];
 }) {
-  const [role, setRole] = usePersistedState<"SP" | "RP">(
-    "pitchers:role",
-    "SP",
-  );
-  const byRole = useMemo(() => {
-    const sp: RosterPlayer[] = [];
-    const rp: RosterPlayer[] = [];
-    for (const p of pitchers) {
-      if (pitcherRole(p) === "SP") sp.push(p);
-      else rp.push(p);
-    }
-    return { SP: sp, RP: rp };
-  }, [pitchers]);
-
-  if (pitchers.length === 0) {
-    return (
-      <Card className="mt-4">
-        <CardContent className="flex items-center gap-3 py-10">
-          <Flame className="h-5 w-5 text-muted" />
-          <span className="text-sm text-muted">
-            No pitchers on {LEVEL_LABEL[level]}.
-          </span>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Tabs
-      value={role}
-      onValueChange={(v) => setRole(v as "SP" | "RP")}
-      className="mt-3"
-    >
-      <TabsList>
-        <TabsTrigger value="SP">
-          Starting Pitchers
-          <Badge tone="neutral" className="ml-2">
-            {byRole.SP.length}
-          </Badge>
-        </TabsTrigger>
-        <TabsTrigger value="RP">
-          Relief Pitchers
-          <Badge tone="neutral" className="ml-2">
-            {byRole.RP.length}
-          </Badge>
-        </TabsTrigger>
-      </TabsList>
-      <TabsContent value="SP">
-        <PitcherTable players={byRole.SP} />
-      </TabsContent>
-      <TabsContent value="RP">
-        <PitcherTable players={byRole.RP} />
-      </TabsContent>
-    </Tabs>
-  );
-}
-
-function PitcherTable({ players }: { players: RosterPlayer[] }) {
   const navigate = useNavigate();
   const [sortKey, setSortKey] = usePersistedState<SortKey>(
-    "pitchers:sortKey",
+    "position-players:sortKey",
     "overall",
   );
   const [sortDir, setSortDir] = usePersistedState<SortDir>(
-    "pitchers:sortDir",
+    "position-players:sortDir",
     "desc",
   );
 
@@ -294,8 +218,11 @@ function PitcherTable({ players }: { players: RosterPlayer[] }) {
   if (players.length === 0) {
     return (
       <Card className="mt-4">
-        <CardContent className="py-10 text-sm text-muted">
-          No pitchers in this role.
+        <CardContent className="flex items-center gap-3 py-10">
+          <Users className="h-5 w-5 text-muted" />
+          <span className="text-sm text-muted">
+            No position players on {LEVEL_LABEL[level]}.
+          </span>
         </CardContent>
       </Card>
     );
@@ -305,7 +232,7 @@ function PitcherTable({ players }: { players: RosterPlayer[] }) {
     <Card className="mt-4">
       <CardHeader>
         <div>
-          <CardTitle>{players.length} pitchers</CardTitle>
+          <CardTitle>{players.length} hitters</CardTitle>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -329,8 +256,8 @@ function PitcherTable({ players }: { players: RosterPlayer[] }) {
                   onClick={toggleSort}
                 />
                 <HeaderCell
-                  label="Role"
-                  keyId="role"
+                  label="Pos"
+                  keyId="pos"
                   sortKey={sortKey}
                   sortDir={sortDir}
                   onClick={toggleSort}
@@ -397,13 +324,7 @@ function PitcherTable({ players }: { players: RosterPlayer[] }) {
                     {p.age ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
-                    {pitcherRole(p)}
-                    {p.preferred_pitching_role &&
-                    p.preferred_pitching_role.toUpperCase() !== pitcherRole(p) ? (
-                      <span className="ml-1 text-[10px] text-muted">
-                        ({p.preferred_pitching_role})
-                      </span>
-                    ) : null}
+                    {p.primary_position || "—"}
                   </td>
                   <td className="px-3 py-2 text-right text-xs">
                     {p.bats || "—"}/{p.throws || "—"}
@@ -435,10 +356,10 @@ function sortValue(p: RosterPlayer, key: SortKey): string | number | null {
       return `${p.last_name}, ${p.first_name}`;
     case "age":
       return p.age ?? null;
-    case "role":
-      return pitcherRole(p);
+    case "pos":
+      return p.primary_position ?? "";
     case "bats":
-      return p.bats;
+      return p.bats ?? "";
     case "overall":
       return p.overall_display ?? p.overall_raw ?? null;
     default: {
@@ -497,39 +418,19 @@ function OverallCell({ player }: { player: RosterPlayer }) {
   const stars = parseFloat(player.overall_stars_text ?? "");
   return (
     <div className="inline-flex flex-col items-end gap-0.5">
-      <span
-        className={cn(
-          "font-display font-semibold tabular-nums",
-          display >= 85
-            ? "text-success"
-            : display >= 70
-            ? "text-amber-text"
-            : display >= 50
-            ? "text-ink"
-            : "text-subtle",
-        )}
-      >
-        {Math.round(display)}
-      </span>
-      {Number.isFinite(stars) && stars > 0 && (
-        <StarRating value={stars} size="h-2.5 w-2.5" />
+      <span className="font-semibold tabular-nums">{display}</span>
+      {Number.isFinite(stars) && (
+        <StarRating stars={stars} size="xs" />
       )}
     </div>
   );
 }
 
-function RatingCell({ value }: { value: number | string | null | undefined }) {
-  if (value == null || value === "" || value === 0)
+function RatingCell({ value }: { value: unknown }) {
+  if (value == null || value === "") {
     return <span className="text-subtle">—</span>;
+  }
   const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n)) return <>{String(value)}</>;
-  const tone =
-    n >= 85
-      ? "text-success"
-      : n >= 70
-      ? "text-amber-text"
-      : n >= 50
-      ? "text-ink"
-      : "text-subtle";
-  return <span className={tone}>{Math.round(n)}</span>;
+  if (!Number.isFinite(n)) return <span>{String(value)}</span>;
+  return <span>{Math.round(n)}</span>;
 }

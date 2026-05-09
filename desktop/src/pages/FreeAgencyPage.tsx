@@ -8,6 +8,8 @@
  */
 
 import { FormEvent, useMemo, useState } from "react";
+
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -21,7 +23,13 @@ import {
   Users,
 } from "lucide-react";
 
-import { api, type RatingContextEntry } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  type ExtensionEvaluation,
+  type FreeAgentSignRejection,
+  type RatingContextEntry,
+} from "@/lib/api";
 import { toast } from "@/lib/toast-store";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
@@ -89,12 +97,24 @@ function writePositionContextPref(value: boolean) {
 export function FreeAgencyPage() {
   const user = useAuthStore();
   const teamId = user.selectedTeamId ?? user.teamId ?? null;
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
-  const [position, setPosition] = useState<string>("");
+  const [search, setSearch] = usePersistedState("free-agency:search", "");
+  const [filter, setFilter] = usePersistedState<Filter>(
+    "free-agency:filter",
+    "all",
+  );
+  const [position, setPosition] = usePersistedState<string>(
+    "free-agency:position",
+    "",
+  );
   const [signing, setSigning] = useState<FreeAgent | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortKey, setSortKey] = usePersistedState<SortKey>(
+    "free-agency:sortKey",
+    "name",
+  );
+  const [sortDir, setSortDir] = usePersistedState<SortDir>(
+    "free-agency:sortDir",
+    "asc",
+  );
   const [positionContext, setPositionContextState] = useState(readPositionContextPref);
   const setPositionContext = (value: boolean) => {
     setPositionContextState(value);
@@ -350,39 +370,90 @@ function SignDialog({
 }) {
   const queryClient = useQueryClient();
   const [level, setLevel] = useState<"ACT" | "AAA" | "LOW">("ACT");
+  const [years, setYears] = useState("3");
+  const [salary, setSalary] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [response, setResponse] = useState<ExtensionEvaluation | null>(null);
+  const [windowClosed, setWindowClosed] = useState<string | null>(null);
+
+  // Live preview: fair-market estimate + competing CPU bids. Refreshes
+  // when the user edits years/salary so they can see how their offer
+  // stacks up before submitting.
+  const previewQ = useQuery({
+    queryKey: ["fa-offer-preview", player?.player_id, years, salary],
+    queryFn: () =>
+      api.evaluateFreeAgentOffer(player!.player_id, {
+        years: Number(years) || 1,
+        annual_salary: salary ? Number(salary) : undefined,
+      }),
+    enabled: !!player,
+  });
 
   const sign = useMutation({
-    // The in-dialog error line + dismissal UX is already wired, so
-    // silence the auto-toast and keep the inline message alone.
+    // The in-dialog response handles success + failure inline.
     meta: { suppressToast: true },
     mutationFn: () => {
       if (!player || !teamId) return Promise.reject(new Error("No team"));
       return api.signFreeAgent(teamId, {
         player_id: player.player_id,
         level,
+        years: Number(years) || 1,
+        annual_salary: salary ? Number(salary) : undefined,
       });
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setError(null);
+      setResponse(null);
       queryClient.invalidateQueries({ queryKey: ["free-agents"] });
       queryClient.invalidateQueries({ queryKey: ["team-roster"] });
       queryClient.invalidateQueries({ queryKey: ["activity"] });
+      queryClient.invalidateQueries({ queryKey: ["contracts"] });
       const name = player
         ? `${player.first_name} ${player.last_name}`.trim() || player.player_id
         : "Player";
       toast.success(`Signed ${name}`, {
-        description: `Assigned to ${level}.`,
+        description: `${data.years}yr × $${data.annual_salary.toLocaleString()} → ${level}.`,
       });
       onClose();
     },
-    onError: (err) =>
-      setError(err instanceof Error ? err.message : "Sign failed."),
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 409) {
+        const body = err.body as { detail?: FreeAgentSignRejection } | undefined;
+        const detail = body?.detail;
+        if (detail?.code === "fa_window_closed") {
+          setWindowClosed(detail.message);
+          setResponse(null);
+          setError(null);
+          return;
+        }
+        if (detail?.negotiation) {
+          setResponse(detail.negotiation);
+          setError(null);
+          setWindowClosed(null);
+          return;
+        }
+      }
+      setResponse(null);
+      setWindowClosed(null);
+      setError(err instanceof Error ? err.message : "Sign failed.");
+    },
   });
 
   function handleSubmit(ev: FormEvent<HTMLFormElement>) {
     ev.preventDefault();
+    setResponse(null);
     sign.mutate();
+  }
+
+  function acceptCounter() {
+    if (!response) return;
+    if (response.counter_salary != null) {
+      setSalary(String(response.counter_salary));
+    }
+    if (response.counter_years != null) {
+      setYears(String(response.counter_years));
+    }
+    setResponse(null);
   }
 
   return (
@@ -390,14 +461,101 @@ function SignDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            Sign {player?.last_name}
+            Negotiate with {player?.last_name}
             {player?.first_name ? `, ${player.first_name}` : ""}
           </DialogTitle>
           <DialogDescription>
-            Adds the player to {teamId ?? "—"} at the chosen roster level.
+            Make an offer. The player evaluates it against market value
+            and competing bids before deciding.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+
+        {/* Phase-gate banner — replaces the rest of the form when the
+            FA window is closed. */}
+        {(windowClosed || previewQ.data?.phase_gate) && (
+          <div className="rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-xs text-warning">
+            <div className="font-semibold uppercase tracking-wider">
+              FA market closed
+            </div>
+            <div className="mt-1 leading-snug">
+              {windowClosed ?? previewQ.data?.phase_gate?.message}
+            </div>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {previewQ.data && !previewQ.data.phase_gate && (
+            <div className="rounded-md border border-border bg-surfaceAlt/40 px-3 py-2 text-xs">
+              <div className="font-semibold uppercase tracking-wider text-muted">
+                Market estimate
+              </div>
+              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                <span className="text-muted">Fair salary</span>
+                <span className="text-right tabular-nums font-semibold">
+                  ${previewQ.data.fair_market_salary.toLocaleString()}/yr
+                </span>
+                <span className="text-muted">Fair length</span>
+                <span className="text-right tabular-nums font-semibold">
+                  {previewQ.data.fair_market_years} yrs
+                </span>
+                <span className="text-muted">Service tier</span>
+                <span className="text-right text-xs uppercase">
+                  {previewQ.data.service_tier.replace("_", " ")}
+                </span>
+              </div>
+              {previewQ.data.competing_bids.length > 0 && (
+                <div className="mt-2 border-t border-border/60 pt-2">
+                  <div className="font-semibold uppercase tracking-wider text-muted">
+                    Competing bids
+                  </div>
+                  <ul className="mt-1 space-y-0.5">
+                    {previewQ.data.competing_bids.map((b) => (
+                      <li
+                        key={b.team_id}
+                        className="flex items-center justify-between"
+                      >
+                        <span className="font-mono text-xs">{b.team_id}</span>
+                        <span className="tabular-nums">
+                          ${b.salary.toLocaleString()}/yr
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="fa-years">Years</Label>
+              <Input
+                id="fa-years"
+                type="number"
+                min={1}
+                max={10}
+                value={years}
+                onChange={(e) => setYears(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="fa-salary">Annual salary</Label>
+              <Input
+                id="fa-salary"
+                type="number"
+                min={0}
+                step={50000}
+                value={salary}
+                onChange={(e) => setSalary(e.target.value)}
+                placeholder={
+                  previewQ.data
+                    ? `Defaults to fair market`
+                    : "$"
+                }
+              />
+            </div>
+          </div>
+
           <div className="space-y-1.5">
             <Label>Roster level</Label>
             <div className="flex rounded-lg border border-border bg-surfaceAlt p-1">
@@ -418,18 +576,56 @@ function SignDialog({
               ))}
             </div>
           </div>
+
+          {/* Player's response — counter-offer or rejection. */}
+          {response && (
+            <div
+              className={cn(
+                "rounded-md border px-3 py-2 text-xs",
+                response.decision === "rejected"
+                  ? "border-danger/40 bg-danger/10 text-danger"
+                  : "border-amber/60 bg-amber/10 text-amber-text",
+              )}
+            >
+              <div className="font-semibold uppercase tracking-wider">
+                {response.decision === "rejected"
+                  ? "Player rejected the offer"
+                  : "Player countered"}
+              </div>
+              <div className="mt-1 leading-snug">{response.reason}</div>
+              {response.decision === "countered" && response.counter_salary && (
+                <button
+                  type="button"
+                  onClick={acceptCounter}
+                  className="mt-2 inline-flex items-center gap-1 rounded border border-amber/60 bg-amber/20 px-2 py-1 text-xs font-semibold uppercase tracking-wider text-amber-text hover:bg-amber/30"
+                >
+                  Use ${response.counter_salary.toLocaleString()}/yr ×{" "}
+                  {response.counter_years} yrs
+                </button>
+              )}
+            </div>
+          )}
+
           {error && (
             <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
               {error}
             </p>
           )}
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={sign.isPending || !teamId}>
+            <Button
+              type="submit"
+              disabled={
+                sign.isPending ||
+                !teamId ||
+                !!windowClosed ||
+                !!previewQ.data?.phase_gate
+              }
+            >
               {sign.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Sign
+              Submit offer
             </Button>
           </div>
         </form>

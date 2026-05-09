@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(.venv2/Scripts/python.exe -m pytest tests/ -q --ignore=tests/test_auto_tune_solver.py --ignore=tests/test_schedule_windows.py)"
+      "Bash(.venv2/Scripts/python.exe -m pytest tests/ -q --ignore=tests/test_auto_tune_solver.py --ignore=tests/test_schedule_windows.py)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File \"c:\\\\Users\\\\james\\\\Documents\\\\Baseball-AI\\\\NexGen-BBPro\\\\desktop\\\\scripts\\\\build-release.ps1\")"
     ]
   }
 }

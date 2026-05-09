@@ -28,6 +28,9 @@ const RosterPage = lazy(() =>
 const PitchersPage = lazy(() =>
   named("PitchersPage", () => import("@/pages/PitchersPage")),
 );
+const PositionPlayersPage = lazy(() =>
+  named("PositionPlayersPage", () => import("@/pages/PositionPlayersPage")),
+);
 const ComparePage = lazy(() =>
   named("ComparePage", () => import("@/pages/ComparePage")),
 );
@@ -51,6 +54,15 @@ const PlayoffsPage = lazy(() =>
 );
 const FinancePage = lazy(() =>
   named("FinancePage", () => import("@/pages/FinancePage")),
+);
+const ContractsPage = lazy(() =>
+  named("ContractsPage", () => import("@/pages/ContractsPage")),
+);
+const AwardsPage = lazy(() =>
+  named("AwardsPage", () => import("@/pages/AwardsPage")),
+);
+const AllStarPage = lazy(() =>
+  named("AllStarPage", () => import("@/pages/AllStarPage")),
 );
 const AdminUsersPage = lazy(() =>
   named("AdminUsersPage", () => import("@/pages/AdminUsersPage")),
@@ -275,6 +287,14 @@ export default function App() {
           }
         />
         <Route
+          path="/position-players"
+          element={
+            <RequireLeague>
+              <PositionPlayersPage />
+            </RequireLeague>
+          }
+        />
+        <Route
           path="/lineup"
           element={
             <RequireLeague>
@@ -471,6 +491,30 @@ export default function App() {
           element={
             <RequireLeague>
               <FinancePage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/contracts"
+          element={
+            <RequireLeague>
+              <ContractsPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/awards"
+          element={
+            <RequireLeague>
+              <AwardsPage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/all-star"
+          element={
+            <RequireLeague>
+              <AllStarPage />
             </RequireLeague>
           }
         />

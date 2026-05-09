@@ -177,7 +177,7 @@ def _alignment(*names: str):
             return None
         value |= flag
     return value
-from .stat_helpers import (
+from utils.stat_helpers import (
     format_number,
     format_ip,
     batting_summary,

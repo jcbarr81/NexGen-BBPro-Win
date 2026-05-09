@@ -324,4 +324,28 @@ def get_player_profile(
                 and len(row) >= 1
                 and str(row[0]).strip().lower() not in {"raw", "displayed"}
             ]
+
+    # Inject this year's spring training deltas (if any) so the career
+    # ledger can render "(+x)" hints next to the most-recent rating row.
+    try:
+        import json as _json
+
+        from utils.path_utils import get_data_dir
+
+        deltas_path = get_data_dir() / "spring_training_last.json"
+        if deltas_path.exists():
+            try:
+                blob = _json.loads(deltas_path.read_text(encoding="utf-8"))
+            except Exception:
+                blob = {}
+            entry = (blob.get("players") or {}).get(player_id) if isinstance(blob, dict) else None
+            if isinstance(entry, dict):
+                payload["spring_training_gains"] = {
+                    "year": blob.get("year"),
+                    "focus": entry.get("focus"),
+                    "changes": entry.get("changes") or {},
+                }
+    except Exception:
+        pass
+
     return payload

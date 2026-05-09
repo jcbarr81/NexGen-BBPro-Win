@@ -135,15 +135,19 @@ def team_stats(team_id: str) -> Dict[str, Any]:
     except OSError:
         all_meta = {}
 
-    # Restrict to players currently rostered by the target team. We read the
-    # roster CSVs directly rather than going through the full loader, so this
-    # stays cheap even for deep farm systems.
+    # Restrict to players currently rostered by the target team. Roster
+    # CSVs are written headerless by ``utils.roster_io.write_roster_csv``
+    # as ``[player_id, level]`` rows — DictReader would treat the first
+    # data row as the header and quietly return empty player_ids for
+    # every subsequent row.
     roster_ids: set[str] = set()
     roster_path = get_data_dir() / "rosters" / f"{team_id}.csv"
     try:
         with roster_path.open("r", encoding="utf-8", newline="") as handle:
-            for row in csv.DictReader(handle):
-                pid = (row.get("player_id") or "").strip()
+            for row in csv.reader(handle):
+                if not row:
+                    continue
+                pid = (row[0] or "").strip()
                 if pid:
                     roster_ids.add(pid)
     except OSError:

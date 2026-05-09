@@ -174,9 +174,6 @@ def autofill_pitching_staff_endpoint(team_id: str) -> Dict[str, Any]:
 
     from .validation import load_players_map
 
-    # ``load_team_levels`` in validation.py uses DictReader and expects a
-    # header row, which the per-team roster CSVs don't have. Use the
-    # canonical loader instead so we get the actual ACT roster.
     try:
         roster_obj = load_roster(team_id)
     except Exception as exc:

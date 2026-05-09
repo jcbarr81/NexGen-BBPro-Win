@@ -202,10 +202,17 @@ function PreviewPane({ park }: { park: Park }) {
           </div>
         )}
       </div>
-      <div className="flex flex-1 items-center justify-center p-3">
+      {/* min-h-0 + overflow-hidden lets the flex child actually respect
+          max-h-full on the image — without it the parent's intrinsic
+          content size wins and the diagram overflows the card. */}
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
         {status === "loading" && <Loader2 className="h-5 w-5 animate-spin text-amber" />}
         {status === "ready" && imgUrl && (
-          <img src={imgUrl} alt={park.name} className="max-h-full max-w-full rounded-md" />
+          <img
+            src={imgUrl}
+            alt={park.name}
+            className="max-h-full max-w-full rounded-md object-contain"
+          />
         )}
         {status === "none" && (
           <div className="text-xs text-muted">No preview available.</div>

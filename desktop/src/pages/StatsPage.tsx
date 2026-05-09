@@ -19,6 +19,7 @@ import {
 
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Card,
@@ -39,6 +40,10 @@ export function StatsPage() {
     queryKey: ["league-stats"],
     queryFn: () => api.leagueStats(),
   });
+  const [tab, setTab] = usePersistedState<"batters" | "pitchers" | "teams">(
+    "stats:tab",
+    "batters",
+  );
 
   return (
     <AppShell title="League Stats" subtitle="Per-player + team season totals">
@@ -47,7 +52,12 @@ export function StatsPage() {
       ) : stats.isError ? (
         <ErrorCard message={(stats.error as Error).message} />
       ) : stats.data ? (
-        <Tabs defaultValue="batters">
+        <Tabs
+          value={tab}
+          onValueChange={(v) =>
+            setTab(v as "batters" | "pitchers" | "teams")
+          }
+        >
           <TabsList>
             <TabsTrigger value="batters">
               Batters · {stats.data.batters.length}
@@ -62,6 +72,7 @@ export function StatsPage() {
 
           <TabsContent value="batters">
             <PlayerStatsTable
+              storageKey="stats:batters"
               rows={stats.data.batters}
               columns={stats.data.columns.batters}
               defaultSort="hr"
@@ -69,6 +80,7 @@ export function StatsPage() {
           </TabsContent>
           <TabsContent value="pitchers">
             <PlayerStatsTable
+              storageKey="stats:pitchers"
               rows={stats.data.pitchers}
               columns={stats.data.columns.pitchers}
               defaultSort="era"
@@ -77,6 +89,7 @@ export function StatsPage() {
           </TabsContent>
           <TabsContent value="teams">
             <TeamStatsTable
+              storageKey="stats:teams"
               rows={stats.data.teams}
               columns={stats.data.columns.teams}
             />
@@ -97,19 +110,27 @@ interface PlayerRow {
 }
 
 function PlayerStatsTable({
+  storageKey,
   rows,
   columns,
   defaultSort,
   defaultSortDir = "desc",
 }: {
+  storageKey: string;
   rows: PlayerRow[];
   columns: string[];
   defaultSort: string;
   defaultSortDir?: SortDir;
 }) {
-  const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<string>(defaultSort);
-  const [sortDir, setSortDir] = useState<SortDir>(defaultSortDir);
+  const [search, setSearch] = usePersistedState(`${storageKey}:search`, "");
+  const [sortKey, setSortKey] = usePersistedState<string>(
+    `${storageKey}:sortKey`,
+    defaultSort,
+  );
+  const [sortDir, setSortDir] = usePersistedState<SortDir>(
+    `${storageKey}:sortDir`,
+    defaultSortDir,
+  );
 
   const filtered = useMemo(() => {
     let r = rows;
@@ -209,14 +230,22 @@ function PlayerStatsTable({
 }
 
 function TeamStatsTable({
+  storageKey,
   rows,
   columns,
 }: {
+  storageKey: string;
   rows: Array<{ team_id: string; stats: Record<string, number | string | null> }>;
   columns: string[];
 }) {
-  const [sortKey, setSortKey] = useState<string>("w");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [sortKey, setSortKey] = usePersistedState<string>(
+    `${storageKey}:sortKey`,
+    "w",
+  );
+  const [sortDir, setSortDir] = usePersistedState<SortDir>(
+    `${storageKey}:sortDir`,
+    "desc",
+  );
 
   const sorted = useMemo(() => {
     const arr = [...rows];

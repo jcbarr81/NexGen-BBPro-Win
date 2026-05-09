@@ -17,6 +17,11 @@ _LEAGUE_REGISTRY_FILENAME = "league_registry.json"
 _ACTIVE_LEAGUE_FILENAME = "active_league.txt"
 _MINIMAL_DATA_FILES = (
     "names.csv",
+    # Reference player pool seeded into the user data dir on first run
+    # so the player generator has real per-stat distributions to sample
+    # from (otherwise eye/fa/arm/gf/pl/vl/sc fall back to 50 ± 2.5 jitter
+    # and no one in a newly-created league ever shows a real spread).
+    "players.csv",
     "ballparks.py",
     "draft_config.json",
     "injury_catalog.json",

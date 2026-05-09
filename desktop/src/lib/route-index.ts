@@ -28,6 +28,7 @@ import {
   Command,
   Crown,
   DollarSign,
+  FileText,
   Flame,
   Gavel,
   GraduationCap,
@@ -47,6 +48,7 @@ import {
   Shuffle,
   Sliders,
   Snowflake,
+  Star,
   Swords,
   Target,
   Trophy,
@@ -69,6 +71,10 @@ export interface RouteMeta {
   Icon: ComponentType<SVGProps<SVGSVGElement>>;
   /** Hub the route belongs to — drives breadcrumb middle segment + hub-card grouping. */
   hub: HubKey;
+  /** Additional hubs to surface this route on, beyond the primary `hub`.
+   *  Useful when a page (e.g. /schedule) is logically owned by one hub
+   *  but practically wanted on another. */
+  extraHubs?: HubKey[];
   /** Admin role required to use the page. */
   adminOnly?: boolean;
   /** Capability predicate — finance/multi-owner/phase gating. */
@@ -117,6 +123,7 @@ export const ROUTE_INDEX: RouteMeta[] = [
   // My Team
   { path: "/roster", label: "Roster", description: "ACT/AAA/LOW + DL/IR — moves, drag-and-drop", Icon: ClipboardList, hub: "my-team" },
   { path: "/pitchers", label: "Pitchers", description: "All pitchers split by SP / RP", Icon: Flame, hub: "my-team" },
+  { path: "/position-players", label: "Position Players", description: "Hitters by level with rating columns", Icon: Users, hub: "my-team" },
   { path: "/lineup", label: "Lineup", description: "Batting orders + pitching staff", Icon: ListOrdered, hub: "my-team" },
   { path: "/depth-chart", label: "Depth Chart", description: "Per-position priority + auto-generate", Icon: Layers, hub: "my-team" },
   { path: "/training", label: "Training", description: "Hitter + pitcher focus allocations", Icon: Target, hub: "my-team" },
@@ -124,6 +131,7 @@ export const ROUTE_INDEX: RouteMeta[] = [
   { path: "/notifications", label: "Notifications", description: "Stop-sim rules + recent events", Icon: Bell, hub: "my-team" },
   { path: "/my-team-stats", label: "Team Stats", description: "Batting, pitching, and team totals for your team", Icon: BarChart3, hub: "my-team" },
   { path: "/finance", label: "Finance", description: "Cash, debt, payroll, projections", Icon: DollarSign, hub: "my-team", capability: "finance" },
+  { path: "/contracts", label: "Contracts", description: "League-wide contract tracker — expirations, arb, options", Icon: FileText, hub: "my-team", extraHubs: ["league"] },
   { path: "/settings", label: "Team Settings", description: "Branding, ballpark, strategy profile", Icon: Settings, hub: "my-team" },
 
   // League
@@ -132,10 +140,12 @@ export const ROUTE_INDEX: RouteMeta[] = [
   { path: "/stats", label: "Stats", description: "Full team + league stats tables", Icon: BarChart3, hub: "league" },
   { path: "/players", label: "Players", description: "Searchable league directory", Icon: UserSearch, hub: "league" },
   { path: "/teams", label: "Teams", description: "Every team's overview card", Icon: Users, hub: "league" },
-  { path: "/schedule", label: "Schedule", description: "Calendar view of every game", Icon: Calendar, hub: "league" },
+  { path: "/schedule", label: "Schedule", description: "Calendar view of every game", Icon: Calendar, hub: "league", extraHubs: ["my-team"] },
   { path: "/playoffs", label: "Playoffs", description: "Bracket + series results", Icon: Crown, hub: "league" },
   { path: "/history", label: "History", description: "Past champions, MVPs, archives", Icon: Archive, hub: "league" },
   { path: "/hall-of-fame", label: "Hall of Fame", description: "Inductees + current candidates", Icon: Medal, hub: "league" },
+  { path: "/awards", label: "Awards", description: "Season MVP / Cy Young / ROY winners by year", Icon: Trophy, hub: "league" },
+  { path: "/all-star", label: "All-Star Game", description: "Mid-season exhibition rosters, score, and MVP", Icon: Star, hub: "league" },
   { path: "/records", label: "Records", description: "Single-season + career record book", Icon: BookOpen, hub: "league" },
   { path: "/parks", label: "Ballparks", description: "Stadium catalog + diagrams", Icon: Building2, hub: "league" },
 
@@ -183,5 +193,7 @@ export function findRouteMeta(pathname: string): RouteMeta | null {
 }
 
 export function routesForHub(hub: HubKey): RouteMeta[] {
-  return ROUTE_INDEX.filter((m) => m.hub === hub);
+  return ROUTE_INDEX.filter(
+    (m) => m.hub === hub || (m.extraHubs && m.extraHubs.includes(hub)),
+  );
 }

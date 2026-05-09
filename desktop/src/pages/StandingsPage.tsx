@@ -157,6 +157,9 @@ function DivisionCard({
               <HeaderCell label="RD" keyId="run_diff" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
               <HeaderCell label="Strk" keyId="streak" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
               <HeaderCell label="L10" keyId="last10" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
+              <th className="select-none px-3 py-2 text-right font-semibold text-muted">
+                Mag/E
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -204,7 +207,10 @@ function DivisionCard({
                   {team.run_diff > 0 ? `+${team.run_diff}` : team.run_diff}
                 </td>
                 <td className="px-2 py-2 text-right tabular-nums">{team.streak}</td>
-                <td className="px-6 py-2 text-right tabular-nums">{team.last10}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{team.last10}</td>
+                <td className="px-3 py-2 text-right">
+                  <StatusCell team={team} />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -212,6 +218,46 @@ function DivisionCard({
       </CardContent>
     </Card>
   );
+}
+
+function StatusCell({ team }: { team: LeagueStandingsRow }) {
+  const status = team.status;
+  const magic = team.magic_number;
+  if (status === "clinched_division") {
+    return (
+      <Badge tone="success" className="text-[10px]">
+        Clinched
+      </Badge>
+    );
+  }
+  if (status === "eliminated") {
+    return (
+      <Badge tone="danger" className="text-[10px]">
+        Eliminated
+      </Badge>
+    );
+  }
+  if (status === "leader" && typeof magic === "number" && magic > 0) {
+    return (
+      <span
+        className="text-xs font-semibold tabular-nums text-success"
+        title="Magic number to clinch the division"
+      >
+        M{magic}
+      </span>
+    );
+  }
+  if (status === "in_race" && typeof magic === "number" && magic > 0) {
+    return (
+      <span
+        className="text-xs tabular-nums text-muted"
+        title="Elimination number — leader wins + this team's losses needed to put them out"
+      >
+        E{magic}
+      </span>
+    );
+  }
+  return <span className="text-xs text-subtle">—</span>;
 }
 
 function sortValue(

@@ -177,10 +177,32 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
     _refresh_season_stats(player)
     team_id = _resolve_team_id(player)
     is_pitcher = _is_pitcher(player)
-    overall_raw = getattr(player, "overall", None)
-    if not isinstance(overall_raw, (int, float)):
-        overall_raw = _estimate_overall_rating(player, is_pitcher=is_pitcher)
-    displayed_overall = _display_overall_base(overall_raw, player)
+    # Route through ``api.routers._rating_presentation.compute_overall``
+    # so the profile's headline OVR matches what the list views show
+    # (top-N + position-weighted blend of the *displayed* ratings).
+    # Fall back to the legacy raw average if compute_overall isn't
+    # importable (keeps the PyQt-only path working in isolation).
+    overall_raw: Optional[int] = None
+    displayed_overall: Optional[float] = None
+    try:
+        from api.routers._rating_presentation import compute_overall as _compute
+
+        result = _compute(
+            lambda key: getattr(player, key, None),
+            is_pitcher=is_pitcher,
+            position=getattr(player, "primary_position", None),
+        )
+        overall_raw = result.get("overall_raw")
+        if result.get("overall_display") is not None:
+            displayed_overall = float(result["overall_display"])
+    except Exception:
+        overall_raw = None
+    if overall_raw is None:
+        overall_raw = getattr(player, "overall", None)
+        if not isinstance(overall_raw, (int, float)):
+            overall_raw = _estimate_overall_rating(player, is_pitcher=is_pitcher)
+    if displayed_overall is None:
+        displayed_overall = _display_overall_base(overall_raw, player)
     overall_display = _apply_scouting_adjustment(displayed_overall, player)
     if overall_display is None:
         overall_display = displayed_overall

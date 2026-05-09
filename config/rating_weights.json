@@ -1,5 +1,7 @@
 {
-  "_comment": "Per-position weights used by api.routers._rating_presentation.compute_overall to weight the *displayed* (already percentile-scaled) hitter ratings into a single OVR. Pitchers use their existing pitch-mix-aware formula and ignore this file. Edit and the change takes effect on the next request — no rebuild required.",
+  "_comment": "Hitter OVR is computed from the *displayed* (already percentile-scaled) ratings. Two formulas are blended: (a) average of the top-N displayed ratings — rewards specialists with elite skills, and (b) position-weighted average — keeps positional context. ``top_n`` controls how many of the player's best stats roll into the headline. Pitchers use their existing pitch-mix-aware formula and ignore this file. Edit and the change takes effect on the next request — no rebuild required.",
+  "top_n": 4,
+  "top_n_blend": 0.65,
   "_keys_legend": {
     "ch": "Contact",
     "ph": "Power",

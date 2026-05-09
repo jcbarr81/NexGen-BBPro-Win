@@ -13,15 +13,16 @@ from typing import Dict, List
 
 from utils.path_utils import get_data_dir
 
-# Order roughly mirrors the scarcity-aware lineup build sequence.
+# Standard scorecard / lineup-style ordering: catcher, infield around the
+# horn, then outfield left-to-right, then DH.
 DEPTH_CHART_POSITIONS: List[str] = [
     "C",
-    "SS",
-    "CF",
-    "3B",
-    "2B",
     "1B",
+    "2B",
+    "SS",
+    "3B",
     "LF",
+    "CF",
     "RF",
     "DH",
 ]

@@ -82,6 +82,195 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
   return (await res.json()) as T;
 }
 
+// --- Contracts ---
+
+export interface ContractRecord {
+  team_id: string;
+  annual_salary: number;
+  years_left: number;
+  fa_year: number;
+  guaranteed: boolean;
+  buyout_guarantee: number;
+  arb_eligible: boolean;
+  service_time_days: number;
+  options: Array<Record<string, unknown>>;
+  incentives: Array<Record<string, unknown>>;
+}
+
+export interface ContractListRow {
+  player_id: string;
+  first_name: string;
+  last_name: string;
+  primary_position: string;
+  is_pitcher: boolean;
+  team_id: string;
+  annual_salary: number;
+  years_left: number;
+  fa_year: number;
+  guaranteed: boolean;
+  buyout_guarantee: number;
+  arb_eligible: boolean;
+  service_time_days: number;
+  pending_options: number;
+  expiring_this_year: boolean;
+}
+
+export interface ContractListResponse {
+  current_year: number;
+  count: number;
+  contracts: ContractListRow[];
+}
+
+// --- All-Star Game ---
+
+export interface AllStarPlayer {
+  player_id: string;
+  team_id: string;
+  first_name: string;
+  last_name: string;
+  position: string;
+  stats: Record<string, number | string | null>;
+}
+
+export interface AllStarSquad {
+  team_ids: string[];
+  hitters: AllStarPlayer[];
+  pitchers: AllStarPlayer[];
+}
+
+export interface AllStarMvp {
+  player_id: string;
+  team_id: string;
+  name: string;
+  position: string;
+  line: string;
+}
+
+export interface AllStarGame {
+  year: number;
+  played_at?: string;
+  home_squad: string;
+  away_squad: string;
+  home_runs: number;
+  away_runs: number;
+  winner: string;
+  mvp: AllStarMvp | null;
+  squads: Record<string, AllStarSquad>;
+  skipped?: boolean;
+  reason?: string;
+}
+
+export interface AllStarHistory {
+  count: number;
+  games: AllStarGame[];
+}
+
+// --- Awards ---
+
+export interface AwardWinner {
+  award: string;
+  player_id: string;
+  player_name: string;
+  metric: string;
+}
+
+export interface AwardSeason {
+  season_id: string;
+  league_year: number | null;
+  awards: AwardWinner[];
+}
+
+export interface AwardListResponse {
+  seasons: AwardSeason[];
+}
+
+export interface ExtensionEvaluation {
+  decision: "accepted" | "countered" | "rejected";
+  fair_market_salary: number;
+  fair_market_years: number;
+  counter_salary: number | null;
+  counter_years: number | null;
+  reason: string;
+  service_tier: "pre_arb" | "arbitration" | "free_agent";
+  current_annual_salary?: number;
+  current_years_left?: number;
+  service_time_days?: number;
+  player_id?: string;
+  eligibility?: ExtensionEligibility;
+}
+
+export interface ExtensionEligibility {
+  eligible: boolean;
+  reason: string;
+  code:
+    | ""
+    | "phase_blocked"
+    | "fa_year_lockout"
+    | "too_many_years_left"
+    | "cooldown";
+  cooldown_days_remaining: number | null;
+}
+
+export interface ExtensionRejection {
+  code: "countered" | "rejected" | ExtensionEligibility["code"];
+  message: string;
+  player_id: string;
+  negotiation?: ExtensionEvaluation;
+  eligibility?: ExtensionEligibility;
+  current_annual_salary: number;
+  current_years_left: number;
+}
+
+export interface PayrollWarning {
+  violations: Record<string, Record<string, unknown>>;
+  mode: string;
+  level: string;
+  acknowledged: boolean;
+}
+
+export interface SignFreeAgentResponse {
+  team_id: string;
+  player_id: string;
+  level: string;
+  signed: boolean;
+  annual_salary: number;
+  years: number;
+  contract: ContractRecord | null;
+  payroll_warning: PayrollWarning | null;
+  negotiation: ExtensionEvaluation | null;
+  forced: boolean;
+}
+
+export interface CompetingBid {
+  team_id: string;
+  salary: number;
+}
+
+export interface FreeAgentOfferEvaluation {
+  player_id: string;
+  fair_market_salary: number;
+  fair_market_years: number;
+  decision: "accepted" | "countered" | "rejected";
+  counter_salary: number | null;
+  counter_years: number | null;
+  reason: string;
+  service_tier: "pre_arb" | "arbitration" | "free_agent";
+  competing_bids: CompetingBid[];
+  phase_gate: { code: string; message: string; phase: string } | null;
+}
+
+export interface FreeAgentSignRejection {
+  code: "countered" | "rejected" | "fa_window_closed" | "payroll_violation";
+  message: string;
+  player_id?: string;
+  negotiation?: ExtensionEvaluation;
+  competing_bids?: CompetingBid[];
+  phase?: string;
+  violations?: Record<string, Record<string, unknown>>;
+  mode?: string;
+  level?: string;
+}
+
 export interface HealthPayload {
   status: string;
   version: string;
@@ -386,6 +575,9 @@ export interface LeagueStandingsRow {
   streak: string;
   last10: string;
   gb: string;
+  games_remaining?: number;
+  status?: "clinched_division" | "leader" | "in_race" | "eliminated";
+  magic_number?: number;
 }
 
 export interface LeagueStandingsDivision {
@@ -408,9 +600,19 @@ export interface ScheduleGame {
   opponent?: string;
 }
 
+export interface ScheduleMarkers {
+  today: string;
+  season_start: string | null;
+  season_end: string | null;
+  all_star_break: string[];
+  trade_deadline: string;
+  draft_date: string | null;
+}
+
 export interface ScheduleList {
   games: ScheduleGame[];
   count: number;
+  markers?: ScheduleMarkers;
 }
 
 // --- Live simulation WebSocket events ---
@@ -465,11 +667,26 @@ export interface TradePlayer {
   is_pitcher: boolean;
 }
 
+export interface TradeCpuEvaluation {
+  team_id: string;
+  action: "accept" | "reject" | "counter";
+  total_score: number;
+  threshold: number;
+  value_delta: number;
+  fit_delta: number;
+  timeline_delta: number;
+  strategy_profile: string;
+  competitive_window: string;
+  reasons: string[];
+}
+
 export interface TradeRecord {
   trade_id: string;
   from_team: string;
   to_team: string;
   status: string;
+  initiated_by: "human" | "cpu";
+  cpu_eval: TradeCpuEvaluation | null;
   give_players: TradePlayer[];
   receive_players: TradePlayer[];
   give_picks: string[];
@@ -480,6 +697,13 @@ export interface TradeList {
   count: number;
   trades: TradeRecord[];
   grouped: Record<string, TradeRecord[]>;
+}
+
+export interface TradeDeadline {
+  deadline_date: string;
+  current_sim_date: string;
+  days_remaining: number;
+  is_past: boolean;
 }
 
 // --- Draft ---
@@ -515,6 +739,54 @@ export interface DraftResults {
   year: number;
   count: number;
   picks: DraftSelection[];
+}
+
+export interface DraftPickResult {
+  year: number;
+  round: number;
+  overall: number;
+  team_id: string;
+  player_id: string;
+  commit?: {
+    added?: boolean;
+    assigned?: boolean;
+    note?: string | null;
+    player_name?: string;
+    error?: string;
+  };
+}
+
+export interface DraftProspect {
+  player_id: string;
+  first_name: string;
+  last_name: string;
+  primary_position: string;
+  is_pitcher: boolean;
+  bats: string;
+  throws: string;
+  birthdate?: string | null;
+  age?: number | null;
+  overall: number;
+  available: boolean;
+  ratings: Record<string, number | string | null>;
+}
+
+export interface DraftPool {
+  year: number;
+  count: number;
+  prospects: DraftProspect[];
+}
+
+export interface DraftAutoAdvanceResult {
+  year: number;
+  stop: "my_pick" | "end_of_round" | "end_of_draft";
+  target_team: string | null;
+  picks: DraftPickResult[];
+  picks_made: number;
+  draft_complete: boolean;
+  team_on_clock: string | null;
+  round: number;
+  overall_pick: number;
 }
 
 // --- Playoffs ---
@@ -755,6 +1027,12 @@ export interface PlayerProfile {
     from_team: string;
     to_team: string;
   }>;
+  /** Per-rating deltas from the most recent spring training camp. */
+  spring_training_gains?: {
+    year?: number | string | null;
+    focus?: string | null;
+    changes?: Record<string, number>;
+  };
 }
 
 // --- Team settings ---
@@ -1309,6 +1587,9 @@ export const api = {
         ratings: Record<string, number | string | null>;
         team_id: string;
         level: "ACT" | "AAA" | "LOW" | "DL" | "IR" | "FA";
+        overall_raw?: number | null;
+        overall_display?: number | null;
+        overall_stars_text?: string | null;
       }>;
     }>(`/players/browse${qs ? `?${qs}` : ""}`);
   },
@@ -1364,17 +1645,73 @@ export const api = {
     }>(`/free-agents?limit=${limit}`),
   signFreeAgent: (
     teamId: string,
-    payload: { player_id: string; level: "ACT" | "AAA" | "LOW" },
+    payload: {
+      player_id: string;
+      level: "ACT" | "AAA" | "LOW";
+      annual_salary?: number;
+      years?: number;
+      acknowledge_warning?: boolean;
+      force?: boolean;
+    },
+  ) =>
+    apiRequest<SignFreeAgentResponse>(
+      `/teams/${encodeURIComponent(teamId)}/sign`,
+      { method: "POST", body: payload },
+    ),
+  evaluateFreeAgentOffer: (
+    playerId: string,
+    payload: { years?: number; annual_salary?: number },
+  ) =>
+    apiRequest<FreeAgentOfferEvaluation>(
+      `/free-agents/${encodeURIComponent(playerId)}/evaluate-offer`,
+      { method: "POST", body: payload },
+    ),
+  extendContract: (
+    playerId: string,
+    payload: {
+      additional_years?: number;
+      annual_salary?: number;
+      guaranteed?: boolean;
+      buyout_guarantee?: number;
+      force?: boolean;
+    },
   ) =>
     apiRequest<{
-      team_id: string;
       player_id: string;
-      level: string;
-      signed: boolean;
-    }>(`/teams/${encodeURIComponent(teamId)}/sign`, {
+      extended_by: string;
+      contract: ContractRecord;
+      negotiation: ExtensionEvaluation | null;
+      forced: boolean;
+    }>(
+      `/contracts/${encodeURIComponent(playerId)}/extend`,
+      { method: "POST", body: payload },
+    ),
+  evaluateExtension: (
+    playerId: string,
+    payload: { years?: number; annual_salary?: number },
+  ) =>
+    apiRequest<ExtensionEvaluation>(
+      `/contracts/${encodeURIComponent(playerId)}/evaluate-extension`,
+      { method: "POST", body: payload },
+    ),
+  listAwards: (year?: number) => {
+    const qs = year ? `?year=${year}` : "";
+    return apiRequest<AwardListResponse>(`/awards${qs}`);
+  },
+  listAllStarGames: () => apiRequest<AllStarHistory>("/all-star"),
+  getAllStarGame: (year: number) => apiRequest<AllStarGame>(`/all-star/${year}`),
+  triggerAllStarGame: (year: number, opts?: { force?: boolean; seed?: number }) =>
+    apiRequest<AllStarGame>(`/all-star/${year}/play`, {
       method: "POST",
-      body: payload,
+      body: { force: opts?.force, seed: opts?.seed },
     }),
+  listContracts: (opts?: { team_id?: string; expiring_only?: boolean }) => {
+    const params = new URLSearchParams();
+    if (opts?.team_id) params.set("team_id", opts.team_id);
+    if (opts?.expiring_only) params.set("expiring_only", "true");
+    const qs = params.toString();
+    return apiRequest<ContractListResponse>(`/contracts${qs ? `?${qs}` : ""}`);
+  },
   teamInjuries: (teamId: string) =>
     apiRequest<{
       team_id: string;
@@ -1406,6 +1743,7 @@ export const api = {
         message: string;
         raw: string;
       }>;
+      categories: Array<{ id: string; count: number }>;
     }>(`/news${qs ? `?${qs}` : ""}`);
   },
   activity: (
@@ -1614,12 +1952,34 @@ export const api = {
     const qs = q.toString();
     return apiRequest<TradeList>(`/trades${qs ? `?${qs}` : ""}`);
   },
+  tradeDeadline: () => apiRequest<TradeDeadline>("/trades/deadline"),
+  counterTrade: (
+    tradeId: string,
+    payload: {
+      give_player_ids: string[];
+      receive_player_ids: string[];
+      give_pick_ids?: string[];
+      receive_pick_ids?: string[];
+    },
+  ) =>
+    apiRequest<{
+      original_trade_id: string;
+      original_status: string;
+      counter_trade_id: string;
+      counter_status: string;
+      cpu_response: TradeCpuEvaluation | null;
+      counter_back_id: string | null;
+    }>(
+      `/trades/${encodeURIComponent(tradeId)}/counter`,
+      { method: "POST", body: payload },
+    ),
   schedule: (params: {
     teamId?: string;
     start?: string;
     end?: string;
     played?: boolean;
     limit?: number;
+    includeMarkers?: boolean;
   } = {}) => {
     const q = new URLSearchParams();
     if (params.teamId) q.set("team_id", params.teamId);
@@ -1627,6 +1987,7 @@ export const api = {
     if (params.end) q.set("end", params.end);
     if (params.played !== undefined) q.set("played", String(params.played));
     if (params.limit !== undefined) q.set("limit", String(params.limit));
+    if (params.includeMarkers) q.set("include_markers", "true");
     const qs = q.toString();
     return apiRequest<ScheduleList>(`/schedule${qs ? `?${qs}` : ""}`);
   },
@@ -1863,6 +2224,33 @@ export const api = {
     }>("/draft/admin/manual-pick", {
       method: "POST",
       body: { player_id, year },
+    }),
+  draftPool: (year?: number, opts?: { available_only?: boolean; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (year) params.set("year", String(year));
+    if (opts?.available_only !== undefined)
+      params.set("available_only", opts.available_only ? "true" : "false");
+    if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    return apiRequest<DraftPool>(`/draft/pool${qs ? `?${qs}` : ""}`);
+  },
+  draftMakePick: (player_id: string, year?: number) =>
+    apiRequest<DraftPickResult>("/draft/pick", {
+      method: "POST",
+      body: { player_id, year },
+    }),
+  draftAutoPick: (year?: number) =>
+    apiRequest<DraftPickResult>("/draft/auto-pick", {
+      method: "POST",
+      body: { year },
+    }),
+  draftAutoAdvance: (
+    stop: "my_pick" | "end_of_round" | "end_of_draft",
+    opts?: { year?: number; team_id?: string },
+  ) =>
+    apiRequest<DraftAutoAdvanceResult>("/draft/auto-advance", {
+      method: "POST",
+      body: { stop, year: opts?.year, team_id: opts?.team_id },
     }),
   adminRepairLineups: () =>
     apiRequest<{ fixed: string[]; failed: string[] }>(

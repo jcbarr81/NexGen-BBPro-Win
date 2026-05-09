@@ -188,6 +188,82 @@ class LeagueRolloverService:
             league_id=self.context.league_id,
         )
 
+        # Apply yearly aging to every player on every roster. The aging
+        # module already has the per-attribute adjustment table — we just
+        # need to call it once per offseason. Failures are non-fatal:
+        # the rollover should still complete even if some player rows
+        # are malformed.
+        try:
+            self._apply_yearly_aging()
+        except Exception as exc:  # pragma: no cover - defensive
+            artifacts["aging_error"] = str(exc)
+
+        # Run retirements AFTER aging so the aging-adjusted ratings
+        # feed into the "washed" / "declining" thresholds. Retirees
+        # are removed from rosters, released from contracts, and
+        # surfaced in the news feed.
+        next_year = (
+            next_descriptor.get("league_year")
+            if isinstance(next_descriptor, dict)
+            else (league_year if isinstance(league_year, int) else None)
+        )
+        try:
+            from services.player_retirement import run_yearly_retirements
+
+            retire_summary = run_yearly_retirements(season_year=next_year)
+            if retire_summary:
+                artifacts["retirements"] = json.dumps(
+                    {
+                        "count": int(retire_summary.get("count", 0) or 0),
+                    }
+                )
+        except Exception as exc:  # pragma: no cover - defensive
+            artifacts["retirement_error"] = str(exc)
+
+        # Promote prospects AFTER retirements so newly-vacated ACT spots
+        # get filled by the AAA / LOW pipeline. Single-step per offseason
+        # so the owner can watch a kid climb LOW → AAA → ACT over years.
+        try:
+            from services.prospect_promotion import run_yearly_promotions
+
+            promo_summary = run_yearly_promotions(season_year=next_year)
+            if promo_summary:
+                artifacts["promotions"] = json.dumps(
+                    {
+                        "count": int(promo_summary.get("count", 0) or 0),
+                    }
+                )
+        except Exception as exc:  # pragma: no cover - defensive
+            artifacts["promotion_error"] = str(exc)
+
+        # Hall of Fame induction sweep. The service was built end-to-end
+        # (eligibility, scoring, persistence, candidates, manual
+        # add/remove) but had never been wired into the rollover, so no
+        # one ever got auto-inducted. With retirements now feeding
+        # candidates each offseason, run the sweep so qualifying
+        # ex-players make it onto the inductee list once they've
+        # served their wait period.
+        try:
+            from services.hall_of_fame import update_hall_of_fame
+
+            hof_result = update_hall_of_fame(current_year=next_year)
+            if hof_result:
+                artifacts["hall_of_fame"] = json.dumps(
+                    {
+                        "added": len(hof_result.get("added", []) or []),
+                        "total_inductees": int(hof_result.get("total", 0) or 0),
+                    }
+                )
+        except Exception as exc:  # pragma: no cover - defensive
+            artifacts["hall_of_fame_error"] = str(exc)
+
+        # Note: the offseason checklist is intentionally LEFT for the
+        # owner (or commish in owner leagues) to drive — reviewing
+        # contracts, signing free agents, finalizing budgets, etc. is
+        # core to the offseason experience and shouldn't auto-skip.
+        # The pipeline above does the back-end work; the user decides
+        # when each review step is done.
+
         self._reset_active_state(league_year)
 
         return RolloverResult(
@@ -199,6 +275,34 @@ class LeagueRolloverService:
             contract_rollover=contract_rollover,
             finance_rollover=finance_rollover,
         )
+
+    def _apply_yearly_aging(self) -> None:
+        """Apply one season's worth of aging adjustments to every player."""
+
+        from playbalance.aging import age_players
+
+        players_path = _DATA_DIR / "players.csv"
+        try:
+            players = list(load_players_from_csv(players_path))
+        except Exception:
+            return
+        if not players:
+            return
+        age_players(players)
+        # Persist back so the new ratings stick. Use the same writer the
+        # rest of the codebase uses for safety / column ordering.
+        try:
+            from services.players_repository import save_players
+
+            save_players(players, players_path)
+        except Exception:
+            pass
+        # Drop any cached players list so subsequent reads see the aged ratings.
+        try:
+            load_players_from_csv.cache_clear()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
 
     # ------------------------------------------------------------------
     def _archive_stats(self, season_dir: Path, artifacts: Dict[str, str]) -> Dict[str, Any]:

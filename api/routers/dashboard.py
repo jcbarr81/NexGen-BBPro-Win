@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException, status
 
-from ui.analytics.quick_metrics import gather_owner_quick_metrics
+from services.quick_metrics import gather_owner_quick_metrics
 
 from ..security import CurrentIdentity
 

@@ -14,6 +14,8 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Dice5,
   Loader2,
   Lock,
@@ -22,7 +24,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { api } from "@/lib/api";
+import { api, type CommissionerSettings } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
@@ -43,6 +45,41 @@ type Divisions = Record<string, Team[]>;
 
 type SetupMode = "quickstart" | "custom";
 
+const FINANCE_LEVEL_LABELS: Record<string, string> = {
+  off: "Off",
+  basic: "Basic",
+  advanced: "Advanced",
+  mlb_like: "MLB-Like",
+  warn: "Warn",
+  block: "Block",
+};
+
+// One-liner descriptions surfaced under the Finance preset / enforcement
+// dropdowns so the user knows what they're picking. Keep these short —
+// the full module-level help is shown inside the advanced expander.
+const FINANCE_PRESET_DESCRIPTIONS: Record<string, string> = {
+  off: "Finance system off. No budgets, salaries, or CPU finance AI — pure on-field play.",
+  simple: "Lightweight: basic revenue, budgets, contracts, payroll, and free agency. No market model or arbitration. Over-budget actions warn only.",
+  standard: "Most owner + GM modules at Advanced. Adds a basic market model and arbitration. Over-budget actions warn only.",
+  mlb_like: "Full MLB-style sim: advanced revenue / market / budgets / contracts / arbitration / FA, MLB payroll rules, and BLOCKING enforcement on over-budget moves.",
+  custom: "Build it yourself — open the advanced section below to set each module level individually.",
+};
+
+const FINANCE_ENFORCEMENT_DESCRIPTIONS: Record<string, string> = {
+  off: "Don't validate signings or trades against team budgets.",
+  warn: "Show a warning if a move would exceed budget, but still allow it.",
+  block: "Block any signing or trade that would exceed the team's budget.",
+};
+
+interface ScoutingTuning {
+  base_monthly_credits: number;
+  finance_off_multiplier: number;
+  monthly_decay: number;
+  passive_gain: number;
+  max_banked_credits: number;
+  auto_spend_cap: number;
+}
+
 interface WizardState {
   displayName: string;
   mode: "single_player" | "owner_league";
@@ -57,6 +94,13 @@ interface WizardState {
   financeEnabled: boolean;
   financePreset: string;
   financeEnforcement: string;
+  // Advanced finance overrides — only sent when user touches them.
+  financeModules: Record<string, string>;
+  financeAiTuning: Record<string, number>;
+  // Scouting fog-of-war.
+  scoutingEnabled: boolean;
+  scoutingTuning: ScoutingTuning;
+  scoutingTuningTouched: boolean;
   tradesEnabled: boolean;
   draftPickTradingEnabled: boolean;
   cpuInitiatedTrades: boolean;
@@ -76,10 +120,26 @@ const INITIAL: WizardState = {
   customTeamsPerDivision: 4,
   divisions: {},
   rulePresetId: "",
-  scheduleTemplateId: "",
+  // Default to a real schedule template so the season is playable the
+  // moment league creation finishes — leaving this empty stranded the
+  // user on the Season page with "no games scheduled" until an admin
+  // ran Regenerate Schedule from League Admin.
+  scheduleTemplateId: "mlb_162",
   financeEnabled: false,
   financePreset: "off",
   financeEnforcement: "warn",
+  financeModules: {},
+  financeAiTuning: {},
+  scoutingEnabled: false,
+  scoutingTuning: {
+    base_monthly_credits: 100,
+    finance_off_multiplier: 1.0,
+    monthly_decay: 0.02,
+    passive_gain: 0.01,
+    max_banked_credits: 1000,
+    auto_spend_cap: 100,
+  },
+  scoutingTuningTouched: false,
   tradesEnabled: true,
   draftPickTradingEnabled: false,
   cpuInitiatedTrades: true,
@@ -117,6 +177,17 @@ export function LeagueCreatePage() {
     queryFn: () => api.listLeagues(),
     enabled: role === "admin",
   });
+  // Pull the commissioner settings catalog so the wizard can render the
+  // same module + AI tuning + scouting controls the post-create
+  // Commissioner page uses. Static catalog fields (finance_modules,
+  // finance_ai_tuning_defaults) are league-agnostic, so the response
+  // works as a schema source even before any league exists. Only
+  // enabled for admin users.
+  const commishSettings = useQuery({
+    queryKey: ["commissioner-settings"],
+    queryFn: () => api.commissionerSettings(),
+    enabled: role === "admin",
+  });
 
   const stepLabels = isFirstRun
     ? ["Admin", "Basics", "Setup", "Teams", "Rules", "Review"]
@@ -126,11 +197,55 @@ export function LeagueCreatePage() {
     setState((prev) => ({ ...prev, ...update }));
   }
 
+  // Once the commissioner catalog loads, seed scouting defaults so the
+  // numeric inputs show real starting values instead of the placeholder
+  // constants. Only seeds while the user hasn't touched the fields and
+  // hasn't enabled scouting yet.
+  useEffect(() => {
+    const data = commishSettings.data;
+    if (!data) return;
+    setState((prev) => {
+      if (prev.scoutingTuningTouched) return prev;
+      return {
+        ...prev,
+        scoutingTuning: {
+          base_monthly_credits: data.scouting.base_monthly_credits,
+          finance_off_multiplier: data.scouting.finance_off_multiplier,
+          monthly_decay: data.scouting.monthly_decay,
+          passive_gain: data.scouting.passive_gain,
+          max_banked_credits: data.scouting.max_banked_credits,
+          auto_spend_cap: data.scouting.auto_spend_cap,
+        },
+      };
+    });
+  }, [commishSettings.data]);
+
   async function handleCreate() {
     setCreating(true);
     setCreateError(null);
     try {
       const divisions = state.divisions;
+      const financePayload: Record<string, unknown> = {
+        enabled: state.financeEnabled,
+        preset: state.financePreset,
+        enforcement_mode: state.financeEnforcement,
+      };
+      // Only forward module + AI overrides when the user actually edited
+      // them (which flips the preset to "custom" inline). Sending an
+      // empty modules block would otherwise stomp the preset's own
+      // defaults server-side.
+      if (Object.keys(state.financeModules).length > 0) {
+        financePayload.modules = state.financeModules;
+      }
+      if (Object.keys(state.financeAiTuning).length > 0) {
+        financePayload.finance_ai_tuning = state.financeAiTuning;
+      }
+      const scoutingPayload: Record<string, unknown> = {
+        enabled: state.scoutingEnabled,
+      };
+      if (state.scoutingTuningTouched) {
+        Object.assign(scoutingPayload, state.scoutingTuning);
+      }
       await api.createLeague({
         display_name: state.displayName,
         mode: state.mode,
@@ -138,11 +253,8 @@ export function LeagueCreatePage() {
         divisions,
         rule_preset_id: state.rulePresetId || undefined,
         schedule_template_id: state.scheduleTemplateId || undefined,
-        finance: {
-          enabled: state.financeEnabled,
-          preset: state.financePreset,
-          enforcement_mode: state.financeEnforcement,
-        },
+        finance: financePayload,
+        scouting: scoutingPayload,
         trades: {
           trades_enabled: state.tradesEnabled,
           draft_pick_trading_enabled: state.draftPickTradingEnabled,
@@ -201,6 +313,7 @@ export function LeagueCreatePage() {
             state={state}
             onPatch={patch}
             presets={presets.data}
+            commish={commishSettings.data}
           />
         )}
         {step === 5 && (
@@ -842,11 +955,46 @@ function RulesStep({
   state,
   onPatch,
   presets,
+  commish,
 }: {
   state: WizardState;
   onPatch: (u: Partial<WizardState>) => void;
   presets: Awaited<ReturnType<typeof api.leaguePresets>> | undefined;
+  commish: CommissionerSettings | undefined;
 }) {
+  const [showAdvancedFinance, setShowAdvancedFinance] = useState(false);
+  const [showFinanceModules, setShowFinanceModules] = useState(false);
+  const [showFinanceAi, setShowFinanceAi] = useState(false);
+  const [showScouting, setShowScouting] = useState(false);
+
+  const moduleCatalog = commish?.options.finance_modules ?? [];
+  const aiDefaults = commish?.options.finance_ai_tuning_defaults ?? {};
+
+  function setModuleLevel(moduleId: string, level: string) {
+    onPatch({
+      financeModules: { ...state.financeModules, [moduleId]: level },
+      // Editing module levels implies "custom" — mirrors the
+      // commissioner page's behavior.
+      financePreset: "custom",
+    });
+  }
+  function setAiValue(key: string, raw: string) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return;
+    onPatch({
+      financeAiTuning: { ...state.financeAiTuning, [key]: parsed },
+      financePreset: "custom",
+    });
+  }
+  function setScoutingValue(key: keyof ScoutingTuning, raw: string) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return;
+    onPatch({
+      scoutingTuning: { ...state.scoutingTuning, [key]: parsed },
+      scoutingTuningTouched: true,
+    });
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -881,7 +1029,6 @@ function RulesStep({
             onChange={(e) => onPatch({ scheduleTemplateId: e.target.value })}
             className="h-10 w-full rounded-lg border border-border bg-canvas/60 px-3 text-sm focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
           >
-            <option value="">None</option>
             {(presets?.schedule_templates ?? []).map((t) => (
               <option key={t.template_id} value={t.template_id}>
                 {t.name} ({t.games_per_team} games)
@@ -955,7 +1102,7 @@ function RulesStep({
           </p>
         </div>
 
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 md:col-span-2">
           <Label>Finance</Label>
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -967,32 +1114,296 @@ function RulesStep({
             Enable finance module
           </label>
           {state.financeEnabled && (
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <select
-                value={state.financePreset}
-                onChange={(e) => onPatch({ financePreset: e.target.value })}
-                className="h-10 rounded-lg border border-border bg-canvas/60 px-3 text-sm focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+            <>
+              <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-normal text-muted">
+                    Preset
+                  </Label>
+                  <select
+                    value={state.financePreset}
+                    onChange={(e) => onPatch({ financePreset: e.target.value })}
+                    className="h-10 w-full rounded-lg border border-border bg-canvas/60 px-3 text-sm focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                  >
+                    {(commish?.options.finance_presets ?? [
+                      "simple",
+                      "standard",
+                      "mlb_like",
+                      "off",
+                      "custom",
+                    ]).map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] leading-snug text-muted">
+                    {FINANCE_PRESET_DESCRIPTIONS[state.financePreset] ?? ""}
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-normal text-muted">
+                    Enforcement
+                  </Label>
+                  <select
+                    value={state.financeEnforcement}
+                    onChange={(e) =>
+                      onPatch({ financeEnforcement: e.target.value })
+                    }
+                    className="h-10 w-full rounded-lg border border-border bg-canvas/60 px-3 text-sm focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                  >
+                    {(commish?.options.finance_enforcement ?? [
+                      "off",
+                      "warn",
+                      "block",
+                    ]).map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] leading-snug text-muted">
+                    {FINANCE_ENFORCEMENT_DESCRIPTIONS[state.financeEnforcement] ?? ""}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAdvancedFinance((v) => !v)}
+                className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted hover:text-ink"
               >
-                {["simple", "standard", "mlb_like", "off", "custom"].map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={state.financeEnforcement}
-                onChange={(e) =>
-                  onPatch({ financeEnforcement: e.target.value })
-                }
-                className="h-10 rounded-lg border border-border bg-canvas/60 px-3 text-sm focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
-              >
-                {["off", "warn", "block"].map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </div>
+                {showAdvancedFinance ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
+                Show advanced finance + scouting
+              </button>
+
+              {showAdvancedFinance && (
+                <div className="mt-3 space-y-3">
+                  {moduleCatalog.length > 0 && (
+                    <div className="rounded-lg border border-border bg-surfaceAlt/40">
+                      <button
+                        type="button"
+                        onClick={() => setShowFinanceModules((v) => !v)}
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-semibold"
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          {showFinanceModules ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                          Module levels
+                        </span>
+                        <span className="text-xs text-muted">
+                          {moduleCatalog.length} modules · {state.financePreset}
+                        </span>
+                      </button>
+                      {showFinanceModules && (
+                        <div className="space-y-2 border-t border-border/60 px-3 py-3">
+                          {moduleCatalog.map((m) => {
+                            const level =
+                              state.financeModules[m.id] ?? m.levels[0] ?? "off";
+                            return (
+                              <div
+                                key={m.id}
+                                className="grid grid-cols-1 items-start gap-2 md:grid-cols-[minmax(0,1fr)_180px]"
+                              >
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold">
+                                    {m.label}
+                                  </div>
+                                  <div className="text-xs text-muted">
+                                    {m.help}
+                                  </div>
+                                </div>
+                                <select
+                                  value={level}
+                                  onChange={(e) =>
+                                    setModuleLevel(m.id, e.target.value)
+                                  }
+                                  className="h-8 w-full rounded-md border border-border bg-canvas/60 px-2 text-xs text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                                >
+                                  {m.levels.map((lvl) => (
+                                    <option key={lvl} value={lvl}>
+                                      {FINANCE_LEVEL_LABELS[lvl] ?? lvl}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {Object.keys(aiDefaults).length > 0 && (
+                    <div className="rounded-lg border border-border bg-surfaceAlt/40">
+                      <button
+                        type="button"
+                        onClick={() => setShowFinanceAi((v) => !v)}
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-semibold"
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          {showFinanceAi ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                          CPU finance AI tuning
+                        </span>
+                        <span className="text-xs text-muted">
+                          {Object.keys(aiDefaults).length} knobs
+                        </span>
+                      </button>
+                      {showFinanceAi && (
+                        <div className="space-y-2 border-t border-border/60 px-3 py-3">
+                          <p className="text-xs text-muted">
+                            Star/underperformer thresholds, salary share caps,
+                            arbitration raise %, free-agency avoidance bands.
+                            Editing here forces the preset to "custom".
+                          </p>
+                          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                            {Object.entries(aiDefaults).map(([key, defValue]) => {
+                              const value =
+                                state.financeAiTuning[key] ?? Number(defValue);
+                              return (
+                                <div
+                                  key={key}
+                                  className="grid grid-cols-[minmax(0,1fr)_120px] items-center gap-2"
+                                >
+                                  <Label
+                                    htmlFor={`wiz-ai-${key}`}
+                                    className="text-xs font-normal text-muted"
+                                  >
+                                    {key.replace(/_/g, " ")}
+                                  </Label>
+                                  <input
+                                    id={`wiz-ai-${key}`}
+                                    type="number"
+                                    step="any"
+                                    value={value}
+                                    onChange={(e) =>
+                                      setAiValue(key, e.target.value)
+                                    }
+                                    className="h-8 w-full rounded-md border border-border bg-canvas/60 px-2 text-xs text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="rounded-lg border border-border bg-surfaceAlt/40">
+                    <button
+                      type="button"
+                      onClick={() => setShowScouting((v) => !v)}
+                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-semibold"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        {showScouting ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                        Scouting fog-of-war
+                      </span>
+                      <span className="text-xs text-muted">
+                        {state.scoutingEnabled ? "enabled" : "disabled"}
+                      </span>
+                    </button>
+                    {showScouting && (
+                      <div className="space-y-3 border-t border-border/60 px-3 py-3">
+                        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-border bg-canvas/40 px-3 py-2">
+                          <span className="text-sm font-semibold">
+                            Scouting fog-of-war enabled
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={state.scoutingEnabled}
+                            onChange={(e) =>
+                              onPatch({ scoutingEnabled: e.target.checked })
+                            }
+                            className="h-4 w-4 accent-amber"
+                          />
+                        </label>
+                        <p className="text-xs text-muted">
+                          Hides player ratings until owners spend scouting
+                          credits. Pace knobs apply whether finance is on or
+                          off.
+                        </p>
+                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                          {(
+                            [
+                              {
+                                key: "base_monthly_credits",
+                                label: "Base monthly credits",
+                                step: 1,
+                              },
+                              {
+                                key: "finance_off_multiplier",
+                                label: "Finance-off pace multiplier",
+                                step: 0.01,
+                              },
+                              {
+                                key: "monthly_decay",
+                                label: "Monthly decay",
+                                step: 0.001,
+                              },
+                              {
+                                key: "passive_gain",
+                                label: "Passive gain",
+                                step: 0.001,
+                              },
+                              {
+                                key: "max_banked_credits",
+                                label: "Max banked credits",
+                                step: 1,
+                              },
+                              {
+                                key: "auto_spend_cap",
+                                label: "Auto spend cap",
+                                step: 1,
+                              },
+                            ] as Array<{
+                              key: keyof ScoutingTuning;
+                              label: string;
+                              step: number;
+                            }>
+                          ).map(({ key, label, step }) => (
+                            <div key={key} className="space-y-1.5">
+                              <Label
+                                htmlFor={`wiz-scout-${key}`}
+                                className="text-xs font-normal text-muted"
+                              >
+                                {label}
+                              </Label>
+                              <input
+                                id={`wiz-scout-${key}`}
+                                type="number"
+                                step={step}
+                                value={state.scoutingTuning[key]}
+                                onChange={(e) =>
+                                  setScoutingValue(key, e.target.value)
+                                }
+                                className="h-8 w-full rounded-md border border-border bg-canvas/60 px-2 text-xs text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -1125,7 +1536,25 @@ function ReviewStep({
           label="Finance"
           value={
             state.financeEnabled
-              ? `${state.financePreset} · ${state.financeEnforcement}`
+              ? `${state.financePreset} · ${state.financeEnforcement}${
+                  Object.keys(state.financeModules).length > 0
+                    ? ` · ${Object.keys(state.financeModules).length} module overrides`
+                    : ""
+                }${
+                  Object.keys(state.financeAiTuning).length > 0
+                    ? ` · ${Object.keys(state.financeAiTuning).length} AI knobs`
+                    : ""
+                }`
+              : "disabled"
+          }
+        />
+        <ReviewRow
+          label="Scouting fog-of-war"
+          value={
+            state.scoutingEnabled
+              ? state.scoutingTuningTouched
+                ? "enabled · custom pacing"
+                : "enabled · default pacing"
               : "disabled"
           }
         />

@@ -375,6 +375,7 @@ def _build_best_offer(
                     to_team=human_team_id,
                     give_player_ids=[cpu_player_id],
                     receive_player_ids=[human_player_id],
+                    initiated_by="cpu",
                 )
                 signature = _offer_package_signature(proactive_trade)
                 if signature in blocked_packages:
