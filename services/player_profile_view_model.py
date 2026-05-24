@@ -20,7 +20,7 @@ from services.injury_history import load_player_injury_history
 from services.injury_manager import disabled_list_days_remaining, disabled_list_label
 from services.training_history import load_player_training_history
 from services.training_settings import HITTER_TRACKS, PITCHER_TRACKS, load_training_settings
-from ui.star_rating import star_text
+from utils.star_rating import star_text
 from utils.path_utils import get_data_dir
 from utils.rating_display import rating_display_value
 from utils.stats_persistence import load_stats

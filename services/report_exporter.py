@@ -672,21 +672,14 @@ def _write_html_table_page(path: Path, key: str, csv_path: Path) -> None:
 
 
 def _write_summary_pdf(path: Path, lines: Iterable[str]) -> bool:
-    try:
-        from PyQt6.QtGui import QTextDocument
-        from PyQt6.QtPrintSupport import QPrinter
-    except Exception:
-        return False
-    try:
-        doc = QTextDocument()
-        doc.setPlainText("\n".join(lines))
-        printer = QPrinter()
-        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-        printer.setOutputFileName(str(path))
-        doc.print(printer)
-        return path.exists()
-    except Exception:
-        return False
+    """PDF export was provided by ``QTextDocument``/``QPrinter`` from the
+    retired PyQt UI. The shipped sidecar excludes PyQt6, so this has
+    been a no-op in every installer for a while — make that explicit
+    rather than carrying the dead import. ``report_summary.txt`` still
+    captures the same content for callers that need a portable summary.
+    """
+
+    return False
 
 
 def _write_csv(path: Path, rows: List[Dict[str, Any]], *, fieldnames: List[str] | None) -> None:

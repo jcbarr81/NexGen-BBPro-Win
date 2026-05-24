@@ -1,8 +1,8 @@
 """Player list + detail endpoints sourced from ``players.csv``.
 
 The list/detail endpoints surface a trimmed summary so the React table can
-render fast. The ``/profile`` endpoint reuses the existing PyQt view-model
-(``ui/player_profile_v2_viewmodel.py``) -- one source of truth for the
+render fast. The ``/profile`` endpoint reuses the shared view-model
+(``services/player_profile_view_model.py``) -- one source of truth for the
 ratings/stats/contract/injury composition -- and serializes it for the
 React profile page.
 """
@@ -279,7 +279,7 @@ def get_player_profile(
     """
 
     try:
-        from ui.player_profile_v2_viewmodel import build_player_profile_view_model
+        from services.player_profile_view_model import build_player_profile_view_model
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

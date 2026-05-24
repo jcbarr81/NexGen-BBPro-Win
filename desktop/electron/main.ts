@@ -65,6 +65,10 @@ async function createMainWindow(handle: SidecarHandle): Promise<void> {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
+      // Let the splash/auth-flow music start without a prior click —
+      // SplashAudio still falls back gracefully if the browser engine
+      // refuses the play() promise.
+      autoplayPolicy: "no-user-gesture-required",
       additionalArguments: [
         `--nexgen-api-url=${handle.baseUrl}`,
         `--nexgen-ws-url=${handle.wsUrl}`,

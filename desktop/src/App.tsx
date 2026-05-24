@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
 import { SplashGate } from "@/pages/SplashGate";
+import { SplashAudio } from "@/components/SplashAudio";
 import { Toaster } from "@/components/Toaster";
 import { CommandPalette } from "@/components/CommandPalette";
 // Eagerly loaded — these are on the critical path before / immediately
@@ -242,6 +243,7 @@ export default function App() {
   return (
     <SplashGate>
       <LeagueCacheInvalidator />
+      <SplashAudio />
       <Toaster />
       <CommandPalette />
       <Suspense fallback={<RouteFallback />}>
