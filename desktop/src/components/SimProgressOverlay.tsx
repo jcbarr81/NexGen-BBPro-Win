@@ -4,16 +4,18 @@
  * sim — covers the full viewport so the user knows things are moving
  * even if they navigate away.
  *
- * No real-time progress yet (the sidecar returns one big response when
- * the batch finishes), so we show the action label, an elapsed timer,
- * and a rotating "stage" line that suggests what the engine is doing.
- * The timer + stage rotation give the page a heartbeat — without them,
- * a 30-second sim looks frozen.
+ * Polls ``GET /season/sim-progress`` every ~400ms while open so the
+ * "X of Y days" counter and progress bar reflect what the sidecar has
+ * actually played. The single sim HTTP request still returns once the
+ * whole batch finishes; this just exposes the in-process counter the
+ * worker bumps after each day.
  */
 
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
+import { api } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -50,6 +52,25 @@ export function SimProgressOverlay({ open, label }: Props) {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [stageIdx, setStageIdx] = useState(0);
+
+  // Poll the in-process progress counter while the overlay is up.
+  // ``refetchInterval`` keeps it ticking; ``enabled: open`` shuts it
+  // down the instant the parent flips ``open`` to false.
+  const progressQ = useQuery({
+    queryKey: ["sim-progress"],
+    queryFn: () => api.seasonSimProgress(),
+    enabled: open,
+    refetchInterval: 400,
+    refetchIntervalInBackground: true,
+    staleTime: 0,
+    gcTime: 0,
+  });
+
+  const target = progressQ.data?.target ?? 0;
+  const played = progressQ.data?.played ?? 0;
+  const showCount = target > 1; // Sim Day (target=1) doesn't need a counter.
+  const pct =
+    target > 0 ? Math.min(100, Math.round((played / target) * 100)) : 0;
 
   // Reset and start the timer whenever the overlay opens.
   useEffect(() => {
@@ -102,6 +123,14 @@ export function SimProgressOverlay({ open, label }: Props) {
             </DialogDescription>
           </div>
         </div>
+        {showCount && (
+          <div className="mt-3 flex items-center justify-between text-xs">
+            <span className="text-muted">Days simulated</span>
+            <span className="tabular-nums text-amber-text">
+              {played} of {target}
+            </span>
+          </div>
+        )}
         <div className="mt-3 flex items-center justify-between text-xs">
           <span className="text-muted">Elapsed</span>
           <span className="tabular-nums text-amber-text">
@@ -109,9 +138,19 @@ export function SimProgressOverlay({ open, label }: Props) {
           </span>
         </div>
         <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surfaceAlt">
-          {/* Indeterminate progress — a sliding amber stripe that signals
-              "still working" without lying about a percentage. */}
-          <div className="h-full w-1/3 animate-[slide_1.4s_linear_infinite] rounded-full bg-amber/70" />
+          {showCount ? (
+            // Determinate bar fills as days tick over. Capped at 100%
+            // for safety against any drift between the counter and the
+            // simulator's actual played count.
+            <div
+              className="h-full rounded-full bg-amber/70 transition-[width] duration-300 ease-out"
+              style={{ width: `${pct}%` }}
+            />
+          ) : (
+            // Single-day sim: keep the indeterminate stripe — a
+            // counter that flips 0→1 in one update is uninformative.
+            <div className="h-full w-1/3 animate-[slide_1.4s_linear_infinite] rounded-full bg-amber/70" />
+          )}
         </div>
         <style>{`
           @keyframes slide {

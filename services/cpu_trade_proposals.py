@@ -19,6 +19,7 @@ from utils.roster_loader import load_roster
 from utils.sim_date import get_current_sim_date
 from utils.team_loader import load_teams
 from utils.trade_utils import load_trades, save_trade
+from utils.user_manager import load_users
 
 __all__ = ["run_cpu_trade_proposal_cycle"]
 
@@ -130,12 +131,34 @@ def run_cpu_trade_proposal_cycle(
         str(getattr(team, "team_id", "") or "").strip().upper(): team
         for team in teams
     }
-    cpu_teams = [
-        team_id for team_id, team in teams_by_id.items() if _is_cpu_team(team)
-    ]
-    human_teams = [
-        team_id for team_id, team in teams_by_id.items() if not _is_cpu_team(team)
-    ]
+    # Ownership lives in ``users.txt`` (``role == "owner"`` rows pin a
+    # user to a team_id). ``teams.csv`` carries an ``owner_id`` column
+    # but the league creator currently writes it empty, so reading from
+    # there alone classifies every team as CPU and the proposal cycle
+    # bails with ``insufficient_teams``. Mirror the same lookup the
+    # roster auto-assign service uses, falling back to the teams.csv
+    # ``owner_id`` flag when users.txt is empty (legacy/test fixtures).
+    human_team_ids = _load_human_team_ids(data_dir=resolved_data_dir)
+    if human_team_ids:
+        cpu_teams = [
+            team_id
+            for team_id in teams_by_id.keys()
+            if team_id not in human_team_ids
+        ]
+        human_teams = [
+            team_id
+            for team_id in teams_by_id.keys()
+            if team_id in human_team_ids
+        ]
+    else:
+        cpu_teams = [
+            team_id for team_id, team in teams_by_id.items() if _is_cpu_team(team)
+        ]
+        human_teams = [
+            team_id
+            for team_id, team in teams_by_id.items()
+            if not _is_cpu_team(team)
+        ]
     result["teams_considered"] = len(cpu_teams)
     if not cpu_teams or not human_teams:
         result["reason"] = "insufficient_teams"
@@ -645,6 +668,31 @@ def _player_trade_value(player: object) -> float:
 def _is_cpu_team(team: object) -> bool:
     owner = str(getattr(team, "owner_id", "") or "").strip().lower()
     return owner in CPU_OWNER_IDS
+
+
+def _load_human_team_ids(*, data_dir: Path) -> set[str]:
+    """Return the set of team_ids that have a real (human) owner.
+
+    Reads ``users.txt`` because that's the source of truth for who
+    owns which team. Falls back to an empty set on any I/O failure —
+    that just means every team gets treated as CPU, matching the prior
+    behavior.
+    """
+
+    users_path = data_dir / "users.txt"
+    try:
+        users = load_users(str(users_path))
+    except Exception:
+        return set()
+    owned: set[str] = set()
+    for user in users:
+        role = str(user.get("role", "") or "").strip().lower()
+        if role != "owner":
+            continue
+        team_id = str(user.get("team_id", "") or "").strip().upper()
+        if team_id:
+            owned.add(team_id)
+    return owned
 
 
 def _load_rosters(team_ids: Sequence[str], *, data_dir: Path) -> dict[str, object]:

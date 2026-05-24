@@ -201,6 +201,13 @@ export function SeasonPage() {
               !!state.data.draft_blocked ||
               state.data.phase === "AMATEUR_DRAFT"
             }
+            simBlocked={state.data.phase !== "REGULAR_SEASON"}
+            // Advance Phase has its own backend gates (regular-season
+            // games left, draft uncommitted, playoffs unfinished). The
+            // button stays enabled across phases so the user can exit
+            // PRESEASON / AMATEUR_DRAFT / PLAYOFFS / OFFSEASON — only
+            // an in-flight mutation should grey it out.
+            advanceDisabled={anyPending}
             activeLabel={activeLabel}
             onSimDay={() => simDay.mutate()}
             onSimWeek={() => simWeek.mutate()}
@@ -462,6 +469,8 @@ function MetricsRow({ state }: { state: SeasonState }) {
 interface ActionsProps {
   state: SeasonState;
   disabled: boolean;
+  simBlocked: boolean;
+  advanceDisabled: boolean;
   activeLabel: string | null;
   onSimDay: () => void;
   onSimWeek: () => void;
@@ -474,6 +483,8 @@ interface ActionsProps {
 function ActionsCard({
   state,
   disabled,
+  simBlocked,
+  advanceDisabled,
   activeLabel,
   onSimDay,
   onSimWeek,
@@ -483,14 +494,17 @@ function ActionsCard({
   onAdvancePhase,
 }: ActionsProps) {
   const noDaysLeft = state.days_remaining === 0;
+  const simDisabled = disabled || noDaysLeft || simBlocked;
   return (
     <Card>
       <CardHeader>
         <div>
           <CardTitle>Advance the Season</CardTitle>
           <CardDescription>
-            {activeLabel ??
-              "Each action runs the real SeasonSimulator in the Python sidecar."}
+            {simBlocked
+              ? `Sim is locked during ${PHASE_LABEL[state.phase] ?? state.phase} — Advance Phase to start the regular season.`
+              : (activeLabel ??
+                "Each action runs the real SeasonSimulator in the Python sidecar.")}
           </CardDescription>
         </div>
         {disabled && (
@@ -502,7 +516,7 @@ function ActionsCard({
       <CardContent className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <Button
           onClick={onSimDay}
-          disabled={disabled || noDaysLeft}
+          disabled={simDisabled}
           className="w-full"
         >
           <Play className="h-4 w-4" /> Sim Day
@@ -510,7 +524,7 @@ function ActionsCard({
         <Button
           variant="secondary"
           onClick={onSimWeek}
-          disabled={disabled || noDaysLeft}
+          disabled={simDisabled}
           className="w-full"
         >
           <FastForward className="h-4 w-4" /> Sim Week
@@ -518,7 +532,7 @@ function ActionsCard({
         <Button
           variant="secondary"
           onClick={onSimMonth}
-          disabled={disabled || noDaysLeft}
+          disabled={simDisabled}
           className="w-full"
         >
           <FastForward className="h-4 w-4" /> Sim Month
@@ -526,7 +540,7 @@ function ActionsCard({
         <Button
           variant="outline"
           onClick={onSimToDraft}
-          disabled={disabled || noDaysLeft || !state.draft_date || state.draft_triggered}
+          disabled={simDisabled || !state.draft_date || state.draft_triggered}
           className="w-full"
         >
           <GraduationCap className="h-4 w-4" /> To Draft
@@ -534,7 +548,7 @@ function ActionsCard({
         <Button
           variant="outline"
           onClick={onSimToPlayoffs}
-          disabled={disabled || noDaysLeft}
+          disabled={simDisabled}
           className="w-full"
         >
           <Trophy className="h-4 w-4" /> To Playoffs
@@ -542,7 +556,7 @@ function ActionsCard({
         <Button
           variant="ghost"
           onClick={onAdvancePhase}
-          disabled={disabled}
+          disabled={advanceDisabled}
           className="w-full"
         >
           <Flag className="h-4 w-4" /> Advance Phase

@@ -139,11 +139,28 @@ export function RosterPage() {
     enabled: !!fallbackTeamId,
   });
 
+  // Audit the team against league roster rules (level caps + ACT
+  // coverage + LOW age gate). Surfaced as a banner above the tabs so
+  // the user knows why the season-sim gate is refusing to advance.
+  const compliance = useQuery({
+    queryKey: ["team-roster-compliance", fallbackTeamId],
+    queryFn: () => api.teamRosterCompliance(fallbackTeamId as string),
+    enabled: !!fallbackTeamId,
+    refetchOnWindowFocus: true,
+  });
+
+  const invalidateCompliance = () => {
+    queryClient.invalidateQueries({
+      queryKey: ["team-roster-compliance", fallbackTeamId],
+    });
+  };
+
   const moveMutation = useMutation({
     mutationFn: (args: MoveArgs) =>
       api.moveRoster(fallbackTeamId as string, args),
     onSuccess: (data, args) => {
       queryClient.setQueryData(["team-roster", fallbackTeamId], data);
+      invalidateCompliance();
       toast.success(`Moved to ${args.to}`);
     },
   });
@@ -152,16 +169,25 @@ export function RosterPage() {
       api.cutRoster(fallbackTeamId as string, playerId),
     onSuccess: (data) => {
       queryClient.setQueryData(["team-roster", fallbackTeamId], data);
+      invalidateCompliance();
       toast.success("Released to free agency");
     },
   });
   const autoAssignMutation = useMutation({
     mutationFn: () => api.autoAssignTeam(fallbackTeamId as string),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({
         queryKey: ["team-roster", fallbackTeamId],
       });
-      toast.success("Auto-assign complete — roster levels rebalanced");
+      invalidateCompliance();
+      const released = data.released_count ?? 0;
+      if (released > 0) {
+        toast.success(
+          `Auto-assign complete — rebalanced. Released ${released} player${released === 1 ? "" : "s"} to free agency.`,
+        );
+      } else {
+        toast.success("Auto-assign complete — roster levels rebalanced");
+      }
     },
     onError: (err) => {
       toast.error((err as Error).message);
@@ -225,6 +251,9 @@ export function RosterPage() {
         </Card>
       ) : roster.data && actions ? (
         <>
+          {compliance.data && !compliance.data.ok && (
+            <ComplianceBanner data={compliance.data} />
+          )}
           {actions.error && (
             <div className="mb-4 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -243,6 +272,51 @@ export function RosterPage() {
     </AppShell>
   );
 }
+
+interface ComplianceBannerData {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  counts: { act: number; aaa: number; low: number; dl: number; ir: number };
+  caps: { act: number; aaa: number; low: number };
+}
+
+function ComplianceBanner({ data }: { data: ComplianceBannerData }) {
+  return (
+    <div className="mb-4 rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="flex-1">
+          <div className="font-semibold">
+            Roster not compliant with league rules
+          </div>
+          <p className="mt-0.5 text-xs text-danger/90">
+            Season simulation is paused until these issues are resolved.
+            Use the controls below to send extra players down to a lower
+            level or release them to free agency.
+          </p>
+          <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs">
+            {data.errors.map((msg, idx) => (
+              <li key={idx}>{msg}</li>
+            ))}
+          </ul>
+          <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-muted">
+            <span>
+              ACT {data.counts.act}/{data.caps.act}
+            </span>
+            <span>
+              AAA {data.counts.aaa}/{data.caps.aaa}
+            </span>
+            <span>
+              LOW {data.counts.low}/{data.caps.low}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 function ConfirmAutoAssignButton({
   pending,
@@ -263,8 +337,9 @@ function ConfirmAutoAssignButton({
             await confirm({
               title: "Auto-assign roster levels?",
               description:
-                "Rebuild ACT/AAA/LOW assignments for this team based on each player's position and ratings. Injured players (DL/IR) stay where they are; nobody is released.",
+                "Rebuild ACT/AAA/LOW assignments for this team based on each player's position and ratings. Injured players (DL/IR) stay where they are. If the organization is over the 50-player ACT+AAA+LOW limit (e.g. just after the draft), the lowest-rated extras will be released to free agency — every release is logged on the Transactions page.",
               confirmLabel: "Auto-assign",
+              danger: true,
             })
           ) {
             onConfirm();

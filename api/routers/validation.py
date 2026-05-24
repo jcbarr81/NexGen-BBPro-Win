@@ -20,6 +20,7 @@ from services.roster_validation import (
     validate_lineup,
     validate_pitching_staff,
     validate_roster_move,
+    validate_roster_state,
     validate_trade,
 )
 from utils.path_utils import get_data_dir
@@ -27,6 +28,26 @@ from utils.path_utils import get_data_dir
 from ..security import CurrentIdentity
 
 router = APIRouter(tags=["validation"], dependencies=[CurrentIdentity])
+
+
+def _age_from_birthdate(birthdate: str | None) -> int | None:
+    """Compute integer years from a YYYY-MM-DD birthdate string. Returns
+    None when the value is missing or unparseable. Used so the LOW age
+    gate actually fires — players.csv carries ``birthdate`` not ``age``,
+    so a naive ``row.get("age")`` lookup never trips the validator.
+    """
+
+    if not birthdate:
+        return None
+    from datetime import date
+
+    try:
+        bd = date.fromisoformat(str(birthdate)[:10])
+    except (TypeError, ValueError):
+        return None
+    today = date.today()
+    years = today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day))
+    return max(0, years)
 
 
 def load_players_map() -> Dict[str, Dict[str, Any]]:
@@ -43,6 +64,14 @@ def load_players_map() -> Dict[str, Dict[str, Any]]:
             pid = (row.get("player_id") or "").strip()
             if not pid:
                 continue
+            raw_age = (row.get("age") or "").strip() or None
+            age: int | None
+            try:
+                age = int(raw_age) if raw_age is not None else None
+            except ValueError:
+                age = None
+            if age is None:
+                age = _age_from_birthdate(row.get("birthdate"))
             out[pid] = {
                 "player_id": pid,
                 "first_name": row.get("first_name", ""),
@@ -50,7 +79,8 @@ def load_players_map() -> Dict[str, Dict[str, Any]]:
                 "primary_position": row.get("primary_position", ""),
                 "other_positions": row.get("other_positions", ""),
                 "is_pitcher": row.get("is_pitcher", ""),
-                "age": row.get("age", "") or None,
+                "age": age,
+                "birthdate": row.get("birthdate", ""),
                 # Fields used by utils.pitching_autofill — without these the
                 # pitching-staff auto-fill would silently filter every pitcher
                 # because get_role() / get_display_role() see no signal.
@@ -195,6 +225,30 @@ def validate_roster_move_endpoint(
         level_caps=DEFAULT_LEVEL_CAPS,
     )
     return result.to_dict()
+
+
+@router.get("/teams/{team_id}/roster/compliance")
+def roster_compliance_endpoint(team_id: str) -> Dict[str, Any]:
+    """Audit a team's current roster against league rules.
+
+    Used by the Roster page banner and by the season-sim gate so the
+    user can't advance the calendar while their roster sits over a
+    level cap or missing defensive coverage.
+    """
+
+    players = load_players_map()
+    levels = load_team_levels(team_id)
+    result = validate_roster_state(
+        current_levels=levels,
+        players=players,
+        level_caps=DEFAULT_LEVEL_CAPS,
+    )
+    payload = result.to_dict()
+    payload["counts"] = {
+        level: len(levels.get(level, [])) for level in ("act", "aaa", "low", "dl", "ir")
+    }
+    payload["caps"] = dict(DEFAULT_LEVEL_CAPS)
+    return payload
 
 
 # ---------------------------------------------------------------------------

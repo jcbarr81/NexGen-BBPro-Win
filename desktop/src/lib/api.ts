@@ -733,6 +733,10 @@ export interface DraftState {
   order: string[];
   selected: DraftSelection[];
   exists: boolean;
+  /** Round count configured for this draft (from draft settings). Used by
+   *  the UI to detect "draft complete" once ``round`` advances past it. */
+  configured_rounds?: number;
+  configured_pool_size?: number;
 }
 
 export interface DraftResults {
@@ -1238,6 +1242,14 @@ export const api = {
     apiRequest<TeamWidgets>(`/teams/${encodeURIComponent(teamId)}/widgets`),
   teamRoster: (teamId: string) =>
     apiRequest<TeamRoster>(`/teams/${encodeURIComponent(teamId)}/roster`),
+  teamRosterCompliance: (teamId: string) =>
+    apiRequest<{
+      ok: boolean;
+      errors: string[];
+      warnings: string[];
+      counts: { act: number; aaa: number; low: number; dl: number; ir: number };
+      caps: { act: number; aaa: number; low: number };
+    }>(`/teams/${encodeURIComponent(teamId)}/roster/compliance`),
   moveRoster: (
     teamId: string,
     payload: { player_id: string; to: RosterLevel; dl_tier?: "dl15" | "dl45" },
@@ -1857,6 +1869,13 @@ export const api = {
       }>;
     }>("/season/preseason/training-camp", { method: "POST" }),
   seasonState: () => apiRequest<SeasonState>("/season/state"),
+  seasonSimProgress: () =>
+    apiRequest<{
+      active: boolean;
+      target: number;
+      played: number;
+      elapsed_seconds: number;
+    }>("/season/sim-progress"),
   seasonSimulateDay: () =>
     apiRequest<SeasonState>("/season/simulate/day", { method: "POST" }),
   seasonSimulateWeek: () =>
@@ -2069,10 +2088,12 @@ export const api = {
       body: { stage_id },
     }),
   autoAssignTeam: (teamId: string) =>
-    apiRequest<{ team_id: string; status: string }>(
-      `/teams/${encodeURIComponent(teamId)}/auto-assign`,
-      { method: "POST" },
-    ),
+    apiRequest<{
+      team_id: string;
+      status: string;
+      released: string[];
+      released_count: number;
+    }>(`/teams/${encodeURIComponent(teamId)}/auto-assign`, { method: "POST" }),
   autoAssignAll: () =>
     apiRequest<{ status: string }>("/reassign/all", { method: "POST" }),
   financeStabilityRun: (payload: {

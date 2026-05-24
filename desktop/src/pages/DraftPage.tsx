@@ -161,16 +161,27 @@ function LiveDraftView({
   myTeamId: string | null;
   teamById: Map<string, Team>;
 }) {
+  // The state ``round`` auto-increments past the final pick, so once
+  // it exceeds the configured rounds the draft has produced its last
+  // selection. Treat that as "complete" everywhere downstream — Round
+  // card flips to "Complete", Up Next swaps for a wrap-up panel, the
+  // controls disable themselves.
+  const draftComplete =
+    state.exists &&
+    typeof state.configured_rounds === "number" &&
+    state.configured_rounds > 0 &&
+    state.round > state.configured_rounds;
+
   const onClock = useMemo(() => {
-    if (!state.exists || state.order.length === 0) return null;
+    if (!state.exists || state.order.length === 0 || draftComplete) return null;
     // Order typically lists one team per slot in round-robin. We pick the
     // next team by (overall_pick - 1) % len(order).
     const idx = (state.overall_pick - 1) % state.order.length;
     return state.order[idx] ?? null;
-  }, [state]);
+  }, [state, draftComplete]);
 
   const remaining = useMemo(() => {
-    if (!state.exists) return [] as string[];
+    if (!state.exists || draftComplete) return [] as string[];
     const start = Math.max(0, (state.overall_pick - 1) % state.order.length);
     // Show the next 10 spots in the order starting with "on clock".
     const rotated: string[] = [];
@@ -179,7 +190,7 @@ function LiveDraftView({
       if (entry) rotated.push(entry);
     }
     return rotated;
-  }, [state]);
+  }, [state, draftComplete]);
 
   const recentPicks = useMemo(() => {
     if (!state.selected.length) return [];
@@ -206,19 +217,36 @@ function LiveDraftView({
   return (
     <div className="space-y-6">
       <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <StatCard
-          label="Round"
-          value={state.round}
-          sub={`Overall pick #${state.overall_pick}`}
-          Icon={Trophy}
-          tone="amber"
-        />
+        {draftComplete ? (
+          <StatCard
+            label="Round"
+            value="Complete"
+            scoreboard={false}
+            sub={`All ${state.configured_rounds} rounds finished`}
+            Icon={Trophy}
+            tone="success"
+          />
+        ) : (
+          <StatCard
+            label="Round"
+            value={state.round}
+            sub={`Overall pick #${state.overall_pick}`}
+            Icon={Trophy}
+            tone="amber"
+          />
+        )}
         <StatCard
           label="On The Clock"
-          value={onClock ?? "—"}
-          sub={onClock === myTeamId ? "You're up" : undefined}
+          value={draftComplete ? "—" : (onClock ?? "—")}
+          sub={
+            draftComplete
+              ? "Draft complete"
+              : onClock === myTeamId
+                ? "You're up"
+                : undefined
+          }
           Icon={Timer}
-          tone={onClock === myTeamId ? "success" : "neutral"}
+          tone={onClock === myTeamId && !draftComplete ? "success" : "neutral"}
         />
         <StatCard
           label="Picks Made"
@@ -235,43 +263,69 @@ function LiveDraftView({
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <div>
-              <CardTitle>Up Next</CardTitle>
-              <CardDescription>Next 10 slots in the order</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <ol className="divide-y divide-border/60">
-              {remaining.map((teamId, idx) => {
-                const overall = state.overall_pick + idx;
-                return (
-                  <li
-                    key={`${teamId}-${overall}`}
-                    className={cn(
-                      "flex items-center justify-between gap-4 px-6 py-3 text-sm",
-                      idx === 0 && "bg-amber/10",
-                      teamId === myTeamId && "border-l-4 border-amber",
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="w-10 text-right font-mono text-xs text-muted">
-                        #{overall}
-                      </span>
-                      <span className="font-semibold">{teamId}</span>
-                      {idx === 0 && <Badge tone="amber">On Clock</Badge>}
-                      {teamId === myTeamId && idx !== 0 && (
-                        <Badge tone="neutral">You</Badge>
+        {draftComplete ? (
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>Draft Complete</CardTitle>
+                <CardDescription>
+                  {state.selected.length} picks across{" "}
+                  {state.configured_rounds} round
+                  {state.configured_rounds === 1 ? "" : "s"}
+                </CardDescription>
+              </div>
+              <Badge tone="success">
+                <Trophy className="h-3 w-3" /> Done
+              </Badge>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+              <Trophy className="h-10 w-10 text-amber" />
+              <p className="max-w-sm text-sm text-muted">
+                All rounds have been filled. Switch to the History tab to
+                review every pick, or advance the season phase from the
+                Season page to continue the year.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>Up Next</CardTitle>
+                <CardDescription>Next 10 slots in the order</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <ol className="divide-y divide-border/60">
+                {remaining.map((teamId, idx) => {
+                  const overall = state.overall_pick + idx;
+                  return (
+                    <li
+                      key={`${teamId}-${overall}`}
+                      className={cn(
+                        "flex items-center justify-between gap-4 px-6 py-3 text-sm",
+                        idx === 0 && "bg-amber/10",
+                        teamId === myTeamId && "border-l-4 border-amber",
                       )}
-                    </div>
-                    <ArrowRight className="h-4 w-4 text-muted" />
-                  </li>
-                );
-              })}
-            </ol>
-          </CardContent>
-        </Card>
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="w-10 text-right font-mono text-xs text-muted">
+                          #{overall}
+                        </span>
+                        <span className="font-semibold">{teamId}</span>
+                        {idx === 0 && <Badge tone="amber">On Clock</Badge>}
+                        {teamId === myTeamId && idx !== 0 && (
+                          <Badge tone="neutral">You</Badge>
+                        )}
+                      </div>
+                      <ArrowRight className="h-4 w-4 text-muted" />
+                    </li>
+                  );
+                })}
+              </ol>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>

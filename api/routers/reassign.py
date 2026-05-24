@@ -35,13 +35,19 @@ def _require_admin(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[s
 @team_router.post("/auto-assign")
 async def auto_assign_one(team_id: str) -> Dict[str, Any]:
     try:
-        await asyncio.to_thread(auto_assign_team, team_id)
+        result = await asyncio.to_thread(auto_assign_team, team_id)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Auto-assign failed: {exc}",
         ) from exc
-    return {"team_id": team_id, "status": "ok"}
+    released = list((result or {}).get("released") or [])
+    return {
+        "team_id": team_id,
+        "status": "ok",
+        "released": released,
+        "released_count": len(released),
+    }
 
 
 @all_router.post("/all")

@@ -79,6 +79,9 @@ def _dict_to_model(data: dict):
         hair_color=data.get("hair_color", ""),
         facial_hair=data.get("facial_hair", ""),
         bats=data.get("bats", "R"),
+        throws=str(
+            data.get("throws") or data.get("bats") or "R"
+        ),
         primary_position=data.get("primary_position", ""),
         other_positions=other_pos if isinstance(other_pos, list) else (other_pos.split("|") if other_pos else []),
         gf=data.get("gf", 0),

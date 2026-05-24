@@ -22,7 +22,6 @@ from services.league_lifecycle import switch_active_league
 from services.league_presets import (
     apply_rule_preset,
     generate_schedule_from_template,
-    save_schedule_from_template,
 )
 from services import injury_settings
 from services import trade_settings
@@ -201,20 +200,42 @@ def create_league_wizard(
     # POST'd directly), fall back to the standard MLB-162 layout.
     schedule_template_id = str(payload.get("schedule_template_id", "")).strip() or "mlb_162"
     schedule_generated = False
+
+    def _team_ids_from_structure() -> List[str]:
+        ids: List[str] = []
+        for teams_in_div in structure.values():
+            for city, name in teams_in_div:
+                ids.append(f"{city} {name}".strip())
+        return ids
+
+    # Prefer team_ids that ``create_league`` actually wrote to teams.csv
+    # so the schedule references the same identifiers used everywhere
+    # else (rosters, standings, news). Fall back to deriving from the
+    # wizard structure if the loader is unavailable mid-creation.
     try:
-        schedule = generate_schedule_from_template(
-            schedule_template_id, structure
-        )
-        save_schedule_from_template(schedule)
-        schedule_generated = True
+        from utils.team_loader import load_teams
+
+        team_id_list = [t.team_id for t in load_teams(data_dir / "teams.csv")]
     except Exception:
-        if schedule_template_id != "mlb_162":
+        team_id_list = _team_ids_from_structure()
+
+    from playbalance.schedule_generator import save_schedule
+
+    schedule_path = data_dir / "schedule.csv"
+    for candidate in (schedule_template_id, "mlb_162"):
+        if not candidate:
+            continue
+        try:
+            schedule = generate_schedule_from_template(candidate, team_id_list)
+        except Exception:
+            schedule = []
+        if schedule:
             try:
-                schedule = generate_schedule_from_template("mlb_162", structure)
-                save_schedule_from_template(schedule)
+                save_schedule(schedule, schedule_path)
                 schedule_generated = True
+                break
             except Exception:
-                pass
+                continue
 
     # Mark the preseason "schedule" checklist item complete so the UI
     # doesn't keep nagging the owner about a missing schedule.

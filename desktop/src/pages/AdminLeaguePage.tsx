@@ -5,7 +5,7 @@
  */
 
 import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CalendarClock,
@@ -16,13 +16,16 @@ import {
   Loader2,
   RefreshCcw,
   Settings2,
+  Trash2,
   Wrench,
 } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/lib/auth-store";
 import { useConfirmDialog } from "@/lib/use-confirm";
 import { AppShell } from "@/components/layout/AppShell";
 import {
+  Badge,
   Button,
   Card,
   CardContent,
@@ -53,6 +56,7 @@ function AdminLeagueBody() {
       <RepairLineupsCard />
       <ResetToOpeningDayCard />
       <CloneLeagueCard />
+      <DeleteLeagueCard />
     </div>
   );
 }
@@ -416,4 +420,151 @@ function ResultLine({
     );
   }
   return null;
+}
+
+/**
+ * Permanently delete a registered league. Lists every league with a delete
+ * button; the chosen one is removed after a double-confirm. The backend
+ * (``DELETE /leagues/:id``) wipes the registry entry and on-disk data dir;
+ * deleting the active league auto-promotes a sibling.
+ */
+function DeleteLeagueCard() {
+  const queryClient = useQueryClient();
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const setActiveLeague = useAuthStore((s) => s.setActiveLeague);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const leagues = useQuery({
+    queryKey: ["leagues"],
+    queryFn: () => api.listLeagues(),
+  });
+  const active = useQuery({
+    queryKey: ["active-league"],
+    queryFn: () => api.getActiveLeague(),
+  });
+
+  const remove = useMutation({
+    mutationFn: (leagueId: string) => api.deleteLeague(leagueId),
+    onSuccess: (res) => {
+      setError(null);
+      setSuccess(`Deleted league: ${res.league_id}`);
+      setActiveLeague(res.active_league ?? null);
+      queryClient.invalidateQueries({ queryKey: ["leagues"] });
+      queryClient.invalidateQueries({ queryKey: ["active-league"] });
+    },
+    onError: (err) => {
+      setSuccess(null);
+      setError(err instanceof Error ? err.message : String(err));
+    },
+  });
+
+  async function handleDelete(leagueId: string, displayName: string) {
+    const ok = await confirm({
+      title: `Delete "${displayName}"?`,
+      description:
+        "This permanently removes the league from the registry and wipes its data directory (rosters, lineups, stats, schedule, news, everything). This cannot be undone.",
+      confirmLabel: "Delete league",
+      danger: true,
+    });
+    if (!ok) return;
+    remove.mutate(leagueId);
+  }
+
+  const rows = leagues.data ?? [];
+  const activeId = active.data?.league_id ?? null;
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader>
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Trash2 className="h-4 w-4 text-danger" /> Delete a league
+          </CardTitle>
+          <CardDescription>
+            Permanently removes a league + all of its on-disk data. There's no
+            archive — gone is gone. Active league deletion is allowed; a
+            sibling is auto-promoted.
+          </CardDescription>
+        </div>
+        <Badge tone="danger">
+          <AlertTriangle className="h-3 w-3" /> Destructive
+        </Badge>
+      </CardHeader>
+      <CardContent>
+        {leagues.isLoading ? (
+          <div className="flex items-center gap-2 py-3 text-sm text-muted">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading leagues…
+          </div>
+        ) : leagues.isError ? (
+          <div className="flex items-center gap-2 py-3 text-sm text-danger">
+            <AlertTriangle className="h-4 w-4" />
+            {(leagues.error as Error).message}
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="py-3 text-sm text-muted">
+            No leagues are registered.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {rows.map((row) => {
+              const isActive = activeId === row.id;
+              return (
+                <div
+                  key={row.id}
+                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{row.display_name}</span>
+                      {isActive && (
+                        <Badge tone="amber" className="text-[10px]">
+                          active
+                        </Badge>
+                      )}
+                      {row.status && row.status !== "active" && (
+                        <Badge tone="neutral" className="text-[10px]">
+                          {row.status}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-muted">
+                      {row.id} · {row.mode || "—"} · created {row.created_at}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDelete(row.id, row.display_name)}
+                    disabled={remove.isPending}
+                    className="text-danger hover:bg-danger/10 hover:text-danger"
+                  >
+                    {remove.isPending ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-1 h-3 w-3" />
+                    )}
+                    Delete
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {error && (
+          <div className="mt-3 flex items-center gap-2 rounded-md border border-danger/40 bg-danger/10 p-2 text-xs text-danger">
+            <AlertTriangle className="h-4 w-4" />
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="mt-3 flex items-center gap-2 rounded-md border border-success/40 bg-success/10 p-2 text-xs text-success">
+            <CheckCircle2 className="h-4 w-4" />
+            {success}
+          </div>
+        )}
+      </CardContent>
+      {confirmDialog}
+    </Card>
+  );
 }

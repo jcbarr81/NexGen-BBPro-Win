@@ -45,6 +45,84 @@ def _player_lookup() -> Dict[str, Any]:
     return {getattr(p, "player_id", ""): p for p in players}
 
 
+def _prospect_lookup(year: int) -> Dict[str, Dict[str, Any]]:
+    """Cache the year's draft pool by player_id so we can hydrate live-
+    draft picks before they've been written into ``players.csv`` by the
+    post-draft commit step. Without this fallback, the "Recent Picks"
+    panel shows raw prospect IDs (``D20260094``) for every pick made in
+    the current session because ``_player_lookup`` only sees committed
+    rosters.
+    """
+
+    try:
+        from playbalance.draft_pool import load_draft_pool
+
+        pool = load_draft_pool(year) or []
+    except Exception:
+        return {}
+    out: Dict[str, Dict[str, Any]] = {}
+    for prospect in pool:
+        pid = str(prospect.get("player_id", "")).strip()
+        if pid:
+            out[pid] = prospect
+    return out
+
+
+def _hydrate_pick(
+    row: Dict[str, Any],
+    players: Dict[str, Any],
+    prospects: Dict[str, Dict[str, Any]],
+) -> None:
+    """Fill ``first_name``/``last_name``/``primary_position`` + overall on
+    a draft selection dict in place. Players.csv wins (post-commit data),
+    then falls back to the draft pool (pre-commit), then leaves blanks.
+    """
+
+    pid = str(row.get("player_id") or "")
+    player = players.get(pid) if pid else None
+    if player is not None:
+        is_pitcher = bool(getattr(player, "is_pitcher", False))
+        position = getattr(player, "primary_position", None)
+        overall = compute_overall(
+            lambda k, p=player: getattr(p, k, None),
+            is_pitcher=is_pitcher,
+            position=position,
+        )
+        row["first_name"] = getattr(player, "first_name", "") or ""
+        row["last_name"] = getattr(player, "last_name", "") or ""
+        row["primary_position"] = position or ""
+        row["is_pitcher"] = is_pitcher
+        row["overall_raw"] = overall["overall_raw"]
+        row["overall_display"] = overall["overall_display"]
+        row["overall_stars_text"] = overall["overall_stars_text"]
+        return
+
+    prospect = prospects.get(pid) if pid else None
+    if prospect is not None:
+        is_pitcher_raw = prospect.get("is_pitcher")
+        is_pitcher = (
+            bool(is_pitcher_raw)
+            if isinstance(is_pitcher_raw, bool)
+            else str(is_pitcher_raw or "").strip().lower() in {"1", "true", "yes", "y"}
+        )
+        row["first_name"] = str(prospect.get("first_name", "") or "")
+        row["last_name"] = str(prospect.get("last_name", "") or "")
+        row["primary_position"] = str(prospect.get("primary_position", "") or "")
+        row["is_pitcher"] = is_pitcher
+        row["overall_raw"] = _prospect_overall(prospect)
+        row["overall_display"] = row["overall_raw"]
+        row["overall_stars_text"] = None
+        return
+
+    row["first_name"] = ""
+    row["last_name"] = ""
+    row["primary_position"] = ""
+    row["is_pitcher"] = False
+    row["overall_raw"] = None
+    row["overall_display"] = None
+    row["overall_stars_text"] = None
+
+
 def _load_results(year: int) -> List[Dict[str, Any]]:
     path = get_data_dir() / f"draft_results_{year}.csv"
     if not path.exists():
@@ -74,33 +152,14 @@ def _load_results(year: int) -> List[Dict[str, Any]]:
 
     # Join each pick with its player's name + position + overall display so
     # the UI can render stars inline with the pick card, matching the
-    # PyQt draft_console presentation.
+    # PyQt draft_console presentation. Hydrate from players.csv first
+    # (the post-commit source of truth); fall back to the draft pool
+    # for picks made during the current session that haven't been
+    # promoted into players.csv yet.
     players = _player_lookup()
+    prospects = _prospect_lookup(year)
     for row in rows:
-        player = players.get(row["player_id"])
-        if player is None:
-            row["first_name"] = ""
-            row["last_name"] = ""
-            row["primary_position"] = ""
-            row["is_pitcher"] = False
-            row["overall_raw"] = None
-            row["overall_display"] = None
-            row["overall_stars_text"] = None
-            continue
-        is_pitcher = bool(getattr(player, "is_pitcher", False))
-        position = getattr(player, "primary_position", None)
-        overall = compute_overall(
-            lambda k, p=player: getattr(p, k, None),
-            is_pitcher=is_pitcher,
-            position=position,
-        )
-        row["first_name"] = getattr(player, "first_name", "") or ""
-        row["last_name"] = getattr(player, "last_name", "") or ""
-        row["primary_position"] = position or ""
-        row["is_pitcher"] = is_pitcher
-        row["overall_raw"] = overall["overall_raw"]
-        row["overall_display"] = overall["overall_display"]
-        row["overall_stars_text"] = overall["overall_stars_text"]
+        _hydrate_pick(row, players, prospects)
     return rows
 
 
@@ -113,7 +172,23 @@ def draft_state_view(
     y = _resolve_year(year)
     state = draft_state.load_state(y) or {}
     order = list(state.get("order") or [])
-    selected = list(state.get("selected") or [])
+    raw_selected = list(state.get("selected") or [])
+
+    # Hydrate each pick with the player's name + position so the Recent
+    # Picks panel can render "Smith, John (SS)" instead of the raw
+    # prospect id ``D20260094``. State-on-disk only carries
+    # ``{overall, round, team_id, player_id}``; the names live in the
+    # draft pool (or players.csv once committed).
+    players = _player_lookup() if raw_selected else {}
+    prospects = _prospect_lookup(y) if raw_selected else {}
+    selected: List[Dict[str, Any]] = []
+    for entry in raw_selected:
+        if not isinstance(entry, dict):
+            continue
+        row = dict(entry)
+        _hydrate_pick(row, players, prospects)
+        selected.append(row)
+
     settings = load_draft_settings()
     return {
         "year": y,

@@ -19,6 +19,8 @@ can poll to show progress.
 from __future__ import annotations
 
 import csv
+import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -44,6 +46,44 @@ router = APIRouter(prefix="/season", tags=["season"], dependencies=[CurrentIdent
 # Safety cap so a runaway request can't spin forever. One full season is
 # typically ~180 days so anything up to ~220 covers all reasonable jumps.
 _MAX_DAYS_PER_CALL = 220
+
+
+# In-process progress tracker for live "X of Y days" updates while a
+# multi-day sim runs. The HTTP request that drives the sim returns a
+# single response when the whole batch finishes, so the overlay polls
+# ``GET /season/sim-progress`` to show real-time advancement instead of
+# a fake elapsed-time animation. Single-process desktop app: one global
+# slot is enough; we don't need per-league/per-user buckets.
+_SIM_PROGRESS_LOCK = threading.Lock()
+_SIM_PROGRESS: Dict[str, Any] = {
+    "active": False,
+    "target": 0,
+    "played": 0,
+    "started_at": 0.0,
+}
+
+
+def _begin_sim_progress(target: int) -> None:
+    with _SIM_PROGRESS_LOCK:
+        _SIM_PROGRESS.update(
+            {
+                "active": True,
+                "target": int(max(0, target)),
+                "played": 0,
+                "started_at": time.time(),
+            }
+        )
+
+
+def _bump_sim_progress() -> None:
+    with _SIM_PROGRESS_LOCK:
+        if _SIM_PROGRESS.get("active"):
+            _SIM_PROGRESS["played"] = int(_SIM_PROGRESS.get("played", 0)) + 1
+
+
+def _end_sim_progress() -> None:
+    with _SIM_PROGRESS_LOCK:
+        _SIM_PROGRESS["active"] = False
 
 
 def _schedule_path() -> Path:
@@ -243,6 +283,35 @@ def _read_preseason_done() -> Dict[str, bool]:
     return out
 
 
+def _team_roster_compliance_errors(team_id: str | None) -> List[str]:
+    """Return a list of human-readable compliance errors for the user's
+    team. Empty list means the roster is legal and the sim can proceed.
+
+    Scoped to the owner's team rather than the entire league — CPU
+    teams can carry temporary cap violations after the draft commits,
+    and we don't want a CPU's busted roster to block the human from
+    advancing the calendar.
+    """
+
+    if not team_id:
+        return []
+
+    from api.routers.validation import load_players_map, load_team_levels
+    from services.roster_validation import (
+        DEFAULT_LEVEL_CAPS,
+        validate_roster_state,
+    )
+
+    players = load_players_map()
+    levels = load_team_levels(team_id)
+    result = validate_roster_state(
+        current_levels=levels,
+        players=players,
+        level_caps=DEFAULT_LEVEL_CAPS,
+    )
+    return [f"{team_id}: {msg}" for msg in result.errors]
+
+
 def _simulate_n(
     manager: SeasonManager,
     simulator: SeasonSimulator,
@@ -276,6 +345,42 @@ def _simulate_n(
     draft_blocked = False
     notification_events: List[NotificationEvent] = []
     stop_reason: Optional[str] = None
+    # Regular-season games can only be simulated while the league is in
+    # the REGULAR_SEASON phase. Without this gate a fresh league sitting
+    # in PRESEASON will happily play games even though the owner hasn't
+    # advanced past spring training, breaking the preseason workflow
+    # (training camp readiness, free-agency review, etc.).
+    if manager.phase != SeasonPhase.REGULAR_SEASON:
+        errors.append(
+            f"Cannot simulate games in {manager.phase.value} phase — "
+            f"advance to REGULAR_SEASON first."
+        )
+        return {
+            "played_dates": played_dates,
+            "errors": errors,
+            "draft_blocked": draft_blocked,
+            "sim_stopped_reason": "phase_blocked",
+        }
+
+    # Roster-compliance gate. Refuse to advance the calendar while the
+    # owner's team isn't carrying a legal roster — most often this
+    # fires after the amateur draft commits picks into LOW and pushes
+    # the team over the 10-player cap, but it also catches missing
+    # defensive coverage or an active roster that's lost too many
+    # position players. CPU teams' busted rosters are out of scope for
+    # this gate; an admin can run a cleanup utility for those.
+    try:
+        compliance_errors = _team_roster_compliance_errors(team_id)
+    except Exception:  # pragma: no cover - defensive
+        compliance_errors = []
+    if compliance_errors:
+        errors.extend(compliance_errors)
+        return {
+            "played_dates": played_dates,
+            "errors": errors,
+            "draft_blocked": draft_blocked,
+            "sim_stopped_reason": "roster_noncompliant",
+        }
     # An empty schedule means ``simulator.dates`` is zero-length — without
     # this check the sim quietly "plays" 0 days, which looks to the user
     # like the button did nothing. Surface an explicit error so the UI
@@ -288,6 +393,16 @@ def _simulate_n(
     notif_settings = (
         load_notification_settings(team_id) if team_id else None
     )
+
+    # Seed the live progress tracker with the realistic upper bound so
+    # the overlay can show "X of Y days" instead of just spinning. The
+    # actual played count may finish lower if a draft-day intercept or
+    # an injury notification stops the run early. ``_end_sim_progress``
+    # is called on the normal return path; the only way to leave it set
+    # is an unhandled exception bubbling out of FastAPI, in which case
+    # the next ``_begin_sim_progress`` call resets it.
+    playable = max(0, min(n, len(simulator.dates) - simulator._index))
+    _begin_sim_progress(playable)
 
     for _ in range(n):
         if simulator._index >= len(simulator.dates):
@@ -334,6 +449,7 @@ def _simulate_n(
             errors.append(f"{target_date}: {exc}")
             break
         played_dates.append(target_date)
+        _bump_sim_progress()
 
         if notif_settings is not None and team_id and pre_state is not None:
             try:
@@ -387,6 +503,7 @@ def _simulate_n(
         result["notifications"] = [e.to_dict() for e in notification_events]
     if stop_reason:
         result["sim_stopped_reason"] = stop_reason
+    _end_sim_progress()
     return result
 
 
@@ -537,6 +654,29 @@ def _run_daily_automations(played_dates: List[str]) -> Dict[str, Any]:
 def season_state() -> Dict[str, Any]:
     manager, simulator, draft_date = _build_manager_and_simulator()
     return _state_payload(manager, simulator, draft_date)
+
+
+@router.get("/sim-progress")
+def sim_progress() -> Dict[str, Any]:
+    """Live "X of Y days" snapshot polled by the SimProgressOverlay.
+
+    Returns the in-process counters set by ``_simulate_n`` so the
+    overlay can replace its indeterminate progress bar with a real
+    "3 of 30 days" readout. ``active`` flips false the moment the sim
+    request returns; ``elapsed_seconds`` is computed server-side so the
+    client doesn't need its own clock.
+    """
+
+    with _SIM_PROGRESS_LOCK:
+        snap = dict(_SIM_PROGRESS)
+    started_at = float(snap.get("started_at") or 0.0)
+    elapsed = max(0.0, time.time() - started_at) if started_at else 0.0
+    return {
+        "active": bool(snap.get("active")),
+        "target": int(snap.get("target") or 0),
+        "played": int(snap.get("played") or 0),
+        "elapsed_seconds": round(elapsed, 1),
+    }
 
 
 def _team_id_from_identity(identity: Dict[str, Any]) -> Optional[str]:

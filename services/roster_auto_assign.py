@@ -499,7 +499,20 @@ def auto_assign_team(
     as_of_date: date | None = None,
     age_cache: Dict[str, int | None] | None = None,
     strategy_profile: str | None = None,
-) -> None:
+) -> Dict[str, List[str]]:
+    """Re-balance ACT / AAA / LOW for *team_id*.
+
+    Returns a dict describing the result. ``released`` lists every player
+    that didn't fit any roster level after the rebalance and was released
+    to free agency. The release path goes through
+    :func:`services.transaction_log.record_transaction` so the cut shows
+    up on the Transactions page, and through
+    :func:`services.contracts_service.release_contracts_to_free_agency`
+    so payroll stays consistent. Without this the post-draft case
+    (14-in-LOW after a 4-round draft) silently dropped the overflow off
+    the roster and out of the transaction log.
+    """
+
     players = players_by_id
     if players is None:
         players = {p.player_id: p for p in load_players_from_csv(players_file)}
@@ -507,6 +520,12 @@ def auto_assign_team(
 
     # Build the pool from current org players (ACT/AAA/LOW); keep DL/IR intact
     pool_ids = roster.act + roster.aaa + roster.low
+    # Remember each pool player's pre-assign level for the transaction log
+    # entries we generate below.
+    pre_levels: Dict[str, str] = {}
+    for level in ("act", "aaa", "low"):
+        for pid in getattr(roster, level, []) or []:
+            pre_levels.setdefault(pid, level.upper())
     pool = [players[pid] for pid in pool_ids if pid in players]
     buckets = _split_players(pool)
     profile = _resolve_strategy_profile_token(
@@ -544,8 +563,48 @@ def auto_assign_team(
     roster.dl = merged_dl
     # Default any new assignments to the 15-day DL; UI/workflows can upgrade them later.
     roster.dl_tiers = {pid: roster.dl_tiers.get(pid, "dl15") for pid in merged_dl}
-    # Save
+
+    # Identify any player who was in the org pool (ACT/AAA/LOW pre-assign)
+    # but didn't land on ACT / AAA / LOW / DL / IR after the rebalance.
+    # _pick_minor_rosters truncates LOW at LOW_MAX, so after a 4-round
+    # draft a 14-player LOW gets clipped to 10 and the bottom four
+    # otherwise vanish without a trace.
+    assigned: Set[str] = set()
+    assigned.update(act_ids)
+    assigned.update(aaa_ids)
+    assigned.update(low_ids)
+    assigned.update(merged_dl)
+    assigned.update(roster.ir)
+    released = [pid for pid in pool_ids if pid not in assigned]
+
     save_roster(team_id, roster)
+
+    if released:
+        try:
+            from services.transaction_log import record_transaction
+
+            for pid in released:
+                try:
+                    record_transaction(
+                        action="cut",
+                        team_id=team_id,
+                        player_id=pid,
+                        from_level=pre_levels.get(pid, "?"),
+                        to_level="FA",
+                        details="Released by Auto-assign (over roster cap)",
+                    )
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        try:
+            from services.contracts_service import release_contracts_to_free_agency
+
+            release_contracts_to_free_agency(released)
+        except Exception:
+            pass
+
+    return {"released": released}
 
 
 def auto_assign_all_teams(

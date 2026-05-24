@@ -309,9 +309,6 @@ def delete_league(
     record = league_registry.get_league(league_id)
     if record is None:
         return False
-    all_leagues = list(league_registry.list_leagues())
-    if len(all_leagues) <= 1:
-        raise ValueError("Cannot delete the last league.")
 
     active = league_registry.get_active_league()
     deleting_active = active is not None and active.id == record.id

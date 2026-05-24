@@ -463,6 +463,82 @@ def validate_roster_move(
 
 
 # ---------------------------------------------------------------------------
+# 4b. Roster-state validation (no proposed move)
+
+
+def validate_roster_state(
+    *,
+    current_levels: Mapping[str, Sequence[str]],
+    players: Mapping[str, Mapping[str, Any]],
+    level_caps: Mapping[str, int] | None = None,
+) -> ValidationResult:
+    """Audit an existing roster for rule compliance.
+
+    Sister function to :func:`validate_roster_move` — same rules but
+    evaluated against the *current* state instead of a hypothetical
+    post-move state. Called from the roster page (to display banners)
+    and from the season-sim gate (to refuse advancing while the team
+    is over a cap or missing positional coverage).
+
+    Rules:
+    - ACT / AAA / LOW level caps (defaults 25 / 15 / 10).
+    - LOW age gate: players 27+ should not be carried at LOW.
+    - ACT must carry at least ``MIN_POSITION_PLAYERS_ACT`` non-pitchers.
+    - ACT must cover every required defensive position.
+    """
+
+    result = ValidationResult()
+    caps = {**DEFAULT_LEVEL_CAPS, **(level_caps or {})}
+
+    levels = {k.lower(): list(v or []) for k, v in (current_levels or {}).items()}
+
+    # Level caps.
+    for level, cap in caps.items():
+        roster = levels.get(level, [])
+        if len(roster) > cap:
+            result.error(
+                f"{level.upper()} roster is over cap ({len(roster)}/{cap})."
+            )
+
+    # LOW age gate.
+    for pid in levels.get("low", []):
+        player = players.get(pid)
+        if not player:
+            continue
+        age = player.get("age")
+        try:
+            age_int = int(age) if age is not None else None
+        except (TypeError, ValueError):
+            age_int = None
+        if age_int is not None and age_int >= LOW_LEVEL_MAX_AGE:
+            result.error(
+                f"{_player_label(player, pid)} (age {age_int}) is over the "
+                f"LOW age limit ({LOW_LEVEL_MAX_AGE - 1})."
+            )
+
+    # ACT composition.
+    act_ids = levels.get("act", [])
+    act_players = [players[pid] for pid in act_ids if pid in players]
+    non_pitchers = [p for p in act_players if not _is_pitcher(p)]
+    if len(non_pitchers) < MIN_POSITION_PLAYERS_ACT:
+        result.error(
+            f"Active roster carries {len(non_pitchers)} position players "
+            f"(minimum {MIN_POSITION_PLAYERS_ACT})."
+        )
+
+    covered: Set[str] = set()
+    for p in non_pitchers:
+        covered |= _player_positions(p)
+    missing = [pos for pos in REQUIRED_DEF_POSITIONS if pos not in covered]
+    if missing:
+        result.error(
+            f"Active roster is missing defensive coverage at: {', '.join(missing)}."
+        )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # 5. Trade validation
 
 
@@ -606,6 +682,7 @@ __all__ = [
     "validate_pitching_staff",
     "validate_depth_chart",
     "validate_roster_move",
+    "validate_roster_state",
     "validate_trade",
     "ALL_POSITIONS",
     "REQUIRED_DEF_POSITIONS",

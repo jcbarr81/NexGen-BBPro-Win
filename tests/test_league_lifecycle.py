@@ -121,5 +121,12 @@ def test_delete_league_safeguards(tmp_path, monkeypatch):
     assert not (data_root / "leagues" / "alpha").exists()
     assert path_utils.get_active_league_id() == "beta"
 
-    with pytest.raises(ValueError):
-        league_lifecycle.delete_league("beta", force_if_active=True)
+    # Deleting the last surviving league is allowed now; the UI is
+    # responsible for bouncing to the create-wizard once the league
+    # list goes empty. The active pointer should be cleared so
+    # downstream callers don't try to resolve a deleted directory.
+    removed = league_lifecycle.delete_league("beta", force_if_active=True)
+    assert removed is True
+    assert league_registry.get_league("beta") is None
+    assert path_utils.get_active_league_id() is None
+    assert list(league_registry.list_leagues()) == []

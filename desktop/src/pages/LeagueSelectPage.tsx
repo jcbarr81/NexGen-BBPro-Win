@@ -68,13 +68,18 @@ export function LeagueSelectPage() {
     }
   }, [active.data, selectedId]);
 
-  // First-run: no leagues registered yet → bounce to the setup wizard,
-  // which handles admin-password bootstrap in addition to league creation.
+  // No leagues registered → bounce to the create wizard. Two flavors:
+  // - first-run mode (`?first-run=1`) when no admin is signed in yet,
+  //   which includes the admin-password bootstrap step;
+  // - regular mode for an already-authenticated admin (e.g. they just
+  //   deleted the last surviving league from League Admin), which
+  //   skips the bootstrap and goes straight to the league wizard.
   useEffect(() => {
     if (leagues.data && leagues.data.length === 0) {
-      navigate("/leagues/new?first-run=1", { replace: true });
+      const target = isAdmin && token ? "/leagues/new" : "/leagues/new?first-run=1";
+      navigate(target, { replace: true });
     }
-  }, [leagues.data, navigate]);
+  }, [leagues.data, navigate, isAdmin, token]);
 
   useEffect(() => {
     if (active.data?.league_id) {
