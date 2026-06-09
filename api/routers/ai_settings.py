@@ -32,15 +32,32 @@ AdminIdentity = Depends(_require_admin)
 
 
 def _client_snapshot() -> Dict[str, Any]:
-    """Read the *current* client status. Deferred import because
-    ``utils.openai_client`` does its init at import time."""
+    """Read the *current* renderer status — OpenAI (key-based, local) and Vertex
+    AI Imagen (service-account, cloud). Deferred imports because both do init at
+    import time."""
 
     from utils import openai_client
 
-    return {
+    openai_status = {
         "status": openai_client.CLIENT_STATUS,
         "ok": openai_client.CLIENT_STATUS == openai_client.CLIENT_STATUS_OK,
         "message": openai_client.get_client_status_message(),
+    }
+
+    try:
+        from utils import vertex_image
+
+        vertex_status = vertex_image.status()
+    except Exception as exc:  # pragma: no cover - defensive
+        vertex_status = {"status": "error", "ok": False, "message": str(exc)}
+
+    return {
+        # Back-compat: top-level mirrors the OpenAI client for the existing panel.
+        **openai_status,
+        "openai": openai_status,
+        "vertex": vertex_status,
+        # True when ANY detailed renderer is ready (drives the panel's badge).
+        "renderer_ok": bool(openai_status["ok"] or vertex_status["ok"]),
     }
 
 

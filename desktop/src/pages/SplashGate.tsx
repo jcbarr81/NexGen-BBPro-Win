@@ -9,6 +9,7 @@ import { Loader2, AlertTriangle } from "lucide-react";
 
 import { api, type HealthPayload } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
+import { isCloud } from "@/lib/cloud-auth";
 import { Card } from "@/components/ui";
 import { Brand } from "@/components/layout/Brand";
 
@@ -32,8 +33,10 @@ export function SplashGate({ children }: Props) {
       .then((health) => {
         if (cancelled) return;
         // Seed the store with whatever league the sidecar thinks is active
-        // so returning users skip the picker on launch.
-        setActiveLeague(health.active_league ?? null);
+        // so returning users skip the picker on launch. NOT in cloud mode —
+        // there the global pointer is meaningless (each user picks their own
+        // league), and seeding it could grant access to a league they're not in.
+        if (!isCloud()) setActiveLeague(health.active_league ?? null);
         setPhase({ kind: "ready", health });
       })
       .catch((err: unknown) => {
@@ -91,9 +94,21 @@ export function SplashGate({ children }: Props) {
 }
 
 function HealthRibbon({ health }: { health: HealthPayload }) {
+  // In cloud mode the sidecar's global ``active_league`` pointer is meaningless
+  // (each user picks their own league), so show THIS user's active league and
+  // the frontend build version (the bundle they're actually running) rather
+  // than the Cloud Run API's version.
+  const activeLeagueId = useAuthStore((s) => s.activeLeagueId);
+  const cloud = isCloud();
+  const version = health.version;
+  // In cloud mode the sidecar's global ``active_league`` pointer is meaningless
+  // (each user picks their own league), so show THIS user's active league.
+  const league = cloud
+    ? activeLeagueId ?? "no league"
+    : health.active_league ?? "no league";
   return (
     <div className="fixed bottom-2 right-3 z-50 rounded-md border border-border bg-surfaceAlt/80 px-2 py-1 text-[10px] uppercase tracking-wider text-muted backdrop-blur">
-      v{health.version} · {health.active_league ?? "no league"}
+      v{version} · {league}
     </div>
   );
 }

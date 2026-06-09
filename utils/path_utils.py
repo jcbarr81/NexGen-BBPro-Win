@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from contextvars import ContextVar
 import os
 import shutil
 import sys
@@ -9,10 +10,20 @@ import stat
 import json
 
 
-_DATA_DIR: Path | None = None
-_DATA_DIR_KEY: tuple[str, bool, str] | None = None
+# Cache of resolved active-league data dirs, keyed by (root_cache_key, league_id).
+# A dict — NOT a single slot — so concurrent requests in DIFFERENT leagues (the
+# cloud multi-tenant path) can never read each other's dir through a torn
+# single-slot cache (key/value momentarily out of sync = a cross-tenant data leak).
+_DATA_DIR_CACHE: dict[tuple[Any, str], Path] = {}
 _DATA_ROOT: Path | None = None
 _DATA_ROOT_KEY: tuple[str, bool, str] | None = None
+
+# Per-request active league, set by FastAPI middleware from the X-League-Id header.
+# When set it overrides the global active_league.txt pointer so many users can be
+# in different leagues at once. Unset for Electron / single-tenant (pointer path).
+_REQUEST_LEAGUE: ContextVar[str | None] = ContextVar(
+    "nexgen_request_league", default=None
+)
 _LEAGUE_REGISTRY_FILENAME = "league_registry.json"
 _ACTIVE_LEAGUE_FILENAME = "active_league.txt"
 _MINIMAL_DATA_FILES = (
@@ -275,8 +286,33 @@ def _default_league_id_from_registry(registry_path: Path) -> str | None:
     return fallback
 
 
+def set_request_league(league_id: str | None):
+    """Bind the active league for the current request context (cloud multi-tenant).
+
+    Returns a token to pass back to :func:`reset_request_league`.
+    """
+    return _REQUEST_LEAGUE.set(_normalize_league_id(league_id))
+
+
+def reset_request_league(token) -> None:
+    try:
+        _REQUEST_LEAGUE.reset(token)
+    except (ValueError, LookupError):
+        pass
+
+
+def get_request_league() -> str | None:
+    return _REQUEST_LEAGUE.get()
+
+
 def get_active_league_id(*, default: str | None = None) -> str | None:
     """Return current active league id when available."""
+
+    # Per-request override (cloud multi-tenant): the X-League-Id for this request
+    # wins over the process-global pointer so concurrent users stay isolated.
+    request_value = _REQUEST_LEAGUE.get()
+    if request_value:
+        return request_value
 
     env_value = _normalize_league_id(os.environ.get("NEXGEN_ACTIVE_LEAGUE"))
     if env_value:
@@ -306,9 +342,7 @@ def set_active_league_id(league_id: str, *, data_root: Path | None = None) -> st
     pointer = get_active_league_pointer_path(data_root=data_root)
     pointer.parent.mkdir(parents=True, exist_ok=True)
     pointer.write_text(normalized, encoding="utf-8")
-    global _DATA_DIR, _DATA_DIR_KEY
-    _DATA_DIR = None
-    _DATA_DIR_KEY = None
+    _DATA_DIR_CACHE.clear()
     return normalized
 
 
@@ -319,9 +353,7 @@ def clear_active_league_id(*, data_root: Path | None = None) -> None:
             pointer.unlink()
     except OSError:
         pass
-    global _DATA_DIR, _DATA_DIR_KEY
-    _DATA_DIR = None
-    _DATA_DIR_KEY = None
+    _DATA_DIR_CACHE.clear()
 
 
 def get_active_league_dir(
@@ -366,12 +398,15 @@ def get_active_league_data_dir(
 def get_data_dir() -> Path:
     """Return active league data dir when configured, otherwise legacy root."""
 
-    global _DATA_DIR, _DATA_DIR_KEY
-    cache_key = _data_root_cache_key()
-    if _DATA_DIR is not None and _DATA_DIR_KEY == cache_key:
-        return _DATA_DIR
-    _DATA_DIR = None
-    _DATA_DIR_KEY = None
+    # Key the cache by the per-request league too, so concurrent requests in
+    # different leagues each get their own (correct) entry — no torn single slot.
+    cache_key = (
+        _data_root_cache_key(),
+        _normalize_league_id(_REQUEST_LEAGUE.get()) or "",
+    )
+    cached = _DATA_DIR_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
 
     data_root = get_data_root()
     active_data = get_active_league_data_dir(data_root=data_root, create=True)
@@ -380,15 +415,13 @@ def get_data_dir() -> Path:
             base_data = get_base_dir() / "data"
             _seed_data_dir(base_data, active_data)
             _clear_readonly_tree(active_data)
-            _DATA_DIR = active_data
-            _DATA_DIR_KEY = cache_key
-            return _DATA_DIR
+            _DATA_DIR_CACHE[cache_key] = active_data
+            return active_data
         except OSError:
             pass
 
-    _DATA_DIR = data_root
-    _DATA_DIR_KEY = cache_key
-    return _DATA_DIR
+    _DATA_DIR_CACHE[cache_key] = data_root
+    return data_root
 
 
 def resolve_app_path(path: str | Path) -> Path:

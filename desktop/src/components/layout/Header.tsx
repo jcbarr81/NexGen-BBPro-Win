@@ -1,8 +1,9 @@
-import { ArrowLeft, HelpCircle, LogOut, Undo2 } from "lucide-react";
+import { ArrowLeft, HelpCircle, LayoutGrid, LogOut, Undo2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { Badge, Button } from "@/components/ui";
 import { useAuthStore } from "@/lib/auth-store";
+import { cloudLogout, isCloud } from "@/lib/cloud-auth";
 import { useThemeStore, type ThemeId } from "@/lib/theme";
 import { popPrevious, useCanGoBack } from "@/lib/nav-history";
 import { Breadcrumbs } from "./Breadcrumbs";
@@ -27,6 +28,16 @@ export function Header({ title, subtitle }: HeaderProps) {
   const theme = useThemeStore((s) => s.theme);
   const navigate = useNavigate();
   const headerImage = HEADER_IMAGES[theme];
+  const cloud = isCloud();
+
+  async function handleSignOut() {
+    if (cloud) {
+      await cloudLogout();
+      navigate("/login", { replace: true });
+    } else {
+      user.clear();
+    }
+  }
 
   const previous = user.previousSession;
   const canGoBack = useCanGoBack();
@@ -111,13 +122,13 @@ export function Header({ title, subtitle }: HeaderProps) {
             className="text-sm font-semibold"
             style={{ textShadow: "0 1px 2px rgba(0,0,0,0.55)" }}
           >
-            {user.username ?? "Guest"}
+            {(cloud ? user.handle : user.username) ?? "Guest"}
           </div>
           <div
             className="flex items-center justify-end gap-1.5 text-[11px] uppercase tracking-wider text-muted"
             style={{ textShadow: "0 1px 2px rgba(0,0,0,0.45)" }}
           >
-            <span>{user.role ?? "signed out"}</span>
+            <span>{(cloud ? user.pkg : user.role) ?? "signed out"}</span>
             {previous && (
               <Badge tone="warning" className="text-[9px]">
                 elevated
@@ -125,8 +136,19 @@ export function Header({ title, subtitle }: HeaderProps) {
             )}
           </div>
         </div>
-        {user.token && (
+        {(user.token || user.uid) && (
           <>
+            {cloud && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate("/my-leagues")}
+                title="Back to your leagues"
+              >
+                <LayoutGrid className="mr-1 h-3 w-3" />
+                My Leagues
+              </Button>
+            )}
             <ThemePicker />
             <Link to="/help" title="Help & Tutorials">
               <Button variant="ghost" size="icon" aria-label="Help">
@@ -137,7 +159,7 @@ export function Header({ title, subtitle }: HeaderProps) {
               variant="ghost"
               size="icon"
               aria-label="Sign out"
-              onClick={() => user.clear()}
+              onClick={handleSignOut}
             >
               <LogOut className="h-4 w-4" />
             </Button>

@@ -28,7 +28,7 @@ from services import trade_settings
 from services.finance_settings import apply_financial_preset
 from utils.user_manager import set_admin_password
 
-from ..security import require_bearer
+from ..security import require_account, require_bearer
 
 router = APIRouter(prefix="/leagues", tags=["league-create"])
 
@@ -97,11 +97,14 @@ def reset_random_pool(_: Dict[str, Any] = AdminIdentity) -> Dict[str, str]:
 # }
 
 
-@router.post("/create", status_code=status.HTTP_201_CREATED)
-def create_league_wizard(
-    payload: Dict[str, Any] = Body(...),
-    _: Dict[str, Any] = AdminIdentity,
-) -> Dict[str, Any]:
+def _build_league(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Core league creation: validate, register, generate data, apply settings.
+
+    Shared by the admin wizard route and the commissioner create route. Note: this
+    switches the GLOBAL active-league pointer to the new league (legacy behavior);
+    in the cloud multi-tenant path real requests carry X-League-Id so that pointer
+    is only a header-less fallback.
+    """
     display_name = str(payload.get("display_name", "")).strip()
     if not display_name:
         raise HTTPException(
@@ -384,6 +387,91 @@ def create_league_wizard(
         "mode": record.mode,
         "data_dir": str(data_dir),
         "teams_total": total,
+    }
+
+
+@router.post("/create", status_code=status.HTTP_201_CREATED)
+def create_league_wizard(
+    payload: Dict[str, Any] = Body(...),
+    _: Dict[str, Any] = AdminIdentity,
+) -> Dict[str, Any]:
+    return _build_league(payload)
+
+
+@router.post("/create-as-commissioner", status_code=status.HTTP_201_CREATED)
+def create_league_as_commissioner(
+    payload: Dict[str, Any] = Body(...),
+    account: Dict[str, Any] = Depends(require_account),
+) -> Dict[str, Any]:
+    """Commissioner-package flow: create an ``owner_league`` and register it in the
+    Firestore control plane with the caller as commissioner (optionally also owning
+    a team). Reuses ``_build_league`` for the heavy lifting.
+    """
+    from services import firestore_store
+    from services import memberships as memberships_bridge
+    from utils import path_utils
+    from utils.team_loader import load_teams
+
+    uid = account.get("uid")
+    if not uid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required."
+        )
+    acct = firestore_store.get_account(uid)
+    if not acct or str(acct.get("package")) != "commissioner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A Commissioner account is required to create a league.",
+        )
+
+    visibility = (
+        "public"
+        if str(payload.get("visibility", "")).strip().lower() == "public"
+        else "private"
+    )
+    team_id = str(payload.get("team_id", "")).strip()
+
+    result = _build_league({**payload, "mode": "owner_league"})
+    league_id = result["league_id"]
+
+    token = path_utils.set_request_league(league_id)
+    try:
+        if team_id:
+            data_dir = league_registry.get_league_data_dir(league_id, create=False)
+            valid = (
+                {t.team_id for t in load_teams(data_dir / "teams.csv")}
+                if data_dir
+                else set()
+            )
+            if team_id not in valid:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unknown team_id {team_id!r} for this league.",
+                )
+        firestore_store.upsert_league(
+            league_id,
+            display_name=result["display_name"],
+            visibility=visibility,
+            commissioner_uid=uid,
+        )
+        firestore_store.set_member(
+            league_id,
+            uid,
+            handle=str(acct.get("handle") or uid),
+            role="commissioner",
+            team_id=team_id,
+            status="active",
+            joined_via="create",
+        )
+        memberships_bridge.provision_user(uid, "commissioner", team_id)
+    finally:
+        path_utils.reset_request_league(token)
+
+    return {
+        **result,
+        "visibility": visibility,
+        "commissioner_uid": uid,
+        "team_id": team_id,
     }
 
 

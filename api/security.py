@@ -119,11 +119,8 @@ def get_launch_token() -> str | None:
     return _LAUNCH_TOKEN
 
 
-async def require_bearer(
-    authorization: str | None = Header(default=None),
-) -> Dict[str, Any]:
-    """FastAPI dependency enforcing a valid bearer token."""
-
+def _legacy_bearer(authorization: str | None) -> Dict[str, Any]:
+    """Decode a legacy per-process HMAC token (Electron / single-tenant)."""
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -134,4 +131,100 @@ async def require_bearer(
     return decode_token(token)
 
 
+def super_admin_emails() -> set[str]:
+    """Allow-list of platform-owner emails (global admins), from the
+    NEXGEN_SUPER_ADMINS env var (comma-separated)."""
+    raw = os.environ.get("NEXGEN_SUPER_ADMINS", "")
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
+def is_super_admin(email: str | None) -> bool:
+    e = str(email or "").strip().lower()
+    return bool(e) and e in super_admin_emails()
+
+
+def _identity_from_membership(decoded: Dict[str, Any]) -> Dict[str, Any]:
+    """Map a verified Firebase user + the request's league → the legacy identity
+    dict (``{u, r, t}``) the existing routers expect.
+
+    A commissioner membership is surfaced as ``r="admin"`` so the ~15
+    ``_require_admin`` checks pass unchanged; the true membership role is kept as
+    ``mr`` for endpoints that must tell a league commissioner from a global admin.
+    """
+    from utils import path_utils
+    from services import firestore_store
+
+    uid = decoded.get("uid")
+    email = str(decoded.get("email") or "").strip().lower()
+    league = path_utils.get_active_league_id()
+    if not league:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing league context (X-League-Id header required).",
+        )
+    # Global super-admin (platform owner): admin in EVERY league, no membership
+    # required. Allow-list of emails from the NEXGEN_SUPER_ADMINS env var.
+    if email and email in super_admin_emails():
+        return {
+            "u": uid,
+            "r": "admin",
+            "t": "",
+            "mr": "super_admin",
+            "email": email,
+            "handle": decoded.get("name"),
+            "league_id": league,
+            "super_admin": True,
+        }
+    member = firestore_store.get_member(league, uid)
+    if not member:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not a member of this league.",
+        )
+    role = str(member.get("role") or "owner")
+    return {
+        "u": uid,
+        "r": "admin" if role == "commissioner" else role,
+        "t": str(member.get("team_id") or ""),
+        "mr": role,
+        "email": decoded.get("email"),
+        "handle": member.get("handle"),
+        "league_id": league,
+    }
+
+
+async def require_bearer(
+    authorization: str | None = Header(default=None),
+) -> Dict[str, Any]:
+    """League-scoped identity. Cloud: verify a Firebase ID token and resolve the
+    caller's membership in the request's league. Local/Electron: legacy HMAC token.
+    Same ``{u, r, t}`` shape either way, so existing routers are unchanged.
+    """
+    from api import firebase_auth
+
+    if firebase_auth.is_enabled():
+        decoded = firebase_auth.verify_firebase_token(authorization)
+        if decoded is not None:
+            return _identity_from_membership(decoded)
+    return _legacy_bearer(authorization)
+
+
+async def require_account(
+    authorization: str | None = Header(default=None),
+) -> Dict[str, Any]:
+    """Identity WITHOUT requiring league membership — for signup / discovery /
+    invite-redeem / create-league endpoints. Returns ``{uid, email}``.
+    """
+    from api import firebase_auth
+
+    if firebase_auth.is_enabled():
+        decoded = firebase_auth.verify_firebase_token(authorization)
+        if decoded is not None:
+            return {"uid": decoded.get("uid"), "email": decoded.get("email")}
+    # Local/dev fallback: accept a legacy token and treat its username as the uid.
+    legacy = _legacy_bearer(authorization)
+    return {"uid": legacy.get("u"), "email": None, "_legacy": legacy}
+
+
 CurrentIdentity = Depends(require_bearer)
+CurrentAccount = Depends(require_account)

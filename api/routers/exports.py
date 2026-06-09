@@ -142,7 +142,7 @@ async def generate_logos(
 
     allow_auto_logo = bool(payload.get("allow_auto_logo", True))
     raw_engine = str(payload.get("force_engine", "") or "").strip().lower()
-    force_engine = raw_engine if raw_engine in {"openai", "auto_logo"} else None
+    force_engine = raw_engine if raw_engine in {"openai", "vertex", "auto_logo"} else None
 
     job_id = job_registry.create("logos")
 

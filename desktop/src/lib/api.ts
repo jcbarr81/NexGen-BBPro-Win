@@ -8,6 +8,7 @@
 
 import { getBridge } from "./bridge";
 import { useAuthStore } from "./auth-store";
+import { firebaseEnabled, getIdToken } from "./firebase";
 
 export class ApiError extends Error {
   constructor(
@@ -24,18 +25,33 @@ interface RequestOptions {
   body?: unknown;
   token?: string;
   signal?: AbortSignal;
+  /** Override the X-League-Id header for this one call (e.g. requesting to join
+   *  a public league the user isn't active in yet). Defaults to activeLeagueId. */
+  leagueId?: string;
 }
 
 export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { apiBaseUrl, launchToken } = getBridge();
-  const sessionToken = useAuthStore.getState().token;
-  const token = opts.token ?? sessionToken ?? launchToken;
+  const { token: sessionToken, activeLeagueId } = useAuthStore.getState();
+
+  // Bearer precedence: explicit opts.token (incl. "" = no token) → Firebase ID
+  // token (cloud) → legacy session/launch token (Electron / local sidecar).
+  let bearer: string | undefined;
+  if (opts.token !== undefined) {
+    bearer = opts.token || undefined;
+  } else {
+    const fb = firebaseEnabled() ? await getIdToken() : null;
+    bearer = fb ?? sessionToken ?? launchToken ?? undefined;
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
   };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (bearer) headers.Authorization = `Bearer ${bearer}`;
+  // Tell the multi-tenant backend which league this request targets.
+  const leagueHeader = opts.leagueId ?? activeLeagueId;
+  if (leagueHeader) headers["X-League-Id"] = leagueHeader;
 
   const res = await fetch(`${apiBaseUrl}${path}`, {
     method: opts.method ?? "GET",
@@ -1204,12 +1220,109 @@ export interface NotificationEvent {
 }
 
 export const api = {
-  health: () => apiRequest<HealthPayload>("/healthz"),
+  // App-specific health path (not /healthz, which network intermediaries
+  // often intercept — see api/app.py). /healthz stays for platform checks.
+  health: () => apiRequest<HealthPayload>("/meta/app-status"),
   login: (username: string, password: string) =>
     apiRequest<LoginPayload>("/auth/login", {
       method: "POST",
       body: { username, password },
     }),
+
+  // --- Multi-tenant (Firebase-authenticated) ---
+  accountSignup: (handle: string, pkg: "commissioner" | "owner") =>
+    apiRequest<{ uid: string; handle: string; package: string; email: string }>(
+      "/account/signup",
+      { method: "POST", body: { handle, package: pkg } },
+    ),
+  accountMe: () =>
+    apiRequest<{
+      account: { handle?: string; package?: string; email?: string } | null;
+      leagues: Array<{
+        league_id: string;
+        role: string;
+        team_id: string;
+        status: string;
+        display_name: string | null;
+        visibility: string | null;
+      }>;
+      super_admin?: boolean;
+      all_leagues?: Array<{
+        league_id: string;
+        display_name: string | null;
+        visibility: string | null;
+        commissioner_uid: string | null;
+      }>;
+    }>("/account/me"),
+  listPublicLeagues: () =>
+    apiRequest<{ leagues: Array<{ league_id: string; display_name: string }> }>(
+      "/leagues/public",
+    ),
+  createLeagueAsCommissioner: (payload: Record<string, unknown>) =>
+    apiRequest<{
+      league_id: string;
+      display_name: string;
+      visibility: string;
+      commissioner_uid: string;
+      team_id: string;
+      teams_total: number;
+    }>("/leagues/create-as-commissioner", { method: "POST", body: payload }),
+  generateInvite: (team_id?: string) =>
+    apiRequest<{ code: string; league_id: string; team_id: string; status: string }>(
+      "/invites",
+      { method: "POST", body: { team_id: team_id ?? "" } },
+    ),
+  listInvites: () =>
+    apiRequest<{
+      invites: Array<{
+        code: string;
+        team_id: string;
+        status: string;
+        uses: number;
+        max_uses: number;
+      }>;
+    }>("/invites"),
+  revokeInvite: (code: string) =>
+    apiRequest<{ code: string; status: string }>(
+      `/invites/${encodeURIComponent(code)}/revoke`,
+      { method: "POST" },
+    ),
+  redeemInvite: (code: string) =>
+    apiRequest<{ league_id: string; team_id: string; status: string }>(
+      "/invites/redeem",
+      { method: "POST", body: { code } },
+    ),
+  requestToJoin: (leagueId: string, note?: string) =>
+    apiRequest<{ request_id: string; status: string }>("/join-requests", {
+      method: "POST",
+      body: { note: note ?? "" },
+      leagueId,
+    }),
+  listJoinRequests: () =>
+    apiRequest<{
+      requests: Array<{ request_id: string; uid: string; handle: string; note: string }>;
+    }>("/join-requests"),
+  approveJoinRequest: (request_id: string, team_id: string) =>
+    apiRequest<{ request_id: string; status: string; team_id: string }>(
+      `/join-requests/${encodeURIComponent(request_id)}/approve`,
+      { method: "POST", body: { team_id } },
+    ),
+  denyJoinRequest: (request_id: string) =>
+    apiRequest<{ request_id: string; status: string }>(
+      `/join-requests/${encodeURIComponent(request_id)}/deny`,
+      { method: "POST" },
+    ),
+  assignMemberTeam: (uid: string, team_id: string) =>
+    apiRequest<{ uid: string; team_id: string; status: string }>(
+      `/members/${encodeURIComponent(uid)}/assign-team`,
+      { method: "POST", body: { team_id } },
+    ),
+  /** Super-admin: permanently delete ANY league (control plane + game data + GCS). */
+  platformDeleteLeague: (leagueId: string) =>
+    apiRequest<{ deleted: boolean; league_id: string; errors: string[] }>(
+      `/platform/leagues/${encodeURIComponent(leagueId)}`,
+      { method: "DELETE" },
+    ),
   listLeagues: () => apiRequest<League[]>("/leagues"),
   getActiveLeague: () => apiRequest<{ league_id: string | null }>("/leagues/active"),
   setActiveLeague: (leagueId: string) =>
@@ -1399,6 +1512,9 @@ export const api = {
       status: string;
       ok: boolean;
       message: string | null;
+      renderer_ok?: boolean;
+      openai?: { status: string; ok: boolean; message: string | null };
+      vertex?: { status: string; ok: boolean; message: string | null };
     }>("/ai/status"),
   setOpenAiKey: (api_key: string) =>
     apiRequest<{

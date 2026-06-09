@@ -7,8 +7,8 @@
  * and leaders land in follow-up iterations using the same shell.
  */
 
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -36,6 +36,8 @@ import {
   type TeamSnapshot,
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
+import { isCloud } from "@/lib/cloud-auth";
+import { toast } from "@/lib/toast-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import { StatCard } from "@/components/StatCard";
@@ -62,13 +64,20 @@ export function OwnerDashboardPage() {
     queryFn: () => api.listTeams(),
   });
 
+  // A cloud commissioner/admin who hasn't claimed a team yet. We must NOT
+  // silently fall back to teams[0] (that reads as "you own Minnesota"); instead
+  // we show a claim screen until they pick a team or choose to browse.
+  const cloudUnassigned = isCloud() && !user.teamId;
+
   // Resolve the team we should render for. Owner users have a team_id pinned
-  // on login; admins (no team_id) fall back to the first team in the list.
+  // on login; legacy admins (no team_id) fall back to the first team in the
+  // list. Cloud unassigned commissioners get the claim screen instead.
   const activeTeamId = useMemo(() => {
     if (selectedTeamId) return selectedTeamId;
     if (user.teamId) return user.teamId;
+    if (cloudUnassigned) return null;
     return teams.data?.[0]?.team_id ?? null;
-  }, [selectedTeamId, user.teamId, teams.data]);
+  }, [selectedTeamId, user.teamId, teams.data, cloudUnassigned]);
 
   const team = useQuery({
     queryKey: ["team", activeTeamId],
@@ -90,6 +99,18 @@ export function OwnerDashboardPage() {
     queryFn: () => api.teamWidgets(activeTeamId as string),
     enabled: !!activeTeamId,
   });
+
+  // Cloud commissioner with no team claimed yet → let them pick one (or choose
+  // to keep running the league with no team).
+  if (cloudUnassigned && !selectedTeamId) {
+    return (
+      <ClaimTeamView
+        teams={teams.data ?? []}
+        loading={teams.isLoading}
+        onBrowse={() => setSelectedTeam(teams.data?.[0]?.team_id ?? null)}
+      />
+    );
+  }
 
   if (!activeTeamId) {
     return (
@@ -116,9 +137,19 @@ export function OwnerDashboardPage() {
     );
   }
 
+  const browsingAsCommissioner = cloudUnassigned && !!selectedTeamId;
+
   return (
     <AppShell
-      title={team.data ? `${team.data.city} ${team.data.name}` : "Dashboard"}
+      title={
+        browsingAsCommissioner
+          ? team.data
+            ? `Viewing: ${team.data.city} ${team.data.name}`
+            : "League Dashboard"
+          : team.data
+            ? `${team.data.city} ${team.data.name}`
+            : "Dashboard"
+      }
       subtitle={
         team.data
           ? `${team.data.division} · ${team.data.stadium}`
@@ -126,6 +157,25 @@ export function OwnerDashboardPage() {
       }
     >
       <div className="space-y-6 animate-fade-in">
+        {browsingAsCommissioner && (
+          <Card className="border-amber/40 bg-amber/5">
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
+              <div className="text-sm">
+                <span className="font-semibold">Running as commissioner.</span>{" "}
+                <span className="text-muted">
+                  You haven't claimed a team — you're browsing the league.
+                </span>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setSelectedTeam(null)}
+              >
+                Claim a team
+              </Button>
+            </CardContent>
+          </Card>
+        )}
         <TeamHeroCard
           team={team.data}
           snapshot={snapshot.data}
@@ -177,6 +227,100 @@ export function OwnerDashboardPage() {
             onPick={setSelectedTeam}
           />
         )}
+      </div>
+    </AppShell>
+  );
+}
+
+/**
+ * Shown to a cloud commissioner who hasn't claimed a team in this league yet.
+ * They pick a team to run (one click → assign themselves + provision users.txt),
+ * or choose to keep running the league as a pure commissioner (no team).
+ */
+function ClaimTeamView({
+  teams,
+  loading,
+  onBrowse,
+}: {
+  teams: Team[];
+  loading: boolean;
+  onBrowse: () => void;
+}) {
+  const uid = useAuthStore((s) => s.uid);
+  const role = useAuthStore((s) => s.role);
+  const setLeagueIdentity = useAuthStore((s) => s.setLeagueIdentity);
+  const queryClient = useQueryClient();
+
+  const claim = useMutation({
+    mutationFn: (teamId: string) => api.assignMemberTeam(uid as string, teamId),
+    onSuccess: (_res, teamId) => {
+      // Keep commissioner powers (role stays "admin"); pin the claimed team.
+      setLeagueIdentity(role ?? "admin", teamId);
+      queryClient.invalidateQueries();
+      toast.success("Team claimed", {
+        description: "You're now running this team.",
+      });
+    },
+    onError: (err: unknown) => {
+      toast.error("Couldn't claim team", {
+        description: err instanceof Error ? err.message : "Try another team.",
+      });
+    },
+  });
+
+  return (
+    <AppShell title="Claim your team" subtitle="Pick the team you'll run in this league">
+      <div className="mx-auto max-w-3xl space-y-5">
+        <Card>
+          <CardHeader>
+            <CardTitle>You haven't claimed a team yet</CardTitle>
+            <CardDescription>
+              As commissioner you can run one of the teams below, or keep running
+              the league as a pure commissioner without a team.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center gap-3 py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-amber" />
+                <span className="text-sm text-muted">Loading teams…</span>
+              </div>
+            ) : teams.length === 0 ? (
+              <p className="py-6 text-sm text-muted">
+                This league has no teams yet.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {teams.map((t) => (
+                  <div
+                    key={t.team_id}
+                    className="flex items-center justify-between rounded-lg border border-border px-3 py-2"
+                  >
+                    <span className="text-sm font-medium">
+                      {t.city} {t.name}
+                    </span>
+                    <Button
+                      size="sm"
+                      disabled={claim.isPending}
+                      onClick={() => claim.mutate(t.team_id)}
+                    >
+                      {claim.isPending && claim.variables === t.team_id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        "Claim"
+                      )}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <div className="flex justify-center">
+          <Button variant="ghost" onClick={onBrowse}>
+            Skip for now — run the league without a team
+          </Button>
+        </div>
       </div>
     </AppShell>
   );

@@ -1,0 +1,23 @@
+# Runtime dependencies for the cloud API container (Cloud Run).
+# Deliberately excludes the heavy local-only ML/image stack
+# (torch, diffusers, transformers, opencv). Logo/avatar generation uses
+# Vertex AI Imagen via REST (utils/vertex_image.py), called with the already
+# present httpx + google-auth (firebase-admin) — no google-cloud-aiplatform SDK.
+fastapi
+uvicorn[standard]
+pydantic>=2
+portalocker
+httpx
+websockets
+numpy
+bcrypt
+# Pillow: resize/save generated logo+avatar PNGs and render the offline vector
+# logo fallback (images/auto_logo.py).
+Pillow
+# OpenCV (headless = no GUI/X11 libs): player-avatar generation recolors the
+# bundled jersey/cap templates by team color via HSV masking (utils/avatar_generator.py).
+opencv-python-headless
+# Firebase Auth (ID-token verification) + Firestore client for the multi-tenant
+# control plane (accounts, memberships, invites, join-requests). Cloud-only;
+# guarded by NEXGEN_FIREBASE=1 so local/Electron never imports it.
+firebase-admin

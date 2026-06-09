@@ -104,9 +104,11 @@ export function UtilitiesPage() {
       setActiveAction(null);
       const engine = (res.result?.engine as string | undefined) ?? "auto_logo";
       const engineLabel =
-        engine === "openai"
-          ? "OpenAI gpt-image-1 (detailed)"
-          : "auto_logo fallback (simple vector)";
+        engine === "vertex"
+          ? "Vertex AI Imagen (detailed)"
+          : engine === "openai"
+            ? "OpenAI gpt-image-1 (detailed)"
+            : "auto_logo fallback (simple vector)";
       recordResult(
         args.tileKey,
         true,
@@ -235,7 +237,7 @@ export function UtilitiesPage() {
             <ActionTile
               icon={<Palette className="h-5 w-5" />}
               title="Detailed Logos (AI)"
-              description="Uses OpenAI gpt-image-1 with a rich per-team prompt. Requires a configured API key."
+              description="Uses Vertex AI Imagen (cloud) or OpenAI gpt-image-1 (local) with a rich per-team prompt. Falls back to simple vector logos if neither is configured."
               pending={activeAction === "logos-openai"}
               progress={progress["logos-openai"]}
               result={results["logos-openai"]}
@@ -556,7 +558,10 @@ function AiStatusCard() {
     },
   });
 
-  const ok = status.data?.ok ?? false;
+  const openaiOk = status.data?.openai?.ok ?? status.data?.ok ?? false;
+  const vertex = status.data?.vertex;
+  const vertexOk = vertex?.ok ?? false;
+  const rendererOk = status.data?.renderer_ok ?? (openaiOk || vertexOk);
 
   return (
     <Card>
@@ -566,16 +571,16 @@ function AiStatusCard() {
             <Palette className="h-4 w-4 text-amber" /> AI Renderer Status
           </CardTitle>
           <CardDescription>
-            The detailed logo/avatar renderer uses OpenAI's gpt-image-1 model.
-            Without a configured API key, the "Detailed Logos" button falls
-            back to the simple vector renderer.
+            Detailed logos/avatars use Google Vertex AI Imagen in the cloud
+            (no key needed) or OpenAI gpt-image-1 locally. If neither is ready,
+            the "Detailed Logos" button falls back to the simple vector renderer.
           </CardDescription>
         </div>
         {status.isLoading ? (
           <Badge tone="neutral">
             <Loader2 className="h-3 w-3 animate-spin" /> Checking
           </Badge>
-        ) : ok ? (
+        ) : rendererOk ? (
           <Badge tone="success">
             <CheckCircle2 className="h-3 w-3" /> Ready
           </Badge>
@@ -586,10 +591,37 @@ function AiStatusCard() {
         )}
       </CardHeader>
       <CardContent>
-        {!ok && status.data?.message && (
+        {/* Per-engine status */}
+        <div className="mb-3 space-y-1.5">
+          <div className="flex items-center gap-2 text-xs">
+            {vertexOk ? (
+              <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+            ) : (
+              <AlertTriangle className="h-3.5 w-3.5 text-muted" />
+            )}
+            <span className="font-medium">Vertex AI Imagen</span>
+            <span className="text-muted">
+              {vertex?.message ?? "Status unavailable."}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            {openaiOk ? (
+              <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+            ) : (
+              <AlertTriangle className="h-3.5 w-3.5 text-muted" />
+            )}
+            <span className="font-medium">OpenAI gpt-image-1</span>
+            <span className="text-muted">
+              {status.data?.openai?.message ??
+                status.data?.message ??
+                "Not configured."}
+            </span>
+          </div>
+        </div>
+        {!openaiOk && status.data?.openai?.message && !rendererOk && (
           <div className="mb-3 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{status.data.message}</span>
+            <span>{status.data.openai.message}</span>
           </div>
         )}
         <form
@@ -606,7 +638,7 @@ function AiStatusCard() {
               type="password"
               value={key}
               onChange={(e) => setKey(e.target.value)}
-              placeholder={ok ? "Key configured — paste to replace" : "sk-..."}
+              placeholder={openaiOk ? "Key configured — paste to replace" : "sk-..."}
               autoComplete="off"
             />
           </div>

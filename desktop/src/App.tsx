@@ -13,6 +13,11 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { LoginPage } from "@/pages/LoginPage";
 import { LeagueSelectPage } from "@/pages/LeagueSelectPage";
 import { OwnerDashboardPage } from "@/pages/OwnerDashboardPage";
+import { RegisterPage } from "@/pages/RegisterPage";
+import { MyLeaguesPage } from "@/pages/MyLeaguesPage";
+import { DiscoverLeaguesPage } from "@/pages/DiscoverLeaguesPage";
+import { FirebaseAuthSync } from "@/components/FirebaseAuthSync";
+import { isCloud } from "@/lib/cloud-auth";
 
 // Everything else is code-split with ``React.lazy``. Vite emits one chunk
 // per lazy import, so the initial bundle trims ~500 KB and each page is
@@ -131,6 +136,9 @@ const LeagueHistoryPage = lazy(() =>
 const CommissionerPage = lazy(() =>
   named("CommissionerPage", () => import("@/pages/CommissionerPage")),
 );
+const CommissionerMembersPage = lazy(() =>
+  named("CommissionerMembersPage", () => import("@/pages/CommissionerMembersPage")),
+);
 const CommandCenterPage = lazy(() =>
   named("CommandCenterPage", () => import("@/pages/CommandCenterPage")),
 );
@@ -189,21 +197,41 @@ import { useAuthStore } from "@/lib/auth-store";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
-  if (!token) return <Navigate to="/login" replace />;
+  const uid = useAuthStore((s) => s.uid);
+  if (!token && !uid) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
 /**
  * Dashboard + descendant routes also require a selected league. If none is
- * set yet, bounce to the picker (entry point of the app). LeagueSelectPage
- * itself sits outside this guard so the user can reach it without auth.
+ * set yet, bounce to the picker (cloud: the user's leagues page). The picker
+ * pages sit outside this guard so they're reachable without a league.
  */
 function RequireLeague({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
+  const uid = useAuthStore((s) => s.uid);
   const league = useAuthStore((s) => s.activeLeagueId);
-  if (!league) return <Navigate to="/select-league" replace />;
-  if (!token) return <Navigate to="/login" replace />;
+  if (!token && !uid) return <Navigate to="/login" replace />;
+  if (!league)
+    return <Navigate to={isCloud() ? "/my-leagues" : "/select-league"} replace />;
   return <>{children}</>;
+}
+
+/**
+ * Entry router for the cloud (Firebase) build: waits for the initial auth state,
+ * then sends the user to login → register → their leagues → into a league.
+ */
+function CloudEntry() {
+  const ready = useAuthStore((s) => s.firebaseReady);
+  const uid = useAuthStore((s) => s.uid);
+  const pkg = useAuthStore((s) => s.pkg);
+  const league = useAuthStore((s) => s.activeLeagueId);
+  if (!isCloud()) return <Navigate to="/select-league" replace />;
+  if (!ready) return <RouteFallback />;
+  if (!uid) return <Navigate to="/login" replace />;
+  if (!pkg) return <Navigate to="/register" replace />;
+  if (league) return <Navigate to="/home" replace />;
+  return <Navigate to="/my-leagues" replace />;
 }
 
 const STUB_ROUTES: Array<{ path: string; label: string }> = [];
@@ -243,12 +271,30 @@ export default function App() {
   return (
     <SplashGate>
       <LeagueCacheInvalidator />
+      <FirebaseAuthSync />
       <SplashAudio />
       <Toaster />
       <CommandPalette />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route
+          path="/my-leagues"
+          element={
+            <RequireAuth>
+              <MyLeaguesPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/discover"
+          element={
+            <RequireAuth>
+              <DiscoverLeaguesPage />
+            </RequireAuth>
+          }
+        />
         {/* Accessible without auth for first-run bootstrap; the page
             component itself enforces admin when first-run=1 is absent. */}
         <Route path="/leagues/new" element={<LeagueCreatePage />} />
@@ -545,6 +591,14 @@ export default function App() {
           }
         />
         <Route
+          path="/league-members"
+          element={
+            <RequireLeague>
+              <CommissionerMembersPage />
+            </RequireLeague>
+          }
+        />
+        <Route
           path="/finance-queue"
           element={
             <RequireLeague>
@@ -683,8 +737,8 @@ export default function App() {
             }
           />
         ))}
-        <Route path="/" element={<Navigate to="/select-league" replace />} />
-        <Route path="*" element={<Navigate to="/select-league" replace />} />
+        <Route path="/" element={<CloudEntry />} />
+        <Route path="*" element={<CloudEntry />} />
         </Routes>
       </Suspense>
     </SplashGate>

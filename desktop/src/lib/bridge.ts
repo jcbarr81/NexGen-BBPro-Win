@@ -16,8 +16,18 @@ interface ResolvedBridge {
 }
 
 function fromEnv(): ResolvedBridge {
-  const api = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8765";
-  const ws = import.meta.env.VITE_WS_BASE_URL ?? api.replace(/^http/, "ws");
+  // When no API URL is provided (the production build served from Cloud Run),
+  // default to the page's own origin so the UI talks to the same host that
+  // served it — no CORS, no hard-coded URL. Dev modes still set the env
+  // (.env.development -> local sidecar, .env.cloud -> the Cloud Run URL).
+  const sameOrigin =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "http://127.0.0.1:8765";
+  const envApi = import.meta.env.VITE_API_BASE_URL;
+  const api = envApi && envApi.length ? envApi : sameOrigin;
+  const envWs = import.meta.env.VITE_WS_BASE_URL;
+  const ws = envWs && envWs.length ? envWs : api.replace(/^http/, "ws");
   return {
     apiBaseUrl: api,
     wsBaseUrl: ws,

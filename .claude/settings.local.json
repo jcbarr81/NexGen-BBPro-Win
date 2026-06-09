@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(.venv2/Scripts/python.exe -m pytest tests/ -q --ignore=tests/test_auto_tune_solver.py --ignore=tests/test_schedule_windows.py)",
-      "PowerShell(powershell -ExecutionPolicy Bypass -File \"c:\\\\Users\\\\james\\\\Documents\\\\Baseball-AI\\\\NexGen-BBPro\\\\desktop\\\\scripts\\\\build-release.ps1\")"
+      "PowerShell(powershell -ExecutionPolicy Bypass -File \"c:\\\\Users\\\\james\\\\Documents\\\\Baseball-AI\\\\NexGen-BBPro\\\\desktop\\\\scripts\\\\build-release.ps1\")",
+      "Bash(npm run *)",
+      "Bash(python -c ' *)",
+      "PowerShell(Set-Location \"C:\\\\Users\\\\james\\\\Documents\\\\Baseball-AI\\\\NexGen-BBPro\"; $out = gcloud run deploy nexgen-bbpro-api --source . --project nexgen-bbpro --region us-central1 --quiet 2>&1 | Out-String; \\($out -split \"`n\" | Select-Object -Last 6\\) -join \"`n\"; \"exit $LASTEXITCODE\")"
     ]
   }
 }

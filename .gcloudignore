@@ -1,0 +1,46 @@
+# Controls what `gcloud run deploy --source` uploads to Cloud Build.
+# Mirrors .dockerignore so the 60k-file .venv2/ and other heavy paths
+# are NOT uploaded. (gcloud does NOT consult .dockerignore for the upload.)
+
+.venv2/
+.venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Frontend source IS needed (multi-stage Docker build compiles it); exclude
+# only the heavy/generated parts.
+desktop/node_modules/
+desktop/dist/
+desktop/dist-electron/
+desktop/release/
+node_modules/
+
+# Leading slash = repo-root only, so these don't also strip desktop/src/assets,
+# desktop images, etc. (the UI build needs those).
+/data/
+/tmp/
+/docs/
+/tests/
+/samples/
+/images/
+/assets/
+# Root build artifacts (PyInstaller output, reports) — never needed at runtime.
+/dist/
+/build/
+/reports/
+/logo/
+/release/
+
+bcrypt.py
+_tmp_*.py
+_slice*.txt
+_tmp_*.txt
+build_exe.py
+data_snapshot.tgz
+
+.git/
+.github/
+.githooks/
+.claude/
+*.log

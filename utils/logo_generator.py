@@ -221,21 +221,38 @@ def generate_team_logos(
         _notify_status("auto_logo")
         _auto_logo_fallback(teams, out_dir, size, progress_callback)
         return str(out_dir)
-    if force_engine == "openai" and client is None:
-        raise RuntimeError(
-            "OpenAI client is not configured. Add an API key from Admin → "
-            "Utilities → AI Renderer, or use the Simple Logos button."
-        )
 
-    if client is None:
+    # Detailed renderers: OpenAI gpt-image-1 (local/desktop, needs an API key) or
+    # Vertex AI Imagen (cloud, GCP service-account auth — no key). Pick whichever
+    # is configured; ``force_engine`` expresses a preference, not a hard pin, so
+    # the "Detailed Logos" button works in the cloud (Vertex) and locally (OpenAI).
+    openai_ok = client is not None
+    vertex_ok = False
+    try:
+        from utils import vertex_image
+
+        vertex_ok = vertex_image.is_available()
+    except Exception:
+        vertex_ok = False
+
+    if force_engine == "vertex":
+        engine = "vertex" if vertex_ok else ("openai" if openai_ok else None)
+    else:  # "openai" or auto-detect → prefer OpenAI, else Vertex
+        engine = "openai" if openai_ok else ("vertex" if vertex_ok else None)
+
+    if engine is None:
         if allow_auto_logo:
             _notify_status("auto_logo")
             _auto_logo_fallback(teams, out_dir, size, progress_callback)
             return str(out_dir)
-        raise RuntimeError("OpenAI client is not configured")
+        raise RuntimeError(
+            "No detailed logo renderer is configured. Add an OpenAI API key "
+            "(Admin → Utilities → AI Renderer) or enable Vertex AI Imagen, or "
+            "use the Simple Logos button."
+        )
 
     total = len(teams)
-    _notify_status("openai")
+    _notify_status(engine)
     if progress_callback:
         progress_callback(0, total)
 
@@ -244,14 +261,18 @@ def generate_team_logos(
             prompt = str(prompt_builder(t))
         else:
             prompt = _build_openai_prompt(t)
-        result = client.images.generate(
-            model="gpt-image-1",
-            prompt=prompt,
-            size="1024x1024",
-            background="transparent",
-        )
-        b64 = result.data[0].b64_json
-        image_bytes = base64.b64decode(b64)
+        if engine == "openai":
+            result = client.images.generate(
+                model="gpt-image-1",
+                prompt=prompt,
+                size="1024x1024",
+                background="transparent",
+            )
+            image_bytes = base64.b64decode(result.data[0].b64_json)
+        else:  # vertex
+            from utils import vertex_image
+
+            image_bytes = vertex_image.generate_png(prompt, size=1024)
         path = out_dir / f"{t.team_id.lower()}.png"
         _require_pillow()
         with Image.open(BytesIO(image_bytes)) as img:

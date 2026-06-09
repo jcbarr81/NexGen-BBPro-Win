@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 
 import { getBridge } from "@/lib/bridge";
 import { useAuthStore } from "@/lib/auth-store";
+import { firebaseEnabled, getIdToken } from "@/lib/firebase";
 import { cn } from "@/lib/cn";
 
 interface TeamLogoProps {
@@ -40,6 +41,7 @@ export function TeamLogo({
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const token = useAuthStore((s) => s.token);
+  const activeLeagueId = useAuthStore((s) => s.activeLeagueId);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,37 +51,42 @@ export function TeamLogo({
 
     if (!teamId) return;
 
-    const { apiBaseUrl, launchToken } = getBridge();
-    const authToken = token ?? launchToken;
-    const url = `${apiBaseUrl}/teams/${encodeURIComponent(teamId)}/logo`;
-
-    fetch(url, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-    })
-      .then(async (res) => {
-        if (res.status === 204) return null;
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.blob();
-      })
-      .then((blob) => {
+    // The logo endpoint requires auth. In the cloud build that's the Firebase
+    // ID token (+ X-League-Id so the server knows which league); locally it's
+    // the legacy session/launch token. ``<img src>`` can't carry headers, so we
+    // fetch the PNG as a blob with the right auth and build an object URL.
+    (async () => {
+      const { apiBaseUrl, launchToken } = getBridge();
+      const url = `${apiBaseUrl}/teams/${encodeURIComponent(teamId)}/logo`;
+      const headers: Record<string, string> = {};
+      const cloud = firebaseEnabled();
+      const fbToken = cloud ? await getIdToken() : null;
+      const bearer = fbToken ?? token ?? launchToken;
+      if (bearer) headers.Authorization = `Bearer ${bearer}`;
+      if (cloud && activeLeagueId) headers["X-League-Id"] = activeLeagueId;
+      try {
+        const res = await fetch(url, { headers });
         if (cancelled) return;
-        if (!blob) {
+        if (res.status === 204) {
           setLoaded(true);
           return;
         }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
         setImgUrl(objectUrl);
         setLoaded(true);
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setLoaded(true);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [teamId, token, version]);
+  }, [teamId, token, version, activeLeagueId]);
 
   if (imgUrl) {
     return (

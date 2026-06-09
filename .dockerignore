@@ -1,0 +1,56 @@
+# Keep the build context small and the image clean.
+
+# Vendored / virtual envs (huge — 60k+ files)
+.venv2/
+.venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Frontend source IS needed (multi-stage build compiles it), but skip the
+# heavy/generated parts — deps are reinstalled and the bundle is rebuilt.
+desktop/node_modules/
+desktop/dist/
+desktop/dist-electron/
+desktop/release/
+node_modules/
+
+# Local data, scratch, and run artifacts (seeded/mounted separately later).
+# Leading slash = repo-root only, so these don't also strip desktop/src/assets
+# and other UI images the frontend build needs.
+/data/
+/tmp/
+/docs/
+/tests/
+/samples/
+# Exclude /images/ EXCEPT the avatar templates, which the cloud avatar generator
+# recolors at runtime (utils/avatar_generator.py → /app/images/avatars/Template).
+# Use ``/images/*`` (contents) not ``/images/`` (the dir) so negation can work.
+/images/*
+!/images/avatars
+/images/avatars/*
+!/images/avatars/Template
+/assets/
+# Root build artifacts (PyInstaller output, reports) — never needed at runtime.
+/dist/
+/build/
+/reports/
+/logo/
+/release/
+
+# Insecure test stub that would SHADOW the real `bcrypt` package
+bcrypt.py
+
+# Scratch scripts and build tooling not used at runtime
+_tmp_*.py
+_slice*.txt
+_tmp_*.txt
+build_exe.py
+data_snapshot.tgz
+
+# VCS / CI / editor
+.git/
+.github/
+.githooks/
+.claude/
+*.log

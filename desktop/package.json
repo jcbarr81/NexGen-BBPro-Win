@@ -1,7 +1,7 @@
 {
   "name": "nexgen-bbpro-desktop",
   "private": true,
-  "version": "6.14.52",
+  "version": "6.14.87",
   "description": "Electron + React UI for NexGen-BBPro, talking to the Python FastAPI sidecar.",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -10,6 +10,7 @@
     "build:electron": "tsc -p tsconfig.node.json",
     "watch:electron": "tsc -p tsconfig.node.json -w --preserveWatchOutput",
     "dev:vite": "vite",
+    "dev:cloud": "vite --mode cloud",
     "dev:electron": "wait-on tcp:5173 dist-electron/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
     "dev": "concurrently -k -n vite,tsc,electron -c cyan,yellow,magenta \"npm:dev:vite\" \"npm:watch:electron\" \"npm:dev:electron\"",
     "build:renderer": "vite build",
@@ -33,6 +34,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "dompurify": "^3.4.0",
+    "firebase": "^12.14.0",
     "lucide-react": "^0.468.0",
     "marked": "^18.0.0",
     "react": "^18.3.1",

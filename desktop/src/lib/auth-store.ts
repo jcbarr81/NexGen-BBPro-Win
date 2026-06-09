@@ -12,6 +12,13 @@ export interface AuthState {
   username: string | null;
   role: string | null;
   teamId: string | null;
+  /** Firebase account (cloud multi-tenant). uid present = signed in via Firebase. */
+  uid: string | null;
+  email: string | null;
+  handle: string | null;
+  pkg: "commissioner" | "owner" | null;
+  /** True once Firebase has reported its initial auth state (or in non-cloud). */
+  firebaseReady: boolean;
   /** Currently-active league id (mirrors sidecar state after selection). */
   activeLeagueId: string | null;
   /** Team id the dashboard should render for. Defaults to the owner's team;
@@ -37,7 +44,21 @@ export interface AuthState {
   switchBackToPrevious: () => boolean;
   setActiveLeague: (leagueId: string | null) => void;
   setSelectedTeam: (teamId: string | null) => void;
+  /** Set the caller's role + team for the league they just entered (cloud
+   *  multi-tenant). ``teamId`` empty = no team claimed yet. Seeds
+   *  ``selectedTeamId`` so team-scoped pages render the right team (or none). */
+  setLeagueIdentity: (role: string | null, teamId: string | null) => void;
   bumpLogoVersion: () => void;
+  /** Set/clear the Firebase account profile (cloud multi-tenant). */
+  setFirebaseAccount: (
+    account: {
+      uid: string;
+      email?: string | null;
+      handle?: string | null;
+      pkg?: "commissioner" | "owner" | null;
+    } | null,
+  ) => void;
+  setFirebaseReady: (ready: boolean) => void;
   clear: () => void;
 }
 
@@ -46,6 +67,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   username: null,
   role: null,
   teamId: null,
+  uid: null,
+  email: null,
+  handle: null,
+  pkg: null,
+  firebaseReady: false,
   activeLeagueId: null,
   selectedTeamId: null,
   logoVersion: 0,
@@ -111,13 +137,31 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   setActiveLeague: (leagueId) => set({ activeLeagueId: leagueId }),
   setSelectedTeam: (teamId) => set({ selectedTeamId: teamId }),
+  setLeagueIdentity: (role, teamId) =>
+    set({ role, teamId, selectedTeamId: teamId || null }),
   bumpLogoVersion: () => set((s) => ({ logoVersion: s.logoVersion + 1 })),
+  setFirebaseAccount: (account) =>
+    set(
+      account
+        ? {
+            uid: account.uid,
+            email: account.email ?? null,
+            handle: account.handle ?? null,
+            pkg: account.pkg ?? null,
+          }
+        : { uid: null, email: null, handle: null, pkg: null },
+    ),
+  setFirebaseReady: (ready) => set({ firebaseReady: ready }),
   clear: () =>
     set({
       token: null,
       username: null,
       role: null,
       teamId: null,
+      uid: null,
+      email: null,
+      handle: null,
+      pkg: null,
       activeLeagueId: null,
       selectedTeamId: null,
       previousSession: null,

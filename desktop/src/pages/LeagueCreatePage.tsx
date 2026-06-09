@@ -83,6 +83,7 @@ interface ScoutingTuning {
 interface WizardState {
   displayName: string;
   mode: "single_player" | "owner_league";
+  commissionerVisibility: "public" | "private";
   templateLeagueId: string;
   setupMode: SetupMode;
   quickstartPresetId: string;
@@ -113,6 +114,7 @@ interface WizardState {
 const INITIAL: WizardState = {
   displayName: "",
   mode: "single_player",
+  commissionerVisibility: "private",
   templateLeagueId: "",
   setupMode: "quickstart",
   quickstartPresetId: "",
@@ -153,12 +155,15 @@ export function LeagueCreatePage() {
   const [params] = useSearchParams();
   const isFirstRun = params.get("first-run") === "1";
   const role = useAuthStore((s) => s.role);
+  const pkg = useAuthStore((s) => s.pkg);
   const navigate = useNavigate();
+  // Cloud commissioner flow: a Commissioner-package account creating their own
+  // multi-owner league (vs the legacy admin-only path).
+  const isCommissioner = params.get("commissioner") === "1" && pkg === "commissioner";
+  const canCreate = role === "admin" || isCommissioner;
 
-  // Admin-only once past first-run bootstrap. Send unauthenticated /
-  // non-admin users through the login flow with a return path so they
-  // come back here after signing in as admin.
-  if (!isFirstRun && role !== "admin") {
+  // Admin / commissioner only once past first-run bootstrap.
+  if (!isFirstRun && !canCreate) {
     return <Navigate to="/login?require=admin&next=/leagues/new" replace />;
   }
 
@@ -170,12 +175,12 @@ export function LeagueCreatePage() {
   const presets = useQuery({
     queryKey: ["league-presets"],
     queryFn: () => api.leaguePresets(),
-    enabled: role === "admin",
+    enabled: canCreate,
   });
   const existingLeagues = useQuery({
     queryKey: ["leagues"],
     queryFn: () => api.listLeagues(),
-    enabled: role === "admin",
+    enabled: canCreate,
   });
   // Pull the commissioner settings catalog so the wizard can render the
   // same module + AI tuning + scouting controls the post-create
@@ -186,7 +191,7 @@ export function LeagueCreatePage() {
   const commishSettings = useQuery({
     queryKey: ["commissioner-settings"],
     queryFn: () => api.commissionerSettings(),
-    enabled: role === "admin",
+    enabled: canCreate,
   });
 
   const stepLabels = isFirstRun
@@ -246,7 +251,7 @@ export function LeagueCreatePage() {
       if (state.scoutingTuningTouched) {
         Object.assign(scoutingPayload, state.scoutingTuning);
       }
-      await api.createLeague({
+      const createPayload = {
         display_name: state.displayName,
         mode: state.mode,
         template_league_id: state.templateLeagueId || undefined,
@@ -266,9 +271,20 @@ export function LeagueCreatePage() {
           rounds: state.draftRounds,
           pool_size: state.draftPoolSize,
         },
-      });
-      // Land the user on the league picker.
-      navigate("/select-league", { replace: true });
+      };
+      if (isCommissioner) {
+        // Cloud: register the league in the control plane with the caller as
+        // commissioner. Server forces owner_league mode. Starts private; the
+        // commissioner can open it up / generate invites afterwards.
+        await api.createLeagueAsCommissioner({
+          ...createPayload,
+          visibility: state.commissionerVisibility,
+        });
+        navigate("/my-leagues", { replace: true });
+      } else {
+        await api.createLeague(createPayload);
+        navigate("/select-league", { replace: true });
+      }
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Creation failed.");
     } finally {
@@ -795,6 +811,7 @@ function TeamsStep({
   onPatch: (u: Partial<WizardState>) => void;
 }) {
   const [busyIdx, setBusyIdx] = useState<string | null>(null);
+  const [randomizingAll, setRandomizingAll] = useState(false);
 
   async function randomize(division: string, idx: number) {
     const key = `${division}-${idx}`;
@@ -814,26 +831,36 @@ function TeamsStep({
   }
 
   async function randomizeAll() {
-    // Reset the name pool server-side so we don't get duplicates across
-    // repeated randomize-all clicks.
+    setRandomizingAll(true);
     try {
-      await api.resetRandomPool();
-    } catch {
-      /* ignore */
-    }
-    const next: Divisions = {};
-    for (const [div, teams] of Object.entries(state.divisions)) {
-      next[div] = [];
-      for (let i = 0; i < teams.length; i++) {
-        try {
-          const { city, name } = await api.randomTeamName();
-          next[div].push({ city, name });
-        } catch {
-          next[div].push(teams[i]);
+      // Reset the name pool server-side so we don't get duplicates across
+      // repeated randomize-all clicks.
+      try {
+        await api.resetRandomPool();
+      } catch {
+        /* ignore */
+      }
+      // Fill each slot as its name arrives and push an update immediately, so
+      // the user sees progress instead of a frozen button — a preset can have
+      // 20-30 teams, which is 20-30 sequential round-trips to the cloud.
+      let next: Divisions = { ...state.divisions };
+      for (const [div, teams] of Object.entries(state.divisions)) {
+        for (let i = 0; i < teams.length; i++) {
+          try {
+            const { city, name } = await api.randomTeamName();
+            next = {
+              ...next,
+              [div]: next[div].map((t, j) => (j === i ? { city, name } : t)),
+            };
+            onPatch({ divisions: next });
+          } catch {
+            /* keep the existing name for this slot */
+          }
         }
       }
+    } finally {
+      setRandomizingAll(false);
     }
-    onPatch({ divisions: next });
   }
 
   function updateTeam(division: string, idx: number, team: Team) {
@@ -870,8 +897,18 @@ function TeamsStep({
         </div>
         <div className="flex items-center gap-2">
           <Badge tone="amber">{total} teams</Badge>
-          <Button variant="outline" size="sm" onClick={randomizeAll}>
-            <Dice5 className="h-3 w-3" /> Randomize all
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={randomizeAll}
+            disabled={randomizingAll}
+          >
+            {randomizingAll ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Dice5 className="h-3 w-3" />
+            )}
+            {randomizingAll ? "Randomizing…" : "Randomize all"}
           </Button>
         </div>
       </CardHeader>

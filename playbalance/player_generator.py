@@ -10,7 +10,7 @@ try:
 except Exception:  # pragma: no cover - optional dependency for CLI usage
     pd = None
 
-from utils.path_utils import ActivePath, get_data_dir
+from utils.path_utils import ActivePath, get_data_dir, get_data_root
 
 # Constants
 BASE_DIR = ActivePath(get_data_dir)
@@ -1099,7 +1099,12 @@ def _load_name_pool() -> Dict[str, List[Tuple[str, str]]]:
 
     pool: Dict[str, List[Tuple[str, str]]] = {}
     seen: Set[Tuple[str, str]] = set()
-    for source in (Path(NAME_PATH), Path(PLAYER_PATH)):
+    # Also draw from the data ROOT's names.csv. The curated name list lives there
+    # but isn't always seeded into a league's own data dir (notably in the cloud,
+    # where the bundled data/ isn't in the image) — without this, a new league
+    # has no real names and every generated player becomes "John Doe".
+    root_names = Path(get_data_root()) / "names.csv"
+    for source in (Path(NAME_PATH), root_names, Path(PLAYER_PATH)):
         for first, last, ethnicity in _read_name_rows(source):
             key = (first, last)
             if key in seen:
