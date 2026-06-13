@@ -20,10 +20,19 @@ node_modules/
 # desktop images, etc. (the UI build needs those).
 /data/
 /tmp/
-/docs/
+# Keep docs/ (the in-app Help manual reads docs/manuals/*.md/html at runtime);
+# only drop the heavy notes/ image dump.
+/docs/notes/
 /tests/
 /samples/
-/images/
+# Keep the avatar recolor templates + default.png (the cloud avatar generator
+# needs them at runtime); drop only the ~600 generated player avatars (~880MB)
+# and parks. MUST match .dockerignore — this is the UPLOAD filter, so anything
+# excluded here never reaches Cloud Build at all.
+/images/avatars/P*.png
+/images/parks/
+/images/buttons/
+/images/__pycache__/
 /assets/
 # Root build artifacts (PyInstaller output, reports) — never needed at runtime.
 /dist/

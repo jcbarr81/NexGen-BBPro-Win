@@ -391,7 +391,7 @@ function PlayerStatsTable({
   }
   return (
     <div className="mt-2 max-h-[420px] overflow-auto">
-      <table className="w-full text-xs">
+      <div className="overflow-x-auto"><table className="w-full text-xs">
         <thead className="sticky top-0 bg-surface">
           <tr className="border-b border-border text-muted">
             <SortHeader
@@ -442,7 +442,7 @@ function PlayerStatsTable({
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
@@ -652,7 +652,7 @@ function DivisionStandingsCard({
         ) : !rows || rows.length === 0 ? (
           <div className="px-6 py-6 text-sm text-muted">No data.</div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
                 <th className="px-6 py-2 text-left font-semibold">Team</th>
@@ -703,7 +703,7 @@ function DivisionStandingsCard({
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
         )}
       </CardContent>
     </Card>

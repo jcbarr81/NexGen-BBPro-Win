@@ -173,7 +173,7 @@ function InjuryTable({
         {entries.length === 0 ? (
           <div className="px-6 py-6 text-sm text-muted">{emptyText}</div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
                 <th className="px-6 py-2 text-left font-semibold">Player</th>
@@ -193,7 +193,7 @@ function InjuryTable({
                 <InjuryRow key={entry.player_id} entry={entry} />
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </CardContent>
     </Card>

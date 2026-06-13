@@ -164,7 +164,7 @@ export function FinanceQueuePage() {
                 <Badge tone="amber">{rows.length}</Badge>
               </CardHeader>
               <CardContent className="p-0">
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto"><table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
                       <th className="px-6 py-2 text-left font-semibold">Queue</th>
@@ -237,7 +237,7 @@ export function FinanceQueuePage() {
                       );
                     })}
                   </tbody>
-                </table>
+                </table></div>
               </CardContent>
             </Card>
           ))}

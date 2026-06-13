@@ -19,6 +19,7 @@ import {
   Handshake,
   Loader2,
   Pencil,
+  RefreshCw,
   ShieldCheck,
   Star,
   Stethoscope,
@@ -36,6 +37,8 @@ import {
   type PlayerProfileNote,
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
+import { isCloud } from "@/lib/cloud-auth";
+import { toast } from "@/lib/toast-store";
 import { AppShell } from "@/components/layout/AppShell";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { PlayerPickerDialog } from "@/components/PlayerPickerDialog";
@@ -215,15 +218,56 @@ function parseStarValue(raw: string | null | undefined): number {
 }
 
 function HeroCard({ profile }: { profile: PlayerProfile }) {
+  // Per-player AI avatar regenerate — SUPER-ADMIN ONLY (platform owner). Lets the
+  // admin spot-check avatar look/colors cheaply before a full-league regenerate.
+  const [avatarVersion, setAvatarVersion] = useState(0);
+  const me = useQuery({
+    queryKey: ["account-me"],
+    queryFn: () => api.accountMe(),
+    enabled: isCloud(),
+    staleTime: 5 * 60_000,
+  });
+  const isSuperAdmin = isCloud() && !!me.data?.super_admin;
+  const regen = useMutation({
+    mutationFn: () => api.regeneratePlayerAvatar(profile.player_id),
+    onSuccess: () => {
+      setAvatarVersion((v) => v + 1);
+      toast.success("Avatar regenerated");
+    },
+    onError: (err: unknown) =>
+      toast.error("Couldn't regenerate avatar", {
+        description: err instanceof Error ? err.message : "Try again.",
+      }),
+  });
+
   return (
     <Card className="p-6">
       <div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-5">
-          <PlayerAvatar
-            playerId={profile.player_id}
-            initials={profile.initials}
-            className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl text-3xl shadow-panel"
-          />
+          <div className="relative shrink-0">
+            <PlayerAvatar
+              playerId={profile.player_id}
+              initials={profile.initials}
+              version={avatarVersion}
+              className="h-32 w-32 shrink-0 overflow-hidden rounded-2xl text-5xl shadow-panel"
+            />
+            {isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => regen.mutate()}
+                disabled={regen.isPending}
+                title="Regenerate this player's AI avatar (super-admin)"
+                aria-label="Regenerate avatar"
+                className="absolute -bottom-1 -right-1 rounded-full border border-border bg-surface p-1.5 text-muted shadow-panel transition hover:text-amber disabled:opacity-60"
+              >
+                {regen.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+              </button>
+            )}
+          </div>
 
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">

@@ -163,3 +163,48 @@ def test_prospect_sorting_changes_by_strategy_profile():
     assert dev_young > dev_veteran
     assert dev_young > win_young
     assert win_veteran > dev_veteran
+
+
+def _make_hitter(pid: str, *, birth_year: int, ovr: int) -> SimpleNamespace:
+    return SimpleNamespace(
+        player_id=pid,
+        is_pitcher=False,
+        primary_position="LF",
+        other_positions=[],
+        birthdate=f"{birth_year}-05-01",
+        ch=ovr, ph=ovr, sp=ovr, pl=ovr, vl=ovr, sc=ovr, fa=ovr, arm=ovr, gf=ovr,
+    )
+
+
+def test_pick_minor_rosters_keeps_low_young_and_seats_vets_in_aaa():
+    """Over-age players must never land at LOW; they belong in AAA (or are
+    released), and younger players fill LOW. Regression for auto-assign
+    producing a roster the LOW age gate rejects."""
+
+    from datetime import date as _date
+
+    this_year = _date.today().year
+    # 8 over-age players (~33) + 17 young players (~22): a 25-man minor pool.
+    over_age = [
+        _make_hitter(f"OLD{i}", birth_year=this_year - 33, ovr=70 - i)
+        for i in range(8)
+    ]
+    young = [
+        _make_hitter(f"YNG{i}", birth_year=this_year - 22, ovr=60 - i)
+        for i in range(17)
+    ]
+
+    aaa_ids, low_ids = roster_auto_assign._pick_minor_rosters(  # noqa: SLF001
+        over_age + young,
+        [],
+        strategy_profile="balanced",
+    )
+
+    over_age_ids = {p.player_id for p in over_age}
+    # No over-age player is parked at LOW.
+    assert not (set(low_ids) & over_age_ids), "over-age players leaked into LOW"
+    # Every over-age player is seated in AAA (pool has room), not released.
+    assert over_age_ids.issubset(set(aaa_ids)), "over-age players were not seated in AAA"
+    # Caps respected.
+    assert len(aaa_ids) <= 15
+    assert len(low_ids) <= 10

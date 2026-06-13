@@ -166,10 +166,17 @@ function ManualTab() {
   }, [sections, q]);
 
   const renderedHtml = useMemo(() => {
-    const md = filteredSections.map((s) => s.body).join("\n");
-    if (!md) return "";
-    const raw = marked.parse(md, { async: false }) as string;
-    return DOMPurify.sanitize(raw, MARKDOWN_SANITIZE);
+    if (filteredSections.length === 0) return "";
+    // Render each section on its own and wrap it in an anchor element carrying
+    // the section id, so the Contents nav can scroll to it (marked doesn't add
+    // these ids). The slug is alphanumeric + hyphens, so the wrapper is safe.
+    return filteredSections
+      .map((s) => {
+        const raw = marked.parse(s.body, { async: false }) as string;
+        const safe = DOMPurify.sanitize(raw, MARKDOWN_SANITIZE);
+        return `<section id="manual-section-${s.id}" style="scroll-margin-top:1rem">${safe}</section>`;
+      })
+      .join("\n");
   }, [filteredSections]);
 
   return (
@@ -180,7 +187,7 @@ function ManualTab() {
         </CardHeader>
         <CardContent className="max-h-[68vh] overflow-y-auto p-2">
           <nav className="flex flex-col gap-0.5">
-            {sections.map((s) => (
+            {filteredSections.map((s) => (
               <button
                 key={s.id}
                 type="button"
@@ -195,9 +202,9 @@ function ManualTab() {
                 {s.title}
               </button>
             ))}
-            {sections.length === 0 && (
+            {filteredSections.length === 0 && (
               <div className="px-2 py-1 text-xs italic text-muted">
-                No sections parsed.
+                {sections.length === 0 ? "No sections parsed." : "No matches."}
               </div>
             )}
           </nav>
@@ -208,7 +215,7 @@ function ManualTab() {
         <CardHeader className="gap-2">
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
-              <BookOpen className="h-4 w-4 text-amber" /> Electron UI Guide
+              <BookOpen className="h-4 w-4 text-amber" /> UI Manual
             </CardTitle>
             <CardDescription>
               Full reference for every screen in the new UI.

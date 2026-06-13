@@ -764,7 +764,7 @@ function StrategyCard({ data }: { data: CommissionerSettings }) {
             Team overrides
           </div>
           <div className="max-h-80 overflow-y-auto rounded-lg border border-border bg-canvas/30">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border/60 text-[10px] uppercase tracking-wider text-muted">
                   <th className="px-4 py-2 text-left">Team</th>
@@ -834,7 +834,7 @@ function StrategyCard({ data }: { data: CommissionerSettings }) {
                   );
                 })}
               </tbody>
-            </table>
+            </table></div>
           </div>
         </div>
 

@@ -15,10 +15,11 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 try:
-    from PIL import Image  # type: ignore
+    from PIL import Image, ImageChops  # type: ignore
     _PIL_AVAILABLE = True
 except Exception:  # pragma: no cover - allow running without Pillow
     Image = None  # type: ignore[assignment]
+    ImageChops = None  # type: ignore[assignment]
     _PIL_AVAILABLE = False
 
 try:  # Allow running as a standalone script
@@ -29,6 +30,69 @@ except ModuleNotFoundError:  # pragma: no cover - for direct script execution
     from openai_client import client
     from team_loader import load_teams
     from path_utils import get_base_dir, get_data_dir
+
+def _trim_logo_bytes(png_bytes: bytes, pad_frac: float = 0.13) -> bytes:
+    """Auto-crop the flat background margin off a generated logo so the mascot
+    fills the frame consistently, then re-center on a square canvas with a small
+    even pad. Image models leave wildly different margins per image; this
+    normalizes them. Returns the original bytes on any failure / if nothing to trim."""
+    if not _PIL_AVAILABLE:
+        return png_bytes
+    try:
+        im = Image.open(BytesIO(png_bytes)).convert("RGB")
+        w, h = im.size
+        corners = [
+            im.getpixel((0, 0)), im.getpixel((w - 1, 0)),
+            im.getpixel((0, h - 1)), im.getpixel((w - 1, h - 1)),
+        ]
+        bg = max(set(corners), key=corners.count)
+        diff = ImageChops.difference(im, Image.new("RGB", im.size, bg)).convert("L")
+        mask = diff.point(lambda p: 255 if p > 28 else 0)
+        bbox = mask.getbbox()
+        if not bbox:
+            return png_bytes
+        cropped = im.crop(bbox)
+        cw, ch = cropped.size
+        # Ignore essentially-full-frame art (already tight) to avoid a no-op recompress.
+        if cw >= w * 0.96 and ch >= h * 0.96:
+            return png_bytes
+        side = max(cw, ch)
+        pad = int(round(side * pad_frac))
+        canvas_side = side + 2 * pad
+        canvas = Image.new("RGB", (canvas_side, canvas_side), bg)
+        canvas.paste(cropped, ((canvas_side - cw) // 2, (canvas_side - ch) // 2))
+        out = BytesIO()
+        canvas.save(out, format="PNG")
+        return out.getvalue()
+    except Exception:
+        return png_bytes
+
+
+def normalize_team_logos(
+    out_dir: str | None = None,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+) -> str:
+    """Re-frame ALL already-generated team logos in place (no AI): trim each
+    logo's background margin so every team's mascot fills the frame consistently.
+    Cheap + instant — keeps the existing artwork."""
+    _require_pillow()
+    target = Path(out_dir) if out_dir else get_data_dir() / "logo" / "teams"
+    files = sorted(target.glob("*.png")) if target.is_dir() else []
+    total = len(files)
+    if progress_callback:
+        progress_callback(0, total)
+    for idx, fp in enumerate(files, start=1):
+        try:
+            data = fp.read_bytes()
+            trimmed = _trim_logo_bytes(data)
+            if trimmed is not data:
+                fp.write_bytes(trimmed)
+        except Exception:
+            pass
+        if progress_callback:
+            progress_callback(idx, total)
+    return str(target)
+
 
 def _require_pillow() -> None:
     """Raise a helpful error if Pillow is not installed.
@@ -104,54 +168,46 @@ def _auto_logo_fallback(
 
 
 def _build_openai_prompt(team: object) -> str:
-    """Return a richer logo prompt that highlights location and mascot."""
+    """Return a MASCOT-forward logo prompt: depict the team's namesake creature/
+    figure as a sports mascot emblem, not a generic baseball player, and with no
+    text. Uses descriptive color names (image models render those far better than
+    hex)."""
 
-    city = getattr(team, "city", "") or ""
-    name = getattr(team, "name", "") or ""
-    abbrev = (
-        getattr(team, "abbreviation", "")
-        or getattr(team, "team_id", "")
-        or ""
-    )
+    name = getattr(team, "name", "") or "team"
     primary = getattr(team, "primary_color", "")
     secondary = getattr(team, "secondary_color", "")
+    try:
+        from utils.avatar_generator import _hex_to_color_name
+
+        primary_c = _hex_to_color_name(primary) if primary else "a bold team color"
+        secondary_c = _hex_to_color_name(secondary) if secondary else "a contrasting accent"
+    except Exception:
+        primary_c = primary or "a bold team color"
+        secondary_c = secondary or "a contrasting accent"
 
     parts = [
+        f"A bold, modern professional sports MASCOT logo for a team called the {name}.",
         (
-            "Design a professional illustrated baseball team logo for the "
-            f"{city} {name}."
+            f"Center the design entirely on the {name} itself: illustrate the actual "
+            f"{name} — the creature, animal, warrior, or figure the name refers to — "
+            "as a fierce, dynamic mascot character or emblem with strong attitude. "
+            "Do NOT draw a generic baseball player."
         ),
         (
-            f"Depict the {name} mascot as a detailed character "
-            "in an energetic baseball action pose, conveying motion and "
-            "intensity."
+            "Style: clean bold vector mascot emblem / team crest, thick confident "
+            "outlines, layered shading, aggressive athletic energy, like a pro sports "
+            "team cap or jersey logo."
         ),
+        f"Color scheme: {primary_c} as the dominant color with {secondary_c} accents.",
         (
-            "Integrate baseball equipment such as a ball, bat, glove, or "
-            "diamond to reinforce the sport."
+            "Composition: the mascot should be LARGE and fill most of the frame, "
+            "centered, with only a small even margin — not a tiny emblem floating "
+            "in empty space."
         ),
+        "Single centered emblem on a plain flat solid background, no scenery, no photo background.",
         (
-            f"Include a subtle visual nod to {city} and weave the team "
-            f"initials {abbrev.upper()} into the emblem as a supporting "
-            "element."
-        ),
-        (
-            "Use modern sports-brand styling with clean vector shapes, bold "
-            "outlines, layered shading, and dramatic lighting suitable for "
-            "merch and digital use."
-        ),
-        (
-            f"Apply {primary} as the dominant color with {secondary} accents "
-            "and harmonious contrast."
-        ),
-        (
-            "Avoid typography-first or wordmark-only designs. Do not output "
-            "plain text logos; lettering should remain secondary to the "
-            "illustrated mascot emblem."
-        ),
-        (
-            "Provide a polished emblem with a transparent background "
-            "aesthetic and no busy scenery."
+            "IMPORTANT: the image must contain NO text, NO letters, NO words, NO team "
+            "name, NO city name, and NO numbers — mascot artwork only."
         ),
     ]
     return " ".join(part.strip() for part in parts if part.strip())
@@ -273,6 +329,9 @@ def generate_team_logos(
             from utils import vertex_image
 
             image_bytes = vertex_image.generate_png(prompt, size=1024)
+        # Normalize framing: trim the model's background margin so every logo's
+        # mascot fills the frame consistently.
+        image_bytes = _trim_logo_bytes(image_bytes)
         path = out_dir / f"{t.team_id.lower()}.png"
         _require_pillow()
         with Image.open(BytesIO(image_bytes)) as img:
@@ -285,5 +344,5 @@ def generate_team_logos(
     return str(out_dir)
 
 
-__all__ = ["generate_team_logos"]
+__all__ = ["generate_team_logos", "normalize_team_logos"]
 

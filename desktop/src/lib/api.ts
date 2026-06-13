@@ -886,6 +886,8 @@ export interface FinanceTransactions {
 
 export interface AdminUser {
   username: string;
+  /** Readable display name (Firestore handle) when available; else = username. */
+  display_name?: string;
   role: string;
   team_id: string;
 }
@@ -1219,10 +1221,89 @@ export interface NotificationEvent {
   notify: boolean;
 }
 
+export interface SimProgress {
+  active: boolean;
+  target: number;
+  played: number;
+  elapsed_seconds: number;
+  status: "idle" | "running" | "done" | "error";
+  run_id: number;
+  result: SeasonState | null;
+  error: string | null;
+}
+
+/**
+ * Drives a background sim to completion. The start endpoint returns
+ * immediately ({status:"running"}); we then poll /season/sim-progress until
+ * the job reports done (→ return its final state) or error (→ throw). This
+ * keeps every sim request short, so a long multi-day jump never trips the
+ * ~60s Firebase Hosting proxy cap that produced false "Action failed" errors.
+ *
+ * Transient poll failures (a 429 from the CPU-pegged instance, a momentary
+ * network blip) are swallowed and retried — only a real job error or an
+ * overall timeout rejects.
+ */
+async function runBackgroundSim(
+  start: () => Promise<{ status: string; run_id: number }>,
+): Promise<SeasonState> {
+  const started = await start();
+  // A synchronous/fast path (or an older backend) may already return the
+  // finished state instead of a "running" handle — pass it straight through.
+  if ((started as unknown as SeasonState)?.phase && started.status !== "running") {
+    return started as unknown as SeasonState;
+  }
+
+  const POLL_MS = 1200;
+  const MAX_WAIT_MS = 20 * 60 * 1000; // 20 min hard ceiling
+  const deadline = Date.now() + MAX_WAIT_MS;
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  // Tolerate a few consecutive poll failures before giving up — the instance
+  // can briefly 429 while the sim pegs its single CPU.
+  let consecutiveErrors = 0;
+  for (;;) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        "The simulation is taking longer than expected. It may still be " +
+          "running — refresh the Season page in a moment to see the result.",
+      );
+    }
+    await sleep(POLL_MS);
+    let prog: SimProgress;
+    try {
+      prog = await api.seasonSimProgress();
+      consecutiveErrors = 0;
+    } catch {
+      if (++consecutiveErrors > 25) {
+        throw new Error(
+          "Lost contact with the simulation service. Refresh the Season " +
+            "page to check whether the sim completed.",
+        );
+      }
+      continue;
+    }
+    if (prog.run_id !== started.run_id) {
+      // A different run took over the slot (another tab/owner) — stop tracking
+      // ours rather than report a foreign run's result as if it were this one.
+      throw new Error("This simulation was superseded by another run.");
+    }
+    if (prog.status === "done" && prog.result) return prog.result;
+    if (prog.status === "error") {
+      throw new Error(prog.error || "Simulation failed.");
+    }
+  }
+}
+
 export const api = {
   // App-specific health path (not /healthz, which network intermediaries
   // often intercept — see api/app.py). /healthz stays for platform checks.
-  health: () => apiRequest<HealthPayload>("/meta/app-status"),
+  //
+  // ``token: ""`` skips the Firebase ID-token fetch: /meta/app-status is a
+  // public readiness probe, and awaiting getIdToken() here means a stalled
+  // token refresh would hang the startup splash forever (no fetch, no error).
+  // ``signal`` lets the caller bound the request with a timeout.
+  health: (signal?: AbortSignal) =>
+    apiRequest<HealthPayload>("/meta/app-status", { token: "", signal }),
   login: (username: string, password: string) =>
     apiRequest<LoginPayload>("/auth/login", {
       method: "POST",
@@ -1316,6 +1397,12 @@ export const api = {
     apiRequest<{ uid: string; team_id: string; status: string }>(
       `/members/${encodeURIComponent(uid)}/assign-team`,
       { method: "POST", body: { team_id } },
+    ),
+  /** Super-admin: regenerate one player's AI avatar (spot-check before a full run). */
+  regeneratePlayerAvatar: (playerId: string) =>
+    apiRequest<{ player_id: string; ok: boolean }>(
+      `/players/${encodeURIComponent(playerId)}/avatar/regenerate`,
+      { method: "POST" },
     ),
   /** Super-admin: permanently delete ANY league (control plane + game data + GCS). */
   platformDeleteLeague: (leagueId: string) =>
@@ -1507,6 +1594,9 @@ export const api = {
       method: "POST",
       body: { force_engine: options.force_engine },
     }),
+  /** Re-frame existing logos in place (trim margins) — no AI, instant. */
+  normalizeLogos: () =>
+    apiRequest<ExportJobStart>("/exports/logos/normalize", { method: "POST" }),
   aiStatus: () =>
     apiRequest<{
       status: string;
@@ -1522,10 +1612,13 @@ export const api = {
       ok: boolean;
       message: string | null;
     }>("/ai/api-key", { method: "POST", body: { api_key } }),
-  generateAvatars: (initial_creation: boolean = false) =>
+  generateAvatars: (
+    initial_creation: boolean = false,
+    engine?: "ai" | "template",
+  ) =>
     apiRequest<ExportJobStart>("/exports/avatars", {
       method: "POST",
-      body: { initial_creation },
+      body: { initial_creation, engine },
     }),
   getExportJob: (jobId: string) =>
     apiRequest<ExportJobStatus>(`/exports/jobs/${encodeURIComponent(jobId)}`),
@@ -1986,27 +2079,48 @@ export const api = {
     }>("/season/preseason/training-camp", { method: "POST" }),
   seasonState: () => apiRequest<SeasonState>("/season/state"),
   seasonSimProgress: () =>
-    apiRequest<{
-      active: boolean;
-      target: number;
-      played: number;
-      elapsed_seconds: number;
-    }>("/season/sim-progress"),
+    apiRequest<SimProgress>("/season/sim-progress"),
+  // Each sim starts a background job and then resolves with the final state
+  // once polling sees it finish — so the caller (useSimMutation) is unchanged.
   seasonSimulateDay: () =>
-    apiRequest<SeasonState>("/season/simulate/day", { method: "POST" }),
+    runBackgroundSim(() =>
+      apiRequest<{ status: string; run_id: number }>("/season/simulate/day", {
+        method: "POST",
+      }),
+    ),
   seasonSimulateWeek: () =>
-    apiRequest<SeasonState>("/season/simulate/week", { method: "POST" }),
+    runBackgroundSim(() =>
+      apiRequest<{ status: string; run_id: number }>("/season/simulate/week", {
+        method: "POST",
+      }),
+    ),
   seasonSimulateMonth: () =>
-    apiRequest<SeasonState>("/season/simulate/month", { method: "POST" }),
+    runBackgroundSim(() =>
+      apiRequest<{ status: string; run_id: number }>("/season/simulate/month", {
+        method: "POST",
+      }),
+    ),
   seasonSimulateDays: (n: number) =>
-    apiRequest<SeasonState>("/season/simulate/days", {
-      method: "POST",
-      body: { n },
-    }),
+    runBackgroundSim(() =>
+      apiRequest<{ status: string; run_id: number }>("/season/simulate/days", {
+        method: "POST",
+        body: { n },
+      }),
+    ),
   seasonSimulateToDraft: () =>
-    apiRequest<SeasonState>("/season/simulate/to-draft", { method: "POST" }),
+    runBackgroundSim(() =>
+      apiRequest<{ status: string; run_id: number }>(
+        "/season/simulate/to-draft",
+        { method: "POST" },
+      ),
+    ),
   seasonSimulateToPlayoffs: () =>
-    apiRequest<SeasonState>("/season/simulate/to-playoffs", { method: "POST" }),
+    runBackgroundSim(() =>
+      apiRequest<{ status: string; run_id: number }>(
+        "/season/simulate/to-playoffs",
+        { method: "POST" },
+      ),
+    ),
   seasonAdvancePhase: () =>
     apiRequest<SeasonState>("/season/advance-phase", { method: "POST" }),
   adminListUsers: () => apiRequest<AdminUsers>("/admin/users"),

@@ -10,6 +10,7 @@ React profile page.
 from __future__ import annotations
 
 import csv
+import logging
 from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, List, Optional
 
@@ -251,6 +252,44 @@ def get_player_avatar(player_id: str) -> FileResponse:
                 headers={"Cache-Control": "no-cache"},
             )
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avatar not found")
+
+
+@router.post("/{player_id}/avatar/regenerate")
+def regenerate_player_avatar(
+    player_id: str,
+    identity: Dict[str, Any] = CurrentIdentity,
+) -> Dict[str, Any]:
+    """Regenerate a single player's avatar via the AI engine. SUPER-ADMIN ONLY
+    (platform owner) — lets the admin spot-check the look/colors for pennies
+    before committing to a full-league regenerate. Persists to durable storage.
+    """
+    if not identity.get("super_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Platform-admin (super-admin) access required.",
+        )
+    try:
+        from utils.avatar_generator import regenerate_one_avatar
+
+        regenerate_one_avatar(player_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Avatar generation failed: {exc}",
+        ) from exc
+
+    # Persist to GCS so the new avatar survives a restart.
+    try:
+        from api import working_copy
+
+        if working_copy.is_enabled():
+            working_copy.push_changes()
+    except Exception:
+        logging.getLogger("nexgen.avatars").exception("avatar push failed")
+
+    return {"player_id": player_id, "ok": True}
 
 
 def _coerce(value: Any) -> Any:

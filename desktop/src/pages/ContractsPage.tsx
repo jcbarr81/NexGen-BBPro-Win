@@ -199,7 +199,7 @@ export function ContractsPage() {
             </div>
           ) : (
             <div className="max-h-[640px] overflow-auto rounded-md border border-border">
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto"><table className="w-full text-sm">
                 <thead className="sticky top-0 z-10 bg-surface">
                   <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
                     <ContractHeader
@@ -345,7 +345,7 @@ export function ContractsPage() {
                     );
                   })}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           )}
         </CardContent>

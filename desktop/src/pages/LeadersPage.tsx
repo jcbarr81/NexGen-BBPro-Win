@@ -168,7 +168,7 @@ function BoardCard({ board }: { board: LeaderBoard }) {
             No qualified leaders yet.
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
                 <th className="px-6 py-2 text-left font-semibold">#</th>
@@ -184,7 +184,7 @@ function BoardCard({ board }: { board: LeaderBoard }) {
                 <Row key={row.rank} row={row} decimals={board.decimals} />
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </CardContent>
     </Card>

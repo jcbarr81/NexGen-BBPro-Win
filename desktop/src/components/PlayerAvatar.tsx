@@ -11,6 +11,7 @@ import { User } from "lucide-react";
 
 import { getBridge } from "@/lib/bridge";
 import { useAuthStore } from "@/lib/auth-store";
+import { firebaseEnabled, getIdToken } from "@/lib/firebase";
 import { cn } from "@/lib/cn";
 
 interface PlayerAvatarProps {
@@ -29,6 +30,11 @@ export function PlayerAvatar({
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const token = useAuthStore((s) => s.token);
+  const activeLeagueId = useAuthStore((s) => s.activeLeagueId);
+  // Re-fetch once the Firebase user is available: on a cold load the avatar can
+  // render before auth restores, getIdToken() returns null → 401, and ``token``
+  // (legacy, always null in cloud) never changes to retrigger. ``uid`` does.
+  const uid = useAuthStore((s) => s.uid);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,37 +44,43 @@ export function PlayerAvatar({
 
     if (!playerId) return;
 
-    const { apiBaseUrl, launchToken } = getBridge();
-    const authToken = token ?? launchToken;
-    const url = `${apiBaseUrl}/players/${encodeURIComponent(playerId)}/avatar`;
-
-    fetch(url, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-    })
-      .then(async (res) => {
-        if (res.status === 204 || res.status === 404) return null;
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.blob();
-      })
-      .then((blob) => {
+    // Cloud: send the Firebase ID token + X-League-Id (the endpoint is auth +
+    // league-scoped); local: the legacy session/launch token. Mirrors TeamLogo.
+    (async () => {
+      const { apiBaseUrl, launchToken } = getBridge();
+      // ``version`` busts the browser cache after a regenerate so the new image
+      // shows instead of the stale one.
+      const bust = version ? `?v=${version}` : "";
+      const url = `${apiBaseUrl}/players/${encodeURIComponent(playerId)}/avatar${bust}`;
+      const headers: Record<string, string> = {};
+      const cloud = firebaseEnabled();
+      const fbToken = cloud ? await getIdToken() : null;
+      const bearer = fbToken ?? token ?? launchToken;
+      if (bearer) headers.Authorization = `Bearer ${bearer}`;
+      if (cloud && activeLeagueId) headers["X-League-Id"] = activeLeagueId;
+      try {
+        const res = await fetch(url, { headers });
         if (cancelled) return;
-        if (!blob) {
+        if (res.status === 204 || res.status === 404) {
           setLoaded(true);
           return;
         }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
         setImgUrl(objectUrl);
         setLoaded(true);
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setLoaded(true);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [playerId, token, version]);
+  }, [playerId, token, version, activeLeagueId, uid]);
 
   if (imgUrl) {
     return (

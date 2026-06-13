@@ -1,162 +1,134 @@
-# NexGen-BBPro — Electron UI Guide
+# NexGen-BBPro — UI Manual
 
-This manual documents every screen in the Electron desktop UI. It assumes
-you've launched the app and logged in as either an admin or an owner.
-The shared `%LOCALAPPDATA%\NexGen-BBPro\data` directory is used by both
-the legacy PyQt app and this UI, so you can run them side-by-side while
-you're getting familiar with the new flows.
+A full reference for every screen in the NexGen-BBPro web app. The game runs
+in your browser — there's nothing to install. Open
+**https://nexgen-bbpro.firebaseapp.com**, sign in, and you're playing.
+
+Your role in a league is either **Commissioner** (runs the league — full admin
+powers) or **Owner** (runs one team). A small number of platform owners are
+**Super-admins**, who can manage every league. Most of this manual applies to
+everyone; admin-only sections are marked.
 
 ---
 
 ## Contents
 
-1. [Getting started](#getting-started)
-2. [Sidebar layout](#sidebar-layout)
-3. [Today](#today)
-   - [Dashboard](#dashboard)
-   - [Season](#season)
-   - [News](#news)
-4. [My Team](#my-team)
-   - [Roster](#roster)
-   - [Lineup](#lineup)
-   - [Depth Chart](#depth-chart)
-   - [Training](#training)
-   - [Injuries](#injuries)
-   - [Notifications](#notifications)
-   - [Finance](#finance)
-   - [Settings](#team-settings)
-5. [League](#league)
-   - [Standings · Leaders · Stats](#standings--leaders--stats)
-   - [Players · Teams · Schedule](#players--teams--schedule)
-   - [Playoffs · History · Hall of Fame · Records · Ballparks](#playoffs--history--hall-of-fame--records--ballparks)
-6. [Transactions](#transactions)
-   - [Free Agency](#free-agency)
-   - [Trades](#trades)
-   - [Draft](#draft)
-   - [Submit Change Request](#submit-change-request)
-   - [Activity](#activity)
-7. [Admin](#admin)
-   - [Commissioner](#commissioner)
-   - [Command Center](#command-center)
-   - [Finance Queue · Change Requests](#finance-queue--change-requests)
-   - [Offseason Flow](#offseason-flow)
-   - [Reassign Players](#reassign-players)
-   - [Finance Stability](#finance-stability)
-   - [Exhibition Game](#exhibition-game)
-   - [League Admin](#league-admin)
-   - [Physics Tuning](#physics-tuning)
-   - [Users](#users)
-   - [New League](#new-league)
-   - [Utilities](#utilities)
-8. [Validation & autosave](#validation--autosave)
-9. [Tips & keyboard shortcuts](#tips--keyboard-shortcuts)
-10. [Help & tutorials](#help--tutorials)
-11. [Troubleshooting](#troubleshooting)
+1. [Accounts, leagues & membership](#accounts-leagues--membership)
+2. [Sidebar & navigation](#sidebar--navigation)
+3. [Today](#today) — [Dashboard](#dashboard) · [Season](#season) · [News](#news)
+4. [My Team](#my-team) — [Roster](#roster) · [Lineup](#lineup) · [Depth Chart](#depth-chart) · [Training](#training) · [Injuries](#injuries) · [Notifications](#notifications) · [Finance](#finance) · [Settings](#team-settings)
+5. [League](#league) — Standings · Leaders · Stats · Players · Teams · Schedule · Playoffs · History · Hall of Fame · Records · Ballparks
+6. [Transactions](#transactions) — Free Agency · Trades · Draft · Submit Change Request · Activity
+7. [Admin (Commissioner)](#admin-commissioner)
+8. [Platform admin (Super-admin)](#platform-admin-super-admin)
+9. [Logos & avatars](#logos--avatars)
+10. [Validation & autosave](#validation--autosave)
+11. [Tips & keyboard shortcuts](#tips--keyboard-shortcuts)
+12. [Help & tutorials](#help--tutorials)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Getting started
+## Accounts, leagues & membership
 
-### First run
+### Creating an account
 
-If you have no leagues yet, login bounces to **Leagues → New**
-(`/leagues/new?first-run=1`). The wizard walks five steps:
+On first visit you'll land on the sign-in screen. Choose **Sign up** and pick
+how you want to play:
 
-1. **Admin** – set the admin password (required because the shipped
-   default is `pass`).
-2. **Basics** – league name, year, mode (single-player, multi-owner).
-3. **Setup** – choose a Quick-Start preset OR custom divisions.
-4. **Teams** – the random-team generator seeds team names; click
-   **Randomize** for new choices.
-5. **Rules & Review** – rule preset, schedule template, confirm.
+- **Commissioner** — create and run leagues, hand out invites, manage members.
+  A commissioner can *also* run a team in their own league.
+- **Owner** — join leagues and run a single team.
 
-On submit, the league is created and made active, and you're logged in.
+You can register with **email + password** or **Continue with Google**. You also
+choose a **display name** (handle) that other members see. Passwords and Google
+sign-in are handled by Firebase — the app never stores your password.
 
-### Returning users
+### My Leagues
 
-Login goes to **Leagues** to pick an active league, then **Dashboard**.
-The sidebar league selector at the top of the Brand panel lets you
-switch leagues without logging out.
+After signing in you land on **My Leagues** — every league you belong to, with
+your role and team. From here you can:
+
+- **Create a league** *(commissioners)* — opens the league wizard (below).
+- **Find a league** — the discovery screen to join one.
+- **Enter** a league — jumps into its Dashboard.
+- **Manage** a league *(commissioners)* — the members panel.
+
+You can return to this screen anytime via the **My Leagues** button in the
+header.
+
+### Creating a league (commissioner)
+
+The wizard walks a few steps: **Basics** (name, year), **Setup** (a Quick-Start
+preset or custom divisions), **Teams** (the random-team generator seeds names —
+click *Randomize* for new ones), and **Rules & Review**. You also set the
+league's **visibility**:
+
+- **Private** — hidden from discovery; only joinable with an invite code.
+- **Public** — listed in *Find a league*; players without a code can request to
+  join and you approve them.
+
+On submit the league is created and appears in My Leagues.
+
+### Inviting & admitting members (commissioner)
+
+Open a league's **Manage** (members) panel to:
+
+- **Generate invite codes** — share a code; whoever redeems it is admitted
+  automatically. A code can be tied to a specific team or left open (you assign
+  the team later).
+- **Review join requests** — for public leagues, players who don't have a code
+  request to join. **Approve** (and assign a team) or **Deny** each one.
+- **Assign / reassign teams** — give a member a team, or move them.
+
+### Joining a league (owner)
+
+From **Find a league**:
+
+- **Enter an invite code** — admits you immediately (private leagues require
+  this; they're otherwise hidden).
+- **Request to join a public league** — the commissioner approves you and
+  assigns a team.
+
+### Claiming a team
+
+When you enter a league where you don't yet have a team, the Dashboard shows a
+**"Claim your team"** screen — pick any open team to run it, or choose to keep
+running the league as a pure commissioner with no team. You can claim or change
+a team later from the members panel.
+
+### Signing out / switching leagues
+
+The header shows your handle and role. Use **My Leagues** to switch leagues and
+the **sign-out** icon to log out.
 
 ---
 
-## Sidebar layout
+## Sidebar & navigation
 
-The sidebar shrinks to **seven top-level destinations** plus a pinned
-**Help & Tutorials** link at the bottom:
+The sidebar has a handful of top-level destinations plus a pinned
+**Help & Tutorials** link:
 
-- **Today** – Dashboard, Season, News (always-on quick links).
-- **Favorites** – appears only when you've pinned routes (right-click
-  any sidebar entry or hub card → *Pin to sidebar*).
-- **My Team** *(hub)* – `/hub/my-team`. Card grid of Roster, Pitchers,
-  Lineup, Depth Chart, Training, Injuries, Notifications, Finance,
-  Team Settings.
-- **League** *(hub)* – `/hub/league`. Standings, Leaders, Stats, Players,
-  Teams, Schedule, Playoffs, History, Hall of Fame, Records, Ballparks.
-- **Transactions** *(hub)* – `/hub/transactions`. Free Agency, Trades,
-  Draft, Submit Request, Activity.
-- **Admin** *(hub, admin-only)* – `/hub/admin`. Commissioner, Command
-  Center, Finance Queue, Change Requests, Exhibition Game, Offseason
-  Flow, Reassign Players, Finance Stability, League Admin, Physics
-  Tuning, New League, Users, Utilities.
-- **Notifications** – top-level because it's how owners pause the sim.
-- **Help & Tutorials**.
+- **Today** — Dashboard, Season, News.
+- **Favorites** — appears once you've pinned routes (right-click any sidebar
+  entry or hub card → *Pin to sidebar*).
+- **My Team** *(hub)* — Roster, Pitchers, Lineup, Depth Chart, Training,
+  Injuries, Notifications, Finance, Team Settings.
+- **League** *(hub)* — Standings, Leaders, Stats, Players, Teams, Schedule,
+  Playoffs, History, Hall of Fame, Records, Ballparks.
+- **Transactions** *(hub)* — Free Agency, Trades, Draft, Submit Request,
+  Activity.
+- **Admin** *(hub, commissioner-only)* — Commissioner, Command Center, Finance
+  Queue, Change Requests, Members, Exhibition Game, Offseason Flow, Reassign
+  Players, Finance Stability, League Admin, Physics Tuning, Utilities.
+- **Notifications** — top-level because it's how owners pause a sim.
 
-### Hubs
-
-Click any hub to land on a card grid of every page in that category.
-Each card shows the page title, a one-line description, and a pin
-indicator if you've favorited it. Capability-gated cards auto-hide
-based on your league: Finance pages require finance enabled, Submit
-Request requires multi-owner, etc. Right-click any card to **Pin to
-sidebar** or **Unpin from sidebar**.
-
-### Breadcrumbs
-
-Every page header now shows a trail like `Home / My Team / Roster`. The
-last segment is the current page; earlier segments are clickable links
-that jump up one level. Dynamic routes (player profile, team detail,
-compare, boxscore) include the parent hub crumb so the trail still reads
-naturally.
-
-### Collapse to icons-only
-
-The chevron at the top-left of the sidebar collapses the rail from
-256 px to a 56 px icon strip. Hover any icon to see its label; click
-the chevron again to expand. The preference is stored per browser
-profile (`nexgen:sidebar:rail-collapsed`).
-
-### Favorites
-
-Right-click any sidebar entry or hub card to **Pin to sidebar**.
-Pinned routes appear in a Favorites section above the hubs. Right-click
-again to unpin. Favorites are stored as `nexgen:sidebar:favorites` in
-localStorage. Pin indicators (the small pin icon) show on both the hub
-card and the sidebar row when pinned.
-
-### Phase-aware filtering
-
-The Favorites section auto-hides routes that don't apply to the current
-season phase:
-
-- **Draft** is hidden outside `AMATEUR_DRAFT` / `PRESEASON`.
-- **Offseason Flow** is hidden outside `OFFSEASON` / `PRESEASON`.
-
-Hub cards still show every page so you can pre-explore.
-
-### Section collapse + active route
-
-Each section header has its own chevron — collapse a section to free
-up space without losing the others. The section containing your current
-route always auto-expands. Section preferences persist as
-`nexgen:sidebar:collapsed` in localStorage.
-
-### Team-color stripe
-
-The UI picks up your team's primary color for a thin accent stripe on
-every team-specific page (Dashboard, Team Detail, Roster, Lineup, Depth
-Chart, Finance, Training, Settings, Injuries) so the app reads as
-"this is about *my* team" without repainting the whole chrome.
+**Hubs** are card grids of every page in a category; capability-gated cards
+auto-hide (Finance pages need finance enabled, Submit Request needs multi-owner,
+etc.). **Breadcrumbs** in each header (e.g. `Home / My Team / Roster`) jump up a
+level. The **chevron** at the top of the sidebar collapses it to an icon strip;
+**section chevrons** collapse individual groups. Favorites and collapse states
+persist in your browser. A thin **team-color stripe** marks team-specific pages.
 
 ---
 
@@ -164,42 +136,40 @@ Chart, Finance, Training, Settings, Injuries) so the app reads as
 
 ### Dashboard
 
-The home screen for an owner.
+The home screen for a team.
 
-- **Hero banner** – team logo (auto-generated or colored-abbreviation
-  fallback), city + name, record, run diff, streak. Record/Run Diff/Streak
-  render as a **scoreboard readout** — tabular monospace numerals with an
-  amber LED glow, framed in a dark inset.
-- **Stat cards** – run differential, streak, active roster size, next
-  game. Each card sports a thin team-color left stripe. Click a card to
-  jump to the matching screen.
-- **Division standings** – your division with your row highlighted using
-  a team-color tint + stripe. Rows link to the team detail page.
-- **Upcoming & Recent** – next five games and last five results. Played
-  rows link to the full HTML boxscore.
-- **Widgets** – bullpen readiness, matchup scout for the next game,
-  hot/cold performers, batting + pitching team leaders.
+- **Hero banner** — large team logo, city + name, record, run diff, streak as a
+  scoreboard readout.
+- **Stat cards** — run differential, streak, active roster size, next game; each
+  links to the matching screen.
+- **Division standings** — your division with your row highlighted; rows link to
+  team detail.
+- **Upcoming & Recent** — next five games and last five results; played rows
+  link to the full boxscore.
+- **Widgets** — bullpen readiness, next-game matchup scout, hot/cold performers,
+  team batting + pitching leaders.
+
+If you're a commissioner with no team claimed, the Dashboard instead shows the
+**Claim your team** screen (or a "browsing as commissioner" banner once you skip
+it).
 
 ### Season
 
-The single most-used admin/owner page.
+The most-used sim page.
 
-- Header shows current phase, sim date, days played / total, days
-  remaining in phase.
-- **Sim Day**, **Sim Week**, **Sim Month**, and a custom **N Days** field
-  advance the sim in place.
-- **Sim to Draft** / **Sim to Playoffs** run until the next phase
-  boundary. Both stop cleanly if any required step blocks.
-- **Advance Phase** is the deliberate step between phases — for example,
-  from Regular Season to Amateur Draft, or Playoffs to Offseason.
-- The page blocks any sim command that would skip required preseason /
-  offseason steps; if blocked, it tells you which admin page to visit.
+- Header shows current phase, sim date, days played / total, days remaining.
+- **Sim Day / Week / Month** and a custom **N Days** field advance the sim in
+  place. (Most leagues sim a whole day at a time.)
+- **Sim to Draft / Sim to Playoffs** run to the next phase boundary, stopping
+  cleanly if a required step blocks.
+- **Advance Phase** is the deliberate step between phases.
+- The page blocks any sim command that would skip required preseason/offseason
+  steps and tells you which admin page to visit.
 
 ### News
 
-Chronological in-game events — roster moves, trades, injuries, sim
-milestones, finance postings. Filter by team and category. The Dashboard
-widget shows a trimmed preview.
+Chronological in-game events — roster moves, trades, injuries, milestones,
+finance postings. Filter by team and category.
 
 ---
 
@@ -207,482 +177,253 @@ widget shows a trimmed preview.
 
 ### Roster
 
-Tabular view of your whole roster, grouped by level (Active / AAA / Low
-/ DL / IR).
+Tabular view of your roster, grouped by level (Active / AAA / Low / DL / IR).
 
-- Columns: position, role, bats, ratings (overall + role-specific).
-- **Right-click any row** for a context menu: Open profile,
-  **Training focus…** (per-player override dialog), Move to Active,
-  Send to AAA, Send to Low-A, Place on DL (15), Place on 60-day IR,
-  Shift to 45-day DL (DL rows), Release / Cut.
-- Or click the three-dot action button at the row's right for the same
-  options.
-- **Cut** triggers a confirmation dialog and writes a release transaction.
-- Click any player's name to open their profile.
+- Columns: position, role, bats/throws, ratings (overall stars + role-specific).
+- **Right-click any row** (or the three-dot button) for: Open profile, Training
+  focus…, Move to Active, Send to AAA / Low-A, Place on DL (15), 60-day IR,
+  Shift to 45-day DL, Release / Cut.
+- **Cut** confirms, then writes a release transaction.
+- Click a player's name to open their profile (which includes a large avatar).
 
-**Pitcher SP/RP labeling.** The role column reflects each pitcher's
-display role — `preferred_pitching_role` if set, otherwise the stored
-`role`, otherwise an endurance-based fallback (>55 = SP). Granular roles
-(SP, RP, CL, LR, MR, SU) collapse to the SP/RP bucket here; the
-fine-grained value drives the Lineup → Pitching staff editor.
+Pitcher SP/RP labeling reflects each pitcher's display role; granular roles
+(SP, RP, CL, LR, MR, SU) collapse to SP/RP here and drive the Lineup → Pitching
+Staff editor.
 
 ### Lineup
 
-Two tabs — **vs LHP** and **vs RHP** — store separate batting orders,
-plus a **Pitching Staff** tab for role assignments.
+Tabs for **vs LHP** and **vs RHP** (separate batting orders) plus a **Pitching
+Staff** tab.
 
-- **Baseball diamond diagram** shows each position filled with the
-  player's name + batting order number on an SVG field (outfield grass,
-  clay warning track, chalk lines, bases).
-- **Drag-and-drop** the grip handle on any row to reorder the batting
-  order, or use the ↑ / ↓ buttons for one-slot moves.
-- Assign positions (C/1B/2B/3B/SS/LF/CF/RF/DH) in the grid.
-- **Autofill — current side or both.** Two buttons sit above the lineup
-  tabs: **Autofill vs RHP / vs LHP** (current side only — useful for
-  platoon tweaks) and **Autofill both** (both batting orders in one
-  click). Both honor depth-chart priority first, then a contact / power
-  / speed / defense score.
-- **Live validation** — errors and warnings appear above the table as
-  you edit, so you know the moment a lineup slot is invalid.
-- **Ctrl+S** (or Cmd+S on macOS) saves. **Autosave** debounces every
-  ~1.5 seconds; if you reload mid-edit, a "Restore unsaved changes"
-  banner offers to reinstate the draft.
+- A **baseball diamond diagram** shows each position filled.
+- **Drag** the grip handle to reorder, or use ↑ / ↓.
+- Assign positions in the grid.
+- **Autofill** the current side or both; honors depth-chart priority then a
+  contact/power/speed/defense score.
+- **Live validation** flags invalid slots as you edit.
+- **Ctrl+S** saves; autosave debounces ~1.5s and offers to restore unsaved
+  changes after a reload.
 
-**Pitching Staff tab.** Eleven slots: **SP1–SP5**, **LR**, **MR1–MR3**,
-**SU**, **CL**. The **Auto-fill** button seeds all 11 from the active
-roster:
-
-1. Rotation goes to the five highest-endurance starters (or relievers
-   tagged `preferred_pitching_role="SP"`).
-2. Bullpen fills in priority order **LR → CL → SU → MR1 → MR2 → MR3**.
-3. LR / MR slots prefer high-endurance arms; CL / SU prefer
-   low-endurance arms (closer favors anyone tagged
-   `preferred_pitching_role="CL"`).
-4. With a thin pool the helper still produces a usable LR / CL / SU
-   before MR2 / MR3 get filled, falling back to starters if needed.
+**Pitching Staff** has 11 slots (SP1–SP5, LR, MR1–MR3, SU, CL); **Auto-fill**
+seeds them from the active roster by endurance and role tags.
 
 ### Depth Chart
 
-Ordered priority list per defensive position (up to three per slot for
-C/SS/CF/3B/2B/1B/LF/RF/DH).
-
-- Top entry is the primary starter. Entries 2 and 3 back-fill when the
-  starter is injured, rested, or promoted.
-- Used by **Autofill** in the Lineup editor and by the injury
-  replacement engine during sim.
-- **Auto-generate** button seeds every position with the best three
-  available players from your roster — primary fits first, sorted by
-  level (ACT before AAA / LOW) and overall rating. Saves the chart
-  immediately on click; use it as a starting point or after a major
-  roster shake-up. Tweak from there with the move buttons.
-- **Live validation** fires as you edit (eligibility errors + low-depth
-  warnings).
-- **Ctrl+S** saves; **autosave** covers crashes.
+Ordered priority list per position (up to three each). The top entry starts;
+2 and 3 back-fill on injury/rest/promotion. **Auto-generate** seeds the best
+three per position. Drives Lineup autofill and the injury-replacement engine.
+Live validation + Ctrl+S.
 
 ### Training
 
-100% allocator per side (hitters and pitchers).
-
-- Every track has a 5% minimum. Save is disabled until both sides sum to
-  exactly 100.
-- **Reset to defaults** clears your team override and inherits the
-  league-wide mix.
-- Budgets (from Finance) scale training-camp intensity.
-- **Ctrl+S** saves.
+100% allocator per side (hitters / pitchers), 5% per-track minimum; save is
+disabled until both sides total 100. **Reset to defaults** inherits the league
+mix. Ctrl+S.
 
 ### Injuries
 
-Three sections: DL, IR, day-to-day.
-
-- DL tiers: 15-day and 45-day. Every row shows eligible-to-activate
-  date, days remaining, and the minimum required before activation.
-- **Activate** returns a player to ACT (blocked until the DL minimum is
-  met).
-- IR is open-ended — stash long-term injuries there to clear the active
-  roster, then manually activate when ready.
-- Every event writes to the news feed and transactions log.
+Three sections — DL (15- and 45-day), IR (open-ended), day-to-day. Each DL row
+shows the eligible-to-activate date and minimum required. **Activate** returns a
+player to ACT once eligible. Every event writes to news + transactions.
 
 ### Notifications
 
-Per-team rules engine that fires alerts during multi-day sims and can
-optionally pause a Sim Day / Week / Month / To Draft run the moment a
-flagged event occurs. Settings are stored at
-`data/notifications/<team_id>.json`; history is appended to
-`data/notifications/<team_id>.history.jsonl`.
+Per-team rules engine that fires alerts during multi-day sims and can **pause
+the sim** when a flagged event occurs.
 
-#### Preferences tab
+- **Preferences tab** — each rule has *Enabled* (log), *Notify* (banner after
+  the batch), *Stop sim* (break the loop immediately), and an optional
+  *threshold*. Rules are grouped into Health & roster, Performance & milestones,
+  Transactions, Calendar & deadlines, Finance, League & admin, and Draft.
+- **Defaults** — the serious injury tiers (15-day, 45-day, 60-day IR,
+  season-ending) stop the sim; day-to-day is notify-only.
+- **Recent events tab** — the last ~100 notifications for your team.
 
-Each rule has three checkboxes plus an optional numeric threshold:
-
-- **Enabled** – log the event to history.
-- **Notify** – show a banner on the Season page after the sim batch
-  finishes.
-- **Stop sim** – break the multi-day sim loop the moment this rule
-  fires. The Season page shows a warning banner with the rule title
-  (e.g. *"Sim paused: Player on 15-day DL"*).
-- **Threshold** – for streak / cash / horizon rules (losing-streak
-  length, cash-low dollar floor, days-out window for the trade
-  deadline).
-
-Rules are grouped into seven categories:
-
-- **Health & roster** – day-to-day, 15-day DL, 45-day DL, 60-day IR,
-  season-ending, returned-from-injury, lineup-invalid, pitching-staff-
-  incomplete, roster-cap violation.
-- **Performance & milestones** – win/losing streak (configurable
-  length), player milestone (no-hitter, perfect game, 50 HR, hitting
-  streak — fed by the `special_event` + `record` news categories),
-  division clinched, eliminated.
-- **Transactions** – trade offer received, trade decided, watched FA
-  signed elsewhere, contract expiring.
-- **Calendar & deadlines** – trade deadline approaching, phase
-  transition, All-Star break.
-- **Finance** – cash low, payroll over luxury threshold, projected
-  monthly net negative.
-- **League & admin** – commissioner action required, schedule
-  regenerated.
-- **Draft** – draft approaching, draft results posted.
-
-#### Defaults
-
-Out of the box the four serious injury tiers (15-day DL, 45-day DL,
-60-day IR, season-ending) all stop the sim — that's the most common
-reason owners want to be interrupted. Day-to-day defaults to notify-only
-so the AI can keep going. Edit any of these to match your style.
-
-#### Recent events tab
-
-The last ~100 notifications generated for this team, newest first, with
-severity badge, sim date, and message. Use it to audit what the engine
-has been firing on or to confirm a rule you just enabled is actually
-catching events.
-
-#### How it integrates with the sim
-
-When `team_id` is on the bearer token, every `/season/simulate/*`
-endpoint snapshots pre-day state, runs the day, then runs the engine.
-News-based detectors parse `[injury]`, `[special_event]`, `[record]`,
-`[change_request]`, `[trade]` lines emitted during the day. State-based
-detectors check standings (streaks), `manager.phase` (transitions), and
-`team_financials.json` (cash low). When any event has `stop_sim=true`
-the loop breaks early, the response includes
-`notifications: [...]` and `sim_stopped_reason: "..."`, and the Season
-page surfaces the banner. DL/injury automation still runs the same day,
-so the AI has already moved the player to the DL by the time you see
-the alert.
+During a sim each day is run, then the engine checks news-based detectors
+(injuries, milestones, trades, change requests) and state-based detectors
+(streaks, phase transitions, low cash). A stop-rule breaks the loop early and
+the Season page shows the reason.
 
 ### Finance
 
-Team-level finance snapshot.
-
-- **Cash on hand**, **debt**, **preset**, and whether financials are
-  enabled for this league.
-- **Payroll alerts card** — proactively warns when cash is running out,
-  debt exceeds a year of projected revenue, projected monthly net goes
-  negative, or financial sim is disabled. Alerts fire inline, before
-  you have to run the Finance Stability sandbox.
-- Revenue and expense totals by category; projected monthly values drive
-  the budgets panel.
-- Budget categories: training, scouting, development, facilities.
-- Scrollable transactions log with the last N ledger entries.
+Team finance snapshot: cash on hand, debt, preset, whether financials are
+enabled. A **payroll alerts** card warns proactively (low cash, high debt,
+negative projected net). Revenue/expense by category, budget categories
+(training / scouting / development / facilities), and a transactions log.
 
 ### Team Settings
 
-Team branding and strategy.
-
-- **Primary / secondary colors** – hex inputs with a live swatch preview
-  using your team abbreviation.
-- **Stadium** – free-text input with autocomplete from the ballpark
-  catalog; click the building icon to open the **full park browser**
-  with field-diagram previews. Or visit **League → Ballparks** for a
-  standalone browser.
-- **Team strategy** – league default or a team-specific profile (Win
-  Now, Development Focus, etc.). Steers automation decisions.
-- **Auto-reassign** – inherit league default, or explicitly
-  enable/disable automatic ACT/AAA/LOW balancing for this team.
-- **Ctrl+S** saves.
+- **Primary / secondary colors** — hex inputs with a live swatch preview.
+- **Stadium** — autocomplete from the ballpark catalog; the building icon opens
+  the full park browser.
+- **Team strategy** — league default or a profile (Win Now, Development Focus…).
+- **Auto-reassign** — inherit league default or set per-team. Ctrl+S.
 
 ---
 
 ## League
 
-### Standings · Leaders · Stats
-
-- **Standings** – division-grouped. Click a row for team detail.
-- **Leaders** – top N per stat using MLB qualifier rules.
-- **Stats** – full league hitters + pitchers + team totals.
-
-### Players · Teams · Schedule
-
-- **Players** – league-wide browser with filters.
-- **Teams** – directory grouped by division; click for team detail.
-- **Schedule** – league-wide calendar; played rows link to boxscores.
-
-### Playoffs · History · Hall of Fame · Records · Ballparks
-
-- **Playoffs** – current year bracket.
-- **History** – archive of completed seasons.
-- **Hall of Fame** – inductees + candidates. Admins can induct/remove.
-- **Records** – league and per-team record book.
-- **Ballparks** – standalone park catalog with field diagrams. Use to
-  browse before picking a stadium from Team Settings.
+- **Standings / Leaders / Stats** — division standings (rows link to team
+  detail), top-N leaders by MLB qualifier rules, full league + team stats.
+- **Players / Teams / Schedule** — league-wide player browser with filters, team
+  directory by division, and the schedule (played rows link to boxscores).
+- **Playoffs / History / Hall of Fame / Records / Ballparks** — current bracket,
+  completed-season archive, HOF inductees (admins induct/remove), the record
+  book, and the standalone park catalog with field diagrams.
 
 ---
 
 ## Transactions
 
-### Free Agency
-
-Browse unsigned players. Filter by position, role, and free-agents-only.
-Click **Sign** and pick destination level (ACT / AAA / LOW) to commit.
-
-### Trades
-
-Three panes: pending offers involving your team, accepted/rejected
-history, and the trade composer.
-
-- **Propose Trade** – pick partner team; move players + draft picks
-  between give/receive lists.
-- **Accept / Reject / Withdraw** — act on any pending offer.
-- **Admin controls** (admin-only) appear inline on pending trades:
-  - **Veto** opens a modal where you enter a note shown to both owners
-    and sets the trade status to `vetoed`.
-  - **Force approve** bypasses validator errors (irreversible; use only
-    for deliberate overrides).
-  - **Approve** runs through the standard validator as an admin accept.
-
-### Draft
-
-- **Now** tab – live state, current pick, draft order.
-- **History** tab – completed picks per year.
-- **Admin** tab (admin-only):
-  - **Initialize** – seeds draft state (worst-first order from season
-    stats) for a given year.
-  - **Generate pool** – writes a fresh amateur draft pool CSV.
-  - **Manual pick** – commissioner override that assigns a player to
-    the team on the clock.
-  - **Reset** – deletes draft state + results CSV for a year.
-
-### Submit Change Request
-
-Owner-side bundler. After making roster / lineup / pitching / depth
-edits, use this page to export a snapshot ZIP for commissioner review.
-
-### Activity
-
-Full transactions ledger — every sign, move, cut, trade, contract event,
-finance posting. Filter by team and action type.
+- **Free Agency** — browse unsigned players; **Sign** and pick a destination
+  level (ACT / AAA / LOW).
+- **Trades** — pending offers, history, and the composer (move players + picks
+  between give/receive). Owners accept/reject/withdraw; commissioners can
+  **Veto**, **Force approve**, or **Approve**.
+- **Draft** — **Now** (live state/order), **History** (completed picks), and an
+  **Admin** tab (Initialize, Generate pool, Manual pick, Reset).
+- **Submit Change Request** — bundle your roster/lineup edits into a snapshot for
+  commissioner review (multi-owner leagues).
+- **Activity** — the full transactions ledger, filterable by team and type.
 
 ---
 
-## Admin
+## Admin (Commissioner)
 
-### Commissioner
+The **Commissioner** is the league's admin. These pages live under the Admin hub
+and are hidden from owners.
 
-- **Quick-access grid** at the top surfaces the 10 most-used admin pages
-  as card tiles (Command Center, Finance Queue, Change Requests,
-  Offseason Flow, Reassign Players, Finance Stability, Exhibition Game,
-  League Admin, Physics Tuning, Users).
-- **Trade rules** – enabled, draft-pick trading, require commissioner
-  approval, CPU cadence, max pick trade years.
-- **Injury level** – global injury-frequency setting (consolidates the
-  old PyQt injury settings dialog).
-- **Finance card** – preset (off / simple / standard / MLB-like /
-  custom) + enforcement mode (off / warn / block) + collapsible
-  **Module levels** (10 finance modules: Owner Revenue / Market /
-  Budgets / Expenses, GM Contracts / Payroll Rules / Arbitration /
-  Free Agency / Roster Cost Enforcement / Finance AI) + collapsible
-  **CPU finance AI tuning** (19 numeric knobs — star thresholds, salary
-  share caps, arbitration raise %, FA avoidance bands). Editing any
-  module or AI value flips the preset to **custom**.
-- **Scouting card** – fog-of-war enable plus six pacing knobs (base
-  monthly credits, finance-off pace multiplier, monthly decay, passive
-  gain, max banked credits, auto spend cap). Works whether or not the
-  finance system is enabled.
-- **Strategy & auto-reassign** – league-default strategy profile and
-  auto-reassign behavior, plus a scrollable per-team override table
-  (mirrors PyQt's TeamStrategySettingsDialog).
+- **Commissioner** — league rules in one place: trade rules, injury level,
+  **Finance** (preset + enforcement + per-module levels + CPU finance-AI knobs),
+  **Scouting** (fog-of-war + pacing), and league-default **strategy /
+  auto-reassign** with a per-team override table.
+- **Members** — invites, join requests, and team assignment (see
+  [Accounts, leagues & membership](#accounts-leagues--membership)).
+- **Command Center** — league-wide attention dashboard (injuries, pending
+  approvals, roster conflicts, deadlines, finance risks).
+- **Finance Queue / Change Requests** — apply approved finance decisions in one
+  pass; approve/reject/requeue owner-submitted change requests.
+- **Offseason Flow** — overview, checklist, **Run pipeline**, and a four-tab
+  review (Contracts, Arbitration, Budgets, GM Queue).
+- **Reassign Players** — bulk auto-assign, league-wide or single team.
+- **Finance Stability** — sandboxed multi-season finance tester (single preset
+  or compare presets) against a temp copy of the data.
+- **Exhibition Game** — simulate a one-off game outside the schedule with a live
+  boxscore.
+- **League Admin** — destructive, double-confirmed actions: regenerate schedule,
+  reset season stats, clear played results, repair lineups, clone league.
+- **Physics Tuning** — every engine knob across five sections, with per-knob and
+  global reset.
+- **Utilities** — diagnostics, logo/avatar generation, and exports (see
+  [Logos & avatars](#logos--avatars)).
 
-### Command Center
+---
 
-League-wide attention dashboard. Cards by severity: injuries, pending
-approvals, roster conflicts, deadlines, finance risks.
+## Platform admin (Super-admin)
 
-### Finance Queue · Change Requests
+A super-admin is a platform owner (set by the operator). In addition to full
+commissioner powers in **every** league, a super-admin sees an **All leagues**
+section on My Leagues with **Enter**, **Manage**, and **Delete** for any league.
+**Delete** permanently removes a league and all of its data (with a
+confirmation). Super-admins also get the per-player **regenerate avatar** button
+on profile pages.
 
-- **Finance Queue** – admin-approved decisions; "Apply approved" runs
-  every approved row in one pass.
-- **Change Requests** – owner-submitted ZIPs; approve/reject/requeue
-  each with an admin note.
+---
 
-### Offseason Flow
+## Logos & avatars
 
-- Overview card (ended → next year, contract counts, arbitration
-  candidates, unsigned players).
-- Checklist with status + completion timestamps; mark individual stages
-  done when handled manually.
-- **Run pipeline** executes the full offseason rollover.
-- **Review** card with four tabs (matches PyQt's offseason finance
-  dialog):
-    - **Contracts** – every contract expiring next year (player, team,
-      years left, salary, service days, arb-eligible flag).
-    - **Arbitration** – filed arbitration awards with old → new salary
-      and delta.
-    - **Budgets** – year-over-year budget delta per team with category
-      breakdown (training / scouting / development / facilities).
-    - **GM Queue** – pending owner finance decisions with team / queue /
-      status / search filters and inline **Approve** / **Reject**
-      buttons for the selected pending row.
-- **Finance Queue inline** – pending count + Apply-all button, deep-
-  links to the standalone Finance Queue page.
+Team logos and player avatars are generated by Google **Vertex AI Imagen** in
+the cloud (no API key needed) — admin-only, under **Utilities**.
 
-### Reassign Players
-
-Admin bulk auto-assign.
-
-- **Reassign all teams** – league-wide.
-- **Single team reassign** – one team via dropdown.
-
-### Finance Stability
-
-Sandboxed multi-season finance tester.
-
-- Inputs: seasons, seed, preset.
-- **Run single preset** — full N-season sim against a temp copy of the
-  data tree. Shows per-season metrics + guardrails pass/fail.
-- **Compare presets** — run the same scenario against multiple presets.
-
-### Exhibition Game
-
-One-off game simulation outside the schedule.
-
-- Pick home + away teams from dropdowns. Teams use their saved rosters
-  and lineups.
-- **Simulate** runs the game; live boxscore appears below with batting +
-  pitching lines for both teams plus a strategy log (collapsed) and
-  field positions (collapsed).
-- Full HTML boxscore is saved under `data/exhibition_boxscores/`.
-
-### League Admin
-
-Destructive commissioner actions, each double-confirmed:
-
-- **Regenerate schedule** — picks a template, overwrites `schedule.csv`.
-- **Reset season stats** — wipes `season_stats.json`.
-- **Clear played results** — marks every scheduled game as unplayed
-  without regenerating the matchups.
-- **Repair lineups** — runs lineup autofill + roster backfill across
-  every team.
-- **Clone league** — deep-copies the active league into a new registry
-  entry. Use before risky experiments.
-
-### Physics Tuning
-
-Every engine knob in five sections (Run Environment, Plate Discipline,
-Contact & Batted Ball, Pitching & Fatigue, Defense & Running). Per-knob
-reset + global Reset all.
-
-### Users
-
-users.txt manager. Create admin or owner accounts with team assignment.
-
-### New League
-
-Same wizard as first-run. Use to create a second league.
-
-### Utilities
-
-- **AI Renderer Status** — shows whether OpenAI's `gpt-image-1` is
-  configured; paste an API key to enable detailed logos/avatars.
-- **Logos** — Detailed (AI) or Simple (fallback vector) generators.
-- **Avatars** — batch player avatars.
+- **AI Renderer Status** — shows whether Vertex AI Imagen (cloud) and/or OpenAI
+  (local) are ready.
+- **Team logos:**
+  - **Detailed Logos** — AI mascot logos: a unique, mascot-forward emblem per
+    team in the team's colors. (Cheap; the whole league regenerates at once.)
+  - **Simple Logos** — built-in vector fallback, no network.
+  - **Tighten logo framing** — *no AI*: trims the background margin off existing
+    logos so every team's mascot fills the frame consistently.
+- **Player avatars:**
+  - **Fill missing avatars (AI)** — a unique AI portrait per player (built from
+    their ethnicity / skin / hair / facial-hair + team colors), only for players
+    without one. Generated once and reused.
+  - **Regenerate all avatars (AI)** — wipes and regenerates the whole league
+    (slower, bills per image).
+  - **Simple avatars (templates)** — free, instant template recolor (faces
+    repeat by ethnicity).
+  - **Per-player regenerate** *(super-admin)* — a small refresh button on the
+    avatar on any player profile, to spot-check the look before a full run.
 - **Exports** — CSV / HTML reports, almanac, owner snapshot zip.
+
+Generated images are saved to durable storage, so they persist across sessions.
 
 ---
 
 ## Validation & autosave
 
-Every edit-heavy page (Lineup, Depth Chart, Roster moves, Trades)
-validates via a shared Python validator both at save time (as a hard
-422) and live as you edit (inline warning/error lists).
+Edit-heavy pages (Lineup, Depth Chart, Roster moves, Trades) validate both at
+save time (a hard 422 with an inline error list) and live as you edit:
 
-**Lineup checks** — 9 slots filled, no duplicate players, every defensive
-position covered once, pitcher-not-in-lineup, position eligibility.
+- **Lineup** — 9 slots filled, no duplicates, every position covered once,
+  pitcher-not-in-lineup, position eligibility.
+- **Depth chart** — max 3 per position, no duplicates, no pitchers, eligibility,
+  off-roster rejection, low-depth warnings.
+- **Roster moves** — level caps (ACT 25 / AAA 15 / LOW 10), LOW age gate (27+),
+  post-move minimum non-pitchers on ACT, defensive coverage.
+- **Trades** — each side ≥1 asset, pick-trading enabled, picks in the tradable
+  pool, post-trade caps, payroll policy.
 
-**Depth chart checks** — max 3 per position, no duplicates, no pitchers,
-position eligibility, off-roster rejection, low-depth warnings.
-
-**Roster move checks** — level caps (ACT 25 / AAA 15 / LOW 10), LOW age
-gate (27+), post-move minimum 11 non-pitchers on ACT, defensive coverage.
-
-**Trade checks** — each side ≥1 asset, draft-pick trading enabled,
-picks in tradable pool, post-trade caps, payroll policy.
-
-**Autosave** — any editor with an unsaved-changes state persists to
-localStorage every ~1.5 seconds. Reload the app and you'll see a
-"Restore unsaved changes from a previous session" banner with
-**Restore** / **Dismiss** buttons plus the autosave timestamp.
+**Autosave** persists unsaved edits to your browser every ~1.5s; after a reload
+a "Restore unsaved changes" banner offers to reinstate them.
 
 ---
 
 ## Tips & keyboard shortcuts
 
-- **Ctrl+S / Cmd+S** — Save (Lineup, Pitching, Depth Chart, Training,
-  Team Settings). Disabled when nothing is unsaved.
-- **Ctrl+K / Cmd+K** — Open the command palette to jump to any page by
-  name without clicking through the sidebar.
-- **Alt+/** — Jump to Help & Tutorials from anywhere.
-- **Right-click** on roster rows — context menu with Open profile,
-  Training focus, move/cut actions.
-- **Right-click** on hub cards or sidebar entries — Pin to / unpin from
-  Favorites.
-- **Grip handle** (⋮⋮) on lineup rows — drag to reorder.
-- **Esc** — closes dialogs + the park browser.
-- **Ctrl+Shift+I** — opens DevTools in dev mode.
-- Click any player name anywhere in the UI to open their profile.
-- The **chevron** at the top of the sidebar collapses the rail to a
-  56-px icon strip; hover any icon for its label.
+- **Ctrl+S / Cmd+S** — Save (Lineup, Pitching, Depth Chart, Training, Settings).
+- **Ctrl+K / Cmd+K** — Command palette to jump to any page by name.
+- **Alt+/** — Jump to Help & Tutorials.
+- **Right-click** roster rows — context menu (profile, training, move/cut).
+- **Right-click** hub cards or sidebar entries — pin/unpin Favorites.
+- **Grip handle** on lineup rows — drag to reorder.
+- **Esc** — close dialogs and the park browser.
+- Click any player name anywhere to open their profile.
+- **Ctrl+Shift+R** — hard-refresh (use after an update if something looks stale).
 
 ---
 
 ## Help & tutorials
 
-- **Sidebar footer** and **header question-mark icon** both open the
-  Help page.
-- **Manual tab** — renders this guide with a sticky table of contents
-  and a live keyword search.
-- **Tutorials tab** — multi-step walkthroughs covering every major
-  flow (Dashboard, Season, Roster & Depth, Lineup, Training, Injuries,
-  Free Agency, Trades, Draft, Team Settings, Finance, Submit Change
-  Request, League Hub, Command Center, Admin Tools, Exhibition, League
-  Admin, Keyboard Shortcuts, Player Avatars, Team Logos,
-  **Notifications & Stop-Sim Rules**, **Navigation: Hubs &
-  Breadcrumbs**). Click a card to launch the tutorial as a step-through
-  dialog.
-- **Legacy manuals tab** — the three PyQt-era HTML manuals (game,
-  finance system, installer) open in a new window.
+- The **header question-mark icon** and the sidebar footer open this Help page.
+- **Manual tab** — this guide, with a sticky table of contents and live keyword
+  search.
+- **Tutorials tab** — step-through walkthroughs for the major flows.
+- **Legacy manuals tab** — the older HTML game / finance / installer manuals.
 
 ---
 
 ## Troubleshooting
 
-**Blank screen after login.** Open DevTools (Ctrl+Shift+I) and check the
-Console for a red error. The sidecar logs live in the terminal running
-`npm run dev`.
+**Use the right URL.** The app lives at
+**https://nexgen-bbpro.firebaseapp.com**. Sign-in (especially Google) only works
+from that address.
 
-**Sidecar exited before handshake.** Your Python environment is missing
-a dependency. Check the terminal for the traceback. Set
-`NEXGEN_PYTHON=<path to python.exe>` to force a specific interpreter.
+**Something looks stale or blank after an update.** Hard-refresh with
+**Ctrl+Shift+R**. To see an error, open the browser console (**F12** →
+*Console*).
 
-**"Admin role required" on an admin page.** Log in as admin, or
-elevate via the **Elevate to admin** card on the Utilities page.
+**"Continue with Google" doesn't work.** Allow pop-ups for the site and retry;
+make sure you're on the firebaseapp.com URL.
 
-**Changes don't persist.** If the server returns 422, you'll see the
-validation error list inline. Fix the listed errors and re-save.
+**The first action after a while is slow.** The server may be waking up — give it
+a few seconds; subsequent actions are fast.
 
-**First-run loop.** If `/leagues/first-run` returns `has_leagues: true`
-but no league is active, navigate to `/select-league` and pick one.
+**"Admin / commissioner required."** That page is limited to the league's
+commissioner (and super-admins). Owners won't see it.
 
-**PyQt and Electron showing different data.** Both apps read/write the
-same data root but cache inside their own process. Restart one after
-the other makes a significant change for a fully consistent view.
+**Changes don't persist.** If you see a validation error list, fix the listed
+items and re-save — the server rejects invalid lineups/rosters/trades.
+
+**I'm a commissioner but the Dashboard shows "Claim your team."** That's
+expected if you haven't taken a team yet — claim one, or skip to run the league
+without a team. You can change this later from the Members panel.

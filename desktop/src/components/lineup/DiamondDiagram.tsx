@@ -10,6 +10,7 @@
  */
 
 import { useMemo } from "react";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 
 import { cn } from "@/lib/cn";
 
@@ -19,6 +20,8 @@ export interface DiamondPosition {
   label?: string;
   /** Optional secondary line (usually a rating or number). */
   sub?: string;
+  /** Player id backing this spot — used as the drag payload. */
+  playerId?: string;
   empty?: boolean;
 }
 
@@ -28,8 +31,25 @@ interface Props {
   positions: Partial<Record<string, DiamondPosition>>;
   /** Accent color for the field stripe + labels. Defaults to amber. */
   accentColor?: string;
+  /** When true, each spot becomes a drop target (id `field-<code>`) and
+   *  filled spots become draggable (id `fieldsrc-<code>`). Must be rendered
+   *  inside a dnd-kit DndContext for the handlers to fire. */
+  interactive?: boolean;
   className?: string;
 }
+
+/** Position codes that can be assigned via the field (no pitcher slot). */
+const DROP_CODES = new Set([
+  "C",
+  "1B",
+  "2B",
+  "3B",
+  "SS",
+  "LF",
+  "CF",
+  "RF",
+  "DH",
+]);
 
 interface Spot {
   x: number;
@@ -67,6 +87,7 @@ const DIAMOND_POINTS = {
 export function DiamondDiagram({
   positions,
   accentColor,
+  interactive = false,
   className,
 }: Props) {
   // Precompute the infield polyline once so we don't rebuild on every render.
@@ -206,60 +227,118 @@ export function DiamondDiagram({
           scale with the SVG. Using div/span here rather than SVG text so
           we get word-wrapping, proper antialiasing, and hover states. */}
       <div className="pointer-events-none absolute inset-0">
-        {Object.entries(SPOTS).map(([code, spot]) => {
-          const entry = positions[code];
-          const filled = entry && !entry.empty && entry.label;
-          const left = (spot.x / 400) * 100;
-          const top = ((spot.y + (spot.labelOffsetY ?? 0)) / 400) * 100;
-          const transform =
-            spot.align === "center"
-              ? "translate(-50%, -50%)"
-              : spot.align === "left"
-                ? "translate(0, -50%)"
-                : "translate(-100%, -50%)";
-          return (
-            <div
-              key={code}
-              className="absolute flex max-w-[90px] flex-col items-center gap-0.5 text-center"
-              style={{
-                left: `${left}%`,
-                top: `${top}%`,
-                transform,
-              }}
-            >
-              <span
-                className="rounded-sm border px-1 text-[9px] font-bold uppercase tracking-wider shadow-sm"
-                style={{
-                  backgroundColor: "hsl(var(--espresso) / 0.9)",
-                  color: accentColor ?? "hsl(var(--amber))",
-                  borderColor: accentColor ?? "hsl(var(--amber) / 0.6)",
-                }}
-              >
-                {code}
-              </span>
-              <span
-                className={cn(
-                  "rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-tight",
-                  filled
-                    ? "bg-chalk/95 text-espresso shadow-sm"
-                    : "bg-espresso/70 text-cream/60 italic",
-                )}
-                title={entry?.label}
-              >
-                {filled ? entry.label : "—"}
-              </span>
-              {filled && entry.sub && (
-                <span
-                  className="rounded bg-espresso/80 px-1 text-[9px] text-amber"
-                  style={{ color: accentColor ?? undefined }}
-                >
-                  {entry.sub}
-                </span>
-              )}
-            </div>
-          );
-        })}
+        {Object.entries(SPOTS).map(([code, spot]) => (
+          <DiamondSpot
+            key={code}
+            code={code}
+            spot={spot}
+            entry={positions[code]}
+            accentColor={accentColor}
+            interactive={interactive && DROP_CODES.has(code)}
+          />
+        ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A single labeled field position. When `interactive`, it registers as a
+ * dnd-kit drop target (`field-<code>`) and, if filled, as a draggable source
+ * (`fieldsrc-<code>`) so fielders can be swapped by dragging one onto another.
+ * The dnd-kit hooks are always called (Rules of Hooks); they're inert outside
+ * a DndContext, and we only wire their refs/listeners when interactive.
+ */
+function DiamondSpot({
+  code,
+  spot,
+  entry,
+  accentColor,
+  interactive,
+}: {
+  code: string;
+  spot: Spot;
+  entry?: DiamondPosition;
+  accentColor?: string;
+  interactive: boolean;
+}) {
+  const filled = !!(entry && !entry.empty && entry.label);
+
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `field-${code}`,
+    data: { code },
+    disabled: !interactive,
+  });
+  const {
+    setNodeRef: setDragRef,
+    attributes,
+    listeners,
+    isDragging,
+  } = useDraggable({
+    id: `fieldsrc-${code}`,
+    data: { kind: "field", code, playerId: entry?.playerId },
+    disabled: !interactive || !filled,
+  });
+
+  const left = (spot.x / 400) * 100;
+  const top = ((spot.y + (spot.labelOffsetY ?? 0)) / 400) * 100;
+  const transform =
+    spot.align === "center"
+      ? "translate(-50%, -50%)"
+      : spot.align === "left"
+        ? "translate(0, -50%)"
+        : "translate(-100%, -50%)";
+
+  return (
+    <div
+      ref={interactive ? setDropRef : undefined}
+      className={cn(
+        "absolute flex max-w-[90px] flex-col items-center gap-0.5 rounded-md p-0.5 text-center",
+        interactive && "pointer-events-auto",
+        interactive && isOver && "ring-2 ring-amber",
+        isDragging && "opacity-40",
+      )}
+      style={{
+        left: `${left}%`,
+        top: `${top}%`,
+        transform,
+      }}
+    >
+      <span
+        className="rounded-sm border px-1 text-[9px] font-bold uppercase tracking-wider shadow-sm"
+        style={{
+          backgroundColor: "hsl(var(--espresso) / 0.9)",
+          color: accentColor ?? "hsl(var(--amber))",
+          borderColor: accentColor ?? "hsl(var(--amber) / 0.6)",
+        }}
+      >
+        {code}
+      </span>
+      <span
+        ref={interactive && filled ? setDragRef : undefined}
+        className={cn(
+          "rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-tight",
+          filled
+            ? "bg-chalk/95 text-espresso shadow-sm"
+            : "bg-espresso/70 text-cream/60 italic",
+          interactive && filled && "cursor-grab touch-none",
+        )}
+        title={
+          interactive && filled ? `Drag to swap — ${entry?.label}` : entry?.label
+        }
+        {...(interactive && filled ? attributes : {})}
+        {...(interactive && filled ? listeners : {})}
+      >
+        {filled ? entry!.label : "—"}
+      </span>
+      {filled && entry!.sub && (
+        <span
+          className="rounded bg-espresso/80 px-1 text-[9px] text-amber"
+          style={{ color: accentColor ?? undefined }}
+        >
+          {entry!.sub}
+        </span>
+      )}
     </div>
   );
 }

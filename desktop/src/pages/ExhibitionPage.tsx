@@ -223,7 +223,7 @@ function SideBoxScore({
           <div className="mb-1 font-semibold uppercase tracking-wide text-muted">
             Batting
           </div>
-          <table className="w-full">
+          <div className="overflow-x-auto"><table className="w-full">
             <thead>
               <tr className="text-muted">
                 <th className="text-left font-medium">Player</th>
@@ -246,14 +246,14 @@ function SideBoxScore({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </div>
         {side.pitching.length > 0 && (
           <div>
             <div className="mb-1 mt-2 font-semibold uppercase tracking-wide text-muted">
               Pitching
             </div>
-            <table className="w-full">
+            <div className="overflow-x-auto"><table className="w-full">
               <thead>
                 <tr className="text-muted">
                   <th className="text-left font-medium">Player</th>
@@ -272,7 +272,7 @@ function SideBoxScore({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </div>
         )}
       </div>

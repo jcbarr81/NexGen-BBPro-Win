@@ -7,6 +7,7 @@ Currently covers user management (list / add / edit) using
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -54,10 +55,42 @@ def _public_user(user: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _handle_map() -> Dict[str, str]:
+    """uid -> display-name (handle) for this league's members, from Firestore.
+    Empty in local/single-tenant mode. Lets the admin Users list show readable
+    names instead of raw Firebase uids."""
+    try:
+        from api import firebase_auth
+
+        if not firebase_auth.is_enabled():
+            return {}
+        from utils import path_utils
+        from services import firestore_store
+
+        league = path_utils.get_active_league_id()
+        if not league:
+            return {}
+        out: Dict[str, str] = {}
+        for m in firestore_store.list_members(league):
+            uid = (m or {}).get("uid")
+            handle = (m or {}).get("handle")
+            if uid and handle:
+                out[uid] = handle
+        return out
+    except Exception:
+        return {}
+
+
 @router.get("/users")
 def list_users(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
-    users: List[Dict[str, Any]] = [_public_user(u) for u in user_manager.load_users()]
-    users.sort(key=lambda u: u["username"].lower())
+    handles = _handle_map()
+    users: List[Dict[str, Any]] = []
+    for u in user_manager.load_users():
+        pub = _public_user(u)
+        # Display name = Firestore handle if we have one, else the username.
+        pub["display_name"] = handles.get(pub["username"]) or pub["username"]
+        users.append(pub)
+    users.sort(key=lambda u: u["display_name"].lower())
     return {"count": len(users), "users": users}
 
 
@@ -104,6 +137,25 @@ def edit_user(
                 status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
             ) from exc
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    # Keep the Firestore membership in sync so the owner's "My Leagues" (and the
+    # identity bridge when they enter) reflect the new team — users.txt alone
+    # isn't what owners read in the cloud.
+    if payload.team_id is not None:
+        try:
+            from api import firebase_auth
+
+            if firebase_auth.is_enabled():
+                from utils import path_utils
+                from services import firestore_store
+
+                league = path_utils.get_active_league_id()
+                if league and firestore_store.get_member(league, username):
+                    firestore_store.set_member_team(league, username, payload.team_id)
+        except Exception:
+            logging.getLogger("nexgen.admin").exception(
+                "firestore member-team sync failed for %s", username
+            )
 
     updated = next(
         (_public_user(u) for u in user_manager.load_users() if u.get("username") == username),

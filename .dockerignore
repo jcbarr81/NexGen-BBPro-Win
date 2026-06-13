@@ -20,16 +20,22 @@ node_modules/
 # and other UI images the frontend build needs.
 /data/
 /tmp/
-/docs/
+# Keep docs/ (the in-app Help manual reads docs/manuals/*.md/html at runtime);
+# only drop the heavy notes/ image dump.
+/docs/notes/
 /tests/
 /samples/
-# Exclude /images/ EXCEPT the avatar templates, which the cloud avatar generator
-# recolors at runtime (utils/avatar_generator.py → /app/images/avatars/Template).
-# Use ``/images/*`` (contents) not ``/images/`` (the dir) so negation can work.
-/images/*
-!/images/avatars
-/images/avatars/*
-!/images/avatars/Template
+# /images is mostly generated content (~900MB). Keep the avatar TEMPLATES (the
+# cloud avatar generator recolors them at runtime → /app/images/avatars/Template)
+# and the tiny python helpers; drop the heavy generated avatar PNGs + parks.
+# NOTE: exclude by pattern (not a /images/ + negation re-include) because
+# Cloud Build's builder does NOT honor re-including under an excluded directory.
+# Drop the ~600 generated player avatars (P####.png, ~880MB) but KEEP both the
+# recolor templates (images/avatars/Template/) and the default.png fallback.
+/images/avatars/P*.png
+/images/parks/
+/images/buttons/
+/images/__pycache__/
 /assets/
 # Root build artifacts (PyInstaller output, reports) — never needed at runtime.
 /dist/

@@ -469,7 +469,7 @@ function ContractExpirationsTable({
   }
   return (
     <div className="max-h-80 overflow-y-auto rounded-md border border-border bg-canvas/30">
-      <table className="w-full text-xs">
+      <div className="overflow-x-auto"><table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border/60 text-[10px] uppercase tracking-wider text-muted">
             <th className="px-3 py-2 text-left">Player</th>
@@ -505,7 +505,7 @@ function ContractExpirationsTable({
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
@@ -524,7 +524,7 @@ function ArbitrationTable({
   }
   return (
     <div className="max-h-80 overflow-y-auto rounded-md border border-border bg-canvas/30">
-      <table className="w-full text-xs">
+      <div className="overflow-x-auto"><table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border/60 text-[10px] uppercase tracking-wider text-muted">
             <th className="px-3 py-2 text-left">Player</th>
@@ -556,7 +556,7 @@ function ArbitrationTable({
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
@@ -575,7 +575,7 @@ function BudgetDeltasTable({
   }
   return (
     <div className="max-h-80 overflow-y-auto rounded-md border border-border bg-canvas/30">
-      <table className="w-full text-xs">
+      <div className="overflow-x-auto"><table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border/60 text-[10px] uppercase tracking-wider text-muted">
             <th className="px-3 py-2 text-left">Team</th>
@@ -621,7 +621,7 @@ function BudgetDeltasTable({
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
@@ -782,7 +782,7 @@ function GmQueueTable({ rows }: { rows: Array<Record<string, unknown>> }) {
         </p>
       ) : (
         <div className="max-h-80 overflow-y-auto rounded-md border border-border bg-canvas/30">
-          <table className="w-full text-xs">
+          <div className="overflow-x-auto"><table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border/60 text-[10px] uppercase tracking-wider text-muted">
                 <th className="px-3 py-2 text-left">Team</th>
@@ -854,7 +854,7 @@ function GmQueueTable({ rows }: { rows: Array<Record<string, unknown>> }) {
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
     </div>

@@ -93,6 +93,63 @@ def test_create_league_generates_files(tmp_path):
         assert f.read() == "Test League"
 
 
+def test_create_league_rosters_pass_sim_gate_validation(tmp_path):
+    """Every freshly created team must satisfy the same rule check the
+    season-sim gate uses — no over-age players at LOW, caps respected,
+    ACT positionally legal — so a new league is immediately playable."""
+
+    from datetime import date as _date
+
+    from services.roster_validation import (
+        DEFAULT_LEVEL_CAPS,
+        validate_roster_state,
+    )
+
+    random.seed(7)
+    divisions = {"East": [("CityA", "Cats"), ("CityB", "Dogs")]}
+    create_league(str(tmp_path), divisions, "Compliance League")
+
+    with open(tmp_path / "players.csv", newline="") as f:
+        players_rows = list(csv.DictReader(f))
+    today = _date.today()
+
+    def _age(bd: str) -> int | None:
+        try:
+            born = _date.fromisoformat(str(bd)[:10])
+        except (TypeError, ValueError):
+            return None
+        return today.year - born.year - (
+            (today.month, today.day) < (born.month, born.day)
+        )
+
+    players_map = {
+        r["player_id"]: {
+            "player_id": r["player_id"],
+            "primary_position": r.get("primary_position", ""),
+            "other_positions": r.get("other_positions", ""),
+            "is_pitcher": r.get("is_pitcher") in {"1", "True", "true"},
+            "age": _age(r.get("birthdate", "")),
+        }
+        for r in players_rows
+    }
+
+    teams = load_teams(str(tmp_path / "teams.csv"))
+    for t in teams:
+        levels = {"act": [], "aaa": [], "low": []}
+        with open(tmp_path / "rosters" / f"{t.team_id}.csv") as f:
+            for line in f.read().strip().splitlines():
+                if not line:
+                    continue
+                pid, level = line.split(",")
+                levels[level.lower()].append(pid)
+        result = validate_roster_state(
+            current_levels=levels,
+            players=players_map,
+            level_caps=DEFAULT_LEVEL_CAPS,
+        )
+        assert result.ok, f"{t.team_id} not compliant: {result.errors}"
+
+
 def test_abbr_uses_city_only():
     existing = set()
     assert _abbr("Dallas", "Wolves", existing) == "DAL"

@@ -60,8 +60,12 @@ export function SimProgressOverlay({ open, label }: Props) {
     queryKey: ["sim-progress"],
     queryFn: () => api.seasonSimProgress(),
     enabled: open,
-    refetchInterval: 400,
+    // ~1s is plenty for a day counter and keeps polling pressure off the
+    // single Cloud Run instance while it's pegged running the sim (avoids
+    // 429s). The api-layer completion poller runs on its own cadence.
+    refetchInterval: 1000,
     refetchIntervalInBackground: true,
+    retry: false,
     staleTime: 0,
     gcTime: 0,
   });

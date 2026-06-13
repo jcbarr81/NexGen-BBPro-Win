@@ -18,10 +18,12 @@ import {
   Star,
   Trophy,
   Wrench,
+  X,
 } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 
 import { useAuthStore } from "@/lib/auth-store";
+import { useIsDesktop } from "@/lib/use-media-query";
 import { cn } from "@/lib/cn";
 import { useLeagueCapabilities, type LeagueCapabilities } from "@/lib/league-capabilities";
 import { useFavoritesStore } from "@/lib/favorites-store";
@@ -152,9 +154,16 @@ function saveRail(value: boolean) {
   }
 }
 
-export function Sidebar() {
+export function Sidebar({
+  mobileOpen = false,
+  onClose,
+}: {
+  mobileOpen?: boolean;
+  onClose?: () => void;
+}) {
   const role = useAuthStore((s) => s.role);
   const location = useLocation();
+  const isDesktop = useIsDesktop();
   const isAdmin = role === "admin";
   const capabilities = useLeagueCapabilities();
   const pinned = useFavoritesStore((s) => s.pinned);
@@ -194,6 +203,9 @@ export function Sidebar() {
 
   const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed());
   const [railCollapsed, setRailCollapsed] = useState<boolean>(() => loadRail());
+  // On mobile the sidebar is a full off-canvas drawer (labels shown), so the
+  // desktop icon-rail collapse only applies at the lg breakpoint and up.
+  const effectiveCollapsed = isDesktop && railCollapsed;
 
   // Always expand the section containing the active route so the user can
   // see where they are -- but preserve their preference for all others.
@@ -236,10 +248,23 @@ export function Sidebar() {
 
   return (
     <Tooltip.Provider delayDuration={120}>
+      {/* Mobile backdrop — tap to close the drawer. Desktop never shows it. */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/60 lg:hidden"
+          onClick={onClose}
+          aria-hidden
+        />
+      )}
       <aside
         className={cn(
-          "relative z-10 flex h-full shrink-0 flex-col border-r border-border bg-sidebar-gradient transition-[width]",
-          railCollapsed ? "w-14" : "w-64",
+          "z-40 flex h-full shrink-0 flex-col border-r border-border bg-sidebar-gradient",
+          // Mobile: off-canvas drawer that slides in. Desktop (lg+): in-flow
+          // rail that can collapse to an icon strip.
+          "fixed inset-y-0 left-0 w-64 transition-transform duration-200",
+          "lg:static lg:z-10 lg:translate-x-0 lg:transition-[width]",
+          effectiveCollapsed ? "lg:w-14" : "lg:w-64",
+          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
         )}
         style={{
           backgroundImage: [
@@ -252,22 +277,32 @@ export function Sidebar() {
         <div
           className={cn(
             "flex items-center justify-between border-b border-cream/10 py-4",
-            railCollapsed ? "px-2" : "px-4",
+            effectiveCollapsed ? "px-2" : "px-4",
           )}
         >
-          {!railCollapsed && <Brand />}
+          {!effectiveCollapsed && <Brand />}
+          {/* Collapse-to-rail chevron is a desktop-only affordance. */}
           <button
             type="button"
             onClick={toggleRail}
             aria-label={railCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             title={railCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="rounded-md p-1 text-cream/60 hover:bg-cream/10 hover:text-cream"
+            className="hidden rounded-md p-1 text-cream/60 hover:bg-cream/10 hover:text-cream lg:inline-flex"
           >
             {railCollapsed ? (
               <ChevronRight className="h-4 w-4" />
             ) : (
               <ChevronLeft className="h-4 w-4" />
             )}
+          </button>
+          {/* Mobile-only close button. */}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close menu"
+            className="rounded-md p-1 text-cream/60 hover:bg-cream/10 hover:text-cream lg:hidden"
+          >
+            <X className="h-5 w-5" />
           </button>
         </div>
 
@@ -282,7 +317,7 @@ export function Sidebar() {
                   idx > 0 && "border-t border-cream/5 pt-2",
                 )}
               >
-                {!railCollapsed && (
+                {!effectiveCollapsed && (
                   <button
                     type="button"
                     onClick={() => toggle(section.label)}
@@ -304,14 +339,14 @@ export function Sidebar() {
                     />
                   </button>
                 )}
-                {(railCollapsed || !isCollapsed) &&
+                {(effectiveCollapsed || !isCollapsed) &&
                   section.items.map(({ to, label, Icon }) => (
                     <SidebarItem
                       key={to}
                       to={to}
                       label={label}
                       Icon={Icon}
-                      railCollapsed={railCollapsed}
+                      railCollapsed={effectiveCollapsed}
                       pinned={pinned.includes(to)}
                       onTogglePin={() => togglePin(to)}
                     />
@@ -324,14 +359,14 @@ export function Sidebar() {
         <div
           className={cn(
             "border-t border-cream/10 py-2",
-            railCollapsed ? "px-1" : "px-2",
+            effectiveCollapsed ? "px-1" : "px-2",
           )}
         >
           <SidebarItem
             to="/help"
             label="Help & Tutorials"
             Icon={HelpCircle}
-            railCollapsed={railCollapsed}
+            railCollapsed={effectiveCollapsed}
             pinned={pinned.includes("/help")}
             onTogglePin={() => togglePin("/help")}
           />

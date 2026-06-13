@@ -43,11 +43,14 @@ import { AppShell } from "@/components/layout/AppShell";
 import { DiamondDiagram, type DiamondPosition } from "@/components/lineup/DiamondDiagram";
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   closestCenter,
+  useDraggable,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -237,6 +240,8 @@ function LineupTab({
   });
   const [rows, setRows] = useState<LineupRow[]>([]);
   const [dirty, setDirty] = useState(false);
+  // Player id currently being dragged onto the diamond (drives the overlay).
+  const [dragPlayerId, setDragPlayerId] = useState<string | null>(null);
 
   // Autosave rescue — localStorage-backed draft restored on mount.
   const { autosavedDraft, clearDraft, lastSavedAt } = useAutosaveDraft({
@@ -307,6 +312,59 @@ function LineupTab({
     update(idx, { player_id: "", position: rows[idx]?.position ?? "" });
   }
 
+  // Drag-onto-diamond assignment. Handles both a bench hitter dragged from
+  // the eligible pool AND one fielder dragged onto another (a position swap).
+  // Positions stay unique among filled slots; batting order is preserved.
+  function assignPlayerToPosition(playerId: string, targetCode: string) {
+    if (!playerId || !targetCode) return;
+    setRows((prev) => {
+      const copy = prev.map((r) => ({ ...r }));
+      const targetIdx = copy.findIndex((r) => r.position === targetCode);
+      const playerIdx = copy.findIndex((r) => r.player_id === playerId);
+
+      if (playerIdx >= 0) {
+        // Player is already in the order — move them to the target position.
+        // If someone else owns that position, swap the two positions so the
+        // displaced player keeps their batting slot.
+        const oldPos = copy[playerIdx]!.position;
+        if (targetIdx >= 0 && targetIdx !== playerIdx) {
+          copy[targetIdx]!.position = oldPos;
+        }
+        copy[playerIdx]!.position = targetCode;
+      } else if (targetIdx >= 0) {
+        // Bench player replaces whoever currently holds the target position.
+        copy[targetIdx]!.player_id = playerId;
+      } else {
+        // Bench player into the first empty slot at the target position.
+        const emptyIdx = copy.findIndex((r) => !r.player_id);
+        if (emptyIdx < 0) return prev; // lineup full — nothing to give up
+        copy[emptyIdx]!.player_id = playerId;
+        copy[emptyIdx]!.position = targetCode;
+      }
+      return copy.map((row, i) => ({ ...row, order: i + 1 }));
+    });
+    setDirty(true);
+  }
+
+  function handleFieldDragStart(e: DragStartEvent) {
+    const playerId = (e.active.data.current as { playerId?: string } | undefined)
+      ?.playerId;
+    setDragPlayerId(playerId ?? null);
+  }
+
+  function handleFieldDragEnd(e: DragEndEvent) {
+    setDragPlayerId(null);
+    const { active, over } = e;
+    if (!over) return;
+    const overId = String(over.id);
+    if (!overId.startsWith("field-")) return;
+    const targetCode = overId.slice("field-".length);
+    const playerId = (active.data.current as { playerId?: string } | undefined)
+      ?.playerId;
+    if (!playerId) return;
+    assignPlayerToPosition(playerId, targetCode);
+  }
+
   // Collapse the batting rows into a position→player map for the diamond.
   // Picks up the first occurrence of each position, which is correct since
   // a lineup slot should use a position at most once.
@@ -325,6 +383,7 @@ function LineupTab({
         code: row.position,
         label: label || row.player_id,
         sub: `#${row.order}`,
+        playerId: row.player_id,
       };
     }
     return out;
@@ -337,6 +396,12 @@ function LineupTab({
   const liveValidation = useLiveValidation(
     () => api.validateLineup(teamId, vs, rows),
     [rows, vs, teamId],
+  );
+
+  // Sensor for dragging hitters onto the diamond (pool → field, field → field).
+  // Distance constraint so a click on a pool row or a field label isn't eaten.
+  const fieldSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
 
   const selectedIds = new Set(rows.map((r) => r.player_id).filter(Boolean));
@@ -369,10 +434,20 @@ function LineupTab({
   }
 
   return (
-    <>
+    <DndContext
+      sensors={fieldSensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleFieldDragStart}
+      onDragEnd={handleFieldDragEnd}
+      onDragCancel={() => setDragPlayerId(null)}
+    >
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
       <Card className="p-3">
-        <DiamondDiagram positions={diamondPositions} />
+        <DiamondDiagram positions={diamondPositions} interactive />
+        <p className="mt-2 px-1 text-center text-[11px] text-muted">
+          Drag a hitter from the pool below onto a position — or drag one
+          fielder onto another to swap.
+        </p>
       </Card>
       {autosavedDraft && !dirty && (
         <Card className="xl:col-span-2">
@@ -499,8 +574,23 @@ function LineupTab({
       </CardContent>
     </Card>
     </div>
-    <EligiblePoolPanel players={hitters} kind="hitters" />
-    </>
+    <EligiblePoolPanel players={hitters} kind="hitters" draggable />
+    <DragOverlay dropAnimation={null}>
+      {dragPlayerId
+        ? (() => {
+            const p = hittersById.get(dragPlayerId);
+            const label = p
+              ? `${p.first_name?.[0] ?? ""}. ${p.last_name}`.trim()
+              : dragPlayerId;
+            return (
+              <div className="pointer-events-none rounded-md bg-amber px-2 py-1 text-xs font-semibold text-espresso shadow-lg">
+                {label}
+              </div>
+            );
+          })()
+        : null}
+    </DragOverlay>
+    </DndContext>
   );
 }
 
@@ -1023,9 +1113,13 @@ const PITCHER_POOL_COLUMNS: Array<{ key: string; label: string }> = [
 function EligiblePoolPanel({
   players,
   kind,
+  draggable = false,
 }: {
   players: RosterPlayer[];
   kind: "hitters" | "pitchers";
+  /** When true, each row is a dnd-kit draggable (id `pool-<playerId>`) that
+   *  can be dropped onto a diamond position. Only meaningful for hitters. */
+  draggable?: boolean;
 }) {
   const columns = kind === "hitters" ? HITTER_POOL_COLUMNS : PITCHER_POOL_COLUMNS;
   const [sortKey, setSortKey] = usePersistedState<string>(
@@ -1137,54 +1231,99 @@ function EligiblePoolPanel({
             </thead>
             <tbody>
               {sorted.map((p) => (
-                <tr
+                <PoolRow
                   key={p.player_id}
-                  className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
-                >
-                  <td className="px-6 py-2 font-semibold">
-                    {p.last_name}
-                    {p.first_name ? `, ${p.first_name}` : ""}
-                  </td>
-                  <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
-                    {kind === "hitters"
-                      ? (p.primary_position || "—")
-                      : (p.role || "—")}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {p.age ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right text-xs">
-                    {p.bats || "—"}/{p.throws || "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums font-semibold">
-                    {p.overall_display ?? p.overall_raw ?? "—"}
-                  </td>
-                  {columns.map((col) => {
-                    const raw = p.ratings[col.key];
-                    const display =
-                      raw == null || raw === ""
-                        ? "—"
-                        : typeof raw === "number"
-                          ? Math.round(raw)
-                          : Number.isFinite(Number(raw))
-                            ? Math.round(Number(raw))
-                            : String(raw);
-                    return (
-                      <td
-                        key={col.key}
-                        className="px-3 py-2 text-right tabular-nums"
-                      >
-                        {display}
-                      </td>
-                    );
-                  })}
-                </tr>
+                  player={p}
+                  kind={kind}
+                  columns={columns}
+                  draggable={draggable && kind === "hitters"}
+                />
               ))}
             </tbody>
           </table>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * One eligible-pool row. When `draggable`, the whole row registers as a
+ * dnd-kit draggable (`pool-<playerId>`) and a grip in the first cell carries
+ * the drag listeners so it can be dropped onto a diamond position.
+ */
+function PoolRow({
+  player: p,
+  kind,
+  columns,
+  draggable,
+}: {
+  player: RosterPlayer;
+  kind: "hitters" | "pitchers";
+  columns: Array<{ key: string; label: string }>;
+  draggable: boolean;
+}) {
+  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
+    id: `pool-${p.player_id}`,
+    data: { kind: "pool", playerId: p.player_id },
+    disabled: !draggable,
+  });
+
+  return (
+    <tr
+      ref={draggable ? setNodeRef : undefined}
+      className={cn(
+        "border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40",
+        isDragging && "opacity-40",
+      )}
+    >
+      <td className="px-6 py-2 font-semibold">
+        <div className="flex items-center gap-1.5">
+          {draggable && (
+            <button
+              type="button"
+              className="cursor-grab touch-none rounded-sm p-0.5 text-muted hover:bg-surfaceAlt hover:text-ink"
+              aria-label={`Drag ${p.last_name} onto the field`}
+              title="Drag onto a field position"
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="h-3 w-3" />
+            </button>
+          )}
+          <span>
+            {p.last_name}
+            {p.first_name ? `, ${p.first_name}` : ""}
+          </span>
+        </div>
+      </td>
+      <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
+        {kind === "hitters" ? p.primary_position || "—" : p.role || "—"}
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums">{p.age ?? "—"}</td>
+      <td className="px-3 py-2 text-right text-xs">
+        {p.bats || "—"}/{p.throws || "—"}
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums font-semibold">
+        {p.overall_display ?? p.overall_raw ?? "—"}
+      </td>
+      {columns.map((col) => {
+        const raw = p.ratings[col.key];
+        const display =
+          raw == null || raw === ""
+            ? "—"
+            : typeof raw === "number"
+              ? Math.round(raw)
+              : Number.isFinite(Number(raw))
+                ? Math.round(Number(raw))
+                : String(raw);
+        return (
+          <td key={col.key} className="px-3 py-2 text-right tabular-nums">
+            {display}
+          </td>
+        );
+      })}
+    </tr>
   );
 }
 

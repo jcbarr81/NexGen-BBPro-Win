@@ -12,12 +12,27 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  GripVertical,
   Loader2,
   RotateCcw,
   Save,
   Sparkles,
   Trash2,
 } from "lucide-react";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 import { api, type RosterPlayer } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
@@ -221,6 +236,21 @@ function DepthChartEditor({ teamId }: { teamId: string }) {
     update(pos, current);
   }
 
+  function reorderSlot(pos: string, from: number, to: number) {
+    const current = [...(draft[pos] ?? [])];
+    if (
+      from < 0 ||
+      to < 0 ||
+      from >= current.length ||
+      to >= current.length ||
+      from === to
+    )
+      return;
+    const [moved] = current.splice(from, 1);
+    current.splice(to, 0, moved);
+    update(pos, current);
+  }
+
   function reset() {
     if (chartQuery.data) {
       const next: Record<string, string[]> = {};
@@ -376,47 +406,14 @@ function DepthChartEditor({ teamId }: { teamId: string }) {
                 {slots.length === 0 && (
                   <div className="text-xs italic text-muted">No depth set.</div>
                 )}
-                {slots.map((pid, idx) => {
-                  const player = byId[pid];
-                  const label = player
-                    ? `${player.first_name} ${player.last_name} · ${player.primary_position}`
-                    : `${pid} (not on active roster)`;
-                  return (
-                    <div
-                      key={`${pid}-${idx}`}
-                      className="flex items-center gap-2 rounded-md border border-border bg-surface px-2 py-1 text-sm"
-                    >
-                      <span className="w-5 text-xs text-muted">{idx + 1}.</span>
-                      <span className="flex-1 truncate">{label}</span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => moveSlot(pos, idx, -1)}
-                        disabled={idx === 0}
-                        title="Move up"
-                      >
-                        <ArrowUp className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => moveSlot(pos, idx, 1)}
-                        disabled={idx === slots.length - 1}
-                        title="Move down"
-                      >
-                        <ArrowDown className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeSlot(pos, idx)}
-                        title="Remove"
-                      >
-                        <Trash2 className="h-4 w-4 text-danger" />
-                      </Button>
-                    </div>
-                  );
-                })}
+                <SortableSlotList
+                  pos={pos}
+                  slots={slots}
+                  byId={byId}
+                  onReorder={reorderSlot}
+                  onMove={moveSlot}
+                  onRemove={removeSlot}
+                />
                 {slots.length < max_depth && (
                   <select
                     className="w-full rounded-md border border-border bg-surface px-2 py-1 text-sm"
@@ -450,6 +447,139 @@ function DepthChartEditor({ teamId }: { teamId: string }) {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Drag-to-reorder priority list (one DndContext per position so a drag never
+// crosses into another position). The ↑/↓ buttons stay for keyboard/touchpad.
+
+function SortableSlotList({
+  pos,
+  slots,
+  byId,
+  onReorder,
+  onMove,
+  onRemove,
+}: {
+  pos: string;
+  slots: string[];
+  byId: Record<string, RosterPlayer>;
+  onReorder: (pos: string, from: number, to: number) => void;
+  onMove: (pos: string, idx: number, delta: number) => void;
+  onRemove: (pos: string, idx: number) => void;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
+  // Ordering is the thing being dragged, so ids pin to positional slots
+  // rather than player ids (which could repeat as "not on roster" entries).
+  const ids = slots.map((_, i) => `${pos}-slot-${i}`);
+
+  function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const from = ids.indexOf(String(active.id));
+    const to = ids.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    onReorder(pos, from, to);
+  }
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
+    >
+      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+        <div className="space-y-2">
+          {slots.map((pid, idx) => {
+            const player = byId[pid];
+            const label = player
+              ? `${player.first_name} ${player.last_name} · ${player.primary_position}`
+              : `${pid} (not on active roster)`;
+            return (
+              <SortableSlot
+                key={ids[idx]}
+                id={ids[idx]!}
+                idx={idx}
+                label={label}
+                isLast={idx === slots.length - 1}
+                onMoveUp={() => onMove(pos, idx, -1)}
+                onMoveDown={() => onMove(pos, idx, 1)}
+                onRemove={() => onRemove(pos, idx)}
+              />
+            );
+          })}
+        </div>
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+function SortableSlot({
+  id,
+  idx,
+  label,
+  isLast,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
+}: {
+  id: string;
+  idx: number;
+  label: string;
+  isLast: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-2 rounded-md border border-border bg-surface px-2 py-1 text-sm"
+    >
+      <button
+        type="button"
+        className="cursor-grab touch-none rounded-sm p-1 text-muted hover:bg-surfaceAlt hover:text-ink"
+        aria-label="Drag to reorder"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </button>
+      <span className="w-5 text-xs text-muted">{idx + 1}.</span>
+      <span className="flex-1 truncate">{label}</span>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onMoveUp}
+        disabled={idx === 0}
+        title="Move up"
+      >
+        <ArrowUp className="h-4 w-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onMoveDown}
+        disabled={isLast}
+        title="Move down"
+      >
+        <ArrowDown className="h-4 w-4" />
+      </Button>
+      <Button variant="ghost" size="icon" onClick={onRemove} title="Remove">
+        <Trash2 className="h-4 w-4 text-danger" />
+      </Button>
     </div>
   );
 }

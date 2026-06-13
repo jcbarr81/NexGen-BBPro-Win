@@ -79,6 +79,7 @@ export function AdminUsersPage() {
     if (!needle) return users.data.users;
     return users.data.users.filter(
       (u) =>
+        (u.display_name || u.username).toLowerCase().includes(needle) ||
         u.username.toLowerCase().includes(needle) ||
         (u.team_id || "").toLowerCase().includes(needle),
     );
@@ -98,7 +99,7 @@ export function AdminUsersPage() {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
           <Input
             className="pl-9"
-            placeholder="Search by username or team id…"
+            placeholder="Search by name or team…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -142,10 +143,10 @@ export function AdminUsersPage() {
                 No users match that search.
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto"><table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
-                    <th className="px-6 py-2 text-left font-semibold">Username</th>
+                    <th className="px-6 py-2 text-left font-semibold">Name</th>
                     <th className="px-3 py-2 text-left font-semibold">Role</th>
                     <th className="px-3 py-2 text-left font-semibold">Team</th>
                     <th className="px-6 py-2 text-right font-semibold">Actions</th>
@@ -157,7 +158,20 @@ export function AdminUsersPage() {
                       key={user.username}
                       className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
                     >
-                      <td className="px-6 py-2 font-semibold">{user.username}</td>
+                      <td className="px-6 py-2">
+                        <div className="font-semibold">
+                          {user.display_name || user.username}
+                        </div>
+                        {user.display_name &&
+                          user.display_name !== user.username && (
+                            <div
+                              className="max-w-[18rem] truncate font-mono text-[10px] text-muted"
+                              title={user.username}
+                            >
+                              {user.username}
+                            </div>
+                          )}
+                      </td>
                       <td className="px-3 py-2">
                         <Badge
                           tone={user.role === "admin" ? "amber" : "neutral"}
@@ -180,7 +194,7 @@ export function AdminUsersPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             )}
           </CardContent>
         </Card>

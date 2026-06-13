@@ -256,7 +256,7 @@ function CategoryCard({
         <CardTitle className="text-base">{category.label}</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto"><table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border/60 text-[10px] uppercase tracking-wider text-muted">
               <th className="px-4 py-2 text-left">Rule</th>
@@ -350,7 +350,7 @@ function CategoryCard({
               );
             })}
           </tbody>
-        </table>
+        </table></div>
       </CardContent>
     </Card>
   );
@@ -408,7 +408,7 @@ function HistoryTab({ teamId }: { teamId: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="p-0">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto"><table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border/60 text-[10px] uppercase tracking-wider text-muted">
               <th className="px-4 py-2 text-left">When</th>
@@ -434,7 +434,7 @@ function HistoryTab({ teamId }: { teamId: string }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       </CardContent>
     </Card>
   );

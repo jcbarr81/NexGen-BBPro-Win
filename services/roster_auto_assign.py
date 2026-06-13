@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Set, Tuple
 
 from playbalance.aging import calculate_age, get_sim_date
+from services.roster_validation import LOW_LEVEL_MAX_AGE
 from services.team_strategy_profiles import resolve_team_strategy_profile
 from utils.player_loader import load_players_from_csv
 from utils.team_loader import load_teams
@@ -480,13 +481,74 @@ def _pick_minor_rosters(
         break
 
     aaa_players = hitters_sorted[:target_hitters] + pitchers_sorted[:target_pitchers]
+    aaa_set = {getattr(p, "player_id") for p in aaa_players}
+    remainder = [
+        p
+        for p in hitters_sorted + pitchers_sorted
+        if getattr(p, "player_id") not in aaa_set
+    ]
+
+    # League rule: the LOW roster is reserved for young players (under the
+    # LOW age limit). Without this, auto-assign happily parks aging veterans
+    # at LOW, producing a roster that fails validation and blocks the season
+    # sim. Unknown ages are treated as eligible so missing birthdates never
+    # trigger a release.
+    #
+    # Critically, age here is computed against the *real* calendar date — the
+    # same basis services.roster_validation / the season-sim gate use (via
+    # validation.load_players_map). Don't use the sim-date-aware _player_age:
+    # if the two bases disagree at the boundary, auto-assign could seat a
+    # player at LOW that the validator then rejects, re-blocking the sim.
+    today = date.today()
+
+    def _low_eligible(player: object) -> bool:
+        birthdate = getattr(player, "birthdate", None)
+        age = _age_on_date(str(birthdate), today) if birthdate else None
+        return age is None or age < LOW_LEVEL_MAX_AGE
+
+    # Any over-age player that landed in the LOW remainder has no legal minor
+    # slot left. Rather than release them, promote them into AAA (where there
+    # is no age limit) by bumping AAA's weakest LOW-eligible player down to
+    # LOW. This keeps everyone on the roster and legal in the common case;
+    # over-age players are only released when AAA genuinely can't seat them.
+    over_age_remainder = [p for p in remainder if not _low_eligible(p)]
+    if over_age_remainder:
+        swappable = sorted(
+            (p for p in aaa_players if _low_eligible(p)),
+            key=_overall_score,
+        )  # weakest first
+        bumped_ids: Set[str] = set()
+        bumped_players: List[object] = []
+        promoted_ids: Set[str] = set()
+        for vet in sorted(over_age_remainder, key=_overall_score, reverse=True):
+            if not swappable:
+                break  # no AAA slot can be freed — this vet will be released
+            bumped = swappable.pop(0)
+            bumped_ids.add(getattr(bumped, "player_id"))
+            bumped_players.append(bumped)
+            promoted_ids.add(getattr(vet, "player_id"))
+        if promoted_ids:
+            promoted = [
+                p for p in over_age_remainder if getattr(p, "player_id") in promoted_ids
+            ]
+            aaa_players = [
+                p for p in aaa_players if getattr(p, "player_id") not in bumped_ids
+            ] + promoted
+            remainder = [
+                p for p in remainder if getattr(p, "player_id") not in promoted_ids
+            ] + bumped_players
+
     aaa_players = sorted(aaa_players, key=_overall_score, reverse=True)
     aaa_ids = [getattr(p, "player_id") for p in aaa_players][:AAA_MAX]
 
     aaa_set = set(aaa_ids)
-    remainder = [p for p in hitters_sorted + pitchers_sorted if getattr(p, "player_id") not in aaa_set]
-    remainder = sorted(remainder, key=_overall_score, reverse=True)
-    low_ids = [getattr(p, "player_id") for p in remainder][:LOW_MAX]
+    low_candidates = [
+        p
+        for p in remainder
+        if getattr(p, "player_id") not in aaa_set and _low_eligible(p)
+    ]
+    low_candidates = sorted(low_candidates, key=_overall_score, reverse=True)
+    low_ids = [getattr(p, "player_id") for p in low_candidates][:LOW_MAX]
     return aaa_ids, low_ids
 
 

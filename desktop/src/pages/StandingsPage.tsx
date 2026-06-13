@@ -146,7 +146,59 @@ function DivisionCard({
         </Badge>
       </CardHeader>
       <CardContent className="p-0">
-        <table className="w-full text-sm">
+        {/* Mobile: stacked cards (the wide table reads poorly on a phone). */}
+        <div className="space-y-1.5 p-2 sm:hidden">
+          {sorted.map((team) => (
+            <Link
+              key={team.team_id}
+              to={`/team/${encodeURIComponent(team.team_id)}`}
+              className={cn(
+                "block rounded-lg border border-border/60 p-2.5 hover:bg-surfaceAlt/40",
+                team.team_id === activeTeamId && "border-amber/50 bg-amber/10",
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <TeamLogo
+                  teamId={team.team_id}
+                  abbreviation={team.abbreviation || team.team_id}
+                  primaryColor={team.primary_color}
+                  secondaryColor={team.secondary_color}
+                  className="h-8 w-8 shrink-0 rounded-md text-[10px]"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-semibold">
+                    {team.city} {team.name}
+                  </div>
+                  <div className="text-[11px] uppercase tracking-wider text-muted">
+                    {team.abbreviation}
+                  </div>
+                </div>
+                <StatusCell team={team} />
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums">
+                <span className="font-semibold">
+                  {team.wins}-{team.losses}
+                </span>
+                <span className="text-muted">
+                  {team.pct.toFixed(3).replace(/^0/, "")}
+                </span>
+                <span className="text-muted">GB {team.gb}</span>
+                <span
+                  className={cn(
+                    team.run_diff > 0 && "text-success",
+                    team.run_diff < 0 && "text-danger",
+                  )}
+                >
+                  RD {team.run_diff > 0 ? `+${team.run_diff}` : team.run_diff}
+                </span>
+                <span className="text-muted">Strk {team.streak}</span>
+                <span className="text-muted">L10 {team.last10}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+        {/* Desktop: full table. */}
+        <div className="hidden overflow-x-auto sm:block"><table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
               <HeaderCell label="Team" keyId="name" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="left" />
@@ -214,7 +266,7 @@ function DivisionCard({
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       </CardContent>
     </Card>
   );

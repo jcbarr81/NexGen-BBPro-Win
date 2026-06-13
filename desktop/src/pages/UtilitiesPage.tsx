@@ -122,10 +122,32 @@ export function UtilitiesPage() {
       recordResult(args.tileKey, false, e instanceof Error ? e.message : String(e));
     },
   });
-  const avatars = useMutation({
-    mutationFn: (args: { tileKey: string; initial: boolean }) =>
+  const normalizeLogos = useMutation({
+    mutationFn: () =>
       runExportJob(
-        () => api.generateAvatars(args.initial),
+        () => api.normalizeLogos(),
+        (status) => recordProgress("logos-normalize", status),
+      ),
+    onSuccess: () => {
+      clearProgress("logos-normalize");
+      setActiveAction(null);
+      recordResult("logos-normalize", true, "Logo framing normalized.");
+      bumpLogoVersion();
+    },
+    onError: (e) => {
+      clearProgress("logos-normalize");
+      setActiveAction(null);
+      recordResult("logos-normalize", false, e instanceof Error ? e.message : String(e));
+    },
+  });
+  const avatars = useMutation({
+    mutationFn: (args: {
+      tileKey: string;
+      initial: boolean;
+      engine?: "ai" | "template";
+    }) =>
+      runExportJob(
+        () => api.generateAvatars(args.initial, args.engine),
         (status) => recordProgress(args.tileKey, status),
       ),
     onSuccess: (_res, args) => {
@@ -185,21 +207,6 @@ export function UtilitiesPage() {
       ),
     onError: (e) =>
       recordResult("almanac", false, e instanceof Error ? e.message : String(e)),
-  });
-  const snapshot = useMutation({
-    mutationFn: () => api.exportSnapshot(),
-    onSuccess: (res) =>
-      recordResult(
-        "snapshot",
-        true,
-        `Snapshot zip → ${String((res as { zip_path?: string }).zip_path ?? "ok")}`,
-      ),
-    onError: (e) =>
-      recordResult(
-        "snapshot",
-        false,
-        e instanceof Error ? e.message : String(e),
-      ),
   });
 
   return (
@@ -261,22 +268,39 @@ export function UtilitiesPage() {
               }}
             />
             <ActionTile
+              icon={<Palette className="h-5 w-5" />}
+              title="Tighten logo framing"
+              description="No AI: trims the background margin off existing logos so every team's mascot fills the frame consistently. Keeps the current artwork."
+              pending={activeAction === "logos-normalize"}
+              progress={progress["logos-normalize"]}
+              result={results["logos-normalize"]}
+              disabled={!isAdmin || activeAction !== null}
+              onRun={() => {
+                setActiveAction("logos-normalize");
+                normalizeLogos.mutate();
+              }}
+            />
+            <ActionTile
               icon={<UserSquare2 className="h-5 w-5" />}
-              title="Fill missing avatars"
-              description="Only generate for players who don't have an avatar yet. Fast; safe to rerun."
+              title="Fill missing avatars (AI)"
+              description="Unique AI portrait per player (ethnicity, hair, facial hair + team colors) — only for players without one yet. Reused after; ~3s/player + small AI cost."
               pending={activeAction === "avatars-fill"}
               progress={progress["avatars-fill"]}
               result={results["avatars-fill"]}
               disabled={!isAdmin || activeAction !== null}
               onRun={() => {
                 setActiveAction("avatars-fill");
-                avatars.mutate({ tileKey: "avatars-fill", initial: false });
+                avatars.mutate({
+                  tileKey: "avatars-fill",
+                  initial: false,
+                  engine: "ai",
+                });
               }}
             />
             <ActionTile
               icon={<UserSquare2 className="h-5 w-5" />}
-              title="Regenerate all avatars"
-              description="Wipes every player avatar first, then regenerates from scratch. Slow."
+              title="Regenerate all avatars (AI)"
+              description="Wipes every avatar and AI-generates all from scratch. Slow + bills per image for the whole league."
               pending={activeAction === "avatars-regen"}
               progress={progress["avatars-regen"]}
               result={results["avatars-regen"]}
@@ -284,16 +308,37 @@ export function UtilitiesPage() {
               onRun={async () => {
                 if (
                   await confirm({
-                    title: "Regenerate every player avatar?",
+                    title: "Regenerate EVERY player avatar with AI?",
                     description:
-                      "Deletes every avatar in the output folder (Template + default.png kept) and regenerates from scratch.",
+                      "Deletes every avatar (Template + default.png kept) and AI-generates the whole league from scratch — slow and bills per image. 'Fill missing' is usually what you want.",
                     confirmLabel: "Regenerate all",
                     danger: true,
                   })
                 ) {
                   setActiveAction("avatars-regen");
-                  avatars.mutate({ tileKey: "avatars-regen", initial: true });
+                  avatars.mutate({
+                    tileKey: "avatars-regen",
+                    initial: true,
+                    engine: "ai",
+                  });
                 }
+              }}
+            />
+            <ActionTile
+              icon={<UserSquare2 className="h-5 w-5" />}
+              title="Simple avatars (templates)"
+              description="Free + instant: recolors bundled face templates to team colors. Faces repeat by ethnicity. Fills players missing an avatar."
+              pending={activeAction === "avatars-template"}
+              progress={progress["avatars-template"]}
+              result={results["avatars-template"]}
+              disabled={!isAdmin || activeAction !== null}
+              onRun={() => {
+                setActiveAction("avatars-template");
+                avatars.mutate({
+                  tileKey: "avatars-template",
+                  initial: false,
+                  engine: "template",
+                });
               }}
             />
           </CardContent>
@@ -302,9 +347,9 @@ export function UtilitiesPage() {
         <Card>
           <CardHeader>
             <div>
-              <CardTitle>Exports &amp; Sharing</CardTitle>
+              <CardTitle>Exports</CardTitle>
               <CardDescription>
-                One-click report + almanac + snapshot bundles.
+                One-click report + almanac bundles for offline use.
               </CardDescription>
             </div>
             <Badge tone="amber">
@@ -338,15 +383,6 @@ export function UtilitiesPage() {
               result={results["almanac"]}
               disabled={!isAdmin}
               onRun={() => almanac.mutate()}
-            />
-            <ActionTile
-              icon={<Package className="h-5 w-5" />}
-              title="Owner Snapshot Zip"
-              description="Bundle of data owners can sync offline."
-              pending={snapshot.isPending}
-              result={results["snapshot"]}
-              disabled={!isAdmin}
-              onRun={() => snapshot.mutate()}
             />
           </CardContent>
         </Card>

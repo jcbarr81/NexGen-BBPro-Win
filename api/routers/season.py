@@ -56,10 +56,21 @@ _MAX_DAYS_PER_CALL = 220
 # slot is enough; we don't need per-league/per-user buckets.
 _SIM_PROGRESS_LOCK = threading.Lock()
 _SIM_PROGRESS: Dict[str, Any] = {
+    # Live counter (managed by _simulate_n via _begin/_bump/_end).
     "active": False,
     "target": 0,
     "played": 0,
     "started_at": 0.0,
+    # Job lifecycle (managed by the background launcher). Multi-day sims now
+    # run in a background thread and the client polls /season/sim-progress for
+    # completion — a long sim must never be held open inside the HTTP request,
+    # because Firebase Hosting caps proxied requests at ~60s and a week/month/
+    # to-draft jump runs well past that, surfacing a false "Action failed" even
+    # though the sim finished server-side.
+    "status": "idle",  # "idle" | "running" | "done" | "error"
+    "result": None,  # final state payload when status == "done"
+    "error": None,  # message when status == "error"
+    "run_id": 0,
 }
 
 
@@ -84,6 +95,133 @@ def _bump_sim_progress() -> None:
 def _end_sim_progress() -> None:
     with _SIM_PROGRESS_LOCK:
         _SIM_PROGRESS["active"] = False
+
+
+# A run still flagged "running" after this long is treated as dead (e.g. the
+# thread was lost to an instance restart mid-sim) so it can't wedge the slot
+# and 409 every future sim. Set well above any realistic full-season jump.
+_SIM_STALE_SECONDS = 60 * 60
+
+
+def _sim_running() -> bool:
+    with _SIM_PROGRESS_LOCK:
+        if _SIM_PROGRESS.get("status") != "running":
+            return False
+        started = float(_SIM_PROGRESS.get("started_at") or 0.0)
+        if started and (time.time() - started) > _SIM_STALE_SECONDS:
+            return False
+        return True
+
+
+def _begin_sim_job() -> int:
+    """Reset the slot for a new background run and return its run id."""
+    with _SIM_PROGRESS_LOCK:
+        _SIM_PROGRESS["run_id"] = int(_SIM_PROGRESS.get("run_id", 0)) + 1
+        _SIM_PROGRESS.update(
+            {
+                "status": "running",
+                "result": None,
+                "error": None,
+                "active": True,
+                "target": 0,
+                "played": 0,
+                "started_at": time.time(),
+            }
+        )
+        return int(_SIM_PROGRESS["run_id"])
+
+
+def _finish_sim_job(
+    *, result: Optional[Dict[str, Any]] = None, error: Optional[str] = None
+) -> None:
+    with _SIM_PROGRESS_LOCK:
+        _SIM_PROGRESS["active"] = False
+        if error is not None:
+            _SIM_PROGRESS["status"] = "error"
+            _SIM_PROGRESS["error"] = str(error)
+        else:
+            _SIM_PROGRESS["status"] = "done"
+            _SIM_PROGRESS["result"] = result
+
+
+def _days_for_kind(
+    kind: str,
+    n_arg: int,
+    simulator: SeasonSimulator,
+    draft_date: Optional[str],
+) -> int:
+    """Translate a sim 'kind' into a concrete day count to run."""
+    if kind == "day":
+        return 1
+    if kind == "days":
+        return max(1, int(n_arg))
+    if kind == "week":
+        return 7
+    if kind == "month":
+        return 30
+    if kind == "to-draft":
+        if not draft_date:
+            raise ValueError("Draft date is not available (empty schedule?).")
+        try:
+            idx = simulator.dates.index(draft_date)
+        except ValueError:
+            idx = len(simulator.dates)
+        return max(0, idx - simulator._index)
+    if kind == "to-playoffs":
+        return max(0, len(simulator.dates) - simulator._index)
+    return 1
+
+
+def _launch_sim_background(
+    kind: str, *, n_arg: int = 1, team_id: Optional[str] = None
+) -> int:
+    """Start a sim in a daemon thread and return its run id immediately.
+
+    The thread rebinds the per-request league (ContextVars don't cross the
+    thread boundary), runs the sim, builds the state payload, and pushes the
+    working copy to durable storage — mirroring the export/asset jobs. The
+    client polls /season/sim-progress until ``status`` flips to done/error.
+    """
+    from utils import path_utils
+
+    league = path_utils.get_active_league_id()
+    run_id = _begin_sim_job()
+
+    def _run() -> None:
+        token = path_utils.set_request_league(league) if league else None
+        try:
+            manager, simulator, draft_date = _build_manager_and_simulator()
+            n = _days_for_kind(kind, n_arg, simulator, draft_date)
+            result = _simulate_n(
+                manager, simulator, n, draft_date=draft_date, team_id=team_id
+            )
+            payload = _state_payload(manager, simulator, draft_date, extra=result)
+            # Persist sim writes (season_state, standings, stats, rosters…) to
+            # GCS. The request middleware already returned on the 202, so the
+            # push must happen here or a restart would lose the simulated days.
+            try:
+                from api import working_copy
+
+                if working_copy.is_enabled():
+                    working_copy.push_changes()
+            except Exception:
+                import logging
+
+                logging.getLogger("nexgen.season").exception(
+                    "sim working-copy push failed"
+                )
+            _finish_sim_job(result=payload)
+        except Exception as exc:  # pragma: no cover - defensive
+            import logging
+
+            logging.getLogger("nexgen.season").exception("Background sim failed")
+            _finish_sim_job(error=str(exc))
+        finally:
+            if token is not None:
+                path_utils.reset_request_league(token)
+
+    threading.Thread(target=_run, name=f"sim-{kind}", daemon=True).start()
+    return run_id
 
 
 def _schedule_path() -> Path:
@@ -676,6 +814,13 @@ def sim_progress() -> Dict[str, Any]:
         "target": int(snap.get("target") or 0),
         "played": int(snap.get("played") or 0),
         "elapsed_seconds": round(elapsed, 1),
+        # Background-job fields. The client polls these to learn when a
+        # background sim has finished (and to pick up its final state) instead
+        # of holding the sim request open past the proxy timeout.
+        "status": str(snap.get("status") or "idle"),
+        "run_id": int(snap.get("run_id") or 0),
+        "result": snap.get("result"),
+        "error": snap.get("error"),
     }
 
 
@@ -684,17 +829,27 @@ def _team_id_from_identity(identity: Dict[str, Any]) -> Optional[str]:
     return raw or None
 
 
+# All multi-day sims run as background jobs (see _launch_sim_background): the
+# endpoint returns immediately with {status:"running", run_id} and the client
+# polls /season/sim-progress for the final state. This keeps every sim request
+# well under the proxy/request timeout no matter how many days it spans.
+
+
+def _start_sim(kind: str, identity: Dict[str, Any], *, n_arg: int = 1) -> Dict[str, Any]:
+    if _sim_running():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A simulation is already in progress.",
+        )
+    run_id = _launch_sim_background(
+        kind, n_arg=n_arg, team_id=_team_id_from_identity(identity)
+    )
+    return {"status": "running", "run_id": run_id, "kind": kind}
+
+
 @router.post("/simulate/day")
 def simulate_day(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[str, Any]:
-    manager, simulator, draft_date = _build_manager_and_simulator()
-    result = _simulate_n(
-        manager,
-        simulator,
-        1,
-        draft_date=draft_date,
-        team_id=_team_id_from_identity(identity),
-    )
-    return _state_payload(manager, simulator, draft_date, extra=result)
+    return _start_sim("day", identity)
 
 
 @router.post("/simulate/days")
@@ -706,83 +861,31 @@ def simulate_days(
         n = int(payload.get("n", 1))
     except (TypeError, ValueError):
         n = 1
-    manager, simulator, draft_date = _build_manager_and_simulator()
-    result = _simulate_n(
-        manager,
-        simulator,
-        n,
-        draft_date=draft_date,
-        team_id=_team_id_from_identity(identity),
-    )
-    return _state_payload(manager, simulator, draft_date, extra=result)
+    return _start_sim("days", identity, n_arg=n)
 
 
 @router.post("/simulate/week")
 def simulate_week(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[str, Any]:
-    manager, simulator, draft_date = _build_manager_and_simulator()
-    result = _simulate_n(
-        manager,
-        simulator,
-        7,
-        draft_date=draft_date,
-        team_id=_team_id_from_identity(identity),
-    )
-    return _state_payload(manager, simulator, draft_date, extra=result)
+    return _start_sim("week", identity)
 
 
 @router.post("/simulate/month")
 def simulate_month(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[str, Any]:
-    manager, simulator, draft_date = _build_manager_and_simulator()
-    result = _simulate_n(
-        manager,
-        simulator,
-        30,
-        draft_date=draft_date,
-        team_id=_team_id_from_identity(identity),
-    )
-    return _state_payload(manager, simulator, draft_date, extra=result)
+    return _start_sim("month", identity)
 
 
 @router.post("/simulate/to-draft")
 def simulate_to_draft(
     identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
-    manager, simulator, draft_date = _build_manager_and_simulator()
-    if not draft_date:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Draft date is not available (empty schedule?).",
-        )
-    # Days until draft date, capped.
-    try:
-        idx = simulator.dates.index(draft_date)
-    except ValueError:
-        idx = len(simulator.dates)
-    n_days = max(0, idx - simulator._index)
-    result = _simulate_n(
-        manager,
-        simulator,
-        n_days,
-        draft_date=draft_date,
-        team_id=_team_id_from_identity(identity),
-    )
-    return _state_payload(manager, simulator, draft_date, extra=result)
+    return _start_sim("to-draft", identity)
 
 
 @router.post("/simulate/to-playoffs")
 def simulate_to_playoffs(
     identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
-    manager, simulator, draft_date = _build_manager_and_simulator()
-    n_days = max(0, len(simulator.dates) - simulator._index)
-    result = _simulate_n(
-        manager,
-        simulator,
-        n_days,
-        draft_date=draft_date,
-        team_id=_team_id_from_identity(identity),
-    )
-    return _state_payload(manager, simulator, draft_date, extra=result)
+    return _start_sim("to-playoffs", identity)
 
 
 @router.post("/advance-phase")

@@ -420,7 +420,7 @@ function OverallCell({ player }: { player: RosterPlayer }) {
     <div className="inline-flex flex-col items-end gap-0.5">
       <span className="font-semibold tabular-nums">{display}</span>
       {Number.isFinite(stars) && (
-        <StarRating stars={stars} size="xs" />
+        <StarRating value={stars} size="h-3.5 w-3.5" />
       )}
     </div>
   );

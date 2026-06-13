@@ -221,6 +221,21 @@ def create_app() -> FastAPI:
             )
 
     @app.on_event("startup")
+    def _assets_check() -> None:
+        # Confirm the avatar templates were bundled (they're recolored at runtime;
+        # if missing, avatar generation silently produces nothing). print() so it
+        # shows in Cloud Run logs (app-logger INFO is suppressed there).
+        try:
+            tmpl = path_utils.get_base_dir() / "images" / "avatars" / "Template"
+            n = len(list(tmpl.rglob("*.png"))) if tmpl.is_dir() else 0
+            print(
+                f"[assets] avatar templates dir={tmpl} exists={tmpl.is_dir()} png_count={n}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"[assets] template check failed: {exc}", flush=True)
+
+    @app.on_event("startup")
     def _working_copy_pull() -> None:
         if working_copy.is_enabled():
             try:

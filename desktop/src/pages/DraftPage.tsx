@@ -658,7 +658,7 @@ function DraftControlsPanel({
           </div>
         ) : (
           <div className="max-h-[520px] overflow-auto rounded-md border border-border">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-surface">
                 <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
                   <th className="w-8 px-2 py-2"></th>
@@ -770,7 +770,7 @@ function DraftControlsPanel({
                   );
                 })}
               </tbody>
-            </table>
+            </table></div>
           </div>
         )}
 
@@ -954,7 +954,7 @@ function PicksTable({
   teamById: Map<string, Team>;
 }) {
   return (
-    <table className="w-full text-sm">
+    <div className="overflow-x-auto"><table className="w-full text-sm">
       <thead>
         <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
           <th className="px-6 py-2 text-left font-semibold">Pick</th>
@@ -1039,7 +1039,7 @@ function PicksTable({
           );
         })}
       </tbody>
-    </table>
+    </table></div>
   );
 }
 

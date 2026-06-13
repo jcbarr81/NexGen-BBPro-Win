@@ -42,6 +42,8 @@ export function TeamLogo({
   const [loaded, setLoaded] = useState(false);
   const token = useAuthStore((s) => s.token);
   const activeLeagueId = useAuthStore((s) => s.activeLeagueId);
+  // Re-fetch once the Firebase user is available (cold-load race — see PlayerAvatar).
+  const uid = useAuthStore((s) => s.uid);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,16 +88,22 @@ export function TeamLogo({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [teamId, token, version, activeLeagueId]);
+  }, [teamId, token, version, activeLeagueId, uid]);
 
   if (imgUrl) {
+    // Wrap + zoom-to-fill so the mascot fills the box everywhere the logo is
+    // shown: the generated PNG has a baked-in margin around the artwork, which
+    // otherwise makes logos look tiny in their container. ``className`` carries
+    // the size/rounding; ``overflow-hidden`` clips the zoomed image.
     return (
-      <img
-        src={imgUrl}
-        alt={`${abbreviation} logo`}
-        className={cn("object-contain", className)}
-        loading="lazy"
-      />
+      <div className={cn("overflow-hidden", className)}>
+        <img
+          src={imgUrl}
+          alt={`${abbreviation} logo`}
+          className="h-full w-full scale-[1.2] object-cover"
+          loading="lazy"
+        />
+      </div>
     );
   }
 

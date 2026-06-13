@@ -283,6 +283,73 @@ def _write_default_lineups(base_dir: Path, team_ids: Iterable[str]) -> None:
         _write_lineup(lineup_dir / f"{team_id}_vs_lhp.csv", list(state.lineup))
 
 
+def _assert_rosters_compliant(
+    generated_rosters: Dict[str, Roster],
+    all_players: List[dict],
+) -> None:
+    """Guarantee every freshly generated roster passes the same rule check the
+    season-sim gate enforces (``services.roster_validation.validate_roster_state``).
+
+    This is a belt-and-suspenders guard: ACT is built with full positional
+    coverage and LOW is generated young (18–21, well under the LOW age limit),
+    so this should never trip in practice. But it means a regression in the
+    generator — or a future change to the age/cap rules — fails league creation
+    loudly instead of silently shipping a league whose teams can't advance the
+    calendar (the exact symptom that blocked the sim). Age is computed against
+    the real calendar date to match how the validator reads players.csv.
+    """
+
+    from datetime import date as _date
+
+    from services.roster_validation import (
+        DEFAULT_LEVEL_CAPS,
+        validate_roster_state,
+    )
+
+    today = _date.today()
+
+    def _age(birthdate: object) -> int | None:
+        try:
+            born = _date.fromisoformat(str(birthdate)[:10])
+        except (TypeError, ValueError):
+            return None
+        return today.year - born.year - (
+            (today.month, today.day) < (born.month, born.day)
+        )
+
+    players_map: Dict[str, dict] = {}
+    for p in all_players:
+        pid = p.get("player_id")
+        if not pid:
+            continue
+        players_map[pid] = {
+            "player_id": pid,
+            "primary_position": p.get("primary_position", ""),
+            "other_positions": p.get("other_positions", ""),
+            "is_pitcher": bool(p.get("is_pitcher")),
+            "age": _age(p.get("birthdate")),
+        }
+
+    problems: List[str] = []
+    for team_id, roster in generated_rosters.items():
+        result = validate_roster_state(
+            current_levels={
+                "act": list(roster.act),
+                "aaa": list(roster.aaa),
+                "low": list(roster.low),
+            },
+            players=players_map,
+            level_caps=DEFAULT_LEVEL_CAPS,
+        )
+        if not result.ok:
+            problems.append(f"{team_id}: " + "; ".join(result.errors))
+
+    if problems:
+        raise ValueError(
+            "Generated rosters are not rule-compliant: " + " | ".join(problems)
+        )
+
+
 def _initialize_league_state(base_dir: Path) -> None:
     """Reset season persistence files to empty defaults."""
 
@@ -455,6 +522,9 @@ def create_league(
             act_players = generate_roster(11, 14, (21, 38), ensure_positions=True, closers=1)
             _ensure_act_positions(act_players)
             aaa_players = generate_roster(7, 8, (21, 38), closers=1)
+            # LOW is for young prospects only — keep the age range comfortably
+            # under services.roster_validation.LOW_LEVEL_MAX_AGE (currently 27,
+            # i.e. a 26 limit) so generated LOW rosters are always compliant.
             low_players = generate_roster(5, 5, (18, 21), closers=1)
 
             roster_levels = {"ACT": act_players, "AAA": aaa_players, "LOW": low_players}
@@ -522,6 +592,9 @@ def create_league(
     _initialize_league_state(base_dir)
 
     _report_progress("Validating")
+    # Fail loudly if any team was generated out of compliance, rather than
+    # shipping a league whose teams can't advance the calendar.
+    _assert_rosters_compliant(generated_rosters, all_players)
     with open(teams_path, "w", newline="") as f:
         fieldnames = [
             "team_id","name","city","abbreviation","division","stadium","primary_color","secondary_color","owner_id"

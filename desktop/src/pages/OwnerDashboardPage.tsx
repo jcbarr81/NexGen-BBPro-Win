@@ -409,12 +409,12 @@ function TeamHeroCard({ team, snapshot, isLoading }: HeroProps) {
               abbreviation={team.abbreviation}
               primaryColor={team.primary_color}
               secondaryColor={team.secondary_color}
-              className="h-20 w-20 shrink-0 rounded-2xl text-3xl shadow-panel"
+              className="h-40 w-40 shrink-0 rounded-2xl text-5xl shadow-panel"
               version={logoVersion}
             />
           ) : (
             <div
-              className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-border font-display text-3xl font-bold text-ink shadow-panel"
+              className="flex h-40 w-40 shrink-0 items-center justify-center rounded-2xl border border-border font-display text-5xl font-bold text-ink shadow-panel"
               style={{
                 backgroundColor: "hsl(var(--surface-alt))",
                 color: "hsl(var(--ink))",
@@ -529,7 +529,7 @@ function DivisionStandingsCard({
             Division data not available yet.
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
                 <th className="px-6 py-2 text-left font-semibold">Team</th>
@@ -580,7 +580,7 @@ function DivisionStandingsCard({
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
         )}
       </CardContent>
     </Card>

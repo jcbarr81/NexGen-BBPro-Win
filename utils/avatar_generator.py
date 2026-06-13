@@ -219,30 +219,41 @@ def generate_player_avatars(
     out_dir: str | None = None,
     progress_callback=None,
     initial_creation: bool = False,
+    engine: str = "template",
+    status_callback=None,
 ) -> str:
-    """Generate avatars for all players using template images.
+    """Generate avatars for all players.
 
-    The function selects the correct template based on a player's ethnicity and
-    facial hair and recolors the hat, jersey, and hair to match team and player
-    attributes.
+    Two engines:
+      * ``"template"`` — recolor a bundled face template (free, instant, exact
+        team colors, but only 16 base faces so same-ethnicity players repeat).
+      * ``"ai"`` — a UNIQUE AI portrait per player (Vertex AI Imagen / OpenAI)
+        from their ethnicity/skin/hair/facial-hair + team colors. Paced + billed
+        per image, so it's incremental: with ``initial_creation=False`` it only
+        generates players missing an avatar (reused forever once made).
 
     Parameters
     ----------
-    out_dir:
-        Directory where avatar images will be written.
-    progress_callback:
-        Optional callable to receive progress updates as ``(done, total)``.
-    initial_creation:
-        When ``True`` all existing player avatars in ``out_dir`` are deleted
-        before generation (the ``Template`` folder is preserved).  When
-        ``False`` avatars are only generated for players missing an image.
+    out_dir / progress_callback / initial_creation:
+        As before; ``initial_creation=True`` wipes existing avatars first.
+    engine:
+        ``"template"`` (default) or ``"ai"``.
+    status_callback:
+        Optional callable invoked with the engine actually used.
     """
 
     from utils.player_loader import load_players_from_csv
     from utils.roster_loader import load_roster
     from utils.path_utils import get_data_dir
 
-    import cv2
+    use_ai = str(engine).strip().lower() == "ai"
+    if not use_ai:
+        import cv2  # only the template engine needs OpenCV
+    if status_callback:
+        try:
+            status_callback("ai" if use_ai else "template")
+        except Exception:
+            pass
 
     players = {
         p.player_id: p for p in load_players_from_csv("data/players.csv")
@@ -299,13 +310,49 @@ def generate_player_avatars(
         ethnicity = player.ethnicity or _infer_ethnicity(
             f"{player.first_name} {player.last_name}"
         )
-        template = _select_template(ethnicity, player.facial_hair)
-        img = cv2.imread(str(template), cv2.IMREAD_UNCHANGED)
-        if img is None:
+        colors = _team_colors(team_id)
+
+        if use_ai:
+            # Unique AI portrait from the player's own traits + team colors.
+            try:
+                prompt = _build_avatar_prompt(
+                    f"{player.first_name} {player.last_name}",
+                    ethnicity,
+                    getattr(player, "skin_tone", None),
+                    player.hair_color,
+                    player.facial_hair,
+                    colors,
+                )
+                img_bytes = _ai_avatar_bytes(prompt, size=512)
+                if not _PIL_AVAILABLE:
+                    raise RuntimeError("Pillow (PIL) is required to save avatars")
+                with Image.open(BytesIO(img_bytes)) as im:
+                    if im.size != (512, 512):
+                        im = im.resize((512, 512))
+                    out_file.parent.mkdir(parents=True, exist_ok=True)
+                    im.save(out_file, format="PNG")
+            except Exception as exc:
+                import logging as _logging
+
+                _logging.getLogger("nexgen.avatars").warning(
+                    "AI avatar failed for player %s: %s", pid, exc
+                )
             _report_progress(idx)
             continue
 
-        colors = _team_colors(team_id)
+        # Template engine: recolor a bundled face template to team/player colors.
+        template = _select_template(ethnicity, player.facial_hair)
+        img = cv2.imread(str(template), cv2.IMREAD_UNCHANGED)
+        if img is None:
+            import logging as _logging
+
+            _logging.getLogger("nexgen.avatars").warning(
+                "avatar template missing/unreadable: %s (player %s) — skipping",
+                template, pid,
+            )
+            _report_progress(idx)
+            continue
+
         img = _recolor_by_hex(img, _HAT_HEX, colors["primary"])
         img = _recolor_by_hex(img, _JERSEY_HEX, colors["secondary"])
 
@@ -320,6 +367,57 @@ def generate_player_avatars(
         _report_progress(idx)
 
     return str(out_path)
+
+
+def regenerate_one_avatar(player_id: str, out_dir: str | None = None) -> str:
+    """Regenerate a SINGLE player's avatar via the AI engine (Vertex/OpenAI).
+
+    Used by the per-player "regenerate avatar" action so admins can spot-check
+    the look/colors cheaply. Returns the written file path. Raises ValueError if
+    the player isn't found or isn't on a roster.
+    """
+    from utils.player_loader import load_players_from_csv
+    from utils.roster_loader import load_roster
+    from utils.path_utils import get_data_dir
+
+    players = {p.player_id: p for p in load_players_from_csv("data/players.csv")}
+    player = players.get(player_id)
+    if not player:
+        raise ValueError(f"Unknown player {player_id!r}")
+
+    # Find the player's team by scanning rosters (same as the bulk generator).
+    team_id = None
+    for tid in _load_team_color_map():
+        roster = load_roster(tid)
+        if player_id in (roster.act + roster.aaa + roster.low + roster.dl + roster.ir):
+            team_id = tid
+            break
+    if team_id is None:
+        raise ValueError(f"Player {player_id!r} is not on any roster")
+
+    colors = _team_colors(team_id)
+    ethnicity = player.ethnicity or _infer_ethnicity(
+        f"{player.first_name} {player.last_name}"
+    )
+    prompt = _build_avatar_prompt(
+        f"{player.first_name} {player.last_name}",
+        ethnicity,
+        getattr(player, "skin_tone", None),
+        player.hair_color,
+        player.facial_hair,
+        colors,
+    )
+    img_bytes = _ai_avatar_bytes(prompt, size=512)
+    if not _PIL_AVAILABLE:
+        raise RuntimeError("Pillow (PIL) is required to save avatars")
+    out_path = Path(out_dir) if out_dir else get_data_dir() / "images" / "avatars"
+    out_path.mkdir(parents=True, exist_ok=True)
+    out_file = out_path / f"{player_id}.png"
+    with Image.open(BytesIO(img_bytes)) as im:
+        if im.size != (512, 512):
+            im = im.resize((512, 512))
+        im.save(out_file, format="PNG")
+    return str(out_file)
 
 
 _TEAM_COLOR_MAP: Dict[str, Dict[str, str]] = {}
@@ -408,6 +506,113 @@ def _infer_ethnicity(name: str) -> str:
 def _team_colors(team_id: str) -> Dict[str, str]:
     return _load_team_color_map().get(
         team_id, {"primary": "#000000", "secondary": "#ffffff"}
+    )
+
+
+# Saturated hue anchors (name -> representative hue in degrees) for translating
+# team hex into words the image model actually understands. NEUTRAL/dark colors
+# are handled separately by lightness (below) — a raw nearest-RGB match wrongly
+# maps near-black like #282A28 to "forest green".
+_HUE_ANCHORS = [
+    (0, "red"), (15, "orange"), (32, "burnt orange"), (45, "gold"),
+    (55, "yellow"), (90, "green"), (140, "green"), (165, "teal"),
+    (185, "cyan"), (205, "sky blue"), (220, "blue"), (240, "royal blue"),
+    (270, "purple"), (290, "violet"), (320, "magenta"), (340, "pink"), (360, "red"),
+]
+
+
+def _hex_to_rgb_triplet(hex_str: str) -> Tuple[int, int, int] | None:
+    h = (hex_str or "").strip().lstrip("#")
+    if len(h) != 6:
+        return None
+    try:
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    except ValueError:
+        return None
+
+
+def _hex_to_color_name(hex_str: str) -> str:
+    """Descriptive color name for a hex value, for AI prompts. Uses HSV so dark
+    and low-saturation colors map to black/gray/white instead of a random hue."""
+    import colorsys
+
+    rgb = _hex_to_rgb_triplet(hex_str)
+    if rgb is None:
+        return str(hex_str)
+    h, s, v = colorsys.rgb_to_hsv(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
+
+    # Near-black and neutral (low-saturation) colors → lightness-based names.
+    if v < 0.20:
+        return "black"
+    if s < 0.18:
+        if v < 0.32:
+            return "charcoal"
+        if v < 0.62:
+            return "gray"
+        if v < 0.86:
+            return "silver"
+        return "white"
+
+    # Saturated → pick the nearest hue anchor, then darken/soften by value.
+    deg = h * 360
+    name = min(_HUE_ANCHORS, key=lambda a: abs(a[0] - deg))[1]
+    if v < 0.45:  # dark saturated variants read better with these names
+        name = {
+            "red": "maroon", "blue": "navy blue", "royal blue": "navy blue",
+            "green": "forest green", "orange": "brown", "burnt orange": "brown",
+        }.get(name, name)
+    return name
+
+
+def _build_avatar_prompt(
+    name: str,
+    ethnicity: str,
+    skin_tone: str | None,
+    hair_color: str | None,
+    facial_hair: str | None,
+    colors: dict,
+) -> str:
+    """Rich per-player prompt for the AI avatar engine — unique faces driven by
+    the player's own ethnicity/skin/hair/facial-hair, plus team colors (as NAMES
+    so the model reproduces them accurately, with cap vs jersey made explicit)."""
+    tone_part = f"{skin_tone}-skinned " if skin_tone else ""
+    trait_bits = []
+    if hair_color:
+        trait_bits.append(f"{hair_color} hair")
+    fh = (facial_hair or "").strip().lower()
+    if fh and fh not in {"clean", "none", "shaven", "clean-shaven"}:
+        trait_bits.append(f"a {facial_hair}")
+    traits = (" with " + " and ".join(trait_bits)) if trait_bits else ""
+    descriptor = f"{tone_part}{ethnicity} baseball player".strip()
+    cap_color = _hex_to_color_name(colors.get("primary", ""))
+    jersey_color = _hex_to_color_name(colors.get("secondary", ""))
+    return (
+        f"Cartoon head-and-shoulders portrait of {name}, a {descriptor}{traits}, "
+        f"wearing a solid {cap_color} baseball cap and a solid {jersey_color} "
+        "jersey. The cap has no logo or letters and the jersey has no names, "
+        "letters, or numbers. No text overlays. Off-white background, friendly "
+        "expression, consistent clean illustrated style."
+    )
+
+
+def _ai_avatar_bytes(prompt: str, size: int) -> bytes:
+    """Generate a unique avatar PNG via the best available AI engine: Vertex AI
+    Imagen (cloud, no key) preferred, else OpenAI gpt-image-1 (local)."""
+    try:
+        from utils import vertex_image
+
+        if vertex_image.is_available():
+            return vertex_image.generate_png(prompt, size=size)
+    except Exception:
+        pass
+    if client is not None:
+        api_size = 1024 if size <= 512 else size
+        result = client.images.generate(
+            model="gpt-image-1", prompt=prompt, size=f"{api_size}x{api_size}"
+        )
+        return base64.b64decode(result.data[0].b64_json)
+    raise RuntimeError(
+        "No AI image engine is configured (Vertex AI Imagen or an OpenAI key)."
     )
 
 
