@@ -40,6 +40,14 @@ import { isCloud } from "@/lib/cloud-auth";
 import { toast } from "@/lib/toast-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
+import {
+  ReorderableCards,
+  type CardItem,
+} from "@/components/layout/ReorderableCards";
+import {
+  useLayoutEditStore,
+  useRegisterLayoutPage,
+} from "@/lib/layout-edit-store";
 import { StatCard } from "@/components/StatCard";
 import { TeamLogo } from "@/components/TeamLogo";
 import { useTeamAccent } from "@/lib/team-colors";
@@ -100,6 +108,10 @@ export function OwnerDashboardPage() {
     enabled: !!activeTeamId,
   });
 
+  // Reorderable layout: register this page so the Header shows "Edit layout".
+  useRegisterLayoutPage("owner-dashboard");
+  const editingLayout = useLayoutEditStore((s) => s.editing);
+
   // Cloud commissioner with no team claimed yet → let them pick one (or choose
   // to keep running the league with no team).
   if (cloudUnassigned && !selectedTeamId) {
@@ -139,6 +151,88 @@ export function OwnerDashboardPage() {
 
   const browsingAsCommissioner = cloudUnassigned && !!selectedTeamId;
 
+  // The dashboard's reorderable cards as an ordered list of stable ids. Each
+  // multi-column row stays one full-width block (reorder the row, not the cards
+  // within it). The conditional team-switcher is only pushed when shown;
+  // useCardLayout keeps its saved slot for when it reappears.
+  const dashboardItems: CardItem[] = [
+    {
+      id: "hero",
+      label: "Team header",
+      node: (
+        <TeamHeroCard
+          team={team.data}
+          snapshot={snapshot.data}
+          isLoading={team.isLoading || snapshot.isLoading}
+        />
+      ),
+    },
+    {
+      id: "stats",
+      label: "Key metrics",
+      node: <DashboardStats team={team.data} snapshot={snapshot.data} />,
+    },
+    {
+      id: "standings-actions",
+      label: "Standings & quick actions",
+      node: (
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+          <div className="lg:col-span-3">
+            <DivisionStandingsCard
+              division={division.data?.division}
+              rows={division.data?.teams}
+              isLoading={division.isLoading}
+              isError={division.isError}
+              error={division.error}
+              activeTeamId={activeTeamId}
+              activeTeamColor={team.data?.primary_color}
+              onTeamClick={(id) => setSelectedTeam(id)}
+            />
+          </div>
+          <div className="lg:col-span-2">
+            <QuickActionsCard onNavigate={(to) => navigate(to)} />
+          </div>
+        </section>
+      ),
+    },
+    {
+      id: "bullpen-matchup",
+      label: "Bullpen & matchup",
+      node: (
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <BullpenCard bullpen={widgets.data?.bullpen} />
+          <MatchupCard matchup={widgets.data?.matchup} />
+        </section>
+      ),
+    },
+    {
+      id: "performers-leaders",
+      label: "Performers & leaders",
+      node: (
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <PerformersCard performers={widgets.data?.performers} />
+          <LeadersCard
+            batting={widgets.data?.batting_leaders ?? []}
+            pitching={widgets.data?.pitching_leaders ?? []}
+          />
+        </section>
+      ),
+    },
+  ];
+  if (teams.data && teams.data.length > 1 && !user.teamId) {
+    dashboardItems.push({
+      id: "team-switcher",
+      label: "Team context",
+      node: (
+        <TeamSwitcher
+          teams={teams.data}
+          activeTeamId={activeTeamId}
+          onPick={setSelectedTeam}
+        />
+      ),
+    });
+  }
+
   return (
     <AppShell
       title={
@@ -176,57 +270,13 @@ export function OwnerDashboardPage() {
             </CardContent>
           </Card>
         )}
-        <TeamHeroCard
-          team={team.data}
-          snapshot={snapshot.data}
-          isLoading={team.isLoading || snapshot.isLoading}
+        <ReorderableCards
+          pageKey="owner-dashboard"
+          variant="vertical"
+          className="space-y-6"
+          editing={editingLayout}
+          items={dashboardItems}
         />
-
-        <DashboardStats
-          team={team.data}
-          snapshot={snapshot.data}
-        />
-
-        <section className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-          <div className="lg:col-span-3">
-            <DivisionStandingsCard
-              division={division.data?.division}
-              rows={division.data?.teams}
-              isLoading={division.isLoading}
-              isError={division.isError}
-              error={division.error}
-              activeTeamId={activeTeamId}
-              activeTeamColor={team.data?.primary_color}
-              onTeamClick={(id) => {
-                setSelectedTeam(id);
-              }}
-            />
-          </div>
-          <div className="lg:col-span-2">
-            <QuickActionsCard onNavigate={(to) => navigate(to)} />
-          </div>
-        </section>
-
-        <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <BullpenCard bullpen={widgets.data?.bullpen} />
-          <MatchupCard matchup={widgets.data?.matchup} />
-        </section>
-
-        <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <PerformersCard performers={widgets.data?.performers} />
-          <LeadersCard
-            batting={widgets.data?.batting_leaders ?? []}
-            pitching={widgets.data?.pitching_leaders ?? []}
-          />
-        </section>
-
-        {teams.data && teams.data.length > 1 && !user.teamId && (
-          <TeamSwitcher
-            teams={teams.data}
-            activeTeamId={activeTeamId}
-            onPick={setSelectedTeam}
-          />
-        )}
       </div>
     </AppShell>
   );

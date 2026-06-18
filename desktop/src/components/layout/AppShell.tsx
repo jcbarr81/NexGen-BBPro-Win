@@ -6,6 +6,7 @@ import { Header } from "./Header";
 import { StatusRibbon } from "./StatusRibbon";
 import { useHotkey } from "@/lib/use-hotkey";
 import { recordNavigation } from "@/lib/nav-history";
+import { useLayoutEditStore } from "@/lib/layout-edit-store";
 
 interface AppShellProps {
   title?: string;
@@ -40,6 +41,8 @@ export function AppShell({
   useEffect(() => {
     recordNavigation(location.pathname);
     setDrawerOpen(false);
+    // Leave layout-edit mode whenever the route changes.
+    useLayoutEditStore.getState().setEditing(false);
   }, [location.pathname]);
   // Alt+/ opens Help from anywhere signed-in. Alt-slash is untaken by
   // Chrome/Electron and matches the "type / to search" convention elsewhere.

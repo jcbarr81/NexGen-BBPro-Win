@@ -82,21 +82,35 @@ def team_division_standings(team_id: str) -> Dict[str, Any]:
 
     metrics = _safe_metrics(team_id)
     division = metrics.get("division_standings") or {"division": "--", "teams": []}
+    # quick_metrics derives standings from cumulative W/L only, so streak/last10
+    # come through as "--". Reconstruct them from the played schedule so the
+    # dashboard widget matches the full standings page.
+    from services.standings_form import streak_last10_from_schedule
+
+    sched_form = streak_last10_from_schedule()
     rows: List[Dict[str, Any]] = []
     for row in division.get("teams", []) or []:
         if not isinstance(row, dict):
             continue
+        tid = row.get("team_id", "")
+        streak = str(row.get("streak", "--"))
+        last10 = str(row.get("last10", "--"))
+        form = sched_form.get(tid, {})
+        if streak == "--":
+            streak = form.get("streak", "--")
+        if last10 == "--":
+            last10 = form.get("last10", "--")
         rows.append(
             {
-                "team_id": row.get("team_id", ""),
+                "team_id": tid,
                 "label": row.get("label") or row.get("name") or row.get("team_id", ""),
                 "name": row.get("name") or row.get("label") or row.get("team_id", ""),
                 "wins": int(row.get("wins", 0) or 0),
                 "losses": int(row.get("losses", 0) or 0),
                 "pct": float(row.get("pct", 0.0) or 0.0),
                 "gb": str(row.get("gb", "0")),
-                "streak": str(row.get("streak", "--")),
-                "last10": str(row.get("last10", "--")),
+                "streak": streak,
+                "last10": last10,
                 "is_current": bool(row.get("is_current", False)),
             }
         )

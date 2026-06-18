@@ -400,6 +400,11 @@ def commit_single_pick(
 
     ok, note, _ = _assign_to_low(team_id, player_id)
 
+    # Drafted players get their avatar from a single background AI job kicked off
+    # when the draft completes (see api.routers.draft), so the whole league stays
+    # in one consistent AI style — no per-pick template avatars (which looked
+    # nothing like the AI portraits).
+
     player_name = _prospect_name(pool_row, players_index, player_id)
     detail = f"Drafted in {year} Amateur Draft"
     if not ok:

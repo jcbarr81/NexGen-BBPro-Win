@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import csv
+import functools
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +10,18 @@ from typing import Dict, Iterable, Optional
 
 from utils.path_utils import get_base_dir, get_data_dir, get_data_root
 from playbalance.field_geometry import Stadium
+
+
+def _file_token(path: Path) -> tuple[str, int, int]:
+    """A (path, mtime_ns, size) cache key — lets the park loaders below memoize
+    their CSV parse and re-read only when the file actually changes. Park data
+    is static during a sim, so this turns repeated per-game parses (which the
+    profiler showed were ~25% of a game's wall time) into one parse per file."""
+    try:
+        st = path.stat()
+        return (str(path), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return (str(path), 0, 0)
 
 
 @dataclass(frozen=True)
@@ -76,9 +89,19 @@ def _parse_float(v: str) -> Optional[float]:
 
 
 def _load_parks_master() -> tuple[dict[str, float], dict[str, float]]:
+    path = _parks_master_path()
+    if not path.exists():
+        return {}, {}
+    return _load_parks_master_cached(_file_token(path))
+
+
+@functools.lru_cache(maxsize=32)
+def _load_parks_master_cached(
+    token: tuple[str, int, int],
+) -> tuple[dict[str, float], dict[str, float]]:
     alt_by_id: dict[str, float] = {}
     alt_by_name: dict[str, float] = {}
-    path = _parks_master_path()
+    path = Path(token[0])
     if not path.exists():
         return alt_by_id, alt_by_name
     with path.open("r", newline="", encoding="utf-8") as fh:
@@ -98,9 +121,16 @@ def _load_parks_master() -> tuple[dict[str, float], dict[str, float]]:
 
 def _load_latest_parks() -> Dict[str, ParkInfo]:
     """Return a mapping of normalized park name -> ParkInfo (latest year)."""
-
-    latest: Dict[str, ParkInfo] = {}
     path = _park_config_path()
+    if not path.exists():
+        return {}
+    return _load_latest_parks_cached(_file_token(path))
+
+
+@functools.lru_cache(maxsize=32)
+def _load_latest_parks_cached(token: tuple[str, int, int]) -> Dict[str, ParkInfo]:
+    latest: Dict[str, ParkInfo] = {}
+    path = Path(token[0])
     if not path.exists():
         return latest
     with path.open("r", newline="", encoding="utf-8") as fh:
@@ -240,6 +270,34 @@ def park_foul_territory_for_name(name: str) -> float:
     return 1.0
 
 
+@functools.lru_cache(maxsize=32)
+def _load_park_factor_rows_cached(
+    token: tuple[str, int, int],
+) -> tuple[tuple[str, float], ...]:
+    """Parse ParkFactors.csv into ordered (norm_venue, factor_value) rows, cached
+    by file token. Preserves file order so park_factor_for_name's last-match-wins
+    behavior is byte-identical."""
+    rows: list[tuple[str, float]] = []
+    path = Path(token[0])
+    if not path.exists():
+        return tuple()
+    try:
+        with path.open("r", newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                venue = (row.get("Venue") or "").strip()
+                if not venue:
+                    continue
+                raw = (row.get("Park Factor") or "").replace(",", "").strip()
+                try:
+                    val = float(raw)
+                except ValueError:
+                    continue
+                rows.append((_norm(venue), val))
+    except Exception:
+        return tuple()
+    return tuple(rows)
+
+
 def park_factor_for_name(name: str) -> float:
     """Return overall park factor (1.0 = neutral) for a venue name.
 
@@ -252,30 +310,15 @@ def park_factor_for_name(name: str) -> float:
     path = _park_factors_path()
     if not path.exists():
         return 1.0
-    try:
-        with path.open("r", newline="", encoding="utf-8") as fh:
-            reader = csv.DictReader(fh)
-            best_val: Optional[float] = None
-            for row in reader:
-                venue = (row.get("Venue") or "").strip()
-                if not venue:
-                    continue
-                key = _norm(venue)
-                match = key == target or target in key or key in target
-                if not match:
-                    continue
-                raw = (row.get("Park Factor") or "").replace(",", "").strip()
-                try:
-                    val = float(raw)
-                except ValueError:
-                    continue
-                # If multiple rows match (e.g., overlapping year ranges), prefer the last one encountered
-                best_val = val
-            if best_val is None:
-                return 1.0
-            return best_val / 100.0
-    except Exception:
+    best_val: Optional[float] = None
+    for key, val in _load_park_factor_rows_cached(_file_token(path)):
+        # Exact OR substring match; last matching row wins (matches the prior
+        # single-pass loop over the CSV exactly).
+        if key == target or target in key or key in target:
+            best_val = val
+    if best_val is None:
         return 1.0
+    return best_val / 100.0
 
 
 __all__ = [

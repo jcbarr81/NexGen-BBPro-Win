@@ -1,0 +1,112 @@
+{
+  "metadata": {
+    "name": "Auto-generated fallback",
+    "source": "services.injury_simulator",
+    "description": "Generated when data/injury_catalog.json is missing so that the season simulator can continue to run with a small injury set."
+  },
+  "triggers": {
+    "collision": {
+      "base_probability": 0.12,
+      "modifiers": {
+        "durability_factor": -0.35
+      },
+      "severities": [
+        "minor",
+        "moderate"
+      ]
+    },
+    "hit_by_pitch": {
+      "base_probability": 0.08,
+      "modifiers": {
+        "durability_factor": -0.25
+      },
+      "severities": [
+        "minor"
+      ]
+    },
+    "pitcher_overuse": {
+      "base_probability": 0.18,
+      "modifiers": {
+        "fatigue_factor": 0.45
+      },
+      "severities": [
+        "moderate",
+        "major"
+      ]
+    }
+  },
+  "injuries": [
+    {
+      "id": "fallback_bruise",
+      "name": "Bruised Shoulder",
+      "body_part": "shoulder",
+      "eligible_triggers": [
+        "collision",
+        "hit_by_pitch"
+      ],
+      "severity_profiles": {
+        "minor": {
+          "min_days": 1,
+          "max_days": 3,
+          "dl_tier": "none",
+          "description": "Day-to-day shoulder bruise",
+          "attributes_penalty": {
+            "pow": -2,
+            "con": -1
+          }
+        }
+      }
+    },
+    {
+      "id": "fallback_oblique",
+      "name": "Strained Oblique",
+      "body_part": "core",
+      "eligible_triggers": [
+        "collision"
+      ],
+      "severity_profiles": {
+        "moderate": {
+          "min_days": 7,
+          "max_days": 12,
+          "dl_tier": "dl15",
+          "description": "Moderate oblique strain",
+          "attributes_penalty": {
+            "spd": -3,
+            "con": -2
+          }
+        }
+      }
+    },
+    {
+      "id": "fallback_elbow",
+      "name": "Elbow Tendinitis",
+      "body_part": "elbow",
+      "eligible_triggers": [
+        "pitcher_overuse"
+      ],
+      "pitcher_only": true,
+      "severity_profiles": {
+        "moderate": {
+          "min_days": 10,
+          "max_days": 18,
+          "dl_tier": "dl15",
+          "description": "Tendinitis flare-up",
+          "attributes_penalty": {
+            "vel": -3,
+            "ctrl": -2
+          }
+        },
+        "major": {
+          "min_days": 30,
+          "max_days": 45,
+          "dl_tier": "ir",
+          "description": "Severe tendinitis",
+          "attributes_penalty": {
+            "vel": -5,
+            "sta": -4
+          }
+        }
+      }
+    }
+  ]
+}

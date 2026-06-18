@@ -27,6 +27,9 @@ export interface AuthState {
   /** Incrementing version number used to invalidate cached team-logo blobs
    *  after a bulk regenerate. Bumped from the Utilities page. */
   logoVersion: number;
+  /** App/API version string (from the health probe) shown in the sidebar
+   *  footer. Null until the splash gate's health check resolves. */
+  appVersion: string | null;
   /** Previous session captured by ``elevateSession`` — populated when the
    *  owner clicks "Sign in as admin" on the Utilities page (or any other
    *  in-place elevation entry point). The header banner uses this to
@@ -49,6 +52,7 @@ export interface AuthState {
    *  ``selectedTeamId`` so team-scoped pages render the right team (or none). */
   setLeagueIdentity: (role: string | null, teamId: string | null) => void;
   bumpLogoVersion: () => void;
+  setAppVersion: (version: string | null) => void;
   /** Set/clear the Firebase account profile (cloud multi-tenant). */
   setFirebaseAccount: (
     account: {
@@ -75,6 +79,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   activeLeagueId: null,
   selectedTeamId: null,
   logoVersion: 0,
+  appVersion: null,
   previousSession: null,
 
   setSession: (session) =>
@@ -140,6 +145,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setLeagueIdentity: (role, teamId) =>
     set({ role, teamId, selectedTeamId: teamId || null }),
   bumpLogoVersion: () => set((s) => ({ logoVersion: s.logoVersion + 1 })),
+  setAppVersion: (version) => set({ appVersion: version }),
   setFirebaseAccount: (account) =>
     set(
       account

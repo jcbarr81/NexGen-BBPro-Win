@@ -92,15 +92,18 @@ class SeasonSimulator:
         self._draft_triggered: bool = False
         self.on_draft_day = on_draft_day
 
+        # Midpoint of the actual game schedule — the All-Star break anchor.
+        # Compute it BEFORE inserting the draft date so a mid-July draft day
+        # (an off-day with no games) can't nudge the break off the true
+        # midseason point.
+        self._mid = len(self.dates) // 2
+
         # Ensure Draft Day exists in the date sequence even if no games are scheduled
         # that day (e.g., an off day). This guarantees the simulator pauses to run the
         # draft rather than skipping past it when advancing to the next scheduled date.
         if self.draft_date and self.draft_date not in self.dates:
             self.dates.append(self.draft_date)
             self.dates.sort()
-
-        # Compute midpoint after potential draft insertion
-        self._mid = len(self.dates) // 2
 
         self._seed_positional = False
         self._seed_keyword = False
@@ -180,7 +183,10 @@ class SeasonSimulator:
                 except DraftRosterError:
                     raise
                 except Exception:
-                    self._draft_triggered = True
+                    # Don't mark the draft "triggered" on an unexpected crash —
+                    # doing so would skip the draft entirely on the retry,
+                    # leaving the league with no picks. Re-raise so the failure
+                    # surfaces and the next attempt re-runs the draft.
                     raise
                 else:
                     self._draft_triggered = True

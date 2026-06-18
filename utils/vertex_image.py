@@ -34,11 +34,12 @@ _MODEL = os.environ.get("NEXGEN_VERTEX_IMAGE_MODEL", "imagen-4.0-fast-generate-0
 _LOCATION = os.environ.get("NEXGEN_VERTEX_LOCATION", "us-central1")
 _SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 
-# Pace requests to stay under the per-minute quota (20/min ≈ 1 per 3s; use a bit
-# more headroom) and retry on 429 with exponential backoff. The logo/avatar jobs
-# call this sequentially from one worker thread, so a simple lock + timestamp is
-# enough.
-_MIN_INTERVAL_S = float(os.environ.get("NEXGEN_VERTEX_MIN_INTERVAL", "3.5"))
+# Pace requests to stay under the per-minute quota (20/min ≈ 1 per 3s) with a
+# small safety margin, and retry on 429 with exponential backoff. The avatar job
+# now calls this from several worker threads at once; ``_throttle`` releases the
+# lock before the network call, so this paces request *starts* (keeping us under
+# quota) while in-flight responses overlap across threads.
+_MIN_INTERVAL_S = float(os.environ.get("NEXGEN_VERTEX_MIN_INTERVAL", "3.1"))
 _MAX_RETRIES = int(os.environ.get("NEXGEN_VERTEX_MAX_RETRIES", "5"))
 _pace_lock = threading.Lock()
 _last_call_ts = 0.0

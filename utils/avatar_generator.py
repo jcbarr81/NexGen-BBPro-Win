@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import base64
 import csv
+import logging
+import os
 import shutil
+import threading
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import Dict, Tuple
@@ -221,8 +225,13 @@ def generate_player_avatars(
     initial_creation: bool = False,
     engine: str = "template",
     status_callback=None,
+    only_player_ids: set[str] | None = None,
 ) -> str:
     """Generate avatars for all players.
+
+    ``only_player_ids`` restricts generation to a specific set of players (used
+    by the amateur draft to render JUST the new draftees, rather than rescanning
+    and regenerating the whole league).
 
     Two engines:
       * ``"template"`` — recolor a bundled face template (free, instant, exact
@@ -283,6 +292,8 @@ def generate_player_avatars(
         roster = load_roster(team_id)
         ids = roster.act + roster.aaa + roster.low + roster.dl + roster.ir
         for pid in ids:
+            if only_player_ids is not None and pid not in only_player_ids:
+                continue
             player_team_pairs.append((pid, team_id))
 
     total = len(player_team_pairs)
@@ -296,16 +307,27 @@ def generate_player_avatars(
     if not player_team_pairs:
         return str(out_path)
 
-    for idx, (pid, team_id) in enumerate(player_team_pairs, start=1):
+    _log = logging.getLogger("nexgen.avatars")
+
+    # Thread-safe progress counter. The AI path runs in a worker pool (each
+    # image is dominated by network latency), so progress must be incremented
+    # under a lock rather than from a sequential index.
+    _progress_lock = threading.Lock()
+    _counter = {"done": 0}
+
+    def _tick() -> None:
+        with _progress_lock:
+            _counter["done"] += 1
+            n = _counter["done"]
+        _report_progress(n)
+
+    def _render_one(pid: str, team_id: str) -> None:
         player = players.get(pid)
         if not player:
-            _report_progress(idx)
-            continue
-
+            return
         out_file = out_path / f"{pid}.png"
         if not initial_creation and out_file.exists():
-            _report_progress(idx)
-            continue
+            return
 
         ethnicity = player.ethnicity or _infer_ethnicity(
             f"{player.first_name} {player.last_name}"
@@ -314,59 +336,127 @@ def generate_player_avatars(
 
         if use_ai:
             # Unique AI portrait from the player's own traits + team colors.
-            try:
-                prompt = _build_avatar_prompt(
-                    f"{player.first_name} {player.last_name}",
-                    ethnicity,
-                    getattr(player, "skin_tone", None),
-                    player.hair_color,
-                    player.facial_hair,
-                    colors,
-                )
-                img_bytes = _ai_avatar_bytes(prompt, size=512)
-                if not _PIL_AVAILABLE:
-                    raise RuntimeError("Pillow (PIL) is required to save avatars")
-                with Image.open(BytesIO(img_bytes)) as im:
-                    if im.size != (512, 512):
-                        im = im.resize((512, 512))
-                    out_file.parent.mkdir(parents=True, exist_ok=True)
-                    im.save(out_file, format="PNG")
-            except Exception as exc:
-                import logging as _logging
-
-                _logging.getLogger("nexgen.avatars").warning(
-                    "AI avatar failed for player %s: %s", pid, exc
-                )
-            _report_progress(idx)
-            continue
+            prompt = _build_avatar_prompt(
+                f"{player.first_name} {player.last_name}",
+                ethnicity,
+                getattr(player, "skin_tone", None),
+                player.hair_color,
+                player.facial_hair,
+                colors,
+            )
+            img_bytes = _ai_avatar_bytes(prompt, size=512)
+            if not _PIL_AVAILABLE:
+                raise RuntimeError("Pillow (PIL) is required to save avatars")
+            with Image.open(BytesIO(img_bytes)) as im:
+                if im.size != (512, 512):
+                    im = im.resize((512, 512))
+                out_file.parent.mkdir(parents=True, exist_ok=True)
+                im.save(out_file, format="PNG")
+            return
 
         # Template engine: recolor a bundled face template to team/player colors.
-        template = _select_template(ethnicity, player.facial_hair)
-        img = cv2.imread(str(template), cv2.IMREAD_UNCHANGED)
-        if img is None:
-            import logging as _logging
-
-            _logging.getLogger("nexgen.avatars").warning(
-                "avatar template missing/unreadable: %s (player %s) — skipping",
-                template, pid,
+        if not _render_template_avatar(
+            ethnicity,
+            player.hair_color,
+            player.facial_hair,
+            colors["primary"],
+            colors["secondary"],
+            out_file,
+        ):
+            _log.warning(
+                "avatar template missing/unreadable for player %s — skipping", pid
             )
-            _report_progress(idx)
-            continue
 
-        img = _recolor_by_hex(img, _HAT_HEX, colors["primary"])
-        img = _recolor_by_hex(img, _JERSEY_HEX, colors["secondary"])
+    def _worker(pair: Tuple[str, str]) -> None:
+        pid, team_id = pair
+        try:
+            _render_one(pid, team_id)
+        except Exception as exc:  # pragma: no cover - per-player resilience
+            _log.warning("avatar render failed for player %s: %s", pid, exc)
+        finally:
+            _tick()
 
-        hair_key = (player.hair_color or "").strip().lower()
-        hair_hex = _HAIR_COLOR_HEX.get(hair_key)
-        if hair_hex:
-            base_hex = _BASE_HAIR_HEX.get(template.parent.name, _HAIR_COLOR_HEX["brown"])
-            img = _recolor_by_hex(img, base_hex, hair_hex)
+    # The AI path is throttled by Vertex's per-minute quota but each request is
+    # mostly network wait, so running several concurrently overlaps that wait
+    # and roughly doubles throughput (the throttle in utils.vertex_image paces
+    # request *starts*, not the in-flight responses). The template path is
+    # already instant, so it stays single-threaded.
+    if use_ai:
+        try:
+            workers = max(1, int(os.getenv("NEXGEN_AVATAR_WORKERS", "6")))
+        except ValueError:
+            workers = 6
+    else:
+        workers = 1
 
-        cv2.imwrite(str(out_file), img)
-
-        _report_progress(idx)
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(_worker, player_team_pairs))
+    else:
+        for pair in player_team_pairs:
+            _worker(pair)
 
     return str(out_path)
+
+
+def _render_template_avatar(
+    ethnicity: str | None,
+    hair_color: str | None,
+    facial_hair: str | None,
+    primary_hex: str,
+    secondary_hex: str,
+    out_file: Path,
+) -> bool:
+    """Recolor a bundled face template to the given team/player colors and write
+    it to ``out_file``. Returns False (without writing) if the template image is
+    missing/unreadable. Pure of any team-color cache — callers pass exact hexes
+    so this is safe in the multi-tenant cloud."""
+    import cv2
+
+    template = _select_template(ethnicity or "Anglo", facial_hair or "clean_shaven")
+    img = cv2.imread(str(template), cv2.IMREAD_UNCHANGED)
+    if img is None:
+        return False
+    img = _recolor_by_hex(img, _HAT_HEX, primary_hex)
+    img = _recolor_by_hex(img, _JERSEY_HEX, secondary_hex)
+    hair_key = (hair_color or "").strip().lower()
+    hair_hex = _HAIR_COLOR_HEX.get(hair_key)
+    if hair_hex:
+        base_hex = _BASE_HAIR_HEX.get(template.parent.name, _HAIR_COLOR_HEX["brown"])
+        img = _recolor_by_hex(img, base_hex, hair_hex)
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(out_file), img)
+    return True
+
+
+def generate_one_template_avatar(
+    player_id: str,
+    *,
+    ethnicity: str | None,
+    hair_color: str | None,
+    facial_hair: str | None,
+    primary_color: str,
+    secondary_color: str,
+    out_dir: str | None = None,
+) -> str | None:
+    """Generate ONE player's avatar via the instant local template engine.
+
+    Used by the amateur draft so each freshly-created player immediately gets a
+    unique recolored avatar instead of falling back to the generic default.png.
+    Colors are passed in explicitly (the drafting team's), so this never touches
+    the process-global team-color cache. Returns the written path, or None on
+    failure (caller should treat the avatar as best-effort)."""
+    from utils.path_utils import get_data_dir
+
+    out_path = Path(out_dir) if out_dir else get_data_dir() / "images" / "avatars"
+    out_file = out_path / f"{player_id}.png"
+    try:
+        ok = _render_template_avatar(
+            ethnicity, hair_color, facial_hair, primary_color, secondary_color, out_file
+        )
+    except Exception:
+        return None
+    return str(out_file) if ok else None
 
 
 def regenerate_one_avatar(player_id: str, out_dir: str | None = None) -> str:
@@ -586,12 +676,22 @@ def _build_avatar_prompt(
     descriptor = f"{tone_part}{ethnicity} baseball player".strip()
     cap_color = _hex_to_color_name(colors.get("primary", ""))
     jersey_color = _hex_to_color_name(colors.get("secondary", ""))
+    # Realistic semi-realistic illustration (digital painting), NOT cartoon, with
+    # framing/background/lighting locked down so every player's portrait shares
+    # one consistent style. The trait phrase keeps each face unique. Explicit
+    # "head and shoulders / no full body / no hands" stops Imagen from
+    # occasionally rendering a full-body figure.
     return (
-        f"Cartoon head-and-shoulders portrait of {name}, a {descriptor}{traits}, "
-        f"wearing a solid {cap_color} baseball cap and a solid {jersey_color} "
-        "jersey. The cap has no logo or letters and the jersey has no names, "
-        "letters, or numbers. No text overlays. Off-white background, friendly "
-        "expression, consistent clean illustrated style."
+        f"A realistic semi-realistic digital painting portrait of {name}, a "
+        f"{descriptor}{traits}. Head and shoulders only, centered, facing "
+        "forward with a calm friendly expression. He wears a plain "
+        f"{cap_color} baseball cap and a plain {jersey_color} jersey with no "
+        "logos, letters, or numbers. Detailed realistic facial features and natural "
+        "skin texture, painterly digital-illustration style (not a cartoon, not "
+        "a photo), soft even studio lighting, plain neutral light-gray "
+        "background, subject centered and cropped at the chest. Consistent art "
+        "style across portraits. No text, no watermark, no full body, no hands, "
+        "no border."
     )
 
 

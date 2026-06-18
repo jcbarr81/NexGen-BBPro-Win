@@ -31,6 +31,7 @@ const MAX_ATTEMPTS = 5;
 export function SplashGate({ children }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: "checking", slow: false });
   const setActiveLeague = useAuthStore((s) => s.setActiveLeague);
+  const setAppVersion = useAuthStore((s) => s.setAppVersion);
   // Bumping this re-runs the effect for a manual retry from the error card.
   const [retryNonce, setRetryNonce] = useState(0);
 
@@ -49,6 +50,8 @@ export function SplashGate({ children }: Props) {
         // there the global pointer is meaningless (each user picks their own
         // league), and seeding it could grant access to a league they're not in.
         if (!isCloud()) setActiveLeague(health.active_league ?? null);
+        // Expose the version for the sidebar footer tag.
+        setAppVersion(health.version ?? null);
         setPhase({ kind: "ready", health });
       } catch (err: unknown) {
         if (cancelled) return;
@@ -78,15 +81,12 @@ export function SplashGate({ children }: Props) {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [setActiveLeague, retryNonce]);
+  }, [setActiveLeague, setAppVersion, retryNonce]);
 
   if (phase.kind === "ready") {
-    return (
-      <>
-        <HealthRibbon health={phase.health} />
-        {children}
-      </>
-    );
+    // The version/league tag now lives in the sidebar footer (see Sidebar.tsx)
+    // so it can't float over page buttons or nav links.
+    return <>{children}</>;
   }
 
   return (
@@ -130,26 +130,6 @@ export function SplashGate({ children }: Props) {
           )}
         </div>
       </Card>
-    </div>
-  );
-}
-
-function HealthRibbon({ health }: { health: HealthPayload }) {
-  // In cloud mode the sidecar's global ``active_league`` pointer is meaningless
-  // (each user picks their own league), so show THIS user's active league and
-  // the frontend build version (the bundle they're actually running) rather
-  // than the Cloud Run API's version.
-  const activeLeagueId = useAuthStore((s) => s.activeLeagueId);
-  const cloud = isCloud();
-  const version = health.version;
-  // In cloud mode the sidecar's global ``active_league`` pointer is meaningless
-  // (each user picks their own league), so show THIS user's active league.
-  const league = cloud
-    ? activeLeagueId ?? "no league"
-    : health.active_league ?? "no league";
-  return (
-    <div className="fixed bottom-2 right-3 z-50 rounded-md border border-border bg-surfaceAlt/80 px-2 py-1 text-[10px] uppercase tracking-wider text-muted backdrop-blur">
-      v{version} · {league}
     </div>
   );
 }

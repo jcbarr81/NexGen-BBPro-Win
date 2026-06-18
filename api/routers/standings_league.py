@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter
 
+from services.standings_form import streak_last10_from_schedule
 from services.standings_repository import load_standings
 from utils.path_utils import get_data_dir
 
@@ -112,6 +113,7 @@ def league_standings() -> Dict[str, Any]:
     standings = load_standings(base_path=get_data_dir())
     meta = _load_team_meta()
     remaining_map = _games_remaining_by_team()
+    sched_form = streak_last10_from_schedule()
 
     # Build per-division list of rows.
     divisions: Dict[str, List[Dict[str, Any]]] = {}
@@ -137,8 +139,18 @@ def league_standings() -> Dict[str, Any]:
                 "runs_for": runs_for,
                 "runs_against": runs_against,
                 "run_diff": runs_for - runs_against,
-                "streak": _format_streak(record),
-                "last10": _format_last10(record),
+                # Prefer a persisted streak/last10 if the record ever carries
+                # one; otherwise reconstruct from the played schedule.
+                "streak": (
+                    _format_streak(record)
+                    if _format_streak(record) != "--"
+                    else sched_form.get(team_id, {}).get("streak", "--")
+                ),
+                "last10": (
+                    _format_last10(record)
+                    if _format_last10(record) != "--"
+                    else sched_form.get(team_id, {}).get("last10", "--")
+                ),
                 "games_remaining": int(remaining_map.get(team_id, 0)),
             }
         )

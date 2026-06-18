@@ -105,7 +105,10 @@ export function SplashAudio() {
           onClick={toggle}
           aria-label={muted ? "Unmute splash music" : "Mute splash music"}
           title={muted ? "Unmute" : "Mute"}
-          className="fixed bottom-2 left-3 z-50 flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surfaceAlt/80 text-muted backdrop-blur transition hover:bg-surface hover:text-ink"
+          // Bottom-CENTER so it never collides with the sidebar version tag
+          // (bottom-left) or the wizard's Back/Next buttons (bottom corners)
+          // on /leagues/new, while staying clear of the centered auth cards.
+          className="fixed bottom-2 left-1/2 z-50 flex h-7 w-7 -translate-x-1/2 items-center justify-center rounded-md border border-border bg-surfaceAlt/80 text-muted backdrop-blur transition hover:bg-surface hover:text-ink"
         >
           {muted ? (
             <VolumeX className="h-3.5 w-3.5" />

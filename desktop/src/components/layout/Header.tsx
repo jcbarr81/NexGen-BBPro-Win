@@ -1,8 +1,18 @@
-import { ArrowLeft, HelpCircle, LayoutGrid, LogOut, Menu, Undo2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  HelpCircle,
+  LayoutGrid,
+  LogOut,
+  Menu,
+  Move,
+  Undo2,
+} from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { Badge, Button } from "@/components/ui";
 import { useAuthStore } from "@/lib/auth-store";
+import { useLayoutEditStore } from "@/lib/layout-edit-store";
 import { useIsDesktop } from "@/lib/use-media-query";
 import { cloudLogout, isCloud } from "@/lib/cloud-auth";
 import { useThemeStore, type ThemeId } from "@/lib/theme";
@@ -35,6 +45,11 @@ export function Header({ title, subtitle, onOpenMenu }: HeaderProps) {
   // The banner artwork is a desktop decoration — on a phone the short, narrow
   // header makes the title overlap it. Show it only at lg+ (plain bg below).
   const isDesktop = useIsDesktop();
+
+  // "Edit layout" toggle — only shown on pages that register as reorderable.
+  const layoutEditable = useLayoutEditStore((s) => s.activePage !== null);
+  const editingLayout = useLayoutEditStore((s) => s.editing);
+  const setEditingLayout = useLayoutEditStore((s) => s.setEditing);
 
   async function handleSignOut() {
     if (cloud) {
@@ -158,6 +173,29 @@ export function Header({ title, subtitle, onOpenMenu }: HeaderProps) {
         </div>
         {(user.token || user.uid) && (
           <>
+            {layoutEditable && (
+              <Button
+                variant={editingLayout ? "primary" : "outline"}
+                size="sm"
+                onClick={() => setEditingLayout(!editingLayout)}
+                aria-pressed={editingLayout}
+                title={
+                  editingLayout
+                    ? "Finish editing the page layout"
+                    : "Rearrange the cards on this page"
+                }
+                className="px-2 sm:px-3"
+              >
+                {editingLayout ? (
+                  <Check className="h-3 w-3 sm:mr-1" />
+                ) : (
+                  <Move className="h-3 w-3 sm:mr-1" />
+                )}
+                <span className="hidden sm:inline">
+                  {editingLayout ? "Done" : "Edit layout"}
+                </span>
+              </Button>
+            )}
             {cloud && (
               <Button
                 variant="outline"

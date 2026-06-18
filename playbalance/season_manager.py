@@ -70,10 +70,25 @@ class SeasonManager:
     # ------------------------------------------------------------------
     # Phase advancement
     # ------------------------------------------------------------------
+    # Phase advancement is NOT the linear enum order. The amateur draft is a
+    # mid-regular-season interruption (the sim's draft-day intercept flips the
+    # phase to AMATEUR_DRAFT around the third Tuesday in July), so advancing
+    # FROM the draft resumes the regular season — it does not jump to the
+    # playoffs and skip August/September. The regular season advances to the
+    # playoffs only once its schedule is exhausted (enforced by the
+    # advance-phase endpoint's end-of-schedule guard).
+    _PHASE_AFTER = {
+        SeasonPhase.PRESEASON: SeasonPhase.REGULAR_SEASON,
+        SeasonPhase.REGULAR_SEASON: SeasonPhase.PLAYOFFS,
+        SeasonPhase.AMATEUR_DRAFT: SeasonPhase.REGULAR_SEASON,
+        SeasonPhase.PLAYOFFS: SeasonPhase.OFFSEASON,
+        SeasonPhase.OFFSEASON: SeasonPhase.PRESEASON,
+    }
+
     def advance_phase(self) -> SeasonPhase:
         """Advance to the next season phase and persist it."""
         previous = self.phase
-        self.phase = self.phase.next()
+        self.phase = self._PHASE_AFTER.get(self.phase, self.phase.next())
         self.save()
         if (
             self.enable_rollover

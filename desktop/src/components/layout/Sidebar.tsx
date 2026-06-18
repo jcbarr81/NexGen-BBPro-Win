@@ -162,6 +162,8 @@ export function Sidebar({
   onClose?: () => void;
 }) {
   const role = useAuthStore((s) => s.role);
+  const appVersion = useAuthStore((s) => s.appVersion);
+  const activeLeagueId = useAuthStore((s) => s.activeLeagueId);
   const location = useLocation();
   const isDesktop = useIsDesktop();
   const isAdmin = role === "admin";
@@ -370,6 +372,14 @@ export function Sidebar({
             pinned={pinned.includes("/help")}
             onTogglePin={() => togglePin("/help")}
           />
+          {/* Version + active league. In normal flow (not a floating overlay)
+              so it can never draw over nav links or page buttons. Hidden in
+              the icon-only rail where there's no room. */}
+          {!effectiveCollapsed && appVersion && (
+            <div className="truncate px-3 pt-1.5 text-[10px] uppercase tracking-wider text-cream/35">
+              v{appVersion} · {activeLeagueId ?? "no league"}
+            </div>
+          )}
         </div>
       </aside>
     </Tooltip.Provider>

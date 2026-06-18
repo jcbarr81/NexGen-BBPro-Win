@@ -1158,6 +1158,11 @@ export interface SeasonState {
   /** True when the simulator hit the draft date — owner must run the
    *  draft in /draft before any more days will advance. */
   draft_blocked?: boolean;
+  /** Authoritative state flags from the backend (don't infer these from
+   *  current_date/draft_date). `season_complete` = the whole regular-season
+   *  schedule is played; `draft_completed` = the amateur draft is committed. */
+  season_complete?: boolean;
+  draft_completed?: boolean;
   /** Summary returned after each simulated batch: finance cadence,
    *  CPU trade offers, and DL activations. */
   automations?: {

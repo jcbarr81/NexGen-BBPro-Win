@@ -281,9 +281,10 @@ function LiveDraftView({
             <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
               <Trophy className="h-10 w-10 text-amber" />
               <p className="max-w-sm text-sm text-muted">
-                All rounds have been filled. Switch to the History tab to
-                review every pick, or advance the season phase from the
-                Season page to continue the year.
+                All rounds have been filled and the regular season has
+                resumed. Head to the Season page to play out the rest of the
+                schedule — if a team is over the LOW cap from its picks, run
+                Auto-assign first. Switch to History to review every pick.
               </p>
             </CardContent>
           </Card>
@@ -433,7 +434,12 @@ function DraftControlsPanel({
     onSuccess: refreshAll,
   });
   const advanceToMyMut = useMutation({
-    mutationFn: () => api.draftAutoAdvance("my_pick", { year }),
+    // Pass the team we're drafting for explicitly — without it the backend
+    // falls back to the server identity's team, which is empty for a
+    // commissioner browsing a team, so "stop at my pick" never triggers and
+    // the whole draft runs to completion.
+    mutationFn: () =>
+      api.draftAutoAdvance("my_pick", { year, team_id: myTeamId ?? undefined }),
     onSuccess: refreshAll,
   });
   const advanceRoundMut = useMutation({

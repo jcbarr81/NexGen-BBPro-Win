@@ -266,6 +266,27 @@ interface NextStep {
   cta?: { label: string; to: string };
 }
 
+/** True once the amateur draft is behind us. Prefer the backend's
+ *  authoritative `draft_completed` flag; fall back to the date heuristic so
+ *  the UI is still correct against an older backend. (The date-only check
+ *  failed at season end, where `current_date` is null — that's exactly why
+ *  the milestone banner wrongly pointed at the draft.) */
+function isDraftDone(state: SeasonState): boolean {
+  if (state.draft_completed) return true;
+  if (state.draft_triggered) return true;
+  if (state.draft_date && state.current_date) {
+    return state.current_date > state.draft_date;
+  }
+  return false;
+}
+
+/** True when the regular-season schedule is fully played. Prefer the backend
+ *  flag; fall back to "no days remaining while in the regular season." */
+function isSeasonComplete(state: SeasonState): boolean {
+  if (state.season_complete) return true;
+  return state.phase === "REGULAR_SEASON" && (state.days_remaining ?? 0) === 0;
+}
+
 function buildNextStep(state: SeasonState): NextStep | null {
   switch (state.phase) {
     case "PRESEASON":
@@ -275,17 +296,23 @@ function buildNextStep(state: SeasonState): NextStep | null {
           "Run spring training to mark every player as ready, review free agents, and confirm league-wide training focus. When you're done, click Advance Phase to start the Regular Season.",
       };
     case "REGULAR_SEASON": {
+      // Season's done — title and body must agree (the old code left the
+      // title pointing at the long-past draft while the body said "all games
+      // played"). Send the user straight to Advance Phase → Playoffs.
+      if (isSeasonComplete(state)) {
+        return {
+          title: "Regular Season complete — time for the Playoffs",
+          body: "All regular-season games are played. Click Advance Phase to seed the bracket and start the Playoffs.",
+        };
+      }
       const remaining = state.days_remaining ?? 0;
-      const draftDate = state.draft_date;
+      const draftDate = isDraftDone(state) ? null : state.draft_date;
       const nextLabel = draftDate
         ? `Amateur Draft on ${formatDate(draftDate)}`
         : "the end of the schedule";
       return {
         title: `Regular Season — next milestone is ${nextLabel}`,
-        body:
-          remaining > 0
-            ? `${remaining} scheduled day${remaining === 1 ? "" : "s"} remain. Use Sim Day/Week/Month to advance incrementally, or ${draftDate ? "'To Draft' to fast-forward to draft day" : "'To Playoffs' to finish the regular season"}.`
-            : "All regular-season games are played. Click Advance Phase when you're ready to move on.",
+        body: `${remaining} scheduled day${remaining === 1 ? "" : "s"} remain. Use Sim Day/Week/Month to advance incrementally, or ${draftDate ? "'To Draft' to fast-forward to draft day" : "'To Playoffs' to finish the regular season"}.`,
       };
     }
     case "PLAYOFFS":
@@ -447,14 +474,14 @@ function MetricsRow({ state }: { state: SeasonState }) {
         label="Draft Day"
         value={state.draft_date ? formatDate(state.draft_date) : "—"}
         sub={
-          state.draft_triggered
-            ? "Draft already triggered"
+          isDraftDone(state)
+            ? "Complete"
             : state.draft_date
               ? "Scheduled"
               : undefined
         }
         Icon={GraduationCap}
-        tone={state.draft_triggered ? "success" : "neutral"}
+        tone={isDraftDone(state) ? "success" : "neutral"}
       />
       <StatCard
         label="Next Date"
@@ -495,6 +522,10 @@ function ActionsCard({
 }: ActionsProps) {
   const noDaysLeft = state.days_remaining === 0;
   const simDisabled = disabled || noDaysLeft || simBlocked;
+  // When the sim buttons are structurally locked (phase boundary or the
+  // schedule is exhausted), Advance Phase is the only way forward — make it
+  // the prominent CTA instead of a greyed-out "Sim Day" stealing focus.
+  const advancePrimary = simBlocked || noDaysLeft;
   return (
     <Card>
       <CardHeader>
@@ -540,7 +571,7 @@ function ActionsCard({
         <Button
           variant="outline"
           onClick={onSimToDraft}
-          disabled={simDisabled || !state.draft_date || state.draft_triggered}
+          disabled={simDisabled || !state.draft_date || isDraftDone(state)}
           className="w-full"
         >
           <GraduationCap className="h-4 w-4" /> To Draft
@@ -554,7 +585,7 @@ function ActionsCard({
           <Trophy className="h-4 w-4" /> To Playoffs
         </Button>
         <Button
-          variant="ghost"
+          variant={advancePrimary ? "primary" : "ghost"}
           onClick={onAdvancePhase}
           disabled={advanceDisabled}
           className="w-full"

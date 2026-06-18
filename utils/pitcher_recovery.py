@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import csv
 from datetime import date, datetime, timedelta
+import functools
 import json
 from pathlib import Path
 from typing import Dict, Iterable, Optional
@@ -33,12 +34,18 @@ def _format_date(value: date) -> str:
     return value.strftime(_DATE_FORMAT)
 
 
+@functools.lru_cache(maxsize=512)
 def _rest_days(pitches: int) -> int:
     """Return rest days required after throwing ``pitches``.
 
     When ``enableUsageModelV2`` is active in the PlayBalance config, apply
     configurable pitch-count thresholds. Otherwise, fall back to the legacy
     step function.
+
+    Pure function of ``pitches`` + the static bundled PBINI.txt tuning (which
+    only changes on deploy → fresh process), so it's safe to memoize. This
+    removes the repeated per-game PBINI.txt parse the profiler flagged in the
+    pitcher-recovery path.
     """
 
     if pitches <= 0:

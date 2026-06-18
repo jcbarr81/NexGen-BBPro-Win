@@ -151,6 +151,66 @@ const INITIAL: WizardState = {
   draftPoolSize: 200,
 };
 
+/**
+ * Numeric input that lets the user type freely. The committed numeric value
+ * lives in the wizard state, but the field keeps its own text buffer so you
+ * can clear it and type intermediate values (e.g. "1" on the way to "150")
+ * without it snapping to the min/default on every keystroke. Clamping +
+ * fallback happen only on blur / Enter.
+ */
+function NumberField({
+  id,
+  value,
+  min,
+  max,
+  step,
+  fallback,
+  onCommit,
+}: {
+  id?: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  fallback: number;
+  onCommit: (n: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  // Re-sync when the committed value changes from elsewhere (e.g. a preset).
+  useEffect(() => {
+    setText(String(value));
+  }, [value]);
+
+  function commit() {
+    const parsed = parseInt(text, 10);
+    const next = Number.isFinite(parsed)
+      ? Math.max(min, Math.min(max, parsed))
+      : fallback;
+    setText(String(next));
+    if (next !== value) onCommit(next);
+  }
+
+  return (
+    <Input
+      id={id}
+      type="number"
+      inputMode="numeric"
+      min={min}
+      max={max}
+      step={step}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        }
+      }}
+    />
+  );
+}
+
 export function LeagueCreatePage() {
   const [params] = useSearchParams();
   const isFirstRun = params.get("first-run") === "1";
@@ -1097,19 +1157,12 @@ function RulesStep({
 
         <div className="space-y-1.5">
           <Label>Draft rounds</Label>
-          <Input
-            type="number"
+          <NumberField
+            value={state.draftRounds}
             min={1}
             max={50}
-            value={state.draftRounds}
-            onChange={(e) =>
-              onPatch({
-                draftRounds: Math.max(
-                  1,
-                  Math.min(50, Number(e.target.value) || 10),
-                ),
-              })
-            }
+            fallback={10}
+            onCommit={(n) => onPatch({ draftRounds: n })}
           />
           <p className="text-[11px] text-muted">
             How many rounds your amateur draft runs. Typical MLB: 10–20.
@@ -1118,20 +1171,13 @@ function RulesStep({
 
         <div className="space-y-1.5">
           <Label>Draft pool size</Label>
-          <Input
-            type="number"
+          <NumberField
+            value={state.draftPoolSize}
             min={20}
             max={2000}
             step={10}
-            value={state.draftPoolSize}
-            onChange={(e) =>
-              onPatch({
-                draftPoolSize: Math.max(
-                  20,
-                  Math.min(2000, Number(e.target.value) || 200),
-                ),
-              })
-            }
+            fallback={200}
+            onCommit={(n) => onPatch({ draftPoolSize: n })}
           />
           <p className="text-[11px] text-muted">
             Total prospects generated for the pool. Should comfortably exceed

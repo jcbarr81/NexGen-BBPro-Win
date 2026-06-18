@@ -390,6 +390,14 @@ def _state_payload(
         "mid_remaining": simulator.remaining_days(),
         "all_star_played": simulator._all_star_played,
         "draft_triggered": simulator._draft_triggered,
+        # Authoritative flags so the UI never has to *infer* season state from
+        # current_date/draft_date (which is what produced the contradictory
+        # "next milestone is the draft" banner at season end). ``season_complete``
+        # means the whole regular-season schedule is played; ``draft_completed``
+        # means the amateur draft for this year is committed to disk.
+        "season_complete": len(simulator.dates) > 0
+        and simulator._index >= len(simulator.dates),
+        "draft_completed": _draft_completed_for_current_year(),
         "preseason_done": _read_preseason_done(),
     }
     if extra:
@@ -483,6 +491,15 @@ def _simulate_n(
     draft_blocked = False
     notification_events: List[NotificationEvent] = []
     stop_reason: Optional[str] = None
+    # A committed draft means the AMATEUR_DRAFT pause is over — resume the
+    # regular season automatically rather than dead-ending the sim buttons.
+    # This also self-heals any league left parked in AMATEUR_DRAFT by an
+    # older build (the draft is a mid-season interruption, not a phase the
+    # owner should have to manually Advance out of).
+    if manager.phase == SeasonPhase.AMATEUR_DRAFT and _draft_completed_for_current_year():
+        manager.phase = SeasonPhase.REGULAR_SEASON
+        manager.save()
+
     # Regular-season games can only be simulated while the league is in
     # the REGULAR_SEASON phase. Without this gate a fresh league sitting
     # in PRESEASON will happily play games even though the owner hasn't
@@ -509,8 +526,14 @@ def _simulate_n(
     # this gate; an admin can run a cleanup utility for those.
     try:
         compliance_errors = _team_roster_compliance_errors(team_id)
-    except Exception:  # pragma: no cover - defensive
-        compliance_errors = []
+    except Exception as exc:
+        # Fail closed: if we can't validate the roster (corrupt/missing data
+        # file, etc.) we must NOT silently let a possibly-illegal roster sim.
+        # Surface the failure so the user can fix it instead of swallowing it.
+        compliance_errors = [
+            f"Couldn't validate roster compliance ({exc}). "
+            "Resolve the data issue before simulating."
+        ]
     if compliance_errors:
         errors.extend(compliance_errors)
         return {
@@ -548,8 +571,15 @@ def _simulate_n(
         target_date = simulator.dates[simulator._index]
         # Draft-day intercept. PyQt's ``_on_draft_day`` pauses the sim
         # and opens the draft console; the React equivalent is to stop,
-        # flip the phase, and hand off to /draft.
-        if draft_date and target_date == draft_date:
+        # flip the phase, and hand off to /draft. Skip the pause once the
+        # draft for this year is already committed — otherwise the cursor,
+        # which is parked on draft day, would re-trigger the draft on every
+        # Sim Day and dead-lock the season right after the draft finishes.
+        if (
+            draft_date
+            and target_date == draft_date
+            and not _draft_completed_for_current_year()
+        ):
             try:
                 manager.phase = SeasonPhase.AMATEUR_DRAFT
                 manager.save()
@@ -689,31 +719,7 @@ def _persist_post_sim_state(
         pass
 
     # 2. Sync standings.json from season_stats teams rollup.
-    try:
-        from services.standings_repository import save_standings
-        from utils.stats_persistence import load_stats
-
-        stats_path = get_data_dir() / "season_stats.json"
-        season_stats = load_stats(stats_path) if stats_path.exists() else {}
-        teams_block = (season_stats or {}).get("teams") or {}
-        if teams_block:
-            standings: Dict[str, Dict[str, Any]] = {}
-            for team_id, raw in teams_block.items():
-                if not isinstance(raw, dict):
-                    continue
-                wins = int(raw.get("w", 0) or 0)
-                losses = int(raw.get("l", 0) or 0)
-                runs_for = int(raw.get("r", 0) or 0)
-                runs_against = int(raw.get("ra", 0) or 0)
-                standings[str(team_id)] = {
-                    "wins": wins,
-                    "losses": losses,
-                    "runs_for": runs_for,
-                    "runs_against": runs_against,
-                }
-            save_standings(standings, base_path=get_data_dir())
-    except Exception:
-        pass
+    _sync_standings_from_stats()
 
     # 3. Bump season_progress.json::sim_index so phase / progress widgets
     # update without waiting for a refetch of the schedule walk.
@@ -930,26 +936,28 @@ def advance_phase(
             ),
         )
 
-    # Guard: require the calendar to actually reach the draft date (or
-    # the end of the schedule when no draft date is configured) before
-    # leaving REGULAR_SEASON. Without this, clicking Advance Phase with
-    # zero games played races REGULAR_SEASON → AMATEUR_DRAFT → PLAYOFFS
-    # → OFFSEASON on an unplayed season.
+    # Guard: leaving REGULAR_SEASON for the PLAYOFFS requires the WHOLE
+    # schedule to have been played. The amateur draft is a mid-season
+    # interruption (handled by the sim's draft-day intercept + the draft
+    # console), not the end of the regular season — so the gate is the end
+    # of the schedule, never the draft date. Without this, Advance Phase
+    # could skip August/September and jump an unfinished season straight to
+    # the playoffs.
     if (
         manager.phase == SeasonPhase.REGULAR_SEASON
         and len(simulator.dates) > 0
         and not force
     ):
-        if draft_date:
-            try:
-                stop_idx = simulator.dates.index(draft_date)
-            except ValueError:
-                stop_idx = len(simulator.dates)
-        else:
-            stop_idx = len(simulator.dates)
+        stop_idx = len(simulator.dates)
         if simulator._index < stop_idx:
             remaining = stop_idx - simulator._index
-            use_button = "To Draft" if draft_date else "To Playoffs"
+            # Point at the draft only while it's still ahead on the calendar.
+            draft_ahead = (
+                bool(draft_date)
+                and draft_date in simulator.dates
+                and simulator._index < simulator.dates.index(draft_date)
+            )
+            use_button = "To Draft" if draft_ahead else "To Playoffs"
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
@@ -986,6 +994,38 @@ def advance_phase(
                 ),
             )
 
+    # Build + verify the playoff bracket BEFORE flipping into PLAYOFFS. The
+    # old order flipped the phase first and built the bracket after in a
+    # swallow-all try/except — so a failed build stranded the league in
+    # PLAYOFFS with nothing to render and the champion gate blocking any
+    # further advance (a dead-end only ``force`` could escape). Now, on the
+    # normal path, a bracket that can't be seeded raises and leaves the league
+    # in REGULAR_SEASON, fully recoverable.
+    pending_bracket: Optional[Dict[str, Any]] = None
+    if manager.phase == SeasonPhase.REGULAR_SEASON and not force:
+        # The bracket seeds from standings — make sure they reflect the
+        # just-finished season before we read them.
+        _sync_standings_from_stats()
+        try:
+            pending_bracket = _ensure_playoff_bracket()
+        except Exception as exc:  # pragma: no cover - defensive
+            pending_bracket = {"error": str(exc)}
+        if not pending_bracket or (
+            isinstance(pending_bracket, dict) and pending_bracket.get("error")
+        ):
+            detail = (
+                pending_bracket.get("error")
+                if isinstance(pending_bracket, dict)
+                else None
+            ) or (
+                "Couldn't seed the playoff bracket — standings or teams are "
+                "missing. Sim the final regular-season day (or regenerate "
+                "standings) and try again."
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=detail
+            )
+
     try:
         new_phase: SeasonPhase = manager.advance_phase()
     except Exception as exc:
@@ -996,16 +1036,20 @@ def advance_phase(
 
     extra: Dict[str, Any] = {"new_phase": new_phase.value}
 
-    # Playoff bracket auto-generation — ports ``_ensure_playoff_bracket``
-    # from PyQt's season window. Without this the phase flips to
-    # PLAYOFFS but no bracket exists for the UI to render.
     if new_phase == SeasonPhase.PLAYOFFS:
-        try:
-            bracket_summary = _ensure_playoff_bracket()
-            if bracket_summary:
-                extra["playoffs"] = bracket_summary
-        except Exception as exc:  # pragma: no cover - defensive
-            extra["playoffs_error"] = str(exc)
+        if pending_bracket and not (
+            isinstance(pending_bracket, dict) and pending_bracket.get("error")
+        ):
+            extra["playoffs"] = pending_bracket
+        else:
+            # Force path (pre-check skipped): best-effort build, surface any
+            # error so the admin who forced through sees what's missing.
+            try:
+                bracket_summary = _ensure_playoff_bracket()
+                if bracket_summary:
+                    extra["playoffs"] = bracket_summary
+            except Exception as exc:  # pragma: no cover - defensive
+                extra["playoffs_error"] = str(exc)
 
     # OFFSEASON → PRESEASON: spring training camp normally requires a
     # manual click on the preseason checklist. In solo-player leagues
@@ -1348,6 +1392,39 @@ def _mark_preseason_done(flag: str) -> None:
         )
     except Exception:
         pass
+
+
+def _sync_standings_from_stats() -> bool:
+    """Rebuild standings.json from the season_stats team rollup.
+
+    Shared by the post-sim persistence path and the playoff-bracket pre-check
+    (the bracket seeds from standings, so they must be fresh before we build
+    it). Best-effort: returns True when standings were written.
+    """
+
+    try:
+        from services.standings_repository import save_standings
+        from utils.stats_persistence import load_stats
+
+        stats_path = get_data_dir() / "season_stats.json"
+        season_stats = load_stats(stats_path) if stats_path.exists() else {}
+        teams_block = (season_stats or {}).get("teams") or {}
+        if not teams_block:
+            return False
+        standings: Dict[str, Dict[str, Any]] = {}
+        for team_id, raw in teams_block.items():
+            if not isinstance(raw, dict):
+                continue
+            standings[str(team_id)] = {
+                "wins": int(raw.get("w", 0) or 0),
+                "losses": int(raw.get("l", 0) or 0),
+                "runs_for": int(raw.get("r", 0) or 0),
+                "runs_against": int(raw.get("ra", 0) or 0),
+            }
+        save_standings(standings, base_path=get_data_dir())
+        return True
+    except Exception:
+        return False
 
 
 def _playoffs_champion_recorded() -> bool:

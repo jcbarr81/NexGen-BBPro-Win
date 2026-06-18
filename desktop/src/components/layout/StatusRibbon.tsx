@@ -30,12 +30,15 @@ import { toast } from "@/lib/toast-store";
 import { Badge, Button } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
+// Keys MUST match the SeasonPhase enum values the backend sends (uppercase).
+// They were previously lowercase ("regular", "postseason"), so every lookup
+// missed and the ribbon rendered raw strings like "REGULAR_SEASON".
 const PHASE_LABELS: Record<string, string> = {
-  preseason: "Preseason",
-  regular: "Regular Season",
-  postseason: "Postseason",
-  offseason: "Offseason",
-  draft: "Draft",
+  PRESEASON: "Preseason",
+  REGULAR_SEASON: "Regular Season",
+  AMATEUR_DRAFT: "Amateur Draft",
+  PLAYOFFS: "Playoffs",
+  OFFSEASON: "Offseason",
 };
 
 export function StatusRibbon() {

@@ -8,6 +8,7 @@ still returns a well-formed empty structure so the UI can render gracefully.
 from __future__ import annotations
 
 import csv
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query, status
@@ -590,6 +591,22 @@ def _do_pick(
     except Exception as exc:  # pragma: no cover - defensive
         commit_summary = {"error": str(exc)}
 
+    # When the final pick lands, the amateur draft is over — resume the
+    # regular season so the calendar can advance again. The draft is a
+    # mid-July interruption, not the end of the year; leaving the phase at
+    # AMATEUR_DRAFT is what dead-locked the sim buttons (they're gated to
+    # REGULAR_SEASON) and pushed "Advance Phase" straight to the playoffs.
+    try:
+        if _draft_complete(state, _load_settings_rounds()):
+            _resume_regular_season_after_draft()
+            # Give the freshly-drafted players avatars in the SAME consistent AI
+            # style as the rest of the league (runs in the background so it never
+            # blocks the draft). Scoped to JUST the drafted players so a fresh
+            # league doesn't accidentally AI-generate the entire roster.
+            _generate_draft_avatars_async(_selected_ids(state))
+    except Exception:  # pragma: no cover - defensive
+        pass
+
     return {
         "year": year,
         "round": rnd,
@@ -597,7 +614,66 @@ def _do_pick(
         "team_id": team_id,
         "player_id": player_id,
         "commit": commit_summary,
+        "draft_complete": _draft_complete(state, _load_settings_rounds()),
     }
+
+
+def _resume_regular_season_after_draft() -> None:
+    """Flip the season phase back to REGULAR_SEASON once the draft finishes."""
+    try:
+        from playbalance.season_manager import SeasonManager, SeasonPhase
+
+        manager = SeasonManager()
+        if manager.phase == SeasonPhase.AMATEUR_DRAFT:
+            manager.phase = SeasonPhase.REGULAR_SEASON
+            manager.save()
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
+def _generate_draft_avatars_async(player_ids: set[str]) -> None:
+    """Background AI-avatar fill for the freshly-drafted players.
+
+    Mirrors the export/sim background jobs: the worker rebinds the request league
+    (ContextVars don't cross threads), generates avatars ONLY for ``player_ids``
+    (the draftees) via the AI engine, then pushes the working copy so the new
+    PNGs persist. Fire and forget — the draft response returns immediately."""
+    import threading
+
+    from utils import path_utils
+
+    if not player_ids:
+        return
+    league = path_utils.get_active_league_id()
+
+    def _run() -> None:
+        token = path_utils.set_request_league(league) if league else None
+        try:
+            from utils.avatar_generator import generate_player_avatars
+
+            generate_player_avatars(
+                engine="ai",
+                initial_creation=False,
+                only_player_ids=set(player_ids),
+            )
+            try:
+                from api import working_copy
+
+                if working_copy.is_enabled():
+                    working_copy.push_changes()
+            except Exception:
+                logging.getLogger("nexgen.draft").exception(
+                    "draft-avatar working-copy push failed"
+                )
+        except Exception:
+            logging.getLogger("nexgen.draft").exception(
+                "draft avatar generation failed"
+            )
+        finally:
+            if token is not None:
+                path_utils.reset_request_league(token)
+
+    threading.Thread(target=_run, name="draft-avatars", daemon=True).start()
 
 
 def _ensure_pick_authorized(
@@ -746,6 +822,19 @@ def auto_advance(
             detail="No active draft state for that year.",
         )
 
+    # An empty draft order makes `_team_on_clock` return None, so the loop
+    # below would break immediately and return 0 picks with no explanation —
+    # the caller can't tell "malformed draft" from "nothing to do" and the UI
+    # spins waiting for a pick that never comes. Fail loudly instead.
+    if not list(state.get("order") or []):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Draft order is empty — seed the draft order (Admin → "
+                "initialize draft) before auto-advancing."
+            ),
+        )
+
     rounds_total = _load_settings_rounds()
     role = str(identity.get("r", "")).lower()
     target_team: Optional[str] = None
@@ -755,12 +844,16 @@ def auto_advance(
             or str(identity.get("t", "")).strip()
             or None
         )
-        if role != "admin" and not target_team:
+        # Require a concrete team for ANY caller (including admins/commissioners
+        # browsing a team). Without it the stop condition below can never match,
+        # so the loop would silently run the entire draft to completion — the
+        # exact bug where "auto-draft until my pick" drafted everyone.
+        if not target_team:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    "Auto-advance to 'my_pick' needs a team_id (no team is "
-                    "associated with this user)."
+                    "Auto-advance to 'my pick' needs a team to stop at — pass "
+                    "team_id (no team is associated with this user)."
                 ),
             )
 
@@ -768,25 +861,33 @@ def auto_advance(
 
     picks_made: List[Dict[str, Any]] = []
     cap = 2000
+    # Why the loop stopped, so the caller never sees an unexplained 0-pick run.
+    stopped_reason = "reached_cap"
     while len(picks_made) < cap:
         if _draft_complete(state, rounds_total):
+            stopped_reason = "draft_complete"
             break
         on_clock = _team_on_clock(state)
         if on_clock is None:
+            stopped_reason = "no_team_on_clock"
             break
         # Stop conditions checked BEFORE picking so we don't pick for the
         # owner's team (they should choose).
         if stop_mode == "my_pick" and target_team and on_clock == target_team:
+            stopped_reason = "reached_target"
             break
         if stop_mode == "end_of_round" and int(state.get("round", 1) or 1) != starting_round:
+            stopped_reason = "end_of_round"
             break
 
         best = _best_available(year, state)
         if not best:
+            stopped_reason = "pool_exhausted"
             break
         try:
             result = _do_pick(year, state, player_id=str(best.get("player_id", "")))
         except HTTPException:
+            stopped_reason = "pick_failed"
             break
         picks_made.append(result)
 
@@ -796,6 +897,7 @@ def auto_advance(
         "target_team": target_team,
         "picks": picks_made,
         "picks_made": len(picks_made),
+        "stopped_reason": stopped_reason,
         "draft_complete": _draft_complete(state, rounds_total),
         "team_on_clock": _team_on_clock(state),
         "round": int(state.get("round", 1) or 1),

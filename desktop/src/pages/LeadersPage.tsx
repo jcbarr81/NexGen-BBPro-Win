@@ -19,6 +19,11 @@ import {
 
 import { api, type LeaderBoard, type LeaderRow } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
+import { ReorderableCards } from "@/components/layout/ReorderableCards";
+import {
+  useLayoutEditStore,
+  useRegisterLayoutPage,
+} from "@/lib/layout-edit-store";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { TeamLogo } from "@/components/TeamLogo";
 import {
@@ -44,6 +49,9 @@ export function LeadersPage() {
     queryKey: ["league-leaders", limit],
     queryFn: () => api.leaders(limit),
   });
+
+  useRegisterLayoutPage("leaders");
+  const editingLayout = useLayoutEditStore((s) => s.editing);
 
   return (
     <AppShell
@@ -84,6 +92,8 @@ export function LeadersPage() {
             isError={leaders.isError}
             error={leaders.error}
             boards={leaders.data?.batting ?? []}
+            pageKey="leaders-batting"
+            editing={editingLayout}
           />
         </TabsContent>
         <TabsContent value="pitching">
@@ -92,6 +102,8 @@ export function LeadersPage() {
             isError={leaders.isError}
             error={leaders.error}
             boards={leaders.data?.pitching ?? []}
+            pageKey="leaders-pitching"
+            editing={editingLayout}
           />
         </TabsContent>
       </Tabs>
@@ -104,11 +116,15 @@ function Body({
   isError,
   error,
   boards,
+  pageKey,
+  editing,
 }: {
   isLoading: boolean;
   isError: boolean;
   error?: unknown;
   boards: LeaderBoard[];
+  pageKey: string;
+  editing: boolean;
 }) {
   if (isLoading) {
     return (
@@ -140,11 +156,17 @@ function Body({
     );
   }
   return (
-    <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-      {boards.map((board) => (
-        <BoardCard key={board.key} board={board} />
-      ))}
-    </div>
+    <ReorderableCards
+      pageKey={pageKey}
+      variant="grid"
+      className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3"
+      editing={editing}
+      items={boards.map((board) => ({
+        id: board.key,
+        label: board.label,
+        node: <BoardCard board={board} />,
+      }))}
+    />
   );
 }
 

@@ -22,6 +22,11 @@ import { api, type LeagueStandingsRow } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
+import { ReorderableCards } from "@/components/layout/ReorderableCards";
+import {
+  useLayoutEditStore,
+  useRegisterLayoutPage,
+} from "@/lib/layout-edit-store";
 import { TeamLogo } from "@/components/TeamLogo";
 import {
   Badge,
@@ -51,6 +56,9 @@ export function StandingsPage() {
     queryFn: () => api.leagueStandings(),
   });
 
+  useRegisterLayoutPage("standings");
+  const editingLayout = useLayoutEditStore((s) => s.editing);
+
   return (
     <AppShell
       title="League"
@@ -79,16 +87,23 @@ export function StandingsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          {standings.data.divisions.map((division) => (
-            <DivisionCard
-              key={division.division}
-              division={division.division}
-              teams={division.teams}
-              activeTeamId={activeTeamId}
-            />
-          ))}
-        </div>
+        <ReorderableCards
+          pageKey="standings"
+          variant="grid"
+          className="grid grid-cols-1 gap-6 xl:grid-cols-2"
+          editing={editingLayout}
+          items={standings.data.divisions.map((division) => ({
+            id: division.division,
+            label: division.division,
+            node: (
+              <DivisionCard
+                division={division.division}
+                teams={division.teams}
+                activeTeamId={activeTeamId}
+              />
+            ),
+          }))}
+        />
       )}
     </AppShell>
   );
