@@ -258,8 +258,10 @@ const FINANCE_LEVEL_LABELS: Record<string, string> = {
   basic: "Basic",
   advanced: "Advanced",
   mlb_like: "MLB-Like",
-  warn: "Warn",
-  block: "Block",
+  on: "On",
+  // Legacy values still render as "On" if an old config surfaces them.
+  warn: "On",
+  block: "On",
 };
 
 function FinanceCard({ data }: { data: CommissionerSettings }) {
@@ -294,9 +296,20 @@ function FinanceCard({ data }: { data: CommissionerSettings }) {
   const aiDefaults = data.options.finance_ai_tuning_defaults ?? {};
 
   function applyPreset(preset: string) {
-    // Selecting a non-custom preset clears module/AI overrides locally; the
-    // server fully rebuilds the modules block from PRESET_PROFILES on save.
-    setDraft({ ...draft, preset });
+    // Reflect the preset's module levels + enforcement immediately so the UI
+    // isn't stale before saving. The server still rebuilds authoritatively from
+    // PRESET_PROFILES on save. "custom" keeps the current module values.
+    const profile = data.options.finance_preset_profiles?.[preset];
+    if (profile) {
+      setDraft({
+        ...draft,
+        preset,
+        enforcement_mode: profile.enforcement_mode,
+        modules: { ...draft.modules, ...profile.modules },
+      });
+    } else {
+      setDraft({ ...draft, preset });
+    }
   }
 
   function setModuleLevel(moduleId: string, level: string) {

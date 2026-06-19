@@ -1,0 +1,15 @@
+{
+  "season_id": "usabl-2026",
+  "events": [
+    {
+      "date": "2026-06-17",
+      "player_id": "P1352",
+      "team_id": "POR",
+      "description": "Day-to-day shoulder bruise",
+      "trigger": "collision",
+      "severity": "minor",
+      "days": 2,
+      "dl_tier": "none"
+    }
+  ]
+}

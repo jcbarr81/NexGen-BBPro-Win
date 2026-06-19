@@ -360,6 +360,91 @@ def _detect_streak(
     return events
 
 
+def _detect_finance_payroll_over(
+    team_id: str,
+    settings: NotificationSettings,
+    pre_state: DaySnapshot,
+    new_phase: Optional[str],
+    sim_date: Optional[str],
+) -> List[NotificationEvent]:
+    """Fire when a team is over the luxury threshold. Computed only on a
+    phase-change day so the (heavier) payroll projection never runs every
+    sim day."""
+
+    rule = settings.rule("finance_payroll_over")
+    if not rule.enabled or not rule.notify:
+        return []
+    if not new_phase or new_phase == pre_state.phase:
+        return []
+    try:
+        from services.payroll_policy import evaluate_payroll_delta
+
+        policy = evaluate_payroll_delta(team_id, annual_delta=0)
+    except Exception:
+        return []
+    violation = (policy.violations or {}).get(team_id)
+    if not violation or str(violation.get("kind")) != "max":
+        return []
+    over = int(violation.get("over", 0) or 0)
+    if over <= 0:
+        return []
+    return [
+        NotificationEvent(
+            rule_id="finance_payroll_over",
+            severity="warning",
+            title="Payroll over the luxury threshold",
+            message=(
+                f"Payroll is ${over:,} over the luxury threshold — the tax "
+                "will apply at settlement."
+            ),
+            sim_date=sim_date,
+            payload={"team_id": team_id, "over": over},
+            stop_sim=bool(rule.stop_sim),
+        )
+    ]
+
+
+def _detect_finance_negative_net(
+    team_id: str,
+    settings: NotificationSettings,
+    pre_state: DaySnapshot,
+    new_phase: Optional[str],
+    sim_date: Optional[str],
+) -> List[NotificationEvent]:
+    """Fire when projected monthly net is negative. Phase-change days only."""
+
+    rule = settings.rule("finance_negative_net")
+    if not rule.enabled or not rule.notify:
+        return []
+    if not new_phase or new_phase == pre_state.phase:
+        return []
+    try:
+        from services.owner_finance_engine import get_team_finance_snapshot
+
+        snapshot = get_team_finance_snapshot(team_id)
+    except Exception:
+        return []
+    if snapshot is None:
+        return []
+    net = int(getattr(snapshot, "projected_net", 0) or 0)
+    if net >= 0:
+        return []
+    return [
+        NotificationEvent(
+            rule_id="finance_negative_net",
+            severity="warning",
+            title="Projected net is negative",
+            message=(
+                f"Projected monthly net is -${abs(net):,}. Review your budgets "
+                "on the Finance page."
+            ),
+            sim_date=sim_date,
+            payload={"team_id": team_id, "projected_net": net},
+            stop_sim=bool(rule.stop_sim),
+        )
+    ]
+
+
 def _detect_phase_transition(
     team_id: str,
     settings: NotificationSettings,
@@ -613,6 +698,8 @@ def detect_events(
     events.extend(_detect_streak(team_id, settings, pre_state, sim_date))
     events.extend(_detect_phase_transition(team_id, settings, pre_state, new_phase, sim_date))
     events.extend(_detect_finance_cash_low(team_id, settings, pre_state, sim_date))
+    events.extend(_detect_finance_payroll_over(team_id, settings, pre_state, new_phase, sim_date))
+    events.extend(_detect_finance_negative_net(team_id, settings, pre_state, new_phase, sim_date))
     if run_lineup_validators:
         events.extend(_detect_lineup_validity(team_id, settings, sim_date))
     return events

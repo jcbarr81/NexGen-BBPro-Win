@@ -11,11 +11,11 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 
 from utils.path_utils import get_data_dir
 
-from ..security import CurrentIdentity
+from ..security import CurrentIdentity, require_bearer
 
 router = APIRouter(prefix="/playoffs", tags=["playoffs"], dependencies=[CurrentIdentity])
 
@@ -80,3 +80,177 @@ def playoffs_view(
             )
         year = years[0]
     return _load_year(year)
+
+
+def _run_playoff_sim(mode: str) -> Dict[str, Any]:
+    """Advance the current playoff bracket and return its new state.
+
+    Reuses the battle-tested engine in ``playbalance.playoffs`` (same code the
+    legacy UI and the long-term sim drive). Each function mutates the bracket
+    in place and persists via ``save_bracket``; we return ``to_dict`` so the
+    page can re-render immediately.
+
+    ``mode``: ``"game"`` (one game per active series), ``"round"`` (the next
+    round with pending series), or ``"all"`` (run to a champion).
+    """
+
+    from playbalance import playoffs as _pf
+
+    bracket = _pf.load_bracket()
+    if bracket is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "No playoff bracket to simulate. Advance the season into the "
+                "Playoffs first."
+            ),
+        )
+
+    # Already finished — no-op so a stray click just refreshes the view.
+    if str(getattr(bracket, "champion", "") or "").strip():
+        return {
+            "bracket": bracket.to_dict(),
+            "champion": bracket.champion,
+            "complete": True,
+            "changed": False,
+        }
+
+    try:
+        if mode == "game":
+            _pf.simulate_next_game(bracket)
+        elif mode == "round":
+            _pf.simulate_next_round(bracket)
+        else:  # "all"
+            _pf.simulate_playoffs(bracket)
+    except Exception as exc:  # pragma: no cover - defensive
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Playoff simulation failed: {exc}",
+        ) from exc
+
+    champion = str(getattr(bracket, "champion", "") or "").strip() or None
+    return {
+        "bracket": bracket.to_dict(),
+        "champion": champion,
+        "complete": champion is not None,
+        "changed": True,
+    }
+
+
+@router.post("/simulate/game")
+def simulate_playoff_game(
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Simulate the next playoff day — one game per active series."""
+
+    return _run_playoff_sim("game")
+
+
+@router.post("/simulate/round")
+def simulate_playoff_round(
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Simulate the next round that still has unfinished series."""
+
+    return _run_playoff_sim("round")
+
+
+@router.post("/simulate/all")
+def simulate_playoff_all(
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Simulate the remaining playoffs through to a champion."""
+
+    return _run_playoff_sim("all")
+
+
+def _playoff_games_played(bracket) -> bool:
+    for rnd in getattr(bracket, "rounds", []) or []:
+        for m in getattr(rnd, "matchups", []) or []:
+            for g in getattr(m, "games", []) or []:
+                if str(getattr(g, "result", "") or "").strip():
+                    return True
+    return False
+
+
+_ALLOWED_FIELD_SIZES = {2, 4, 6, 8}
+
+
+@router.post("/rebuild")
+def rebuild_bracket(
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Regenerate the current playoff bracket from final standings.
+
+    Optionally sets the playoff field size (``num_playoff_teams``, default 4)
+    and persists it to the league's playoffs_config.json so future seasons keep
+    the same shape. A 4-team field yields a clean, symmetric bracket (Division
+    Series 1v4 / 2v3 → Championship Series) with no odd wildcard play-in.
+
+    Safe-guarded: refuses if any playoff game already has a result, so a
+    postseason in progress can't be wiped.
+    """
+
+    from playbalance import playoffs as _pf
+
+    existing = _pf.load_bracket()
+    if existing is not None and _playoff_games_played(existing):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Playoff games have already been played — rebuilding would "
+                "wipe results. Can't rebuild a postseason in progress."
+            ),
+        )
+
+    # Standings feed the seeding; make sure they reflect the finished season.
+    try:
+        from api.routers.season import _sync_standings_from_stats
+
+        _sync_standings_from_stats()
+    except Exception:
+        pass
+
+    try:
+        from utils.team_loader import load_teams
+        from playbalance.playoffs_config import (
+            load_playoffs_config,
+            save_playoffs_config,
+        )
+
+        teams = load_teams()
+        standings = _pf._load_standings_snapshot()
+        cfg = load_playoffs_config()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load data for rebuild: {exc}",
+        ) from exc
+
+    if not teams or not standings:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Standings or teams are missing — can't seed a bracket yet.",
+        )
+
+    # Apply + persist the requested field size (default 4 for a clean bracket).
+    field_size = payload.get("num_playoff_teams", 4)
+    try:
+        field_size = int(field_size)
+    except (TypeError, ValueError):
+        field_size = 4
+    if field_size in _ALLOWED_FIELD_SIZES:
+        cfg.num_playoff_teams_per_league = field_size
+        try:
+            save_playoffs_config(cfg)
+        except Exception:
+            pass
+
+    bracket = _pf.generate_bracket(standings, teams, cfg)
+    _pf.save_bracket(bracket)
+    return {
+        "bracket": bracket.to_dict(),
+        "rebuilt": True,
+        "num_playoff_teams": cfg.num_playoff_teams_per_league,
+    }

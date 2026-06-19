@@ -220,7 +220,7 @@ def test_offseason_arbitration_advanced_handles_super_two_player(tmp_path):
     assert details[0].get("arb_tier") == "super_two"
 
 
-def test_offseason_arbitration_respects_block_policy_for_raise(tmp_path):
+def test_offseason_arbitration_no_longer_policy_blocks_raise(tmp_path):
     data_dir = tmp_path / "league-data"
     data_dir.mkdir(parents=True, exist_ok=True)
     ensure_financial_defaults(data_dir=data_dir, league_id="test")
@@ -257,10 +257,11 @@ def test_offseason_arbitration_respects_block_policy_for_raise(tmp_path):
         league_id="test",
     )
 
-    assert summary["arbitration"]["awards"] == 0
     details = summary["arbitration"].get("details") or []
     assert details
-    assert details[0]["decision"] == "policy_block_hold"
+    # Enforcement no longer hard-blocks offseason arbitration; the over-threshold
+    # cost settles as luxury tax instead of producing a policy-block hold.
+    assert details[0]["decision"] != "policy_block_hold"
 
 
 def test_collect_offseason_finance_overview_reports_contract_and_fa_counts(tmp_path):

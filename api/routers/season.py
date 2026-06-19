@@ -286,10 +286,30 @@ def _auto_initialize_draft(draft_date: str) -> Dict[str, Any]:
         if not order:
             out["error"] = "no season stats yet — cannot compute draft order"
             return out
+        supplemental: List[str] = []
+        forfeited: List[str] = []
+        rounds = 10
         try:
-            _ds.initialize_state(year, order=order)
+            from services.qualifying_offers import compensation_for_draft
+            from services.draft_settings import load_draft_settings
+
+            comp = compensation_for_draft(year)
+            supplemental = list(comp.get("comp_teams", []))
+            forfeited = list(comp.get("forfeit_teams", []))
+            rounds = int(load_draft_settings().rounds)
+        except Exception:
+            supplemental, forfeited = [], []
+        try:
+            _ds.initialize_state(
+                year,
+                order=order,
+                total_rounds=rounds,
+                supplemental=supplemental,
+                forfeited=forfeited,
+            )
             out["order_seeded"] = True
             out["order_count"] = len(order)
+            out["compensation_picks"] = len(supplemental)
         except Exception as exc:
             out["error"] = f"order init failed: {exc}"
             return out
@@ -398,6 +418,13 @@ def _state_payload(
         "season_complete": len(simulator.dates) > 0
         and simulator._index >= len(simulator.dates),
         "draft_completed": _draft_completed_for_current_year(),
+        # True only in PLAYOFFS once a champion is crowned — lets the UI gate
+        # the Advance Phase button to match the backend's champion guard.
+        "playoffs_complete": (
+            _playoffs_champion_recorded()
+            if manager.phase == SeasonPhase.PLAYOFFS
+            else False
+        ),
         "preseason_done": _read_preseason_done(),
     }
     if extra:
@@ -994,6 +1021,31 @@ def advance_phase(
                 ),
             )
 
+    # Hard finance deadline: a team must be solvent to start the season.
+    # Exceeding the luxury threshold is allowed (it's taxed in-season); this
+    # only blocks an Opening Day that would begin insolvent (projected debt over
+    # the league cap). Enforcement-off leagues always pass.
+    if manager.phase == SeasonPhase.PRESEASON and not force:
+        opening_team = str(identity.get("t") or "").strip()
+        if opening_team:
+            try:
+                from services.payroll_policy import evaluate_opening_day_payroll
+
+                solvency = evaluate_opening_day_payroll(
+                    opening_team, data_dir=get_data_dir()
+                )
+            except Exception:  # pragma: no cover - defensive
+                solvency = None
+            if solvency is not None and not solvency.allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Your team isn't solvent for Opening Day — projected debt "
+                        "exceeds the league cap. Clear debt or shed payroll before "
+                        "starting the regular season."
+                    ),
+                )
+
     # Build + verify the playoff bracket BEFORE flipping into PLAYOFFS. The
     # old order flipped the phase first and built the bracket after in a
     # swallow-all try/except — so a failed build stranded the league in
@@ -1056,10 +1108,25 @@ def advance_phase(
     # there's no reason to gate it — auto-run so opening day finds
     # players with their fresh ratings already applied.
     if new_phase == SeasonPhase.PRESEASON:
+        # A new season has begun — make sure it has a schedule so the
+        # commissioner doesn't have to manually regenerate one every year.
+        try:
+            extra["schedule"] = _ensure_new_season_schedule()
+        except Exception as exc:  # pragma: no cover - defensive
+            extra["schedule_error"] = str(exc)
         try:
             extra["training_camp"] = _auto_run_training_camp_if_needed()
         except Exception as exc:  # pragma: no cover - defensive
             extra["training_camp_error"] = str(exc)
+        # If a schedule was just generated, rebuild the simulator so the
+        # returned payload reflects the new game count (days_total, draft_date).
+        if isinstance(extra.get("schedule"), dict) and extra["schedule"].get(
+            "generated"
+        ):
+            try:
+                manager, simulator, draft_date = _build_manager_and_simulator()
+            except Exception:  # pragma: no cover - defensive
+                pass
 
     # REGULAR_SEASON → AMATEUR_DRAFT (manual phase advance, not via the
     # sim hitting draft day): make sure the order + pool are seeded so
@@ -1072,6 +1139,67 @@ def advance_phase(
             extra["draft_init_error"] = str(exc)
 
     return _state_payload(manager, simulator, draft_date, extra=extra)
+
+
+def _ensure_new_season_schedule() -> Dict[str, Any]:
+    """Generate a schedule for the new season if one doesn't exist yet.
+
+    Runs on the OFFSEASON → PRESEASON transition so every new season starts
+    with a schedule automatically — the commissioner no longer has to manually
+    regenerate one each year. Idempotent: a non-empty existing schedule is left
+    untouched. Uses the new ``league_year`` (the season rollover already
+    advanced it when archiving the prior season).
+    """
+
+    try:
+        if _load_schedule():
+            return {"generated": False, "reason": "schedule_exists"}
+    except Exception:
+        pass
+
+    data_root = get_data_dir()
+    try:
+        from utils.team_loader import load_teams
+
+        teams = [t.team_id for t in load_teams(data_root / "teams.csv")]
+    except Exception as exc:
+        return {"generated": False, "reason": f"teams_error: {exc}"}
+    if not teams:
+        return {"generated": False, "reason": "no_teams"}
+
+    year: Optional[int] = None
+    try:
+        from playbalance.season_context import SeasonContext
+
+        ctx = SeasonContext.load()
+        cur = ctx.current if isinstance(ctx.current, dict) else {}
+        if cur.get("league_year") is not None:
+            year = int(cur["league_year"])
+    except Exception:
+        year = None
+    if year is None:
+        from datetime import date as _date
+
+        year = _date.today().year
+
+    # Default schedule template — matches league creation / admin regenerate.
+    template_id = "mlb_162"
+    try:
+        from services.league_presets import generate_schedule_from_template
+        from playbalance.schedule_generator import save_schedule
+
+        schedule = generate_schedule_from_template(template_id, teams, year=year)
+        if not schedule:
+            return {"generated": False, "reason": "empty_schedule"}
+        save_schedule(schedule, _schedule_path())
+    except Exception as exc:
+        return {"generated": False, "reason": str(exc)}
+    return {
+        "generated": True,
+        "games": len(schedule),
+        "year": year,
+        "template_id": template_id,
+    }
 
 
 def _auto_run_training_camp_if_needed() -> Dict[str, Any]:
@@ -1137,34 +1265,68 @@ def _draft_completed_for_current_year() -> bool:
 
 
 @router.post("/preseason/list-unsigned")
-def preseason_list_unsigned(
-    payload: Dict[str, Any] = Body(default_factory=dict),
-) -> Dict[str, Any]:
-    """List unsigned players and optionally run a CPU free-agency cycle.
+def _run_cpu_free_agency_async() -> None:
+    """Run the CPU free-agency market in a background daemon thread.
 
-    Ports ``ui/season_progress_window._show_free_agents``. Marks the
-    ``preseason_done.free_agency`` flag so the UI can show it as done.
+    The market re-parses teams/players/rosters for several rounds and writes
+    signings across the whole league — far too heavy to run inline on the
+    preseason "show me the free agents" request (that's what left the button
+    spinning). Mirrors the background-sim job: rebind the league (ContextVars
+    don't cross threads), run, then push the working copy so signings persist.
     """
+    from utils import path_utils
 
-    run_cpu = bool(payload.get("run_cpu", True))
+    league = path_utils.get_active_league_id()
 
-    cpu_summary: Dict[str, Any] = {
-        "applied": False,
-        "signed_players": 0,
-        "rounds_run": 0,
-    }
-    if run_cpu:
+    def _run() -> None:
+        import logging
+
+        token = path_utils.set_request_league(league) if league else None
         try:
             from services.free_agency import run_cpu_free_agency_market
 
-            cpu_summary = run_cpu_free_agency_market(data_dir=get_data_dir())
-        except Exception as exc:  # pragma: no cover - defensive
-            cpu_summary = {
-                "applied": False,
-                "signed_players": 0,
-                "rounds_run": 0,
-                "error": str(exc),
-            }
+            run_cpu_free_agency_market(data_dir=get_data_dir())
+            try:
+                from api import working_copy
+
+                if working_copy.is_enabled():
+                    working_copy.push_changes()
+            except Exception:
+                logging.getLogger("nexgen.season").exception(
+                    "CPU free-agency working-copy push failed"
+                )
+        except Exception:
+            logging.getLogger("nexgen.season").exception(
+                "Background CPU free agency failed"
+            )
+        finally:
+            if token is not None:
+                path_utils.reset_request_league(token)
+
+    threading.Thread(target=_run, name="cpu-free-agency", daemon=True).start()
+
+
+def preseason_list_unsigned(
+    payload: Dict[str, Any] = Body(default_factory=dict),
+) -> Dict[str, Any]:
+    """List unsigned free agents; kick off the CPU market in the background.
+
+    Listing is read-only and fast. The CPU free-agency cycle (CPU teams filling
+    roster holes) is heavy, so it runs in a background thread instead of
+    blocking this request — previously it ran inline and left the UI spinning,
+    especially right after a season rollover when the unsigned pool is large.
+    This step is optional: it lets you review/sign free agents, but the season
+    can be played without it.
+    """
+
+    run_cpu = bool(payload.get("run_cpu", True))
+    cpu_running = False
+    if run_cpu:
+        try:
+            _run_cpu_free_agency_async()
+            cpu_running = True
+        except Exception:  # pragma: no cover - defensive
+            cpu_running = False
 
     try:
         from services.free_agency import list_unsigned_players_from_files
@@ -1186,9 +1348,12 @@ def preseason_list_unsigned(
     return {
         "unsigned_count": len(agents),
         "unsigned_names": names[:50],  # cap for payload size
-        "cpu_signed": int(cpu_summary.get("signed_players", 0) or 0),
-        "cpu_rounds": int(cpu_summary.get("rounds_run", 0) or 0),
-        "cpu_applied": bool(cpu_summary.get("applied", False)),
+        # CPU signings now settle in the background; report that it's running
+        # rather than a (not-yet-known) count.
+        "cpu_signed": 0,
+        "cpu_rounds": 0,
+        "cpu_applied": False,
+        "cpu_running": cpu_running,
     }
 
 

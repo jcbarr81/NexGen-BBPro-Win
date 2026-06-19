@@ -15,6 +15,7 @@ from services.payroll_policy import (
     build_payroll_limit_context,
     estimate_mlb_like_cbt_tax,
     evaluate_free_agent_signing,
+    evaluate_opening_day_payroll,
     evaluate_payroll_delta,
     evaluate_trade_payroll_impact,
     format_payroll_policy_message,
@@ -22,7 +23,7 @@ from services.payroll_policy import (
 )
 
 
-def _setup_finance_policy(data_dir, *, enforcement: str = "block", payroll_rules: str = "basic"):
+def _setup_finance_policy(data_dir, *, enforcement: str = "on", payroll_rules: str = "basic"):
     ensure_financial_defaults(data_dir=data_dir, league_id="alpha")
     apply_financial_preset(
         PRESET_SIMPLE,
@@ -51,30 +52,14 @@ def _write_teams(path):
     )
 
 
-def test_free_agent_signing_blocked_when_payroll_exceeds_threshold(tmp_path):
+def test_free_agent_signing_over_threshold_allowed_in_season(tmp_path):
+    # Hybrid model: over the luxury threshold is allowed during the season (it's
+    # taxed at settlement), not blocked. The violation is still reported so the
+    # UI/notifications can surface it.
     data_dir = tmp_path / "league-data"
     data_dir.mkdir(parents=True, exist_ok=True)
     _write_teams(data_dir / "teams.csv")
-    _setup_finance_policy(data_dir, enforcement="block", payroll_rules="basic")
-
-    result = evaluate_free_agent_signing(
-        "AAA",
-        annual_salary=200_000_000,
-        data_dir=data_dir,
-        league_id="alpha",
-    )
-
-    assert result.allowed is False
-    assert result.warning is False
-    assert "AAA" in result.violations
-    assert result.violations["AAA"]["projected"] > result.violations["AAA"]["threshold"]
-
-
-def test_free_agent_signing_warns_when_mode_is_warn(tmp_path):
-    data_dir = tmp_path / "league-data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    _write_teams(data_dir / "teams.csv")
-    _setup_finance_policy(data_dir, enforcement="warn", payroll_rules="basic")
+    _setup_finance_policy(data_dir, enforcement="on", payroll_rules="basic")
 
     result = evaluate_free_agent_signing(
         "AAA",
@@ -84,10 +69,30 @@ def test_free_agent_signing_warns_when_mode_is_warn(tmp_path):
     )
 
     assert result.allowed is True
-    assert result.warning is True
+    assert result.warning is False
+    assert result.mode == "on"
     assert "AAA" in result.violations
-    text = format_payroll_policy_message(result)
-    assert "Payroll policy warning" in text
+    assert result.violations["AAA"]["projected"] > result.violations["AAA"]["threshold"]
+
+
+def test_legacy_warn_block_normalize_to_on(tmp_path):
+    # Old configs using warn/block should keep enforcement enabled (= "on"),
+    # not silently fall back to off.
+    for legacy in ("warn", "block"):
+        data_dir = tmp_path / f"league-{legacy}"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        _write_teams(data_dir / "teams.csv")
+        _setup_finance_policy(data_dir, enforcement=legacy, payroll_rules="basic")
+
+        result = evaluate_free_agent_signing(
+            "AAA",
+            annual_salary=200_000_000,
+            data_dir=data_dir,
+            league_id="alpha",
+        )
+
+        assert result.mode == "on"
+        assert "AAA" in result.violations  # enforcement is active
 
 
 def test_payroll_policy_skips_when_rules_are_off(tmp_path):
@@ -139,7 +144,9 @@ def test_trade_payroll_policy_blocks_over_limit_delta(tmp_path):
         league_id="alpha",
     )
 
-    assert result.allowed is False
+    # In-season trades are allowed (taxed), not blocked — the violation is
+    # reported for the UI/notifications.
+    assert result.allowed is True
     assert "AAA" in result.violations
 
 
@@ -147,7 +154,7 @@ def test_mlb_like_policy_reports_estimated_cbt_tax(tmp_path):
     data_dir = tmp_path / "league-data"
     data_dir.mkdir(parents=True, exist_ok=True)
     _write_teams(data_dir / "teams.csv")
-    _setup_finance_policy(data_dir, enforcement="warn", payroll_rules="mlb_like")
+    _setup_finance_policy(data_dir, enforcement="on", payroll_rules="mlb_like")
 
     result = evaluate_free_agent_signing(
         "AAA",
@@ -157,7 +164,7 @@ def test_mlb_like_policy_reports_estimated_cbt_tax(tmp_path):
     )
 
     assert result.allowed is True
-    assert result.warning is True
+    assert result.warning is False
     assert "AAA" in result.violations
     tax = int(result.violations["AAA"].get("estimated_tax", 0) or 0)
     assert tax > 0
@@ -198,7 +205,8 @@ def test_mlb_like_floor_blocks_payroll_dump_trade(tmp_path):
         league_id="alpha",
     )
 
-    assert result.allowed is False
+    # Floor (under-spend) is economic — a floor fee applies, the move isn't blocked.
+    assert result.allowed is True
     assert "AAA" in result.violations
     assert result.violations["AAA"]["kind"] == "min"
     message = format_payroll_policy_message(result)
@@ -238,16 +246,20 @@ def test_mlb_like_trade_can_report_mixed_max_and_min_violations(tmp_path):
         league_id="alpha",
     )
 
-    assert result.allowed is False
+    # Both sides report violations (max one side, min the other); in-season
+    # neither blocks — they settle as tax / floor fee.
+    assert result.allowed is True
     assert result.violations["AAA"]["kind"] == "max"
     assert result.violations["BBB"]["kind"] == "min"
 
 
-def test_simple_preset_blocks_action_when_projected_debt_exceeds_cap(tmp_path):
+def test_insolvency_blocks_only_at_opening_day_deadline(tmp_path):
+    # A team over its debt cap is allowed to keep operating in-season, but the
+    # hard Opening-Day check (evaluate_opening_day_payroll) blocks it.
     data_dir = tmp_path / "league-data"
     data_dir.mkdir(parents=True, exist_ok=True)
     _write_teams(data_dir / "teams.csv")
-    _setup_finance_policy(data_dir, enforcement="block", payroll_rules="basic")
+    _setup_finance_policy(data_dir, enforcement="on", payroll_rules="basic")
     (data_dir / "team_financials.json").write_text(
         json.dumps(
             {
@@ -256,7 +268,7 @@ def test_simple_preset_blocks_action_when_projected_debt_exceeds_cap(tmp_path):
                 "teams": {
                     "AAA": {
                         "cash_on_hand": 0,
-                        "debt": 79_500_000,
+                        "debt": 85_000_000,
                         "revenue": {},
                         "expenses": {},
                         "budgets": {},
@@ -268,17 +280,21 @@ def test_simple_preset_blocks_action_when_projected_debt_exceeds_cap(tmp_path):
         encoding="utf-8",
     )
 
-    result = evaluate_free_agent_signing(
+    # In-season: an over-debt move is NOT blocked (settles economically).
+    in_season = evaluate_free_agent_signing(
         "AAA",
         annual_salary=18_000_000,
         data_dir=data_dir,
         league_id="alpha",
     )
+    assert in_season.allowed is True
+    assert in_season.violations["AAA"]["kind"] == "debt"
 
-    assert result.allowed is False
-    assert result.warning is False
-    assert result.violations["AAA"]["kind"] == "debt"
-    message = format_payroll_policy_message(result)
+    # Opening Day deadline: insolvency is a hard block.
+    opening = evaluate_opening_day_payroll("AAA", data_dir=data_dir, league_id="alpha")
+    assert opening.allowed is False
+    assert opening.violations["AAA"]["kind"] == "debt"
+    message = format_payroll_policy_message(opening)
     assert "projected debt" in message.lower()
 
 
@@ -287,11 +303,11 @@ def test_estimate_mlb_like_cbt_tax_tiers():
     assert estimate_mlb_like_cbt_tax(300_000_000, 240_000_000) > 0
 
 
-def test_record_payroll_policy_result_writes_warning_rows(tmp_path):
+def test_record_payroll_policy_result_writes_over_limit_rows(tmp_path):
     data_dir = tmp_path / "league-data"
     data_dir.mkdir(parents=True, exist_ok=True)
     _write_teams(data_dir / "teams.csv")
-    _setup_finance_policy(data_dir, enforcement="warn", payroll_rules="basic")
+    _setup_finance_policy(data_dir, enforcement="on", payroll_rules="basic")
 
     result = evaluate_free_agent_signing(
         "AAA",
@@ -306,7 +322,8 @@ def test_record_payroll_policy_result_writes_warning_rows(tmp_path):
         season_year=2032,
     )
 
-    assert result.warning is True
+    assert result.allowed is True
+    assert result.warning is False
     assert written >= 1
     rows = list_financial_rows(
         team_id="AAA",
@@ -315,7 +332,7 @@ def test_record_payroll_policy_result_writes_warning_rows(tmp_path):
         limit=5,
     )
     assert len(rows) >= 1
-    assert "outcome=warning" in rows[0]["memo"]
+    assert "outcome=over_limit" in rows[0]["memo"]
 
 
 def test_apply_payroll_rule_accounting_effects_posts_tax_and_floor_fee(tmp_path):
@@ -476,8 +493,10 @@ def test_evaluate_payroll_delta_uses_overrides_for_sequential_checks(tmp_path):
         monthly_projection={"AAA": None},
     )
 
-    assert first.allowed is False
-    assert second.allowed is False
+    # In-season both are allowed (over-threshold settles via tax); the override
+    # totals just change the projected payroll the violation reports.
+    assert first.allowed is True
+    assert second.allowed is True
     assert first.violations["AAA"]["projected"] < second.violations["AAA"]["projected"]
 
 

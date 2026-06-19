@@ -407,7 +407,7 @@ def test_apply_approved_queue_decisions_free_agency_target_signs_contract(
     assert decisions[0]["payload"]["execution"] == "signed"
 
 
-def test_apply_approved_queue_decisions_blocks_arbitration_raise_when_policy_blocks(
+def test_apply_approved_queue_decisions_applies_arbitration_raise_over_threshold(
     tmp_path,
 ):
     data_dir = tmp_path / "data"
@@ -458,19 +458,21 @@ def test_apply_approved_queue_decisions_blocks_arbitration_raise_when_policy_blo
         queue_type="arbitration",
         data_dir=data_dir,
     )
-    assert summary["applied"] == 0
-    assert summary["skipped"] == 1
+    # Hybrid model: over-threshold arbitration raises are no longer blocked in
+    # the offseason — they apply, and the over-threshold cost settles as tax.
+    assert summary["applied"] == 1
+    assert summary["skipped"] == 0
     players = load_contracts_payload(data_dir=data_dir).get("players") or {}
-    assert players["P_RAISE"]["annual_salary"] == 230000000
+    assert players["P_RAISE"]["annual_salary"] == 260000000
     decisions = gm_finance_queue.list_team_queue_decisions(
         "T1",
         queue_type="arbitration",
         data_dir=data_dir,
     )
-    assert decisions[0]["payload"]["execution"] == "policy_blocked"
+    assert decisions[0]["payload"].get("execution") != "policy_blocked"
 
 
-def test_apply_approved_queue_decisions_blocks_fa_target_when_policy_blocks(
+def test_apply_approved_queue_decisions_applies_fa_target_over_threshold(
     tmp_path,
     monkeypatch,
 ):
@@ -532,14 +534,16 @@ def test_apply_approved_queue_decisions_blocks_fa_target_when_policy_blocks(
         queue_type="free_agency",
         data_dir=data_dir,
     )
-    assert summary["applied"] == 0
-    assert summary["skipped"] == 1
+    # Hybrid model: over-threshold FA targets apply in the offseason (taxed),
+    # not blocked.
+    assert summary["applied"] == 1
+    assert summary["skipped"] == 0
     decisions = gm_finance_queue.list_team_queue_decisions(
         "T1",
         queue_type="free_agency",
         data_dir=data_dir,
     )
-    assert decisions[0]["payload"]["execution"] == "policy_blocked"
+    assert decisions[0]["payload"].get("execution") != "policy_blocked"
 
 
 def test_summarize_queue_decisions_counts_by_status(tmp_path):

@@ -19,6 +19,7 @@ import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowRight,
+  Banknote,
   Bell,
   Calendar,
   CalendarDays,
@@ -177,7 +178,9 @@ export function SeasonPage() {
         <ErrorCard message={(state.error as Error).message} />
       ) : state.data ? (
         <div className="space-y-6 animate-fade-in">
-          {state.data.days_total === 0 && <NoScheduleBanner />}
+          {state.data.days_total === 0 && (
+            <NoScheduleBanner phase={state.data.phase} />
+          )}
           {(state.data.draft_blocked ||
             state.data.phase === "AMATEUR_DRAFT") && <DraftReadyBanner />}
           {(lastNotifications.length > 0 || stopReason) && (
@@ -191,6 +194,7 @@ export function SeasonPage() {
             />
           )}
           <NextStepBanner state={state.data} />
+          <FinanceTodoBanner />
           <PhaseHeader state={state.data} />
           <MetricsRow state={state.data} />
           <ActionsCard
@@ -202,12 +206,13 @@ export function SeasonPage() {
               state.data.phase === "AMATEUR_DRAFT"
             }
             simBlocked={state.data.phase !== "REGULAR_SEASON"}
-            // Advance Phase has its own backend gates (regular-season
-            // games left, draft uncommitted, playoffs unfinished). The
-            // button stays enabled across phases so the user can exit
-            // PRESEASON / AMATEUR_DRAFT / PLAYOFFS / OFFSEASON — only
-            // an in-flight mutation should grey it out.
-            advanceDisabled={anyPending}
+            // Advance Phase mirrors the backend's advance gates: it's only
+            // enabled once the current phase is actually ready to move on
+            // (regular season finished, draft committed, champion crowned).
+            // PRESEASON/OFFSEASON have no gate and stay enabled.
+            advanceDisabled={
+              anyPending || !isPhaseReadyToAdvance(state.data)
+            }
             activeLabel={activeLabel}
             onSimDay={() => simDay.mutate()}
             onSimWeek={() => simWeek.mutate()}
@@ -266,6 +271,59 @@ interface NextStep {
   cta?: { label: string; to: string };
 }
 
+const TODO_DOT_TONE: Record<string, string> = {
+  critical: "bg-danger",
+  warning: "bg-amber",
+  info: "bg-muted",
+};
+
+/** Phase-aware "what finance step do I need to take" list for the owner's
+ *  team. Hidden entirely when finance is off or there's nothing pending. */
+function FinanceTodoBanner() {
+  const teamId = useAuthStore((s) => s.selectedTeamId ?? s.teamId ?? null);
+  const todo = useQuery({
+    queryKey: ["finance-todo", teamId],
+    queryFn: () => api.financeTodo(teamId as string),
+    enabled: !!teamId,
+    refetchOnWindowFocus: false,
+  });
+
+  const items = todo.data?.items ?? [];
+  if (!todo.data?.finance_enabled || items.length === 0) return null;
+
+  return (
+    <Card className="border-amber/30 bg-amber/5">
+      <CardContent className="py-4">
+        <div className="flex items-center gap-2">
+          <Banknote className="h-5 w-5 shrink-0 text-amber" />
+          <div className="font-semibold text-amber-text">
+            Finance — actions for your team
+          </div>
+        </div>
+        <ul className="mt-2 space-y-1.5">
+          {items.map((item) => (
+            <li key={item.id} className="flex items-start gap-2 text-sm">
+              <span
+                className={cn(
+                  "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
+                  TODO_DOT_TONE[item.severity] ?? "bg-muted",
+                )}
+              />
+              <span className="flex-1 text-muted">{item.label}</span>
+              <Link
+                to={item.to}
+                className="shrink-0 text-xs font-semibold text-amber underline-offset-2 hover:underline"
+              >
+                Open →
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
 /** True once the amateur draft is behind us. Prefer the backend's
  *  authoritative `draft_completed` flag; fall back to the date heuristic so
  *  the UI is still correct against an older backend. (The date-only check
@@ -285,6 +343,37 @@ function isDraftDone(state: SeasonState): boolean {
 function isSeasonComplete(state: SeasonState): boolean {
   if (state.season_complete) return true;
   return state.phase === "REGULAR_SEASON" && (state.days_remaining ?? 0) === 0;
+}
+
+/** Whether the current phase is actually ready to advance — mirrors the
+ *  backend's advance-phase gates so the button isn't clickable when the
+ *  click would just bounce with an error (e.g. unfinished playoffs). */
+function isPhaseReadyToAdvance(state: SeasonState): boolean {
+  switch (state.phase) {
+    case "REGULAR_SEASON":
+      return isSeasonComplete(state);
+    case "AMATEUR_DRAFT":
+      return isDraftDone(state);
+    case "PLAYOFFS":
+      return !!state.playoffs_complete;
+    // PRESEASON and OFFSEASON have no backend gate — always ready.
+    default:
+      return true;
+  }
+}
+
+/** Hover/disabled hint explaining why Advance Phase isn't available yet. */
+function advanceBlockedReason(state: SeasonState): string | undefined {
+  switch (state.phase) {
+    case "REGULAR_SEASON":
+      return "Finish the regular season (play all scheduled games) before advancing to the Playoffs.";
+    case "AMATEUR_DRAFT":
+      return "Commit the amateur draft before advancing.";
+    case "PLAYOFFS":
+      return "Resolve the playoff bracket and crown a champion (Playoffs page) before advancing to the Offseason.";
+    default:
+      return undefined;
+  }
 }
 
 function buildNextStep(state: SeasonState): NextStep | null {
@@ -362,9 +451,33 @@ function DraftReadyBanner() {
   );
 }
 
-function NoScheduleBanner() {
+function NoScheduleBanner({ phase }: { phase: SeasonPhase }) {
   const role = useAuthStore((s) => s.role);
   const isAdmin = role === "admin";
+
+  // Between seasons, the next schedule is generated automatically when the
+  // owner advances into the new season — no manual regenerate needed.
+  if (phase === "OFFSEASON") {
+    return (
+      <Card className="border-amber/30 bg-amber/5">
+        <CardContent className="flex items-start gap-3 py-4">
+          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-amber" />
+          <div className="flex-1 text-sm">
+            <div className="font-semibold text-amber-text">
+              Offseason — next season not scheduled yet
+            </div>
+            <p className="mt-1 text-muted">
+              That's expected between seasons. When you click{" "}
+              <span className="font-semibold">Advance Phase</span> to start the
+              new season, a fresh schedule is generated automatically — no
+              manual step needed.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="border-warning/40 bg-warning/10">
       <CardContent className="flex items-start gap-3 py-4">
@@ -588,6 +701,9 @@ function ActionsCard({
           variant={advancePrimary ? "primary" : "ghost"}
           onClick={onAdvancePhase}
           disabled={advanceDisabled}
+          title={
+            !isPhaseReadyToAdvance(state) ? advanceBlockedReason(state) : undefined
+          }
           className="w-full"
         >
           <Flag className="h-4 w-4" /> Advance Phase
@@ -613,13 +729,12 @@ function PreseasonActionsCard({ state }: { state: SeasonState }) {
     mutationFn: () => api.preseasonListUnsigned(true),
     onSuccess: (data) => {
       refreshSeasonState();
-      const cpuMsg =
-        data.cpu_signed > 0
-          ? `CPU signed ${data.cpu_signed} across ${data.cpu_rounds} round${data.cpu_rounds === 1 ? "" : "s"}. `
-          : "";
+      const cpuMsg = data.cpu_running
+        ? "CPU teams are signing free agents in the background — refresh in a moment to see updates. "
+        : "";
       const msg =
         data.unsigned_count === 0
-          ? `${cpuMsg}No unsigned players remaining.`
+          ? `${cpuMsg}No unsigned players available.`
           : `${cpuMsg}${data.unsigned_count} unsigned player${data.unsigned_count === 1 ? "" : "s"} available${data.unsigned_names.length ? `: ${data.unsigned_names.slice(0, 5).join(", ")}${data.unsigned_names.length > 5 ? "…" : ""}` : ""}.`;
       setNotice(msg);
       toast.info(msg);

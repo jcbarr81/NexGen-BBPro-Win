@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "year": 2026,
+  "champion": null,
+  "runner_up": null,
+  "seeds": {
+    "AL": [
+      {
+        "team_id": "A1",
+        "seed": 1,
+        "league": "AL",
+        "wins": 98,
+        "run_diff": 148
+      },
+      {
+        "team_id": "A3",
+        "seed": 2,
+        "league": "AL",
+        "wins": 94,
+        "run_diff": 144
+      },
+      {
+        "team_id": "A4",
+        "seed": 3,
+        "league": "AL",
+        "wins": 92,
+        "run_diff": 142
+      },
+      {
+        "team_id": "A2",
+        "seed": 4,
+        "league": "AL",
+        "wins": 96,
+        "run_diff": 146
+      }
+    ]
+  },
+  "rounds": [
+    {
+      "name": "AL DS",
+      "matchups": [
+        {
+          "high": {
+            "team_id": "A1",
+            "seed": 1,
+            "league": "AL",
+            "wins": 98,
+            "run_diff": 148
+          },
+          "low": {
+            "team_id": "A2",
+            "seed": 4,
+            "league": "AL",
+            "wins": 96,
+            "run_diff": 146
+          },
+          "config": {
+            "length": 5,
+            "pattern": [
+              2,
+              2,
+              1
+            ]
+          },
+          "games": [
+            {
+              "home": "A1",
+              "away": "A2",
+              "date": null,
+              "result": "1-0",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\cbl\\data\\boxscores\\playoffs\\2026_AL DS_S0_G0_A2_at_A1.html",
+              "meta": {}
+            },
+            {
+              "home": "A1",
+              "away": "A2",
+              "date": null,
+              "result": "1-0",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\cbl\\data\\boxscores\\playoffs\\2026_AL DS_S0_G1_A2_at_A1.html",
+              "meta": {}
+            },
+            {
+              "home": "A2",
+              "away": "A1",
+              "date": null,
+              "result": "1-0",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\cbl\\data\\boxscores\\playoffs\\2026_AL DS_S0_G2_A1_at_A2.html",
+              "meta": {}
+            },
+            {
+              "home": "A2",
+              "away": "A1",
+              "date": null,
+              "result": "1-0",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\cbl\\data\\boxscores\\playoffs\\2026_AL DS_S0_G3_A1_at_A2.html",
+              "meta": {}
+            },
+            {
+              "home": "A1",
+              "away": "A2",
+              "date": null,
+              "result": "1-0",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\cbl\\data\\boxscores\\playoffs\\2026_AL DS_S0_G4_A2_at_A1.html",
+              "meta": {}
+            }
+          ],
+          "winner": "A1"
+        },
+        {
+          "high": {
+            "team_id": "A3",
+            "seed": 2,
+            "league": "AL",
+            "wins": 94,
+            "run_diff": 144
+          },
+          "low": {
+            "team_id": "A4",
+            "seed": 3,
+            "league": "AL",
+            "wins": 92,
+            "run_diff": 142
+          },
+          "config": {
+            "length": 5,
+            "pattern": [
+              2,
+              2,
+              1
+            ]
+          },
+          "games": [
+            {
+              "home": "A3",
+              "away": "A4",
+              "date": null,
+              "result": "1-0",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\cbl\\data\\boxscores\\playoffs\\2026_AL DS_S1_G0_A4_at_A3.html",
+              "meta": {}
+            },
+            {
+              "home": "A3",
+              "away": "A4",
+              "date": null,
+              "result": "1-0",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\cbl\\data\\boxscores\\playoffs\\2026_AL DS_S1_G1_A4_at_A3.html",
+              "meta": {}
+            },
+            {
+              "home": "A4",
+              "away": "A3",
+              "date": null,
+              "result": "1-0",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\cbl\\data\\boxscores\\playoffs\\2026_AL DS_S1_G2_A3_at_A4.html",
+              "meta": {}
+            },
+            {
+              "home": "A4",
+              "away": "A3",
+              "date": null,
+              "result": "1-0",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\cbl\\data\\boxscores\\playoffs\\2026_AL DS_S1_G3_A3_at_A4.html",
+              "meta": {}
+            },
+            {
+              "home": "A3",
+              "away": "A4",
+              "date": null,
+              "result": "1-0",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\cbl\\data\\boxscores\\playoffs\\2026_AL DS_S1_G4_A4_at_A3.html",
+              "meta": {}
+            }
+          ],
+          "winner": "A3"
+        }
+      ],
+      "plan": []
+    },
+    {
+      "name": "AL CS",
+      "matchups": [],
+      "plan": [
+        {
+          "series_key": "cs",
+          "sources": [
+            {
+              "kind": "winner",
+              "league": null,
+              "seed": null,
+              "source_round": "AL DS",
+              "slot": 0
+            },
+            {
+              "kind": "winner",
+              "league": null,
+              "seed": null,
+              "source_round": "AL DS",
+              "slot": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Final",
+      "matchups": [],
+      "plan": []
+    }
+  ]
+}

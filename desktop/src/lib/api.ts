@@ -449,6 +449,14 @@ export interface CommissionerSettings {
       levels: string[];
     }>;
     finance_ai_tuning_defaults: Record<string, number>;
+    finance_preset_profiles?: Record<
+      string,
+      {
+        enabled: boolean;
+        enforcement_mode: string;
+        modules: Record<string, string>;
+      }
+    >;
     strategy_profiles: Array<{
       id: string;
       label: string;
@@ -753,6 +761,13 @@ export interface DraftState {
    *  the UI to detect "draft complete" once ``round`` advances past it. */
   configured_rounds?: number;
   configured_pool_size?: number;
+  /** Backend-authoritative fields. With qualifying-offer compensation picks
+   *  the draft order is non-uniform per round, so a client-side modulo over
+   *  ``order`` is wrong — prefer these when present. */
+  team_on_clock?: string | null;
+  draft_complete?: boolean;
+  total_picks?: number;
+  has_compensation?: boolean;
 }
 
 export interface DraftResults {
@@ -855,6 +870,14 @@ export interface PlayoffYears {
   latest: number | null;
 }
 
+export interface PlayoffSimResult {
+  bracket: Playoffs;
+  champion: string | null;
+  complete: boolean;
+  /** False when the bracket was already finished (the call was a no-op). */
+  changed: boolean;
+}
+
 // --- Finance ---
 
 export interface FinanceSnapshot {
@@ -870,6 +893,38 @@ export interface FinanceSnapshot {
   projected_net: number;
   financials_enabled: boolean;
   preset: string;
+}
+
+export type FinanceTodoSeverity = "info" | "warning" | "critical";
+
+export interface FinanceTodoItem {
+  id: string;
+  severity: FinanceTodoSeverity;
+  label: string;
+  to: string;
+}
+
+export interface FinanceTodo {
+  team_id: string;
+  phase: string;
+  finance_enabled: boolean;
+  items: FinanceTodoItem[];
+}
+
+export interface QualifyingOfferRecord {
+  player_id: string;
+  team_id: string;
+  qo_value: number;
+  salary?: number;
+  decision: string; // pending | accepted | declined | not_tendered
+  signed_with: string | null;
+  comp_awarded: boolean;
+}
+
+export interface TeamQualifyingOffers {
+  team_id: string;
+  year: number;
+  offers: QualifyingOfferRecord[];
 }
 
 export interface FinanceTransaction {
@@ -1163,6 +1218,9 @@ export interface SeasonState {
    *  schedule is played; `draft_completed` = the amateur draft is committed. */
   season_complete?: boolean;
   draft_completed?: boolean;
+  /** True only in PLAYOFFS once a champion is crowned. Used to gate the
+   *  Advance Phase button so it can't be clicked on an unfinished bracket. */
+  playoffs_complete?: boolean;
   /** Summary returned after each simulated batch: finance cadence,
    *  CPU trade offers, and DL activations. */
   automations?: {
@@ -1876,6 +1934,7 @@ export const api = {
       level: "ACT" | "AAA" | "LOW";
       annual_salary?: number;
       years?: number;
+      signing_bonus?: number;
       acknowledge_warning?: boolean;
       force?: boolean;
     },
@@ -2068,6 +2127,7 @@ export const api = {
       cpu_signed: number;
       cpu_rounds: number;
       cpu_applied: boolean;
+      cpu_running?: boolean;
     }>("/season/preseason/list-unsigned", {
       method: "POST",
       body: { run_cpu },
@@ -2144,11 +2204,33 @@ export const api = {
     apiRequest<FinanceTransactions>(
       `/teams/${encodeURIComponent(teamId)}/finance/transactions?limit=${limit}`,
     ),
+  financeTodo: (teamId: string) =>
+    apiRequest<FinanceTodo>(`/teams/${encodeURIComponent(teamId)}/finance/todo`),
+  teamQualifyingOffers: (teamId: string) =>
+    apiRequest<TeamQualifyingOffers>(
+      `/teams/${encodeURIComponent(teamId)}/finance/qualifying-offers`,
+    ),
+  resolveQualifyingOffer: (teamId: string, playerId: string, tender: boolean) =>
+    apiRequest<{ applied: boolean; decision: string }>(
+      `/teams/${encodeURIComponent(teamId)}/finance/qualifying-offers/${encodeURIComponent(playerId)}`,
+      { method: "POST", body: { tender } },
+    ),
   playoffYears: () => apiRequest<PlayoffYears>("/playoffs/years"),
   playoffs: (year?: number) => {
     const qs = year ? `?year=${year}` : "";
     return apiRequest<Playoffs>(`/playoffs${qs}`);
   },
+  simulatePlayoffGame: () =>
+    apiRequest<PlayoffSimResult>("/playoffs/simulate/game", { method: "POST" }),
+  simulatePlayoffRound: () =>
+    apiRequest<PlayoffSimResult>("/playoffs/simulate/round", { method: "POST" }),
+  simulatePlayoffAll: () =>
+    apiRequest<PlayoffSimResult>("/playoffs/simulate/all", { method: "POST" }),
+  rebuildPlayoffs: (numPlayoffTeams = 4) =>
+    apiRequest<{ bracket: Playoffs; rebuilt: boolean; num_playoff_teams: number }>(
+      "/playoffs/rebuild",
+      { method: "POST", body: { num_playoff_teams: numPlayoffTeams } },
+    ),
   draftState: (year?: number) => {
     const qs = year ? `?year=${year}` : "";
     return apiRequest<DraftState>(`/draft/state${qs}`);

@@ -39,6 +39,11 @@ LEVEL_BASIC = "basic"
 LEVEL_ADVANCED = "advanced"
 LEVEL_MLB_LIKE = "mlb_like"
 ENFORCEMENT_OFF = "off"
+ENFORCEMENT_ON = "on"
+# Legacy enforcement levels (pre-7.0). Kept only so old configs/files normalize
+# cleanly: both collapse to ENFORCEMENT_ON. The system no longer has a "warn"
+# middle ground — enforcement is on (economic consequences in-season, hard at
+# Opening Day) or off.
 ENFORCEMENT_WARN = "warn"
 ENFORCEMENT_BLOCK = "block"
 
@@ -51,7 +56,7 @@ MODULE_LEVELS: Dict[str, tuple[str, ...]] = {
     "gm_payroll_rules": (LEVEL_OFF, LEVEL_BASIC, LEVEL_MLB_LIKE),
     "gm_arbitration": (LEVEL_OFF, LEVEL_BASIC, LEVEL_ADVANCED),
     "gm_free_agency": (LEVEL_OFF, LEVEL_BASIC, LEVEL_ADVANCED),
-    "gm_roster_cost_enforcement": (ENFORCEMENT_OFF, ENFORCEMENT_WARN, ENFORCEMENT_BLOCK),
+    "gm_roster_cost_enforcement": (ENFORCEMENT_OFF, ENFORCEMENT_ON),
     "gm_finance_ai": (LEVEL_OFF, LEVEL_BASIC, LEVEL_ADVANCED),
 }
 
@@ -63,7 +68,7 @@ PRESET_CUSTOM = "custom"
 
 DEFAULT_PRESET = PRESET_OFF
 DEFAULT_ENABLED = False
-DEFAULT_ENFORCEMENT_MODE = ENFORCEMENT_WARN
+DEFAULT_ENFORCEMENT_MODE = ENFORCEMENT_OFF
 DEFAULT_FINANCE_AI_TUNING: Dict[str, float | int] = {
     "star_talent_threshold": 76,
     "star_performance_threshold": 78,
@@ -104,8 +109,10 @@ LEVEL_LABELS: Dict[str, str] = {
     LEVEL_BASIC: "Basic",
     LEVEL_ADVANCED: "Advanced",
     LEVEL_MLB_LIKE: "MLB-Like",
-    ENFORCEMENT_WARN: "Warn",
-    ENFORCEMENT_BLOCK: "Block",
+    ENFORCEMENT_ON: "On",
+    # Legacy labels (kept for back-compat display of old values).
+    ENFORCEMENT_WARN: "On",
+    ENFORCEMENT_BLOCK: "On",
 }
 
 FINANCE_MODULE_HELP: Dict[str, str] = {
@@ -126,8 +133,7 @@ _GENERIC_LEVEL_HELP: Dict[str, str] = {
     LEVEL_BASIC: "Enables the core version of the module with lighter rules and fewer edge-case systems.",
     LEVEL_ADVANCED: "Enables the deeper simulation version with more detail, pressure, and realism.",
     LEVEL_MLB_LIKE: "Uses the strictest MLB-style version of the module for realism-first behavior.",
-    ENFORCEMENT_WARN: "Allows the action but warns when limits are exceeded.",
-    ENFORCEMENT_BLOCK: "Prevents the action until costs or roster state return to a valid range.",
+    ENFORCEMENT_ON: "Roster-cost rules have teeth: luxury tax / floor fees apply during the season, and Opening Day payroll must be solvent.",
 }
 
 _MODULE_LEVEL_HELP: Dict[str, Dict[str, str]] = {
@@ -158,8 +164,7 @@ _MODULE_LEVEL_HELP: Dict[str, Dict[str, str]] = {
     },
     "gm_roster_cost_enforcement": {
         ENFORCEMENT_OFF: "Roster-cost guardrails are disabled for this league.",
-        ENFORCEMENT_WARN: "Moves can still be made, but the user is warned when limits are exceeded.",
-        ENFORCEMENT_BLOCK: "Moves that would violate roster-cost rules are blocked until the team is compliant.",
+        ENFORCEMENT_ON: "Roster-cost rules are enforced: you can exceed the luxury threshold during the season (you pay the tax), but your team must be solvent at Opening Day.",
     },
 }
 
@@ -168,12 +173,12 @@ _OFF_MODULES = {module: levels[0] for module, levels in MODULE_LEVELS.items()}
 PRESET_PROFILES: Dict[str, Dict[str, object]] = {
     PRESET_OFF: {
         "enabled": False,
-        "enforcement_mode": ENFORCEMENT_WARN,
+        "enforcement_mode": ENFORCEMENT_OFF,
         "modules": dict(_OFF_MODULES),
     },
     PRESET_SIMPLE: {
         "enabled": True,
-        "enforcement_mode": ENFORCEMENT_WARN,
+        "enforcement_mode": ENFORCEMENT_ON,
         "modules": {
             "owner_revenue": LEVEL_BASIC,
             "owner_market_model": LEVEL_OFF,
@@ -183,13 +188,13 @@ PRESET_PROFILES: Dict[str, Dict[str, object]] = {
             "gm_payroll_rules": LEVEL_BASIC,
             "gm_arbitration": LEVEL_OFF,
             "gm_free_agency": LEVEL_BASIC,
-            "gm_roster_cost_enforcement": ENFORCEMENT_WARN,
+            "gm_roster_cost_enforcement": ENFORCEMENT_ON,
             "gm_finance_ai": LEVEL_BASIC,
         },
     },
     PRESET_STANDARD: {
         "enabled": True,
-        "enforcement_mode": ENFORCEMENT_WARN,
+        "enforcement_mode": ENFORCEMENT_ON,
         "modules": {
             "owner_revenue": LEVEL_ADVANCED,
             "owner_market_model": LEVEL_BASIC,
@@ -199,13 +204,13 @@ PRESET_PROFILES: Dict[str, Dict[str, object]] = {
             "gm_payroll_rules": LEVEL_BASIC,
             "gm_arbitration": LEVEL_BASIC,
             "gm_free_agency": LEVEL_ADVANCED,
-            "gm_roster_cost_enforcement": ENFORCEMENT_WARN,
+            "gm_roster_cost_enforcement": ENFORCEMENT_ON,
             "gm_finance_ai": LEVEL_ADVANCED,
         },
     },
     PRESET_MLB_LIKE: {
         "enabled": True,
-        "enforcement_mode": ENFORCEMENT_BLOCK,
+        "enforcement_mode": ENFORCEMENT_ON,
         "modules": {
             "owner_revenue": LEVEL_ADVANCED,
             "owner_market_model": LEVEL_ADVANCED,
@@ -215,7 +220,7 @@ PRESET_PROFILES: Dict[str, Dict[str, object]] = {
             "gm_payroll_rules": LEVEL_MLB_LIKE,
             "gm_arbitration": LEVEL_ADVANCED,
             "gm_free_agency": LEVEL_ADVANCED,
-            "gm_roster_cost_enforcement": ENFORCEMENT_BLOCK,
+            "gm_roster_cost_enforcement": ENFORCEMENT_ON,
             "gm_finance_ai": LEVEL_ADVANCED,
         },
     },
@@ -255,12 +260,11 @@ def build_finance_module_tooltip(module: str) -> str:
 
 def build_finance_enforcement_tooltip() -> str:
     lines = [
-        "Controls how strictly the overall finance system responds when teams exceed configured limits.",
+        "Controls whether the finance system's rules are enforced.",
         "",
         "Modes:",
         f"- {_level_label(ENFORCEMENT_OFF)}: Finance enforcement is disabled.",
-        f"- {_level_label(ENFORCEMENT_WARN)}: Users can continue after a warning.",
-        f"- {_level_label(ENFORCEMENT_BLOCK)}: Actions are blocked until the issue is resolved.",
+        f"- {_level_label(ENFORCEMENT_ON)}: Rules have teeth — you can exceed the luxury threshold during the season (paying the tax), but Opening Day payroll must be solvent.",
     ]
     return "\n".join(lines)
 
@@ -514,9 +518,10 @@ def _normalize_preset(value: object) -> str:
 
 def _normalize_enforcement(value: object) -> str:
     token = str(value or DEFAULT_ENFORCEMENT_MODE).strip().lower()
-    if token in {ENFORCEMENT_OFF, ENFORCEMENT_WARN, ENFORCEMENT_BLOCK}:
-        return token
-    return DEFAULT_ENFORCEMENT_MODE
+    # Legacy warn/block both collapse to the single "on" enforcement state.
+    if token in {ENFORCEMENT_ON, ENFORCEMENT_WARN, ENFORCEMENT_BLOCK}:
+        return ENFORCEMENT_ON
+    return ENFORCEMENT_OFF
 
 
 def _normalize_module_level(module: str, value: object) -> str:
@@ -524,6 +529,14 @@ def _normalize_module_level(module: str, value: object) -> str:
     if not allowed:
         return LEVEL_OFF
     token = str(value or "").strip().lower()
+    # Back-compat: the enforcement module dropped warn/block in favor of on.
+    # Map legacy values to "on" so existing leagues keep enforcement enabled
+    # instead of silently falling back to "off".
+    if module == "gm_roster_cost_enforcement" and token in {
+        ENFORCEMENT_WARN,
+        ENFORCEMENT_BLOCK,
+    }:
+        token = ENFORCEMENT_ON
     if token in allowed:
         return token
     return allowed[0]

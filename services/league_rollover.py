@@ -176,10 +176,42 @@ class LeagueRolloverService:
             ended_on=ended_val,
             next_league_year=next_league_year,
         )
+        # Qualifying offers: snapshot the soon-to-expire deals BEFORE the
+        # contract rollover removes them, then CPU-resolve QOs for the new
+        # season afterward (defensive — never block the rollover).
+        try:
+            from services.qualifying_offers import snapshot_qo_candidates
+
+            _qo_candidates = snapshot_qo_candidates(data_dir=_DATA_DIR)
+        except Exception:
+            _qo_candidates = {}
+
         contract_rollover = rollover_contracts_for_new_season(
             season_year=next_descriptor.get("league_year") if isinstance(next_descriptor, dict) else None,
             data_dir=_DATA_DIR,
         )
+
+        try:
+            from services.qualifying_offers import process_qualifying_offers
+
+            _qo_year = (
+                next_descriptor.get("league_year")
+                if isinstance(next_descriptor, dict)
+                else None
+            )
+            if _qo_year:
+                from services.qualifying_offers import human_team_ids
+
+                process_qualifying_offers(
+                    int(_qo_year),
+                    candidates=_qo_candidates,
+                    data_dir=_DATA_DIR,
+                    league_id=self.context.league_id,
+                    owner_teams=human_team_ids(data_dir=_DATA_DIR),
+                )
+        except Exception:
+            pass
+
         finance_rollover = run_offseason_financial_rollover(
             ended_season_year=league_year if isinstance(league_year, int) else None,
             next_season_year=next_descriptor.get("league_year") if isinstance(next_descriptor, dict) else None,

@@ -158,11 +158,22 @@ def _serialize() -> Dict[str, Any]:
             ],
             "finance_enforcement": [
                 fs.ENFORCEMENT_OFF,
-                fs.ENFORCEMENT_WARN,
-                fs.ENFORCEMENT_BLOCK,
+                fs.ENFORCEMENT_ON,
             ],
             "finance_modules": _serialize_finance_modules(),
             "finance_ai_tuning_defaults": dict(fs.DEFAULT_FINANCE_AI_TUNING),
+            # What each preset sets, so the UI can reflect a preset's module
+            # levels + enforcement the moment it's selected (before saving).
+            "finance_preset_profiles": {
+                name: {
+                    "enabled": bool(profile.get("enabled", False)),
+                    "enforcement_mode": str(
+                        profile.get("enforcement_mode", fs.ENFORCEMENT_OFF)
+                    ),
+                    "modules": dict(profile.get("modules", {})),
+                }
+                for name, profile in fs.PRESET_PROFILES.items()
+            },
             "strategy_profiles": strategy_options,
         },
     }

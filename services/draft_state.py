@@ -132,8 +132,50 @@ def compute_order_for_draft_year(
     return compute_order_from_season_stats(seed=seed)
 
 
-def initialize_state(year: int, *, order: List[str], seed: int | None = None) -> Dict[str, Any]:
-    state = {
+def build_pick_sequence(
+    order: List[str],
+    total_rounds: int,
+    *,
+    supplemental: List[str] | None = None,
+    forfeited: List[str] | None = None,
+) -> List[Dict[str, Any]]:
+    """Explicit per-pick sequence supporting qualifying-offer compensation.
+
+    Compensation picks (``supplemental`` — teams that lost a QO'd free agent)
+    are appended to the end of round 1 as **extra** picks. Teams that signed a
+    QO'd free agent (``forfeited``) lose their **round-2** pick. With neither
+    set this is exactly ``order`` repeated ``total_rounds`` times, so the draft
+    behaves identically to the simple repeating-order model.
+
+    Returns a flat list of ``{"team_id", "round"}`` in overall-pick order.
+    """
+
+    clean_order = [str(t).strip() for t in (order or []) if str(t).strip()]
+    rounds = max(1, int(total_rounds or 1))
+    supp = [str(t).strip() for t in (supplemental or []) if str(t).strip()]
+    forf = {str(t).strip() for t in (forfeited or []) if str(t).strip()}
+
+    seq: List[Dict[str, Any]] = []
+    for team in clean_order + supp:  # round 1: full order, then extra comp picks
+        seq.append({"team_id": team, "round": 1})
+    for rnd in range(2, rounds + 1):
+        for team in clean_order:
+            if rnd == 2 and team in forf:
+                continue  # forfeited their second-round pick
+            seq.append({"team_id": team, "round": rnd})
+    return seq
+
+
+def initialize_state(
+    year: int,
+    *,
+    order: List[str],
+    seed: int | None = None,
+    total_rounds: int | None = None,
+    supplemental: List[str] | None = None,
+    forfeited: List[str] | None = None,
+) -> Dict[str, Any]:
+    state: Dict[str, Any] = {
         "year": year,
         "round": 1,
         "overall_pick": 1,
@@ -141,6 +183,16 @@ def initialize_state(year: int, *, order: List[str], seed: int | None = None) ->
         "selected": [],
         "seed": seed,
     }
+    # Only materialize an explicit pick sequence when there's actual
+    # qualifying-offer compensation — otherwise the legacy repeating-order
+    # math drives the draft unchanged.
+    if total_rounds and (supplemental or forfeited):
+        state["pick_sequence"] = build_pick_sequence(
+            order,
+            int(total_rounds),
+            supplemental=supplemental,
+            forfeited=forfeited,
+        )
     save_state(year, state)
     return state
 

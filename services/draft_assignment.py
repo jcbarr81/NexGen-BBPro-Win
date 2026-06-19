@@ -369,6 +369,14 @@ def commit_draft_results(
     return summary
 
 
+def _draft_slot_bonus(overall_pick: int | None) -> int:
+    """Rough declining slot bonus by overall pick (#1 ≈ $8M, floor $150K)."""
+
+    pick = max(1, int(overall_pick or 1))
+    bonus = int(8_000_000 * (0.92 ** (pick - 1)))
+    return max(150_000, bonus)
+
+
 def commit_single_pick(
     year: int,
     *,
@@ -436,11 +444,47 @@ def commit_single_pick(
     except Exception:
         pass
 
+    # Finance: when the finance system is on, a draft pick signs an entry-level
+    # contract and the slot signing bonus actually debits the team's cash.
+    bonus_applied = 0
+    try:
+        from services.finance_settings import load_financial_settings
+
+        settings = load_financial_settings(
+            path=_data_dir() / "league_financial_settings.json"
+        )
+        if settings.enabled and settings.module_level("gm_contracts") != "off":
+            bonus = _draft_slot_bonus(overall_pick)
+            from services.contracts_service import upsert_contract
+
+            upsert_contract(
+                player_id,
+                team_id=team_id,
+                annual_salary=0,  # clamped to the league minimum inside
+                years_left=6,
+                signing_bonus=bonus,
+                data_dir=_data_dir(),
+            )
+            from services.owner_finance_engine import charge_team_one_time_cost
+
+            charged = charge_team_one_time_cost(
+                team_id,
+                bonus,
+                expense_type="signing_bonus",
+                memo=f"Draft slot bonus: {player_name or player_id}",
+                data_dir=_data_dir(),
+            )
+            if charged.get("applied"):
+                bonus_applied = int(charged.get("amount", 0) or 0)
+    except Exception:
+        pass
+
     return {
         "added": added,
         "assigned": bool(ok),
         "note": note,
         "player_name": player_name,
+        "signing_bonus": bonus_applied,
     }
 
 

@@ -8,6 +8,7 @@ from services.finance_settings import (
     DEFAULT_FINANCE_AI_TUNING,
     FINANCIAL_TRANSACTIONS_HEADER,
     ENFORCEMENT_BLOCK,
+    ENFORCEMENT_ON,
     LEVEL_MLB_LIKE,
     PRESET_CUSTOM,
     PRESET_MLB_LIKE,
@@ -55,9 +56,9 @@ def test_build_finance_module_tooltip_lists_available_levels():
 def test_build_finance_enforcement_tooltip_lists_modes():
     tooltip = build_finance_enforcement_tooltip()
 
-    assert "overall finance system" in tooltip.lower()
-    assert f"- Warn:" in tooltip
-    assert f"- Block:" in tooltip
+    assert "finance system" in tooltip.lower()
+    assert "- Off:" in tooltip
+    assert "- On:" in tooltip
 
 
 def test_apply_simple_preset_seeds_inaugural_contracts(tmp_path):
@@ -157,7 +158,7 @@ def test_apply_mlb_like_preset_and_reload(tmp_path):
     assert reloaded.enabled is True
     assert reloaded.preset == PRESET_MLB_LIKE
     assert reloaded.module_level("gm_payroll_rules") == LEVEL_MLB_LIKE
-    assert reloaded.module_level("gm_roster_cost_enforcement") == ENFORCEMENT_BLOCK
+    assert reloaded.module_level("gm_roster_cost_enforcement") == ENFORCEMENT_ON
 
 
 def test_update_custom_modules_normalizes_invalid_values(tmp_path):
@@ -170,6 +171,7 @@ def test_update_custom_modules_normalizes_invalid_values(tmp_path):
         modules={
             "owner_revenue": "advanced",
             "owner_market_model": "INVALID",
+            # Legacy "block" should normalize to the new "on" value.
             "gm_roster_cost_enforcement": "block",
         },
     )
@@ -177,7 +179,7 @@ def test_update_custom_modules_normalizes_invalid_values(tmp_path):
     assert updated.preset == PRESET_CUSTOM
     assert updated.module_level("owner_revenue") == "advanced"
     assert updated.module_level("owner_market_model") == "off"
-    assert updated.module_level("gm_roster_cost_enforcement") == "block"
+    assert updated.module_level("gm_roster_cost_enforcement") == "on"
 
 
 def test_disable_financial_system_forces_all_modules_off(tmp_path):

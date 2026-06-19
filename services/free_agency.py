@@ -251,6 +251,14 @@ def run_cpu_free_agency_round(
             player=player,
             data_dir=resolved_data_dir,
         )
+        # Qualifying-offer compensation: a declined-QO player signing with a
+        # new team earns his former team a draft-compensation slot.
+        try:
+            from services.qualifying_offers import track_qo_signing
+
+            track_qo_signing(player_id, team_id, data_dir=resolved_data_dir)
+        except Exception:
+            pass
         offer = int(selected_offer)
         try:
             record_transaction(

@@ -234,3 +234,18 @@
 [2026-03-08 15:40:27] Generated regular season schedule with 162 games
 [2026-03-08 15:40:27] Generated regular season schedule with 162 games
 [2026-03-08 15:40:27] No unsigned players available.
+[2026-06-17 23:10:29] [special_event] [POR] John Doe: 11 Strikeouts
+[2026-06-17 23:10:29] [special_event] [POR] John Doe: 5 RBI Game
+[2026-06-17 23:10:30] [special_event] [POR] John Doe: 10 Strikeouts
+[2026-06-17 23:10:30] [special_event] [ELP] Alejandro Hernandez: 11 Strikeouts
+[2026-06-17 23:10:30] [special_event] [ELP] Alejandro Hernandez: 11 Strikeouts
+[2026-06-17 23:10:30] [special_event] [SAN1] Deshawn Taylor: 11 Strikeouts
+[2026-06-17 23:10:30] [special_event] [ELP] Alejandro Hernandez: 12 Strikeouts
+[2026-06-17 23:10:30] [special_event] [POR] John Doe: 12 Strikeouts
+[2026-06-17 23:10:30] [special_event] [POR] John Doe: 3 HR Game
+[2026-06-17 23:10:30] [special_event] [POR] John Doe: 5 RBI Game
+[2026-06-17 23:10:30] [special_event] [ELP] Hector Vasquez: 3 HR Game
+[2026-06-17 23:10:30] [special_event] [ELP] Hector Vasquez: 5 RBI Game
+[2026-06-17 23:10:30] [injury] [POR] John Doe injured (Day-to-day shoulder bruise)
+[2026-06-17 23:10:30] [special_event] [ELP] Marco Skarke: 6 RBI Game
+[2026-06-17 23:10:30] [special_event] [POR] John Doe: 10 Strikeouts

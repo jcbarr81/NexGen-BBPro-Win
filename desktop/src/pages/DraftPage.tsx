@@ -166,16 +166,23 @@ function LiveDraftView({
   // selection. Treat that as "complete" everywhere downstream — Round
   // card flips to "Complete", Up Next swaps for a wrap-up panel, the
   // controls disable themselves.
+  // Prefer the backend's authoritative completion flag — with qualifying-offer
+  // compensation picks the order is non-uniform per round, so the old
+  // round-vs-configured_rounds check (and the modulo below) is unreliable.
   const draftComplete =
-    state.exists &&
-    typeof state.configured_rounds === "number" &&
-    state.configured_rounds > 0 &&
-    state.round > state.configured_rounds;
+    typeof state.draft_complete === "boolean"
+      ? state.draft_complete
+      : state.exists &&
+        typeof state.configured_rounds === "number" &&
+        state.configured_rounds > 0 &&
+        state.round > state.configured_rounds;
 
   const onClock = useMemo(() => {
-    if (!state.exists || state.order.length === 0 || draftComplete) return null;
-    // Order typically lists one team per slot in round-robin. We pick the
-    // next team by (overall_pick - 1) % len(order).
+    if (!state.exists || draftComplete) return null;
+    // Backend-authoritative when present (handles compensation picks);
+    // otherwise fall back to the round-robin modulo over the order.
+    if (state.team_on_clock !== undefined) return state.team_on_clock;
+    if (state.order.length === 0) return null;
     const idx = (state.overall_pick - 1) % state.order.length;
     return state.order[idx] ?? null;
   }, [state, draftComplete]);

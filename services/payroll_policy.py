@@ -14,6 +14,8 @@ from services.contracts_service import (
 )
 from services.finance_settings import (
     ENFORCEMENT_BLOCK,
+    ENFORCEMENT_OFF,
+    ENFORCEMENT_ON,
     ENFORCEMENT_WARN,
     FinancialSettings,
     LEVEL_BASIC,
@@ -43,6 +45,7 @@ __all__ = [
     "evaluate_free_agent_signing",
     "evaluate_payroll_delta",
     "evaluate_trade_payroll_impact",
+    "evaluate_opening_day_payroll",
     "build_payroll_limit_context",
     "format_payroll_policy_message",
     "estimate_mlb_like_cbt_tax",
@@ -186,6 +189,27 @@ def evaluate_trade_payroll_impact(
     )
 
 
+def evaluate_opening_day_payroll(
+    team_id: str,
+    *,
+    data_dir=None,
+    league_id: str | None = None,
+) -> PayrollPolicyResult:
+    """Hard Opening-Day solvency check for a team's current commitments.
+
+    Being over the luxury threshold is fine (it's taxed); this blocks only when
+    the team would start the season insolvent — projected debt over its cap.
+    Returns allowed=True when enforcement is off or the team is solvent.
+    """
+
+    return _evaluate_policy(
+        team_deltas={str(team_id or "").strip(): 0},
+        data_dir=data_dir,
+        league_id=league_id,
+        deadline=True,
+    )
+
+
 def build_payroll_limit_context(
     *,
     data_dir: Path | str | None = None,
@@ -252,12 +276,14 @@ def format_payroll_policy_message(result: PayrollPolicyResult) -> str:
     if not result.violations:
         return "Payroll policy check passed."
     lines = []
-    if result.mode == ENFORCEMENT_BLOCK:
-        lines.append("Payroll policy blocked this action.")
-    elif result.mode == ENFORCEMENT_WARN:
-        lines.append("Payroll policy warning for this action.")
+    if not result.allowed:
+        lines.append(
+            "Payroll policy blocked this action — the team must be solvent at Opening Day."
+        )
     else:
-        lines.append("Payroll policy check found over-limit projections.")
+        lines.append(
+            "Payroll is over the luxury threshold — the tax will apply at settlement."
+        )
     lines.append("")
     for team_id, details in result.violations.items():
         kind = str(details.get("kind") or _VIOLATION_MAX)
@@ -299,11 +325,10 @@ def record_payroll_policy_result(
 
     if not result.violations:
         return 0
-    outcome = "blocked"
-    if result.allowed and result.warning:
-        outcome = "warning"
-    elif result.allowed:
-        outcome = "pass"
+    # "blocked" = a hard deadline failure (insolvency). "over_limit" = allowed
+    # in-season but over the luxury threshold / under the floor, which settles
+    # economically (tax / floor fee) rather than blocking.
+    outcome = "blocked" if not result.allowed else "over_limit"
     written = 0
     for team_id, details in result.violations.items():
         projected = int(details.get("projected", 0) or 0)
@@ -536,7 +561,19 @@ def _evaluate_policy(
     league_id: str | None = None,
     annual_totals: Mapping[str, int] | None = None,
     monthly_projection: Mapping[str, object] | None = None,
+    deadline: bool = False,
 ) -> PayrollPolicyResult:
+    """Evaluate a payroll change against the league's financial rules.
+
+    Hybrid enforcement (7.0+):
+    - During the season (``deadline=False``) nothing is blocked — going over the
+      luxury threshold / under the floor / into debt is allowed and settles
+      economically (tax, floor fee, accruing debt). The returned ``violations``
+      are informational (for notifications/UI).
+    - At a hard deadline (``deadline=True``, i.e. Opening Day) the action is
+      blocked only if the team would be **insolvent** (projected debt over its
+      cap). Exceeding the luxury threshold is still allowed (it's taxed).
+    """
     settings_path = None
     if data_dir is not None:
         settings_path = Path(data_dir) / "league_financial_settings.json"
@@ -547,7 +584,7 @@ def _evaluate_policy(
         return PayrollPolicyResult(True, False, mode, level, {})
     if level not in {LEVEL_BASIC, LEVEL_MLB_LIKE}:
         return PayrollPolicyResult(True, False, mode, level, {})
-    if mode not in {ENFORCEMENT_WARN, ENFORCEMENT_BLOCK}:
+    if mode != ENFORCEMENT_ON:
         return PayrollPolicyResult(True, False, mode, level, {})
 
     resolved_annual_totals = (
@@ -620,16 +657,29 @@ def _evaluate_policy(
 
     if not violations:
         return PayrollPolicyResult(True, False, mode, level, {})
-    if mode == ENFORCEMENT_BLOCK:
-        return PayrollPolicyResult(False, False, mode, level, violations)
-    return PayrollPolicyResult(True, True, mode, level, violations)
+    # Only a hard deadline (Opening Day) blocks, and only on insolvency
+    # (projected debt over cap). Luxury-threshold / floor violations are
+    # economic — they never block, just tax/fee at settlement.
+    blocking = deadline and any(
+        str(v.get("kind")) == _VIOLATION_DEBT for v in violations.values()
+    )
+    return PayrollPolicyResult(not blocking, False, mode, level, violations)
 
 
 def _enforcement_mode(settings: FinancialSettings) -> str:
+    """Return the binary enforcement state: ENFORCEMENT_ON or ENFORCEMENT_OFF.
+
+    Legacy warn/block normalize to "on"; the warn-vs-block distinction is gone.
+    """
     token = settings.module_level("gm_roster_cost_enforcement")
-    if token in {"off", ENFORCEMENT_WARN, ENFORCEMENT_BLOCK}:
-        return token
-    return settings.enforcement_mode
+    if token in {ENFORCEMENT_ON, ENFORCEMENT_WARN, ENFORCEMENT_BLOCK}:
+        return ENFORCEMENT_ON
+    if token == ENFORCEMENT_OFF:
+        return ENFORCEMENT_OFF
+    legacy = str(getattr(settings, "enforcement_mode", "") or "").strip().lower()
+    if legacy in {ENFORCEMENT_ON, ENFORCEMENT_WARN, ENFORCEMENT_BLOCK}:
+        return ENFORCEMENT_ON
+    return ENFORCEMENT_OFF
 
 
 def _payroll_threshold(

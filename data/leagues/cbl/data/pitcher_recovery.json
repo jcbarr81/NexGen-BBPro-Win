@@ -8,7 +8,7 @@
         "P2828",
         "P2899"
       ],
-      "next_index": 2,
+      "next_index": 3,
       "pitchers": {
         "P2828": {
           "available_on": null,
@@ -83,9 +83,9 @@
           "available_pitches": 68.85000000000001
         },
         "P3823": {
-          "available_on": "2024-04-06",
+          "available_on": "2024-04-07",
           "last_used": "2024-04-01",
-          "last_pitches": 95,
+          "last_pitches": 102,
           "recent": [
             {
               "date": "2024-04-01",
@@ -100,6 +100,13 @@
               "appeared": true,
               "warmed_only": false,
               "available_pitches": 97.5
+            },
+            {
+              "date": "2024-04-01",
+              "pitches": 102,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 90.5
             }
           ],
           "last_role": "SP",
@@ -126,7 +133,7 @@
         "P7832": {
           "available_on": "2024-04-03",
           "last_used": "2024-04-01",
-          "last_pitches": 17,
+          "last_pitches": 16,
           "recent": [
             {
               "date": "2024-04-01",
@@ -134,6 +141,13 @@
               "appeared": true,
               "warmed_only": false,
               "available_pitches": 45.1
+            },
+            {
+              "date": "2024-04-01",
+              "pitches": 16,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 46.1
             }
           ],
           "last_role": "MR",
@@ -141,9 +155,9 @@
           "available_pitches": 62.1
         },
         "P7090": {
-          "available_on": "2024-04-07",
+          "available_on": "2024-04-04",
           "last_used": "2024-04-01",
-          "last_pitches": 100,
+          "last_pitches": 39,
           "recent": [
             {
               "date": "2024-04-01",
@@ -151,11 +165,18 @@
               "appeared": true,
               "warmed_only": false,
               "available_pitches": 0.0
+            },
+            {
+              "date": "2024-04-01",
+              "pitches": 39,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 27.150000000000006
             }
           ],
           "last_role": "MR",
           "max_pitches": 66.15,
-          "available_pitches": 55.566
+          "available_pitches": 66.15
         }
       }
     },
@@ -167,7 +188,7 @@
         "P6090",
         "P1021"
       ],
-      "next_index": 3,
+      "next_index": 4,
       "pitchers": {
         "P3381": {
           "available_on": null,
@@ -197,9 +218,9 @@
           "available_pitches": 60.75000000000001
         },
         "P8865": {
-          "available_on": "2024-04-05",
+          "available_on": "2024-04-03",
           "last_used": "2024-04-01",
-          "last_pitches": 47,
+          "last_pitches": 24,
           "recent": [
             {
               "date": "2024-04-01",
@@ -214,6 +235,13 @@
               "appeared": true,
               "warmed_only": false,
               "available_pitches": 19.150000000000006
+            },
+            {
+              "date": "2024-04-01",
+              "pitches": 24,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 42.150000000000006
             }
           ],
           "last_role": "MR",
@@ -257,9 +285,9 @@
           "available_pitches": 66.15
         },
         "P3823": {
-          "available_on": "2024-04-06",
+          "available_on": "2024-04-07",
           "last_used": "2024-04-01",
-          "last_pitches": 95,
+          "last_pitches": 101,
           "recent": [
             {
               "date": "2024-04-01",
@@ -274,6 +302,13 @@
               "appeared": true,
               "warmed_only": false,
               "available_pitches": 97.5
+            },
+            {
+              "date": "2024-04-01",
+              "pitches": 101,
+              "appeared": true,
+              "warmed_only": false,
+              "available_pitches": 91.5
             }
           ],
           "last_role": "SP",

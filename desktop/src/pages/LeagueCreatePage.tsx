@@ -50,8 +50,10 @@ const FINANCE_LEVEL_LABELS: Record<string, string> = {
   basic: "Basic",
   advanced: "Advanced",
   mlb_like: "MLB-Like",
-  warn: "Warn",
-  block: "Block",
+  on: "On",
+  // Legacy values still render as "On".
+  warn: "On",
+  block: "On",
 };
 
 // One-liner descriptions surfaced under the Finance preset / enforcement
@@ -59,16 +61,15 @@ const FINANCE_LEVEL_LABELS: Record<string, string> = {
 // the full module-level help is shown inside the advanced expander.
 const FINANCE_PRESET_DESCRIPTIONS: Record<string, string> = {
   off: "Finance system off. No budgets, salaries, or CPU finance AI — pure on-field play.",
-  simple: "Lightweight: basic revenue, budgets, contracts, payroll, and free agency. No market model or arbitration. Over-budget actions warn only.",
-  standard: "Most owner + GM modules at Advanced. Adds a basic market model and arbitration. Over-budget actions warn only.",
-  mlb_like: "Full MLB-style sim: advanced revenue / market / budgets / contracts / arbitration / FA, MLB payroll rules, and BLOCKING enforcement on over-budget moves.",
+  simple: "Lightweight: basic revenue, budgets, contracts, payroll, and free agency. No market model or arbitration. Enforcement on (luxury tax in-season).",
+  standard: "Most owner + GM modules at Advanced. Adds a basic market model and arbitration. Enforcement on (luxury tax in-season).",
+  mlb_like: "Full MLB-style sim: advanced revenue / market / budgets / contracts / arbitration / FA, MLB payroll rules, and enforcement on.",
   custom: "Build it yourself — open the advanced section below to set each module level individually.",
 };
 
 const FINANCE_ENFORCEMENT_DESCRIPTIONS: Record<string, string> = {
-  off: "Don't validate signings or trades against team budgets.",
-  warn: "Show a warning if a move would exceed budget, but still allow it.",
-  block: "Block any signing or trade that would exceed the team's budget.",
+  off: "Don't enforce the finance rules — signings and trades ignore budgets.",
+  on: "Enforce the rules: exceed the luxury threshold during the season and you pay the tax; your team must be solvent at Opening Day.",
 };
 
 interface ScoutingTuning {
@@ -129,7 +130,7 @@ const INITIAL: WizardState = {
   scheduleTemplateId: "mlb_162",
   financeEnabled: false,
   financePreset: "off",
-  financeEnforcement: "warn",
+  financeEnforcement: "on",
   financeModules: {},
   financeAiTuning: {},
   scoutingEnabled: false,
@@ -1237,11 +1238,10 @@ function RulesStep({
                   >
                     {(commish?.options.finance_enforcement ?? [
                       "off",
-                      "warn",
-                      "block",
+                      "on",
                     ]).map((m) => (
                       <option key={m} value={m}>
-                        {m}
+                        {FINANCE_LEVEL_LABELS[m] ?? m}
                       </option>
                     ))}
                   </select>

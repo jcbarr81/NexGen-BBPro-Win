@@ -94,6 +94,74 @@ function writePositionContextPref(value: boolean) {
   }
 }
 
+function QualifyingOffersCard({ teamId }: { teamId: string | null }) {
+  const queryClient = useQueryClient();
+  const qo = useQuery({
+    queryKey: ["qualifying-offers", teamId],
+    queryFn: () => api.teamQualifyingOffers(teamId as string),
+    enabled: !!teamId,
+    refetchOnWindowFocus: false,
+  });
+  const resolve = useMutation({
+    mutationFn: ({ playerId, tender }: { playerId: string; tender: boolean }) =>
+      api.resolveQualifyingOffer(teamId as string, playerId, tender),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["qualifying-offers", teamId] }),
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const pending = (qo.data?.offers ?? []).filter((o) => o.decision === "pending");
+  if (pending.length === 0) return null;
+  const qoValue = pending[0]?.qo_value ?? 0;
+
+  return (
+    <Card className="mb-4 border-amber/30 bg-amber/5">
+      <CardContent className="py-4">
+        <div className="font-semibold text-amber-text">
+          Qualifying offers — your decision
+        </div>
+        <p className="mt-1 text-sm text-muted">
+          Tender a one-year ${qoValue.toLocaleString()} qualifying offer
+          to a departing free agent (he may accept, or decline and test the market —
+          declining and signing elsewhere earns you a draft compensation pick), or let
+          him walk for nothing.
+        </p>
+        <ul className="mt-3 space-y-2">
+          {pending.map((o) => (
+            <li
+              key={o.player_id}
+              className="flex items-center justify-between gap-3 text-sm"
+            >
+              <span className="font-mono">{o.player_id}</span>
+              <span className="flex gap-2">
+                <Button
+                  size="sm"
+                  disabled={resolve.isPending}
+                  onClick={() =>
+                    resolve.mutate({ playerId: o.player_id, tender: true })
+                  }
+                >
+                  Tender QO
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={resolve.isPending}
+                  onClick={() =>
+                    resolve.mutate({ playerId: o.player_id, tender: false })
+                  }
+                >
+                  Let walk
+                </Button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function FreeAgencyPage() {
   const user = useAuthStore();
   const teamId = user.selectedTeamId ?? user.teamId ?? null;
@@ -188,6 +256,7 @@ export function FreeAgencyPage() {
       title="Free Agency"
       subtitle={`${list.data?.count ?? 0} unsigned players`}
     >
+      <QualifyingOffersCard teamId={teamId} />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-1 flex-wrap items-center gap-2">
           <div className="relative w-full max-w-xs">
@@ -372,6 +441,7 @@ function SignDialog({
   const [level, setLevel] = useState<"ACT" | "AAA" | "LOW">("ACT");
   const [years, setYears] = useState("3");
   const [salary, setSalary] = useState("");
+  const [signingBonus, setSigningBonus] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<ExtensionEvaluation | null>(null);
   const [windowClosed, setWindowClosed] = useState<string | null>(null);
@@ -399,6 +469,7 @@ function SignDialog({
         level,
         years: Number(years) || 1,
         annual_salary: salary ? Number(salary) : undefined,
+        signing_bonus: signingBonus ? Number(signingBonus) : undefined,
       });
     },
     onSuccess: (data) => {
@@ -552,6 +623,18 @@ function SignDialog({
                     ? `Defaults to fair market`
                     : "$"
                 }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="fa-bonus">Signing bonus</Label>
+              <Input
+                id="fa-bonus"
+                type="number"
+                min={0}
+                step={100000}
+                value={signingBonus}
+                onChange={(e) => setSigningBonus(e.target.value)}
+                placeholder="Optional — debits cash now"
               />
             </div>
           </div>

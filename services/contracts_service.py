@@ -116,6 +116,7 @@ def upsert_contract(
     arb_eligible: bool = False,
     guaranteed: bool = True,
     buyout_guarantee: int = 0,
+    signing_bonus: int = 0,
     options: list[object] | None = None,
     incentives: list[object] | None = None,
     data_dir: Path | str | None = None,
@@ -141,6 +142,7 @@ def upsert_contract(
         "fa_year": resolved_year + clean_years,
         "guaranteed": bool(guaranteed),
         "buyout_guarantee": max(0, int(round(_safe_number(buyout_guarantee)))),
+        "signing_bonus": max(0, int(round(_safe_number(signing_bonus)))),
         "options": list(options or []),
         "incentives": list(incentives or []),
     }
@@ -161,6 +163,7 @@ def sign_free_agent_contract(
     *,
     years_left: int = DEFAULT_CONTRACT_YEARS,
     annual_salary: int | None = None,
+    signing_bonus: int = 0,
     options: list[object] | None = None,
     incentives: list[object] | None = None,
     player: object | None = None,
@@ -177,6 +180,7 @@ def sign_free_agent_contract(
         team_id=team_id,
         annual_salary=max(DEFAULT_MIN_SALARY, int(salary)),
         years_left=years_left,
+        signing_bonus=signing_bonus,
         options=options,
         incentives=incentives,
         season_year=season_year,
@@ -1218,8 +1222,9 @@ def _append_finance_buyout_rows(
     if not rows:
         return
     for team_id, amount, player_id, season_year, detail in rows:
+        clean_team = str(team_id or "").strip()
         post_contract_buyout(
-            team_id=str(team_id or "").strip(),
+            team_id=clean_team,
             season_year=int(season_year),
             player_id=str(player_id or "").strip(),
             buyout_amount=int(amount),
@@ -1227,6 +1232,22 @@ def _append_finance_buyout_rows(
             timestamp=_timestamp(),
             data_dir=data_dir,
         )
+        # Money actually moves: the buyout debits the team's cash. The ledger
+        # row above already records it, so skip a duplicate ledger entry here.
+        try:
+            from services.owner_finance_engine import charge_team_one_time_cost
+
+            charge_team_one_time_cost(
+                clean_team,
+                int(amount),
+                expense_type="contract_buyout",
+                memo=f"Option buyout: {str(player_id or '').strip()}",
+                season_year=int(season_year),
+                data_dir=data_dir,
+                post_ledger=False,
+            )
+        except Exception:
+            pass
 
 
 def _timestamp() -> str:
@@ -1249,6 +1270,7 @@ def _normalize_contract(raw: object) -> Dict[str, object]:
     incentives = _normalize_incentives(payload.get("incentives"))
     buyout_guarantee = max(0, int(round(_safe_number(payload.get("buyout_guarantee", 0)))))
     guaranteed = bool(payload.get("guaranteed", True))
+    signing_bonus = max(0, int(round(_safe_number(payload.get("signing_bonus", 0)))))
     return {
         "team_id": team_id,
         "years_left": years_left,
@@ -1258,6 +1280,7 @@ def _normalize_contract(raw: object) -> Dict[str, object]:
         "fa_year": fa_year,
         "guaranteed": guaranteed,
         "buyout_guarantee": buyout_guarantee,
+        "signing_bonus": signing_bonus,
         "options": options,
         "incentives": incentives,
     }

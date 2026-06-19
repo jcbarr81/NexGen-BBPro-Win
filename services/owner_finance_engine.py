@@ -755,6 +755,94 @@ def _resolve_data_dir(data_dir: Path | str | None) -> Path:
     return Path(data_dir)
 
 
+def charge_team_one_time_cost(
+    team_id: str,
+    amount: int,
+    *,
+    expense_type: str = "signing_bonus",
+    memo: str | None = None,
+    season_year: int | None = None,
+    data_dir: Path | str | None = None,
+    league_id: str | None = None,
+    post_ledger: bool = True,
+) -> Dict[str, object]:
+    """Debit a one-off cost (signing bonus, buyout) from a team's cash.
+
+    Mirrors how tax / floor fees settle: cash is reduced and any shortfall
+    becomes debt, the expense bucket is bumped, and (unless ``post_ledger`` is
+    False) a ledger row is written so it shows on the Finance page. No-op when
+    finance is disabled. Pass ``post_ledger=False`` when the caller already
+    logged the ledger entry (e.g. an option buyout row) to avoid duplicates.
+    """
+
+    from services.finance_settings import load_financial_settings
+    from services.finance_ledger import post_team_expense
+
+    clean_team_id = str(team_id or "").strip()
+    cost = max(0, int(amount or 0))
+    if not clean_team_id or cost <= 0:
+        return {"applied": False, "reason": "noop"}
+
+    resolved = get_data_dir() if data_dir is None else Path(data_dir)
+    settings = load_financial_settings(
+        path=resolved / "league_financial_settings.json", league_id=league_id
+    )
+    if not settings.enabled:
+        return {"applied": False, "reason": "finance_disabled"}
+
+    payload = _load_team_financials(resolved)
+    teams = payload.setdefault("teams", {})
+    entry_raw = teams.get(clean_team_id)
+    entry = dict(entry_raw) if isinstance(entry_raw, Mapping) else {}
+    before_cash = _safe_int(entry.get("cash_on_hand", 0))
+    before_debt = max(0, _safe_int(entry.get("debt", 0)))
+    expenses_raw = entry.get("expenses")
+    expenses = dict(expenses_raw) if isinstance(expenses_raw, Mapping) else {}
+
+    remaining = before_cash - cost
+    if remaining >= 0:
+        entry["cash_on_hand"] = remaining
+        entry["debt"] = before_debt
+    else:
+        entry["cash_on_hand"] = 0
+        entry["debt"] = before_debt + abs(remaining)
+    bucket = str(expense_type or "signing_bonus")
+    expenses[bucket] = _safe_int(expenses.get(bucket, 0)) + cost
+    entry["expenses"] = expenses
+    teams[clean_team_id] = entry
+
+    season = (
+        int(season_year)
+        if season_year is not None
+        else _safe_int(payload.get("season_year", datetime.now().year))
+    )
+    try:
+        (resolved / "team_financials.json").write_text(
+            json.dumps(payload, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        return {"applied": False, "reason": "write_failed"}
+    if post_ledger:
+        try:
+            post_team_expense(
+                team_id=clean_team_id,
+                season_year=season,
+                expense_type=bucket,
+                amount=cost,
+                memo=memo or bucket,
+                data_dir=resolved,
+            )
+        except Exception:
+            pass
+    return {
+        "applied": True,
+        "team_id": clean_team_id,
+        "amount": cost,
+        "cash_on_hand": entry["cash_on_hand"],
+        "debt": entry["debt"],
+    }
+
+
 def _load_team_financials(data_dir: Path) -> Dict[str, object]:
     path = data_dir / "team_financials.json"
     if not path.exists():

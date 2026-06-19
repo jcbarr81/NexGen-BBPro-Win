@@ -7,13 +7,16 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   Crown,
+  FastForward,
   Loader2,
   Medal,
+  Play,
+  RefreshCw,
   Trophy,
 } from "lucide-react";
 
@@ -27,7 +30,7 @@ import {
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
-import { Badge, Card, CardContent } from "@/components/ui";
+import { Badge, Button, Card, CardContent } from "@/components/ui";
 
 export function PlayoffsPage() {
   const myTeamId = useAuthStore((s) => s.selectedTeamId ?? s.teamId ?? null);
@@ -105,11 +108,143 @@ export function PlayoffsPage() {
         <ErrorCard message={(playoffs.error as Error).message} />
       ) : playoffs.data ? (
         <div className="space-y-6">
-          {playoffs.data.champion && <ChampionBanner playoffs={playoffs.data} />}
+          {playoffs.data.champion ? (
+            <ChampionBanner playoffs={playoffs.data} />
+          ) : (
+            // Only the latest, in-progress bracket can be advanced.
+            year === years.data.latest && (
+              <PlayoffControls playoffs={playoffs.data} />
+            )
+          )}
           <Bracket rounds={playoffs.data.rounds} myTeamId={myTeamId} />
         </div>
       ) : null}
     </AppShell>
+  );
+}
+
+/** Friendly bracket-round labels. Backend round names are terse and may carry
+ *  a placeholder single-league prefix (e.g. "LEAGUE DS"); show readable names. */
+function prettyRoundName(name: string): string {
+  const stripped = name.replace(/^league\s+/i, "").trim();
+  const map: Record<string, string> = {
+    WC: "Wild Card",
+    DS: "Division Series",
+    CS: "Championship Series",
+    WS: "World Series",
+    FINAL: "Final",
+  };
+  return map[stripped.toUpperCase()] ?? stripped;
+}
+
+function hasPlayedGames(playoffs: Playoffs): boolean {
+  return playoffs.rounds.some((r) =>
+    r.matchups.some((m) => m.games.some((g) => !!g.result)),
+  );
+}
+
+function PlayoffControls({ playoffs }: { playoffs: Playoffs }) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const onDone = () => {
+    setError(null);
+    // Refresh the bracket and the season state (so the Season page's Advance
+    // Phase button unlocks the instant a champion is crowned).
+    queryClient.invalidateQueries({ queryKey: ["playoffs"] });
+    queryClient.invalidateQueries({ queryKey: ["playoff-years"] });
+    queryClient.invalidateQueries({ queryKey: ["season-state"] });
+  };
+  const onErr = (e: unknown) => setError((e as Error).message);
+
+  const simGame = useMutation({
+    mutationFn: () => api.simulatePlayoffGame(),
+    onSuccess: onDone,
+    onError: onErr,
+  });
+  const simRound = useMutation({
+    mutationFn: () => api.simulatePlayoffRound(),
+    onSuccess: onDone,
+    onError: onErr,
+  });
+  const simAll = useMutation({
+    mutationFn: () => api.simulatePlayoffAll(),
+    onSuccess: onDone,
+    onError: onErr,
+  });
+  const rebuild = useMutation({
+    mutationFn: () => api.rebuildPlayoffs(4),
+    onSuccess: onDone,
+    onError: onErr,
+  });
+
+  const busy =
+    simGame.isPending ||
+    simRound.isPending ||
+    simAll.isPending ||
+    rebuild.isPending;
+  // Rebuilding regenerates the bracket from standings; only safe before any
+  // game is played (the backend enforces this too).
+  const canRebuild = !hasPlayedGames(playoffs);
+
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-4 py-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h3 className="font-display text-lg">Simulate the postseason</h3>
+            <p className="text-sm text-muted">
+              Advance the bracket a day, a full round, or straight through to a
+              champion. Games use the same physics engine as the regular season.
+            </p>
+          </div>
+          {busy && <Loader2 className="h-5 w-5 shrink-0 animate-spin text-amber" />}
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Button onClick={() => simGame.mutate()} disabled={busy} className="w-full">
+            <Play className="h-4 w-4" /> Sim Next Game
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => simRound.mutate()}
+            disabled={busy}
+            className="w-full"
+          >
+            <FastForward className="h-4 w-4" /> Sim Next Round
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => simAll.mutate()}
+            disabled={busy}
+            className="w-full"
+          >
+            <Trophy className="h-4 w-4" /> Sim to Champion
+          </Button>
+        </div>
+        {canRebuild && (
+          <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted">
+              Bracket structure look off? Rebuild it as a clean 4-team bracket
+              (Division Series → Championship Series) from the final standings.
+              Only available before any game is played.
+            </p>
+            <Button
+              variant="outline"
+              onClick={() => rebuild.mutate()}
+              disabled={busy}
+              className="shrink-0"
+            >
+              <RefreshCw className="h-4 w-4" /> Rebuild as 4-Team Bracket
+            </Button>
+          </div>
+        )}
+        {error && (
+          <p className="flex items-center gap-2 text-sm text-danger">
+            <AlertTriangle className="h-4 w-4 shrink-0" /> {error}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -172,7 +307,13 @@ function Bracket({
   rounds: PlayoffRound[];
   myTeamId: string | null;
 }) {
-  if (rounds.length === 0) {
+  // Single-league brackets carry a trailing "Final" round that merely mirrors
+  // the Championship Series (the genuine two-league title round is "WS"). Hide
+  // it so the bracket doesn't show a duplicate/empty column.
+  const visibleRounds = rounds.filter(
+    (r) => r.name.trim().toLowerCase() !== "final",
+  );
+  if (visibleRounds.length === 0) {
     return (
       <Card>
         <CardContent className="py-10 text-sm text-muted">
@@ -184,9 +325,9 @@ function Bracket({
   return (
     <div
       className="grid gap-4 overflow-x-auto pb-4"
-      style={{ gridTemplateColumns: `repeat(${rounds.length}, minmax(320px, 1fr))` }}
+      style={{ gridTemplateColumns: `repeat(${visibleRounds.length}, minmax(320px, 1fr))` }}
     >
-      {rounds.map((round) => (
+      {visibleRounds.map((round) => (
         <RoundColumn key={round.name} round={round} myTeamId={myTeamId} />
       ))}
     </div>
@@ -204,7 +345,7 @@ function RoundColumn({
     <div className="space-y-3">
       <div className="sticky top-0 z-10 rounded-lg border border-border bg-surfaceAlt/80 px-3 py-2 backdrop-blur">
         <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
-          {round.name}
+          {prettyRoundName(round.name)}
         </div>
         <div className="text-sm">
           {round.matchups.length} series

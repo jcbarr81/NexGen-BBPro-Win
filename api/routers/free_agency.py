@@ -288,6 +288,11 @@ def sign_free_agent(
     # has a chance of being accepted.
     salary_override = payload.get("annual_salary")
     years_override = payload.get("years")
+    # Optional up-front signing bonus that debits team cash on signing.
+    try:
+        signing_bonus = max(0, int(payload.get("signing_bonus") or 0))
+    except (TypeError, ValueError):
+        signing_bonus = 0
     # When the user has already seen the warning and wants to proceed
     # anyway, send acknowledge_warning=true.
     acknowledge_warning = bool(payload.get("acknowledge_warning", False))
@@ -450,10 +455,37 @@ def sign_free_agent(
             team_id,
             years_left=years,
             annual_salary=salary,
+            signing_bonus=signing_bonus,
             player=player_record,
         )
     except Exception:
         contract = None
+
+    # The signing bonus actually moves money: debit the team's cash now.
+    bonus_charged = 0
+    if signing_bonus > 0:
+        try:
+            from services.owner_finance_engine import charge_team_one_time_cost
+
+            charged = charge_team_one_time_cost(
+                team_id,
+                signing_bonus,
+                expense_type="signing_bonus",
+                memo=f"FA signing bonus: {player_id}",
+            )
+            if charged.get("applied"):
+                bonus_charged = int(charged.get("amount", 0) or 0)
+        except Exception:
+            bonus_charged = 0
+
+    # Qualifying-offer compensation: a declined-QO player signing with a new
+    # team earns his former team a draft-compensation slot.
+    try:
+        from services.qualifying_offers import track_qo_signing
+
+        track_qo_signing(player_id, team_id)
+    except Exception:
+        pass
 
     try:
         record_transaction(
@@ -474,6 +506,7 @@ def sign_free_agent(
         "signed": True,
         "annual_salary": salary,
         "years": years,
+        "signing_bonus": bonus_charged,
         "contract": contract,
         "payroll_warning": payroll_warning,
         "negotiation": negotiation,

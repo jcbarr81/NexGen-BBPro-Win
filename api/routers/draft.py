@@ -191,6 +191,12 @@ def draft_state_view(
         selected.append(row)
 
     settings = load_draft_settings()
+    seq = state.get("pick_sequence")
+    total_picks = (
+        len(seq)
+        if isinstance(seq, list) and seq
+        else (len(order) * max(1, int(settings.rounds)) if order else 0)
+    )
     return {
         "year": y,
         "round": int(state.get("round", 1) or 1),
@@ -201,6 +207,12 @@ def draft_state_view(
         "exists": bool(state),
         "configured_rounds": settings.rounds,
         "configured_pool_size": settings.pool_size,
+        # Backend is authoritative for these (compensation picks make a flat
+        # modulo over ``order`` wrong). The UI should prefer them.
+        "team_on_clock": _team_on_clock(state) if state else None,
+        "draft_complete": _draft_complete(state, settings.rounds) if state else False,
+        "total_picks": total_picks,
+        "has_compensation": bool(isinstance(seq, list) and seq),
     }
 
 
@@ -401,8 +413,34 @@ def admin_initialize(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot compute order — no season stats yet.",
         )
-    state = draft_state.initialize_state(year, order=order, seed=seed_int)
-    return {"year": year, "order": state.get("order"), "seed": state.get("seed")}
+    # Reflect any qualifying-offer draft compensation from the prior offseason
+    # as real supplemental picks (comp teams gain an end-of-round-1 pick; teams
+    # that signed a QO'd FA forfeit their round-2 pick).
+    supplemental: List[str] = []
+    forfeited: List[str] = []
+    try:
+        from services.qualifying_offers import compensation_for_draft
+
+        comp = compensation_for_draft(year)
+        supplemental = list(comp.get("comp_teams", []))
+        forfeited = list(comp.get("forfeit_teams", []))
+    except Exception:
+        supplemental, forfeited = [], []
+    state = draft_state.initialize_state(
+        year,
+        order=order,
+        seed=seed_int,
+        total_rounds=_load_settings_rounds(),
+        supplemental=supplemental,
+        forfeited=forfeited,
+    )
+    return {
+        "year": year,
+        "order": state.get("order"),
+        "seed": state.get("seed"),
+        "compensation_picks": len(supplemental),
+        "forfeited_picks": len(forfeited),
+    }
 
 
 @router.post("/admin/reset")
@@ -469,10 +507,16 @@ def admin_generate_pool(
 
 
 def _team_on_clock(state: Dict[str, Any]) -> Optional[str]:
+    overall = int(state.get("overall_pick", 1) or 1)
+    seq = state.get("pick_sequence")
+    if isinstance(seq, list) and seq:
+        idx = overall - 1
+        if 0 <= idx < len(seq) and isinstance(seq[idx], dict):
+            return str(seq[idx].get("team_id") or "").strip() or None
+        return None
     order: List[str] = list(state.get("order") or [])
     if not order:
         return None
-    overall = int(state.get("overall_pick", 1) or 1)
     return order[(overall - 1) % len(order)]
 
 
@@ -488,6 +532,9 @@ def _selected_ids(state: Dict[str, Any]) -> set[str]:
 
 
 def _draft_complete(state: Dict[str, Any], total_rounds: int) -> bool:
+    seq = state.get("pick_sequence")
+    if isinstance(seq, list) and seq:
+        return int(state.get("overall_pick", 1) or 1) > len(seq)
     return int(state.get("round", 1) or 1) > max(1, total_rounds)
 
 
@@ -554,14 +601,24 @@ def _do_pick(
     """Record a pick + commit it to the team's roster. Mutates ``state``."""
 
     order: List[str] = list(state.get("order") or [])
-    if not order:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Draft order is empty.",
-        )
-    rnd = int(state.get("round", 1) or 1)
+    seq = state.get("pick_sequence")
     overall = int(state.get("overall_pick", 1) or 1)
-    team_id = order[(overall - 1) % len(order)]
+    if isinstance(seq, list) and seq:
+        if not (0 <= overall - 1 < len(seq)) or not isinstance(seq[overall - 1], dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Draft is already complete.",
+            )
+        team_id = str(seq[overall - 1].get("team_id") or "").strip()
+        rnd = int(seq[overall - 1].get("round", 1) or 1)
+    else:
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Draft order is empty.",
+            )
+        rnd = int(state.get("round", 1) or 1)
+        team_id = order[(overall - 1) % len(order)]
 
     selected = list(state.get("selected") or [])
     selected.append(
@@ -569,7 +626,10 @@ def _do_pick(
     )
     state["selected"] = selected
     state["overall_pick"] = overall + 1
-    if (overall % len(order)) == 0:
+    if isinstance(seq, list) and seq:
+        nxt = seq[overall] if overall < len(seq) else None
+        state["round"] = int(nxt.get("round", rnd)) if isinstance(nxt, dict) else rnd
+    elif order and (overall % len(order)) == 0:
         state["round"] = rnd + 1
     draft_state.save_state(year, state)
     draft_state.append_result(

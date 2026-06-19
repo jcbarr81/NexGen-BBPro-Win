@@ -1,88 +1,58 @@
 {
   "schema_version": 1,
   "year": 2026,
-  "champion": "A1",
-  "runner_up": "N1",
+  "champion": "POR",
+  "runner_up": "ELP",
   "seeds": {
-    "AL": [
+    "LEAGUE": [
       {
-        "team_id": "A1",
+        "team_id": "WAS",
         "seed": 1,
-        "league": "AL",
-        "wins": 98,
-        "run_diff": 148
+        "league": "LEAGUE",
+        "wins": 100,
+        "run_diff": 100
       },
       {
-        "team_id": "A3",
+        "team_id": "SAN1",
         "seed": 2,
-        "league": "AL",
-        "wins": 94,
-        "run_diff": 144
-      },
-      {
-        "team_id": "A4",
-        "seed": 3,
-        "league": "AL",
-        "wins": 92,
-        "run_diff": 142
-      },
-      {
-        "team_id": "A2",
-        "seed": 4,
-        "league": "AL",
-        "wins": 96,
-        "run_diff": 146
-      }
-    ],
-    "NL": [
-      {
-        "team_id": "N1",
-        "seed": 1,
-        "league": "NL",
-        "wins": 97,
-        "run_diff": 147
-      },
-      {
-        "team_id": "N3",
-        "seed": 2,
-        "league": "NL",
-        "wins": 93,
-        "run_diff": 143
-      },
-      {
-        "team_id": "N4",
-        "seed": 3,
-        "league": "NL",
-        "wins": 91,
-        "run_diff": 141
-      },
-      {
-        "team_id": "N2",
-        "seed": 4,
-        "league": "NL",
+        "league": "LEAGUE",
         "wins": 95,
-        "run_diff": 145
+        "run_diff": 95
+      },
+      {
+        "team_id": "ELP",
+        "seed": 3,
+        "league": "LEAGUE",
+        "wins": 90,
+        "run_diff": 90
+      },
+      {
+        "team_id": "POR",
+        "seed": 4,
+        "league": "LEAGUE",
+        "wins": 85,
+        "run_diff": 85
       }
     ]
   },
   "rounds": [
     {
-      "name": "AL DS",
+      "name": "LEAGUE DS",
       "matchups": [
         {
           "high": {
-            "team_id": "A1",
+            "team_id": "WAS",
             "seed": 1,
-            "league": "AL",
-            "wins": 98,
-            "run_diff": 148
+            "league": "LEAGUE",
+            "wins": 100,
+            "run_diff": 100
           },
           "low": {
-            "team_id": "A2",
+            "team_id": "POR",
             "seed": 4,
-            "league": "AL",
-            "wins": 96,
-            "run_diff": 146
+            "league": "LEAGUE",
+            "wins": 85,
+            "run_diff": 85
           },
           "config": {
             "length": 5,
@@ -94,509 +64,41 @@
           },
           "games": [
             {
-              "home": "A1",
-              "away": "A2",
+              "home": "WAS",
+              "away": "POR",
               "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL DS_S0_G0_A2_at_A1.html",
-              "meta": {}
+              "result": "1-10",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_LEAGUE DS_S0_G0_POR_at_WAS.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "L",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
             },
             {
-              "home": "A1",
-              "away": "A2",
+              "home": "WAS",
+              "away": "POR",
               "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL DS_S0_G1_A2_at_A1.html",
-              "meta": {}
+              "result": "7-12",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_LEAGUE DS_S0_G1_POR_at_WAS.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "L",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
             },
             {
-              "home": "A2",
-              "away": "A1",
+              "home": "POR",
+              "away": "WAS",
               "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL DS_S0_G2_A1_at_A2.html",
-              "meta": {}
-            },
-            {
-              "home": "A2",
-              "away": "A1",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL DS_S0_G3_A1_at_A2.html",
-              "meta": {}
-            },
-            {
-              "home": "A1",
-              "away": "A2",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL DS_S0_G4_A2_at_A1.html",
-              "meta": {}
-            }
-          ],
-          "winner": "A1"
-        },
-        {
-          "high": {
-            "team_id": "A3",
-            "seed": 2,
-            "league": "AL",
-            "wins": 94,
-            "run_diff": 144
-          },
-          "low": {
-            "team_id": "A4",
-            "seed": 3,
-            "league": "AL",
-            "wins": 92,
-            "run_diff": 142
-          },
-          "config": {
-            "length": 5,
-            "pattern": [
-              2,
-              2,
-              1
-            ]
-          },
-          "games": [
-            {
-              "home": "A3",
-              "away": "A4",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL DS_S1_G0_A4_at_A3.html",
-              "meta": {}
-            },
-            {
-              "home": "A3",
-              "away": "A4",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL DS_S1_G1_A4_at_A3.html",
-              "meta": {}
-            },
-            {
-              "home": "A4",
-              "away": "A3",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL DS_S1_G2_A3_at_A4.html",
-              "meta": {}
-            },
-            {
-              "home": "A4",
-              "away": "A3",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL DS_S1_G3_A3_at_A4.html",
-              "meta": {}
-            },
-            {
-              "home": "A3",
-              "away": "A4",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL DS_S1_G4_A4_at_A3.html",
-              "meta": {}
-            }
-          ],
-          "winner": "A3"
-        }
-      ],
-      "plan": []
-    },
-    {
-      "name": "AL CS",
-      "matchups": [
-        {
-          "high": {
-            "team_id": "A1",
-            "seed": 1,
-            "league": "AL",
-            "wins": 98,
-            "run_diff": 148
-          },
-          "low": {
-            "team_id": "A3",
-            "seed": 2,
-            "league": "AL",
-            "wins": 94,
-            "run_diff": 144
-          },
-          "config": {
-            "length": 7,
-            "pattern": [
-              2,
-              3,
-              2
-            ]
-          },
-          "games": [
-            {
-              "home": "A1",
-              "away": "A3",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL CS_S0_G0_A3_at_A1.html",
-              "meta": {}
-            },
-            {
-              "home": "A1",
-              "away": "A3",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL CS_S0_G1_A3_at_A1.html",
-              "meta": {}
-            },
-            {
-              "home": "A3",
-              "away": "A1",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL CS_S0_G2_A1_at_A3.html",
-              "meta": {}
-            },
-            {
-              "home": "A3",
-              "away": "A1",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL CS_S0_G3_A1_at_A3.html",
-              "meta": {}
-            },
-            {
-              "home": "A3",
-              "away": "A1",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL CS_S0_G4_A1_at_A3.html",
-              "meta": {}
-            },
-            {
-              "home": "A1",
-              "away": "A3",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL CS_S0_G5_A3_at_A1.html",
-              "meta": {}
-            },
-            {
-              "home": "A1",
-              "away": "A3",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_AL CS_S0_G6_A3_at_A1.html",
-              "meta": {}
-            }
-          ],
-          "winner": "A1"
-        }
-      ],
-      "plan": [
-        {
-          "series_key": "cs",
-          "sources": [
-            {
-              "kind": "winner",
-              "league": null,
-              "seed": null,
-              "source_round": "AL DS",
-              "slot": 0
-            },
-            {
-              "kind": "winner",
-              "league": null,
-              "seed": null,
-              "source_round": "AL DS",
-              "slot": 1
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "NL DS",
-      "matchups": [
-        {
-          "high": {
-            "team_id": "N1",
-            "seed": 1,
-            "league": "NL",
-            "wins": 97,
-            "run_diff": 147
-          },
-          "low": {
-            "team_id": "N2",
-            "seed": 4,
-            "league": "NL",
-            "wins": 95,
-            "run_diff": 145
-          },
-          "config": {
-            "length": 5,
-            "pattern": [
-              2,
-              2,
-              1
-            ]
-          },
-          "games": [
-            {
-              "home": "N1",
-              "away": "N2",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL DS_S0_G0_N2_at_N1.html",
-              "meta": {}
-            },
-            {
-              "home": "N1",
-              "away": "N2",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL DS_S0_G1_N2_at_N1.html",
-              "meta": {}
-            },
-            {
-              "home": "N2",
-              "away": "N1",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL DS_S0_G2_N1_at_N2.html",
-              "meta": {}
-            },
-            {
-              "home": "N2",
-              "away": "N1",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL DS_S0_G3_N1_at_N2.html",
-              "meta": {}
-            },
-            {
-              "home": "N1",
-              "away": "N2",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL DS_S0_G4_N2_at_N1.html",
-              "meta": {}
-            }
-          ],
-          "winner": "N1"
-        },
-        {
-          "high": {
-            "team_id": "N3",
-            "seed": 2,
-            "league": "NL",
-            "wins": 93,
-            "run_diff": 143
-          },
-          "low": {
-            "team_id": "N4",
-            "seed": 3,
-            "league": "NL",
-            "wins": 91,
-            "run_diff": 141
-          },
-          "config": {
-            "length": 5,
-            "pattern": [
-              2,
-              2,
-              1
-            ]
-          },
-          "games": [
-            {
-              "home": "N3",
-              "away": "N4",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL DS_S1_G0_N4_at_N3.html",
-              "meta": {}
-            },
-            {
-              "home": "N3",
-              "away": "N4",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL DS_S1_G1_N4_at_N3.html",
-              "meta": {}
-            },
-            {
-              "home": "N4",
-              "away": "N3",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL DS_S1_G2_N3_at_N4.html",
-              "meta": {}
-            },
-            {
-              "home": "N4",
-              "away": "N3",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL DS_S1_G3_N3_at_N4.html",
-              "meta": {}
-            },
-            {
-              "home": "N3",
-              "away": "N4",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL DS_S1_G4_N4_at_N3.html",
-              "meta": {}
-            }
-          ],
-          "winner": "N3"
-        }
-      ],
-      "plan": []
-    },
-    {
-      "name": "NL CS",
-      "matchups": [
-        {
-          "high": {
-            "team_id": "N1",
-            "seed": 1,
-            "league": "NL",
-            "wins": 97,
-            "run_diff": 147
-          },
-          "low": {
-            "team_id": "N3",
-            "seed": 2,
-            "league": "NL",
-            "wins": 93,
-            "run_diff": 143
-          },
-          "config": {
-            "length": 7,
-            "pattern": [
-              2,
-              3,
-              2
-            ]
-          },
-          "games": [
-            {
-              "home": "N1",
-              "away": "N3",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL CS_S0_G0_N3_at_N1.html",
-              "meta": {}
-            },
-            {
-              "home": "N1",
-              "away": "N3",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL CS_S0_G1_N3_at_N1.html",
-              "meta": {}
-            },
-            {
-              "home": "N3",
-              "away": "N1",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL CS_S0_G2_N1_at_N3.html",
-              "meta": {}
-            },
-            {
-              "home": "N3",
-              "away": "N1",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL CS_S0_G3_N1_at_N3.html",
-              "meta": {}
-            },
-            {
-              "home": "N3",
-              "away": "N1",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL CS_S0_G4_N1_at_N3.html",
-              "meta": {}
-            },
-            {
-              "home": "N1",
-              "away": "N3",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL CS_S0_G5_N3_at_N1.html",
-              "meta": {}
-            },
-            {
-              "home": "N1",
-              "away": "N3",
-              "date": null,
-              "result": "1-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_NL CS_S0_G6_N3_at_N1.html",
-              "meta": {}
-            }
-          ],
-          "winner": "N1"
-        }
-      ],
-      "plan": [
-        {
-          "series_key": "cs",
-          "sources": [
-            {
-              "kind": "winner",
-              "league": null,
-              "seed": null,
-              "source_round": "NL DS",
-              "slot": 0
-            },
-            {
-              "kind": "winner",
-              "league": null,
-              "seed": null,
-              "source_round": "NL DS",
-              "slot": 1
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "WS",
-      "matchups": [
-        {
-          "high": {
-            "team_id": "A1",
-            "seed": 1,
-            "league": "AL",
-            "wins": 98,
-            "run_diff": 148
-          },
-          "low": {
-            "team_id": "N1",
-            "seed": 1,
-            "league": "NL",
-            "wins": 97,
-            "run_diff": 147
-          },
-          "config": {
-            "length": 7,
-            "pattern": [
-              2,
-              3,
-              2
-            ]
-          },
-          "games": [
-            {
-              "home": "A1",
-              "away": "N1",
-              "date": null,
-              "result": "2-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_WS_S0_G0_N1_at_A1.html",
+              "result": "5-4",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_LEAGUE DS_S0_G2_WAS_at_POR.html",
               "meta": {
                 "home_innings": 8,
                 "away_innings": 9,
@@ -605,88 +107,223 @@
                 "away_starter_hand": "L",
                 "engine": "physics"
               }
+            }
+          ],
+          "winner": "POR"
+        },
+        {
+          "high": {
+            "team_id": "SAN1",
+            "seed": 2,
+            "league": "LEAGUE",
+            "wins": 95,
+            "run_diff": 95
+          },
+          "low": {
+            "team_id": "ELP",
+            "seed": 3,
+            "league": "LEAGUE",
+            "wins": 90,
+            "run_diff": 90
+          },
+          "config": {
+            "length": 5,
+            "pattern": [
+              2,
+              2,
+              1
+            ]
+          },
+          "games": [
+            {
+              "home": "SAN1",
+              "away": "ELP",
+              "date": null,
+              "result": "5-7",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_LEAGUE DS_S1_G0_ELP_at_SAN1.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "L",
+                "away_starter_hand": "L",
+                "engine": "physics"
+              }
             },
             {
-              "home": "A1",
-              "away": "N1",
+              "home": "SAN1",
+              "away": "ELP",
               "date": null,
-              "result": "2-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_WS_S0_G1_N1_at_A1.html",
+              "result": "4-5",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_LEAGUE DS_S1_G1_ELP_at_SAN1.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "L",
+                "away_starter_hand": "L",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "ELP",
+              "away": "SAN1",
+              "date": null,
+              "result": "7-6",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_LEAGUE DS_S1_G2_SAN1_at_ELP.html",
               "meta": {
                 "home_innings": 8,
                 "away_innings": 9,
                 "extra_innings": false,
-                "home_starter_hand": "R",
+                "home_starter_hand": "L",
+                "away_starter_hand": "L",
+                "engine": "physics"
+              }
+            }
+          ],
+          "winner": "ELP"
+        }
+      ],
+      "plan": []
+    },
+    {
+      "name": "LEAGUE CS",
+      "matchups": [
+        {
+          "high": {
+            "team_id": "ELP",
+            "seed": 3,
+            "league": "LEAGUE",
+            "wins": 90,
+            "run_diff": 90
+          },
+          "low": {
+            "team_id": "POR",
+            "seed": 4,
+            "league": "LEAGUE",
+            "wins": 85,
+            "run_diff": 85
+          },
+          "config": {
+            "length": 7,
+            "pattern": [
+              2,
+              3,
+              2
+            ]
+          },
+          "games": [
+            {
+              "home": "ELP",
+              "away": "POR",
+              "date": null,
+              "result": "5-10",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_LEAGUE CS_S0_G0_POR_at_ELP.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "L",
                 "away_starter_hand": "R",
                 "engine": "physics"
               }
             },
             {
-              "home": "N1",
-              "away": "A1",
+              "home": "ELP",
+              "away": "POR",
               "date": null,
-              "result": "1-2",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_WS_S0_G2_A1_at_N1.html",
+              "result": "3-8",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_LEAGUE CS_S0_G1_POR_at_ELP.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "L",
+                "away_starter_hand": "R",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "POR",
+              "away": "ELP",
+              "date": null,
+              "result": "7-8",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_LEAGUE CS_S0_G2_ELP_at_POR.html",
               "meta": {
                 "home_innings": 9,
                 "away_innings": 9,
                 "extra_innings": false,
                 "home_starter_hand": "R",
-                "away_starter_hand": "R",
+                "away_starter_hand": "L",
                 "engine": "physics"
               }
             },
             {
-              "home": "N1",
-              "away": "A1",
+              "home": "POR",
+              "away": "ELP",
               "date": null,
-              "result": "2-0",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_WS_S0_G3_A1_at_N1.html",
-              "meta": {
-                "home_innings": 15,
-                "away_innings": 15,
-                "extra_innings": true,
-                "home_starter_hand": "R",
-                "away_starter_hand": "R",
-                "engine": "physics"
-              }
-            },
-            {
-              "home": "N1",
-              "away": "A1",
-              "date": null,
-              "result": "0-3",
-              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_WS_S0_G4_A1_at_N1.html",
+              "result": "9-7",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_LEAGUE CS_S0_G3_ELP_at_POR.html",
               "meta": {
                 "home_innings": 9,
                 "away_innings": 9,
                 "extra_innings": false,
                 "home_starter_hand": "R",
+                "away_starter_hand": "L",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "POR",
+              "away": "ELP",
+              "date": null,
+              "result": "7-8",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_LEAGUE CS_S0_G4_ELP_at_POR.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "R",
+                "away_starter_hand": "L",
+                "engine": "physics"
+              }
+            },
+            {
+              "home": "ELP",
+              "away": "POR",
+              "date": null,
+              "result": "1-3",
+              "boxscore": "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\data\\leagues\\usabl\\data\\boxscores\\playoffs\\2026_LEAGUE CS_S0_G5_POR_at_ELP.html",
+              "meta": {
+                "home_innings": 9,
+                "away_innings": 9,
+                "extra_innings": false,
+                "home_starter_hand": "L",
                 "away_starter_hand": "R",
                 "engine": "physics"
               }
             }
           ],
-          "winner": "A1"
+          "winner": "POR"
         }
       ],
       "plan": [
         {
-          "series_key": "ws",
+          "series_key": "cs",
           "sources": [
             {
               "kind": "winner",
               "league": null,
               "seed": null,
-              "source_round": "AL CS",
+              "source_round": "LEAGUE DS",
               "slot": 0
             },
             {
               "kind": "winner",
               "league": null,
               "seed": null,
-              "source_round": "NL CS",
-              "slot": 0
+              "source_round": "LEAGUE DS",
+              "slot": 1
             }
           ]
         }
