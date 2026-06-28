@@ -729,13 +729,15 @@ function PreseasonActionsCard({ state }: { state: SeasonState }) {
     mutationFn: () => api.preseasonListUnsigned(true),
     onSuccess: (data) => {
       refreshSeasonState();
-      const cpuMsg = data.cpu_running
+      const count = data?.unsigned_count ?? 0;
+      const names = data?.unsigned_names ?? [];
+      const cpuMsg = data?.cpu_running
         ? "CPU teams are signing free agents in the background — refresh in a moment to see updates. "
         : "";
       const msg =
-        data.unsigned_count === 0
+        count === 0
           ? `${cpuMsg}No unsigned players available.`
-          : `${cpuMsg}${data.unsigned_count} unsigned player${data.unsigned_count === 1 ? "" : "s"} available${data.unsigned_names.length ? `: ${data.unsigned_names.slice(0, 5).join(", ")}${data.unsigned_names.length > 5 ? "…" : ""}` : ""}.`;
+          : `${cpuMsg}${count} unsigned player${count === 1 ? "" : "s"} available${names.length ? `: ${names.slice(0, 5).join(", ")}${names.length > 5 ? "…" : ""}` : ""}.`;
       setNotice(msg);
       toast.info(msg);
     },

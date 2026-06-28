@@ -71,6 +71,9 @@ _SIM_PROGRESS: Dict[str, Any] = {
     "result": None,  # final state payload when status == "done"
     "error": None,  # message when status == "error"
     "run_id": 0,
+    # Set by /season/sim-cancel; the day loop checks it and stops cleanly
+    # (already-played days are persisted). Reset to False for each new job.
+    "cancel_requested": False,
 }
 
 
@@ -125,6 +128,7 @@ def _begin_sim_job() -> int:
                 "active": True,
                 "target": 0,
                 "played": 0,
+                "cancel_requested": False,
                 "started_at": time.time(),
             }
         )
@@ -136,12 +140,30 @@ def _finish_sim_job(
 ) -> None:
     with _SIM_PROGRESS_LOCK:
         _SIM_PROGRESS["active"] = False
+        _SIM_PROGRESS["cancel_requested"] = False
         if error is not None:
             _SIM_PROGRESS["status"] = "error"
             _SIM_PROGRESS["error"] = str(error)
         else:
             _SIM_PROGRESS["status"] = "done"
             _SIM_PROGRESS["result"] = result
+
+
+def _request_sim_cancel() -> bool:
+    """Flag the in-flight sim to stop after its current day. Returns True when a
+    running sim was actually flagged (False if nothing is running)."""
+    with _SIM_PROGRESS_LOCK:
+        if _SIM_PROGRESS.get("status") != "running" or not _SIM_PROGRESS.get(
+            "active"
+        ):
+            return False
+        _SIM_PROGRESS["cancel_requested"] = True
+        return True
+
+
+def _sim_cancel_requested() -> bool:
+    with _SIM_PROGRESS_LOCK:
+        return bool(_SIM_PROGRESS.get("cancel_requested"))
 
 
 def _days_for_kind(
@@ -593,6 +615,11 @@ def _simulate_n(
     _begin_sim_progress(playable)
 
     for _ in range(n):
+        # Cooperative cancellation: stop after the current day on request. The
+        # days already played are persisted below, so cancelling is safe.
+        if _sim_cancel_requested():
+            stop_reason = "Simulation cancelled"
+            break
         if simulator._index >= len(simulator.dates):
             break
         target_date = simulator.dates[simulator._index]
@@ -854,7 +881,19 @@ def sim_progress() -> Dict[str, Any]:
         "run_id": int(snap.get("run_id") or 0),
         "result": snap.get("result"),
         "error": snap.get("error"),
+        "cancel_requested": bool(snap.get("cancel_requested")),
     }
+
+
+@router.post("/sim-cancel")
+def sim_cancel(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[str, Any]:
+    """Request cancellation of the in-flight simulation. It stops after the
+    current day; days already simulated are kept. No-op if nothing is running."""
+
+    cancelled = _request_sim_cancel()
+    with _SIM_PROGRESS_LOCK:
+        run_id = int(_SIM_PROGRESS.get("run_id") or 0)
+    return {"cancel_requested": cancelled, "run_id": run_id}
 
 
 def _team_id_from_identity(identity: Dict[str, Any]) -> Optional[str]:
@@ -1264,7 +1303,6 @@ def _draft_completed_for_current_year() -> bool:
     return False
 
 
-@router.post("/preseason/list-unsigned")
 def _run_cpu_free_agency_async() -> None:
     """Run the CPU free-agency market in a background daemon thread.
 
@@ -1306,6 +1344,7 @@ def _run_cpu_free_agency_async() -> None:
     threading.Thread(target=_run, name="cpu-free-agency", daemon=True).start()
 
 
+@router.post("/preseason/list-unsigned")
 def preseason_list_unsigned(
     payload: Dict[str, Any] = Body(default_factory=dict),
 ) -> Dict[str, Any]:

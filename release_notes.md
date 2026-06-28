@@ -1,4 +1,54 @@
 <!-- last_build_ref: 79882e43bc2ca284855a0621d24028e4c52b1d6f -->
+# 7.0 Release Notes — Financial System Overhaul + Season-Flow Hardening
+
+## Finance: enforcement is now On / Off (hybrid)
+- Replaced the confusing **warn / block** enforcement with a single **On / Off**
+  toggle. Old `warn`/`block` configs auto-upgrade to **On** (no data loss).
+- **On** is MLB-style hybrid: during the season you may exceed the **luxury
+  threshold** but you pay the **tax** (and a floor fee for underspending) —
+  nothing is blocked. The hard gate is **Opening Day**, where a team must be
+  **solvent** (projected debt within the cap) to start the season.
+- The 10 finance **modules stay individually toggleable**; presets (Off / Simple
+  / Standard / MLB-Like / Custom) fill in all module levels, and the picker now
+  reflects a preset's levels immediately on selection.
+
+## Finance: money actually moves
+- **Signing bonuses** now cost cash: draft-pick slot bonuses and free-agent
+  signing bonuses debit cash on hand (accruing debt if short); declined-option
+  **buyouts** hit cash too. The Free Agency offer dialog has a signing-bonus field.
+
+## Finance: qualifying offers + compensation picks
+- Eligible departing free agents can receive a one-year **qualifying offer**.
+  CPU teams auto-resolve; **human owners decide** (Tender / Let walk) on the
+  Free Agency page.
+- A declined QO whose player signs elsewhere yields a **compensation draft
+  pick** (a real extra end-of-round-1 pick) for the former team; the signing
+  team forfeits a round-2 pick.
+
+## Finance: owner reminders
+- New phase-aware **finance to-do** on the Season page (set budget, cash /
+  luxury-threshold alerts, expiring contracts, arbitration, qualifying offers).
+- Wired the previously-inert **over-luxury-threshold** and **negative-net**
+  finance notifications (fire on phase changes).
+
+## Season flow hardening
+- **Advance Phase** is enabled only when the phase is actually ready (schedule
+  finished, draft committed, champion crowned) — no more clickable-but-bouncing.
+- The amateur draft **auto-resumes** the regular season once committed.
+- Each new season's **schedule generates automatically** on rollover.
+- **Simulate the playoffs** from the Playoffs page (next game / round / to
+  champion); fixed a bracket dead-end and the end-of-season banner.
+- Single-league playoff brackets clean up (4-team field, consistent round
+  naming, optional rebuild) and the on-clock / completion are server-authoritative.
+- Preseason "list unsigned players" is instant (CPU free agency runs in the
+  background instead of blocking the request).
+
+## Performance
+- Game simulation is roughly **5× faster per game** via cached park/player/
+  recovery parses (results unchanged).
+
+---
+
 # 4.5 Release Notes (Since 4.3.41)
 
 ## League Setup & Presets

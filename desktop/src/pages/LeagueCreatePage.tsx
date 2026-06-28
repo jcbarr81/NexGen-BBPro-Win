@@ -1069,8 +1069,17 @@ function RulesStep({
   const aiDefaults = commish?.options.finance_ai_tuning_defaults ?? {};
 
   function setModuleLevel(moduleId: string, level: string) {
+    // Seed the full preset levels when leaving a preset for custom, so the
+    // other modules keep the preset's values instead of reverting to off.
+    const presetModules =
+      state.financePreset !== "custom"
+        ? commish?.options.finance_preset_profiles?.[state.financePreset]?.modules
+        : undefined;
+    const base = presetModules
+      ? { ...state.financeModules, ...presetModules }
+      : state.financeModules;
     onPatch({
-      financeModules: { ...state.financeModules, [moduleId]: level },
+      financeModules: { ...base, [moduleId]: level },
       // Editing module levels implies "custom" — mirrors the
       // commissioner page's behavior.
       financePreset: "custom",
@@ -1206,7 +1215,23 @@ function RulesStep({
                   </Label>
                   <select
                     value={state.financePreset}
-                    onChange={(e) => onPatch({ financePreset: e.target.value })}
+                    onChange={(e) => {
+                      const preset = e.target.value;
+                      const profile =
+                        commish?.options.finance_preset_profiles?.[preset];
+                      if (profile) {
+                        onPatch({
+                          financePreset: preset,
+                          financeEnforcement: profile.enforcement_mode,
+                          financeModules: {
+                            ...state.financeModules,
+                            ...profile.modules,
+                          },
+                        });
+                      } else {
+                        onPatch({ financePreset: preset });
+                      }
+                    }}
                     className="h-10 w-full rounded-lg border border-border bg-canvas/60 px-3 text-sm focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
                   >
                     {(commish?.options.finance_presets ?? [
@@ -1288,8 +1313,19 @@ function RulesStep({
                       {showFinanceModules && (
                         <div className="space-y-2 border-t border-border/60 px-3 py-3">
                           {moduleCatalog.map((m) => {
+                            // When a non-custom preset is active, show its level
+                            // directly so the display matches the selected preset.
+                            const presetModules =
+                              state.financePreset !== "custom"
+                                ? commish?.options.finance_preset_profiles?.[
+                                    state.financePreset
+                                  ]?.modules
+                                : undefined;
                             const level =
-                              state.financeModules[m.id] ?? m.levels[0] ?? "off";
+                              presetModules?.[m.id] ??
+                              state.financeModules[m.id] ??
+                              m.levels[0] ??
+                              "off";
                             return (
                               <div
                                 key={m.id}

@@ -1293,6 +1293,7 @@ export interface SimProgress {
   run_id: number;
   result: SeasonState | null;
   error: string | null;
+  cancel_requested?: boolean;
 }
 
 /**
@@ -2145,6 +2146,11 @@ export const api = {
   seasonState: () => apiRequest<SeasonState>("/season/state"),
   seasonSimProgress: () =>
     apiRequest<SimProgress>("/season/sim-progress"),
+  seasonSimCancel: () =>
+    apiRequest<{ cancel_requested: boolean; run_id: number }>(
+      "/season/sim-cancel",
+      { method: "POST" },
+    ),
   // Each sim starts a background job and then resolves with the final state
   // once polling sees it finish — so the caller (useSimMutation) is unchanged.
   seasonSimulateDay: () =>

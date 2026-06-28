@@ -12,11 +12,12 @@
  */
 
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
 import { api } from "@/lib/api";
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -69,6 +70,12 @@ export function SimProgressOverlay({ open, label }: Props) {
     staleTime: 0,
     gcTime: 0,
   });
+
+  const cancel = useMutation({ mutationFn: () => api.seasonSimCancel() });
+  // Cancellation is confirmed by the backend flag (reset per job), with the
+  // in-flight click as immediate feedback.
+  const cancelRequested =
+    cancel.isPending || !!progressQ.data?.cancel_requested;
 
   const target = progressQ.data?.target ?? 0;
   const played = progressQ.data?.played ?? 0;
@@ -156,6 +163,24 @@ export function SimProgressOverlay({ open, label }: Props) {
             <div className="h-full w-1/3 animate-[slide_1.4s_linear_infinite] rounded-full bg-amber/70" />
           )}
         </div>
+        {progressQ.data?.status === "running" && (
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <span className="text-[11px] text-muted">
+              {cancelRequested
+                ? "Cancelling — finishing the current day, then stopping. Days already played are kept."
+                : "Cancelling stops after the current day; days already simulated are kept."}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={cancelRequested}
+              onClick={() => cancel.mutate()}
+              className="shrink-0"
+            >
+              {cancelRequested ? "Cancelling…" : "Cancel"}
+            </Button>
+          </div>
+        )}
         <style>{`
           @keyframes slide {
             from { transform: translateX(-50%); }

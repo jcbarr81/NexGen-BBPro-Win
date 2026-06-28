@@ -162,9 +162,19 @@ The most-used sim page.
   place. (Most leagues sim a whole day at a time.)
 - **Sim to Draft / Sim to Playoffs** run to the next phase boundary, stopping
   cleanly if a required step blocks.
-- **Advance Phase** is the deliberate step between phases.
-- The page blocks any sim command that would skip required preseason/offseason
-  steps and tells you which admin page to visit.
+- **Advance Phase** is the deliberate step between phases. It's **only enabled
+  when the phase is actually ready** to move on (schedule fully played, draft
+  committed, or a champion crowned) and tells you why it's disabled.
+- The amateur draft is a mid-season interruption: once it commits, the regular
+  season **resumes automatically** — you don't advance out of the draft.
+- Each new season's **schedule is generated automatically** when you advance
+  into the new year; no manual regeneration.
+- Simulate the **playoffs** from the Playoffs page (Sim Next Game / Sim Next
+  Round / Sim to Champion). When a champion is crowned, Advance Phase unlocks
+  the Offseason.
+- When the finance system is on, a phase-aware **finance to-do** banner lists
+  what your team needs to do this phase (budget, luxury threshold / cash,
+  arbitration, qualifying offers).
 
 ### News
 
@@ -250,6 +260,27 @@ Team finance snapshot: cash on hand, debt, preset, whether financials are
 enabled. A **payroll alerts** card warns proactively (low cash, high debt,
 negative projected net). Revenue/expense by category, budget categories
 (training / scouting / development / facilities), and a transactions log.
+
+The finance system is **modular** — a commissioner enables exactly the pieces a
+league wants (revenue, market, budgets, expenses, contracts, payroll rules,
+arbitration, free agency, CPU AI) via a preset (Off / Simple / Standard /
+MLB-Like) or per-module Custom levels.
+
+- **Enforcement is On or Off** (no warn/block). When On, the rules behave
+  MLB-style: during the season you may exceed the **luxury threshold** but you
+  pay the **tax** (and a floor fee for underspending) — nothing is blocked
+  mid-season. The hard gate is **Opening Day**: a team must be solvent
+  (projected debt within the cap) to start the season.
+- **Money actually moves**: draft-pick slot bonuses and free-agent signing
+  bonuses debit your cash (and accrue debt if short); declined-option buyouts
+  hit cash too. All of it posts to the ledger.
+- **Qualifying offers** (offseason): tender a one-year QO to an eligible
+  departing free agent, or let him walk, from the Free Agency page. A declined
+  QO whose player signs elsewhere earns a **compensation draft pick** (an extra
+  end-of-round-1 pick); the signing team forfeits a round-2 pick.
+- A phase-aware **finance to-do** on the Season page surfaces what you need to
+  do each phase, and finance notifications fire on phase changes (over the
+  luxury threshold, projected negative net).
 
 ### Team Settings
 

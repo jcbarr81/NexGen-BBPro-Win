@@ -81,11 +81,23 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Phase transitions",
-                "<p>When the regular season ends, use <b>Advance Phase</b> to enter the draft or playoffs. The UI blocks sims that would skip required stages.</p>",
+                "<p>Click <b>Advance Phase</b> to move on (Preseason → Regular Season → Amateur Draft mid-season → finish the schedule → Playoffs → Offseason). The button is only enabled when the phase is actually ready — the schedule is fully played, the draft is committed, or a champion has been crowned — so it never skips a stage. After the amateur draft commits, the regular season resumes automatically; you don't have to advance out of it.</p>",
+            ),
+            TutorialStep(
+                "Schedules generate automatically",
+                "<p>Each new season's schedule is created for you when you advance into the new year — no manual regeneration needed. The Season page shows the upcoming Draft Day and the next date to play.</p>",
+            ),
+            TutorialStep(
+                "Simulating the playoffs",
+                "<p>In the Playoffs phase, open the <b>Playoffs</b> page and use <b>Sim Next Game</b>, <b>Sim Next Round</b>, or <b>Sim to Champion</b>. When a champion is crowned, <b>Advance Phase</b> unlocks to move into the Offseason.</p>",
+            ),
+            TutorialStep(
+                "Your finance to-do",
+                "<p>When the finance system is on, a phase-aware <b>finance to-do</b> banner appears here listing what your team needs to do this phase — set a budget in preseason, watch the luxury threshold / cash in-season, and handle arbitration and qualifying offers in the offseason.</p>",
             ),
             TutorialStep(
                 "Offseason rollover",
-                "<p>After playoffs, admins can run the full offseason flow from <b>Admin → Offseason Flow</b>. It handles contract rollover, arbitration, free agency, and year-end snapshots.</p>",
+                "<p>Entering the Offseason runs the rollover automatically: contracts advance, expired deals become free agents, arbitration and qualifying offers are processed, finances roll over, and players age. Admins can review/run pieces from <b>Admin → Offseason Flow</b>.</p>",
             ),
             TutorialStep(
                 "One-off what-if games",
@@ -230,15 +242,19 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Sign a player",
-                "<p>Click <b>Sign</b> on a row, pick the destination level (ACT/AAA/LOW), and confirm. The server enforces roster caps and writes a sign transaction.</p>",
+                "<p>Click <b>Sign</b> on a row, pick the destination level (ACT/AAA/LOW), set the salary/years, and optionally a <b>signing bonus</b> (which debits your cash now). Confirm — the server enforces roster caps and writes a sign transaction.</p>",
+            ),
+            TutorialStep(
+                "Qualifying offers",
+                "<p>In the offseason, a <b>Qualifying offers</b> card appears for your team's eligible departing free agents. Choose <b>Tender QO</b> (a one-year offer the player may accept or decline) or <b>Let walk</b>. A declined QO whose player signs elsewhere earns you a compensation draft pick.</p>",
             ),
             TutorialStep(
                 "After signing",
                 "<p>Update your depth chart or lineup so the new player gets game time. Signings appear in the news feed and transactions log for league visibility.</p>",
             ),
             TutorialStep(
-                "Watch Finance alerts",
-                "<p>After a sign, check <b>My Team → Finance</b>. The Payroll Alerts card warns if the signing pushed you into cash-burn territory.</p>",
+                "Finance impact",
+                "<p>With finance on, you can sign over the luxury threshold — it isn't blocked, you just pay the tax at settlement. Watch the Season page's finance to-do and the Finance page's alerts; the only hard limit is staying solvent for Opening Day.</p>",
             ),
         ],
     ),
@@ -278,11 +294,15 @@ TUTORIALS: List[Tutorial] = [
         steps=[
             TutorialStep(
                 "When the draft runs",
-                "<p>The draft fires when the season reaches the amateur draft phase. Use <b>Sim to Draft</b> from the Season page to advance.</p>",
+                "<p>The amateur draft fires mid-season when the calendar reaches Draft Day — use <b>Sim to Draft</b> from the Season page to fast-forward to it. Once every pick is committed, the regular season resumes <b>automatically</b>; you don't advance out of the draft manually.</p>",
             ),
             TutorialStep(
                 "Live board",
-                "<p>Open <b>Transactions → Draft</b>. The Now tab shows current round, overall pick, draft order, and most recent picks. The History tab archives completed picks by year.</p>",
+                "<p>Open <b>Transactions → Draft</b>. The Now tab shows the current round, overall pick, the team on the clock, draft order, and recent picks. The History tab archives completed picks by year.</p>",
+            ),
+            TutorialStep(
+                "Signing bonuses & compensation picks",
+                "<p>With the finance system on, each pick signs an entry-level contract and its <b>slot signing bonus debits the team's cash</b>. If your league runs <b>qualifying offers</b>, a team that lost a QO'd free agent gets an extra <b>compensation pick</b> at the end of round 1, and the team that signed him forfeits a round-2 pick — the board handles the uneven round automatically.</p>",
             ),
             TutorialStep(
                 "Admin controls",
@@ -331,28 +351,32 @@ TUTORIALS: List[Tutorial] = [
     Tutorial(
         tutorial_id="finance",
         title="Finance Hub",
-        summary="Snapshot, payroll alerts, budget projections, transactions log.",
+        summary="Snapshot, luxury tax, signing bonuses, qualifying offers, reminders.",
         route="/finance",
         steps=[
             TutorialStep(
                 "Open Finance",
-                "<p>Use <b>My Team → Finance</b>. The page shows cash on hand, debt, current revenue/expense totals, and projected budgets.</p>",
+                "<p>Use <b>My Team → Finance</b>. The page shows cash on hand, debt, current revenue/expense totals, projected monthly budgets, and the transactions ledger. The finance system is <b>modular</b> — a commissioner enables exactly the pieces a league wants (revenue, budgets, contracts, arbitration, free agency, payroll rules, CPU AI) or turns it off entirely.</p>",
             ),
             TutorialStep(
-                "Payroll alerts",
-                "<p>The Payroll Alerts card warns proactively when cash is running out, debt exceeds a year of projected revenue, projected monthly net is negative, or the league has financials disabled. These show inline before you have to run the Finance Stability sandbox.</p>",
+                "Your finance to-do",
+                "<p>When finance is on, the <b>Season</b> page shows a phase-aware <b>finance to-do</b> for your team: set your budget in preseason, watch for cash-low / over-the-luxury-threshold alerts in-season, and handle expiring contracts, arbitration, and qualifying offers in the offseason. Each item links straight to where you act.</p>",
             ),
             TutorialStep(
-                "Budget categories",
-                "<p>Training, scouting, development, and facilities budgets feed the simulation. Training budget scales preseason camp intensity; scouting budget drives scouting confidence.</p>",
+                "Enforcement: On or Off (hybrid)",
+                "<p>Enforcement is simply <b>On</b> or <b>Off</b> — there's no warn/block middle ground. When On, the rules have teeth MLB-style: during the season you <i>can</i> exceed the luxury threshold, but you <b>pay the tax</b> (and a floor fee if you underspend) — nothing is blocked mid-season. The one hard gate is <b>Opening Day</b>: your team must be solvent (projected debt within the cap) to start the season, or the phase advance is blocked until you fix it.</p>",
             ),
             TutorialStep(
-                "Transactions log",
-                "<p>Scroll down for recent ledger entries. Every finance-posting event — ticket revenue, payroll, scouting spend — appears here for auditing.</p>",
+                "Money actually moves",
+                "<p>Signing bonuses really cost cash: a draft pick's slot bonus and any free-agent signing bonus are <b>debited from your cash on hand</b> (going into debt if you can't cover it), and declined-option buyouts hit cash too. Everything posts to the transactions ledger so you can audit it.</p>",
+            ),
+            TutorialStep(
+                "Qualifying offers",
+                "<p>In the offseason, a departing free agent who reached full free agency may be eligible for a one-year <b>qualifying offer</b>. On the <b>Free Agency</b> page you choose <b>Tender QO</b> or <b>Let walk</b>. If a QO'd player declines and signs elsewhere, you receive a <b>compensation draft pick</b> (an extra end-of-round-1 pick) and the signing team forfeits a pick.</p>",
             ),
             TutorialStep(
                 "Commissioner tools",
-                "<p>Admins set finance preset (simple, standard, MLB-like) and enforcement mode from <b>Admin → Commissioner</b>. The <b>Admin → Finance Stability</b> tool validates guardrails against a multi-season sandbox before changing live settings.</p>",
+                "<p>Admins set the finance <b>preset</b> (Off / Simple / Standard / MLB-Like) and per-module levels from <b>Admin → Commissioner → Finance</b>. Picking a preset fills in every module level (MLB-Like turns it all on); choose <b>Custom</b> to fine-tune individual modules. <b>Admin → Finance Stability</b> validates guardrails against a multi-season sandbox before changing live settings.</p>",
             ),
         ],
     ),

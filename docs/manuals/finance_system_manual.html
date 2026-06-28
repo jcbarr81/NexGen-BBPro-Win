@@ -32,6 +32,34 @@
     timing, queue flow, and the exact owner/commissioner progression through a season.
   </p>
 
+  <div class="warn">
+    <b>What changed in 7.0 (read first).</b> Several behaviors below describe the
+    older model and have been superseded:
+    <ul>
+      <li><b>Enforcement is now On or Off</b> (the old <code>warn</code> /
+        <code>block</code> modes are gone; old configs map to <b>On</b>). When On,
+        the rules are hybrid: during the season you may exceed the luxury
+        threshold but you <b>pay the luxury tax</b> (and a floor fee for
+        underspending) &mdash; nothing is blocked mid&#8209;season. The one hard gate
+        is <b>Opening Day</b>, where a team must be solvent (projected debt within
+        the cap) to start the season.</li>
+      <li><b>Money actually moves.</b> Draft&#8209;pick slot bonuses and free&#8209;agent
+        signing bonuses debit team cash (accruing debt if short); declined&#8209;option
+        buyouts hit cash too.</li>
+      <li><b>Qualifying offers &amp; compensation picks.</b> Eligible departing
+        free agents can receive a one&#8209;year qualifying offer (owner&#8209;controlled
+        for human teams via the Free Agency page). A declined QO whose player
+        signs elsewhere yields a <b>compensation draft pick</b> for the former
+        team and a forfeited pick for the signing team.</li>
+      <li><b>Owner reminders.</b> A phase&#8209;aware finance to&#8209;do on the Season page
+        surfaces budget, luxury&#8209;threshold/cash, arbitration, and qualifying&#8209;offer
+        actions for your team.</li>
+    </ul>
+    Module enable/disable, presets (Off / Simple / Standard / MLB&#8209;Like / Custom),
+    contracts, arbitration, the revenue model, and the luxury&#8209;tax bands all work
+    as described below.
+  </div>
+
   <h2>Table of Contents</h2>
   <ol class="toc">
     <li><a href="#overview">System Overview</a></li>

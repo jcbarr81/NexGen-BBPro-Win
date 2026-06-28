@@ -124,7 +124,7 @@ FINANCE_MODULE_HELP: Dict[str, str] = {
     "gm_payroll_rules": "Controls payroll-limit behavior such as threshold pressure and realism-oriented payroll checks.",
     "gm_arbitration": "Controls whether arbitration candidates and award decisions are part of roster management.",
     "gm_free_agency": "Controls how teams value and pursue free agents under the financial system.",
-    "gm_roster_cost_enforcement": "Controls whether roster moves are allowed to exceed the league's roster-cost guardrails.",
+    "gm_roster_cost_enforcement": "On or Off. When On, finance rules have teeth: exceeding the luxury threshold during the season is allowed but taxed (and underspending draws a floor fee), while a team must be solvent at Opening Day to start the season.",
     "gm_finance_ai": "Controls how strongly CPU teams react to payroll pressure, contracts, and long-term commitments.",
 }
 

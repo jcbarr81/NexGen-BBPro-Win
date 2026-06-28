@@ -313,10 +313,20 @@ function FinanceCard({ data }: { data: CommissionerSettings }) {
   }
 
   function setModuleLevel(moduleId: string, level: string) {
+    // When leaving a preset for custom, seed the full preset module levels so
+    // the other modules keep their preset values instead of reverting to
+    // whatever stale (possibly off) values were in draft.modules.
+    const presetModules =
+      draft.preset !== "custom"
+        ? data.options.finance_preset_profiles?.[draft.preset]?.modules
+        : undefined;
+    const base = presetModules
+      ? { ...draft.modules, ...presetModules }
+      : draft.modules;
     setDraft({
       ...draft,
       preset: "custom",
-      modules: { ...draft.modules, [moduleId]: level },
+      modules: { ...base, [moduleId]: level },
     });
   }
 
@@ -410,7 +420,19 @@ function FinanceCard({ data }: { data: CommissionerSettings }) {
             {showModules && (
               <div className="space-y-2 border-t border-border/60 px-3 py-3">
                 {modules.map((m) => {
-                  const level = draft.modules[m.id] ?? m.levels[0] ?? "off";
+                  // When a non-custom preset is active, show the preset's level
+                  // directly so the display is always consistent with the
+                  // selected preset (independent of when modules were synced).
+                  const presetModules =
+                    draft.preset !== "custom"
+                      ? data.options.finance_preset_profiles?.[draft.preset]
+                          ?.modules
+                      : undefined;
+                  const level =
+                    presetModules?.[m.id] ??
+                    draft.modules[m.id] ??
+                    m.levels[0] ??
+                    "off";
                   return (
                     <div
                       key={m.id}
