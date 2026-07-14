@@ -69,7 +69,7 @@
     <li><a href="#owner-ops">Owner Ops Tab Deep Guide</a></li>
     <li><a href="#gm-ops">GM/Coach Ops Tab Deep Guide</a></li>
     <li><a href="#queue-flow">GM Finance Queue and Commissioner Review Flow</a></li>
-    <li><a href="#payroll-policy">Payroll Policy Checks (Warn/Block)</a></li>
+    <li><a href="#payroll-policy">Payroll Policy Checks (Hybrid Enforcement)</a></li>
     <li><a href="#budget-effects">Budget Effects on Development and Scouting</a></li>
     <li><a href="#cadence">When Finance Events Happen (Daily/Weekly/Monthly/Offseason)</a></li>
     <li><a href="#offseason">Offseason Pipeline and Stage-by-Stage Progression</a></li>
@@ -87,7 +87,7 @@
   <ul>
     <li>Finance can be fully disabled or enabled per league.</li>
     <li>Each finance module can run at different levels.</li>
-    <li>Payroll policy can warn or hard-block actions depending on enforcement.</li>
+    <li>Payroll policy is hybrid: in-season violations settle economically (luxury tax, floor fee); only Opening Day insolvency blocks.</li>
     <li>Owner and commissioner modes have different queue approval behavior.</li>
   </ul>
 
@@ -97,7 +97,7 @@
     <tr><td>Owner Ops</td><td>Owner-side finance: cash, debt, revenue, expenses, and budget targets.</td></tr>
     <tr><td>GM/Coach Ops</td><td>Roster/business operations: contracts, payroll, arbitration, free agency queues.</td></tr>
     <tr><td>Finance Preset</td><td>Predefined module profile (off, simple, standard, mlb_like, custom).</td></tr>
-    <tr><td>Enforcement Mode</td><td>How strict policy checks are: off, warn, block.</td></tr>
+    <tr><td>Enforcement</td><td>On or Off. On = MLB-style hybrid: tax/fees in-season, hard solvency gate at Opening Day. (Legacy warn/block configs map to On.)</td></tr>
     <tr><td>GM Queue</td><td>Queue of owner finance decisions awaiting apply/review workflow.</td></tr>
     <tr><td>Offseason Pipeline</td><td>Snapshot + arbitration + reset + checklist progression.</td></tr>
     <tr><td>Threshold/Floor</td><td>Payroll ceiling/floor context used for policy checks and risk signaling.</td></tr>
@@ -115,7 +115,7 @@
     <tr><td>gm_payroll_rules</td><td>Payroll threshold/floor logic and policy checks.</td><td>off/basic/mlb_like</td></tr>
     <tr><td>gm_arbitration</td><td>Arbitration pipeline and queue operations.</td><td>off/basic/advanced</td></tr>
     <tr><td>gm_free_agency</td><td>Free-agency recommendation queue support.</td><td>off/basic/advanced</td></tr>
-    <tr><td>gm_roster_cost_enforcement</td><td>Roster-cost rule strictness.</td><td>off/warn/block</td></tr>
+    <tr><td>gm_roster_cost_enforcement</td><td>Whether roster-cost rules have teeth (tax/fees + Opening Day gate).</td><td>off/on</td></tr>
     <tr><td>gm_finance_ai</td><td>CPU strategy intensity for finance decisions.</td><td>off/basic/advanced</td></tr>
   </table>
 
@@ -128,11 +128,16 @@
     <li><b>mlb_like</b>: strictest profile with stronger payroll enforcement behavior.</li>
     <li><b>custom</b>: manually tuned module mix.</li>
   </ul>
-  <h3>Enforcement Mode Meaning</h3>
+  <h3>Enforcement Meaning (On / Off hybrid)</h3>
   <ul>
     <li><b>off</b>: policy violations reported minimally and not enforced.</li>
-    <li><b>warn</b>: action allowed, but warning/audit is recorded.</li>
-    <li><b>block</b>: violating action is prevented.</li>
+    <li><b>on</b>: MLB-style hybrid &mdash; during the season you may exceed the
+      luxury threshold (you pay the <b>tax</b> at settlement; underspending
+      draws a <b>floor fee</b>) and nothing is blocked mid-season. The one hard
+      gate is <b>Opening Day</b>: a team must be solvent (projected debt within
+      its cap) to start the season.</li>
+    <li>Legacy <b>warn</b>/<b>block</b> values from older configs are
+      automatically upgraded to <b>on</b>.</li>
   </ul>
   <h3>AI Tuning</h3>
   <p>
@@ -196,7 +201,7 @@
     Queue status values matter: pending, approved-not-applied, applied. Always verify final applied state.
   </div>
 
-  <h2 id="payroll-policy">8. Payroll Policy Checks (Warn/Block)</h2>
+  <h2 id="payroll-policy">8. Payroll Policy Checks (Hybrid Enforcement)</h2>
   <h3>What is evaluated</h3>
   <ul>
     <li>Projected payroll after signings, contract updates, and trade deltas.</li>
@@ -205,12 +210,22 @@
   </ul>
   <h3>Outcomes</h3>
   <ul>
-    <li><b>Pass</b>: no blocking condition found.</li>
-    <li><b>Warn</b>: permitted but high-risk; warning/audit written.</li>
-    <li><b>Block</b>: action denied under strict enforcement.</li>
+    <li><b>Pass</b>: no violations found.</li>
+    <li><b>Over threshold / under floor</b>: the action is allowed in-season;
+      the overage settles as a <b>luxury tax</b> (MLB-Like: tiered CBT; Basic:
+      flat overage fee) and a shortfall as a <b>floor fee</b>. Violations are
+      reported to notifications/UI so owners can react.</li>
+    <li><b>Blocked (Opening Day only)</b>: the single hard gate &mdash; a team
+      whose projected debt exceeds its cap cannot start the season until it is
+      solvent again.</li>
   </ul>
   <p>
-    The system formats policy messages with projected values and threshold deltas to explain the decision.
+    The system formats policy messages with projected values and threshold
+    deltas to explain the decision. Owners can see the same numbers up front:
+    the <b>Payroll vs Luxury Threshold</b> card on the Finance page (headroom,
+    estimated tax/fee, Opening Day solvency) and the live <b>"Your team's
+    books"</b> panel in the Free Agency offer dialog preview exactly what
+    settlement would charge.
   </p>
 
   <h2 id="budget-effects">9. Budget Effects on Development and Scouting</h2>

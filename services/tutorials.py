@@ -242,7 +242,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Sign a player",
-                "<p>Click <b>Sign</b> on a row, pick the destination level (ACT/AAA/LOW), set the salary/years, and optionally a <b>signing bonus</b> (which debits your cash now). Confirm — the server enforces roster caps and writes a sign transaction.</p>",
+                "<p>Click <b>Sign</b> on a row, pick the destination level (ACT/AAA/LOW), set the salary/years, and optionally a <b>signing bonus</b> (which debits your cash now). The dialog previews the player's <b>fair-market value</b>, likely response, and the top <b>competing CPU bids</b> so you know who you're up against. Confirm — the server enforces roster caps and writes a sign transaction.</p>",
             ),
             TutorialStep(
                 "Qualifying offers",
@@ -254,7 +254,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Finance impact",
-                "<p>With finance on, you can sign over the luxury threshold — it isn't blocked, you just pay the tax at settlement. Watch the Season page's finance to-do and the Finance page's alerts; the only hard limit is staying solvent for Opening Day.</p>",
+                "<p>With payroll rules on, the offer dialog shows a live <b>Your team's books</b> panel as you type: payroll before → after the signing vs the luxury threshold, the <b>estimated tax</b> if the offer crosses it, <b>cash remaining after the signing bonus</b> (with a debt warning if it goes negative), and an <b>Opening Day risk</b> flag if the move would leave you insolvent. Going over the threshold isn't blocked — you just pay the tax at settlement; the only hard limit is staying solvent for Opening Day.</p>",
             ),
         ],
     ),
@@ -351,12 +351,20 @@ TUTORIALS: List[Tutorial] = [
     Tutorial(
         tutorial_id="finance",
         title="Finance Hub",
-        summary="Snapshot, luxury tax, signing bonuses, qualifying offers, reminders.",
+        summary="Snapshot, payroll headroom, luxury tax, signing bonuses, qualifying offers, reminders.",
         route="/finance",
         steps=[
             TutorialStep(
                 "Open Finance",
                 "<p>Use <b>My Team → Finance</b>. The page shows cash on hand, debt, current revenue/expense totals, projected monthly budgets, and the transactions ledger. The finance system is <b>modular</b> — a commissioner enables exactly the pieces a league wants (revenue, budgets, contracts, arbitration, free agency, payroll rules, CPU AI) or turns it off entirely.</p>",
+            ),
+            TutorialStep(
+                "Payroll vs Luxury Threshold",
+                "<p>When payroll rules are on, a <b>Payroll vs Luxury Threshold</b> card shows a meter of your payroll against the league's <b>floor</b> and <b>luxury threshold</b>, with a zone badge (Safe / Over threshold / Under floor). It answers the big questions at a glance: how much <b>headroom</b> you have before the tax kicks in, the <b>estimated tax or floor fee</b> you'd pay at settlement, and whether you're <b>solvent for Opening Day</b> (projected debt within the cap). The numbers use the exact same math settlement charges.</p>",
+            ),
+            TutorialStep(
+                "Track contracts league-wide",
+                "<p><b>My Team → Contracts</b> is the league-wide contract tracker: salary (with total commitment for multi-year deals), years left, FA year, and service time. Hover the status badges — <b>Expiring</b>, <b>Arb-eligible</b>, <b>options</b>, <b>Non-gtd</b> — for a plain-language explanation of what each means for your planning.</p>",
             ),
             TutorialStep(
                 "Your finance to-do",
@@ -464,7 +472,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Commissioner settings",
-                "<p><b>Admin → Commissioner</b> controls trade rules, global injury level, finance preset + enforcement, the new <b>module-level finance toggles</b> (10 modules from Owner Revenue to GM Finance AI), <b>CPU finance AI tuning</b> (19 numeric knobs — star thresholds, salary share caps, arbitration raise %, FA avoidance bands), and a separate <b>Scouting fog-of-war</b> card with its own enable + 6 pacing knobs. Module / AI sections are collapsed by default; expand them in Custom mode for fine-grained edits.</p>",
+                "<p><b>Admin → Commissioner</b> controls trade rules, global injury level, finance preset + enforcement, the new <b>module-level finance toggles</b> (10 modules from Owner Revenue to GM Finance AI), <b>CPU finance AI tuning</b> (19 numeric knobs — star thresholds, salary share caps, arbitration raise %, FA avoidance bands), and a separate <b>Scouting fog-of-war</b> card with its own enable + 6 pacing knobs. Each module's level dropdown shows a <b>plain-language description of the selected level</b> so you know what Basic vs Advanced vs MLB-Like actually changes. Module / AI sections are collapsed by default; expand them in Custom mode for fine-grained edits.</p>",
             ),
             TutorialStep(
                 "Strategy &amp; auto-reassign",
@@ -472,7 +480,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Finance queue & change requests",
-                "<p><b>Admin → Finance Queue</b> reviews pending GM decisions (contracts, arbitration) that need commissioner approval. <b>Admin → Change Requests</b> lists owner-submitted bundles with approve/reject/requeue.</p>",
+                "<p><b>Admin → Finance Queue</b> reviews pending GM decisions (contracts, arbitration) that need commissioner approval. Rows show the <b>player's name</b>, a plain-language decision (e.g. <i>Non-tender — release to free agency</i>), and the <b>salary movement</b>. <b>Apply approved</b> lists exactly which decisions will be committed before you confirm — the write is irreversible. <b>Admin → Change Requests</b> lists owner-submitted bundles with approve/reject/requeue.</p>",
             ),
             TutorialStep(
                 "Offseason review tabs",

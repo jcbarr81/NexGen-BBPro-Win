@@ -16,7 +16,7 @@ everyone; admin-only sections are marked.
 1. [Accounts, leagues & membership](#accounts-leagues--membership)
 2. [Sidebar & navigation](#sidebar--navigation)
 3. [Today](#today) — [Dashboard](#dashboard) · [Season](#season) · [News](#news)
-4. [My Team](#my-team) — [Roster](#roster) · [Lineup](#lineup) · [Depth Chart](#depth-chart) · [Training](#training) · [Injuries](#injuries) · [Notifications](#notifications) · [Finance](#finance) · [Settings](#team-settings)
+4. [My Team](#my-team) — [Roster](#roster) · [Lineup](#lineup) · [Depth Chart](#depth-chart) · [Training](#training) · [Injuries](#injuries) · [Notifications](#notifications) · [Finance](#finance) · [Contracts](#contracts) · [Settings](#team-settings)
 5. [League](#league) — Standings · Leaders · Stats · Players · Teams · Schedule · Playoffs · History · Hall of Fame · Records · Ballparks
 6. [Transactions](#transactions) — Free Agency · Trades · Draft · Submit Change Request · Activity
 7. [Admin (Commissioner)](#admin-commissioner)
@@ -261,6 +261,13 @@ enabled. A **payroll alerts** card warns proactively (low cash, high debt,
 negative projected net). Revenue/expense by category, budget categories
 (training / scouting / development / facilities), and a transactions log.
 
+When payroll rules are on, a **Payroll vs Luxury Threshold** card sits at the
+top: a meter of your payroll against the league **floor** and **luxury
+threshold** with a zone badge (Safe / Over threshold / Under floor). It shows
+your **headroom** before the tax kicks in, the **estimated tax or floor fee**
+you'd pay at settlement (same math settlement charges), and whether you're
+**solvent for Opening Day** (projected debt within the cap).
+
 The finance system is **modular** — a commissioner enables exactly the pieces a
 league wants (revenue, market, budgets, expenses, contracts, payroll rules,
 arbitration, free agency, CPU AI) via a preset (Off / Simple / Standard /
@@ -281,6 +288,15 @@ MLB-Like) or per-module Custom levels.
 - A phase-aware **finance to-do** on the Season page surfaces what you need to
   do each phase, and finance notifications fire on phase changes (over the
   luxury threshold, projected negative net).
+
+### Contracts
+
+**My Team → Contracts** is the league-wide contract tracker: every active
+contract with salary (plus total commitment for multi-year deals), years left,
+FA year, and service time (years + days). Scope it to **All / My team /
+Expiring**, filter by name/team/position, and sort any column. Hover the
+status badges — **Expiring**, **Arb-eligible**, **options**, **Non-gtd** — for
+a plain-language explanation of what each means.
 
 ### Team Settings
 
@@ -307,7 +323,11 @@ MLB-Like) or per-module Custom levels.
 ## Transactions
 
 - **Free Agency** — browse unsigned players; **Sign** and pick a destination
-  level (ACT / AAA / LOW).
+  level (ACT / AAA / LOW). The offer dialog previews fair-market value,
+  competing CPU bids, and — with payroll rules on — a live **"Your team's
+  books"** panel: payroll before → after vs the luxury threshold, estimated
+  tax, cash remaining after the signing bonus, and an Opening Day solvency
+  flag.
 - **Trades** — pending offers, history, and the composer (move players + picks
   between give/receive). Owners accept/reject/withdraw; commissioners can
   **Veto**, **Force approve**, or **Approve**.
@@ -325,15 +345,18 @@ The **Commissioner** is the league's admin. These pages live under the Admin hub
 and are hidden from owners.
 
 - **Commissioner** — league rules in one place: trade rules, injury level,
-  **Finance** (preset + enforcement + per-module levels + CPU finance-AI knobs),
+  **Finance** (preset + enforcement + per-module levels — each dropdown
+  explains what the selected level changes — + CPU finance-AI knobs),
   **Scouting** (fog-of-war + pacing), and league-default **strategy /
   auto-reassign** with a per-team override table.
 - **Members** — invites, join requests, and team assignment (see
   [Accounts, leagues & membership](#accounts-leagues--membership)).
 - **Command Center** — league-wide attention dashboard (injuries, pending
   approvals, roster conflicts, deadlines, finance risks).
-- **Finance Queue / Change Requests** — apply approved finance decisions in one
-  pass; approve/reject/requeue owner-submitted change requests.
+- **Finance Queue / Change Requests** — review pending GM decisions with player
+  names, plain-language actions, and salary movement; **Apply approved** shows
+  a confirmation summary of exactly what will be committed (irreversible).
+  Change Requests lists owner-submitted bundles with approve/reject/requeue.
 - **Offseason Flow** — overview, checklist, **Run pipeline**, and a four-tab
   review (Contracts, Arbitration, Budgets, GM Queue).
 - **Reassign Players** — bulk auto-assign, league-wide or single team.

@@ -4,3 +4,4 @@
 - Contracts: salary column now shows compact values with total commitment (e.g. 8.5M/yr, 25.5M over 3 yrs), service time reads as years and days, and the Expiring / Arb-eligible / options / Non-gtd badges explain themselves on hover.
 - Finance settings: each module level dropdown (league creation + commissioner) now explains what the selected level actually changes.
 - Finance Queue: rows now show player names, plain-language decisions, and salary movement instead of raw ids/tokens, and Apply Approved shows a confirmation summary of exactly what will be committed.
+- Help: tutorials and manuals updated for the new finance UX - Finance Hub tutorial covers the Payroll vs Luxury Threshold card and the Contracts tracker, Free Agency tutorial covers the live signing-impact panel, admin tutorial covers the humanized Finance Queue, and the Finance System Manual section 8 now describes hybrid enforcement instead of the retired warn/block modes.
