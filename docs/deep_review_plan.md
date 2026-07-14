@@ -118,7 +118,37 @@ parallelism.
 | ID | Task | Evidence | Fix | Verify | Status |
 |---|---|---|---|---|---|
 | S1-09 | Engine inner-loop micro-opts | `physics.py:517-905` ~60-80 `float(dict.get())` per pitch; weight dicts rebuilt per pitch; `_batter_context` recomputed per pitch (engine.py:3987) though constant per PA | Frozen tuning attribute struct resolved once per game; precomputed per-count objective tables; hoist batter context + pitcher dict to per-PA; outcome sets → module constants | **Strict parity:** fixed-seed game produces identical play-by-play pre/post; timing per 100 games | Done (2026-07-15, 24bee94b9) |
-| S1-10 | Parallel day simulation | `season_simulator.py:223-235` serial loop; days are embarrassingly parallel (each team plays ≤1 game/day); engine already takes per-game seed | `ProcessPoolExecutor` (persistent pool) per day; tracker/usage/stats updates applied in parent from returned metadata; global `random.seed` untangled (engine.py:3187-3188 mixed RNG) | **Parity:** same seeds serial vs parallel → identical season results; wall-clock benchmark (expect 4-8×); Windows + Cloud Run (single CPU: auto-degrade to serial) | Open |
+| S1-10 | Parallel day simulation | `season_simulator.py:223-235` serial loop; days are embarrassingly parallel (each team plays ≤1 game/day); engine already takes per-game seed | `ProcessPoolExecutor` (persistent pool) per day; tracker/usage/stats updates applied in parent from returned metadata; global `random.seed` untangled (engine.py:3187-3188 mixed RNG) | **Parity:** same seeds serial vs parallel → identical season results; wall-clock benchmark (expect 4-8×); Windows + Cloud Run (single CPU: auto-degrade to serial) | Deferred (2026-07-15 — needs its own focused session; design below) |
+
+> **S1-10 design handoff (written 2026-07-15, after Phase A/B landed):**
+> *Approach:* side-effect **journal**. Workers simulate with persistence
+> intercepted; parent replays journals **in serial game order** (parity by
+> construction, since each team plays ≤1 game/day → per-entity last-write
+> semantics are identical).
+> *Worker mode* (module flag in `game_runner`): intercept (1) the
+> `save_stats` payload (route into a returned `{players, teams}` capture —
+> the S1-01 batch machinery in the parent then applies it), (2) the three
+> tracker calls — `record_game`/`record_warmups`/`apply_penalties` — capture
+> `(method, args)` tuples (pitcher lines are already plain data), (3)
+> `_apply_injury_events` (return the injury events; parent applies +
+> saves players/rosters), (4) `physics_sim.usage` day updates, (5)
+> `record_game_special_events` + news-feed writes (capture args, replay in
+> parent). **Audit for further writers before trusting this list** — grep
+> `open(.*"w"`/`save_`/`append_` under the `_run_physics_game` call tree.
+> *Parent:* pre-assign starters sequentially before dispatch (rotation
+> next_index advances in the same order as serial); pass explicit
+> `home_starter`/`away_starter` (params already exist on
+> `run_single_game`); dispatch `(home, away, seed, date, starters)` to a
+> persistent `ProcessPoolExecutor` (spawn-safe entry module, workers
+> inherit `NEXGEN_DATA_ROOT`); replay journals in `games` list order.
+> *Guards:* `PB_PARALLEL_GAMES=0/auto/N` env (default auto = min(cores−1,
+> games)); degrade to serial when workers==1 or on Cloud Run single-CPU;
+> the whole-day parity check via `scripts/benchmark_sim_days.py` (serial
+> vs parallel digests must be identical, same day).
+> *Why deferred:* the write-path surface is wide (news/special
+> events/injuries beyond the obvious stats/tracker), and a missed
+> interceptor silently loses league data — this deserves a fresh session
+> with full context, not the tail end of one.
 | S1-11 | Virtualize big tables + debounce search | `PlayersBrowserPage.tsx:76-94` per-keystroke 5000-row fetch, no debounce/virtualization; same pattern SchedulePage:66-74, StatsPage:176-199, ContractsPage:281-388 | 300 ms debounce + `keepPreviousData`; `@tanstack/react-virtual` on the four tables; ContractsPage: shared tooltip instead of 4 InfoTip trees per row | Scroll performance on 5000-row list; React DevTools render counts | Done (2026-07-15, ccd5be13c) |
 | S1-12 | Stop remounting chrome + targeted invalidation | AppShell remounts per navigation (7 queries); `StatusRibbon.tsx:91-93` post-sim `invalidateQueries()` with **no filter**; `["teams"]` refetched across ~25 pages every 30 s | Layout route + `<Outlet/>`; shared `useTeams()` with `staleTime: Infinity`; targeted post-sim invalidation list | Navigation no longer refires chrome queries (network tab); post-sim refresh still updates standings/schedule | Done (2026-07-15, ccd5be13c) |
 
