@@ -1,0 +1,3 @@
+- Finance: new Payroll vs Luxury Threshold card on the Finance page - visual floor/payroll/threshold meter, headroom, estimated tax/floor fee, and Opening Day solvency status, using the same math settlement applies.
+- Free Agency: offer dialog now previews the signing's impact on your books - payroll before/after vs the luxury threshold, estimated tax, cash remaining after the signing bonus (with debt-accrual warning), and Opening Day solvency risk.
+- API: added GET /teams/{team_id}/finance/payroll-context and a payroll_impact block on the free-agent evaluate-offer response.

@@ -272,6 +272,9 @@ export interface FreeAgentOfferEvaluation {
   reason: string;
   service_tier: "pre_arb" | "arbitration" | "free_agent";
   competing_bids: CompetingBid[];
+  /** Payroll/tax/solvency consequences of this offer for the caller's team.
+   *  Null when the caller has no team or finance data is unavailable. */
+  payroll_impact: PayrollOutlook | null;
   phase_gate: { code: string; message: string; phase: string } | null;
 }
 
@@ -893,6 +896,38 @@ export interface FinanceSnapshot {
   projected_net: number;
   financials_enabled: boolean;
   preset: string;
+}
+
+/**
+ * Payroll-vs-threshold outlook (GET .../finance/payroll-context) and the
+ * `payroll_impact` block on FA offer previews. Numeric fields are only
+ * present when `active` is true (finance on + payroll rules basic/mlb_like).
+ */
+export interface PayrollOutlook {
+  team_id: string;
+  active: boolean;
+  finance_enabled: boolean;
+  enforcement: string; // "on" | "off"
+  preset: string;
+  level: string; // "basic" | "mlb_like" | ...
+  extra_annual_salary: number;
+  signing_bonus: number;
+  payroll?: number;
+  projected_payroll?: number;
+  threshold?: number;
+  floor?: number;
+  over_threshold?: number;
+  under_floor?: number;
+  headroom?: number;
+  estimated_tax?: number;
+  estimated_floor_fee?: number;
+  zone?: "safe" | "over_threshold" | "under_floor";
+  cash_on_hand?: number;
+  debt?: number;
+  cash_after_bonus?: number;
+  debt_cap?: number;
+  projected_debt?: number;
+  opening_day_solvent?: boolean;
 }
 
 export type FinanceTodoSeverity = "info" | "warning" | "critical";
@@ -1946,7 +1981,7 @@ export const api = {
     ),
   evaluateFreeAgentOffer: (
     playerId: string,
-    payload: { years?: number; annual_salary?: number },
+    payload: { years?: number; annual_salary?: number; signing_bonus?: number },
   ) =>
     apiRequest<FreeAgentOfferEvaluation>(
       `/free-agents/${encodeURIComponent(playerId)}/evaluate-offer`,
@@ -2212,6 +2247,10 @@ export const api = {
     ),
   financeTodo: (teamId: string) =>
     apiRequest<FinanceTodo>(`/teams/${encodeURIComponent(teamId)}/finance/todo`),
+  payrollContext: (teamId: string) =>
+    apiRequest<PayrollOutlook>(
+      `/teams/${encodeURIComponent(teamId)}/finance/payroll-context`,
+    ),
   teamQualifyingOffers: (teamId: string) =>
     apiRequest<TeamQualifyingOffers>(
       `/teams/${encodeURIComponent(teamId)}/finance/qualifying-offers`,

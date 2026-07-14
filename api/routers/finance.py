@@ -54,6 +54,25 @@ def team_finance_snapshot(team_id: str) -> Dict[str, Any]:
     return snapshot.as_dict()
 
 
+@router.get("/payroll-context")
+def team_payroll_context(team_id: str) -> Dict[str, Any]:
+    """Payroll-vs-threshold outlook for the owner's headroom widget.
+
+    Uses the same math settlement applies (thresholds, CBT tiers / overage
+    fee, floor fee, Opening-Day debt-cap gate) so the numbers shown match
+    the numbers charged.
+    """
+    from services.payroll_policy import build_team_payroll_outlook
+
+    try:
+        return build_team_payroll_outlook(team_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to compute payroll context: {exc}",
+        ) from exc
+
+
 @router.get("/todo")
 def team_finance_todo(team_id: str) -> Dict[str, Any]:
     """Phase-aware list of finance actions the owner should take.

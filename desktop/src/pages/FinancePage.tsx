@@ -24,9 +24,11 @@ import {
   api,
   type FinanceSnapshot,
   type FinanceTransaction,
+  type PayrollOutlook,
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
+import { formatMoneyCompact } from "@/lib/format";
 import { useActiveTeamColor } from "@/lib/team-colors";
 import { AppShell } from "@/components/layout/AppShell";
 import { StatCard } from "@/components/StatCard";
@@ -59,6 +61,11 @@ export function FinancePage() {
   const transactions = useQuery({
     queryKey: ["finance-transactions", fallbackTeamId],
     queryFn: () => api.financeTransactions(fallbackTeamId as string),
+    enabled: !!fallbackTeamId,
+  });
+  const payrollContext = useQuery({
+    queryKey: ["payroll-context", fallbackTeamId],
+    queryFn: () => api.payrollContext(fallbackTeamId as string),
     enabled: !!fallbackTeamId,
   });
 
@@ -113,6 +120,9 @@ export function FinancePage() {
       ) : snapshot.data ? (
         <div className="space-y-6 animate-fade-in">
           <HeadlineStats snapshot={snapshot.data} />
+          {payrollContext.data?.active ? (
+            <PayrollHeadroomCard outlook={payrollContext.data} />
+          ) : null}
           <PayrollAlertCard snapshot={snapshot.data} />
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <BreakdownCard
@@ -413,7 +423,7 @@ function TransactionsCard({
                     className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
                   >
                     {columns.map((col) => (
-                      <TxCell key={col} col={col} value={tx[col]} />
+                      <TxCell key={col} col={col} value={tx[col] ?? null} />
                     ))}
                   </tr>
                 ))}
@@ -455,6 +465,179 @@ function TxCell({
         String(value)
       )}
     </td>
+  );
+}
+
+/**
+ * The "am I over the luxury threshold?" card. Renders a floor→payroll→
+ * threshold meter plus plain-language consequences (est. tax / floor fee,
+ * Opening Day solvency) using the same numbers settlement charges.
+ * Hidden entirely when payroll rules are off (`outlook.active === false`).
+ */
+function PayrollHeadroomCard({ outlook }: { outlook: PayrollOutlook }) {
+  const payroll = outlook.payroll ?? 0;
+  const threshold = outlook.threshold ?? 0;
+  const floor = outlook.floor ?? 0;
+  const zone = outlook.zone ?? "safe";
+  const headroom = outlook.headroom ?? 0;
+  const overBy = outlook.over_threshold ?? 0;
+  const underBy = outlook.under_floor ?? 0;
+  const tax = outlook.estimated_tax ?? 0;
+  const floorFee = outlook.estimated_floor_fee ?? 0;
+  const solvent = outlook.opening_day_solvent ?? true;
+  const debt = outlook.debt ?? 0;
+  const debtCap = outlook.debt_cap ?? 0;
+
+  // Scale the meter so the threshold marker sits at ~78% width, leaving
+  // visible "taxed" territory to its right even when payroll is safe.
+  const scale = Math.max(threshold / 0.78, payroll * 1.05, 1);
+  const pct = (v: number) => `${Math.min(100, (v / scale) * 100)}%`;
+
+  const zoneBadge =
+    zone === "over_threshold" ? (
+      <Badge tone="danger">Over threshold</Badge>
+    ) : zone === "under_floor" ? (
+      <Badge tone="warning">Under floor</Badge>
+    ) : (
+      <Badge tone="success">Safe zone</Badge>
+    );
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <DollarSign className="h-4 w-4 text-amber" /> Payroll vs Luxury
+            Threshold
+          </CardTitle>
+          <CardDescription>
+            Going over isn&apos;t blocked in-season — it&apos;s taxed at
+            settlement. Opening Day only requires solvency (debt within the
+            cap).
+          </CardDescription>
+        </div>
+        {zoneBadge}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Meter */}
+        <div>
+          <div className="relative h-3 overflow-hidden rounded-full bg-canvas">
+            {/* Taxed territory beyond the threshold */}
+            <div
+              className="absolute inset-y-0 right-0 bg-danger/15"
+              style={{ left: pct(threshold) }}
+            />
+            {/* Payroll fill */}
+            <div
+              className={cn(
+                "absolute inset-y-0 left-0 rounded-full transition-[width]",
+                zone === "over_threshold"
+                  ? "bg-danger"
+                  : zone === "under_floor"
+                    ? "bg-warning"
+                    : "bg-success",
+              )}
+              style={{ width: pct(payroll) }}
+            />
+            {/* Floor + threshold markers */}
+            {floor > 0 ? (
+              <div
+                className="absolute inset-y-0 w-0.5 bg-warning"
+                style={{ left: pct(floor) }}
+                title={`Payroll floor: ${formatMoneyCompact(floor)}`}
+              />
+            ) : null}
+            <div
+              className="absolute inset-y-0 w-0.5 bg-danger"
+              style={{ left: pct(threshold) }}
+              title={`Luxury threshold: ${formatMoneyCompact(threshold)}`}
+            />
+          </div>
+          <div className="mt-1.5 flex justify-between text-[11px] text-muted">
+            <span>
+              Payroll{" "}
+              <span className="font-semibold text-ink">
+                {formatMoneyCompact(payroll)}
+              </span>
+            </span>
+            {floor > 0 ? (
+              <span>
+                Floor{" "}
+                <span className="font-semibold text-warning">
+                  {formatMoneyCompact(floor)}
+                </span>
+              </span>
+            ) : null}
+            <span>
+              Threshold{" "}
+              <span className="font-semibold text-danger">
+                {formatMoneyCompact(threshold)}
+              </span>
+            </span>
+          </div>
+        </div>
+
+        {/* Plain-language consequences */}
+        <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+          <div className="rounded-md border border-border bg-surfaceAlt/40 p-2.5">
+            {zone === "over_threshold" ? (
+              <span>
+                <span className="font-semibold text-danger">
+                  {formatMoneyCompact(overBy)} over
+                </span>{" "}
+                the threshold — est.{" "}
+                <span className="font-semibold text-danger">
+                  {formatMoneyCompact(tax)}
+                </span>{" "}
+                {outlook.level === "mlb_like" ? "luxury tax" : "overage fee"} at
+                settlement.
+              </span>
+            ) : zone === "under_floor" ? (
+              <span>
+                <span className="font-semibold text-warning">
+                  {formatMoneyCompact(underBy)} under
+                </span>{" "}
+                the payroll floor — est.{" "}
+                <span className="font-semibold text-warning">
+                  {formatMoneyCompact(floorFee)}
+                </span>{" "}
+                shortfall fee at settlement.
+              </span>
+            ) : (
+              <span>
+                <span className="font-semibold text-success">
+                  {formatMoneyCompact(headroom)}
+                </span>{" "}
+                of headroom before the luxury tax kicks in.
+              </span>
+            )}
+          </div>
+          <div
+            className={cn(
+              "rounded-md border p-2.5",
+              solvent
+                ? "border-border bg-surfaceAlt/40"
+                : "border-danger/40 bg-danger/10",
+            )}
+          >
+            {solvent ? (
+              <span>
+                <span className="font-semibold text-success">✓ Solvent</span>{" "}
+                for Opening Day — debt {formatMoneyCompact(debt)} of a{" "}
+                {formatMoneyCompact(debtCap)} cap.
+              </span>
+            ) : (
+              <span className="text-danger">
+                <span className="font-semibold">✗ Opening Day risk</span> —
+                projected debt {formatMoneyCompact(outlook.projected_debt ?? 0)}{" "}
+                exceeds the {formatMoneyCompact(debtCap)} cap. The season
+                can&apos;t start until this is resolved.
+              </span>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

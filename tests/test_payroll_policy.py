@@ -13,6 +13,7 @@ from services.finance_ledger import CATEGORY_PAYROLL_POLICY, list_financial_rows
 from services.payroll_policy import (
     apply_payroll_rule_accounting_effects,
     build_payroll_limit_context,
+    build_team_payroll_outlook,
     estimate_mlb_like_cbt_tax,
     evaluate_free_agent_signing,
     evaluate_opening_day_payroll,
@@ -525,3 +526,155 @@ def test_build_payroll_limit_context_includes_threshold_ratios(tmp_path):
     assert "AAA" in teams
     assert int(teams["AAA"]["threshold"]) > 0
     assert float(teams["AAA"]["threshold_ratio"]) > 0.0
+
+
+def test_team_payroll_outlook_inactive_when_rules_off(tmp_path):
+    data_dir = tmp_path / "league-data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    _write_teams(data_dir / "teams.csv")
+    _setup_finance_policy(data_dir, enforcement="on", payroll_rules="off")
+
+    outlook = build_team_payroll_outlook("AAA", data_dir=data_dir, league_id="alpha")
+
+    assert outlook["active"] is False
+    assert "payroll" not in outlook  # no numbers when inactive
+
+
+def test_team_payroll_outlook_safe_zone_with_headroom(tmp_path):
+    data_dir = tmp_path / "league-data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    _write_teams(data_dir / "teams.csv")
+    _setup_finance_policy(data_dir, enforcement="on", payroll_rules="basic")
+    (data_dir / "contracts.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "players": {
+                    "P1": {"team_id": "AAA", "annual_salary": 40_000_000, "years_left": 2},
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    outlook = build_team_payroll_outlook("AAA", data_dir=data_dir, league_id="alpha")
+
+    assert outlook["active"] is True
+    assert outlook["zone"] == "safe"
+    assert outlook["payroll"] == 40_000_000
+    assert outlook["projected_payroll"] == 40_000_000
+    assert int(outlook["headroom"]) > 0
+    assert outlook["estimated_tax"] == 0
+    assert outlook["opening_day_solvent"] is True
+
+
+def test_team_payroll_outlook_offer_crosses_threshold_basic_fee(tmp_path):
+    # Basic level: overage settles as a flat 5% fee; the outlook should show
+    # the same number settlement would charge.
+    data_dir = tmp_path / "league-data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    _write_teams(data_dir / "teams.csv")
+    _setup_finance_policy(data_dir, enforcement="on", payroll_rules="basic")
+    (data_dir / "contracts.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "players": {
+                    "P1": {"team_id": "AAA", "annual_salary": 100_000_000, "years_left": 2},
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    outlook = build_team_payroll_outlook(
+        "AAA",
+        extra_annual_salary=40_000_000,
+        data_dir=data_dir,
+        league_id="alpha",
+    )
+
+    assert outlook["active"] is True
+    assert outlook["zone"] == "over_threshold"
+    assert outlook["projected_payroll"] == 140_000_000
+    over = int(outlook["over_threshold"])
+    assert over > 0
+    assert outlook["estimated_tax"] == int(round(over * 0.05))
+    assert int(outlook["headroom"]) < 0
+
+
+def test_team_payroll_outlook_mlb_like_uses_cbt_tax_and_floor(tmp_path):
+    data_dir = tmp_path / "league-data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    _write_teams(data_dir / "teams.csv")
+    _setup_finance_policy(data_dir, enforcement="on", payroll_rules="mlb_like")
+    (data_dir / "contracts.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "players": {
+                    "P1": {"team_id": "AAA", "annual_salary": 260_000_000, "years_left": 2},
+                    "P2": {"team_id": "BBB", "annual_salary": 10_000_000, "years_left": 2},
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    over_outlook = build_team_payroll_outlook("AAA", data_dir=data_dir, league_id="alpha")
+    assert over_outlook["zone"] == "over_threshold"
+    assert over_outlook["estimated_tax"] == estimate_mlb_like_cbt_tax(
+        int(over_outlook["projected_payroll"]), int(over_outlook["threshold"])
+    )
+
+    under_outlook = build_team_payroll_outlook("BBB", data_dir=data_dir, league_id="alpha")
+    assert under_outlook["zone"] == "under_floor"
+    assert int(under_outlook["under_floor"]) > 0
+    assert under_outlook["estimated_floor_fee"] == int(
+        round(int(under_outlook["under_floor"]) * 0.25)
+    )
+
+
+def test_team_payroll_outlook_signing_bonus_hits_cash_and_solvency(tmp_path):
+    data_dir = tmp_path / "league-data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    _write_teams(data_dir / "teams.csv")
+    _setup_finance_policy(data_dir, enforcement="on", payroll_rules="basic")
+    (data_dir / "team_financials.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "season_year": 2032,
+                "teams": {
+                    "AAA": {
+                        "cash_on_hand": 2_000_000,
+                        # Module overrides flip the preset to custom → standard
+                        # 80M debt cap (mirrors _evaluate_policy behavior).
+                        "debt": 78_000_000,
+                        "revenue": {},
+                        "expenses": {},
+                        "budgets": {},
+                    }
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    outlook = build_team_payroll_outlook(
+        "AAA",
+        signing_bonus=5_000_000,
+        data_dir=data_dir,
+        league_id="alpha",
+    )
+
+    assert outlook["cash_on_hand"] == 2_000_000
+    assert outlook["cash_after_bonus"] == -3_000_000
+    # Bonus shortfall accrues as debt: 78M + 3M = 81M > 80M cap → insolvent.
+    assert int(outlook["projected_debt"]) == 81_000_000
+    assert outlook["debt_cap"] == 80_000_000
+    assert outlook["opening_day_solvent"] is False

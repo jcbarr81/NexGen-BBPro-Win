@@ -259,6 +259,26 @@ def evaluate_fa_offer(
     callers_team = str(identity.get("t", "")).strip() or None
     competition = _competing_bids(player, exclude_team_id=callers_team)
 
+    # Payroll impact preview for the caller's team: where payroll stands now,
+    # where this offer would put it, and the tax/cash/solvency consequences.
+    # Best-effort — the offer preview must still work if finance data is absent.
+    payroll_impact: Optional[Dict[str, Any]] = None
+    if callers_team:
+        try:
+            from services.payroll_policy import build_team_payroll_outlook
+
+            try:
+                bonus = max(0, int(payload.get("signing_bonus") or 0))
+            except (TypeError, ValueError):
+                bonus = 0
+            payroll_impact = build_team_payroll_outlook(
+                callers_team,
+                extra_annual_salary=offered_salary,
+                signing_bonus=bonus,
+            )
+        except Exception:
+            payroll_impact = None
+
     phase_gate = _phase_gate_for_fa()
     return {
         "player_id": pid,
@@ -270,6 +290,7 @@ def evaluate_fa_offer(
         "reason": evaluation.reason,
         "service_tier": evaluation.service_tier,
         "competing_bids": competition,
+        "payroll_impact": payroll_impact,
         "phase_gate": phase_gate,
     }
 

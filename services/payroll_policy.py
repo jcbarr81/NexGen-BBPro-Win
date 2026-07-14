@@ -47,6 +47,7 @@ __all__ = [
     "evaluate_trade_payroll_impact",
     "evaluate_opening_day_payroll",
     "build_payroll_limit_context",
+    "build_team_payroll_outlook",
     "format_payroll_policy_message",
     "estimate_mlb_like_cbt_tax",
     "record_payroll_policy_result",
@@ -268,6 +269,120 @@ def build_payroll_limit_context(
         "level": level,
         "teams": rows,
     }
+
+
+def build_team_payroll_outlook(
+    team_id: str,
+    *,
+    extra_annual_salary: int = 0,
+    signing_bonus: int = 0,
+    data_dir: Path | str | None = None,
+    league_id: str | None = None,
+) -> Dict[str, object]:
+    """Owner-facing payroll outlook for one team.
+
+    Answers "where does my payroll stand?" — and, with *extra_annual_salary*,
+    "where would it stand after adding this contract?" — using the same math
+    settlement applies: threshold/floor from the ``gm_payroll_rules`` level,
+    CBT tiers (MLB-like) or the flat overage fee (basic) for tax, the floor
+    fee, and the Opening-Day debt-cap solvency gate.
+
+    ``active`` is False when finance is off or the payroll-rules level has no
+    threshold semantics; callers should hide payroll UI in that case.
+    """
+
+    clean_team_id = str(team_id or "").strip()
+    resolved_data_dir = Path(data_dir) if data_dir is not None else get_data_dir()
+    settings = load_financial_settings(
+        path=resolved_data_dir / "league_financial_settings.json",
+        league_id=league_id,
+    )
+    mode = _enforcement_mode(settings)
+    level = settings.module_level("gm_payroll_rules")
+    active = (
+        bool(settings.enabled)
+        and settings.preset != PRESET_OFF
+        and level in {LEVEL_BASIC, LEVEL_MLB_LIKE}
+    )
+
+    extra = max(0, int(extra_annual_salary or 0))
+    bonus = max(0, int(signing_bonus or 0))
+    outlook: Dict[str, object] = {
+        "team_id": clean_team_id,
+        "active": active,
+        "finance_enabled": bool(settings.enabled),
+        "enforcement": mode,
+        "preset": settings.preset,
+        "level": level,
+        "extra_annual_salary": extra,
+        "signing_bonus": bonus,
+    }
+    if not active:
+        return outlook
+
+    totals = calculate_annual_payroll_totals(data_dir=resolved_data_dir)
+    projections = project_monthly_owner_finance(data_dir=resolved_data_dir)
+    payroll = max(0, int(totals.get(clean_team_id, 0) or 0))
+    projected = payroll + extra
+    threshold = _payroll_threshold(clean_team_id, level, projections)
+    floor = _payroll_floor(clean_team_id, level, projections)
+    over = max(0, projected - threshold)
+    under = max(0, floor - projected) if level == LEVEL_MLB_LIKE else 0
+
+    # Mirror apply_payroll_rule_accounting_effects: CBT tiers at MLB-like,
+    # flat overage fee at basic, floor fee only at MLB-like.
+    estimated_tax = 0
+    if over > 0:
+        if level == LEVEL_MLB_LIKE:
+            estimated_tax = estimate_mlb_like_cbt_tax(projected, threshold)
+        else:
+            estimated_tax = int(round(float(over) * _BASIC_OVERAGE_FEE_RATE))
+    estimated_floor_fee = (
+        int(round(float(under) * _MLB_LIKE_FLOOR_FEE_RATE)) if under > 0 else 0
+    )
+
+    financial_map = _load_team_financial_map(data_dir=resolved_data_dir)
+    team_row = financial_map.get(clean_team_id, {})
+    cash_on_hand = _safe_int(team_row.get("cash_on_hand", 0))
+    debt = max(0, _safe_int(team_row.get("debt", 0)))
+    debt_cap = _debt_cap_for_preset(settings.preset)
+    projected_debt = _projected_debt_after_delta(
+        team_id=clean_team_id,
+        annual_delta=extra,
+        team_financial_map=financial_map,
+    )
+    # A signing bonus is an immediate cash hit; shortfall accrues as debt.
+    cash_after_bonus = cash_on_hand - bonus
+    debt_after_bonus = projected_debt + (abs(cash_after_bonus) if cash_after_bonus < 0 else 0)
+
+    if under > 0:
+        zone = "under_floor"
+    elif over > 0:
+        zone = "over_threshold"
+    else:
+        zone = "safe"
+
+    outlook.update(
+        {
+            "payroll": payroll,
+            "projected_payroll": projected,
+            "threshold": threshold,
+            "floor": floor,
+            "over_threshold": over,
+            "under_floor": under,
+            "headroom": threshold - projected,
+            "estimated_tax": estimated_tax,
+            "estimated_floor_fee": estimated_floor_fee,
+            "zone": zone,
+            "cash_on_hand": cash_on_hand,
+            "debt": debt,
+            "cash_after_bonus": cash_after_bonus,
+            "debt_cap": debt_cap,
+            "projected_debt": debt_after_bonus,
+            "opening_day_solvent": debt_after_bonus <= debt_cap,
+        }
+    )
+    return outlook
 
 
 def format_payroll_policy_message(result: PayrollPolicyResult) -> str:
