@@ -1,0 +1,233 @@
+# Deep Review Truth Document — Efficiency, UI, and Simulation Realism
+
+> **This is the single source of truth for the 2026-07 deep-review improvement
+> program.** Every finding, task, status, and verification result lives here.
+> Rules to keep it truthful (learned the hard way from this repo's stale docs):
+>
+> 1. **Every status change gets a date.** No undated edits.
+> 2. **A task is only `Done` when its verification gate passed** and the change
+>    is committed (note the commit hash).
+> 3. When shipped, add the release note via `scripts/add_release_note.py` —
+>    `release_notes.md` remains the source of truth for *what shipped*;
+>    this doc is the source of truth for *what's planned and why*.
+> 4. If reality diverges from this plan, **edit the plan**, don't abandon it.
+>
+> **Review provenance:** conducted 2026-07-14 against `main` @ `7a9c8d222`
+> (v7.0.11+) via six parallel deep-dive code reviews: sim hot path, API/data
+> layer, React frontend, UI/IA, game-engine realism, manager-AI realism.
+> All `file:line` references were verified against that commit.
+>
+> **Approval:** ☑ Approved by James — date: 2026-07-14
+
+---
+
+## Status legend
+
+| Status | Meaning |
+|---|---|
+| `Open` | Not started |
+| `In Progress (YYYY-MM-DD)` | Actively being worked |
+| `Done (YYYY-MM-DD, <commit>)` | Verification gate passed, committed |
+| `Deferred (YYYY-MM-DD, reason)` | Consciously postponed |
+| `Dropped (YYYY-MM-DD, reason)` | Will not do — keep the reason |
+
+---
+
+## Sprint 0 — Quick Wins (~1-2 days total; low risk, ship immediately)
+
+Bug fixes and one-file changes. Each is independently committable and deployable.
+
+### UI bugs
+
+| ID | Task | Evidence | Fix | Verify | Status |
+|---|---|---|---|---|---|
+| QW-01 | Fix dead "no schedule" fix-it link | `desktop/src/pages/SeasonPage.tsx:497` links `/admin-league`; route is `/league-admin` | Correct the path | Click-through in dev; typecheck | Open |
+| QW-02 | Fix dead standings ribbon button | `StatusRibbon.tsx:175` navigates `/standings`; standings live at `/league` | Fix nav target **and** add `/standings` alias route (`Navigate`) so the natural URL works | Click-through; alias resolves | Open |
+| QW-03 | Guard 7 unguarded admin pages | CommandCenterPage, CommissionerMembersPage, ReassignPage, ExhibitionPage, OffseasonPage, FinanceStabilityPage, AdminLeaguePage have zero role checks despite `adminOnly: true` in route-index.ts:160-173 | Shared `<RequireAdmin>` wrapper in App.tsx driven by the existing `adminOnly` flag; remove the 5 ad-hoc per-page checks | As owner (non-admin), direct-nav to each → redirected to /home | Open |
+| QW-04 | Delete dead pages | `pages/HomePage.tsx` (unrouted "Phase 3 preview"), `ComingSoonPage` + empty `STUB_ROUTES` (App.tsx:163, 237, 729-739) | Delete files + scaffolding | Typecheck + build + grep for imports | Open |
+| QW-05 | Replace `window.confirm` in MyLeaguesPage | `MyLeaguesPage.tsx:56` — most destructive action in the cloud flow uses the native confirm the codebase explicitly bans (`use-confirm.tsx:2-5`) | Swap to `useConfirmDialog` with `danger: true` | Manual: leave/delete league prompt renders in-app | Open |
+| QW-06 | Fix boxscore breadcrumb | `Breadcrumbs.tsx:29` matches `/boxscore/:id`; actual route is `/boxscore?game=` | Match `/boxscore` | Boxscore page shows full crumb trail | Open |
+| QW-07 | Derive Command Palette from ROUTE_INDEX | `CommandPalette.tsx:45-79` hand-codes 33 items; missing /notifications, /contracts, /awards, /all-star + others; no adminOnly filtering | Generate from `ROUTE_INDEX` with the same adminOnly/capability filters HubPage uses | Palette lists all reachable pages for role; admin pages hidden from owners | Open |
+| QW-08 | Fix stale OwnerDashboard header comment | `OwnerDashboardPage.tsx:4-7` claims features that exist + one that doesn't | Correct the comment (finance card itself → S3-09) | n/a (comment) | Open |
+
+### Frontend performance
+
+| ID | Task | Evidence | Fix | Verify | Status |
+|---|---|---|---|---|---|
+| QW-09 | Blob-cache TeamLogo / PlayerAvatar | `TeamLogo.tsx:48-91`, `PlayerAvatar.tsx:39-83` — one uncached authenticated fetch **per mounted instance**; ContractsPage/PlayersBrowser fire hundreds-thousands of requests for ~30 unique images | Module-level `Map<key, Promise<url>>` keyed `id|version|league`; stop revoking shared URLs on unmount (revoke on version/league change) | Network tab: one request per unique logo; navigate away/back = zero new requests | Open |
+| QW-10 | Halve the 708 KB entry chunk | `lib/api.ts:11` statically imports firebase (~580 KB source) into every page — dead weight for Electron; `@dnd-kit` (122 KB) pinned via eagerly-imported OwnerDashboardPage (App.tsx:15) | Dynamic-`import("firebase/auth")` inside `auth()`/`getIdToken()`; lazy-load OwnerDashboardPage; add `manualChunks` for vendor split | `vite build` chunk report: entry < ~350 KB; app boots in both Electron and cloud modes | Open |
+
+### Backend latency
+
+| ID | Task | Evidence | Fix | Verify | Status |
+|---|---|---|---|---|---|
+| QW-11 | Unblock the event loop on auth | `api/security.py:196-209` — async `require_bearer` runs sync Firestore `get_member()` on the event loop, per request, 34 routers | Make dependency sync (FastAPI threadpools it) or `run_in_threadpool`; add 30-60s in-process TTL cache keyed `(league_id, uid)` | Unit test for cache; measure: concurrent requests no longer serialize (simple `ab`/httpx timing before/after) | Open |
+
+### Sim realism freebies
+
+| ID | Task | Evidence | Fix | Verify | Status |
+|---|---|---|---|---|---|
+| QW-12 | Tolerance-gate already-computed KPIs | `scripts/physics_sim_season_kpis.py:27-41` — AVG/OBP/SLG, contact%, SwStr%, CSW%, GB/LD/FB%, runs/game computed but ungated; `first_pitch_strike_pct` benchmark exists but metric absent; `hit_types` Counter collected then unused | Add tolerances; wire first-pitch-strike metric; emit 2B/3B/ISO from hit_types | Harness `--strict` passes on current engine (tune tolerances to current +MLB reality) | Open |
+| QW-13 | Per-pitch-type velocity | `engine.py:3990` — every pitch type leaves at `80 + arm*0.2` mph | Offset table (si −1, sl −6, cu −8, cb −11, kn −18) applied after type selection; feeds existing whiff/EV terms | KPI harness `--strict` still green (retune only if a gate trips); spot-check pitch logs | Open |
+
+**Sprint 0 exit gate:** all tasks green → typecheck + `vite build` + `pytest` targeted suites + KPI `--strict` → deploy Cloud Run + Hosting → release notes added.
+
+---
+
+## Sprint 1 — Sim Speed & API Latency (~1-2 weeks)
+
+Goal: **5-10× additional season-sim speedup** (on top of 7.0's 5×) and visibly
+faster page loads. Order matters — persistence batching is a prerequisite for
+parallelism.
+
+### Phase A: persistence batching (prerequisite for everything)
+
+| ID | Task | Evidence | Fix | Verify | Status |
+|---|---|---|---|---|---|
+| S1-01 | Day-batched season-stats persistence | `utils/stats_persistence.py:295-373` full parse + full rewrite **per game**; write invalidates player cache → re-parse next game; O(season²) | Accumulate per-day in memory; flush at `SeasonSimulator.simulate_next_day` boundary; update in-process cache token after own writes | **Parity test:** fixed-seed 1-week sim produces byte-identical `season_stats.json` vs pre-change; timing harness shows reduction | Open |
+| S1-02 | PitcherRecoveryTracker: stop rewriting the world | `utils/pitcher_recovery.py:377-455, 315-345` — ~6 `_ensure_team` rebuilds + ~4 whole-file saves per game, full-league dict round-trips | Memoize `_ensure_team` per (team, date); keep `_PitcherStatus` objects live; dirty-flag, flush once per day | Parity test (same seeds → identical recovery JSON at day end); timing | Open |
+| S1-03 | One player-load per game | `load_players_from_csv` called ~9×/game (game_runner:1277, lineup_loader:101, tracker ×6); each re-hydrates stats onto every player | Build `players_lookup` once in `run_single_game`, thread through; make `_apply_dynamic_player_data` token-aware no-op | Parity test; count loader calls per game (log assertion) = 1 | Open |
+| S1-04 | Stop embedding boxscore HTML in schedule.csv | API path stores full HTML in the schedule row (`season.py:769-770` — comment claims a path, code stores HTML); `schedule.csv` grows MBs; `_hydrate_physics_boxscore` builds ~60 namespaces/game solely for HTML | Pop → `save_boxscore_html("season", …)` → store path (pattern already used by 2 other callers); `lru_cache` the template; skip hydration entirely when HTML disabled | Boxscore links still open from Schedule page; schedule.csv size stays flat over a simmed week | Open |
+
+### Phase B: shared caching (API latency)
+
+| ID | Task | Evidence | Fix | Verify | Status |
+|---|---|---|---|---|---|
+| S1-05 | Shared mtime-keyed cache module | `player_loader._cache_token` pattern exists but only wraps stats-for-players; `load_stats` (7+ call sites), `load_teams`, `get_current_sim_date`, PBINI `load_config`, and **five** independent schedule.csv parsers all re-read per call | New `utils/file_cache.py` (mtime+size token, per-league keyed); route the five loaders through it; writers invalidate | Unit tests for token invalidation; dashboard endpoint timing before/after; correctness: post-sim data still fresh | Open |
+| S1-06 | Fix `/contracts` N+1 | `api/routers/contracts.py:65-83, 431` — per-row glob over `rosters/*.csv` | One-pass pid→team dict per request (reuse cached `load_roster`) | Endpoint timing on a full league; identical response payload | Open |
+| S1-07 | Finance ledger scan fixes | `player_profile_view_model.py:261-264` scans the 18 MB ledger **twice** per profile view; `list_financial_rows` normalizes every row to return 25 | Single dual-filter pass for profiles; tail-read for latest-N; evaluate per-season ledger rotation | Profile endpoint timing; identical payloads | Open |
+| S1-08 | Scope working-copy push to active league | `api/working_copy.py:216-270` rglobs the entire multi-league tree after every mutation | Restrict walk to request's league dir (already in ContextVar) + root files | Mutation-request latency before/after; cloud smoke: cross-league writes still sync | Open |
+
+### Phase C: engine inner loop + parallelism
+
+| ID | Task | Evidence | Fix | Verify | Status |
+|---|---|---|---|---|---|
+| S1-09 | Engine inner-loop micro-opts | `physics.py:517-905` ~60-80 `float(dict.get())` per pitch; weight dicts rebuilt per pitch; `_batter_context` recomputed per pitch (engine.py:3987) though constant per PA | Frozen tuning attribute struct resolved once per game; precomputed per-count objective tables; hoist batter context + pitcher dict to per-PA; outcome sets → module constants | **Strict parity:** fixed-seed game produces identical play-by-play pre/post; timing per 100 games | Open |
+| S1-10 | Parallel day simulation | `season_simulator.py:223-235` serial loop; days are embarrassingly parallel (each team plays ≤1 game/day); engine already takes per-game seed | `ProcessPoolExecutor` (persistent pool) per day; tracker/usage/stats updates applied in parent from returned metadata; global `random.seed` untangled (engine.py:3187-3188 mixed RNG) | **Parity:** same seeds serial vs parallel → identical season results; wall-clock benchmark (expect 4-8×); Windows + Cloud Run (single CPU: auto-degrade to serial) | Open |
+| S1-11 | Virtualize big tables + debounce search | `PlayersBrowserPage.tsx:76-94` per-keystroke 5000-row fetch, no debounce/virtualization; same pattern SchedulePage:66-74, StatsPage:176-199, ContractsPage:281-388 | 300 ms debounce + `keepPreviousData`; `@tanstack/react-virtual` on the four tables; ContractsPage: shared tooltip instead of 4 InfoTip trees per row | Scroll performance on 5000-row list; React DevTools render counts | Open |
+| S1-12 | Stop remounting chrome + targeted invalidation | AppShell remounts per navigation (7 queries); `StatusRibbon.tsx:91-93` post-sim `invalidateQueries()` with **no filter**; `["teams"]` refetched across ~25 pages every 30 s | Layout route + `<Outlet/>`; shared `useTeams()` with `staleTime: Infinity`; targeted post-sim invalidation list | Navigation no longer refires chrome queries (network tab); post-sim refresh still updates standings/schedule | Open |
+
+**Sprint 1 exit gate:** full-season sim timing benchmark recorded here (before/after
+table below); KPI `--strict` green; parity tests green; multi-league smoke passes;
+deploy + release notes.
+
+**Timing benchmark record** (fill in as measured):
+
+| Milestone | Full-season wall-clock | Notes |
+|---|---|---|
+| Baseline (pre-Sprint-1) | _measure first_ | seed=fixed, same league |
+| After Phase A | | |
+| After S1-09 | | |
+| After S1-10 (parallel) | | |
+
+---
+
+## Sprint 2 — Living League: Manager & Realism (~2-3 weeks)
+
+Goal: the league *feels* alive — platoons, rest, believable bullpens, CPU teams
+that adapt — with every behavioral change gated by a KPI so realism is proven,
+not vibes.
+
+### Phase A: lineups & pitching staff
+
+| ID | Task | Evidence | Fix | Verify | Status |
+|---|---|---|---|---|---|
+| S2-01 | Platoon lineups vs LHP/RHP | `utils/lineup_autofill.py:181-194` writes identical lineups to both files; `hitter_score:82-92` ignores handedness; the engine's file selection (game_runner:1281-1299) is a no-op | Handedness-aware `hitter_score` (use `vs_left` + `bats`); generate genuinely different vs_lhp/vs_rhp orders | New KPI: league platoon-split (L/R wOBA gap ≈ 25 pts); lineup-diff test: files differ for teams with platoon candidates | Open |
+| S2-02 | Modern batting order | `lineup_autofill.py:179-180` strict best-to-worst; OBP not in the score | Slot-specific weight vectors (leadoff eye/speed; 2 best overall; 3-4 power) | Unit tests on constructed rosters; eyeball top-of-order OBP in a season sim | Open |
+| S2-03 | Fix inverted reliever rest | `physics_sim/config.py:333` — ALL non-closers need 2 days rest after any outing (engine.py:449-457); real setup men pitch back-to-back; caps appearances ~54 vs real ~65-70 | Pitch-count-conditional rest (0 days ≤20 pitches); 3-consecutive-day block for all relievers | **New usage KPIs** (S2-12) gate this: reliever appearance leaders ~75-80, distribution vs `role_averages_mlbstats_2020_2024.csv` | Open |
+| S2-04 | Closer in tied 9th | `engine.py:691-698` filters CL to lead-only; `_reliever_score:636-637` penalizes CL when not ahead | Allow CL when tied, inning ≥9 (esp. home); postseason: 8th-inning fireman | Usage KPI: saves distribution unchanged; tied-game 9th-inning pitcher quality improves (spot-check logs) | Open |
+| S2-05 | Position-player rest days | Batter fatigue accumulates (`usage.py:113-130`, in-game degradation up to −35% at engine.py:2809-2827) but **no code ever benches anyone** | Pass `UsageState.batter_workloads` into lineup generation; bench starters over fatigue threshold (catchers more often) | Season sim: starters average ~145-155 games, backup catchers ~40-50 starts; no KPI regressions | Open |
+| S2-06 | Load pitcher `throws` properly | `physics_sim/models.py:13/54` — no `throws` field; platoon logic infers pitcher hand from **batting side**; `_platoon_bonus` (engine.py:2314-2317) gives zero adjustment vs RHP | Add `throws` to model + CSV loader; symmetric platoon adjustment both hands | Data audit: throws populated for all pitchers; platoon KPI (S2-01) measures the corrected gap | Open |
+
+### Phase B: outcome realism + validation
+
+| ID | Task | Evidence | Fix | Verify | Status |
+|---|---|---|---|---|---|
+| S2-07 | Times-through-order batter bonus | Batters gain **nothing** on 3rd look (only hook logic knows TTO, engine.py:594-597); real penalty ~20-30 OPS pts/pass; `tto_penalty_runs` benchmark sits unused | `tto` in `_batter_context`; `tto_contact/eye/power_bonus` knobs (~+1.5 rating/pass past 1st); new KPI vs benchmark | KPI `--strict` incl. new TTO gate; overall K%/BB%/AVG gates stay green (retune if needed) | Open |
+| S2-08 | Player-dispersion KPI gate | Harness validates 13 league averages only; compression risks: `exit_velo_softcap` 105/0.55 (config.py:314-15), shallow eye/contact slopes (physics.py:644-45, 785) | New distribution metrics: SD of qualified AVG/OPS, counts of 30+/40+ HR seasons, sub-.220/.300+ qualified hitters, ERA spread; tolerance vs recent MLB; then widen slopes/soft-cap until green | The new gates themselves; leaders tables pass the eyeball test ("does a 42-HR guy exist?") | Open |
+| S2-12 | Usage-pattern KPIs | Hook/bullpen logic elaborate but unvalidated; `role_averages_mlbstats_2020_2024.csv` unused | KPIs: avg pitches/start (~86), relievers/game, appearance leaders, saves/holds distribution | Gates green after S2-03/04 land (these tasks co-tune) | Open |
+| S2-13 | Pinch-hitter defensive awareness | `_select_pinch_hitter` (engine.py:2461-2487) ignores defense; PH inherits the vacated position (2436-2440) — a 1B can end up catching | Filter/penalize candidates who can't cover the position; never burn the last catcher | Unit test: last-catcher protection; log audit over a simmed month | Open |
+
+### Phase C: CPU league dynamics
+
+| ID | Task | Evidence | Fix | Verify | Status |
+|---|---|---|---|---|---|
+| S2-09 | Deadline-aware CPU trading | `cpu_trade_proposals.py:141-165` cadence-random, ignores standings; `finance_ai.py:484-502` already computes contend/bubble/rebuild but only for budgets; deadline exists only as a UI countdown | Feed profile + games-back into `_build_best_offer`: contenders buy (veterans-for-prospects), sellers reverse; hard-block trades after deadline | Season-log audit: buyer/seller behavior around deadline; existing CPU-trade acceptance tests still pass | Open |
+| S2-10 | CPU-to-CPU trades | Proposals only target human teams — 28 CPU teams never trade among themselves | Extend target pool; auto-resolve via `evaluate_cpu_trade_offer` both sides; cap league-wide volume (~2-6/deadline season) | Transactions log shows CPU-CPU deals; guardrails (anti-spam caps) hold; league talent balance stable over 3 sim seasons | Open |
+| S2-11 | In-season callups + September expansion | `prospect_promotion.py:1-23` offseason-only; no September expansion (comment-only in season_manager.py:77) | Monthly promotion check (AAA→ACT bars, weighted by contend/rebuild); September ACT-size expansion hook | Roster-churn audit over a season; roster-size validation passes; injury replacement still works | Open |
+
+**Sprint 2 exit gate:** KPI harness `--strict` green **including all new gates**
+(platoon, TTO, dispersion, usage); 3-season stability sim clean;
+`validate_finance_release.py` green; multi-league smoke; deploy + release notes.
+
+---
+
+## Sprint 3 — Polish & Depth (~2-3 weeks, order flexible)
+
+### Park/environment realism
+
+| ID | Task | Evidence | Notes | Status |
+|---|---|---|---|---|
+| S3-01 | Park factors done **right** | `config.py:361` scale=0.0; naive re-enable is dangerous: CSV column is an HR factor applied as a *distance* multiplier (nonlinear blow-up), double-counts wall geometry, triple-counts altitude at Coors (physics.py:936-943) | Residual approach: empirical HR factor ÷ geometry-implied rate per park → HR-*probability* adjustment; per-park HR-rank KPI; optionally 5-point walls + heights (field_geometry.py:30-57) | Open |
+| S3-02 | Weather + day/night | `config.py:363-364` wind knobs exist but are **never read** | Per-game sampled temp/wind; ~+2.5 ft carry/10°F; wind vector vs spray angle; KPI: seasonal HR variance | Open |
+| S3-03 | Foul-outs / popups | Foul territory only raises foul-strike rate (physics.py:843-850); no foul putouts; no IFFB class despite `iffb_pct` benchmark | Catch roll on high-LA fouls scaled by `foul_territory_scale`; popout branch in `classify_ball_type`; putouts-by-position KPI | Open |
+| S3-04 | Extra-innings modernization | Ghost runner default off (config.py:284); 18-inning ties possible (engine.py:5158-5160) | Default ghost runner on; remove tie cap; league setting to opt out | Open |
+| S3-05 | Stat-scoring fixes | K's credit a pitcher assist (engine.py:4196-4259, wrong); catcher interference not charged E2 (4116-4123) | Small corrections; boxscore regression tests | Open |
+
+### UI/IA & missing surfaces
+
+| ID | Task | Notes | Status |
+|---|---|---|---|
+| S3-06 | Consolidate player pages | Fold Pitchers + Position Players into tabs (of Roster or a single Players page); make Team Stats a tab instead of URL-swapping redirect; fix Contracts hub placement (league-primary) | Open |
+| S3-07 | Utilities split | Owner-usable Reports/Exports page; mark Utilities adminOnly; move admin-elevate card out | Open |
+| S3-08 | Account page | `/account/me` served, no UI; minimal profile page from header user block | Open |
+| S3-09 | Owner Dashboard finance card + Tier-3 finance polish | Compact headroom+cash card (deep-link to Finance); cash/payroll/debt trend sparklines; QO/comp-pick visibility | Open |
+| S3-10 | All-Star admin + Sim-N-days | `triggerAllStarGame` + `seasonSimulateDays(n)` exist server-side with no UI | Open |
+| S3-11 | Hotkey coverage + shortcuts dialog | mod+s on remaining save-shaped pages; discoverable shortcut list | Open |
+| S3-12 | Sidebar phase-hiding → disabled+tooltip | Pinned Draft/Offseason favorites silently vanish by phase (Sidebar.tsx:469-476) | Open |
+
+### Manager depth (stretch)
+
+| ID | Task | Notes | Status |
+|---|---|---|---|
+| S3-13 | Team strategy identity in-game | Strategy profiles exist but never reach the engine; per-team steal/bunt multipliers | Open |
+| S3-14 | Hit-and-run | Absent from physics_sim; pre-pitch decision alongside `_should_bunt` | Open |
+| S3-15 | TTO-quality hooks + openers | Unconditional TTO≥3 hook term; opener-then-bulk for weak 5th starters | Open |
+| S3-16 | IBB depth | On-deck-hitter comparison; bottom-9 force-setting logic | Open |
+| S3-17 | Dedicated catcher framing/blocking skill | Currently generic FA (engine.py:1617-1628) | Open |
+
+---
+
+## Standing testing strategy (applies to every task)
+
+1. **Parity tests for pure-performance changes** (Sprint 1): fixed-seed sims must
+   produce identical results pre/post. Any diff = the change altered behavior
+   and gets investigated before merging.
+2. **KPI harness `--strict`** (`scripts/physics_sim_season_kpis.py`) runs after
+   every engine/manager change; realism tasks land *with* their new KPI gate in
+   the same commit.
+3. **Existing gates:** `pytest` targeted suites per touched module,
+   `validate_finance_release.py --seasons 8` before releases,
+   `smoke_multi_league.py`, frontend `tsc --noEmit` + `vite build`.
+4. **Timing benchmarks** recorded in this doc (Sprint 1 table) with fixed seed
+   and league, before/after each phase.
+5. **Deploys:** Cloud Run source deploy + Firebase Hosting (when UI changed),
+   then live verification of the touched surface (established session pattern).
+6. **Release notes** per user-visible change via `scripts/add_release_note.py`.
+
+## Carry-over housekeeping (not sprint-gated)
+
+| Item | Notes | Status |
+|---|---|---|
+| Rewrite `validate_help_surface.py` for React surfaces | Currently asserts against retired PyQt files; permanently red | Open |
+| Un-skip / fix tests broken by PyQt retirement | `test_admin_tutorials.py` (imports retired module), `test_auto_tune_solver.py` (legacy-guard collection error), `test_finance_ledger_usage.py` | Open |
+| Delete 3.3 GB dead worktree `.claude/worktrees/elated-diffie` | User's call; disk-space only | Open |
+| Residual PyQt import | `api/routers/history.py:24` imports from retired `ui/`; `NexGen-BBPro.spec` references dead `main.py` | Open |
+| Mixed RNG in engine | `engine.py:3187-3188` seeds both local rng and global `random` — replay fragility; fix lands naturally with S1-10 | Open |
+
+---
+
+## Change log (newest first)
+
+- **2026-07-14** — Plan approved by James. Sprint 0 work begins.
+- **2026-07-14** — Document created from the six-agent deep review. All tasks `Open`. Awaiting approval.

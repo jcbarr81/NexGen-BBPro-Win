@@ -44,6 +44,11 @@ they are easy to revisit when planning new milestones.
 > Items not in the tables above (e.g. #23 CPU trade AI, #24 strategy profiles,
 > #35 single-user onboarding) keep their prior status and should be confirmed
 > against code before planning.
+>
+> ### Active improvement program (2026-07-14)
+> The current sprint-planned work (efficiency, UI, sim realism) lives in
+> **`docs/deep_review_plan.md`** — the truth document for the deep-review
+> program. Check there before picking up any performance/realism/UI task.
 
 ## 1. Unified Data Service Layer
 - **Goal:** Stop re-opening CSV/JSON files in every module by introducing a
