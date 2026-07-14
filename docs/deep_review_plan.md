@@ -99,41 +99,46 @@ parallelism.
 
 | ID | Task | Evidence | Fix | Verify | Status |
 |---|---|---|---|---|---|
-| S1-01 | Day-batched season-stats persistence | `utils/stats_persistence.py:295-373` full parse + full rewrite **per game**; write invalidates player cache → re-parse next game; O(season²) | Accumulate per-day in memory; flush at `SeasonSimulator.simulate_next_day` boundary; update in-process cache token after own writes | **Parity test:** fixed-seed 1-week sim produces byte-identical `season_stats.json` vs pre-change; timing harness shows reduction | Open |
-| S1-02 | PitcherRecoveryTracker: stop rewriting the world | `utils/pitcher_recovery.py:377-455, 315-345` — ~6 `_ensure_team` rebuilds + ~4 whole-file saves per game, full-league dict round-trips | Memoize `_ensure_team` per (team, date); keep `_PitcherStatus` objects live; dirty-flag, flush once per day | Parity test (same seeds → identical recovery JSON at day end); timing | Open |
-| S1-03 | One player-load per game | `load_players_from_csv` called ~9×/game (game_runner:1277, lineup_loader:101, tracker ×6); each re-hydrates stats onto every player | Build `players_lookup` once in `run_single_game`, thread through; make `_apply_dynamic_player_data` token-aware no-op | Parity test; count loader calls per game (log assertion) = 1 | Open |
-| S1-04 | Stop embedding boxscore HTML in schedule.csv | API path stores full HTML in the schedule row (`season.py:769-770` — comment claims a path, code stores HTML); `schedule.csv` grows MBs; `_hydrate_physics_boxscore` builds ~60 namespaces/game solely for HTML | Pop → `save_boxscore_html("season", …)` → store path (pattern already used by 2 other callers); `lru_cache` the template; skip hydration entirely when HTML disabled | Boxscore links still open from Schedule page; schedule.csv size stays flat over a simmed week | Open |
+| S1-01 | Day-batched season-stats persistence | `utils/stats_persistence.py:295-373` full parse + full rewrite **per game**; write invalidates player cache → re-parse next game; O(season²) | Accumulate per-day in memory; flush at `SeasonSimulator.simulate_next_day` boundary; update in-process cache token after own writes | **Parity test:** fixed-seed 1-week sim produces byte-identical `season_stats.json` vs pre-change; timing harness shows reduction | Done (2026-07-15, 24bee94b9) |
+| S1-02 | PitcherRecoveryTracker: stop rewriting the world | `utils/pitcher_recovery.py:377-455, 315-345` — ~6 `_ensure_team` rebuilds + ~4 whole-file saves per game, full-league dict round-trips | Memoize `_ensure_team` per (team, date); keep `_PitcherStatus` objects live; dirty-flag, flush once per day | Parity test (same seeds → identical recovery JSON at day end); timing | Done (2026-07-15, 24bee94b9) |
+| S1-03 | One player-load per game | `load_players_from_csv` called ~9×/game (game_runner:1277, lineup_loader:101, tracker ×6); each re-hydrates stats onto every player | Build `players_lookup` once in `run_single_game`, thread through; make `_apply_dynamic_player_data` token-aware no-op | Parity test; count loader calls per game (log assertion) = 1 | Done (2026-07-15, 24bee94b9) |
+| S1-04 | Stop embedding boxscore HTML in schedule.csv | API path stores full HTML in the schedule row (`season.py:769-770` — comment claims a path, code stores HTML); `schedule.csv` grows MBs; `_hydrate_physics_boxscore` builds ~60 namespaces/game solely for HTML | Pop → `save_boxscore_html("season", …)` → store path (pattern already used by 2 other callers); `lru_cache` the template; skip hydration entirely when HTML disabled | Boxscore links still open from Schedule page; schedule.csv size stays flat over a simmed week | Done (2026-07-15, 24bee94b9) |
 
 ### Phase B: shared caching (API latency)
 
 | ID | Task | Evidence | Fix | Verify | Status |
 |---|---|---|---|---|---|
-| S1-05 | Shared mtime-keyed cache module | `player_loader._cache_token` pattern exists but only wraps stats-for-players; `load_stats` (7+ call sites), `load_teams`, `get_current_sim_date`, PBINI `load_config`, and **five** independent schedule.csv parsers all re-read per call | New `utils/file_cache.py` (mtime+size token, per-league keyed); route the five loaders through it; writers invalidate | Unit tests for token invalidation; dashboard endpoint timing before/after; correctness: post-sim data still fresh | Open |
-| S1-06 | Fix `/contracts` N+1 | `api/routers/contracts.py:65-83, 431` — per-row glob over `rosters/*.csv` | One-pass pid→team dict per request (reuse cached `load_roster`) | Endpoint timing on a full league; identical response payload | Open |
-| S1-07 | Finance ledger scan fixes | `player_profile_view_model.py:261-264` scans the 18 MB ledger **twice** per profile view; `list_financial_rows` normalizes every row to return 25 | Single dual-filter pass for profiles; tail-read for latest-N; evaluate per-season ledger rotation | Profile endpoint timing; identical payloads | Open |
-| S1-08 | Scope working-copy push to active league | `api/working_copy.py:216-270` rglobs the entire multi-league tree after every mutation | Restrict walk to request's league dir (already in ContextVar) + root files | Mutation-request latency before/after; cloud smoke: cross-league writes still sync | Open |
+| S1-05 | Shared mtime-keyed cache module | `player_loader._cache_token` pattern exists but only wraps stats-for-players; `load_stats` (7+ call sites), `load_teams`, `get_current_sim_date`, PBINI `load_config`, and **five** independent schedule.csv parsers all re-read per call | New `utils/file_cache.py` (mtime+size token, per-league keyed); route the five loaders through it; writers invalidate | Unit tests for token invalidation; dashboard endpoint timing before/after; correctness: post-sim data still fresh | Done (2026-07-15, 24bee94b9) |
+| S1-06 | Fix `/contracts` N+1 | `api/routers/contracts.py:65-83, 431` — per-row glob over `rosters/*.csv` | One-pass pid→team dict per request (reuse cached `load_roster`) | Endpoint timing on a full league; identical response payload | Done (2026-07-15, 70e829477) |
+| S1-07 | Finance ledger scan fixes | `player_profile_view_model.py:261-264` scans the 18 MB ledger **twice** per profile view; `list_financial_rows` normalizes every row to return 25 | Single dual-filter pass for profiles; tail-read for latest-N; evaluate per-season ledger rotation | Profile endpoint timing; identical payloads | Done (2026-07-15, 70e829477) |
+| S1-08 | Scope working-copy push to active league | `api/working_copy.py:216-270` rglobs the entire multi-league tree after every mutation | Restrict walk to request's league dir (already in ContextVar) + root files | Mutation-request latency before/after; cloud smoke: cross-league writes still sync | Done (2026-07-15, 70e829477) |
 
 ### Phase C: engine inner loop + parallelism
 
 | ID | Task | Evidence | Fix | Verify | Status |
 |---|---|---|---|---|---|
-| S1-09 | Engine inner-loop micro-opts | `physics.py:517-905` ~60-80 `float(dict.get())` per pitch; weight dicts rebuilt per pitch; `_batter_context` recomputed per pitch (engine.py:3987) though constant per PA | Frozen tuning attribute struct resolved once per game; precomputed per-count objective tables; hoist batter context + pitcher dict to per-PA; outcome sets → module constants | **Strict parity:** fixed-seed game produces identical play-by-play pre/post; timing per 100 games | Open |
+| S1-09 | Engine inner-loop micro-opts | `physics.py:517-905` ~60-80 `float(dict.get())` per pitch; weight dicts rebuilt per pitch; `_batter_context` recomputed per pitch (engine.py:3987) though constant per PA | Frozen tuning attribute struct resolved once per game; precomputed per-count objective tables; hoist batter context + pitcher dict to per-PA; outcome sets → module constants | **Strict parity:** fixed-seed game produces identical play-by-play pre/post; timing per 100 games | Done (2026-07-15, 24bee94b9) |
 | S1-10 | Parallel day simulation | `season_simulator.py:223-235` serial loop; days are embarrassingly parallel (each team plays ≤1 game/day); engine already takes per-game seed | `ProcessPoolExecutor` (persistent pool) per day; tracker/usage/stats updates applied in parent from returned metadata; global `random.seed` untangled (engine.py:3187-3188 mixed RNG) | **Parity:** same seeds serial vs parallel → identical season results; wall-clock benchmark (expect 4-8×); Windows + Cloud Run (single CPU: auto-degrade to serial) | Open |
-| S1-11 | Virtualize big tables + debounce search | `PlayersBrowserPage.tsx:76-94` per-keystroke 5000-row fetch, no debounce/virtualization; same pattern SchedulePage:66-74, StatsPage:176-199, ContractsPage:281-388 | 300 ms debounce + `keepPreviousData`; `@tanstack/react-virtual` on the four tables; ContractsPage: shared tooltip instead of 4 InfoTip trees per row | Scroll performance on 5000-row list; React DevTools render counts | Open |
-| S1-12 | Stop remounting chrome + targeted invalidation | AppShell remounts per navigation (7 queries); `StatusRibbon.tsx:91-93` post-sim `invalidateQueries()` with **no filter**; `["teams"]` refetched across ~25 pages every 30 s | Layout route + `<Outlet/>`; shared `useTeams()` with `staleTime: Infinity`; targeted post-sim invalidation list | Navigation no longer refires chrome queries (network tab); post-sim refresh still updates standings/schedule | Open |
+| S1-11 | Virtualize big tables + debounce search | `PlayersBrowserPage.tsx:76-94` per-keystroke 5000-row fetch, no debounce/virtualization; same pattern SchedulePage:66-74, StatsPage:176-199, ContractsPage:281-388 | 300 ms debounce + `keepPreviousData`; `@tanstack/react-virtual` on the four tables; ContractsPage: shared tooltip instead of 4 InfoTip trees per row | Scroll performance on 5000-row list; React DevTools render counts | Done (2026-07-15, ccd5be13c) |
+| S1-12 | Stop remounting chrome + targeted invalidation | AppShell remounts per navigation (7 queries); `StatusRibbon.tsx:91-93` post-sim `invalidateQueries()` with **no filter**; `["teams"]` refetched across ~25 pages every 30 s | Layout route + `<Outlet/>`; shared `useTeams()` with `staleTime: Infinity`; targeted post-sim invalidation list | Navigation no longer refires chrome queries (network tab); post-sim refresh still updates standings/schedule | Done (2026-07-15, ccd5be13c) |
 
 **Sprint 1 exit gate:** full-season sim timing benchmark recorded here (before/after
 table below); KPI `--strict` green; parity tests green; multi-league smoke passes;
 deploy + release notes.
 
-**Timing benchmark record** (fill in as measured):
+**Timing benchmark record** (`scripts/benchmark_sim_days.py --source
+data/leagues/cbl/data --days 40 --seed 123`; 240 games. NOTE: parity digests
+are comparable **same-day only** — parts of the pipeline key off the
+wall-clock date, so re-baseline with pre-change code after a calendar roll):
 
-| Milestone | Full-season wall-clock | Notes |
+| Milestone | 240-game wall-clock | Notes |
 |---|---|---|
-| Baseline (pre-Sprint-1) | _measure first_ | seed=fixed, same league |
-| After Phase A | | |
-| After S1-09 | | |
-| After S1-10 (parallel) | | |
+| Baseline (pre-Sprint-1) | 23.61s (0.098 s/game) | day1 0.50s → day40 0.65s (O(season²) growth) |
+| After S1-01 (stats batch) | 16.12s | growth curve flat; parity ✓ |
+| After S1-02 (tracker) | 9.46s | parity ✓ |
+| After S1-03/04/05 | ~9.0s | parity ✓ (vs same-day re-baseline) |
+| After S1-09 (engine) | ~9.0-9.6s (run variance) | strict parity ✓ — **cumulative -62%** |
+| After S1-10 (parallel) | _pending_ | |
 
 ---
 
