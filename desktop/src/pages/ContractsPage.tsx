@@ -24,6 +24,7 @@ import {
 import { api, type ContractListRow } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
+import { formatMoneyCompact, formatServiceTime } from "@/lib/format";
 import { AppShell } from "@/components/layout/AppShell";
 import { TeamLogo } from "@/components/TeamLogo";
 import { usePersistedState } from "@/lib/use-persisted-state";
@@ -34,8 +35,23 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  InfoTip,
   Input,
 } from "@/components/ui";
+
+/** Plain-language glossary for the contract status badges. */
+const BADGE_TIPS = {
+  expiring:
+    "Final year of the current deal. Decide on an extension or qualifying offer before the player hits free agency.",
+  arb:
+    "Enough service time to demand a raise through arbitration instead of playing at team-set pay. Expect the salary to jump.",
+  options:
+    "Team/player option year(s) awaiting a decision. Declining a team option can trigger a buyout paid in cash.",
+  nonGtd:
+    "Not guaranteed — the team can release this player without owing the rest of the deal.",
+  service:
+    "Big-league service time (162 days = 1 season). Drives arbitration and free-agency eligibility.",
+} as const;
 
 type Scope = "all" | "mine" | "expiring";
 type SortKey =
@@ -80,8 +96,8 @@ export function ContractsPage() {
     queryFn: () => api.listTeams(),
   });
   const teamById = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof teamsQ.data extends undefined ? never : (typeof teamsQ.data)[number] | undefined>>();
-    for (const t of teamsQ.data ?? []) m.set(t.team_id, t as never);
+    const m = new Map<string, NonNullable<typeof teamsQ.data>[number]>();
+    for (const t of teamsQ.data ?? []) m.set(t.team_id, t);
     return m;
   }, [teamsQ.data]);
 
@@ -246,13 +262,18 @@ export function ContractsPage() {
                       sortDir={sortDir}
                       onClick={toggleSort}
                     />
-                    <ContractHeader
-                      label="Service"
-                      keyId="service_time_days"
-                      sortKey={sortKey}
-                      sortDir={sortDir}
-                      onClick={toggleSort}
-                    />
+                    <th className="select-none px-3 py-2 text-right font-semibold">
+                      <span className="inline-flex items-center gap-1">
+                        <ContractHeaderButton
+                          label="Service"
+                          keyId="service_time_days"
+                          sortKey={sortKey}
+                          sortDir={sortDir}
+                          onClick={toggleSort}
+                        />
+                        <InfoTip tip={BADGE_TIPS.service} />
+                      </span>
+                    </th>
                     <th className="px-3 py-2 text-left font-semibold">Status</th>
                   </tr>
                 </thead>
@@ -304,7 +325,15 @@ export function ContractsPage() {
                           {row.primary_position || "—"}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
-                          ${row.annual_salary.toLocaleString()}
+                          <div>{formatMoneyCompact(row.annual_salary)}/yr</div>
+                          {row.years_left > 1 && (
+                            <div className="text-[11px] text-muted">
+                              {formatMoneyCompact(
+                                row.annual_salary * row.years_left,
+                              )}{" "}
+                              over {row.years_left} yrs
+                            </div>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {row.years_left}
@@ -312,32 +341,45 @@ export function ContractsPage() {
                         <td className="px-3 py-2 text-right tabular-nums text-muted">
                           {row.fa_year || "—"}
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">
-                          {Math.floor(row.service_time_days / 162)}.
-                          {String(row.service_time_days % 162).padStart(3, "0")}
+                        <td
+                          className="px-3 py-2 text-right tabular-nums text-muted"
+                          title={`${row.service_time_days.toLocaleString()} service days`}
+                        >
+                          {formatServiceTime(
+                            Math.floor(row.service_time_days / 162),
+                            row.service_time_days % 162,
+                          )}
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex flex-wrap gap-1">
                             {row.expiring_this_year && (
-                              <Badge tone="warning" className="text-[10px]">
-                                Expiring
-                              </Badge>
+                              <InfoTip tip={BADGE_TIPS.expiring}>
+                                <Badge tone="warning" className="text-[10px]">
+                                  Expiring
+                                </Badge>
+                              </InfoTip>
                             )}
                             {row.arb_eligible && (
-                              <Badge tone="amber" className="text-[10px]">
-                                Arb-eligible
-                              </Badge>
+                              <InfoTip tip={BADGE_TIPS.arb}>
+                                <Badge tone="amber" className="text-[10px]">
+                                  Arb-eligible
+                                </Badge>
+                              </InfoTip>
                             )}
                             {row.pending_options > 0 && (
-                              <Badge tone="neutral" className="text-[10px]">
-                                {row.pending_options} option
-                                {row.pending_options === 1 ? "" : "s"}
-                              </Badge>
+                              <InfoTip tip={BADGE_TIPS.options}>
+                                <Badge tone="neutral" className="text-[10px]">
+                                  {row.pending_options} option
+                                  {row.pending_options === 1 ? "" : "s"}
+                                </Badge>
+                              </InfoTip>
                             )}
                             {!row.guaranteed && (
-                              <Badge tone="neutral" className="text-[10px]">
-                                Non-gtd
-                              </Badge>
+                              <InfoTip tip={BADGE_TIPS.nonGtd}>
+                                <Badge tone="neutral" className="text-[10px]">
+                                  Non-gtd
+                                </Badge>
+                              </InfoTip>
                             )}
                           </div>
                         </td>
@@ -375,6 +417,36 @@ function sortValue(row: ContractListRow, key: SortKey): string | number {
   }
 }
 
+function ContractHeaderButton({
+  label,
+  keyId,
+  sortKey,
+  sortDir,
+  onClick,
+}: {
+  label: string;
+  keyId: SortKey;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onClick: (key: SortKey) => void;
+}) {
+  const active = sortKey === keyId;
+  const Arrow = !active ? ArrowUpDown : sortDir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(keyId)}
+      className={cn(
+        "inline-flex items-center gap-1 transition",
+        active ? "text-ink" : "hover:text-ink",
+      )}
+    >
+      {label}
+      <Arrow className="h-3 w-3 opacity-60" />
+    </button>
+  );
+}
+
 function ContractHeader({
   label,
   keyId,
@@ -390,8 +462,6 @@ function ContractHeader({
   onClick: (key: SortKey) => void;
   align?: "left" | "right";
 }) {
-  const active = sortKey === keyId;
-  const Arrow = !active ? ArrowUpDown : sortDir === "asc" ? ArrowUp : ArrowDown;
   return (
     <th
       className={cn(
@@ -399,17 +469,13 @@ function ContractHeader({
         align === "left" ? "text-left" : "text-right",
       )}
     >
-      <button
-        type="button"
-        onClick={() => onClick(keyId)}
-        className={cn(
-          "inline-flex items-center gap-1 transition",
-          active ? "text-ink" : "hover:text-ink",
-        )}
-      >
-        {label}
-        <Arrow className="h-3 w-3 opacity-60" />
-      </button>
+      <ContractHeaderButton
+        label={label}
+        keyId={keyId}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onClick={onClick}
+      />
     </th>
   );
 }

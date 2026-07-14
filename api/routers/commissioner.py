@@ -75,6 +75,12 @@ def _serialize_finance_modules() -> list[Dict[str, Any]]:
             "label": _MODULE_LABELS.get(module, module),
             "help": fs.FINANCE_MODULE_HELP.get(module, ""),
             "levels": list(fs.MODULE_LEVELS.get(module, ())),
+            # Per-level plain-language descriptions so the UI can explain what
+            # each dropdown choice actually changes (Basic vs MLB-Like etc.).
+            "level_help": {
+                level: fs.describe_module_level(module, level)
+                for level in fs.MODULE_LEVELS.get(module, ())
+            },
         }
         for module in _MODULE_ORDER
     ]

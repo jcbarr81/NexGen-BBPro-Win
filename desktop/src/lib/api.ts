@@ -450,6 +450,8 @@ export interface CommissionerSettings {
       label: string;
       help: string;
       levels: string[];
+      /** Per-level plain-language descriptions, keyed by level token. */
+      level_help?: Record<string, string>;
     }>;
     finance_ai_tuning_defaults: Record<string, number>;
     finance_preset_profiles?: Record<
@@ -960,6 +962,26 @@ export interface TeamQualifyingOffers {
   team_id: string;
   year: number;
   offers: QualifyingOfferRecord[];
+}
+
+/** One pending owner decision awaiting commissioner review. */
+export interface FinanceQueueRow {
+  team_id: string;
+  queue_type: string;
+  item_id: string;
+  action: string;
+  notes: string;
+  updated_at: string;
+  review_status: string;
+  applied: boolean;
+  applied_at: string;
+  payload: Record<string, unknown>;
+  /** Enriched by the API: display name for item_id (a player id). */
+  player_name?: string;
+  current_salary?: number | null;
+  projected_salary?: number | null;
+  /** Plain-language version of `action`. */
+  action_label?: string;
 }
 
 export interface FinanceTransaction {
@@ -1771,7 +1793,7 @@ export const api = {
       defaults: { min_years_retired: number; score_threshold: number };
     }>("/hall-of-fame/settings", { method: "PUT", body: payload }),
   financeQueue: (queueType?: string) =>
-    apiRequest<{ count: number; rows: Array<Record<string, unknown>> }>(
+    apiRequest<{ count: number; rows: FinanceQueueRow[] }>(
       `/finance-queue${queueType ? `?queue_type=${encodeURIComponent(queueType)}` : ""}`,
     ),
   reviewFinanceQueue: (payload: {

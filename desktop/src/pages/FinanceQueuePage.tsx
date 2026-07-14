@@ -8,7 +8,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -19,9 +19,11 @@ import {
   XCircle,
 } from "lucide-react";
 
-import { api } from "@/lib/api";
+import { api, type FinanceQueueRow } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
+import { formatMoneyCompact } from "@/lib/format";
+import { useConfirmDialog } from "@/lib/use-confirm";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Badge,
@@ -65,6 +67,46 @@ export function FinanceQueuePage() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["finance-queue"] }),
   });
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+
+  // "Apply approved" is irreversible (writes contracts/rosters), so show
+  // exactly what will be committed before pulling the trigger.
+  async function confirmAndApply() {
+    const rows = queue.data?.rows ?? [];
+    const approved = rows.filter(
+      (r) => r.review_status === "approved_commissioner",
+    );
+    const ok = await confirm({
+      title: `Apply ${approved.length} approved decision${approved.length === 1 ? "" : "s"}?`,
+      description:
+        approved.length === 0 ? (
+          <span>
+            No decisions are approved yet — applying will commit nothing.
+            Approve rows first, then apply.
+          </span>
+        ) : (
+          <div className="space-y-1 text-left">
+            <p>This writes contracts and rosters and can&apos;t be undone:</p>
+            <ul className="max-h-48 list-disc space-y-0.5 overflow-y-auto pl-5">
+              {approved.map((r, i) => (
+                <li key={i}>
+                  <span className="font-semibold">
+                    {r.player_name || r.item_id}
+                  </span>{" "}
+                  ({r.team_id}) — {r.action_label || r.action}
+                  {r.projected_salary != null && r.current_salary != null
+                    ? ` (${formatMoneyCompact(r.current_salary)} → ${formatMoneyCompact(r.projected_salary)})`
+                    : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ),
+      confirmLabel: "Apply",
+      danger: true,
+    });
+    if (ok) apply.mutate();
+  }
 
   const grouped = useMemo(() => {
     const rows = queue.data?.rows ?? [];
@@ -116,7 +158,7 @@ export function FinanceQueuePage() {
             <RefreshCw className="h-4 w-4" />
           </Button>
           <Button
-            onClick={() => apply.mutate()}
+            onClick={() => void confirmAndApply()}
             disabled={apply.isPending || (queue.data?.count ?? 0) === 0}
           >
             {apply.isPending ? (
@@ -128,6 +170,7 @@ export function FinanceQueuePage() {
           </Button>
         </div>
       </div>
+      {confirmDialog}
 
       {apply.isError && (
         <div className="mb-4 flex items-center gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
@@ -168,8 +211,8 @@ export function FinanceQueuePage() {
                   <thead>
                     <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
                       <th className="px-6 py-2 text-left font-semibold">Queue</th>
-                      <th className="px-3 py-2 text-left font-semibold">Item</th>
-                      <th className="px-3 py-2 text-left font-semibold">Action</th>
+                      <th className="px-3 py-2 text-left font-semibold">Player</th>
+                      <th className="px-3 py-2 text-left font-semibold">Decision</th>
                       <th className="px-3 py-2 text-left font-semibold">Status</th>
                       <th className="px-6 py-2 text-right font-semibold">Review</th>
                     </tr>
@@ -184,18 +227,33 @@ export function FinanceQueuePage() {
                           className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
                         >
                           <td className="px-6 py-2 text-xs uppercase tracking-wider text-muted">
-                            {queueType}
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs">
-                            {itemId}
+                            {queueType.replace(/_/g, " ")}
                           </td>
                           <td className="px-3 py-2">
-                            {String(row.action ?? "")}
+                            <Link
+                              to={`/player/${encodeURIComponent(itemId)}`}
+                              className="font-semibold hover:text-amber"
+                            >
+                              {row.player_name || itemId}
+                            </Link>
+                            {row.player_name && (
+                              <span className="ml-1.5 font-mono text-[10px] text-subtle">
+                                {itemId}
+                              </span>
+                            )}
                           </td>
                           <td className="px-3 py-2">
-                            <Badge tone="amber">
-                              {String(row.review_status ?? "pending")}
-                            </Badge>
+                            <div>{row.action_label || String(row.action ?? "")}</div>
+                            {row.current_salary != null &&
+                              row.projected_salary != null && (
+                                <div className="text-[11px] tabular-nums text-muted">
+                                  {formatMoneyCompact(row.current_salary)} →{" "}
+                                  {formatMoneyCompact(row.projected_salary)}
+                                </div>
+                              )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <StatusBadge status={String(row.review_status ?? "pending")} />
                           </td>
                           <td className="px-6 py-2 text-right">
                             <div className="inline-flex items-center gap-1">
@@ -245,6 +303,16 @@ export function FinanceQueuePage() {
       )}
     </AppShell>
   );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const label = status.replace(/_commissioner$/, "").replace(/_/g, " ");
+  const tone = status.startsWith("approved")
+    ? ("success" as const)
+    : status.startsWith("rejected")
+      ? ("danger" as const)
+      : ("amber" as const);
+  return <Badge tone={tone}>{label || "pending"}</Badge>;
 }
 
 function LoadingCard() {

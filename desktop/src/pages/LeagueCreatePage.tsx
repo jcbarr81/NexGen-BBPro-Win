@@ -1339,19 +1339,26 @@ function RulesStep({
                                     {m.help}
                                   </div>
                                 </div>
-                                <select
-                                  value={level}
-                                  onChange={(e) =>
-                                    setModuleLevel(m.id, e.target.value)
-                                  }
-                                  className="h-8 w-full rounded-md border border-border bg-canvas/60 px-2 text-xs text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
-                                >
-                                  {m.levels.map((lvl) => (
-                                    <option key={lvl} value={lvl}>
-                                      {FINANCE_LEVEL_LABELS[lvl] ?? lvl}
-                                    </option>
-                                  ))}
-                                </select>
+                                <div>
+                                  <select
+                                    value={level}
+                                    onChange={(e) =>
+                                      setModuleLevel(m.id, e.target.value)
+                                    }
+                                    className="h-8 w-full rounded-md border border-border bg-canvas/60 px-2 text-xs text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                                  >
+                                    {m.levels.map((lvl) => (
+                                      <option key={lvl} value={lvl}>
+                                        {FINANCE_LEVEL_LABELS[lvl] ?? lvl}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {m.level_help?.[level] && (
+                                    <div className="mt-1 text-[11px] leading-snug text-muted">
+                                      {m.level_help[level]}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             );
                           })}

@@ -22,6 +22,7 @@ __all__ = [
     "MODULE_LEVELS",
     "PRESET_PROFILES",
     "FINANCE_MODULE_HELP",
+    "describe_module_level",
     "build_finance_module_tooltip",
     "build_finance_enforcement_tooltip",
     "load_financial_settings",
@@ -242,6 +243,12 @@ def _describe_module_level(module: str, level: str) -> str:
         level_token,
         "Enables this level for the selected module.",
     )
+
+
+def describe_module_level(module: str, level: str) -> str:
+    """Public accessor for the per-level help text (UI level dropdowns)."""
+
+    return _describe_module_level(module, level)
 
 
 def build_finance_module_tooltip(module: str) -> str:

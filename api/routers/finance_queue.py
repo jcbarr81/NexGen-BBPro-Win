@@ -35,13 +35,68 @@ def _require_admin(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[s
 
 AdminIdentity = Depends(_require_admin)
 
+# Plain-language labels for owner queue actions so the commissioner sees
+# "Non-tender (release to free agency)" instead of the raw token.
+_ACTION_LABELS = {
+    "offer_raise": "Offer raise (tender at projected salary)",
+    "hold": "Hold at current salary",
+    "non_tender": "Non-tender (release to free agency)",
+    "target": "Sign free agent",
+    "monitor": "Monitor (no signing)",
+    "pass": "Pass",
+}
+
+
+def _enrich_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Attach player names, salary context, and action labels to queue rows.
+
+    item_id is the player id for both queue types; the raw rows are opaque
+    (ids + tokens), which made review error-prone. Best-effort — a missing
+    players file must not break the queue.
+    """
+
+    names: Dict[str, str] = {}
+    try:
+        from utils.player_loader import load_players_from_csv
+
+        names = {
+            p.player_id: f"{p.first_name} {p.last_name}".strip()
+            for p in load_players_from_csv("data/players.csv")
+        }
+    except Exception:
+        pass
+    contracts: Dict[str, Any] = {}
+    try:
+        from services.contracts_service import load_contracts_payload
+
+        raw = load_contracts_payload().get("players")
+        if isinstance(raw, dict):
+            contracts = raw
+    except Exception:
+        pass
+
+    for row in rows:
+        pid = str(row.get("item_id") or "").strip()
+        row["player_name"] = names.get(pid) or pid
+        contract = contracts.get(pid)
+        row["current_salary"] = (
+            contract.get("annual_salary") if isinstance(contract, dict) else None
+        )
+        payload = row.get("payload")
+        row["projected_salary"] = (
+            payload.get("projected_salary") if isinstance(payload, dict) else None
+        )
+        action = str(row.get("action") or "").strip()
+        row["action_label"] = _ACTION_LABELS.get(action, action.replace("_", " "))
+    return rows
+
 
 @router.get("")
 def list_queue(
     queue_type: Optional[str] = None,
     _: Dict[str, Any] = AdminIdentity,
 ) -> Dict[str, Any]:
-    rows = list_pending_queue_decisions(queue_type=queue_type)
+    rows = _enrich_rows(list_pending_queue_decisions(queue_type=queue_type))
     return {"count": len(rows), "rows": rows}
 
 

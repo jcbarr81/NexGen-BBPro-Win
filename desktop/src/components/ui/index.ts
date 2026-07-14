@@ -6,3 +6,4 @@ export * from "./Tabs";
 export * from "./Dialog";
 export * from "./DropdownMenu";
 export * from "./ContextMenu";
+export * from "./InfoTip";

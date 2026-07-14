@@ -289,7 +289,7 @@ function FinanceQueueInline() {
   const apply = useMutation({
     mutationFn: () => api.applyFinanceQueue(),
   });
-  const rows = (queue.data?.rows ?? []) as Array<Record<string, unknown>>;
+  const rows = queue.data?.rows ?? [];
   const pending = rows.filter(
     (r) => String(r.review_status ?? "").toLowerCase() === "pending",
   );

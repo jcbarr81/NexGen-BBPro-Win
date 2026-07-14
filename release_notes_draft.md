@@ -1,3 +1,6 @@
 - Finance: new Payroll vs Luxury Threshold card on the Finance page - visual floor/payroll/threshold meter, headroom, estimated tax/floor fee, and Opening Day solvency status, using the same math settlement applies.
 - Free Agency: offer dialog now previews the signing's impact on your books - payroll before/after vs the luxury threshold, estimated tax, cash remaining after the signing bonus (with debt-accrual warning), and Opening Day solvency risk.
 - API: added GET /teams/{team_id}/finance/payroll-context and a payroll_impact block on the free-agent evaluate-offer response.
+- Contracts: salary column now shows compact values with total commitment (e.g. 8.5M/yr, 25.5M over 3 yrs), service time reads as years and days, and the Expiring / Arb-eligible / options / Non-gtd badges explain themselves on hover.
+- Finance settings: each module level dropdown (league creation + commissioner) now explains what the selected level actually changes.
+- Finance Queue: rows now show player names, plain-language decisions, and salary movement instead of raw ids/tokens, and Apply Approved shows a confirmation summary of exactly what will be committed.
