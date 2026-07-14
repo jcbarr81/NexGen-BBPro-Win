@@ -279,6 +279,12 @@ not vibes.
 
 ## Change log (newest first)
 
+- **2026-07-15** — Sprint 1 shipped (Cloud Run rev 00088 + Hosting): S1-01..09
+  and S1-11/12 Done, all parity-verified; 240-game benchmark 23.61s → ~9.0s
+  (-62%), O(season²) growth eliminated. S1-10 (parallel days) deferred with a
+  full design handoff — start there next session. Carry-over noted: physics
+  unit-test debt from the QW-13/KPI calibration blocker (rolls into S2-08).
+
 - **2026-07-14** — **Sprint 0 complete** (`07560916e`): QW-01..13 all Done.
   Verified: typecheck (0 errors in touched files), vite build (entry 708→434 KB),
   57 backend tests green, QW-13 A/B parity run. Discovered + documented the KPI
