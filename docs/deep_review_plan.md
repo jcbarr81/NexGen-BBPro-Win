@@ -274,6 +274,7 @@ not vibes.
 | Delete 3.3 GB dead worktree `.claude/worktrees/elated-diffie` | User's call; disk-space only | Open |
 | Residual PyQt import | `api/routers/history.py:24` imports from retired `ui/`; `NexGen-BBPro.spec` references dead `main.py` | Open |
 | Mixed RNG in engine | `engine.py:3187-3188` seeds both local rng and global `random` — replay fragility; fix lands naturally with S1-10 | Open |
+| Tests pollute the active league | Some tests/suites (e.g. live-sim samples) resolve `get_data_dir()` → the user's active league and mutate lineups/recovery/stats. Twice reverted by hand (2026-07-15). Add a session-scoped pytest fixture that pins `NEXGEN_DATA_ROOT` to a tmp sandbox for the whole suite | Open |
 
 ---
 
