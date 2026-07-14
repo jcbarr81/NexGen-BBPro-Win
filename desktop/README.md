@@ -1,8 +1,19 @@
 # NexGen-BBPro Desktop (Electron + React)
 
-Phase 2 scaffold for the new UI. Lives alongside the existing PyQt6 app —
-both run against the same `%LOCALAPPDATA%\NexGen-BBPro\data` directory so
-you can develop the Electron UI without disturbing the shipping build.
+> ## ⚠️ Status corrected 2026-07-13 (app at VERSION 7.0.11)
+>
+> **This README's "Phase 2 scaffold" framing is obsolete.** This Electron + React
+> client is now **the shipped UI** — ~64 real page components (~31k LOC) backed by
+> a FastAPI sidecar (~60 routers) and a Firebase / Firestore / Cloud Run
+> multi-tenant backend. **The legacy PyQt `ui/` app is retired** (the
+> `python main.py` checklist item below no longer applies — there is no root
+> `main.py` entrypoint anymore). Treat the phase/scaffold language in this file as
+> historical; see `release_notes.md` for what actually shipped. The "Known gaps"
+> section at the bottom has been updated to reflect verified current state.
+
+Originally a Phase 2 scaffold for the new UI, developed alongside the (now
+retired) PyQt6 app against the same `%LOCALAPPDATA%\NexGen-BBPro\data`
+directory.
 
 ## Stack
 
@@ -111,12 +122,22 @@ npm run dev:vite
 
 `.env.development` points the browser build at `http://127.0.0.1:8765`.
 
-## Known gaps (addressed in later phases)
+## Known gaps (reconciled 2026-07-13)
 
-- **Design system (Phase 3):** tailwind tokens are placeholders.
-- **Screen ports (Phase 4):** HomePage is a debug stub.
-- **Live sim streaming (Phase 5):** `/ws/sim/{game_id}` just echoes.
-- **AI assets (Phase 6):** no `/assets/*` endpoints yet.
-- **Code signing + auto-update (Phase 7):** electron-builder config is
-   skeletal.
-- **Playwright E2E (Phase 9).**
+The original phase-based gap list was stale. Verified current state:
+
+- ~~Screen ports (Phase 4): HomePage is a debug stub~~ — **Done.** ~64 real
+  pages under `src/pages/`; only `ComingSoonPage.tsx` is a placeholder.
+- ~~Live sim streaming (Phase 5): `/ws/sim` just echoes~~ — **Done.** Real
+  pitch-by-pitch streaming with speed/pause/resume/skip controls
+  (`api/ws/sim.py`, `src/lib/sim-socket.ts`, `LiveGamePage.tsx`).
+- **Design system:** confirm whether Tailwind tokens are finalized or still
+  partly placeholder — verify against current `tailwind.config.ts`.
+- **AI assets (`/assets/*`):** verify whether asset endpoints now exist.
+- **Code signing + auto-update:** installers ship via `scripts/build_release.py`
+  + `packaging/NexGen-BBPro.iss`; confirm signing/auto-update status.
+- **Playwright E2E:** not found — likely still absent.
+
+Residual cleanup: one leftover import from the retired PyQt package survives at
+`api/routers/history.py` (`from ui.league_history_window import ...`), and
+`NexGen-BBPro.spec` still references the old `main.py` entrypoint.

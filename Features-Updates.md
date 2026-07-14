@@ -1,3 +1,10 @@
+> **⚠️ Stale — last updated 2026-02; app is at 7.0.11 (note added 2026-07-13).**
+> This checklist predates the Electron/React + cloud rebuild and the 7.0 finance
+> overhaul. Many P2 items (salary/free agency, team budgets, scouting, strategy
+> profiles, analytics/career-arc) have since shipped. Treat `release_notes.md`
+> and `docs/future_work.md` (see its reconciliation banner) as the current source
+> of truth; verify any item here against code before actioning.
+
 ==========
 P0 - FIX NOW
 ==========

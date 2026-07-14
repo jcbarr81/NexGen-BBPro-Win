@@ -3,6 +3,48 @@
 This note captures high-level enhancements identified during the latest review so
 they are easy to revisit when planning new milestones.
 
+> ## ⚠️ Reconciliation banner — updated 2026-07-13 (app at VERSION 7.0.11)
+>
+> **This backlog drifted badly out of date and was reconciled against the actual
+> code on 2026-07-13.** The item numbering below still uses "v5.x" milestone
+> language, but the product has since shipped a full **Electron + React client,
+> a FastAPI backend (~60 routers), and a Firebase / Firestore / Cloud Run
+> multi-tenant cloud deployment.** The legacy **PyQt `ui/` app is retired.**
+>
+> **Source of truth for what shipped is `release_notes.md` + `git log`, not this
+> file.** When an item below conflicts with this banner, the banner wins.
+>
+> ### Verified status corrections (checked in code 2026-07-13)
+> | Item | Old status here | Verified reality |
+> |---|---|---|
+> | #7.1 multi-league / #7.2 online path | Open | **Done** — Firestore multi-tenant + Cloud Run |
+> | #7.3–7.5 messaging / chat / forums | Open | **Still open** — genuinely not built (real gap) |
+> | #20 Player Morale | Open | **Still open** — zero code (real gap) |
+> | #32 Simulation speed | Open | **Done** — ~5× faster shipped in 7.0 |
+> | #34 Overwrite-league admin pw | Open | **Fixed** — `playbalance/league_creator.py` purge+reseed |
+> | #37 Star rating for elite players | Open | **Fixed** — top-N blend in `api/routers/_rating_presentation.py` |
+> | #38 Contract details + contracts page | Open | **Done** — `ContractsPage.tsx`, `ContractCard` |
+> | #39 In-season renegotiation | Open | **Done** — `services/contract_negotiator.py` |
+> | #43 Draft-day crash | Open | **Fixed** — phase-resume guard in `api/routers/draft.py` |
+> | v5.4 What-If / story / highlight-recap | Planned | **Mostly unbuilt** (What-If deferred; live game viewing exists) |
+>
+> ### Superseded by the React/cloud rebuild
+> All **PyQt-desktop-UI** items (#18 handoff export, #21 theme-asset expansion,
+> #36 player-profile redesign, #41 season-progress layout, #42 owner-dashboard
+> readability) targeted the retired PyQt app. Re-scope against `desktop/` (React)
+> before actioning — several are already addressed by the new client.
+>
+> ### Sim engine note
+> Games run on `physics_sim/` (the `playbalance/` engine is archived behind
+> `PB_ALLOW_LEGACY_ENGINE=1`). Target all realism tuning at `physics_sim/`. The
+> one remaining sim gap is the disabled empirical park-factor multiplier
+> (`park_factor_scale=0.0` in `physics_sim/config.py`).
+>
+> ### Not independently re-verified on 2026-07-13
+> Items not in the tables above (e.g. #23 CPU trade AI, #24 strategy profiles,
+> #35 single-user onboarding) keep their prior status and should be confirmed
+> against code before planning.
+
 ## 1. Unified Data Service Layer
 - **Goal:** Stop re-opening CSV/JSON files in every module by introducing a
   repository/service layer (see `docs/Architecture.md`). This would centralize
@@ -58,7 +100,10 @@ These initiatives enable a single owner to juggle multiple leagues, move saves
 between offline/online modes, and collaborate with other owners through
 messaging, chat, and forums. Tackle them in the order below so shared services
 land before channel-specific features.
-- **Status:** Open (roadmap).
+- **Status:** Partially complete (reconciled 2026-07-13). 7.1 (multi-league per
+  owner) and 7.2 (online league path) shipped via Firestore multi-tenant +
+  Cloud Run. 7.3 messaging, 7.4 chat rooms, and 7.5 forums/trade-block remain
+  **Open** — genuinely not built.
 
 ### 7.1 Multiple Offline Leagues per Owner
 1. **Domain model:** Introduce `Owner` -> `LeagueProfile` -> `Season` entities plus
@@ -667,7 +712,8 @@ land before channel-specific features.
   validate output parity against baseline runs.
 - **Scope:** Add/refresh speed benchmark reporting so release validation tracks
   runtime trends over time.
-- **Status:** Open.
+- **Status:** Complete (reconciled 2026-07-13). Game simulation is ~5× faster
+  per game as of 7.0 (cached park/player/recovery parses; results unchanged).
 
 ## 33. Owner Dashboard Minimize/Focus-Loss Hang
 - **Goal:** Fix a stability issue where minimizing the Owner Dashboard and then
@@ -698,7 +744,10 @@ land before channel-specific features.
   current installer bootstrap choice.
 - **Scope:** Add regression coverage for same-name overwrite flows and document
   expected password behavior in installer/setup guidance if needed.
-- **Status:** Open.
+- **Status:** Fixed (reconciled 2026-07-13). Same-name overwrite purges the old
+  league dir (dropping stale `users.txt`) and reseeds the admin credential from
+  the installer/bootstrap password — see `playbalance/league_creator.py`
+  (`_purge_old_league` + `clear_users`).
 
 ## 35. Single-User League Owner Setup Prompt
 - **Goal:** Improve first-run usability for single-user leagues by prompting
@@ -740,7 +789,11 @@ land before channel-specific features.
   defensive/positional balancing, or UI explanation clarity.
 - **Scope:** Fix incorrect rating behavior if found, or improve star-rating
   transparency/tooltips/tests so the outcome is understandable and consistent.
-- **Status:** Open.
+- **Status:** Fixed (reconciled 2026-07-13). Hitter overall/star now blends a
+  top-N leg (default 65%) with the position-weighted leg so elite specialists
+  earn credit — see `api/routers/_rating_presentation.py:_compute_hitter_overall`.
+  Note: a legacy plain-mean `overall_rating` still exists in
+  `utils/rating_display.py`; verify no surface still uses it as a star source.
 
 ## 38. Contract Details on Player Profile + Team Contracts Page
 - **Goal:** Make contract status easier to manage by showing full contract
@@ -757,7 +810,10 @@ land before channel-specific features.
 - **Scope:** Preserve existing contract functionality while improving
   discoverability/presentation, then add targeted UI and data regression
   coverage where feasible.
-- **Status:** Open.
+- **Status:** Complete (reconciled 2026-07-13). Per-player contract details show
+  on the profile (`desktop/src/pages/PlayerProfilePage.tsx` → `ContractCard`) and
+  a dedicated league-wide contracts page exists (`ContractsPage.tsx` backed by
+  `api/routers/contracts.py`).
 
 ## 39. In-Season Contract Renegotiation for Final-Year Players
 - **Goal:** Let owners renegotiate contracts during the season for players who
@@ -771,7 +827,11 @@ land before channel-specific features.
   views accordingly, and prevent invalid duplicate or conflicting negotiations.
 - **Scope:** Add targeted coverage for eligibility, negotiation flow, and
   contract-state updates.
-- **Status:** Open.
+- **Status:** Complete (reconciled 2026-07-13). Mid-season extension/renegotiation
+  is wired end to end — `services/contract_negotiator.py`
+  (`check_extension_eligibility`, `evaluate_extension_offer`, final-year gate via
+  `MAX_YEARS_LEFT_FOR_EXTENSION`), `POST /{player_id}/evaluate-extension` in
+  `api/routers/contracts.py`, and the ContractCard "Negotiate extension" UI.
 
 ## 40. Backfill Player Contracts When Finance Is Enabled Mid-League
 - **Goal:** Ensure that turning on the financial system for an already-created
@@ -827,7 +887,12 @@ land before channel-specific features.
   reproduction steps so the failure can be consistently triggered in testing.
 - **Scope:** Add targeted regression coverage or diagnostic logging as needed to
   support a later fix once the crash path is understood.
-- **Status:** Open.
+- **Status:** Fixed (reconciled 2026-07-13). The draft-day dead-lock/crash path
+  was resolved when the draft moved to guarded FastAPI endpoints: on the final
+  pick `_resume_regular_season_after_draft()` flips the phase back to
+  REGULAR_SEASON and roster commit is wrapped defensively — see
+  `api/routers/draft.py` (and the 7.0 "season flow hardening" notes). Re-confirm
+  against the live React draft flow if any crash recurs.
 
 ## 44. Player Profile V2 Preview Parity and Rollout
 - **Goal:** Finish the Player Profile V2 preview so it reaches functional parity

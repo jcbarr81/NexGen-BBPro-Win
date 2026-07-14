@@ -1,5 +1,15 @@
 # Simulation Realism Recovery Task List
 
+> **⚠️ Historical — superseded 2026-07-13.** This plan targets the legacy
+> `playbalance/` engine, which is now **archived** (games run on `physics_sim/`;
+> the legacy engine only runs behind `PB_ALLOW_LEGACY_ENGINE=1`). The headline
+> problem here — walks far below MLB — was **solved in `physics_sim`** (BB% ≈
+> 0.085, on target, now guarded by the strict KPI CI gate
+> `.github/workflows/physics_sim_kpi.yml`). Do **not** action this plan against
+> the live engine. The one real remaining sim gap is the disabled empirical
+> park-factor multiplier (`park_factor_scale=0.0` in `physics_sim/config.py`).
+> Kept for historical context only.
+
 This document tracks the sequencing needed to bring league-wide stats back in line with MLB benchmarks. Each task has explicit acceptance criteria so we can work through the plan step by step.
 
 ## 1. Validate And Normalize Player Inputs *(Completed — normalized roster + generator in sync)*
