@@ -254,7 +254,14 @@ def create_app() -> FastAPI:
             try:
                 from starlette.concurrency import run_in_threadpool
 
-                await run_in_threadpool(working_copy.push_changes)
+                # Capture the request's league here (while the request-scoped
+                # ContextVar is guaranteed bound) and hand it to the push so it
+                # can scope its walk to that league's dir + root-level files
+                # instead of rglob-ing the entire multi-league data root.
+                await run_in_threadpool(
+                    working_copy.push_changes,
+                    path_utils.get_request_league(),
+                )
             except Exception:
                 logging.getLogger("nexgen.working_copy").exception(
                     "working-copy push failed"

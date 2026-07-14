@@ -32,7 +32,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Iterable, Iterator, Set, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 # Remote top-level entries we never need on the active node — skipping them keeps
 # the startup pull small (bounded to the live footprint, not archives/backups).
@@ -52,6 +52,14 @@ _last_sync: float = 0.0
 # Relative posix paths we have synced (present in the working copy as of the last
 # pull/push). A push diffs the current local tree against this to find deletions.
 _known: Set[str] = set()
+
+# Per-segment flush times for SCOPED pushes. Keys: "" for root-level files
+# (direct children of the data root), otherwise a league id. A scoped push
+# advances only its own segments — never the global ``_last_sync`` — so a
+# pending change in league B can't be hidden behind a cutoff advanced by a
+# push scoped to league A. Segments without an entry fall back to
+# ``_last_sync`` (the last full pull/push, which covered everything).
+_scope_sync: Dict[str, float] = {}
 
 # Serialize pushes so concurrent mutating requests don't race on _known / the
 # remote. Pushes are quick, so this is cheap insurance on a single instance.
@@ -102,7 +110,9 @@ def delete_league_remote(league_id: str) -> bool:
     # Forget any cached knowledge of this league so a later push won't trip over it.
     global _known
     _known = {rel for rel in _known if not rel.startswith(f"leagues/{league_id}/")}
-    _log(f"deleted league {league_id!r} from remote+local")
+    _scope_sync.pop(league_id, None)
+    # (was `_log`, an undefined name — NameError on every super-admin delete)
+    _emit(f"deleted league {league_id!r} from remote+local")
     return removed
 
 
@@ -194,6 +204,8 @@ def bulk_pull() -> None:
         p.relative_to(local).as_posix() for p in local.rglob("*") if p.is_file()
     }
     _last_sync = time.time()
+    # A pull refreshes every segment; scoped cutoffs restart from _last_sync.
+    _scope_sync.clear()
 
     # The working copy is now populated (active-league pointer, registry, league
     # dirs). Invalidate path_utils' cached active-league data dir: it may have
@@ -213,33 +225,101 @@ def bulk_pull() -> None:
     )
 
 
-def push_changes() -> int:
+def _safe_league_id(value: object) -> Optional[str]:
+    """Validate a league id for use as a path segment (never escapes leagues/)."""
+
+    league_id = str(value or "").strip()
+    if not league_id or "/" in league_id or "\\" in league_id or league_id in {".", ".."}:
+        return None
+    return league_id
+
+
+def _request_league_id() -> Optional[str]:
+    """League bound to the current request (X-League-Id ContextVar), if any."""
+
+    try:
+        from utils.path_utils import get_request_league
+
+        return _safe_league_id(get_request_league())
+    except Exception:
+        return None
+
+
+def push_changes(league_id: Optional[str] = None) -> int:
     """Flush local changes back to the remote: copy new/modified files, and
     delete remote files that were removed locally.
 
     Walks only the *local* tree (fast disk); the changed/deleted sets are then
     the only things that cross the slow FUSE boundary, and they cross in parallel.
+
+    When the triggering request is bound to a league (cloud multi-tenant
+    ``X-League-Id`` — passed in by the middleware, or read from the same
+    ContextVar ``utils.path_utils`` uses), the walk is SCOPED to that league's
+    dir plus root-level files (direct children of the data root) plus any
+    league dir never synced before (e.g. a league this request just created),
+    instead of rglob-ing the entire multi-league root. Deletion sync and the
+    ``_known`` bookkeeping are narrowed to the same scope so out-of-scope
+    leagues are never touched. No league context → the original full walk.
     """
     global _last_sync, _known
     remote, local = _remote(), _local()
     if not local.exists():
         return 0
 
+    league_id = _safe_league_id(league_id) or _request_league_id()
+
     with _push_lock:
-        cutoff = _last_sync
         t0 = time.time()
+        # Scope of this push: None → full walk; otherwise the set of league
+        # ids whose trees we walk (plus root-level files, always in scope).
+        scope_league_ids: Optional[Set[str]] = None
+        if league_id and (local / "leagues" / league_id).is_dir():
+            scope_league_ids = {league_id}
+            # Also walk league dirs with NO synced files yet: a brand-new
+            # league (possibly created by this very request while bound to
+            # another league's context) exists only locally, and skipping it
+            # would leave it un-persisted — losing it on restart.
+            known_league_ids = {
+                rel.split("/", 2)[1] for rel in _known if rel.startswith("leagues/")
+            }
+            try:
+                leagues_root = local / "leagues"
+                if leagues_root.is_dir():
+                    for entry in leagues_root.iterdir():
+                        if entry.is_dir() and entry.name not in known_league_ids:
+                            scope_league_ids.add(entry.name)
+            except OSError:
+                pass
+
         current: Set[str] = set()
-        changed = []
-        for src in local.rglob("*"):
+        changed: List[Tuple[Path, Path]] = []
+
+        def _scan(src: Path, cutoff: float) -> None:
             if not src.is_file():
-                continue
+                return
             rel = src.relative_to(local)
             current.add(rel.as_posix())
             try:
                 if src.stat().st_mtime > cutoff:
                     changed.append((src, remote / rel))
             except OSError:
-                continue
+                return
+
+        if scope_league_ids is None:
+            cutoff = _last_sync
+            for src in local.rglob("*"):
+                _scan(src, cutoff)
+        else:
+            root_cutoff = _scope_sync.get("", _last_sync)
+            try:
+                for entry in local.iterdir():
+                    _scan(entry, root_cutoff)
+            except OSError:
+                pass
+            for lid in scope_league_ids:
+                league_cutoff = _scope_sync.get(lid, _last_sync)
+                for src in (local / "leagues" / lid).rglob("*"):
+                    _scan(src, league_cutoff)
 
         pushed = _parallel_copy(changed)
         # Anything we previously synced but is gone locally → delete on remote,
@@ -248,8 +328,23 @@ def push_changes() -> int:
         # that it was deleted — wiping it from the durable bucket is catastrophic
         # data loss (this is exactly how cbl/usabl were lost). Within-league file
         # deletions (the league dir is still present) are still propagated.
+        if scope_league_ids is None:
+            known_in_scope = _known
+        else:
+            # Only diff what this push actually walked: root-level files and
+            # the in-scope league trees. Everything else in _known is out of
+            # scope — absent from ``current`` merely because we didn't walk it.
+            known_in_scope = {
+                rel
+                for rel in _known
+                if "/" not in rel
+                or (
+                    rel.startswith("leagues/")
+                    and rel.split("/", 2)[1] in scope_league_ids
+                )
+            }
         deleted = []
-        for rel in (_known - current):
+        for rel in (known_in_scope - current):
             parts = rel.split("/")
             if (
                 len(parts) >= 2
@@ -260,11 +355,21 @@ def push_changes() -> int:
             deleted.append(remote / Path(rel))
         removed = _parallel_delete(deleted)
 
-        _known = current
-        _last_sync = time.time()
+        if scope_league_ids is None:
+            _known = current
+            _last_sync = time.time()
+            # A full push refreshed every segment.
+            _scope_sync.clear()
+        else:
+            _known = (_known - known_in_scope) | current
+            now = time.time()
+            _scope_sync[""] = now
+            for lid in scope_league_ids:
+                _scope_sync[lid] = now
         if pushed or removed:
+            scope_note = "" if scope_league_ids is None else f" (scope={league_id})"
             _emit(
                 f"pushed {pushed}, deleted {removed} "
-                f"in {time.time() - t0:.1f}s"
+                f"in {time.time() - t0:.1f}s{scope_note}"
             )
         return pushed

@@ -221,6 +221,9 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
     contract_details = _build_contract_details(str(getattr(player, "player_id", "") or ""))
     stats_rows = _collect_stats_rows(player, team_id=team_id, is_pitcher=is_pitcher)
     stats_columns = tuple(_PITCHING_STATS if is_pitcher else _BATTING_STATS)
+    # One pass over the (potentially ~18 MB) transactions ledger yields both
+    # the full log and the trade-only view — the old code scanned it twice.
+    transactions_entries, trade_entries = _collect_transactions_and_trades(player)
     return PlayerProfileViewModel(
         player_id=str(getattr(player, "player_id", "") or ""),
         full_name=_full_name(player),
@@ -257,12 +260,8 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
             _collect_ratings_history_entries(player, is_pitcher=is_pitcher)
         ),
         awards_history=tuple(_collect_awards_history(player)),
-        transactions_log=tuple(
-            _collect_transactions_entries(player, trade_only=False)
-        ),
-        trade_log=tuple(
-            _collect_transactions_entries(player, trade_only=True)
-        ),
+        transactions_log=tuple(transactions_entries),
+        trade_log=tuple(trade_entries),
     )
 
 
@@ -1226,22 +1225,22 @@ def _collect_awards_history(player: Any) -> List[Dict[str, str]]:
     return entries
 
 
-def _collect_transactions_entries(
+def _collect_transactions_and_trades(
     player: Any,
-    *,
-    trade_only: bool,
-) -> List[Dict[str, str]]:
-    """Transaction log rows from ``financial_transactions.csv`` filtered to
-    this player. When ``trade_only`` is True, restrict to trade-type rows.
-    Each entry is ``{date, description, from_team, to_team}``."""
+) -> Tuple[List[Dict[str, str]], List[Dict[str, str]]]:
+    """One pass over ``financial_transactions.csv`` returning
+    ``(all_entries, trade_entries)`` for this player. Each entry is
+    ``{date, description, from_team, to_team}``; trade entries are the
+    subset of rows whose type contains "trade"."""
 
     player_id = str(getattr(player, "player_id", "") or "").strip()
     if not player_id:
-        return []
+        return [], []
     path = get_data_dir() / "financial_transactions.csv"
     if not path.exists():
-        return []
+        return [], []
     entries: List[Dict[str, str]] = []
+    trades: List[Dict[str, str]] = []
     try:
         with path.open(newline="", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
@@ -1250,24 +1249,38 @@ def _collect_transactions_entries(
                 if pid != player_id:
                     continue
                 kind = str(row.get("type") or row.get("transaction_type") or "").strip()
-                if trade_only and "trade" not in kind.lower():
-                    continue
-                entries.append(
-                    {
-                        "date": str(row.get("date") or row.get("season_day") or ""),
-                        "description": str(
-                            row.get("description") or row.get("note") or kind or ""
-                        ),
-                        "from_team": str(
-                            row.get("from_team") or row.get("from") or ""
-                        ),
-                        "to_team": str(row.get("to_team") or row.get("to") or ""),
-                    }
-                )
+                entry = {
+                    "date": str(row.get("date") or row.get("season_day") or ""),
+                    "description": str(
+                        row.get("description") or row.get("note") or kind or ""
+                    ),
+                    "from_team": str(
+                        row.get("from_team") or row.get("from") or ""
+                    ),
+                    "to_team": str(row.get("to_team") or row.get("to") or ""),
+                }
+                entries.append(entry)
+                if "trade" in kind.lower():
+                    trades.append(dict(entry))
     except OSError:
-        return []
+        return [], []
     entries.sort(key=lambda e: e.get("date") or "")
-    return entries
+    trades.sort(key=lambda e: e.get("date") or "")
+    return entries, trades
+
+
+def _collect_transactions_entries(
+    player: Any,
+    *,
+    trade_only: bool,
+) -> List[Dict[str, str]]:
+    """Transaction log rows from ``financial_transactions.csv`` filtered to
+    this player. When ``trade_only`` is True, restrict to trade-type rows.
+    Kept for compatibility; prefer :func:`_collect_transactions_and_trades`
+    which yields both views in a single ledger scan."""
+
+    entries, trades = _collect_transactions_and_trades(player)
+    return trades if trade_only else entries
 
 
 __all__ = [

@@ -88,6 +88,22 @@ def list_financial_rows(
     clean_team_id = str(team_id or "").strip()
     clean_category = str(category or "").strip()
     clean_memo = str(memo or "").strip()
+
+    # Fast path for the common "newest N rows" query: the ledger is
+    # append-only (newest rows last) and can be ~18 MB, so parse only a tail
+    # slice of raw lines instead of normalizing every row. Falls back to the
+    # full scan below when the tail doesn't conclusively contain the answer.
+    if newest_first and limit > 0:
+        tail_rows = _tail_financial_rows(
+            ledger_path,
+            team_id=clean_team_id,
+            category=clean_category,
+            memo=clean_memo,
+            limit=limit,
+        )
+        if tail_rows is not None:
+            return tail_rows
+
     rows: list[Dict[str, object]] = []
     try:
         with ledger_path.open("r", newline="", encoding="utf-8") as handle:
@@ -112,6 +128,73 @@ def list_financial_rows(
     if limit > 0:
         rows = rows[:limit]
     return rows
+
+
+def _tail_financial_rows(
+    ledger_path: Path,
+    *,
+    team_id: str,
+    category: str,
+    memo: str,
+    limit: int,
+) -> list[Dict[str, object]] | None:
+    """Newest-first filtered rows parsed from a tail slice of the ledger.
+
+    Reading raw lines is cheap next to csv-parsing + normalizing every row,
+    so grab the last ~4x``limit`` data lines and parse just those. Returns
+    ``None`` when the tail can't answer authoritatively (not enough matching
+    rows in the slice, or quoted fields spanning physical lines) — the caller
+    then does the original full scan. Filters (already-stripped) and output
+    shape/ordering match the full-scan path exactly.
+    """
+
+    try:
+        with ledger_path.open("r", newline="", encoding="utf-8") as handle:
+            lines = handle.readlines()
+    except Exception:
+        # The full scan would fail the same way; match its [] result.
+        return []
+    if len(lines) <= 1:
+        # Header-only (or empty) file — DictReader consumes the first line as
+        # the header, so there are no data rows either way.
+        return []
+
+    header_line, data_lines = lines[0], lines[1:]
+    candidate_count = max(limit * 4, 100)
+    tail_lines = data_lines[-candidate_count:]
+    partial = len(tail_lines) < len(data_lines)
+    if partial and any(line.count('"') % 2 for line in tail_lines):
+        # An odd number of quotes on a physical line means a quoted field
+        # spans lines; slicing by line isn't safe — full scan instead.
+        return None
+
+    try:
+        fieldnames = next(csv.reader([header_line]), None)
+        if not fieldnames:
+            return []
+        matched: list[Dict[str, object]] = []
+        for values in csv.reader(tail_lines):
+            # dict(zip(...)) mirrors DictReader: extra cells are ignored by
+            # _normalize_row and missing cells read back as None.
+            row = _normalize_row(dict(zip(fieldnames, values)))
+            if row is None:
+                continue
+            row_payload = _row_tuple_to_dict(row)
+            if team_id and row_payload["team_id"] != team_id:
+                continue
+            if category and row_payload["category"] != category:
+                continue
+            if memo and row_payload["memo"] != memo:
+                continue
+            matched.append(row_payload)
+    except Exception:
+        return None
+
+    if partial and len(matched) < limit:
+        # Older lines (outside the tail) may also match — need the full scan.
+        return None
+    matched.reverse()
+    return matched[:limit]
 
 
 def ledger_has_entry(

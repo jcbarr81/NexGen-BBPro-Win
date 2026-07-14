@@ -62,25 +62,47 @@ def _player_lookup() -> Dict[str, Any]:
         return {}
 
 
-def _team_for(player_id: str, players: Dict[str, Any]) -> str:
-    """Best-effort lookup of which team currently rosters a player."""
+def _roster_team_index() -> Dict[str, str]:
+    """Best-effort ``player_id -> team_id`` map built from ONE pass over the
+    roster CSVs.
+
+    Mirrors the old per-player ``_team_for`` scan exactly: every roster level
+    counts (any row whose first cell is the player id, regardless of
+    ACT/AAA/LOW/DL/IR), and the first roster file in glob order that contains
+    the player wins. Building the dict once turns the league tracker's
+    contracts x rosters file-open storm into a single roster sweep.
+    """
 
     rosters_dir = get_data_dir() / "rosters"
     if not rosters_dir.exists():
-        return ""
+        return {}
     import csv
 
+    index: Dict[str, str] = {}
     for roster_file in rosters_dir.glob("*.csv"):
         try:
             with roster_file.open("r", encoding="utf-8", newline="") as fh:
                 for row in csv.reader(fh):
                     if len(row) < 1:
                         continue
-                    if (row[0] or "").strip() == player_id:
-                        return roster_file.stem
+                    pid = (row[0] or "").strip()
+                    if pid:
+                        # First file containing the player wins (glob order),
+                        # matching the early-return of the per-player scan.
+                        index.setdefault(pid, roster_file.stem)
         except OSError:
             continue
-    return ""
+    return index
+
+
+def _team_for(player_id: str, players: Dict[str, Any]) -> str:
+    """Best-effort lookup of which team currently rosters a player.
+
+    Kept for signature compatibility; prefer :func:`_roster_team_index` when
+    resolving many players in one request.
+    """
+
+    return _roster_team_index().get(player_id, "")
 
 
 def _resolve_player(player_id: str) -> Any:
@@ -425,10 +447,18 @@ def list_contracts(
     current_year = _resolve_current_year()
     rows: List[Dict[str, Any]] = []
 
+    # Built lazily, at most once per request — only if some contract row is
+    # missing team_id (the old code re-scanned every roster CSV per such row).
+    roster_teams: Optional[Dict[str, str]] = None
+
     for pid, raw in players_block.items():
         if not isinstance(raw, dict):
             continue
-        team = str(raw.get("team_id", "") or "").strip() or _team_for(pid, players_index)
+        team = str(raw.get("team_id", "") or "").strip()
+        if not team:
+            if roster_teams is None:
+                roster_teams = _roster_team_index()
+            team = roster_teams.get(pid, "")
         if team_id and team != team_id:
             continue
         years_left = int(raw.get("years_left", 0) or 0)
