@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cloudLogout } from "@/lib/cloud-auth";
 import { toast } from "@/lib/toast-store";
+import { useConfirmDialog } from "@/lib/use-confirm";
 import {
   Badge,
   Button,
@@ -25,6 +26,7 @@ export function MyLeaguesPage() {
   const pkg = useAuthStore((s) => s.pkg);
 
   const queryClient = useQueryClient();
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const me = useQuery({ queryKey: ["account-me"], queryFn: () => api.accountMe() });
   const leagues = me.data?.leagues ?? [];
   // Super-admins see EVERY league under "All leagues" (catalog entries with no
@@ -51,16 +53,16 @@ export function MyLeaguesPage() {
     },
   });
 
-  function confirmDelete(leagueId: string, name: string) {
-    if (
-      window.confirm(
-        `Permanently delete "${name}" (${leagueId})?\n\n` +
-          "This removes the league, all its teams/players/standings, every " +
-          "membership, and cannot be undone.",
-      )
-    ) {
-      deleteLeague.mutate(leagueId);
-    }
+  async function confirmDelete(leagueId: string, name: string) {
+    const ok = await confirm({
+      title: `Delete "${name}"?`,
+      description:
+        `Permanently deletes ${leagueId} — the league, all its teams/players/` +
+        `standings, and every membership. This cannot be undone.`,
+      confirmLabel: "Delete league",
+      danger: true,
+    });
+    if (ok) deleteLeague.mutate(leagueId);
   }
 
   // Seed the per-league role + team before navigating. commissioner -> "admin"
@@ -87,6 +89,7 @@ export function MyLeaguesPage() {
 
   return (
     <div className="h-full overflow-auto bg-canvas">
+      {confirmDialog}
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
         <div className="flex items-center justify-between">
           <Brand />
@@ -143,11 +146,11 @@ export function MyLeaguesPage() {
                       <span className="font-semibold">
                         {l.display_name || l.league_id}
                       </span>
-                      <Badge tone={l.role === "commissioner" ? "amber" : "default"}>
+                      <Badge tone={l.role === "commissioner" ? "amber" : "neutral"}>
                         {l.role}
                       </Badge>
                       {l.status === "pending_team" && (
-                        <Badge tone="default">awaiting team</Badge>
+                        <Badge tone="neutral">awaiting team</Badge>
                       )}
                     </div>
                     <div className="text-xs text-muted">

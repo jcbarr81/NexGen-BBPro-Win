@@ -38,6 +38,26 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     "sb_pct": 0.05,
     "sba_per_pa": 0.01,
     "bip_double_play_pct": 0.01,
+    # QW-12 (deep_review_plan.md): gate the slash line, contact-quality, and
+    # batted-ball metrics that were previously computed but never enforced —
+    # a bad knob in any of them used to go unnoticed for seasons.
+    "avg": 0.010,
+    "obp": 0.010,
+    "slg": 0.020,
+    "ops": 0.025,
+    "iso": 0.015,
+    "contact_pct": 0.03,
+    "z_contact_pct": 0.03,
+    "o_contact_pct": 0.05,
+    "swstr_pct": 0.015,
+    "csw_pct": 0.02,
+    "called_third_strike_share_of_so": 0.06,
+    "first_pitch_strike_pct": 0.04,
+    "bip_gb_pct": 0.05,
+    "bip_fb_pct": 0.05,
+    "bip_ld_pct": 0.04,
+    "avg_exit_velocity": 2.0,
+    "avg_launch_angle": 2.5,
 }
 
 
@@ -252,7 +272,6 @@ def _summarize(
     totals: Counter,
     pitch_counts: Counter,
     bip_counts: Counter,
-    hit_types: Counter,
     ev_sum: float,
     ev_count: int,
     la_sum: float,
@@ -346,9 +365,18 @@ def _summarize(
         "hr_per_fb_pct": (
             hr / bip_counts.get("fb", 0) if bip_counts.get("fb", 0) else 0.0
         ),
+        "first_pitch_strike_pct": (
+            pitch_counts.get("first_pitch_strikes", 0)
+            / pitch_counts.get("first_pitches", 0)
+            if pitch_counts.get("first_pitches", 0)
+            else 0.0
+        ),
+        "iso": (slg - (hits / ab)) if ab else 0.0,
         "runs_per_team_game": totals.get("r", 0) / (games * 2) if games else 0.0,
         "hits_per_team_game": hits / (games * 2) if games else 0.0,
         "hr_per_team_game": hr / (games * 2) if games else 0.0,
+        "doubles_per_team_game": doubles / (games * 2) if games else 0.0,
+        "triples_per_team_game": triples / (games * 2) if games else 0.0,
         "sb_per_team_game": totals.get("sb", 0) / (games * 2) if games else 0.0,
         "k_per_team_game": totals.get("k", 0) / (games * 2) if games else 0.0,
         "bb_per_team_game": totals.get("bb", 0) / (games * 2) if games else 0.0,
@@ -499,7 +527,6 @@ def run_sim(
     totals = Counter()
     pitch_counts = Counter()
     bip_counts = Counter()
-    hit_types = Counter()
     ev_sum = 0.0
     la_sum = 0.0
     ev_count = 0
@@ -641,6 +668,11 @@ def run_sim(
                 else:
                     pitch_counts["o_zone_contacts"] += 1
             outcome = entry.get("outcome")
+            # First-pitch strike rate (mirrors the engine's is_strike set).
+            if entry.get("count") == "0-0":
+                pitch_counts["first_pitches"] += 1
+                if outcome in ("strike", "swinging_strike", "foul", "in_play", "interference"):
+                    pitch_counts["first_pitch_strikes"] += 1
             if outcome == "strike":
                 pitch_counts["called_strikes"] += 1
             elif outcome == "swinging_strike":
@@ -652,10 +684,6 @@ def run_sim(
                 ball_type = entry.get("ball_type")
                 if ball_type:
                     bip_counts[ball_type] += 1
-                if not entry.get("reached_on_error", False):
-                    hit_type = entry.get("hit_type")
-                    if hit_type:
-                        hit_types[hit_type] += 1
                 ev = entry.get("exit_velo")
                 la = entry.get("launch_angle")
                 if ev is not None:
@@ -676,7 +704,6 @@ def run_sim(
         totals=totals,
         pitch_counts=pitch_counts,
         bip_counts=bip_counts,
-        hit_types=hit_types,
         ev_sum=ev_sum,
         ev_count=ev_count,
         la_sum=la_sum,

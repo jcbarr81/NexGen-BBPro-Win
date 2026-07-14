@@ -28,6 +28,10 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     sourcemap: true,
+    // Entry-chunk weight is managed at the source level instead of via
+    // manualChunks (which this plugin combination ignores): the Firebase SDK
+    // loads through dynamic import (lib/firebase.ts) and heavy pages are
+    // React.lazy, so Rollup splits them automatically.
   },
   // Pre-bundle every Radix primitive + heavy dep we use so Vite never
   // re-optimizes after first paint -- that re-optimization triggers a

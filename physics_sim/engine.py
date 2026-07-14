@@ -3987,7 +3987,11 @@ def simulate_game(
                     batter=_batter_context(batter, pitcher, tuning),
                     pitcher={
                         "repertoire": pitcher.repertoire or {"fb": 50},
-                        "velocity": 80.0 + (pitcher.arm * 0.2),
+                        # Fastball velocity; per-type offsets are subtracted in
+                        # simulate_pitch. +3 vs the old flat 80 recenters the
+                        # usage-weighted league average now that offspeed
+                        # pitches are slower (QW-13).
+                        "velocity": 83.0 + (pitcher.arm * 0.2),
                         "control": pitcher.control * command_factor,
                         "movement": pitcher.movement * movement_factor,
                         "fatigue_factor": velocity_factor,

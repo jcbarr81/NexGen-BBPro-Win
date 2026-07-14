@@ -1,10 +1,10 @@
 /**
  * Phase 4 port of ui/owner_home_page.py + ui/owner_dashboard.py.
  *
- * First iteration scope: hero header (team identity + record), key metrics
- * (run diff, next game, streak, last10, injuries, probable SP), and division
- * standings table. Bullpen readiness, hot/cold performers, finance snapshot
- * and leaders land in follow-up iterations using the same shell.
+ * Renders the hero header (team identity + record), key metrics (run diff,
+ * next game, streak, last10, injuries, probable SP), division standings,
+ * bullpen readiness, hot/cold performers, and leaders. A finance snapshot
+ * card is planned (docs/deep_review_plan.md S3-09) but not yet implemented.
  */
 
 import { useMemo, useState } from "react";

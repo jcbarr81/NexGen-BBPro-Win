@@ -20,10 +20,39 @@ Guarded by NEXGEN_FIREBASE=1; callers handle the disabled/local case.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 _LOG = logging.getLogger("nexgen.firestore")
+
+# ---------------------------------------------------------------------------
+# Membership TTL cache.
+#
+# get_member() runs on EVERY authenticated request (require_bearer resolves the
+# caller's league role), so an uncached Firestore round trip added tens of ms
+# to every API call. Memberships change rarely (invite accepted, team claimed,
+# role edit) — a short TTL plus explicit invalidation from the mutators keeps
+# identity fresh while eliminating the per-request RTT.
+# ---------------------------------------------------------------------------
+_MEMBER_CACHE: Dict[Tuple[str, str], Tuple[float, Optional[Dict[str, Any]]]] = {}
+_MEMBER_CACHE_TTL_SECONDS = 45.0
+_MEMBER_CACHE_MAX = 4096
+_MEMBER_CACHE_LOCK = threading.Lock()
+
+
+def invalidate_member_cache(league_id: str | None = None, uid: str | None = None) -> None:
+    """Drop cached membership rows. With both args, one entry; with only
+    league_id, every member of that league; with neither, everything."""
+    with _MEMBER_CACHE_LOCK:
+        if league_id and uid:
+            _MEMBER_CACHE.pop((league_id, uid), None)
+        elif league_id:
+            for key in [k for k in _MEMBER_CACHE if k[0] == league_id]:
+                _MEMBER_CACHE.pop(key, None)
+        else:
+            _MEMBER_CACHE.clear()
 
 
 def _db():
@@ -125,6 +154,7 @@ def delete_league(league_id: str) -> None:
         for d in league_ref.collection(sub).stream():
             d.reference.delete()
     league_ref.delete()
+    invalidate_member_cache(league_id)
 
 
 def list_all_leagues() -> List[Dict[str, Any]]:
@@ -146,9 +176,21 @@ def list_public_leagues() -> List[Dict[str, Any]]:
 # --- Memberships -----------------------------------------------------------
 
 def get_member(league_id: str, uid: str) -> Optional[Dict[str, Any]]:
-    return _doc_to_dict(
+    key = (str(league_id), str(uid))
+    now = time.monotonic()
+    with _MEMBER_CACHE_LOCK:
+        hit = _MEMBER_CACHE.get(key)
+        if hit is not None and (now - hit[0]) < _MEMBER_CACHE_TTL_SECONDS:
+            return dict(hit[1]) if hit[1] is not None else None
+    member = _doc_to_dict(
         _db().collection("leagues").document(league_id).collection("members").document(uid).get()
     )
+    with _MEMBER_CACHE_LOCK:
+        if len(_MEMBER_CACHE) >= _MEMBER_CACHE_MAX:
+            # Crude but bounded: drop everything; the cache refills within one TTL.
+            _MEMBER_CACHE.clear()
+        _MEMBER_CACHE[key] = (now, dict(member) if member is not None else None)
+    return member
 
 
 def _membership_mirror_ref(db, uid: str, league_id: str):
@@ -193,6 +235,7 @@ def set_member(
         },
         merge=True,
     )
+    invalidate_member_cache(league_id, uid)
     return _doc_to_dict(ref.get()) or {}
 
 
@@ -204,6 +247,7 @@ def set_member_team(league_id: str, uid: str, team_id: str) -> None:
     _membership_mirror_ref(db, uid, league_id).set(
         {"team_id": team_id, "status": "active", "updated_at": _server_ts()}, merge=True
     )
+    invalidate_member_cache(league_id, uid)
 
 
 def list_members(league_id: str) -> List[Dict[str, Any]]:

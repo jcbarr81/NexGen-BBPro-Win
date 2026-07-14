@@ -2,26 +2,17 @@
  * Firebase Authentication for the cloud (multi-tenant) build.
  *
  * Provides email/password + Google sign-in and exposes the current user's ID
- * token, which `api.ts` sends as the bearer for cloud requests. Initializes
- * lazily and only when a Firebase config is present (the Electron / local build
- * has none and keeps using the legacy sidecar login).
+ * token, which `api.ts` sends as the bearer for cloud requests.
+ *
+ * The firebase SDK (~580 KB of source) is loaded **lazily via dynamic
+ * import** the first time an auth operation runs — it must never be pinned
+ * into the entry chunk, because the Electron/local build (no Firebase
+ * config) pays the download for nothing. `firebaseEnabled()` is a pure env
+ * check and stays synchronous.
  */
 
-import { initializeApp, type FirebaseApp } from "firebase/app";
-import {
-  GoogleAuthProvider,
-  createUserWithEmailAndPassword,
-  getAuth,
-  getRedirectResult,
-  onAuthStateChanged,
-  sendPasswordResetEmail,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signInWithRedirect,
-  signOut as fbSignOut,
-  type Auth,
-  type User,
-} from "firebase/auth";
+// Type-only imports are erased at build time — they don't pull the SDK in.
+import type { Auth, User } from "firebase/auth";
 
 const config = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
@@ -31,47 +22,80 @@ const config = {
   messagingSenderId: import.meta.env.VITE_FIREBASE_SENDER_ID as string | undefined,
 };
 
-let _app: FirebaseApp | null = null;
-let _auth: Auth | null = null;
-
 /** True when a Firebase config is present (i.e. the cloud build). */
 export function firebaseEnabled(): boolean {
   return Boolean(config.apiKey && config.authDomain && config.projectId);
 }
 
-export function auth(): Auth {
-  if (!_auth) {
-    _app = initializeApp(config as Record<string, string>);
-    _auth = getAuth(_app);
+// Lazily-initialized singletons. `_authInstance` doubles as the sync
+// "has the SDK loaded yet?" signal for `currentUser()`.
+let _authInstance: Auth | null = null;
+let _loading: Promise<Auth> | null = null;
+
+async function loadAuth(): Promise<Auth> {
+  if (_authInstance) return _authInstance;
+  if (!_loading) {
+    _loading = (async () => {
+      const [{ initializeApp }, authMod] = await Promise.all([
+        import("firebase/app"),
+        import("firebase/auth"),
+      ]);
+      const app = initializeApp(config as Record<string, string>);
+      _authInstance = authMod.getAuth(app);
+      return _authInstance;
+    })();
   }
-  return _auth;
+  return _loading;
 }
 
+/**
+ * Synchronous current-user accessor. Returns null until the SDK has loaded
+ * and Firebase has restored the session — the same observable behavior as
+ * before (Firebase restores auth asynchronously anyway); callers already
+ * gate on the auth store's `firebaseReady`/`uid`.
+ */
 export function currentUser(): User | null {
-  return firebaseEnabled() ? auth().currentUser : null;
+  return _authInstance?.currentUser ?? null;
 }
 
 /** Fresh ID token for the signed-in user (auto-refreshes); null if signed out. */
 export async function getIdToken(): Promise<string | null> {
-  const u = currentUser();
-  return u ? u.getIdToken() : null;
+  if (!firebaseEnabled()) return null;
+  const auth = await loadAuth();
+  return auth.currentUser ? auth.currentUser.getIdToken() : null;
 }
 
+/**
+ * Subscribe to auth-state changes. Kicks off the lazy SDK load; the
+ * unsubscribe function works whether or not the load has finished.
+ */
 export function onUser(cb: (user: User | null) => void): () => void {
   if (!firebaseEnabled()) {
     cb(null);
     return () => {};
   }
-  return onAuthStateChanged(auth(), cb);
+  let unsub: () => void = () => {};
+  let cancelled = false;
+  void (async () => {
+    const [auth, mod] = await Promise.all([loadAuth(), import("firebase/auth")]);
+    if (cancelled) return;
+    unsub = mod.onAuthStateChanged(auth, cb);
+  })();
+  return () => {
+    cancelled = true;
+    unsub();
+  };
 }
 
 export async function signUpEmail(email: string, password: string): Promise<User> {
-  const cred = await createUserWithEmailAndPassword(auth(), email, password);
+  const [auth, mod] = await Promise.all([loadAuth(), import("firebase/auth")]);
+  const cred = await mod.createUserWithEmailAndPassword(auth, email, password);
   return cred.user;
 }
 
 export async function signInEmail(email: string, password: string): Promise<User> {
-  const cred = await signInWithEmailAndPassword(auth(), email, password);
+  const [auth, mod] = await Promise.all([loadAuth(), import("firebase/auth")]);
+  const cred = await mod.signInWithEmailAndPassword(auth, email, password);
   return cred.user;
 }
 
@@ -105,10 +129,11 @@ const POPUP_FALLBACK_CODES = new Set([
 ]);
 
 export async function signInGoogle(): Promise<User> {
-  const provider = new GoogleAuthProvider();
+  const [auth, mod] = await Promise.all([loadAuth(), import("firebase/auth")]);
+  const provider = new mod.GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
   try {
-    const cred = await signInWithPopup(auth(), provider);
+    const cred = await mod.signInWithPopup(auth, provider);
     return cred.user;
   } catch (err) {
     const code = (err as { code?: string })?.code ?? "";
@@ -117,7 +142,7 @@ export async function signInGoogle(): Promise<User> {
     if (POPUP_FALLBACK_CODES.has(code)) {
       // Full-page redirect: navigates away (no return value). On the way back,
       // completeGoogleRedirect()/onAuthStateChanged finishes the sign-in.
-      await signInWithRedirect(auth(), provider);
+      await mod.signInWithRedirect(auth, provider);
       // signInWithRedirect never resolves to a user (the page unloads); keep the
       // caller's promise pending until navigation happens.
       return new Promise<User>(() => {});
@@ -133,8 +158,9 @@ export async function signInGoogle(): Promise<User> {
  */
 export async function completeGoogleRedirect(): Promise<User | null> {
   if (!firebaseEnabled()) return null;
+  const [auth, mod] = await Promise.all([loadAuth(), import("firebase/auth")]);
   try {
-    const cred = await getRedirectResult(auth());
+    const cred = await mod.getRedirectResult(auth);
     return cred?.user ?? null;
   } catch (err) {
     console.error("[firebase] getRedirectResult failed:", describeAuthError(err));
@@ -143,9 +169,12 @@ export async function completeGoogleRedirect(): Promise<User | null> {
 }
 
 export async function resetPassword(email: string): Promise<void> {
-  await sendPasswordResetEmail(auth(), email);
+  const [auth, mod] = await Promise.all([loadAuth(), import("firebase/auth")]);
+  await mod.sendPasswordResetEmail(auth, email);
 }
 
 export async function signOut(): Promise<void> {
-  if (firebaseEnabled()) await fbSignOut(auth());
+  if (!firebaseEnabled()) return;
+  const [auth, mod] = await Promise.all([loadAuth(), import("firebase/auth")]);
+  await mod.signOut(auth);
 }

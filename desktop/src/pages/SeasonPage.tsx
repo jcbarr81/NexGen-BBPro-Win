@@ -494,7 +494,7 @@ function NoScheduleBanner({ phase }: { phase: SeasonPhase }) {
             <p className="mt-2 text-xs text-muted">
               Generate one now:{" "}
               <Link
-                to="/admin-league"
+                to="/league-admin"
                 className="font-semibold text-amber underline-offset-2 hover:underline"
               >
                 Admin → Regenerate schedule

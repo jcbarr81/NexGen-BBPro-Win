@@ -18,7 +18,10 @@ import {
 
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { useAuthStore } from "@/lib/auth-store";
 import { useHotkey } from "@/lib/use-hotkey";
+import { useLeagueCapabilities } from "@/lib/league-capabilities";
+import { ROUTE_INDEX } from "@/lib/route-index";
 import {
   Dialog,
   DialogContent,
@@ -40,43 +43,36 @@ interface CommandItem {
   to: string;
 }
 
-// Static list of jump-target routes. Admin-only routes show up too —
-// unauthorized users just land on the page and get bounced by RequireAuth.
-const PAGE_ITEMS: CommandItem[] = [
-  { kind: "page", label: "Dashboard", to: "/home", haystack: "dashboard home today" },
-  { kind: "page", label: "Season", to: "/season", haystack: "season advance day" },
-  { kind: "page", label: "News", to: "/news", haystack: "news feed" },
-  { kind: "page", label: "Roster", to: "/roster", haystack: "roster players" },
-  { kind: "page", label: "Pitchers", to: "/pitchers", haystack: "pitchers staff" },
-  { kind: "page", label: "Lineup", to: "/lineup", haystack: "lineup batting order" },
-  { kind: "page", label: "Depth Chart", to: "/depth-chart", haystack: "depth chart" },
-  { kind: "page", label: "Training", to: "/training", haystack: "training focus" },
-  { kind: "page", label: "Injuries", to: "/injuries", haystack: "injuries dl" },
-  { kind: "page", label: "Finance", to: "/finance", haystack: "finance money cap" },
-  { kind: "page", label: "Settings", to: "/settings", haystack: "team settings colors stadium" },
-  { kind: "page", label: "Standings", to: "/league", haystack: "standings wins losses" },
-  { kind: "page", label: "Leaders", to: "/leaders", haystack: "league leaders top" },
-  { kind: "page", label: "Stats", to: "/stats", haystack: "stats season" },
-  { kind: "page", label: "Players (browse)", to: "/players", haystack: "players browse all league" },
-  { kind: "page", label: "Teams", to: "/teams", haystack: "teams all league" },
-  { kind: "page", label: "Schedule", to: "/schedule", haystack: "schedule games" },
-  { kind: "page", label: "Playoffs", to: "/playoffs", haystack: "playoffs bracket postseason" },
-  { kind: "page", label: "History", to: "/history", haystack: "history seasons" },
-  { kind: "page", label: "Hall of Fame", to: "/hall-of-fame", haystack: "hall of fame hof" },
-  { kind: "page", label: "Records", to: "/records", haystack: "records book" },
-  { kind: "page", label: "Ballparks", to: "/parks", haystack: "ballparks parks stadium" },
-  { kind: "page", label: "Free Agency", to: "/free-agency", haystack: "free agents signing" },
-  { kind: "page", label: "Trades", to: "/trades", haystack: "trades" },
-  { kind: "page", label: "Draft", to: "/draft", haystack: "draft amateur rookies" },
-  { kind: "page", label: "Activity", to: "/transactions", haystack: "activity transactions log" },
-  { kind: "page", label: "Commissioner", to: "/commissioner", haystack: "commissioner admin settings" },
-  { kind: "page", label: "Command Center", to: "/command-center", haystack: "command center admin" },
-  { kind: "page", label: "Exhibition Game", to: "/exhibition", haystack: "exhibition practice" },
-  { kind: "page", label: "Offseason Flow", to: "/offseason", haystack: "offseason flow" },
-  { kind: "page", label: "Utilities", to: "/utilities", haystack: "utilities logos avatars reports" },
-  { kind: "page", label: "Users", to: "/users", haystack: "users admin accounts" },
+// Routes that are jumpable but not part of ROUTE_INDEX (detail/help pages).
+const EXTRA_PAGE_ITEMS: CommandItem[] = [
   { kind: "page", label: "Help", to: "/help", haystack: "help manuals tutorials" },
 ];
+
+/**
+ * Jump-target pages, derived from ROUTE_INDEX so the palette can never
+ * drift from the real navigation (the old hand-maintained list did).
+ * Applies the same adminOnly/capability filters the hub pages use, so
+ * owners don't see commissioner surfaces.
+ */
+function usePageItems(): CommandItem[] {
+  const role = useAuthStore((s) => s.role);
+  const capabilities = useLeagueCapabilities();
+  return useMemo(() => {
+    const items: CommandItem[] = ROUTE_INDEX.filter((r) => {
+      if (r.adminOnly && role !== "admin") return false;
+      if (r.capability === "finance" && !capabilities.financeEnabled) return false;
+      if (r.capability === "multi-owner" && !capabilities.multiOwner) return false;
+      return true;
+    }).map((r) => ({
+      kind: "page" as const,
+      label: r.label,
+      sub: r.description,
+      haystack: `${r.label} ${r.description} ${r.path}`.toLowerCase(),
+      to: r.path,
+    }));
+    return [...items, ...EXTRA_PAGE_ITEMS];
+  }, [role, capabilities.financeEnabled, capabilities.multiOwner]);
+}
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
@@ -109,11 +105,13 @@ export function CommandPalette() {
     staleTime: 60_000,
   });
 
+  const pageItems = usePageItems();
+
   const items = useMemo<CommandItem[]>(() => {
     const all: CommandItem[] = [];
     const q = query.trim().toLowerCase();
 
-    for (const page of PAGE_ITEMS) {
+    for (const page of pageItems) {
       if (!q || page.haystack.includes(q) || page.label.toLowerCase().includes(q)) {
         all.push(page);
       }
@@ -151,7 +149,7 @@ export function CommandPalette() {
     }
 
     return all.slice(0, 100);
-  }, [query, players.data, teamsQ.data]);
+  }, [query, players.data, teamsQ.data, pageItems]);
 
   useEffect(() => {
     if (activeIdx >= items.length) setActiveIdx(0);

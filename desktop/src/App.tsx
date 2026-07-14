@@ -12,12 +12,12 @@ import { CommandPalette } from "@/components/CommandPalette";
 // bytes up-front.
 import { LoginPage } from "@/pages/LoginPage";
 import { LeagueSelectPage } from "@/pages/LeagueSelectPage";
-import { OwnerDashboardPage } from "@/pages/OwnerDashboardPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { MyLeaguesPage } from "@/pages/MyLeaguesPage";
 import { DiscoverLeaguesPage } from "@/pages/DiscoverLeaguesPage";
 import { FirebaseAuthSync } from "@/components/FirebaseAuthSync";
 import { isCloud } from "@/lib/cloud-auth";
+import { clearImageCache } from "@/lib/image-cache";
 
 // Everything else is code-split with ``React.lazy``. Vite emits one chunk
 // per lazy import, so the initial bundle trims ~500 KB and each page is
@@ -28,6 +28,12 @@ const named = <K extends string, T>(
   loader: () => Promise<Record<K, T>>,
 ) => loader().then((m) => ({ default: m[key] })) as Promise<{ default: T }>;
 
+// Lazy despite being the post-login landing page: it drags in @dnd-kit
+// (~122 KB) via ReorderableCards, which would otherwise sit in the entry
+// chunk that the login screen also pays for (see QW-10).
+const OwnerDashboardPage = lazy(() =>
+  named("OwnerDashboardPage", () => import("@/pages/OwnerDashboardPage")),
+);
 const RosterPage = lazy(() =>
   named("RosterPage", () => import("@/pages/RosterPage")),
 );
@@ -160,9 +166,6 @@ const TuningPage = lazy(() =>
 const LeagueCreatePage = lazy(() =>
   named("LeagueCreatePage", () => import("@/pages/LeagueCreatePage")),
 );
-const ComingSoonPage = lazy(() =>
-  named("ComingSoonPage", () => import("@/pages/ComingSoonPage")),
-);
 const DepthChartPage = lazy(() =>
   named("DepthChartPage", () => import("@/pages/DepthChartPage")),
 );
@@ -218,6 +221,21 @@ function RequireLeague({ children }: { children: React.ReactNode }) {
 }
 
 /**
+ * Commissioner-only routes: everything RequireLeague enforces plus the admin
+ * role. Owners who deep-link (or arrive via Command Palette) are bounced to
+ * /home instead of rendering an admin surface that 403s. Route-level guard —
+ * some pages keep their own check too, which is harmless redundancy.
+ */
+function RequireAdmin({ children }: { children: React.ReactNode }) {
+  const role = useAuthStore((s) => s.role);
+  return (
+    <RequireLeague>
+      {role === "admin" ? children : <Navigate to="/home" replace />}
+    </RequireLeague>
+  );
+}
+
+/**
  * Entry router for the cloud (Firebase) build: waits for the initial auth state,
  * then sends the user to login → register → their leagues → into a league.
  */
@@ -234,8 +252,6 @@ function CloudEntry() {
   return <Navigate to="/my-leagues" replace />;
 }
 
-const STUB_ROUTES: Array<{ path: string; label: string }> = [];
-
 /**
  * Clear every React Query cache entry when the active league changes. Each
  * league has its own teams, roster, lineups, players, standings, stats,
@@ -251,6 +267,7 @@ function LeagueCacheInvalidator() {
   useEffect(() => {
     if (prevRef.current !== activeLeagueId) {
       queryClient.clear();
+      clearImageCache(); // logos/avatars are league-scoped too
       prevRef.current = activeLeagueId;
     }
   }, [activeLeagueId, queryClient]);
@@ -470,6 +487,8 @@ export default function App() {
             </RequireLeague>
           }
         />
+        {/* Natural-URL alias — standings render at /league (see QW-02). */}
+        <Route path="/standings" element={<Navigate to="/league" replace />} />
         <Route
           path="/schedule"
           element={
@@ -569,49 +588,49 @@ export default function App() {
         <Route
           path="/users"
           element={
-            <RequireLeague>
+            <RequireAdmin>
               <AdminUsersPage />
-            </RequireLeague>
+            </RequireAdmin>
           }
         />
         <Route
           path="/commissioner"
           element={
-            <RequireLeague>
+            <RequireAdmin>
               <CommissionerPage />
-            </RequireLeague>
+            </RequireAdmin>
           }
         />
         <Route
           path="/command-center"
           element={
-            <RequireLeague>
+            <RequireAdmin>
               <CommandCenterPage />
-            </RequireLeague>
+            </RequireAdmin>
           }
         />
         <Route
           path="/league-members"
           element={
-            <RequireLeague>
+            <RequireAdmin>
               <CommissionerMembersPage />
-            </RequireLeague>
+            </RequireAdmin>
           }
         />
         <Route
           path="/finance-queue"
           element={
-            <RequireLeague>
+            <RequireAdmin>
               <FinanceQueuePage />
-            </RequireLeague>
+            </RequireAdmin>
           }
         />
         <Route
           path="/change-requests"
           element={
-            <RequireLeague>
+            <RequireAdmin>
               <ChangeRequestsPage />
-            </RequireLeague>
+            </RequireAdmin>
           }
         />
         <Route
@@ -633,9 +652,9 @@ export default function App() {
         <Route
           path="/tuning"
           element={
-            <RequireLeague>
+            <RequireAdmin>
               <TuningPage />
-            </RequireLeague>
+            </RequireAdmin>
           }
         />
         <Route
@@ -665,25 +684,25 @@ export default function App() {
         <Route
           path="/offseason"
           element={
-            <RequireLeague>
+            <RequireAdmin>
               <OffseasonPage />
-            </RequireLeague>
+            </RequireAdmin>
           }
         />
         <Route
           path="/reassign"
           element={
-            <RequireLeague>
+            <RequireAdmin>
               <ReassignPage />
-            </RequireLeague>
+            </RequireAdmin>
           }
         />
         <Route
           path="/finance-stability"
           element={
-            <RequireLeague>
+            <RequireAdmin>
               <FinanceStabilityPage />
-            </RequireLeague>
+            </RequireAdmin>
           }
         />
         <Route
@@ -705,17 +724,17 @@ export default function App() {
         <Route
           path="/exhibition"
           element={
-            <RequireLeague>
+            <RequireAdmin>
               <ExhibitionPage />
-            </RequireLeague>
+            </RequireAdmin>
           }
         />
         <Route
           path="/league-admin"
           element={
-            <RequireLeague>
+            <RequireAdmin>
               <AdminLeaguePage />
-            </RequireLeague>
+            </RequireAdmin>
           }
         />
         <Route
@@ -726,17 +745,6 @@ export default function App() {
             </RequireLeague>
           }
         />
-        {STUB_ROUTES.map(({ path, label }) => (
-          <Route
-            key={path}
-            path={path}
-            element={
-              <RequireLeague>
-                <ComingSoonPage label={label} />
-              </RequireLeague>
-            }
-          />
-        ))}
         <Route path="/" element={<CloudEntry />} />
         <Route path="*" element={<CloudEntry />} />
         </Routes>

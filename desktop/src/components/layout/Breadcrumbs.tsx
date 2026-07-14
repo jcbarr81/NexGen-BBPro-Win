@@ -26,7 +26,8 @@ export function Breadcrumbs({ leafLabel }: { leafLabel?: string }) {
   const profileMatch = useMatch("/player/:id");
   const teamMatch = useMatch("/team/:id");
   const compareMatch = useMatch("/compare/:a/:b");
-  const boxscoreMatch = useMatch("/boxscore/:id");
+  // Boxscore identifies the game via a search param (?game=), not a path param.
+  const boxscoreMatch = useMatch("/boxscore");
 
   const crumbs: Crumb[] = [{ label: "Home", to: "/home" }];
 

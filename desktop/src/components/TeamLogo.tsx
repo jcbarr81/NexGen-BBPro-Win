@@ -11,9 +11,8 @@
 
 import { useEffect, useState } from "react";
 
-import { getBridge } from "@/lib/bridge";
 import { useAuthStore } from "@/lib/auth-store";
-import { firebaseEnabled, getIdToken } from "@/lib/firebase";
+import { fetchAuthedImage } from "@/lib/image-cache";
 import { cn } from "@/lib/cn";
 
 interface TeamLogoProps {
@@ -47,46 +46,27 @@ export function TeamLogo({
 
   useEffect(() => {
     let cancelled = false;
-    let objectUrl: string | null = null;
     setImgUrl(null);
     setLoaded(false);
 
     if (!teamId) return;
 
-    // The logo endpoint requires auth. In the cloud build that's the Firebase
-    // ID token (+ X-League-Id so the server knows which league); locally it's
-    // the legacy session/launch token. ``<img src>`` can't carry headers, so we
-    // fetch the PNG as a blob with the right auth and build an object URL.
-    (async () => {
-      const { apiBaseUrl, launchToken } = getBridge();
-      const url = `${apiBaseUrl}/teams/${encodeURIComponent(teamId)}/logo`;
-      const headers: Record<string, string> = {};
-      const cloud = firebaseEnabled();
-      const fbToken = cloud ? await getIdToken() : null;
-      const bearer = fbToken ?? token ?? launchToken;
-      if (bearer) headers.Authorization = `Bearer ${bearer}`;
-      if (cloud && activeLeagueId) headers["X-League-Id"] = activeLeagueId;
-      try {
-        const res = await fetch(url, { headers });
-        if (cancelled) return;
-        if (res.status === 204) {
-          setLoaded(true);
-          return;
-        }
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setImgUrl(objectUrl);
-        setLoaded(true);
-      } catch {
-        if (!cancelled) setLoaded(true);
-      }
-    })();
+    // Fetched once per (league, team, version) via the shared image cache —
+    // every mounted TeamLogo shares the same object URL, so a 500-row table
+    // costs ~30 requests instead of 500. The URL is owned by the cache
+    // (revoked on league switch / LRU eviction), not by this component.
+    const key = `logo|${activeLeagueId ?? ""}|${teamId}|${version}`;
+    void fetchAuthedImage(
+      `/teams/${encodeURIComponent(teamId)}/logo`,
+      key,
+    ).then((url) => {
+      if (cancelled) return;
+      setImgUrl(url);
+      setLoaded(true);
+    });
 
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [teamId, token, version, activeLeagueId, uid]);
 

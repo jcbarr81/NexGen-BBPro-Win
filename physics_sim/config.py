@@ -47,6 +47,18 @@ DEFAULT_TUNING: Dict[str, Any] = {
         "scb": {"x": 0.18, "z": -0.2},
         "kn": {"x": 0.08, "z": 0.04},
     },
+    # Velocity delta (mph) vs the pitcher's fastball, per pitch type —
+    # MLB-typical gaps (QW-12/13, deep_review_plan.md). Previously every
+    # pitch type left the hand at the same speed.
+    "pitch_type_velocity_offset": {
+        "fb": 0.0,
+        "si": -1.0,
+        "sl": -6.0,
+        "cu": -8.0,
+        "cb": -11.0,
+        "scb": -10.0,
+        "kn": -18.0,
+    },
     "pitch_break_sd": 0.04,
     "break_contact_penalty": 5.0,
     "timing_error_base": 0.22,

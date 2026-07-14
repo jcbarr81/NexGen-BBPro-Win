@@ -539,6 +539,14 @@ def simulate_pitch(
     pitch_quality = float(repertoire.get(pitch_type, 50.0))
     fatigue = pitcher.get("fatigue_factor", 1.0)
     velocity = sample_pitch_velocity(pitcher.get("velocity", 90.0), fatigue, tuning)
+    # Per-type velocity: offspeed/breaking pitches arrive slower than the
+    # fastball (previously all types shared one speed, so the whiff/EV
+    # velocity terms couldn't tell a curveball from a heater).
+    _type_offsets = tuning.values.get("pitch_type_velocity_offset") or {}
+    try:
+        velocity += float(_type_offsets.get(pitch_type, 0.0))
+    except (TypeError, ValueError):
+        pass
     control = pitcher.get("control", 50.0)
     movement = pitcher.get("movement", 50.0)
     pitcher_hand = (pitcher.get("hand") or "R").upper()

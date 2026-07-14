@@ -172,7 +172,7 @@ export function StatusRibbon() {
       {myStanding ? (
         <button
           type="button"
-          onClick={() => navigate("/standings")}
+          onClick={() => navigate("/league")}
           className="flex items-center gap-2 rounded-md px-2 py-1 transition hover:bg-surface"
           title="Open standings"
         >

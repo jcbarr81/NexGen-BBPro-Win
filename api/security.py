@@ -193,12 +193,18 @@ def _identity_from_membership(decoded: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def require_bearer(
+def require_bearer(
     authorization: str | None = Header(default=None),
 ) -> Dict[str, Any]:
     """League-scoped identity. Cloud: verify a Firebase ID token and resolve the
     caller's membership in the request's league. Local/Electron: legacy HMAC token.
     Same ``{u, r, t}`` shape either way, so existing routers are unchanged.
+
+    Deliberately a plain ``def``: token verification + the Firestore membership
+    lookup are synchronous network I/O. As an ``async def`` they ran ON the
+    event loop, serializing every concurrent request behind each auth RTT —
+    sync dependencies get FastAPI's threadpool instead. (The lookup itself is
+    also TTL-cached in ``services.firestore_store``.)
     """
     from api import firebase_auth
 
@@ -209,7 +215,7 @@ async def require_bearer(
     return _legacy_bearer(authorization)
 
 
-async def require_account(
+def require_account(
     authorization: str | None = Header(default=None),
 ) -> Dict[str, Any]:
     """Identity WITHOUT requiring league membership — for signup / discovery /
