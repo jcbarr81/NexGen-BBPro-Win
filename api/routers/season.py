@@ -754,6 +754,7 @@ def _persist_post_sim_state(
     # 1. Persist the schedule with the now-populated result + played columns.
     try:
         from playbalance.schedule_generator import save_schedule
+        from playbalance.simulation import save_boxscore_html
 
         played_set = {str(d) for d in played_dates}
         for game in simulator.schedule:
@@ -762,12 +763,23 @@ def _persist_post_sim_state(
                 # the row played so subsequent requests skip it.
                 if str(game.get("result", "")).strip():
                     game["played"] = "1"
-                # The simulator stores the boxscore path under
-                # ``boxscore_html``; ``save_schedule`` writes the
-                # ``boxscore`` column. Copy across so the schedule page
-                # row links to the right HTML file.
-                if game.get("boxscore_html") and not game.get("boxscore"):
-                    game["boxscore"] = game["boxscore_html"]
+                # The simulator hands back the rendered boxscore HTML under
+                # ``boxscore_html``. Write it to data/boxscores/season/ and
+                # store the PATH in the schedule's ``boxscore`` column (S1-04)
+                # — the boxscore API serves by path, and embedding megabytes
+                # of HTML in schedule.csv made every save O(season).
+                html = game.pop("boxscore_html", None)
+                if html and not game.get("boxscore"):
+                    try:
+                        game_id = (
+                            f"{game.get('date', '')}_{game.get('away', '')}"
+                            f"_at_{game.get('home', '')}"
+                        )
+                        game["boxscore"] = save_boxscore_html(
+                            "season", str(html), game_id
+                        )
+                    except Exception:
+                        pass
         save_schedule(simulator.schedule, _schedule_path())
     except Exception:
         pass

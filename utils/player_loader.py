@@ -94,6 +94,31 @@ def _stats_payload() -> Dict[str, Any]:
         return _STATS_CACHE
 
 
+def prime_stats_cache(payload: Dict[str, Any], path: Path) -> None:
+    """Adopt a just-written season-stats payload as the cached copy.
+
+    Called by ``stats_persistence`` after each write so the writing process
+    doesn't immediately re-parse its own output (S1-01). Ignored when *path*
+    isn't the active data dir's stats file.
+    """
+
+    global _STATS_CACHE, _STATS_TOKEN
+    try:
+        active = (get_data_dir() / "season_stats.json").resolve(strict=False)
+        if Path(path).resolve(strict=False) != active:
+            return
+    except OSError:
+        return
+    token = _cache_token(Path(path))
+    with _CACHE_LOCK:
+        _STATS_CACHE = {
+            "players": payload.get("players", {}),
+            "teams": payload.get("teams", {}),
+            "history": payload.get("history", []),
+        }
+        _STATS_TOKEN = token
+
+
 def _career_payload() -> Dict[str, dict]:
     global _CAREER_CACHE, _CAREER_TOKEN
     path = CAREER_DATA_DIR / "career_players.json"
@@ -106,7 +131,22 @@ def _career_payload() -> Dict[str, dict]:
 
 
 def _apply_dynamic_player_data(players: Iterable[Player]) -> None:
-    """Attach season/career stats based on the latest on-disk payloads."""
+    """Attach season/career stats based on the latest on-disk payloads.
+
+    Skips the O(league) re-hydration when neither the season-stats nor the
+    career payload changed since the last application to this exact player
+    collection (S1-03) — previously this loop (plus dict copies per player)
+    ran on every ``load_players_from_csv`` call, ~9× per simulated game.
+    The marker lives on the first player object, so a rebuilt (uncached)
+    list is always re-hydrated.
+    """
+
+    players = list(players) if not isinstance(players, (list, tuple)) else players
+    stats_path = get_data_dir() / "season_stats.json"
+    career_path = CAREER_DATA_DIR / "career_players.json"
+    token = (_cache_token(stats_path), _cache_token(career_path))
+    if players and getattr(players[0], "_hydration_token", None) == token:
+        return
 
     stats_data = _stats_payload()
     stats_map: Dict[str, Any] = stats_data.get("players", {}) if isinstance(stats_data, dict) else {}
@@ -144,6 +184,12 @@ def _apply_dynamic_player_data(players: Iterable[Player]) -> None:
                     delattr(player, "career_history")
                 except AttributeError:
                     pass
+
+    if players:
+        try:
+            players[0]._hydration_token = token  # type: ignore[attr-defined]
+        except AttributeError:  # e.g. __slots__ objects — just skip the memo
+            pass
 
 
 def _resolve_players_path(resolved: Path, raw: Path) -> Path:

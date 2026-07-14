@@ -45,6 +45,13 @@ from utils.path_utils import get_data_dir
 from utils.lineup_autofill import auto_fill_lineup_for_team
 from services.injury_simulator import InjurySimulator
 
+# Pitch-outcome classification sets (S1-09: module constants — these were
+# rebuilt as set literals on every pitch).
+_STRIKE_OUTCOMES = frozenset(
+    {"strike", "swinging_strike", "foul", "in_play", "interference"}
+)
+_BALL_OUTCOMES = frozenset({"ball", "hbp"})
+
 
 @dataclass
 class GameResult:
@@ -3940,6 +3947,24 @@ def simulate_game(
                 pitch_log.append(entry)
                 post_at_bat(pitcher_state)
                 continue
+            # Constant for the whole plate appearance — hoisted out of the
+            # per-pitch loop (S1-09): batter context depends only on the
+            # batter/pitcher pairing, and most of the pitcher dict is static
+            # (the three fatigue-scaled entries update per pitch below).
+            _pa_batter_ctx = _batter_context(batter, pitcher_state.pitcher, tuning)
+            _pa_pitcher_ctx = {
+                "repertoire": pitcher_state.pitcher.repertoire or {"fb": 50},
+                # Fastball velocity; per-type offsets are subtracted in
+                # simulate_pitch. +3 vs the old flat 80 recenters the
+                # usage-weighted league average now that offspeed pitches
+                # are slower (QW-13).
+                "velocity": 83.0 + (pitcher_state.pitcher.arm * 0.2),
+                "control": pitcher_state.pitcher.control,
+                "movement": pitcher_state.pitcher.movement,
+                "fatigue_factor": 1.0,
+                "hand": pitcher_state.pitcher.bats,
+                "vs_left": pitcher_state.pitcher.vs_left,
+            }
             while True:
                 pitcher_state.pitches += 1
                 penalty = _fatigue_penalty(pitcher_state, tuning) + pitcher_state.pregame_penalty
@@ -3983,21 +4008,12 @@ def simulate_game(
                     "last_pitch_repeat": last_pitch_repeat,
                     "foul_territory_scale": park.foul_territory_scale,
                 }
+                _pa_pitcher_ctx["control"] = pitcher.control * command_factor
+                _pa_pitcher_ctx["movement"] = pitcher.movement * movement_factor
+                _pa_pitcher_ctx["fatigue_factor"] = velocity_factor
                 res: PitchResult = simulate_pitch(
-                    batter=_batter_context(batter, pitcher, tuning),
-                    pitcher={
-                        "repertoire": pitcher.repertoire or {"fb": 50},
-                        # Fastball velocity; per-type offsets are subtracted in
-                        # simulate_pitch. +3 vs the old flat 80 recenters the
-                        # usage-weighted league average now that offspeed
-                        # pitches are slower (QW-13).
-                        "velocity": 83.0 + (pitcher.arm * 0.2),
-                        "control": pitcher.control * command_factor,
-                        "movement": pitcher.movement * movement_factor,
-                        "fatigue_factor": velocity_factor,
-                        "hand": pitcher.bats,
-                        "vs_left": pitcher.vs_left,
-                    },
+                    batter=_pa_batter_ctx,
+                    pitcher=_pa_pitcher_ctx,
                     tuning=tuning,
                     count=(balls, strikes),
                     context=pitch_context,
@@ -4012,16 +4028,8 @@ def simulate_game(
                 entry["batter_id"] = batter.player_id
                 pitch_log.append(entry)
                 batter_line.pitches += 1
-                strike_outcomes = {
-                    "strike",
-                    "swinging_strike",
-                    "foul",
-                    "in_play",
-                    "interference",
-                }
-                ball_outcomes = {"ball", "hbp"}
-                is_strike = res.outcome in strike_outcomes
-                is_ball = res.outcome in ball_outcomes
+                is_strike = res.outcome in _STRIKE_OUTCOMES
+                is_ball = res.outcome in _BALL_OUTCOMES
                 if is_strike:
                     line.strikes += 1
                 elif is_ball:

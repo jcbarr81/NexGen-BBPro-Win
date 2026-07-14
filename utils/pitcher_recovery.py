@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 import csv
 from datetime import date, datetime, timedelta
@@ -168,6 +169,41 @@ class PitcherRecoveryTracker:
         self._assignments: Dict[str, str] = {}
         self._load()
         self._config_cache = None
+        # S1-02 (deep_review_plan.md): the tracker used to rebuild each team
+        # from CSVs ~6× per game and rewrite the whole JSON file ~4× per game.
+        # ``_ensured`` memoizes _ensure_team for the current sim day, and
+        # ``deferred_saves()`` batches the file writes to one flush per day.
+        self._ensured: Dict[tuple[str, str, str], Dict[str, object]] = {}
+        self._defer_saves = False
+        self._dirty = False
+        self._current_date: str | None = None
+
+    # ------------------------------------------------------------------
+    def _mark_dirty(self) -> None:
+        """Persist now, or remember to at the end of the deferral window."""
+        if self._defer_saves:
+            self._dirty = True
+        else:
+            self.save()
+
+    @contextmanager
+    def deferred_saves(self):
+        """Batch tracker writes: one save() at exit instead of one per call.
+
+        Reentrant-safe (inner contexts are no-ops). Used by the season
+        simulator to flush once per simulated day.
+        """
+        if self._defer_saves:
+            yield
+            return
+        self._defer_saves = True
+        try:
+            yield
+        finally:
+            self._defer_saves = False
+            if self._dirty:
+                self._dirty = False
+                self.save()
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -350,7 +386,8 @@ class PitcherRecoveryTracker:
 
         self.data = {"teams": {}}
         self._assignments.clear()
-        self._current_date = None  # type: ignore[attr-defined]
+        self._ensured.clear()
+        self._current_date = None
         self.save()
 
     # ------------------------------------------------------------------
@@ -358,6 +395,7 @@ class PitcherRecoveryTracker:
         """Reset per-game assignments for *date_str*."""
 
         self._assignments.clear()
+        self._ensured.clear()  # rosters may have changed overnight (injuries)
         teams = self.data.get("teams", {}) or {}
         updated = False
         for entry in teams.values():
@@ -380,6 +418,16 @@ class PitcherRecoveryTracker:
         players_file: str | Path,
         roster_dir: str | Path,
     ) -> Dict[str, object]:
+        # Within a sim day the roster/rotation inputs don't change between the
+        # ~6 tracker calls a game makes — memoize the (expensive) rebuild.
+        # Only active during simulation (start_day sets _current_date and
+        # clears the memo), so API/dashboard callers always get a fresh view.
+        memo_key = (str(team_id), str(players_file), str(roster_dir))
+        if self._current_date is not None:
+            cached = self._ensured.get(memo_key)
+            if cached is not None:
+                return cached
+
         teams = self.data.setdefault("teams", {})
         entry = teams.get(team_id)
         resolved_players = str(_resolve_path(players_file))
@@ -400,7 +448,9 @@ class PitcherRecoveryTracker:
         if entry is None:
             entry = self._build_team_entry(active_pitchers, saved_rotation)
             teams[team_id] = entry
-            self.save()
+            self._mark_dirty()
+            if self._current_date is not None:
+                self._ensured[memo_key] = entry
             return entry
 
         # Update rotation and pitcher list if the roster changed.
@@ -452,6 +502,8 @@ class PitcherRecoveryTracker:
             entry["next_index"] = int(entry.get("next_index", 0) or 0) % len(rotation)
         else:
             entry["next_index"] = 0
+        if self._current_date is not None:
+            self._ensured[memo_key] = entry
         return entry
 
     # ------------------------------------------------------------------
@@ -580,7 +632,7 @@ class PitcherRecoveryTracker:
         pid = rotation[chosen_index]
         entry["next_index"] = (chosen_index + 1) % total
         self._assignments[team_id] = pid
-        self.save()
+        self._mark_dirty()
         return pid
 
     # ------------------------------------------------------------------
@@ -716,7 +768,7 @@ class PitcherRecoveryTracker:
             pitchers[pid] = status.to_dict()
             updated = True
         if updated:
-            self.save()
+            self._mark_dirty()
 
     # ------------------------------------------------------------------
     def record_warmups(
@@ -802,7 +854,7 @@ class PitcherRecoveryTracker:
             pitchers[pid] = status.to_dict()
             updated = True
         if updated:
-            self.save()
+            self._mark_dirty()
 
     # ------------------------------------------------------------------
     def apply_penalties(
@@ -852,7 +904,7 @@ class PitcherRecoveryTracker:
             pitchers[pid] = status.to_dict()
             updated = True
         if updated:
-            self.save()
+            self._mark_dirty()
 
     # ------------------------------------------------------------------
     def is_available(

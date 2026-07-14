@@ -9,7 +9,10 @@ from utils.pitcher_recovery import PitcherRecoveryTracker
 from utils.path_utils import get_data_dir
 from types import SimpleNamespace
 from utils.exceptions import DraftRosterError
-from utils.stats_persistence import load_stats as _load_season_stats
+from utils.stats_persistence import (
+    batched_stats_writes,
+    load_stats as _load_season_stats,
+)
 
 _BASIC_TEAM_KEYS = {"g", "w", "l", "r", "ra"}
 
@@ -220,19 +223,25 @@ class SeasonSimulator:
         use_default_save = self.simulate_game is default_game
         game_meta: list[tuple[str, str, dict[str, object]]] = []
 
-        for game, seed in zip(games, seeds):
-            result = self._call_simulate_game(game["home"], game["away"], seed, current_date)
-            _apply_result_to_game(game, result)
-            if self.after_game is not None:
-                try:
-                    self.after_game(game)
-                except Exception:  # pragma: no cover - persistence is best effort
-                    pass
-            if use_default_save:
-                meta = {}
-                if len(result) >= 4 and isinstance(result[3], dict):
-                    meta = result[3]
-                game_meta.append((game["home"], game["away"], meta))
+        # Batch the per-game season-stats writes into one flush per day
+        # (S1-01): stats are cumulative-to-date, so the final file is
+        # identical while the O(file-size) parse+rewrite happens once
+        # instead of once per game. Same idea for the recovery tracker
+        # (S1-02): its ~4 whole-file rewrites per game become one per day.
+        with batched_stats_writes(), self._tracker.deferred_saves():
+            for game, seed in zip(games, seeds):
+                result = self._call_simulate_game(game["home"], game["away"], seed, current_date)
+                _apply_result_to_game(game, result)
+                if self.after_game is not None:
+                    try:
+                        self.after_game(game)
+                    except Exception:  # pragma: no cover - persistence is best effort
+                        pass
+                if use_default_save:
+                    meta = {}
+                    if len(result) >= 4 and isinstance(result[3], dict):
+                        meta = result[3]
+                    game_meta.append((game["home"], game["away"], meta))
 
         if use_default_save:
             try:

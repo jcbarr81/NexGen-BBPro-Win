@@ -13,7 +13,8 @@ from utils.pitcher_recovery import PitcherRecoveryTracker
 from utils.pitcher_role import get_role
 from utils.sim_date import get_current_sim_date
 from utils.standings_utils import default_record
-from utils.stats_persistence import load_stats as _load_season_stats
+# Cached read-only variant (S1-05) — metrics only aggregate, never mutate.
+from utils.stats_persistence import load_stats_cached as _load_season_stats
 from services.standings_repository import load_standings
 try:
     from playbalance.config import load_config as _load_playbalance_config
@@ -195,6 +196,21 @@ def _format_last10(standing: Mapping[str, Any]) -> str:
 
 
 def _load_schedule(path: Path) -> List[_ScheduleEntry]:
+    """Parse the schedule into entries, mtime-cached (S1-05).
+
+    The dashboard calls this from three endpoints per page load; entries are
+    frozen dataclass rows read-only downstream, so sharing is safe.
+    """
+    from utils.file_cache import cached_read
+
+    return cached_read(
+        f"quick_metrics_schedule|{path}",
+        (path,),
+        lambda: _parse_schedule(path),
+    )
+
+
+def _parse_schedule(path: Path) -> List[_ScheduleEntry]:
     if not path.exists():
         return []
     entries: List[_ScheduleEntry] = []

@@ -70,6 +70,8 @@ else:  # Unix
         finally:
             fcntl.flock(file, fcntl.LOCK_UN)
 
+import threading
+
 from utils.path_utils import get_data_dir, resolve_app_path
 from utils.sim_date import get_current_sim_date
 
@@ -79,6 +81,69 @@ def _resolve_path(path: str | Path) -> Path:
     if p.is_absolute():
         return p
     return resolve_app_path(p)
+
+
+# ---------------------------------------------------------------------------
+# Day-batched writes (S1-01, deep_review_plan.md).
+#
+# save_stats() used to parse + rewrite the whole season_stats.json PER GAME
+# (and the write invalidated the player-loader cache, forcing a re-parse on
+# the next load) — O(season²) I/O across a full season. Because
+# ``season_stats`` on the player/team objects is CUMULATIVE-to-date, batching
+# is last-write-wins per entity: accumulating the day's objects and flushing
+# once produces a byte-identical final file.
+# ---------------------------------------------------------------------------
+_BATCH_LOCK = threading.RLock()
+_BATCH: Dict[str, Any] | None = None
+
+
+def _batch_target() -> Path | None:
+    with _BATCH_LOCK:
+        return _BATCH["path"] if _BATCH is not None else None
+
+
+@contextlib.contextmanager
+def batched_stats_writes(path: str | Path = "data/season_stats.json"):
+    """Collect save_stats() calls for *path* and flush once on exit.
+
+    Reentrant: nested contexts join the outermost batch. save_stats() calls
+    targeting a different path bypass the batch and write directly.
+    """
+
+    global _BATCH
+    if _truthy_env("PB_DISABLE_STATS_BATCH", False):
+        yield
+        return
+    resolved = _resolve_path(path)
+    with _BATCH_LOCK:
+        if _BATCH is not None:
+            _BATCH["depth"] += 1
+            joined = True
+        else:
+            _BATCH = {
+                "path": resolved,
+                "players": {},
+                "teams": {},
+                "depth": 1,
+            }
+            joined = False
+    try:
+        yield
+    finally:
+        with _BATCH_LOCK:
+            assert _BATCH is not None
+            _BATCH["depth"] -= 1
+            done = _BATCH["depth"] == 0
+            batch = _BATCH if done else None
+            if done:
+                _BATCH = None
+        if not joined and batch is not None:
+            if batch["players"] or batch["teams"]:
+                _write_stats(
+                    list(batch["players"].values()),
+                    list(batch["teams"].values()),
+                    batch["path"],
+                )
 
 
 def _truthy_env(name: str, default: bool = False) -> bool:
@@ -278,6 +343,24 @@ def reset_stats(path: str | Path = "data/season_stats.json") -> Path:
             time.sleep(0.05)
 
 
+def load_stats_cached(path: str | Path = "data/season_stats.json") -> Dict[str, Any]:
+    """Shared, mtime-cached variant of :func:`load_stats` (S1-05).
+
+    READ-ONLY: the returned payload is shared between all callers until the
+    file changes on disk — do not mutate it. Mutating paths (save/merge/reset)
+    must keep using :func:`load_stats`.
+    """
+
+    from utils.file_cache import cached_read
+
+    file_path = _resolve_path(path)
+    return cached_read(
+        f"season_stats|{file_path}",
+        (file_path,),
+        lambda: load_stats(file_path),
+    )
+
+
 def load_stats(path: str | Path = "data/season_stats.json") -> Dict[str, Any]:
     file_path = _resolve_path(path)
     try:
@@ -297,9 +380,48 @@ def save_stats(
     teams: Iterable[Any],
     path: str | Path = "data/season_stats.json",
 ) -> None:
-    """Persist season statistics with an inter-process file lock."""
+    """Persist season statistics with an inter-process file lock.
+
+    When a :func:`batched_stats_writes` context is active for the same file,
+    the objects are collected and written once at batch exit instead of
+    parsing + rewriting the whole file per call. ``season_stats`` values are
+    cumulative, so last-write-wins per entity is exact.
+    """
 
     file_path = _resolve_path(path)
+    target = _batch_target()
+    if target is not None and target == file_path:
+        from types import SimpleNamespace
+
+        with _BATCH_LOCK:
+            batch = _BATCH
+            if batch is not None:  # re-check under lock
+                # Capture the season_stats MAPPING now, not the entity object:
+                # the player-loader may strip/replace ``season_stats`` on the
+                # shared cached objects between games (it syncs them against
+                # the not-yet-flushed file), which would silently drop entries
+                # at flush time.
+                for player in players:
+                    season = getattr(player, "season_stats", None)
+                    if season:
+                        batch["players"][player.player_id] = SimpleNamespace(
+                            player_id=player.player_id, season_stats=season
+                        )
+                for team in teams:
+                    season = getattr(team, "season_stats", None)
+                    if season:
+                        batch["teams"][team.team_id] = SimpleNamespace(
+                            team_id=team.team_id, season_stats=season
+                        )
+                return
+    _write_stats(players, teams, file_path)
+
+
+def _write_stats(
+    players: Iterable[Any],
+    teams: Iterable[Any],
+    file_path: Path,
+) -> None:
     lock_path = file_path.with_suffix(file_path.suffix + ".lock")
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -361,13 +483,19 @@ def save_stats(
                         except ValueError:
                             # Ignore invalid values
                             pass
+            payload = {
+                "players": player_stats,
+                "teams": team_stats,
+                "history": history,
+            }
             with file_path.open("w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "players": player_stats,
-                        "teams": team_stats,
-                        "history": history,
-                    },
-                    f,
-                    indent=2,
-                )
+                json.dump(payload, f, indent=2)
+    # Prime the in-process reader cache so the writer never re-parses its own
+    # write on the next load (the old behavior cost a full-file JSON parse per
+    # game as the mtime bump invalidated the token).
+    try:
+        from utils.player_loader import prime_stats_cache
+
+        prime_stats_cache(payload, file_path)
+    except Exception:
+        pass

@@ -522,7 +522,30 @@ class TuningConfig:
         return cls(values=base)
 
     def get(self, key: str, default: Optional[float] = None) -> float:
-        return float(self.values.get(key, default if default is not None else 0.0))
+        """Numeric knob lookup, memoized per (key, default) (S1-09).
+
+        The pitch kernel calls this ~60-80× per pitch (~50M float()
+        conversions per season). Values never change after construction in
+        production (overrides build a NEW TuningConfig), so cache the
+        converted floats. Anything that mutates ``values`` in place (tests)
+        should call :meth:`invalidate_cache` afterwards.
+        """
+        cache = self.__dict__.get("_num_cache")
+        if cache is None:
+            cache = {}
+            self.__dict__["_num_cache"] = cache
+        cache_key = (key, default)
+        try:
+            return cache[cache_key]
+        except KeyError:
+            value = float(self.values.get(key, default if default is not None else 0.0))
+            cache[cache_key] = value
+            return value
+
+    def invalidate_cache(self) -> None:
+        """Drop memoized lookups after an in-place ``values`` mutation."""
+        self.__dict__.pop("_num_cache", None)
+        self.__dict__.pop("_objective_table", None)
 
 
 def load_tuning(

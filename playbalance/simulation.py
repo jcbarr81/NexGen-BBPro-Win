@@ -4012,7 +4012,18 @@ def generate_boxscore(home: TeamState, away: TeamState) -> Dict[str, Dict[str, o
 # Box score HTML rendering / saving
 # ---------------------------------------------------------------------------
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
+
+
+@lru_cache(maxsize=4)
+def _boxscore_template(path_str: str) -> str | None:
+    """Read the boxscore HTML template once per process (S1-04) — it was
+    re-read from disk for every simulated game."""
+    try:
+        return Path(path_str).read_text(encoding="utf-8")
+    except OSError:
+        return None
 
 
 def render_boxscore_html(
@@ -4032,9 +4043,8 @@ def render_boxscore_html(
     away_abbr = away_abbr or away_name
 
     template_path = get_base_dir() / "samples" / "espn_boxscore_template.html"
-    try:
-        template = template_path.read_text(encoding="utf-8")
-    except OSError:
+    template = _boxscore_template(str(template_path))
+    if template is None:
         # Template missing from a packaged build — degrade gracefully so
         # the season sim doesn't bubble [Errno 2] up into the UI. The
         # box dict still drives the in-app boxscore card; only the

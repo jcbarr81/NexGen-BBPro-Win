@@ -181,6 +181,36 @@ def _objective_weights_for_count(
     return _merge_weight_map(default, count_weights)
 
 
+def _objective_weight_table(
+    tuning: TuningConfig,
+) -> Dict[tuple[int, int], Dict[str, float]]:
+    """Per-count objective weights with the 2-strike / 3-ball mods folded in,
+    computed once per TuningConfig (S1-09). Built with the exact same helper
+    sequence the per-pitch path used, so key insertion order — which drives
+    ``_weighted_choice`` iteration and therefore RNG parity — is unchanged.
+    """
+    table = tuning.__dict__.get("_objective_table")
+    if table is not None:
+        return table
+    table = {}
+    for balls in range(4):
+        for strikes in range(3):
+            weights = _objective_weights_for_count(balls, strikes, tuning)
+            if strikes >= 2:
+                weights = _apply_weight_mods(
+                    weights,
+                    _weight_map(tuning.values.get("pitch_objective_two_strike_mod")),
+                )
+            if balls >= 3:
+                weights = _apply_weight_mods(
+                    weights,
+                    _weight_map(tuning.values.get("pitch_objective_three_ball_mod")),
+                )
+            table[(balls, strikes)] = weights
+    tuning.__dict__["_objective_table"] = table
+    return table
+
+
 def choose_pitch_objective(
     *,
     balls: int,
@@ -188,15 +218,11 @@ def choose_pitch_objective(
     tuning: TuningConfig,
     context: Dict[str, Any] | None = None,
 ) -> str:
-    weights = _objective_weights_for_count(balls, strikes, tuning)
-    if strikes >= 2:
-        weights = _apply_weight_mods(
-            weights, _weight_map(tuning.values.get("pitch_objective_two_strike_mod"))
-        )
-    if balls >= 3:
-        weights = _apply_weight_mods(
-            weights, _weight_map(tuning.values.get("pitch_objective_three_ball_mod"))
-        )
+    # Copy the cached count table entry: the context mods below mutate in
+    # place, and the cache must stay pristine.
+    weights = dict(
+        _objective_weight_table(tuning)[(min(balls, 3), min(strikes, 2))]
+    )
     if context:
         bases = context.get("bases") or {}
         risp = bool(bases.get("second") or bases.get("third"))

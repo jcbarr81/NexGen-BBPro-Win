@@ -13,7 +13,8 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException, status
 
 from utils.path_utils import get_data_dir
-from utils.stats_persistence import load_stats as _load_season_stats
+# Cached read-only variant (S1-05) — this router never mutates the payload.
+from utils.stats_persistence import load_stats_cached as _load_season_stats
 
 from ..security import CurrentIdentity
 

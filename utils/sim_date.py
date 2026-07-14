@@ -45,11 +45,26 @@ def get_current_sim_date(base_dir: Path | None = None) -> str | None:
     to inferring progress from the schedule file when the persisted index is
     stale. The returned value corresponds to the next scheduled date that has
     not yet been fully simulated.
+
+    Cached against the mtimes of the two source files (S1-05): this function
+    is called from ~15 modules — often several times per request — and used to
+    re-parse the entire schedule CSV on every call. The result is an immutable
+    string, so sharing is safe.
     """
+
+    from utils.file_cache import cached_read
 
     base = get_data_dir() if base_dir is None else (base_dir / "data")
     sched = base / "schedule.csv"
     prog = base / "season_progress.json"
+    return cached_read(
+        f"sim_date|{base}",
+        (sched, prog),
+        lambda: _compute_sim_date(sched, prog),
+    )
+
+
+def _compute_sim_date(sched: Path, prog: Path) -> str | None:
     if not sched.exists():
         return None
     try:

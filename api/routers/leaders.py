@@ -14,7 +14,8 @@ from fastapi import APIRouter, Query
 
 from utils.stat_helpers import top_players
 from utils.player_loader import load_players_from_csv
-from utils.stats_persistence import load_stats as _load_season_stats
+# Cached read-only variant (S1-05) — this router never mutates the payload.
+from utils.stats_persistence import load_stats_cached as _load_season_stats
 
 from ..security import CurrentIdentity
 
