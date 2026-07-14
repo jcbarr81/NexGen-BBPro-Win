@@ -47,21 +47,26 @@ export function useLeagueCapabilities(): LeagueCapabilities {
     queryKey: ["leagues"],
     queryFn: () => api.listLeagues(),
     enabled: !!token,
+    // League list/modes only change on admin edits; the cache is wiped on
+    // league switch anyway.
+    staleTime: 5 * 60_000,
   });
   const snapshot = useQuery({
     queryKey: ["finance-snapshot", teamId],
     queryFn: () => api.financeSnapshot(teamId as string),
     enabled: !!token && !!teamId,
-    // Finance toggles rarely change; cache for the session.
-    staleTime: 60_000,
+    // Finance toggles rarely change, and sim actions invalidate
+    // ["finance-snapshot"] explicitly (StatusRibbon).
+    staleTime: 5 * 60_000,
   });
   const seasonState = useQuery({
     queryKey: ["season-state"],
     queryFn: () => api.seasonState(),
     enabled: !!token,
-    // Phase changes only on Sim Day / Advance Phase — every page that
-    // already invalidates ``season-state`` will refresh us automatically.
-    staleTime: 30_000,
+    // Phase changes only on Sim Day / Advance Phase — sim actions
+    // invalidate ``season-state`` explicitly (StatusRibbon), which
+    // refreshes us automatically.
+    staleTime: 5 * 60_000,
   });
 
   const activeLeague = leagues.data?.find((l) => l.id === activeLeagueId) ?? null;

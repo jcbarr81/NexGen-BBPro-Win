@@ -39,6 +39,8 @@ import { TeamLogo } from "@/components/TeamLogo";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { usePersistedState } from "@/lib/use-persisted-state";
+import { useTeams } from "@/lib/use-teams";
+import { useVirtualRows } from "@/lib/use-virtual-rows";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Badge,
@@ -74,10 +76,7 @@ export function SchedulePage() {
       }),
   });
 
-  const teamsQ = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-  });
+  const teamsQ = useTeams();
   const teamById = useMemo(() => {
     const m = new Map<string, Team>();
     for (const t of teamsQ.data ?? []) m.set(t.team_id, t);
@@ -712,6 +711,13 @@ function ScheduleCard({
   teamId,
   teamById,
 }: ScheduleCardProps) {
+  // A full-season league scope can be thousands of games — virtualize the
+  // list so only the visible window of rows mounts.
+  const rowVirtual = useVirtualRows({
+    count: games.length,
+    estimateRowHeight: 53,
+  });
+
   return (
     <Card>
       <CardHeader>
@@ -727,16 +733,39 @@ function ScheduleCard({
         {games.length === 0 ? (
           <div className="px-6 py-6 text-sm text-muted">{empty}</div>
         ) : (
-          <ul className="divide-y divide-border/60">
-            {games.map((game, idx) => (
-              <GameRow
-                key={`${game.date}-${game.home}-${game.away}-${idx}`}
-                game={game}
-                teamId={teamId}
-                teamById={teamById}
-              />
-            ))}
-          </ul>
+          <div
+            ref={rowVirtual.scrollRef}
+            className="max-h-[70vh] overflow-y-auto"
+          >
+            <ul className="divide-y divide-border/60">
+              {rowVirtual.paddingTop > 0 && (
+                <li
+                  aria-hidden="true"
+                  style={{ height: rowVirtual.paddingTop }}
+                />
+              )}
+              {rowVirtual.items.map((vi) => {
+                const game = games[vi.index];
+                if (!game) return null;
+                return (
+                  <GameRow
+                    key={`${game.date}-${game.home}-${game.away}-${vi.index}`}
+                    index={vi.index}
+                    measureRef={rowVirtual.measureRow}
+                    game={game}
+                    teamId={teamId}
+                    teamById={teamById}
+                  />
+                );
+              })}
+              {rowVirtual.paddingBottom > 0 && (
+                <li
+                  aria-hidden="true"
+                  style={{ height: rowVirtual.paddingBottom }}
+                />
+              )}
+            </ul>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -747,10 +776,14 @@ function GameRow({
   game,
   teamId,
   teamById,
+  index,
+  measureRef,
 }: {
   game: ScheduleGame;
   teamId: string | null;
   teamById: Map<string, Team>;
+  index: number;
+  measureRef: (node: Element | null) => void;
 }) {
   const isTeamView = !!teamId;
   const isHome = game.is_home ?? game.home === teamId;
@@ -771,7 +804,11 @@ function GameRow({
   };
 
   return (
-    <li className="flex items-center justify-between gap-4 px-6 py-3 text-sm transition hover:bg-surfaceAlt/40">
+    <li
+      data-index={index}
+      ref={measureRef}
+      className="flex items-center justify-between gap-4 px-6 py-3 text-sm transition hover:bg-surfaceAlt/40"
+    >
       <div className="flex min-w-0 items-center gap-3">
         <div className="w-20 shrink-0 text-xs font-semibold uppercase tracking-wider text-muted">
           {formatDate(game.date)}

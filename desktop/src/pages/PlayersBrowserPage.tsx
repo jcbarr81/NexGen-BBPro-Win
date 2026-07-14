@@ -7,9 +7,12 @@
  */
 
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { usePersistedState } from "@/lib/use-persisted-state";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { useTeams } from "@/lib/use-teams";
+import { useVirtualRows } from "@/lib/use-virtual-rows";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -63,20 +66,21 @@ export function PlayersBrowserPage() {
     "asc",
   );
 
-  const teams = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-  });
+  const teams = useTeams();
   const teamById = useMemo(() => {
     const m = new Map<string, Team>();
     for (const t of teams.data ?? []) m.set(t.team_id, t);
     return m;
   }, [teams.data]);
 
+  // Debounce the search box before it reaches the query key — otherwise
+  // every keystroke fires a fresh 5000-row fetch.
+  const debouncedSearch = useDebouncedValue(search, 300);
+
   const players = useQuery({
     queryKey: [
       "players-browse",
-      search,
+      debouncedSearch,
       team,
       position,
       role,
@@ -84,13 +88,16 @@ export function PlayersBrowserPage() {
     ],
     queryFn: () =>
       api.browsePlayers({
-        q: search || undefined,
+        q: debouncedSearch || undefined,
         teamId: team || undefined,
         position: position || undefined,
         role,
         freeAgentsOnly: freeOnly,
         limit: 5000,
       }),
+    // Keep the previous table on screen while a refetch is in flight so
+    // typing/filtering doesn't flash a spinner and unmount the table.
+    placeholderData: keepPreviousData,
   });
 
   const positions = useMemo(() => {
@@ -134,6 +141,14 @@ export function PlayersBrowserPage() {
     arr.sort((a, b) => cmp(valueFor(a), valueFor(b), sortDir));
     return arr;
   }, [players.data, sortKey, sortDir]);
+
+  // Virtualize the (up to 5000-row) table body — only the visible window
+  // of rows mounts; spacer rows keep the scrollbar honest.
+  const columnCount = 6 + ratingCols.length;
+  const rowVirtual = useVirtualRows({
+    count: sorted.length,
+    estimateRowHeight: 45,
+  });
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -229,11 +244,20 @@ export function PlayersBrowserPage() {
       ) : (
         <Card>
           <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-            <Badge tone="amber">{sorted.length} players</Badge>
+            <div className="flex items-center gap-2">
+              <Badge tone="amber">{sorted.length} players</Badge>
+              {players.isFetching && (
+                <Loader2 className="h-4 w-4 animate-spin text-amber" />
+              )}
+            </div>
           </div>
-          <CardContent className="overflow-x-auto p-0">
+          <CardContent className="p-0">
+            <div
+              ref={rowVirtual.scrollRef}
+              className="max-h-[70vh] overflow-auto"
+            >
             <table className="w-full text-sm">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-surface">
                 <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
                   <Header label="Player" keyId="name" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="left" />
                   <Header label="Tm" keyId="team" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="left" />
@@ -254,9 +278,22 @@ export function PlayersBrowserPage() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((p) => (
+                {rowVirtual.paddingTop > 0 && (
+                  <tr aria-hidden="true">
+                    <td
+                      colSpan={columnCount}
+                      style={{ height: rowVirtual.paddingTop, padding: 0 }}
+                    />
+                  </tr>
+                )}
+                {rowVirtual.items.map((vi) => {
+                  const p = sorted[vi.index];
+                  if (!p) return null;
+                  return (
                   <tr
                     key={p.player_id}
+                    data-index={vi.index}
+                    ref={rowVirtual.measureRow}
                     className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
                   >
                     <td className="px-6 py-2">
@@ -322,9 +359,19 @@ export function PlayersBrowserPage() {
                       </td>
                     ))}
                   </tr>
-                ))}
+                  );
+                })}
+                {rowVirtual.paddingBottom > 0 && (
+                  <tr aria-hidden="true">
+                    <td
+                      colSpan={columnCount}
+                      style={{ height: rowVirtual.paddingBottom, padding: 0 }}
+                    />
+                  </tr>
+                )}
               </tbody>
             </table>
+            </div>
           </CardContent>
         </Card>
       )}

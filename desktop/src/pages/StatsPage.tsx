@@ -5,7 +5,7 @@
  * by any column. Player + team cells link to their detail pages.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -20,6 +20,7 @@ import {
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePersistedState } from "@/lib/use-persisted-state";
+import { useVirtualRows } from "@/lib/use-virtual-rows";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Card,
@@ -151,6 +152,13 @@ function PlayerStatsTable({
     return sorted;
   }, [rows, search, sortKey, sortDir]);
 
+  // Virtualize: league-wide batter/pitcher tables can run to 1000+ rows.
+  const columnCount = 2 + columns.length;
+  const rowVirtual = useVirtualRows({
+    count: filtered.length,
+    estimateRowHeight: 37,
+  });
+
   function toggle(key: string) {
     if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
     else {
@@ -173,9 +181,10 @@ function PlayerStatsTable({
         </div>
         <span className="text-xs text-muted">{filtered.length} shown</span>
       </div>
-      <CardContent className="overflow-x-auto p-0">
+      <CardContent className="p-0">
+        <div ref={rowVirtual.scrollRef} className="max-h-[70vh] overflow-auto">
         <table className="w-full text-sm">
-          <thead>
+          <thead className="sticky top-0 z-10 bg-surface">
             <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
               <SortHeader
                 label="Player"
@@ -199,9 +208,22 @@ function PlayerStatsTable({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((row) => (
+            {rowVirtual.paddingTop > 0 && (
+              <tr aria-hidden="true">
+                <td
+                  colSpan={columnCount}
+                  style={{ height: rowVirtual.paddingTop, padding: 0 }}
+                />
+              </tr>
+            )}
+            {rowVirtual.items.map((vi) => {
+              const row = filtered[vi.index];
+              if (!row) return null;
+              return (
               <tr
                 key={row.player_id}
+                data-index={vi.index}
+                ref={rowVirtual.measureRow}
                 className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
               >
                 <td className="px-6 py-2">
@@ -221,9 +243,19 @@ function PlayerStatsTable({
                   </td>
                 ))}
               </tr>
-            ))}
+              );
+            })}
+            {rowVirtual.paddingBottom > 0 && (
+              <tr aria-hidden="true">
+                <td
+                  colSpan={columnCount}
+                  style={{ height: rowVirtual.paddingBottom, padding: 0 }}
+                />
+              </tr>
+            )}
           </tbody>
         </table>
+        </div>
       </CardContent>
     </Card>
   );
@@ -379,7 +411,7 @@ function cmp(
   return 0;
 }
 
-function formatStat(col: string, value: number | string | null): string {
+function formatStat(col: string, value: number | string | null | undefined): string {
   if (value == null || value === "") return "—";
   if (typeof value === "string") return value;
   if (RATE_COLS.has(col)) {

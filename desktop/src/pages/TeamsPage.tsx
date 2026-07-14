@@ -8,7 +8,6 @@
  */
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -17,8 +16,9 @@ import {
   Users as UsersIcon,
 } from "lucide-react";
 
-import { api, type Team } from "@/lib/api";
+import { type Team } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
+import { useTeams } from "@/lib/use-teams";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import { TeamLogo } from "@/components/TeamLogo";
@@ -39,10 +39,7 @@ export function TeamsPage() {
   );
   const [search, setSearch] = useState("");
 
-  const teams = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-  });
+  const teams = useTeams();
 
   const divisions = useMemo(() => {
     if (!teams.data) return [] as Array<{ division: string; teams: Team[] }>;

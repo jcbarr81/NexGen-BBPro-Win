@@ -32,6 +32,7 @@ import {
 import { useAuthStore } from "@/lib/auth-store";
 import { useConfirmDialog } from "@/lib/use-confirm";
 import { usePersistedState } from "@/lib/use-persisted-state";
+import { useTeams } from "@/lib/use-teams";
 import { toast } from "@/lib/toast-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
@@ -108,10 +109,7 @@ export function TradesPage() {
     queryFn: () =>
       api.trades(effectiveScope === "team" && teamId ? { teamId } : {}),
   });
-  const teams = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-  });
+  const teams = useTeams();
 
   function refresh() {
     queryClient.invalidateQueries({ queryKey: ["trades"] });

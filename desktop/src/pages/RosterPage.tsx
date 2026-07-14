@@ -45,6 +45,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import { useConfirmDialog } from "@/lib/use-confirm";
 import { toast } from "@/lib/toast-store";
 import { useActiveTeamColor } from "@/lib/team-colors";
+import { useTeams } from "@/lib/use-teams";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
@@ -124,11 +125,7 @@ export function RosterPage() {
   const teamId = user.selectedTeamId ?? user.teamId ?? null;
   const queryClient = useQueryClient();
 
-  const teams = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-    enabled: !teamId,
-  });
+  const teams = useTeams({ enabled: !teamId });
 
   const fallbackTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
   const teamAccentColor = useActiveTeamColor(fallbackTeamId ?? undefined);

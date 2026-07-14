@@ -8,7 +8,7 @@
  * the user isn't surprised at year-end.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -28,6 +28,8 @@ import { formatMoneyCompact, formatServiceTime } from "@/lib/format";
 import { AppShell } from "@/components/layout/AppShell";
 import { TeamLogo } from "@/components/TeamLogo";
 import { usePersistedState } from "@/lib/use-persisted-state";
+import { useTeams } from "@/lib/use-teams";
+import { useVirtualRows } from "@/lib/use-virtual-rows";
 import {
   Badge,
   Card,
@@ -91,10 +93,7 @@ export function ContractsPage() {
         expiring_only: expiringFilter,
       }),
   });
-  const teamsQ = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-  });
+  const teamsQ = useTeams();
   const teamById = useMemo(() => {
     const m = new Map<string, NonNullable<typeof teamsQ.data>[number]>();
     for (const t of teamsQ.data ?? []) m.set(t.team_id, t);
@@ -129,6 +128,13 @@ export function ContractsPage() {
     });
     return sorted;
   }, [contractsQ.data, search, sortKey, sortDir]);
+
+  // Virtualize the league-wide table: only the visible rows (and their
+  // InfoTip badges) mount instead of every contract in the league.
+  const rowVirtual = useVirtualRows({
+    count: filteredSorted.length,
+    estimateRowHeight: 42,
+  });
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -214,8 +220,11 @@ export function ContractsPage() {
               No contracts match. Try clearing the filter or switching scope.
             </div>
           ) : (
-            <div className="max-h-[640px] overflow-auto rounded-md border border-border">
-              <div className="overflow-x-auto"><table className="w-full text-sm">
+            <div
+              ref={rowVirtual.scrollRef}
+              className="max-h-[640px] overflow-auto rounded-md border border-border"
+            >
+              <table className="w-full text-sm">
                 <thead className="sticky top-0 z-10 bg-surface">
                   <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
                     <ContractHeader
@@ -278,11 +287,23 @@ export function ContractsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredSorted.map((row) => {
+                  {rowVirtual.paddingTop > 0 && (
+                    <tr aria-hidden="true">
+                      <td
+                        colSpan={8}
+                        style={{ height: rowVirtual.paddingTop, padding: 0 }}
+                      />
+                    </tr>
+                  )}
+                  {rowVirtual.items.map((vi) => {
+                    const row = filteredSorted[vi.index];
+                    if (!row) return null;
                     const team = teamById.get(row.team_id);
                     return (
                       <tr
                         key={row.player_id}
+                        data-index={vi.index}
+                        ref={rowVirtual.measureRow}
                         className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
                       >
                         <td className="px-3 py-2">
@@ -386,8 +407,16 @@ export function ContractsPage() {
                       </tr>
                     );
                   })}
+                  {rowVirtual.paddingBottom > 0 && (
+                    <tr aria-hidden="true">
+                      <td
+                        colSpan={8}
+                        style={{ height: rowVirtual.paddingBottom, padding: 0 }}
+                      />
+                    </tr>
+                  )}
                 </tbody>
-              </table></div>
+              </table>
             </div>
           )}
         </CardContent>

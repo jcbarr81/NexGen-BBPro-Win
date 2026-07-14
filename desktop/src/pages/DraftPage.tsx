@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 
 import { usePersistedState } from "@/lib/use-persisted-state";
+import { useTeams } from "@/lib/use-teams";
 
 import {
   api,
@@ -80,10 +81,7 @@ export function DraftPage() {
     queryFn: () => api.draftResults(state.data?.year),
     enabled: !!state.data?.year,
   });
-  const teamsQ = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-  });
+  const teamsQ = useTeams();
   const teamById = useMemo(() => {
     const m = new Map<string, Team>();
     for (const t of teamsQ.data ?? []) m.set(t.team_id, t);

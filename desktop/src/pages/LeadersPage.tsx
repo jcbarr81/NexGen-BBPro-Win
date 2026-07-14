@@ -9,6 +9,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { usePersistedState } from "@/lib/use-persisted-state";
+import { useTeams } from "@/lib/use-teams";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -217,10 +218,7 @@ function Row({ row, decimals }: { row: LeaderRow; decimals: number }) {
   // Reuse the app-wide ["teams"] cache (populated by many other pages);
   // React Query dedupes this fetch so it doesn't hit the sidecar again
   // when teams are already hydrated.
-  const teamsQ = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-  });
+  const teamsQ = useTeams();
   const team = row.player.team_id
     ? teamsQ.data?.find((t) => t.team_id === row.player.team_id)
     : undefined;

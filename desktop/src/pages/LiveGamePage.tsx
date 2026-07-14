@@ -9,7 +9,6 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   FastForward,
@@ -20,8 +19,9 @@ import {
   SkipForward,
 } from "lucide-react";
 
-import { api, type SimEvent, type SimPitchEvent, type Team } from "@/lib/api";
+import { type SimEvent, type SimPitchEvent, type Team } from "@/lib/api";
 import { openSimSocket, type SimConnection } from "@/lib/sim-socket";
+import { useTeams } from "@/lib/use-teams";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
@@ -77,10 +77,7 @@ export function LiveGamePage() {
   const user = useAuthStore();
   const myTeamId = user.selectedTeamId ?? user.teamId ?? null;
 
-  const teams = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-  });
+  const teams = useTeams();
 
   const [away, setAway] = useState<string>("");
   const [home, setHome] = useState<string>("");

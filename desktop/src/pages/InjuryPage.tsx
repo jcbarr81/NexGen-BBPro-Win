@@ -22,6 +22,7 @@ import { api, type TeamInjuryEntry } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { useActiveTeamColor } from "@/lib/team-colors";
+import { useTeams } from "@/lib/use-teams";
 import { AppShell } from "@/components/layout/AppShell";
 import { StatCard } from "@/components/StatCard";
 import {
@@ -36,11 +37,7 @@ import {
 export function InjuryPage() {
   const user = useAuthStore();
   const teamId = user.selectedTeamId ?? user.teamId ?? null;
-  const teams = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-    enabled: !teamId,
-  });
+  const teams = useTeams({ enabled: !teamId });
   const activeTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
   const teamAccentColor = useActiveTeamColor(activeTeamId ?? undefined);
 

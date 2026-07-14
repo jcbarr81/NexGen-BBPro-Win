@@ -28,6 +28,7 @@ import {
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { useActiveTeamColor } from "@/lib/team-colors";
+import { useTeams } from "@/lib/use-teams";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
@@ -69,11 +70,7 @@ export function PositionPlayersPage() {
   const user = useAuthStore();
   const teamId = user.selectedTeamId ?? user.teamId ?? null;
 
-  const teams = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-    enabled: !teamId,
-  });
+  const teams = useTeams({ enabled: !teamId });
 
   const fallbackTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
   const teamAccentColor = useActiveTeamColor(fallbackTeamId ?? undefined);

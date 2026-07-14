@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Copy, Loader2, Ticket, Trash2 } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { useTeams } from "@/lib/use-teams";
 import {
   Badge,
   Button,
@@ -45,7 +46,7 @@ function TeamSelect({
 export function CommissionerMembersPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const teamsQ = useQuery({ queryKey: ["teams"], queryFn: () => api.listTeams() });
+  const teamsQ = useTeams();
   const invitesQ = useQuery({ queryKey: ["invites"], queryFn: () => api.listInvites() });
   const requestsQ = useQuery({
     queryKey: ["join-requests"],

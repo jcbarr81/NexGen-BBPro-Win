@@ -51,6 +51,7 @@ import {
 import { StatCard } from "@/components/StatCard";
 import { TeamLogo } from "@/components/TeamLogo";
 import { useTeamAccent } from "@/lib/team-colors";
+import { useTeams } from "@/lib/use-teams";
 import {
   Badge,
   Button,
@@ -67,10 +68,7 @@ export function OwnerDashboardPage() {
   const selectedTeamId = useAuthStore((s) => s.selectedTeamId);
   const setSelectedTeam = useAuthStore((s) => s.setSelectedTeam);
 
-  const teams = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-  });
+  const teams = useTeams();
 
   // A cloud commissioner/admin who hasn't claimed a team yet. We must NOT
   // silently fall back to teams[0] (that reads as "you own Minnesota"); instead

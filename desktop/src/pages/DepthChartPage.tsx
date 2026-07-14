@@ -39,6 +39,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import { useActiveTeamColor } from "@/lib/team-colors";
 import { useAutosaveDraft } from "@/lib/autosave";
 import { useHotkey } from "@/lib/use-hotkey";
+import { useTeams } from "@/lib/use-teams";
 import { useLiveValidation } from "@/lib/use-live-validation";
 import { AppShell } from "@/components/layout/AppShell";
 import {
@@ -55,11 +56,7 @@ export function DepthChartPage() {
   const user = useAuthStore();
   const teamId = user.selectedTeamId ?? user.teamId ?? null;
 
-  const teams = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-    enabled: !teamId,
-  });
+  const teams = useTeams({ enabled: !teamId });
   const activeTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
   const teamAccentColor = useActiveTeamColor(activeTeamId ?? undefined);
 

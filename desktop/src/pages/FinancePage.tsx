@@ -30,6 +30,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { formatMoneyCompact } from "@/lib/format";
 import { useActiveTeamColor } from "@/lib/team-colors";
+import { useTeams } from "@/lib/use-teams";
 import { AppShell } from "@/components/layout/AppShell";
 import { StatCard } from "@/components/StatCard";
 import {
@@ -45,11 +46,7 @@ export function FinancePage() {
   const user = useAuthStore();
   const teamId = user.selectedTeamId ?? user.teamId ?? null;
 
-  const teams = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-    enabled: !teamId,
-  });
+  const teams = useTeams({ enabled: !teamId });
   const fallbackTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
   const teamAccentColor = useActiveTeamColor(fallbackTeamId ?? undefined);
 

@@ -41,6 +41,34 @@ const PHASE_LABELS: Record<string, string> = {
   OFFSEASON: "Offseason",
 };
 
+/**
+ * Query-key prefixes that sim actions actually change. Invalidating just
+ * these (instead of the whole cache) keeps a sim click from refetching
+ * every active query — including 5000-row browse tables that sims don't
+ * touch. Keep in sync with what the sim endpoints mutate server-side.
+ */
+const SIM_QUERY_PREFIXES = [
+  "season-state",
+  "league-standings",
+  "schedule",
+  "standings",
+  "trades",
+  "trades-deadline",
+  "finance-snapshot",
+  "finance-todo",
+  "payroll-context",
+  "activity",
+  "news",
+  "notifications",
+  "team-roster",
+  "dashboard",
+  "boxscore",
+  "leaders",
+  "stats",
+  "league-stats",
+  "playoffs",
+] as const;
+
 export function StatusRibbon() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -58,6 +86,10 @@ export function StatusRibbon() {
     queryFn: () => api.leagueStandings(),
     enabled: !!auth.token,
     refetchOnWindowFocus: false,
+    // Standings only move when games are simmed, and every sim action
+    // invalidates ["league-standings"] explicitly (see SIM_QUERY_PREFIXES),
+    // so don't refetch on every remount in between.
+    staleTime: 5 * 60_000,
   });
   // Pull pending trades scoped to the user's team so we can flash a
   // "you have CPU offers waiting" badge on every page.
@@ -75,6 +107,9 @@ export function StatusRibbon() {
     queryFn: () => api.tradeDeadline(),
     enabled: !!auth.token,
     refetchOnWindowFocus: false,
+    // Only changes as the sim date advances; invalidated explicitly after
+    // sim actions (see SIM_QUERY_PREFIXES).
+    staleTime: 5 * 60_000,
   });
 
   const myStanding = useMemo(
@@ -89,7 +124,11 @@ export function StatusRibbon() {
   }, [tradesQ.data, teamId]);
 
   function refreshAll() {
-    queryClient.invalidateQueries();
+    // Targeted invalidation — NOT queryClient.invalidateQueries() with no
+    // filter, which used to refetch every active query in the app.
+    for (const key of SIM_QUERY_PREFIXES) {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    }
   }
 
   /** Surface CPU activity from a sim batch as a toast — DL activations,

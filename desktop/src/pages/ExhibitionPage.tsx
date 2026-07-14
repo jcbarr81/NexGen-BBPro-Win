@@ -7,7 +7,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ExternalLink,
@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { useTeams } from "@/lib/use-teams";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Badge,
@@ -41,7 +42,7 @@ export function ExhibitionPage() {
 }
 
 function ExhibitionBody() {
-  const teams = useQuery({ queryKey: ["teams"], queryFn: () => api.listTeams() });
+  const teams = useTeams();
   const [home, setHome] = useState("");
   const [away, setAway] = useState("");
 

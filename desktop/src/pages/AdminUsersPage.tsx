@@ -26,6 +26,7 @@ import {
   type Team,
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
+import { useTeams } from "@/lib/use-teams";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import {
@@ -57,11 +58,7 @@ export function AdminUsersPage() {
     queryFn: () => api.adminListUsers(),
     enabled: role === "admin",
   });
-  const teams = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-    enabled: role === "admin",
-  });
+  const teams = useTeams({ enabled: role === "admin" });
 
   // Set of team_ids already taken by an owner -- used to mark options
   // in the dropdown so the admin doesn't pick a conflict by mistake.

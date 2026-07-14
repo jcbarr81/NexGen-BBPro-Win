@@ -35,6 +35,7 @@ import { Link } from "react-router-dom";
 
 import { api, type CommissionerSettings } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
+import { useTeams } from "@/lib/use-teams";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import {
@@ -684,10 +685,7 @@ function Toggle({
 function StrategyCard({ data }: { data: CommissionerSettings }) {
   const queryClient = useQueryClient();
   const profiles = data.options.strategy_profiles ?? [];
-  const teamsQ = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(),
-  });
+  const teamsQ = useTeams();
 
   const [defaultProfile, setDefaultProfile] = useState(
     data.strategy.default_profile ?? "",

@@ -7,10 +7,11 @@
  */
 
 import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Loader2, Shuffle } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { useTeams } from "@/lib/use-teams";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Button,
@@ -33,7 +34,7 @@ export function ReassignPage() {
 }
 
 function ReassignBody() {
-  const teams = useQuery({ queryKey: ["teams"], queryFn: () => api.listTeams() });
+  const teams = useTeams();
   const [selected, setSelected] = useState("");
 
   const oneMut = useMutation({
