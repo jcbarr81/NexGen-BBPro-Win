@@ -3256,6 +3256,106 @@ def simulate_matchup_from_files(
     return result
 
 
+def _best_rest_replacement(
+    bench: List[BatterRatings],
+    pos: str,
+    *,
+    opposing_starter: PitcherRatings | None,
+    usage_state: UsageState,
+    threshold_ratio: float,
+    tuning: TuningConfig,
+) -> BatterRatings | None:
+    def eligible(b: BatterRatings) -> bool:
+        if pos in {"", "DH"}:
+            return True
+        primary = (b.primary_position or "").upper()
+        others = {str(x).upper() for x in (b.other_positions or [])}
+        if pos == "C":
+            return primary == "C" or "C" in others  # never emergency-catch
+        return pos == primary or pos in others
+
+    def rested(b: BatterRatings) -> bool:
+        wl = usage_state.batter_workload_for(b.player_id)
+        threshold = (
+            tuning.get("batter_fatigue_threshold_base", 35.0)
+            + b.durability * tuning.get("batter_fatigue_threshold_scale", 0.45)
+        )
+        return wl.fatigue_debt < threshold_ratio * threshold
+
+    # Sort by player_id so ties break deterministically regardless of the bench
+    # list order (build_bench iterates a set → order varies by PYTHONHASHSEED).
+    candidates = sorted(
+        (b for b in bench if eligible(b) and rested(b)), key=lambda b: b.player_id
+    )
+    if not candidates:
+        return None
+    if opposing_starter is not None:
+        return max(candidates, key=lambda b: _batter_offense_score(b, opposing_starter))
+    return max(candidates, key=lambda b: b.contact * 0.55 + b.power * 0.45)
+
+
+def _apply_rest_days(
+    lineup: List[BatterRatings],
+    bench: List[BatterRatings],
+    positions: Dict[str, str],
+    *,
+    opposing_starter: PitcherRatings | None,
+    usage_state: UsageState | None,
+    game_day: int | None,
+    tuning: TuningConfig,
+) -> tuple[List[BatterRatings], List[BatterRatings], Dict[str, str]]:
+    """Bench fatigued / overworked starters before the game (S2-05). In-memory
+    only; lineup files are never rewritten. Returns (lineup, bench, positions)."""
+    if usage_state is None or game_day is None or not bench:
+        return lineup, bench, positions
+    lineup = list(lineup)
+    bench = list(bench)
+    positions = dict(positions)
+    max_swaps = int(tuning.get("batter_rest_max_swaps", 2.0))
+    ratio = tuning.get("batter_rest_fatigue_ratio", 0.85)
+    hard_ratio = tuning.get("batter_rest_hard_ratio", 1.2)
+    min_gap = tuning.get("batter_rest_min_gap_days", 5.0)
+    swaps = 0
+    for idx, starter in enumerate(list(lineup)):
+        if swaps >= max_swaps:
+            break
+        wl = usage_state.batter_workload_for(starter.player_id)
+        threshold = (
+            tuning.get("batter_fatigue_threshold_base", 35.0)
+            + starter.durability * tuning.get("batter_fatigue_threshold_scale", 0.45)
+        )
+        pos = (positions.get(starter.player_id) or starter.primary_position or "").upper()
+        limit_key = (
+            "batter_rest_consecutive_limit_catcher"
+            if pos == "C"
+            else "batter_rest_consecutive_limit"
+        )
+        limit = tuning.get(limit_key, 3.0 if pos == "C" else 9.0)
+        fatigued = wl.fatigue_debt >= ratio * threshold
+        overworked = wl.consecutive_days_used >= limit
+        if not (fatigued or overworked):
+            continue
+        recently_rested = (
+            wl.last_rest_day is not None and (game_day - wl.last_rest_day) < min_gap
+        )
+        if recently_rested and wl.fatigue_debt < hard_ratio * threshold:
+            continue
+        replacement = _best_rest_replacement(
+            bench, pos, opposing_starter=opposing_starter, usage_state=usage_state,
+            threshold_ratio=ratio, tuning=tuning,
+        )
+        if replacement is None:
+            continue
+        bench.remove(replacement)
+        lineup[idx] = replacement  # inherits the batting slot
+        positions.pop(starter.player_id, None)
+        positions[replacement.player_id] = pos  # inherits the defensive position
+        wl.last_rest_day = game_day
+        wl.rests += 1
+        swaps += 1
+    return lineup, bench, positions
+
+
 def simulate_game(
     *,
     batters: List[BatterRatings] | None = None,
@@ -3393,6 +3493,19 @@ def simulate_game(
             pitchers=usage_pitchers,
             batters=usage_batters,
             tuning=tuning,
+        )
+
+        # S2-05: bench fatigued/overworked starters (recovery already applied, so
+        # debt is current) before the in-game fatigue penalty is computed.
+        away_lineup, away_bench, away_positions = _apply_rest_days(
+            list(away_lineup), list(away_bench), dict(away_positions),
+            opposing_starter=home_pitchers[0] if home_pitchers else None,
+            usage_state=usage_state, game_day=game_day, tuning=tuning,
+        )
+        home_lineup, home_bench, home_positions = _apply_rest_days(
+            list(home_lineup), list(home_bench), dict(home_positions),
+            opposing_starter=away_pitchers[0] if away_pitchers else None,
+            usage_state=usage_state, game_day=game_day, tuning=tuning,
         )
 
         away_lineup = _apply_batter_fatigue(

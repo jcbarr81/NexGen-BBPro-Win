@@ -286,7 +286,7 @@ not vibes.
 | S2-02 | Modern batting order | `lineup_autofill.py:179-180` strict best-to-worst; OBP not in the score | Slot-specific weight vectors (leadoff eye/speed; 2 best overall; 3-4 power) | Unit tests on constructed rosters; eyeball top-of-order OBP in a season sim | Done (2026-07-15, 62088c81e — 23 tests green; KPI unaffected/green) |
 | S2-03 | Fix inverted reliever rest | `physics_sim/config.py:333` — ALL non-closers need 2 days rest after any outing (engine.py:449-457); real setup men pitch back-to-back; caps appearances ~54 vs real ~65-70 | Pitch-count-conditional rest (0 days ≤20 pitches); 3-consecutive-day block for all relievers | **New usage KPIs** (S2-12) gate this: reliever appearance leaders ~75-80, distribution vs `role_averages_mlbstats_2020_2024.csv` | Done (2026-07-15, 4735f2a2b — canonical table shared engine+tracker; `--strict` green seeds 1&2; 21 unit tests. Full usage-KPI gating lands with S2-12) |
 | S2-04 | Closer in tied 9th | `engine.py:691-698` filters CL to lead-only; `_reliever_score:636-637` penalizes CL when not ahead | Allow CL when tied, inning ≥9 (esp. home); postseason: 8th-inning fireman | Usage KPI: saves distribution unchanged; tied-game 9th-inning pitcher quality improves (spot-check logs) | Done (2026-07-15, 621887bd2 — 9 tests; `--strict` green seeds 1&2; league saves 1318. Postseason fireman is a declared non-goal, see change log) |
-| S2-05 | Position-player rest days | Batter fatigue accumulates (`usage.py:113-130`, in-game degradation up to −35% at engine.py:2809-2827) but **no code ever benches anyone** | Pass `UsageState.batter_workloads` into lineup generation; bench starters over fatigue threshold (catchers more often) | Season sim: starters average ~145-155 games, backup catchers ~40-50 starts; no KPI regressions | Open |
+| S2-05 | Position-player rest days | Batter fatigue accumulates (`usage.py:113-130`, in-game degradation up to −35% at engine.py:2809-2827) but **no code ever benches anyone** | Pass `UsageState.batter_workloads` into lineup generation; bench starters over fatigue threshold (catchers more often) | Season sim: starters average ~145-155 games, backup catchers ~40-50 starts; no KPI regressions | Done (2026-07-15, pending commit — `--strict` green seeds 1&2; starters_avg_gs 147; backup-C median ~44, per-team min varies, see change log) |
 | S2-06 | Load pitcher `throws` properly | `physics_sim/models.py:13/54` — no `throws` field; platoon logic infers pitcher hand from **batting side**; `_platoon_bonus` (engine.py:2314-2317) gives zero adjustment vs RHP | Add `throws` to model + CSV loader; symmetric platoon adjustment both hands | Data audit: throws populated for all pitchers; platoon KPI (S2-01) measures the corrected gap | Done (2026-07-15, 8daae9e8b — `--strict` green seeds 1&2; audit 280/280 pitchers) |
 
 ### Phase B: outcome realism + validation
@@ -379,6 +379,29 @@ not vibes.
 ---
 
 ## Change log (newest first)
+
+- **2026-07-15** — **S2-05 position-player rest days implemented** (pending
+  commit). Per `docs/specs/S2-05_rest_days.md`: `_apply_rest_days` (new) benches
+  fatigued/overworked starters PRE-GAME in memory inside `simulate_game` (between
+  `advance_day` and the in-game fatigue penalty) — the replacement inherits the
+  batting slot + defensive position, the rested starter is off entirely; lineup
+  files are never rewritten. `BatterWorkload` gains `last_rest_day`/`rests`; six
+  rest knobs added. Harness adds a `usage_kpis` aggregate (`starters_avg_gs`,
+  `backup_c_min_starts`). New `tests/test_rest_days.py` (7 cases). **Determinism:**
+  `build_bench` iterates a set, so the replacement is chosen from a hash-seed-
+  dependent order — added a `player_id` tie-break so the swap is reproducible
+  (CI already pins `PYTHONHASHSEED=0`). **Deviations/tuning:** the schedule has no
+  off-days, so the consecutive-day counter never gaps and the spec's catcher
+  limit 3 (+ min_gap 5) actually under-rested catchers via the post-rest reset;
+  tuned to catcher limit 2 / min_gap 3 → `starters_avg_gs` 147 (band 145-155),
+  backup-C **median ~44** (healthy). Per-team backup-C varies widely (~16-54);
+  the min doesn't clear the "≥35 for every team" target — the consecutive-day
+  trigger produces uneven catcher rest, and a games-started-based catcher trigger
+  would be uniform (follow-up). Bench bats are worse, so league offense dipped
+  ~1% and tripped `runs_per_team_game` on seed 2; compensated with
+  `babip_scale` 0.917→0.925 (the spec's offense-family corrective, via babip so
+  HR is untouched). Verification: `--games 162 --strict` green on seeds 1 & 2
+  (`PYTHONHASHSEED=0`, deterministic).
 
 - **2026-07-15** — **S2-07 times-through-order batter bonus implemented** (`e5cd08f06`). Per `docs/specs/S2-07_tto_penalty.md`: `_batter_context`
   gains a `tto` param and adds contact/eye/power bonuses scaled by `(tto-1)`

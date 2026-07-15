@@ -23,6 +23,8 @@ class BatterWorkload:
     last_used_day: int | None = None
     consecutive_days_used: int = 0
     last_update_day: int | None = None
+    last_rest_day: int | None = None  # S2-05: game_day of most recent forced rest
+    rests: int = 0  # S2-05: season count of forced rests
 
 
 def reliever_rest_days(pitches: int, tuning: "TuningConfig | None" = None) -> int:

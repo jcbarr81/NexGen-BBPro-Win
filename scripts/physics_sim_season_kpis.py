@@ -170,6 +170,17 @@ def _load_player_names(path: Path) -> dict[str, str]:
     return names
 
 
+def _load_player_positions(path: Path) -> dict[str, str]:
+    """player_id -> primary_position (upper). S2-05 backup-catcher aggregate."""
+    positions: dict[str, str] = {}
+    with path.open() as handle:
+        for row in csv.DictReader(handle):
+            pid = row.get("player_id")
+            if pid:
+                positions[str(pid)] = (row.get("primary_position") or "").strip().upper()
+    return positions
+
+
 def _load_player_ratings(path: Path) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
     contact: dict[str, float] = {}
     power: dict[str, float] = {}
@@ -1093,6 +1104,33 @@ def run_sim(
         "starts": usage.get("starts", 0),
         "reliever_appearances": usage.get("reliever_appearances", 0),
         "appearance_leaders": _appearance_leaders,
+    }
+
+    # Position-player rest aggregate (S2-05): league mean of each team's top-9
+    # games-started, and the min across teams of the backup catcher's starts.
+    positions_by_id = _load_player_positions(players_path)
+    team_top9_means: list[float] = []
+    backup_c_starts: dict[str, int] = {}
+    by_team: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    for pid, stats in batter_totals.items():
+        by_team[player_teams.get(pid, "")].append((pid, int(stats.get("gs", 0))))
+    for team_id, entries in by_team.items():
+        if not team_id:
+            continue
+        top9 = sorted((gs for _pid, gs in entries), reverse=True)[:9]
+        if top9:
+            team_top9_means.append(sum(top9) / len(top9))
+        c_starts = sorted(
+            (gs for pid, gs in entries if positions_by_id.get(pid) == "C"),
+            reverse=True,
+        )
+        backup_c_starts[team_id] = c_starts[1] if len(c_starts) > 1 else 0
+    summary["usage_kpis"] = {
+        "starters_avg_gs": (
+            sum(team_top9_means) / len(team_top9_means) if team_top9_means else 0.0
+        ),
+        "backup_c_min_starts": min(backup_c_starts.values()) if backup_c_starts else 0,
+        "backup_c_starts": backup_c_starts,
     }
 
     # Times-through-order OPS gap (S2-07): pass-3 minus pass-1 league OPS. None

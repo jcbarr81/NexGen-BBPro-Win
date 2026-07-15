@@ -311,7 +311,7 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "stretch_triple_base": 0.006,
     "stretch_triple_speed_scale": 0.12,
     "stretch_triple_arm_scale": 0.9,
-    "babip_scale": 0.917,
+    "babip_scale": 0.925,
     "walk_scale": 0.83,
     "k_scale": 0.51,
     "contact_prob_scale": 0.885,
@@ -376,6 +376,13 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "batter_fatigue_speed_scale": 0.5,
     "batter_fatigue_defense_scale": 0.4,
     "consecutive_usage_penalty": 3.0,
+    # S2-05: fatigue-aware pre-game position-player rest.
+    "batter_rest_fatigue_ratio": 0.85,       # rest when debt >= ratio * in-game penalty threshold
+    "batter_rest_hard_ratio": 1.20,          # overrides the min-gap guard
+    "batter_rest_consecutive_limit": 9.0,    # non-catchers: rest on the 10th consecutive game day
+    "batter_rest_consecutive_limit_catcher": 2.0,  # catchers: rest on the 3rd
+    "batter_rest_min_gap_days": 3.0,         # don't force-rest the same player again within 3 game days
+    "batter_rest_max_swaps": 2.0,            # per team per game
     # Park/environment
     "park_size_scale": 1.0,
     "park_factor_scale": 0.0,
