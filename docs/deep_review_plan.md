@@ -282,7 +282,7 @@ not vibes.
 
 | ID | Task | Evidence | Fix | Verify | Status |
 |---|---|---|---|---|---|
-| S2-01 | Platoon lineups vs LHP/RHP | `utils/lineup_autofill.py:181-194` writes identical lineups to both files; `hitter_score:82-92` ignores handedness; the engine's file selection (game_runner:1281-1299) is a no-op | Handedness-aware `hitter_score` (use `vs_left` + `bats`); generate genuinely different vs_lhp/vs_rhp orders | New KPI: league platoon-split (L/R wOBA gap ≈ 25 pts); lineup-diff test: files differ for teams with platoon candidates | Done (2026-07-15, pending commit — platoon_gap_woba 0.024, `--strict` green seeds 1&2) |
+| S2-01 | Platoon lineups vs LHP/RHP | `utils/lineup_autofill.py:181-194` writes identical lineups to both files; `hitter_score:82-92` ignores handedness; the engine's file selection (game_runner:1281-1299) is a no-op | Handedness-aware `hitter_score` (use `vs_left` + `bats`); generate genuinely different vs_lhp/vs_rhp orders | New KPI: league platoon-split (L/R wOBA gap ≈ 25 pts); lineup-diff test: files differ for teams with platoon candidates | Done (2026-07-15, f0af1b340 — platoon_gap_woba 0.024, `--strict` green seeds 1&2) |
 | S2-02 | Modern batting order | `lineup_autofill.py:179-180` strict best-to-worst; OBP not in the score | Slot-specific weight vectors (leadoff eye/speed; 2 best overall; 3-4 power) | Unit tests on constructed rosters; eyeball top-of-order OBP in a season sim | Open |
 | S2-03 | Fix inverted reliever rest | `physics_sim/config.py:333` — ALL non-closers need 2 days rest after any outing (engine.py:449-457); real setup men pitch back-to-back; caps appearances ~54 vs real ~65-70 | Pitch-count-conditional rest (0 days ≤20 pitches); 3-consecutive-day block for all relievers | **New usage KPIs** (S2-12) gate this: reliever appearance leaders ~75-80, distribution vs `role_averages_mlbstats_2020_2024.csv` | Open |
 | S2-04 | Closer in tied 9th | `engine.py:691-698` filters CL to lead-only; `_reliever_score:636-637` penalizes CL when not ahead | Allow CL when tied, inning ≥9 (esp. home); postseason: 8th-inning fireman | Usage KPI: saves distribution unchanged; tied-game 9th-inning pitcher quality improves (spot-check logs) | Open |
@@ -380,8 +380,7 @@ not vibes.
 
 ## Change log (newest first)
 
-- **2026-07-15** — **S2-01 platoon lineups + split KPI implemented** (pending
-  commit). Per `docs/specs/S2-01_platoon_lineups.md`: `utils/lineup_autofill.py`
+- **2026-07-15** — **S2-01 platoon lineups + split KPI implemented** (`f0af1b340`). Per `docs/specs/S2-01_platoon_lineups.md`: `utils/lineup_autofill.py`
   now builds `vs_lhp`/`vs_rhp` from two INDEPENDENT handedness-aware passes
   (`hitter_score` gains a `_platoon_adjustment` mirroring the engine's platoon
   scale) — the files genuinely differ in personnel/order for platoon candidates.
