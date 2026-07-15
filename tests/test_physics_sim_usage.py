@@ -8,6 +8,7 @@ def _pitcher(player_id: str) -> PitcherRatings:
     return PitcherRatings(
         player_id=player_id,
         bats="R",
+        throws="R",
         role="SP",
         preferred_role="",
         velocity=90.0,

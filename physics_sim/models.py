@@ -74,6 +74,7 @@ class BatterRatings:
 class PitcherRatings:
     player_id: str
     bats: str
+    throws: str  # pitching hand, "L" or "R"
     role: str
     preferred_role: str
     velocity: float  # derived from arm
@@ -97,9 +98,17 @@ class PitcherRatings:
                 return default
 
         repertoire = {k: f(k) for k in PITCH_KEYS if f(k, 0.0) > 0.0}
+        bats = str(row.get("bats", "") or "R").upper()
+        throws = str(row.get("throws", "") or "").strip().upper()
+        if throws not in {"L", "R"}:
+            # players.csv only gained a throws column in 6.10.12; legacy league
+            # CSVs lack it. Mirror utils/player_loader.py: most players throw
+            # with the hand they bat; switch hitters default to "R".
+            throws = "R" if bats == "S" else (bats if bats in {"L", "R"} else "R")
         return cls(
             player_id=str(row.get("player_id", "")),
-            bats=str(row.get("bats", "") or "R").upper(),
+            bats=bats,
+            throws=throws,
             role=str(row.get("role", "") or "").upper(),
             preferred_role=str(row.get("preferred_pitching_role", "") or "").upper(),
             velocity=f("arm"),

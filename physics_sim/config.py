@@ -311,7 +311,7 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "stretch_triple_base": 0.006,
     "stretch_triple_speed_scale": 0.12,
     "stretch_triple_arm_scale": 0.9,
-    "babip_scale": 0.925,
+    "babip_scale": 0.917,
     "walk_scale": 0.83,
     "k_scale": 0.51,
     "contact_prob_scale": 0.90,

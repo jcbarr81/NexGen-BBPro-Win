@@ -664,7 +664,7 @@ def _matchup_score(
 ) -> float:
     if not upcoming_batters:
         return 0.0
-    pitcher_hand = (pitcher_state.pitcher.bats or "R").upper()
+    pitcher_hand = (pitcher_state.pitcher.throws or "R").upper()
     score = 0.0
     for batter in upcoming_batters:
         batter_hand = (batter.bats or "R").upper()
@@ -2318,10 +2318,30 @@ def _lineup_index(lineup: List[BatterRatings], player_id: str) -> int | None:
     return None
 
 
+# Share of league PA that come against LHP is ~26%; the vs-RHP counter-shift is
+# scaled by 0.26/0.74 ≈ 0.35 so a batter's season-weighted platoon effect from
+# vs_left is ~neutral: 0.74*(-0.35*d) + 0.26*(d) ≈ 0.
+PLATOON_RHP_COUNTER_SCALE = 0.35
+
+
+def _platoon_vl_delta(batter: BatterRatings, pitcher_hand: str) -> float:
+    """Signed vs-hand rating delta derived from the single vs_left rating."""
+    d = batter.vs_left - 50.0
+    if (pitcher_hand or "R").upper() == "L":
+        return d
+    return -PLATOON_RHP_COUNTER_SCALE * d
+
+
 def _platoon_bonus(batter: BatterRatings, pitcher: PitcherRatings) -> float:
-    if (pitcher.bats or "R").upper() == "L":
-        return (batter.vs_left - 50.0) / 6.0
-    return 0.0
+    hand = (pitcher.throws or "R").upper()
+    bats = (batter.bats or "R").upper()
+    if bats == "S":
+        h = 0.5  # mirrors handedness_switch_bonus default
+    elif bats == hand:
+        h = -1.0
+    else:
+        h = 1.0
+    return 2.0 * h + 0.2275 * _platoon_vl_delta(batter, hand)
 
 
 def _batter_offense_score(batter: BatterRatings, pitcher: PitcherRatings) -> float:
@@ -2975,7 +2995,7 @@ def _handedness_advantage(batter_hand: str, pitcher_hand: str, tuning: TuningCon
 def _batter_context(
     batter: BatterRatings, pitcher: PitcherRatings, tuning: TuningConfig
 ) -> Dict[str, Any]:
-    pitcher_hand = (pitcher.bats or "R").upper()
+    pitcher_hand = (pitcher.throws or "R").upper()
     batter_hand = (batter.bats or "R").upper()
     eye = batter.eye * 0.8 + (100.0 - pitcher.control) * 0.2
     contact = batter.contact
@@ -2985,12 +3005,11 @@ def _batter_context(
     power += handedness * tuning.get("handedness_power_bonus", 2.0)
     eye += handedness * tuning.get("handedness_eye_bonus", 2.0)
     platoon_chase = 0.0
-    if pitcher_hand == "L":
-        vs_left_diff = batter.vs_left - 50.0
-        contact += vs_left_diff * tuning.get("platoon_contact_scale", 0.25)
-        power += vs_left_diff * tuning.get("platoon_power_scale", 0.2)
-        eye += vs_left_diff * tuning.get("platoon_eye_scale", 0.3)
-        platoon_chase -= vs_left_diff * tuning.get("platoon_chase_scale", 0.0015)
+    vs_left_diff = _platoon_vl_delta(batter, pitcher_hand)
+    contact += vs_left_diff * tuning.get("platoon_contact_scale", 0.25)
+    power += vs_left_diff * tuning.get("platoon_power_scale", 0.2)
+    eye += vs_left_diff * tuning.get("platoon_eye_scale", 0.3)
+    platoon_chase -= vs_left_diff * tuning.get("platoon_chase_scale", 0.0015)
     contact = max(1.0, min(100.0, contact))
     power = max(1.0, min(100.0, power))
     eye = max(1.0, min(100.0, eye))
@@ -3013,7 +3032,7 @@ def _batter_context(
 def _lineup_hand_from_starter(starter: PitcherRatings | None) -> str:
     if starter is None:
         return "R"
-    hand = (starter.bats or "R").upper()
+    hand = (starter.throws or "R").upper()
     return "L" if hand == "L" else "R"
 
 
@@ -3836,7 +3855,7 @@ def simulate_game(
                     batter_line.b1 += 1
                     runner_pitchers[batter.player_id] = line
                     batter_side = _effective_batter_side(
-                        batter.bats, pitcher_state.pitcher.bats
+                        batter.bats, pitcher_state.pitcher.throws
                     )
                     _credit_outs_on_base(
                         defense_state=defense_state,
@@ -3862,7 +3881,7 @@ def simulate_game(
                     line.consecutive_hits = 0
                     if outs_added:
                         batter_side = _effective_batter_side(
-                            batter.bats, pitcher_state.pitcher.bats
+                            batter.bats, pitcher_state.pitcher.throws
                         )
                         primary_guess = _fielder_position_for_ball(
                             ball_type="gb",
@@ -3962,7 +3981,7 @@ def simulate_game(
                 "control": pitcher_state.pitcher.control,
                 "movement": pitcher_state.pitcher.movement,
                 "fatigue_factor": 1.0,
-                "hand": pitcher_state.pitcher.bats,
+                "hand": pitcher_state.pitcher.throws,
                 "vs_left": pitcher_state.pitcher.vs_left,
             }
             while True:
@@ -4335,7 +4354,7 @@ def simulate_game(
                         at_bat_over = True
                     else:
                         batter_hand = (batter.bats or "R").upper()
-                        pitcher_hand = (pitcher.bats or "R").upper()
+                        pitcher_hand = (pitcher.throws or "R").upper()
                         if batter_hand == "S":
                             batter_hand = "L" if pitcher_hand == "R" else "R"
                         out_prob = out_probability(
@@ -4545,7 +4564,7 @@ def simulate_game(
                                 )
                                 runner_pitchers[batter.player_id] = line
                                 batter_side = _effective_batter_side(
-                                    batter.bats, pitcher.bats
+                                    batter.bats, pitcher.throws
                                 )
                                 _credit_outs_on_base(
                                     defense_state=defense_state,
@@ -4575,7 +4594,7 @@ def simulate_game(
                                 res.reached_on_error = False
                                 pitch_log[-1].update(res.__dict__)
                                 batter_side = _effective_batter_side(
-                                    batter.bats, pitcher.bats
+                                    batter.bats, pitcher.throws
                                 )
                                 if out_type == "groundout":
                                     before_ids = _base_runner_ids(bases)
