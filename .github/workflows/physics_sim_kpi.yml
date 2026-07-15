@@ -2,13 +2,30 @@ name: Physics Sim KPI
 
 on:
   pull_request:
+    paths:
+      - "physics_sim/**"
+      - "playbalance/schedule_generator.py"
+      - "scripts/physics_sim_season_kpis.py"
+      - "scripts/generate_calibration_roster.py"
+      - "data/calibration/**"
+      - "data/MLB_avg/**"
+      - ".github/workflows/physics_sim_kpi.yml"
   push:
+    branches: [main]
+    paths:
+      - "physics_sim/**"
+      - "playbalance/schedule_generator.py"
+      - "scripts/physics_sim_season_kpis.py"
+      - "scripts/generate_calibration_roster.py"
+      - "data/calibration/**"
+      - "data/MLB_avg/**"
+      - ".github/workflows/physics_sim_kpi.yml"
   workflow_dispatch:
 
 jobs:
   physics-sim-kpis:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -16,15 +33,23 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Run KPI harness
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run KPI harness (strict, calibration fixture)
         env:
           PYTHONHASHSEED: "0"
         run: |
           mkdir -p tmp
           python scripts/physics_sim_season_kpis.py \
-            --games 50 \
+            --games 162 \
             --seed 1 \
-            --players data/players_normalized.csv \
-            --ensure-lineups \
+            --base-dir data/calibration \
+            --players data/calibration/players.csv \
             --output tmp/physics_kpis.json \
             --strict
+      - name: Upload KPI report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: physics-kpis
+          path: tmp/physics_kpis.json

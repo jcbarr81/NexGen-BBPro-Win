@@ -675,8 +675,10 @@ def simulate_pitch(
             objective=objective,
             intent=intent,
         )
-    zone_base = 0.62 + (eye - 50.0) / 220.0
-    chase_base = 0.28 - (eye - 50.0) / 260.0
+    # S2-08 de-compression: widen the eye slopes so plate-discipline dispersion
+    # (qualified OBP/AVG SD, walk-rate spread) matches MLB instead of collapsing.
+    zone_base = 0.62 + (eye - 50.0) / 200.0
+    chase_base = 0.28 - (eye - 50.0) / 230.0
     chase_base += batter.get("platoon_chase", 0.0)
     base_swing = zone_base if in_zone else chase_base
     base_swing *= zone_scale if in_zone else chase_scale

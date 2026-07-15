@@ -1,34 +1,33 @@
 from pathlib import Path
+import csv
 
 import scripts.physics_sim_season_kpis as kpis
-from utils.team_loader import load_teams
-from utils.lineup_autofill import auto_fill_lineup_for_team
+
+CAL = Path("data/calibration")
 
 
 def test_simulated_averages_close_to_mlb(monkeypatch):
-    """Run a short physics-sim sample and ensure KPIs stay in reasonable bands."""
+    """Run a short physics-sim sample on the committed calibration fixture and
+    ensure KPIs stay in reasonable bands.
 
-    teams = [t.team_id for t in load_teams()][:2]
-    for team_id in teams:
-        auto_fill_lineup_for_team(
-            kpis._normalize_team_id(team_id),
-            players_file="data/players.csv",
-            roster_dir="data/rosters",
-            lineup_dir="data/lineups",
-        )
-
-    monkeypatch.setattr(kpis, "_team_ids", lambda: teams)
-    monkeypatch.setattr(kpis, "_team_parks", lambda: {})
-
+    Runs entirely on ``data/calibration`` — never the active league — so it
+    neither crashes on missing player IDs nor pollutes league lineups/stats.
+    """
+    with (CAL / "teams.csv").open() as fh:
+        teams = [r["team_id"] for r in csv.DictReader(fh)][:2]
+    monkeypatch.setattr(
+        kpis, "_team_ids", lambda *a, **k: [kpis._normalize_team_id(t) for t in teams]
+    )
+    monkeypatch.setattr(kpis, "_team_parks", lambda *a, **k: {})
     metrics = kpis.run_sim(
-        games_per_team=10,
+        games_per_team=20,
         seed=1,
-        players_path=Path("data/players.csv"),
+        players_path=CAL / "players.csv",
+        base_dir=CAL,
     )["metrics"]
-
-    assert 0.20 <= metrics["avg"] <= 0.35
-    assert 0.25 <= metrics["obp"] <= 0.42
-    assert 0.30 <= metrics["slg"] <= 0.60
-    assert 3.3 <= metrics["pitches_per_pa"] <= 4.4
-    assert 0.12 <= metrics["k_pct"] <= 0.32
-    assert 0.05 <= metrics["bb_pct"] <= 0.14
+    assert 0.20 <= metrics["avg"] <= 0.30
+    assert 0.28 <= metrics["obp"] <= 0.36
+    assert 0.33 <= metrics["slg"] <= 0.46
+    assert 3.5 <= metrics["pitches_per_pa"] <= 4.2
+    assert 0.17 <= metrics["k_pct"] <= 0.27
+    assert 0.05 <= metrics["bb_pct"] <= 0.11

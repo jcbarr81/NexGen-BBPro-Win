@@ -59,3 +59,16 @@ weather_temp_mean,75.0
 wind_speed_mean,8.0
 umpire_called_strike_pct,0.16
 catcher_framing_runs_index,100.0
+runs_per_team_game,4.47
+hits_per_team_game,8.20
+hr_per_team_game,1.17
+doubles_per_team_game,1.63
+triples_per_team_game,0.14
+qualified_avg_sd,0.028
+qualified_ops_sd,0.080
+qualified_hr40_count,2.5
+qualified_hr30_count,5.5
+qualified_sub220_count,3.0
+qualified_avg300_count,9.0
+qualified_era_sd,0.85
+qualified_k_pct_sd,0.055
