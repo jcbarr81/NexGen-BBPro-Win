@@ -184,9 +184,12 @@ def auto_fill_lineup_for_team(
                 used.add(pid)
                 counters["emergency"] += 1
 
-        # Order batting by hitter_score (best bats earlier). S2-02 replaces only
-        # this sort with slot-specific weighting.
-        ordered = sorted(lineup[:9], key=score, reverse=True)
+        # Slot-weighted batting order (S2-02): leadoff OBP/speed, 2 best overall,
+        # 3-4 power, 9 second-leadoff speed tilt. Consumes the platoon-adjusted
+        # overall score so vs-LHP / vs-RHP orders each reflect their matchup.
+        ordered = _assign_batting_order(
+            lineup[:9], players, vs_hand=hand, overall_score=score
+        )
         return ordered, counters
 
     lineup_root.mkdir(parents=True, exist_ok=True)
@@ -317,6 +320,96 @@ def _platoon_adjustment(player: object, *, vs_hand: str) -> float:
     if hand != "L":
         d = -0.35 * d  # PLATOON_RHP_COUNTER_SCALE, see S2-06
     return 1.2 * h + 0.135 * d
+
+
+def _slot_components(player: object, *, vs_hand: str) -> dict[str, float]:
+    """Rating-space proxies for batting-slot fit. The platoon shifts reuse the
+    engine's _batter_context scales (contact 0.25, power 0.20, eye 0.30 per point
+    of vs-hand delta, plus the flat ±2.0 handedness shift) so slotting agrees
+    with simulated outcomes (S2-02)."""
+    hand = "L" if str(vs_hand or "R").upper().startswith("L") else "R"
+    bats = str(getattr(player, "bats", "") or "R").upper()
+    if bats == "S":
+        h = 0.5
+    elif bats == hand:
+        h = -1.0
+    else:
+        h = 1.0
+    d = float(getattr(player, "vl", 50) or 50) - 50.0
+    if hand != "L":
+        d = -0.35 * d  # PLATOON_RHP_COUNTER_SCALE (S2-06)
+    ch = float(getattr(player, "ch", 0)) + 2.0 * h + 0.25 * d
+    ph = float(getattr(player, "ph", 0)) + 2.0 * h + 0.20 * d
+    eye = float(getattr(player, "eye", 0)) + 2.0 * h + 0.30 * d
+    sp = float(getattr(player, "sp", 0))
+    return {
+        "obp": 0.6 * eye + 0.4 * ch,
+        "power": ph,
+        "contact": ch,
+        "speed": sp,
+    }
+
+
+# Slot weight table (each row sums to 1.00). See S2-02 spec for the rationale.
+_SLOT_WEIGHTS: dict[int, dict[str, float]] = {
+    #        overall  obp   power  speed  contact
+    1: {"overall": 0.20, "obp": 0.45, "power": 0.05, "speed": 0.25, "contact": 0.05},
+    2: {"overall": 0.50, "obp": 0.25, "power": 0.10, "speed": 0.05, "contact": 0.10},
+    3: {"overall": 0.35, "obp": 0.15, "power": 0.35, "speed": 0.05, "contact": 0.10},
+    4: {"overall": 0.25, "obp": 0.10, "power": 0.55, "speed": 0.00, "contact": 0.10},
+    5: {"overall": 0.30, "obp": 0.10, "power": 0.40, "speed": 0.05, "contact": 0.15},
+    6: {"overall": 0.60, "obp": 0.10, "power": 0.15, "speed": 0.10, "contact": 0.05},
+    7: {"overall": 0.70, "obp": 0.10, "power": 0.10, "speed": 0.05, "contact": 0.05},
+    8: {"overall": 0.80, "obp": 0.05, "power": 0.05, "speed": 0.05, "contact": 0.05},
+    9: {"overall": 0.55, "obp": 0.05, "power": 0.05, "speed": 0.30, "contact": 0.05},
+}
+# Anchor the highest-leverage identities first (best overall at 2, top power at
+# 4) so leadoff's heavy OBP/speed weights can't steal the best all-around bat.
+_SLOT_FILL_ORDER = (2, 4, 1, 3, 5, 6, 7, 8, 9)
+
+
+def _assign_batting_order(
+    selected: list[tuple[str, str]],
+    players: dict,
+    *,
+    vs_hand: str,
+    overall_score,  # callable: (pid) -> float
+) -> list[tuple[str, str]]:
+    """Assign the 9 selected (pid, pos) pairs to batting slots by slot-specific
+    weighting of overall / obp / power / speed / contact proxies. Pure permutation
+    of the input; deterministic (pid-ascending tie-break, no RNG)."""
+    pool = list(selected[:9])
+    comps = {
+        pid: _slot_components(players.get(pid), vs_hand=vs_hand)
+        for pid, _pos in pool
+        if players.get(pid) is not None
+    }
+    overall = {pid: float(overall_score(pid)) for pid, _pos in pool}
+    zero = {"obp": 0.0, "power": 0.0, "contact": 0.0, "speed": 0.0}
+    slots: dict[int, tuple[str, str]] = {}
+    # Pre-sort so max() keeps the lowest pid on full ties (determinism).
+    remaining = sorted(pool, key=lambda pr: pr[0])
+    for slot in _SLOT_FILL_ORDER:
+        if not remaining:
+            break
+        weights = _SLOT_WEIGHTS[slot]
+
+        def slot_score(pair: tuple[str, str]) -> tuple[float, float]:
+            pid = pair[0]
+            c = comps.get(pid, zero)
+            score = (
+                weights["overall"] * overall.get(pid, 0.0)
+                + weights["obp"] * c["obp"]
+                + weights["power"] * c["power"]
+                + weights["speed"] * c["speed"]
+                + weights["contact"] * c["contact"]
+            )
+            return (score, overall.get(pid, 0.0))
+
+        best = max(remaining, key=slot_score)
+        slots[slot] = best
+        remaining.remove(best)
+    return [slots[i] for i in sorted(slots)]
 
 
 def _strategy_hitter_bonus(player: object, *, profile: str) -> float:
