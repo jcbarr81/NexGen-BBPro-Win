@@ -107,7 +107,7 @@ BENCH_SPECS = [
 # change log): the engine's control/movement->ERA gain is steep enough that the
 # spec's wider spread overshot the qualified_era_sd gate.
 PITCHER_ROWS = {
-    "SP": {"arm": (55, 6), "control": (52, 5), "movement": (52, 5), "endurance": (75, 8),
+    "SP": {"arm": (55, 6), "control": (52, 5), "movement": (52, 5), "endurance": (55, 8),
            "hold_runner": (50, 10), "gf": (50, 8), "vl": (50, 8), "fa": (50, 8)},
     "CL": {"arm": (65, 5), "control": (50, 5), "movement": (58, 5), "endurance": (30, 6),
            "hold_runner": (50, 10), "gf": (50, 8), "vl": (50, 8), "fa": (50, 8)},

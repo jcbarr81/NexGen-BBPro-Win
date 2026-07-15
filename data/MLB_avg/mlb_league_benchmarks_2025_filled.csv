@@ -72,3 +72,9 @@ qualified_sub220_count,3.0
 qualified_avg300_count,9.0
 qualified_era_sd,0.85
 qualified_k_pct_sd,0.055
+pitches_per_start,86.0
+ip_per_start,5.2
+relievers_per_team_game,3.3
+reliever_top_appearances,77.0
+saves_per_team_game,0.25
+reliever_b2b_share,0.15

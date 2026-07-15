@@ -295,7 +295,7 @@ not vibes.
 |---|---|---|---|---|---|
 | S2-07 | Times-through-order batter bonus | Batters gain **nothing** on 3rd look (only hook logic knows TTO, engine.py:594-597); real penalty ~20-30 OPS pts/pass; `tto_penalty_runs` benchmark sits unused | `tto` in `_batter_context`; `tto_contact/eye/power_bonus` knobs (~+1.5 rating/pass past 1st); new KPI vs benchmark | KPI `--strict` incl. new TTO gate; overall K%/BB%/AVG gates stay green (retune if needed) | Open |
 | S2-08 | Player-dispersion KPI gate | Harness validates 13 league averages only; compression risks: `exit_velo_softcap` 105/0.55 (config.py:314-15), shallow eye/contact slopes (physics.py:644-45, 785) | New distribution metrics: SD of qualified AVG/OPS, counts of 30+/40+ HR seasons, sub-.220/.300+ qualified hitters, ERA spread; tolerance vs recent MLB; then widen slopes/soft-cap until green | The new gates themselves; leaders tables pass the eyeball test ("does a 42-HR guy exist?") | Done (2026-07-15, aa33faa44 — `--strict` green seeds 1&2; see change-log for spec deviations) |
-| S2-12 | Usage-pattern KPIs | Hook/bullpen logic elaborate but unvalidated; `role_averages_mlbstats_2020_2024.csv` unused | KPIs: avg pitches/start (~86), relievers/game, appearance leaders, saves/holds distribution | Gates green after S2-03/04 land (these tasks co-tune) | Open |
+| S2-12 | Usage-pattern KPIs | Hook/bullpen logic elaborate but unvalidated; `role_averages_mlbstats_2020_2024.csv` unused | KPIs: avg pitches/start (~86), relievers/game, appearance leaders, saves/holds distribution | Gates green after S2-03/04 land (these tasks co-tune) | Done (2026-07-15, pending commit — 6 usage gates default-strict & green seeds 1&2; 30 tests) |
 | S2-13 | Pinch-hitter defensive awareness | `_select_pinch_hitter` (engine.py:2461-2487) ignores defense; PH inherits the vacated position (2436-2440) — a 1B can end up catching | Filter/penalize candidates who can't cover the position; never burn the last catcher | Unit test: last-catcher protection; log audit over a simmed month | Open |
 
 ### Phase C: CPU league dynamics
@@ -379,6 +379,24 @@ not vibes.
 ---
 
 ## Change log (newest first)
+
+- **2026-07-15** — **S2-12 pitching-usage KPIs implemented** (pending commit).
+  Per `docs/specs/S2-12_usage_kpis.md`: six usage metrics added to the harness
+  (`_usage_metrics`): `pitches_per_start`, `ip_per_start`,
+  `relievers_per_team_game`, `reliever_top_appearances` (162-pace-normalized),
+  `saves_per_team_game`, `reliever_b2b_share`, plus a `summary["usage"]`
+  appearance-leaders diagnostic. **Deviation:** the spec designed these opt-in
+  behind `--usage-gates` (to defer enforcement until S2-03/04 land); since S2-03
+  and S2-04 have already landed, that deferral is moot — the six keys go straight
+  into `DEFAULT_TOLERANCES` (default-strict, so the CI `--strict` run enforces
+  them), fulfilling the plan's "gates green after S2-03/04 land." **Tuning:** the
+  starter-depth gates were red (pitches/start 97, IP/start 6.0 — starters cruised
+  on the fixture's endurance-75 arms), so fixture SP endurance 75→55 +
+  `hook_aggression_scale` 1.1→1.3 brought starts to MLB depth (87 pitches / 5.33
+  IP), which lifted relievers/game to 3.0 and the appearance leader to ~85; all
+  six land in band. Only `data/calibration/players.csv` regenerates. New
+  `tests/test_usage_kpis.py`. Verification: `--games 162 --strict` green on seeds
+  1 & 2 (all old gates + 6 usage gates); 30-test related suite green.
 
 - **2026-07-15** — **S2-04 closer usage in tied games implemented** (`621887bd2`). Per `docs/specs/S2-04_closer_tied_games.md`: `_select_reliever` gains
   `is_home_defense`; the CL is now eligible + prioritized in a tied game from the

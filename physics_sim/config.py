@@ -464,7 +464,7 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "bip_ld_cutoff": 15.7,
     # Pitching hooks/usage
     "hook_threshold": 1.9,
-    "hook_aggression_scale": 1.1,
+    "hook_aggression_scale": 1.3,
     "postseason_hook_scale": 1.2,
     "close_game_hook_scale": 1.1,
     "close_game_run_diff": 2.0,

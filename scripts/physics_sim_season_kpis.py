@@ -98,6 +98,14 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     # ARE calibratable and green. See docs/deep_review_plan.md change log.
     # qualified_avg300_count widened 5.0 -> 9.0 for the same population-shape
     # reason (upper AVG tail inflated without low-end survivorship).
+    # S2-12 pitching-usage gates (default-strict now that S2-03/S2-04 have landed
+    # and tuned the bullpen + hook behavior they gate).
+    "pitches_per_start": 6.0,
+    "ip_per_start": 0.4,
+    "relievers_per_team_game": 0.4,
+    "reliever_top_appearances": 10.0,
+    "saves_per_team_game": 0.05,
+    "reliever_b2b_share": 0.06,
 }
 
 
@@ -666,6 +674,44 @@ def _dispersion_metrics(
     return metrics
 
 
+def _usage_metrics(
+    usage: Counter,
+    reliever_days: dict[str, list[int]],
+    pitcher_totals: dict[str, Counter],
+    games: int,
+    games_per_team: int,
+) -> dict[str, float | None]:
+    """S2-12 pitching-usage KPIs. Each emits None on a zero denominator (skipped
+    by evaluate_tolerances). reliever_top_appearances is pace-normalized to 162
+    games; the rest are already rates."""
+    starts = usage.get("starts", 0)
+    team_games = games * 2
+    reliever_g = [
+        s.get("g", 0) for s in pitcher_totals.values() if s.get("gs", 0) == 0
+    ]
+    total_sv = sum(s.get("sv", 0) for s in pitcher_totals.values())
+
+    b2b = 0
+    for days in reliever_days.values():
+        days.sort()
+        # Same-day pairs (b - a == 0, doubleheaders) are NOT back-to-backs.
+        b2b += sum(1 for a, b in zip(days, days[1:]) if b - a == 1)
+    total_relief = usage.get("reliever_appearances", 0)
+
+    return {
+        "pitches_per_start": (usage.get("start_pitches", 0) / starts) if starts else None,
+        "ip_per_start": (usage.get("start_outs", 0) / 3.0 / starts) if starts else None,
+        "relievers_per_team_game": (total_relief / team_games) if team_games else None,
+        "reliever_top_appearances": (
+            max(reliever_g) * (162.0 / games_per_team)
+            if reliever_g and games_per_team
+            else None
+        ),
+        "saves_per_team_game": (total_sv / team_games) if team_games else None,
+        "reliever_b2b_share": (b2b / total_relief) if total_relief else None,
+    }
+
+
 def run_sim(
     games_per_team: int,
     seed: int,
@@ -693,6 +739,9 @@ def run_sim(
     team_fielding: dict[str, Counter] = defaultdict(Counter)
     batter_totals: dict[str, Counter] = defaultdict(Counter)
     pitcher_totals: dict[str, Counter] = defaultdict(Counter)
+    # S2-12 pitching-usage accumulators.
+    usage: Counter = Counter()  # starts, start_pitches, start_outs, reliever_appearances
+    reliever_days: dict[str, list[int]] = defaultdict(list)  # pid -> game_day per relief app
     player_teams: dict[str, str] = {}
     player_names = _load_player_names(players_path)
     contact_ratings, power_ratings, control_ratings = _load_player_ratings(
@@ -802,6 +851,15 @@ def run_sim(
                 if player_id:
                     _accumulate(pitcher_totals[player_id], line, pitching_keys)
                     player_teams.setdefault(player_id, team_id)
+                # S2-12: per-game starter vs reliever usage (classified by this
+                # game's line, so swingmen count correctly on both sides).
+                if int(line.get("gs", 0) or 0) >= 1:
+                    usage["starts"] += 1
+                    usage["start_pitches"] += int(line.get("pitches", 0) or 0)
+                    usage["start_outs"] += int(line.get("outs", 0) or 0)
+                elif player_id:
+                    usage["reliever_appearances"] += 1
+                    reliever_days[player_id].append(game_day)
             for line in (meta.get("fielding_lines", {}) or {}).get(side, []):
                 _accumulate(team_fielding[team_id], line, fielding_keys)
         for entry in result.pitch_log:
@@ -1000,6 +1058,31 @@ def run_sim(
             teams=len(teams),
         )
     )
+
+    # Pitching-usage gates (S2-12).
+    summary["metrics"].update(
+        _usage_metrics(
+            usage=usage,
+            reliever_days=reliever_days,
+            pitcher_totals=pitcher_totals,
+            games=len(schedule),
+            games_per_team=games_per_team,
+        )
+    )
+    _appearance_leaders = sorted(
+        (
+            {"player_id": pid, "name": player_names.get(pid, pid), "g": s.get("g", 0)}
+            for pid, s in pitcher_totals.items()
+            if s.get("gs", 0) == 0
+        ),
+        key=lambda e: e["g"],
+        reverse=True,
+    )[:10]
+    summary["usage"] = {
+        "starts": usage.get("starts", 0),
+        "reliever_appearances": usage.get("reliever_appearances", 0),
+        "appearance_leaders": _appearance_leaders,
+    }
 
     # Platoon-split KPI (S2-01): league wOBA of opposite-hand PAs minus same-hand
     # PAs (switch hitters excluded from the gap).
