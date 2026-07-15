@@ -441,6 +441,12 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "handedness_power_bonus": 1.2,
     "handedness_eye_bonus": 1.2,
     "handedness_switch_bonus": 0.5,
+    # S2-07: batter familiarity bonus per times-through-order pass beyond the
+    # first (rating points; MLB TTO penalty ~20-30 OPS pts per pass).
+    "tto_contact_bonus": 0.32,
+    "tto_eye_bonus": 0.32,
+    "tto_power_bonus": 0.2,
+    "tto_max_passes": 3.0,
     "platoon_contact_scale": 0.25,
     "platoon_power_scale": 0.2,
     "platoon_eye_scale": 0.3,

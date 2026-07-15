@@ -3058,7 +3058,8 @@ def _handedness_advantage(batter_hand: str, pitcher_hand: str, tuning: TuningCon
 
 
 def _batter_context(
-    batter: BatterRatings, pitcher: PitcherRatings, tuning: TuningConfig
+    batter: BatterRatings, pitcher: PitcherRatings, tuning: TuningConfig,
+    *, tto: int = 1,
 ) -> Dict[str, Any]:
     pitcher_hand = (pitcher.throws or "R").upper()
     batter_hand = (batter.bats or "R").upper()
@@ -3069,6 +3070,14 @@ def _batter_context(
     contact += handedness * tuning.get("handedness_contact_bonus", 2.0)
     power += handedness * tuning.get("handedness_power_bonus", 2.0)
     eye += handedness * tuning.get("handedness_eye_bonus", 2.0)
+    # S2-07: familiarity — batters improve on the 2nd/3rd look (defaults 0.0 so a
+    # legacy TuningConfig without the knobs stays behavior-neutral).
+    max_passes = int(tuning.get("tto_max_passes", 3.0))
+    tto_extra = float(max(0, min(tto, max_passes) - 1))
+    if tto_extra:
+        contact += tto_extra * tuning.get("tto_contact_bonus", 0.0)
+        eye += tto_extra * tuning.get("tto_eye_bonus", 0.0)
+        power += tto_extra * tuning.get("tto_power_bonus", 0.0)
     platoon_chase = 0.0
     vs_left_diff = _platoon_vl_delta(batter, pitcher_hand)
     contact += vs_left_diff * tuning.get("platoon_contact_scale", 0.25)
@@ -3472,6 +3481,22 @@ def simulate_game(
     home_index = 0
     batter_tracking: dict[str, dict[str, int]] = {}
 
+    # S2-07: per-times-through-order batting splits (exact, via snapshot-diff of
+    # the batter line between PA starts; adds no RNG draws).
+    tto_splits: dict[str, dict[str, int]] = {"1": {}, "2": {}, "3": {}}
+    _TTO_FIELDS = ("pa", "ab", "h", "b1", "b2", "b3", "hr", "bb", "hbp", "sf", "so")
+    _pending_tto: list = [None, "1", None]  # [snapshot, bucket, batter_line]
+
+    def _flush_tto() -> None:
+        snap, bucket, bl = _pending_tto
+        if snap is None or bl is None:
+            return
+        b = tto_splits[bucket]
+        for f in _TTO_FIELDS:
+            d = getattr(bl, f) - snap[f]
+            if d:
+                b[f] = b.get(f, 0) + d
+
     def play_half_inning(
         offense_state: LineupState,
         defense_state: LineupState,
@@ -3842,6 +3867,9 @@ def simulate_game(
                 {"pitches": 0, "swings": 0, "o_zone_pitches": 0, "o_zone_swings": 0},
             )
             batter_line = _batter_line(offense_state, batter)
+            # S2-07: snapshot BEFORE pa/outcome mutations so the diff counts this
+            # PA's pa increment and outcome fields.
+            _tto_snap = {f: getattr(batter_line, f) for f in _TTO_FIELDS}
             zone_bottom, zone_top = strike_zone_bounds(
                 height_in=batter.height,
                 zone_bottom=batter.zone_bottom,
@@ -3858,6 +3886,14 @@ def simulate_game(
             if batter_line.g == 0:
                 batter_line.g = 1
             line.batters_faced += 1
+            # S2-07: times-through-order pass for this PA (same count the hook
+            # logic uses); flush the prior PA's split and snapshot this one.
+            _pa_tto = _times_through_order(
+                line.batters_faced, len(offense_state.lineup)
+            )
+            pa_tto_bucket = str(min(_pa_tto, 3))
+            _flush_tto()
+            _pending_tto[:] = [_tto_snap, pa_tto_bucket, batter_line]
             at_bat_over = False
             if _should_intentional_walk(
                 bases=bases,
@@ -4062,7 +4098,9 @@ def simulate_game(
             # per-pitch loop (S1-09): batter context depends only on the
             # batter/pitcher pairing, and most of the pitcher dict is static
             # (the three fatigue-scaled entries update per pitch below).
-            _pa_batter_ctx = _batter_context(batter, pitcher_state.pitcher, tuning)
+            _pa_batter_ctx = _batter_context(
+                batter, pitcher_state.pitcher, tuning, tto=_pa_tto
+            )
             _pa_pitcher_ctx = {
                 "repertoire": pitcher_state.pitcher.repertoire or {"fb": 50},
                 # Fastball velocity; per-type offsets are subtracted in
@@ -4137,6 +4175,7 @@ def simulate_game(
                 entry["fatigue_penalty"] = penalty
                 entry["pitcher_id"] = pitcher.player_id
                 entry["batter_id"] = batter.player_id
+                entry["tto"] = _pa_tto
                 pitch_log.append(entry)
                 batter_line.pitches += 1
                 is_strike = res.outcome in _STRIKE_OUTCOMES
@@ -5388,12 +5427,14 @@ def simulate_game(
                 tuning=tuning,
             )
 
+    _flush_tto()  # S2-07: capture the final PA's split.
     return GameResult(
         totals=totals,
         pitch_log=pitch_log,
         metadata={
             "park": park.name,
             "seed": seed,
+            "tto_splits": {k: dict(v) for k, v in tto_splits.items()},
             "pitcher_usage": {
                 "away": [
                     _pitcher_usage_summary(state)

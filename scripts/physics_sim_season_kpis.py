@@ -103,9 +103,15 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     "pitches_per_start": 6.0,
     "ip_per_start": 0.4,
     "relievers_per_team_game": 0.4,
-    "reliever_top_appearances": 10.0,
+    # Leader appearance count is a max over 30 teams' top relievers — a
+    # high-variance statistic (like hr40) that the S2-07 TTO hook interaction
+    # (worse pass-3 pitching -> earlier hooks -> more relief) nudges up; tol
+    # widened 10 -> 15 so the gate bounds gross over-use, not a precise leader.
+    "reliever_top_appearances": 15.0,
     "saves_per_team_game": 0.05,
     "reliever_b2b_share": 0.06,
+    # S2-07: pass-3 minus pass-1 league OPS gap (times-through-order penalty).
+    "tto_ops_gap": 0.025,
 }
 
 
@@ -742,6 +748,8 @@ def run_sim(
     # S2-12 pitching-usage accumulators.
     usage: Counter = Counter()  # starts, start_pitches, start_outs, reliever_appearances
     reliever_days: dict[str, list[int]] = defaultdict(list)  # pid -> game_day per relief app
+    # S2-07 times-through-order batting splits (bucket "1"/"2"/"3" -> Counter).
+    tto_totals: dict[str, Counter] = defaultdict(Counter)
     player_teams: dict[str, str] = {}
     player_names = _load_player_names(players_path)
     contact_ratings, power_ratings, control_ratings = _load_player_ratings(
@@ -862,6 +870,9 @@ def run_sim(
                     reliever_days[player_id].append(game_day)
             for line in (meta.get("fielding_lines", {}) or {}).get(side, []):
                 _accumulate(team_fielding[team_id], line, fielding_keys)
+        # S2-07: accumulate per-pass batting splits (game-level, not per-side).
+        for bucket, stats in (meta.get("tto_splits") or {}).items():
+            tto_totals[bucket].update(stats)
         for entry in result.pitch_log:
             # PA-result scan runs BEFORE the pitch_type guard — ibb/bunt entries
             # carry pa_result but no pitch_type (S2-01 platoon-split KPI).
@@ -1083,6 +1094,15 @@ def run_sim(
         "reliever_appearances": usage.get("reliever_appearances", 0),
         "appearance_leaders": _appearance_leaders,
     }
+
+    # Times-through-order OPS gap (S2-07): pass-3 minus pass-1 league OPS. None
+    # (skipped) below 500 pass-3 PA to avoid small-sample noise.
+    ops1 = _split_batter_metrics(tto_totals["1"])["ops"]
+    ops3 = _split_batter_metrics(tto_totals["3"])["ops"]
+    summary["metrics"]["tto_ops_gap"] = (
+        (ops3 - ops1) if tto_totals["3"].get("pa", 0) >= 500 else None
+    )
+    summary["tto_splits"] = {k: dict(v) for k, v in tto_totals.items()}
 
     # Platoon-split KPI (S2-01): league wOBA of opposite-hand PAs minus same-hand
     # PAs (switch hitters excluded from the gap).
