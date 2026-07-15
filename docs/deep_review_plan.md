@@ -303,7 +303,7 @@ not vibes.
 | ID | Task | Evidence | Fix | Verify | Status |
 |---|---|---|---|---|---|
 | S2-09 | Deadline-aware CPU trading | `cpu_trade_proposals.py:141-165` cadence-random, ignores standings; `finance_ai.py:484-502` already computes contend/bubble/rebuild but only for budgets; deadline exists only as a UI countdown | Feed profile + games-back into `_build_best_offer`: contenders buy (veterans-for-prospects), sellers reverse; hard-block trades after deadline | Season-log audit: buyer/seller behavior around deadline; existing CPU-trade acceptance tests still pass | Done (2026-07-15, 2372e301c — 34 trade tests green; new `services/team_outlook.py`; phase-aware window) |
-| S2-10 | CPU-to-CPU trades | Proposals only target human teams — 28 CPU teams never trade among themselves | Extend target pool; auto-resolve via `evaluate_cpu_trade_offer` both sides; cap league-wide volume (~2-6/deadline season) | Transactions log shows CPU-CPU deals; guardrails (anti-spam caps) hold; league talent balance stable over 3 sim seasons | Done (2026-07-15, pending commit — 16 proposal + 2 execution tests green; 3-season stability gate NOT run, see change log) |
+| S2-10 | CPU-to-CPU trades | Proposals only target human teams — 28 CPU teams never trade among themselves | Extend target pool; auto-resolve via `evaluate_cpu_trade_offer` both sides; cap league-wide volume (~2-6/deadline season) | Transactions log shows CPU-CPU deals; guardrails (anti-spam caps) hold; league talent balance stable over 3 sim seasons | Done (2026-07-15, e98b23e73 — 16 proposal + 2 execution tests green; 3-season stability gate NOT run, see change log) |
 | S2-11 | In-season callups + September expansion | `prospect_promotion.py:1-23` offseason-only; no September expansion (comment-only in season_manager.py:77) | Monthly promotion check (AAA→ACT bars, weighted by contend/rebuild); September ACT-size expansion hook | Roster-churn audit over a season; roster-size validation passes; injury replacement still works | Open |
 
 **Sprint 2 exit gate:** KPI harness `--strict` green **including all new gates**
@@ -380,7 +380,7 @@ not vibes.
 
 ## Change log (newest first)
 
-- **2026-07-15** — **S2-10 CPU-to-CPU trades implemented** (pending commit).
+- **2026-07-15** — **S2-10 CPU-to-CPU trades implemented** (`e98b23e73`).
   Per `docs/specs/S2-10_cpu_to_cpu_trades.md`:
   - New `services/trade_execution.py` — `commit_trade` (verbatim move of the
     router's `_commit_trade`, FastAPI-free, `HTTPException`→`ValueError`) +
