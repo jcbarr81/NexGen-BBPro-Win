@@ -178,6 +178,106 @@ Goal: the league *feels* alive — platoons, rest, believable bullpens, CPU team
 that adapt — with every behavioral change gated by a KPI so realism is proven,
 not vibes.
 
+> ### Implementer's contract (added 2026-07-15 — read before coding)
+>
+> Sprint 2 tasks (and S1-10) each have an **implementation-ready spec** in
+> `docs/specs/` — written from fresh code inspection, with every architectural
+> decision already made. The rules:
+>
+> 1. **Code from the spec.** Signatures, constants, formulas, knob names and
+>    defaults, and insertion points are decisions, not suggestions. If reality
+>    contradicts a spec (an anchor moved, an assumption fails), STOP on that
+>    task, record the conflict in this doc's change log, and pick a
+>    non-conflicting task — don't improvise architecture.
+> 2. **Verification gates are part of the task.** A task is `Done` only when
+>    the spec's named tests pass and its KPI/parity gates run green
+>    (`scripts/physics_sim_season_kpis.py --strict` for realism changes;
+>    `scripts/benchmark_sim_days.py` same-day digest parity for
+>    performance-neutral changes). Update this doc's status column with date +
+>    commit per change-log rules at the top.
+> 3. **Never run sims/tests against the active league.** Anything exercising
+>    the sim must pin `NEXGEN_DATA_ROOT` to a sandbox copy (see
+>    `scripts/benchmark_sim_days.py` for the pattern). If `git status` shows
+>    `data/leagues/**` modified after your work, revert those files before
+>    committing (this has bitten twice — see carry-over table).
+> 4. **Dependency order:** S2-08 calibration repair FIRST (everything else's
+>    gates depend on a green harness) → S2-06 before S2-01/S2-02 → S2-03
+>    before S2-04 and S2-12's gates → S2-09 before S2-10/S2-11. S1-10 is
+>    independent and may be done any time after reading its spec's parity
+>    section.
+> 5. Behavioral (realism) changes are **expected** to change sim outputs —
+>    they re-run the KPI harness, not byte-parity. Performance changes must
+>    hold byte-parity. Each spec states which regime applies.
+>
+> ### Spec-vs-plan corrections (from spec-writing code inspection, 2026-07-15)
+>
+> - **S2-09**: the trade deadline is NOT "UI countdown only" — full sim-aware
+>   accessors exist (`utils/trade_utils.py:27-51`) and `save_trade` already
+>   hard-blocks post-deadline trades (but wrongly keeps blocking through the
+>   offseason — the spec fixes that). Specs reuse these accessors.
+> - **Naming**: `finance_ai`'s middle profile is `"balanced"`, not "bubble";
+>   the new shared `services/team_outlook.py` classifier uses
+>   contend/bubble/rebuild for the trading domain and leaves finance_ai alone.
+> - **S2-10 volume**: acceptance band is 15-40 CPU-CPU trades/season (the
+>   earlier "~2-6" note in the task row was too low; caps land in-band).
+> - **S2-03**: the recovery tracker does NOT gate in-game reliever use — the
+>   engine's in-memory `UsageState` does; `tracker.is_available` has zero
+>   production callers. Also `closer_max_consecutive_days=1.0` means closers
+>   can't pitch back-to-back at all today (inverted vs the plan's assumption).
+>   The spec unifies both systems on one canonical pitch-count→rest table.
+> - **S2-04**: postseason 8th-inning fireman is a declared non-goal —
+>   `simulate_game(postseason=…)` exists but no production caller passes it.
+> - **S1-10**: the earlier design handoff is superseded by the full spec
+>   (`docs/specs/S1-10_parallel_day.md`) — three additional traps found and
+>   resolved (UsageState must ride the worker payload; league ContextVar
+>   doesn't cross processes; next-day seeds depend on the global RNG the
+>   engine reseeds, so cross-day parity needs a private simulator RNG).
+>
+> - **Failing-test attribution corrected (S2-08 spec, by execution)**: the 16
+>   `tests/test_physics.py` failures are NOT from QW-13 — they exercise the
+>   **archived legacy engine** and broke from earlier legacy retunes, the
+>   `simDeterministicTestMode` fastpath, and a `decide_swing` signature
+>   change. Per-test fixes are specified (and were verified green) in the
+>   S2-08 spec. `test_simulation_averages.py` fails from data-root mixing and
+>   **mutates the live league when run** — its rewrite onto the calibration
+>   fixture is in the spec (live confirmation of the test-pollution
+>   carry-over).
+> - **Calibration root cause**: `scripts/normalize_players.py` samples the
+>   source CSV's own percentile bands (self-referential) — it can only
+>   re-amplify drift. The spec replaces it with an absolute-distribution
+>   generator producing a committed 30-team fixture under `data/calibration/`
+>   plus a harness `--base-dir` mode that ends live-league/repo data mixing.
+> - **Benchmarks gap**: `mlb_league_benchmarks_2025_filled.csv` has no
+>   `runs_per_team_game` row — runs/game has never been gated; the spec adds
+>   13 benchmark rows.
+> - **S2-01 KPI**: the pitch log never records PA outcomes, so the platoon
+>   wOBA-gap gate requires a minimal `pa_result` engine emission (specified) —
+>   a small, deliberate deviation from "harness-aggregation-only".
+> - **S2-05 approach corrected**: lineup autofill never runs in the per-game
+>   path, so rest swaps happen **in-memory inside `simulate_game`** (between
+>   `advance_day` and batter-fatigue application), not via lineup-file
+>   regeneration; backup-catcher gate relaxed to ≥35 starts (the sim collapses
+>   off-days, resetting consecutive-game counters less often than a calendar).
+>
+> ### Spec index (code from these, in this order)
+>
+> | Order | Task | Spec file |
+> |---|---|---|
+> | 1 | S2-08 calibration repair (prereq for all gates) | `docs/specs/S2-08_calibration_repair.md` |
+> | 2 | S2-06 pitcher throws (prereq for platoon work) | `docs/specs/S2-06_pitcher_throws.md` |
+> | 3 | S2-01 platoon lineups | `docs/specs/S2-01_platoon_lineups.md` |
+> | 4 | S2-02 batting order | `docs/specs/S2-02_batting_order.md` |
+> | 5 | S2-03 reliever rest (unified rest table) | `docs/specs/S2-03_reliever_rest.md` |
+> | 6 | S2-04 closer in tied games | `docs/specs/S2-04_closer_tied_games.md` |
+> | 7 | S2-12 usage-pattern KPI gates | `docs/specs/S2-12_usage_kpis.md` |
+> | 8 | S2-07 times-through-order penalty | `docs/specs/S2-07_tto_penalty.md` |
+> | 9 | S2-05 position-player rest days | `docs/specs/S2-05_rest_days.md` |
+> | 10 | S2-13 pinch-hitter defense | `docs/specs/S2-13_pinch_hitter_defense.md` |
+> | 11 | S2-09 deadline-aware CPU trading | `docs/specs/S2-09_deadline_aware_trading.md` |
+> | 12 | S2-10 CPU-to-CPU trades | `docs/specs/S2-10_cpu_to_cpu_trades.md` |
+> | 13 | S2-11 in-season callups + September | `docs/specs/S2-11_inseason_callups.md` |
+> | any | S1-10 parallel day simulation | `docs/specs/S1-10_parallel_day.md` |
+
 ### Phase A: lineups & pitching staff
 
 | ID | Task | Evidence | Fix | Verify | Status |
@@ -279,6 +379,14 @@ not vibes.
 ---
 
 ## Change log (newest first)
+
+- **2026-07-15** — Implementation-spec package added: 14 code-ready specs in
+  `docs/specs/` (S1-10 + all Sprint 2 tasks), written from fresh code
+  inspection with zero open architectural decisions, for handoff to a coding
+  model. Implementer's contract + spec index + spec-vs-plan corrections added
+  to the Sprint 2 section (notable: legacy-engine test attribution corrected;
+  self-referential normalizer root-caused; trade deadline already implemented;
+  UsageState is the binding reliever gate).
 
 - **2026-07-15** — Sprint 1 shipped (Cloud Run rev 00088 + Hosting): S1-01..09
   and S1-11/12 Done, all parity-verified; 240-game benchmark 23.61s → ~9.0s
