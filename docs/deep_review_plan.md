@@ -380,6 +380,17 @@ not vibes.
 
 ## Change log (newest first)
 
+- **2026-07-15** — **S1-10 parallel day simulation: deferral reaffirmed**
+  (no code change). After shipping the four Sprint 2 logic specs (S2-09/10/11 +
+  S2-13) this session, S1-10 was scoped and deliberately **not** started: it is a
+  multiprocessing rewrite of the core game-sim write path whose Done gate is
+  empirical serial-vs-parallel byte-parity of the scores / season_stats /
+  pitcher_recovery digests (iterative benchmark runs), and it changes serial
+  seed behavior (forces a benchmark re-baseline). That risk/verification profile
+  warrants a dedicated focused session rather than a tail-of-session pass. The
+  implementation-ready design lives in `docs/specs/S1-10_parallel_day.md`; status
+  stays `Deferred`.
+
 - **2026-07-15** — **S2-11 in-season callups + September expansion implemented** (`69b9137b2`). Per `docs/specs/S2-11_inseason_callups.md`:
   - New `services/inseason_callups.py` — `run_monthly_callups` (idempotent
     per-league/month via `callup_state.json`; CPU teams only; outlook-weighted
