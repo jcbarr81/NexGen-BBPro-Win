@@ -30,7 +30,7 @@ from .physics import (
     strike_zone_bounds,
     miss_distance,
 )
-from .usage import UsageState
+from .usage import UsageState, reliever_rest_days
 from .team_data import (
     build_staff,
     build_bench,
@@ -295,9 +295,7 @@ def _rest_days_for_role(role: str, tuning: TuningConfig) -> int:
     role = (role or "").upper()
     if role.startswith("SP"):
         return int(tuning.get("starter_rest_days", 4.0))
-    if role == "CL":
-        return int(tuning.get("closer_rest_days", 1.0))
-    return int(tuning.get("reliever_rest_days", 0.0))
+    return 0  # relievers use the pitch-count table (S2-03)
 
 
 def _pitcher_days_since_use(
@@ -327,7 +325,12 @@ def _pitcher_is_rested(
     )
     if days_since is None:
         return True
-    return days_since >= _rest_days_for_role(role, tuning)
+    role_u = (role or "").upper()
+    if role_u.startswith("SP"):
+        return days_since >= _rest_days_for_role(role_u, tuning)
+    workload = usage_state.workload_for(pitcher_id)
+    required = reliever_rest_days(workload.last_pitches, tuning) + 1
+    return days_since >= required
 
 
 def _order_pitchers_for_game(
@@ -491,27 +494,30 @@ def _apply_usage_state(
     if rest_role == "CL":
         availability_ratio = tuning.get("closer_availability_ratio", 1.3)
     state.available = ratio <= availability_ratio
-    rest_days = _rest_days_for_role(rest_role, tuning)
-    if (
-        game_day is not None
-        and rest_days > 0
-        and workload.last_used_day is not None
-    ):
+    is_starter = rest_role.upper().startswith("SP")
+    if is_starter:
+        required_days = _rest_days_for_role(rest_role, tuning)
+    else:
+        # S2-03: relievers (CL included) use the pitch-count table.
+        required_days = reliever_rest_days(workload.last_pitches, tuning) + 1
+    if required_days > 0 and workload.last_used_day is not None:
         days_since = game_day - workload.last_used_day
-        if days_since < rest_days:
+        if days_since < required_days:
             state.available = False
             rest_penalty = tuning.get("short_rest_penalty", 0.35)
-            rest_deficit = rest_days - days_since
-            scaled = rest_penalty * (rest_deficit / max(1.0, float(rest_days)))
+            rest_deficit = required_days - days_since
+            scaled = rest_penalty * (rest_deficit / max(1.0, float(required_days)))
             state.pregame_penalty = max(state.pregame_penalty, scaled)
-    if rest_role == "CL":
-        max_consecutive = int(tuning.get("closer_max_consecutive_days", 2.0))
+    if not is_starter:
+        # S2-03: block the 3rd consecutive day for ALL relievers.
+        max_consecutive = int(tuning.get("reliever_max_consecutive_days", 2.0))
         if max_consecutive > 0 and workload.last_used_day is not None:
-            if game_day is not None and game_day - workload.last_used_day == 1:
+            if game_day - workload.last_used_day == 1:
                 if workload.consecutive_days_used >= max_consecutive:
                     state.available = False
+    if rest_role == "CL":
         max_ratio = float(tuning.get("closer_max_appearances_ratio", 0.0))
-        if max_ratio > 0.0 and game_day is not None:
+        if max_ratio > 0.0:
             max_apps = max(1, int((game_day + 1) * max_ratio))
             if workload.appearances >= max_apps:
                 state.available = False

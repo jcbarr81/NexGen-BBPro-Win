@@ -314,7 +314,7 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "babip_scale": 0.917,
     "walk_scale": 0.83,
     "k_scale": 0.51,
-    "contact_prob_scale": 0.90,
+    "contact_prob_scale": 0.885,
     "chase_contact_scale": 0.73,
     "contact_quality_scale": 1.075,
     "foul_rate": 0.41,
@@ -345,8 +345,11 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "daily_recovery_base": 40.0,
     "daily_recovery_durability_scale": 0.8,
     "starter_rest_days": 4.0,
-    "closer_rest_days": 0.0,
-    "reliever_rest_days": 2.0,
+    # S2-03: reliever rest is pitch-count-conditional (canonical table in
+    # physics_sim/usage.reliever_rest_days) rather than a flat role-based wait.
+    "reliever_rest_b2b_max_pitches": 12.0,
+    "reliever_rest_one_day_max_pitches": 25.0,
+    "reliever_rest_two_day_max_pitches": 40.0,
     "closer_availability_ratio": 1.3,
     "short_rest_penalty": 0.35,
     "reliever_fatigue_start_scale": 0.25,
@@ -354,7 +357,8 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "long_reliever_fatigue_start_scale": 0.5,
     "long_reliever_fatigue_limit_scale": 0.45,
     "closer_max_outs": 3.0,
-    "closer_max_consecutive_days": 1.0,
+    # S2-03: applies to ALL bullpen roles now (3rd consecutive day blocked).
+    "reliever_max_consecutive_days": 2.0,
     "closer_max_appearances_ratio": 0.45,
     "setup_max_outs": 3.0,
     "middle_reliever_max_outs": 4.0,

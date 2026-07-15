@@ -14,6 +14,7 @@ class PitcherWorkload:
     consecutive_days_used: int = 0
     last_update_day: int | None = None
     appearances: int = 0
+    last_pitches: int = 0
 
 
 @dataclass
@@ -22,6 +23,24 @@ class BatterWorkload:
     last_used_day: int | None = None
     consecutive_days_used: int = 0
     last_update_day: int | None = None
+
+
+def reliever_rest_days(pitches: int, tuning: "TuningConfig | None" = None) -> int:
+    """Full off days required after a relief outing of ``pitches`` pitches.
+
+    Canonical table shared by the physics engine (UsageState gating) and
+    utils.pitcher_recovery (tracker availability) — S2-03.
+    """
+    def _knob(name: str, default: float) -> float:
+        return tuning.get(name, default) if tuning is not None else default
+
+    if pitches <= int(_knob("reliever_rest_b2b_max_pitches", 12.0)):
+        return 0
+    if pitches <= int(_knob("reliever_rest_one_day_max_pitches", 25.0)):
+        return 1
+    if pitches <= int(_knob("reliever_rest_two_day_max_pitches", 40.0)):
+        return 2
+    return 3
 
 
 @dataclass
@@ -105,6 +124,7 @@ class UsageState:
         else:
             workload.consecutive_days_used = 1
         workload.last_used_day = day
+        workload.last_pitches = pitches
         workload.appearances += 1
         penalty = tuning.get("consecutive_usage_penalty", 8.0)
         if workload.consecutive_days_used > 1:

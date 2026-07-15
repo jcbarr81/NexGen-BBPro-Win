@@ -36,21 +36,32 @@ def _format_date(value: date) -> str:
 
 
 @functools.lru_cache(maxsize=512)
-def _rest_days(pitches: int) -> int:
+def _rest_days(pitches: int, role: str = "SP") -> int:
     """Return rest days required after throwing ``pitches``.
 
     When ``enableUsageModelV2`` is active in the PlayBalance config, apply
     configurable pitch-count thresholds. Otherwise, fall back to the legacy
     step function.
 
-    Pure function of ``pitches`` + the static bundled PBINI.txt tuning (which
-    only changes on deploy → fresh process), so it's safe to memoize. This
+    Relievers (LR/MR/SU/CL) delegate to the canonical pitch-count table shared
+    with the physics engine (S2-03) so the two systems can never disagree.
+
+    Pure function of ``(pitches, role)`` + the static bundled PBINI.txt tuning
+    (which only changes on deploy → fresh process), so it's safe to memoize. This
     removes the repeated per-game PBINI.txt parse the profiler flagged in the
     pitcher-recovery path.
     """
 
     if pitches <= 0:
         return 0
+
+    if role in {"LR", "MR", "SU", "CL"}:
+        # Canonical reliever table shared with the physics engine (S2-03). The
+        # +1 converts off-days to the tracker's available_on = date + N semantics
+        # (preserving b2b for <=12-pitch outings).
+        from physics_sim.usage import reliever_rest_days
+
+        return reliever_rest_days(pitches) + 1
 
     # Lazy import to avoid module-level dependency and potential cycles
     try:
@@ -739,7 +750,7 @@ class PitcherRecoveryTracker:
             # archived schedules that still use phantom padding.
             simulated = int(getattr(state, "simulated_pitches", 0) or 0)
             role = self._role_key(self._assigned_role_for(pitcher))
-            rest_days = _rest_days(pitches)
+            rest_days = _rest_days(pitches, role)
             available_on = date_obj + timedelta(days=rest_days)
             stored_status = pitchers.get(pid, {})
             prior_recent: list[dict] = []
@@ -842,7 +853,7 @@ class PitcherRecoveryTracker:
             )
             self._trim_recent(status, ref=date_obj)
             rest_basis = max(1, int(round(warmup_cost)))
-            rest_days = _rest_days(rest_basis)
+            rest_days = _rest_days(rest_basis, role_token)
             if role_token in {"CL", "SU", "MR"}:
                 rest_days = min(rest_days, 1)
             available_on = date_obj + timedelta(days=rest_days)
@@ -882,7 +893,7 @@ class PitcherRecoveryTracker:
             status = _PitcherStatus.from_dict(pitchers.get(pid, {}))
             role = self._role_key(status.last_role)
             self._ensure_budget_initialized(status, None, role)
-            rest_days = _rest_days(int(tax or 0))
+            rest_days = _rest_days(int(tax or 0), role)
             if rest_days > 0:
                 available_on = date_obj + timedelta(days=rest_days)
                 prev_available = _parse_date(status.available_on)
