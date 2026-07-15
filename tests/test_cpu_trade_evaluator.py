@@ -371,3 +371,42 @@ def test_cpu_trade_evaluator_can_disable_counter_generation(monkeypatch):
     assert evaluation is not None
     assert evaluation.action == "reject"
     assert evaluation.counter_offer is None
+
+
+def test_timeline_weight_factor_scales_score():
+    # S2-09: the deadline reweight amplifies the 0.12 timeline weight. Two
+    # evaluations of the same trade differ in total_score by exactly
+    # (0.18 - 0.12) * timeline_delta == 0.06 * timeline_delta.
+    trade = Trade(
+        trade_id="tw1",
+        from_team="HUM",
+        to_team="CPU",
+        give_player_ids=["YOUNG_STAR"],
+        receive_player_ids=["OLD_VET"],
+    )
+    players = {
+        "YOUNG_STAR": _hitter("YOUNG_STAR", age=22, ch=81, ph=76, pot_delta=12),
+        "OLD_VET": _hitter("OLD_VET", age=35, ch=67, ph=62, primary_position="LF"),
+    }
+    teams = {
+        "CPU": SimpleNamespace(team_id="CPU", owner_id="cpu"),
+        "HUM": SimpleNamespace(team_id="HUM", owner_id="james"),
+    }
+    rosters = {"CPU": SimpleNamespace(act=["OLD_VET"])}
+    kwargs = dict(
+        players_by_id=players,
+        teams_by_id=teams,
+        rosters_by_team=rosters,
+        win_pct_by_team={"CPU": 0.390},
+        strategy_profile="development_focus",
+        current_year=2026,
+    )
+
+    base = evaluate_cpu_trade_offer(trade, timeline_weight_factor=1.0, **kwargs)
+    boosted = evaluate_cpu_trade_offer(trade, timeline_weight_factor=1.5, **kwargs)
+
+    assert base is not None and boosted is not None
+    assert base.timeline_delta == boosted.timeline_delta
+    assert abs(base.timeline_delta) > 0.0
+    assert boosted.total_score - base.total_score == \
+        __import__("pytest").approx(0.06 * base.timeline_delta)

@@ -13,6 +13,18 @@ from playbalance.season_manager import TRADE_DEADLINE
 random.seed()
 
 
+@pytest.fixture(autouse=True)
+def _force_regular_season(monkeypatch):
+    """S2-09 made ``save_trade`` phase-aware via ``_current_phase`` (reads the
+    active league's season_state.json, which can leak PRESEASON/OFFSEASON into
+    the suite). Pin REGULAR_SEASON so every deadline test exercises the classic
+    regular-season semantics; window-specific tests override this."""
+
+    monkeypatch.setattr(
+        "utils.trade_utils._current_phase", lambda: "REGULAR_SEASON"
+    )
+
+
 def test_save_trade_updates_existing(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "utils.trade_utils._today", lambda: TRADE_DEADLINE - timedelta(days=1)
@@ -169,3 +181,24 @@ def test_trade_roundtrip_preserves_pick_ids(tmp_path, monkeypatch):
     loaded = load_trades(str(path))
     assert loaded[0].give_pick_ids == ["2027|1|A"]
     assert loaded[0].receive_pick_ids == ["2027|2|B"]
+
+
+def test_window_open_in_offseason(tmp_path, monkeypatch):
+    # S2-09/D3: offseason trades are legal even though the sim date is past 7/31.
+    monkeypatch.setattr(
+        "utils.trade_utils._today", lambda: TRADE_DEADLINE + timedelta(days=45)
+    )
+    monkeypatch.setattr("utils.trade_utils._current_phase", lambda: "OFFSEASON")
+    path = tmp_path / "trades.csv"
+    save_trade(Trade("1", "A", "B", ["p1"], ["p2"]), str(path))
+    assert len(load_trades(str(path))) == 1
+
+
+def test_window_closed_in_playoffs_past_deadline(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "utils.trade_utils._today", lambda: TRADE_DEADLINE + timedelta(days=5)
+    )
+    monkeypatch.setattr("utils.trade_utils._current_phase", lambda: "PLAYOFFS")
+    path = tmp_path / "trades.csv"
+    with pytest.raises(RuntimeError):
+        save_trade(Trade("1", "A", "B", ["p1"], ["p2"]), str(path))

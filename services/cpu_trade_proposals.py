@@ -18,8 +18,9 @@ from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster
 from utils.sim_date import get_current_sim_date
 from utils.team_loader import load_teams
-from utils.trade_utils import load_trades, save_trade
+from utils.trade_utils import load_trades, save_trade, trade_deadline_for_year
 from utils.user_manager import load_users
+from services.team_outlook import load_outlooks, OUTLOOK_CONTEND, OUTLOOK_REBUILD
 
 __all__ = ["run_cpu_trade_proposal_cycle"]
 
@@ -65,6 +66,14 @@ _CADENCE_CONFIG = {
 _MAX_PENDING_CPU_OFFERS_TOTAL = 8
 _REPEAT_PACKAGE_BLOCK_DAYS = 45
 _PACKAGE_HISTORY_RETENTION_DAYS = 180
+
+# S2-09 deadline-aware shaping.
+_DEADLINE_REWEIGHT_DAYS = 30       # timeline reweight + pool-shaping window
+_DEADLINE_VOLUME_DAYS = 14         # cadence-boost window
+_DEADLINE_CADENCE_MULT = 2.0       # daily_chance multiplier in the last 14 days
+_DEADLINE_TIMELINE_FACTOR = 1.5    # 0.12 -> 0.18 effective timeline weight
+_VETERAN_AGE = 28                  # "veteran" for pool shaping
+_YOUTH_AGE = 25                    # "youth" for pool shaping
 
 
 @dataclass(frozen=True)
@@ -125,6 +134,17 @@ def run_cpu_trade_proposal_cycle(
     if current_date is None:
         result["reason"] = "invalid_date"
         return result
+
+    # S2-09: hard-stop the cycle after the July 31 deadline instead of burning
+    # save attempts that save_trade would reject anyway. The cycle only runs
+    # during REGULAR_SEASON (api/routers/season.py:557), so a plain date check
+    # is sufficient — no phase lookup needed.
+    deadline = trade_deadline_for_year(current_date.year)
+    if current_date > deadline:
+        result["reason"] = "past_deadline"
+        result["deadline"] = deadline.isoformat()
+        return result
+    days_to_deadline = (deadline - current_date).days
 
     teams = load_teams(resolved_data_dir / "teams.csv")
     teams_by_id = {
@@ -190,6 +210,9 @@ def run_cpu_trade_proposal_cycle(
 
     randomizer = rng if rng is not None else random.Random()
     cadence_chance = float(cadence_cfg.get("daily_chance", 0.0) or 0.0)
+    if 0 <= days_to_deadline <= _DEADLINE_VOLUME_DAYS:
+        # Ramp proposal volume into the deadline (e.g. normal 0.45 -> 0.90/day).
+        cadence_chance = min(0.95, cadence_chance * _DEADLINE_CADENCE_MULT)
     run_chance = _window_probability(cadence_chance, len(dates))
     min_days_between = int(cadence_cfg.get("min_days_between", 7) or 7)
     min_target_days_between = int(cadence_cfg.get("min_days_between_target", 7) or 7)
@@ -224,6 +247,10 @@ def run_cpu_trade_proposal_cycle(
         "save_failed": 0,
     }
 
+    # S2-09: standings-based outlook per CPU team ({} => everyone "bubble",
+    # i.e. behavior identical to the pre-S2-09 standings-blind path).
+    outlooks = load_outlooks(data_dir=resolved_data_dir)
+
     offers: list[dict[str, object]] = []
     eligible_count = 0
     target_offer_counts: dict[str, int] = {}
@@ -257,6 +284,8 @@ def run_cpu_trade_proposal_cycle(
             blocked_packages=blocked_package_signatures,
             target_offer_counts=target_offer_counts,
             pending_target_limit=max_pending_per_target,
+            outlook=str(outlooks.get(cpu_team_id, "bubble") or "bubble"),
+            days_to_deadline=days_to_deadline,
         )
         if offer is None:
             filtered_counts["no_valid_offer"] += 1
@@ -314,10 +343,14 @@ def run_cpu_trade_proposal_cycle(
                 "give_players": len(offer.trade.give_player_ids),
                 "receive_players": len(offer.trade.receive_player_ids),
                 "score_margin": round(float(offer.score_margin), 3),
+                "proposer_outlook": str(
+                    outlooks.get(offer.cpu_team_id, "bubble") or "bubble"
+                ),
             }
         )
 
     _write_state(proposal_state, data_dir=resolved_data_dir)
+    result["days_to_deadline"] = days_to_deadline
     result["offers_created"] = len(offers)
     result["offers"] = offers
     result["teams_eligible"] = eligible_count
@@ -341,16 +374,60 @@ def _build_best_offer(
     blocked_packages: set[str],
     target_offer_counts: Mapping[str, int],
     pending_target_limit: int,
+    outlook: str = "bubble",
+    days_to_deadline: int = 999,
 ) -> _CandidateOffer | None:
     cpu_roster = list(getattr(rosters_by_team.get(cpu_team_id), "act", []) or [])
     cpu_roster = [pid for pid in cpu_roster if pid in players_by_id]
     if len(cpu_roster) < 5:
         return None
 
-    send_candidates = sorted(
-        cpu_roster,
-        key=lambda pid: _player_trade_value(players_by_id.get(pid)),
-    )[:10]
+    # S2-09: within 30 days of the deadline a contender/rebuilder shapes its
+    # pools + value band toward buying vets / selling vets for youth. Bubble
+    # teams and out-of-window days keep the original standings-blind behavior.
+    reweight_active = (
+        0 <= days_to_deadline <= _DEADLINE_REWEIGHT_DAYS
+        and outlook in {OUTLOOK_CONTEND, OUTLOOK_REBUILD}
+    )
+    timeline_factor = _DEADLINE_TIMELINE_FACTOR if reweight_active else 1.0
+
+    def _value_of(pid: str) -> float:
+        return _player_trade_value(players_by_id.get(pid))
+
+    def _age_filter(pids, *, min_age=None, max_age=None):
+        kept = []
+        for pid in pids:
+            age = _player_age(players_by_id.get(pid))
+            if age is None:  # missing age passes no filter
+                continue
+            if min_age is not None and age < min_age:
+                continue
+            if max_age is not None and age > max_age:
+                continue
+            kept.append(pid)
+        return kept if len(kept) >= 3 else list(pids)  # fall back when < 3 names
+
+    if reweight_active and outlook == OUTLOOK_CONTEND:
+        # Buyer: shop own youth first, chase the target's veterans; overpay band.
+        send_candidates = sorted(
+            cpu_roster,
+            key=lambda pid: (
+                0 if (_player_age(players_by_id.get(pid)) or 99) <= _YOUTH_AGE else 1,
+                _value_of(pid),
+            ),
+        )[:10]
+        band_low, band_high = 0.82, 1.35
+    elif reweight_active and outlook == OUTLOOK_REBUILD:
+        # Seller: shop own best veterans, ask for youth; discount band.
+        send_candidates = sorted(
+            _age_filter(cpu_roster, min_age=_VETERAN_AGE),
+            key=_value_of,
+            reverse=True,
+        )[:10]
+        band_low, band_high = 0.70, 1.22
+    else:
+        send_candidates = sorted(cpu_roster, key=_value_of)[:10]
+        band_low, band_high = 0.82, 1.22
     if not send_candidates:
         return None
 
@@ -367,11 +444,13 @@ def _build_best_offer(
         human_roster = [pid for pid in human_roster if pid in players_by_id]
         if len(human_roster) < 5:
             continue
-        request_candidates = sorted(
-            human_roster,
-            key=lambda pid: _player_trade_value(players_by_id.get(pid)),
-            reverse=True,
-        )[:14]
+        if reweight_active and outlook == OUTLOOK_CONTEND:
+            request_pool = _age_filter(human_roster, min_age=_VETERAN_AGE)
+        elif reweight_active and outlook == OUTLOOK_REBUILD:
+            request_pool = _age_filter(human_roster, max_age=_YOUTH_AGE)
+        else:
+            request_pool = human_roster
+        request_candidates = sorted(request_pool, key=_value_of, reverse=True)[:14]
         if not request_candidates:
             continue
 
@@ -388,9 +467,9 @@ def _build_best_offer(
                 owner_value = _player_trade_value(players_by_id.get(human_player_id))
                 if owner_value <= 0.0 or cpu_value <= 0.0:
                     continue
-                if owner_value < cpu_value * 0.82:
+                if owner_value < cpu_value * band_low:
                     continue
-                if owner_value > cpu_value * 1.22:
+                if owner_value > cpu_value * band_high:
                     continue
                 proactive_trade = Trade(
                     trade_id=uuid.uuid4().hex[:8],
@@ -417,6 +496,7 @@ def _build_best_offer(
                     teams_by_id=teams_by_id,
                     rosters_by_team=rosters_by_team,
                     allow_counter_offers=False,
+                    timeline_weight_factor=timeline_factor,
                 )
                 if evaluation is None:
                     continue
@@ -639,6 +719,24 @@ def _offer_package_signature(trade: Trade) -> str:
         f"GP:{'|'.join(give_players)}|RP:{'|'.join(receive_players)}|"
         f"GK:{'|'.join(give_picks)}|RK:{'|'.join(receive_picks)}"
     )
+
+
+def _player_age(player: object) -> int | None:
+    """Best-effort player age (copy of cpu_trade_evaluator._player_age).
+
+    Duplicated rather than importing a private symbol from the evaluator."""
+
+    age_val = getattr(player, "age", None)
+    if isinstance(age_val, (int, float)):
+        return max(14, min(50, int(age_val)))
+    birthdate = str(getattr(player, "birthdate", "") or "").strip()
+    if len(birthdate) >= 4 and birthdate[:4].isdigit():
+        birth_year = int(birthdate[:4])
+        from services.trade_settings import current_league_year
+
+        season_year = current_league_year()
+        return max(14, min(50, season_year - birth_year))
+    return None
 
 
 def _player_trade_value(player: object) -> float:

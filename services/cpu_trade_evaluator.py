@@ -97,6 +97,7 @@ def evaluate_cpu_trade_offer(
     strategy_profile: str | None = None,
     current_year: int | None = None,
     allow_counter_offers: bool = True,
+    timeline_weight_factor: float = 1.0,
 ) -> CpuTradeEvaluation | None:
     """Evaluate an owner-submitted offer targeting a CPU team.
 
@@ -190,7 +191,8 @@ def evaluate_cpu_trade_offer(
     )
     timeline_delta = (timeline_in + timeline_pick_in) - (timeline_out + timeline_pick_out)
 
-    total_score = (0.68 * value_delta) + (0.20 * fit_delta) + (0.12 * timeline_delta)
+    timeline_w = 0.12 * max(0.25, min(3.0, float(timeline_weight_factor)))
+    total_score = (0.68 * value_delta) + (0.20 * fit_delta) + (timeline_w * timeline_delta)
     threshold_base = _window_threshold(window)
     required_score = threshold_base + _decision_variation(
         str(getattr(trade, "trade_id", "") or ""),

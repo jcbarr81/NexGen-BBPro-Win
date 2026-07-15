@@ -302,7 +302,7 @@ not vibes.
 
 | ID | Task | Evidence | Fix | Verify | Status |
 |---|---|---|---|---|---|
-| S2-09 | Deadline-aware CPU trading | `cpu_trade_proposals.py:141-165` cadence-random, ignores standings; `finance_ai.py:484-502` already computes contend/bubble/rebuild but only for budgets; deadline exists only as a UI countdown | Feed profile + games-back into `_build_best_offer`: contenders buy (veterans-for-prospects), sellers reverse; hard-block trades after deadline | Season-log audit: buyer/seller behavior around deadline; existing CPU-trade acceptance tests still pass | Open |
+| S2-09 | Deadline-aware CPU trading | `cpu_trade_proposals.py:141-165` cadence-random, ignores standings; `finance_ai.py:484-502` already computes contend/bubble/rebuild but only for budgets; deadline exists only as a UI countdown | Feed profile + games-back into `_build_best_offer`: contenders buy (veterans-for-prospects), sellers reverse; hard-block trades after deadline | Season-log audit: buyer/seller behavior around deadline; existing CPU-trade acceptance tests still pass | Done (2026-07-15, pending commit — 34 trade tests green; new `services/team_outlook.py`; phase-aware window) |
 | S2-10 | CPU-to-CPU trades | Proposals only target human teams — 28 CPU teams never trade among themselves | Extend target pool; auto-resolve via `evaluate_cpu_trade_offer` both sides; cap league-wide volume (~2-6/deadline season) | Transactions log shows CPU-CPU deals; guardrails (anti-spam caps) hold; league talent balance stable over 3 sim seasons | Open |
 | S2-11 | In-season callups + September expansion | `prospect_promotion.py:1-23` offseason-only; no September expansion (comment-only in season_manager.py:77) | Monthly promotion check (AAA→ACT bars, weighted by contend/rebuild); September ACT-size expansion hook | Roster-churn audit over a season; roster-size validation passes; injury replacement still works | Open |
 
@@ -379,6 +379,40 @@ not vibes.
 ---
 
 ## Change log (newest first)
+
+- **2026-07-15** — **S2-09 deadline-aware CPU trading implemented** (pending
+  commit). Per `docs/specs/S2-09_deadline_aware_trading.md`:
+  - New `services/team_outlook.py` — standings-based `team_outlook()` /
+    `games_back()` / `load_outlooks()` returning contend/bubble/rebuild
+    (thresholds aligned with `finance_ai._resolve_profile`; liquidity-free).
+  - `utils/trade_utils.py` — phase-aware `is_trade_window_open()` +
+    `_current_phase()`; `save_trade` now gates on the window (open in
+    PRESEASON/OFFSEASON, open pre-deadline in REGULAR_SEASON/AMATEUR_DRAFT,
+    closed after the deadline through PLAYOFFS — MLB-legal offseason trading,
+    single choke-point for human + CPU writes).
+  - `services/cpu_trade_evaluator.py` — optional `timeline_weight_factor`
+    kwarg (default 1.0 keeps all callers byte-identical); amplifies the 0.12
+    timeline weight so contenders value "veterans now" and rebuilders
+    "youth/picks" symmetrically.
+  - `services/cpu_trade_proposals.py` — hard-exit `past_deadline` after 7/31;
+    cadence ×2 in the last 14 days; outlook-aware candidate pools + value band
+    inside 30 days (contenders shop youth for the target's vets, band
+    0.82-1.35; rebuilders shop their vets for the target's youth, band
+    0.70-1.22); `timeline_weight_factor=1.5` on the self-evaluation; result
+    payload carries `days_to_deadline` + per-offer `proposer_outlook`.
+  - `services/league_command_center.py:336` — de-dup to
+    `trade_deadline_for_year` (single source; card output identical).
+  - Tests: new `tests/test_team_outlook.py` (5) + appended deadline/window
+    cases across `test_cpu_trade_proposals.py`, `test_trade_utils.py`,
+    `test_cpu_trade_evaluator.py`. Added an autouse `_force_regular_season`
+    fixture to `test_trade_utils.py` because the active league's
+    `season_state.json` (PRESEASON) leaks into `_current_phase` — the leakage
+    the spec anticipated. Verification: 34 trade tests green
+    (`test_team_outlook` + `test_cpu_trade_proposals` + `test_trade_utils` +
+    `test_cpu_trade_evaluator` + `test_v53_acceptance`) plus
+    `test_league_command_center` (3). No physics/KPI impact. NB: the existing
+    `test_v53_acceptance` suite writes into `data/leagues/cbl/**` (known
+    carry-over); reverted before commit.
 
 - **2026-07-15** — **S2-13 pinch-hitter defensive awareness implemented** (`10991cc2e`). Per `docs/specs/S2-13_pinch_hitter_defense.md`:
   `_select_pinch_hitter` now penalizes (not bans) a PH who can't cover the

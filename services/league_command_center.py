@@ -21,7 +21,7 @@ from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster
 from utils.roster_validation import missing_positions
 from utils.team_loader import load_teams
-from utils.trade_utils import load_trades
+from utils.trade_utils import load_trades, trade_deadline_for_year
 
 __all__ = [
     "CommandCenterCard",
@@ -333,7 +333,7 @@ def _build_deadlines_card(
     offseason_map = offseason if isinstance(offseason, Mapping) else {}
 
     season_year = _resolve_year_from_date(sim_date) or date.today().year
-    trade_deadline = date(season_year, 7, 31)
+    trade_deadline = trade_deadline_for_year(season_year)
     days_to_deadline: int | None = None
     sim_dt: date | None = None
     if sim_date:

@@ -45,6 +45,29 @@ def is_past_trade_deadline() -> bool:
     return _today() > current_trade_deadline()
 
 
+def _current_phase() -> str:
+    try:
+        from playbalance.season_manager import SeasonManager
+
+        return SeasonManager().phase.value        # reads season_state.json
+    except Exception:
+        return "REGULAR_SEASON"                    # fail toward current behavior
+
+
+def is_trade_window_open() -> bool:
+    """Whether pending trades may be written right now.
+
+    Open in PRESEASON/OFFSEASON (MLB-legal offseason trading); open until the
+    deadline in REGULAR_SEASON/AMATEUR_DRAFT; closed after the deadline through
+    PLAYOFFS. Single consistency point for human and CPU trade writes.
+    """
+
+    phase = _current_phase()
+    if phase in {"PRESEASON", "OFFSEASON"}:
+        return True
+    return not is_past_trade_deadline()
+
+
 def days_until_trade_deadline() -> int:
     """Positive while open, 0 on deadline day, negative once past."""
 
@@ -96,7 +119,7 @@ def save_trade(trade: Trade, file_path: str | Path = "data/trades_pending.csv"):
     before writing the updated list back to disk.
     """
 
-    if is_past_trade_deadline() and str(trade.status).lower() == "pending":
+    if not is_trade_window_open() and str(trade.status).lower() == "pending":
         raise RuntimeError(
             f"Trade deadline ({current_trade_deadline().isoformat()}) has passed."
         )
