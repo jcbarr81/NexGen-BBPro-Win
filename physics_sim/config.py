@@ -420,6 +420,9 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "pinch_hit_inning": 7.0,
     "pinch_hit_close_run_diff": 2.0,
     "pinch_hit_advantage_min": 6.0,
+    # S2-13: pinch-hitter defensive awareness.
+    "pinch_hit_oop_penalty": 8.0,       # offense-score penalty for a PH who can't cover the slot
+    "pinch_hit_defense_inning": 7.0,    # apply the penalty from this inning on
     "pinch_run_inning": 7.0,
     "pinch_run_close_run_diff": 2.0,
     "pinch_run_speed_min": 55.0,

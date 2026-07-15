@@ -2438,6 +2438,17 @@ def _defense_rating_for_pos(
     return rating
 
 
+def _can_play(player: BatterRatings, position: str) -> bool:
+    pos = (position or "").upper()
+    if not pos or pos == "DH":
+        return True
+    return player.primary_position == pos or pos in player.other_positions
+
+
+def _catcher_eligible(player: BatterRatings) -> bool:
+    return _can_play(player, "C")
+
+
 def _select_defensive_replacement(
     *,
     lineup_state: LineupState,
@@ -2570,10 +2581,33 @@ def _select_pinch_hitter(
     candidates = _available_bench(lineup_state)
     if not candidates:
         return None
+    vacated_pos = (lineup_state.positions.get(batter.player_id) or "").upper()
+    defense_matters = inning >= int(tuning.get("pinch_hit_defense_inning", 7.0))
+
+    # S2-13: never burn the last catcher (hard rules, before scoring).
+    if vacated_pos == "C":
+        candidates = [b for b in candidates if _catcher_eligible(b)]
+        if not candidates:
+            return None
+    else:
+        c_eligible = [b for b in candidates if _catcher_eligible(b)]
+        if len(c_eligible) == 1:
+            last_c = c_eligible[0]
+            non_burning = [b for b in candidates if b is not last_c]
+            if non_burning:
+                candidates = non_burning
+
+    oop_penalty = tuning.get("pinch_hit_oop_penalty", 8.0)
+
+    def ph_score(candidate: BatterRatings) -> float:
+        score = _batter_offense_score(candidate, pitcher)
+        if defense_matters and not _can_play(candidate, vacated_pos):
+            score -= oop_penalty
+        return score
+
     current_score = _batter_offense_score(batter, pitcher)
-    best = max(candidates, key=lambda b: _batter_offense_score(b, pitcher))
-    best_score = _batter_offense_score(best, pitcher)
-    if best_score - current_score < tuning.get("pinch_hit_advantage_min", 6.0):
+    best = max(candidates, key=ph_score)
+    if ph_score(best) - current_score < tuning.get("pinch_hit_advantage_min", 6.0):
         return None
     return best
 

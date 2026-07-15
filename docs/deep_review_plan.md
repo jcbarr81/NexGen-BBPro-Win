@@ -296,7 +296,7 @@ not vibes.
 | S2-07 | Times-through-order batter bonus | Batters gain **nothing** on 3rd look (only hook logic knows TTO, engine.py:594-597); real penalty ~20-30 OPS pts/pass; `tto_penalty_runs` benchmark sits unused | `tto` in `_batter_context`; `tto_contact/eye/power_bonus` knobs (~+1.5 rating/pass past 1st); new KPI vs benchmark | KPI `--strict` incl. new TTO gate; overall K%/BB%/AVG gates stay green (retune if needed) | Done (2026-07-15, e5cd08f06 — tto_ops_gap 0.054/0.072 gated & green seeds 1&2; 12 tests) |
 | S2-08 | Player-dispersion KPI gate | Harness validates 13 league averages only; compression risks: `exit_velo_softcap` 105/0.55 (config.py:314-15), shallow eye/contact slopes (physics.py:644-45, 785) | New distribution metrics: SD of qualified AVG/OPS, counts of 30+/40+ HR seasons, sub-.220/.300+ qualified hitters, ERA spread; tolerance vs recent MLB; then widen slopes/soft-cap until green | The new gates themselves; leaders tables pass the eyeball test ("does a 42-HR guy exist?") | Done (2026-07-15, aa33faa44 — `--strict` green seeds 1&2; see change-log for spec deviations) |
 | S2-12 | Usage-pattern KPIs | Hook/bullpen logic elaborate but unvalidated; `role_averages_mlbstats_2020_2024.csv` unused | KPIs: avg pitches/start (~86), relievers/game, appearance leaders, saves/holds distribution | Gates green after S2-03/04 land (these tasks co-tune) | Done (2026-07-15, 4fa23d403 — 6 usage gates default-strict & green seeds 1&2; 30 tests) |
-| S2-13 | Pinch-hitter defensive awareness | `_select_pinch_hitter` (engine.py:2461-2487) ignores defense; PH inherits the vacated position (2436-2440) — a 1B can end up catching | Filter/penalize candidates who can't cover the position; never burn the last catcher | Unit test: last-catcher protection; log audit over a simmed month | Open |
+| S2-13 | Pinch-hitter defensive awareness | `_select_pinch_hitter` (engine.py:2461-2487) ignores defense; PH inherits the vacated position (2436-2440) — a 1B can end up catching | Filter/penalize candidates who can't cover the position; never burn the last catcher | Unit test: last-catcher protection; log audit over a simmed month | Done (2026-07-15, pending commit — 10 tests; `--strict` green; 0 catcher-burns in sim audit) |
 
 ### Phase C: CPU league dynamics
 
@@ -379,6 +379,18 @@ not vibes.
 ---
 
 ## Change log (newest first)
+
+- **2026-07-15** — **S2-13 pinch-hitter defensive awareness implemented**
+  (pending commit). Per `docs/specs/S2-13_pinch_hitter_defense.md`:
+  `_select_pinch_hitter` now penalizes (not bans) a PH who can't cover the
+  vacated position (`pinch_hit_oop_penalty` 8.0, applied from
+  `pinch_hit_defense_inning` 7) and hard-protects the last catcher (a PH for the
+  C slot must be catcher-eligible; a lone bench catcher isn't burned for a non-C
+  slot unless he's the whole bench). New `_can_play`/`_catcher_eligible` helpers.
+  New `tests/test_pinch_hitter_defense.py` (8 cases; one spec test value
+  corrected — the whole-bench catcher still carries the OOP penalty + advantage
+  gate). Verification: `--strict` green (rare-event change, no calibration
+  impact); 20-game sim audit shows 0 catcher-burns.
 
 - **2026-07-15** — **S2-05 position-player rest days implemented** (`c6183d7c5`). Per `docs/specs/S2-05_rest_days.md`: `_apply_rest_days` (new) benches
   fatigued/overworked starters PRE-GAME in memory inside `simulate_game` (between
