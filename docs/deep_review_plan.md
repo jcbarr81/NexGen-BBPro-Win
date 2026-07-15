@@ -293,7 +293,7 @@ not vibes.
 
 | ID | Task | Evidence | Fix | Verify | Status |
 |---|---|---|---|---|---|
-| S2-07 | Times-through-order batter bonus | Batters gain **nothing** on 3rd look (only hook logic knows TTO, engine.py:594-597); real penalty ~20-30 OPS pts/pass; `tto_penalty_runs` benchmark sits unused | `tto` in `_batter_context`; `tto_contact/eye/power_bonus` knobs (~+1.5 rating/pass past 1st); new KPI vs benchmark | KPI `--strict` incl. new TTO gate; overall K%/BB%/AVG gates stay green (retune if needed) | Done (2026-07-15, pending commit — tto_ops_gap 0.054/0.072 gated & green seeds 1&2; 12 tests) |
+| S2-07 | Times-through-order batter bonus | Batters gain **nothing** on 3rd look (only hook logic knows TTO, engine.py:594-597); real penalty ~20-30 OPS pts/pass; `tto_penalty_runs` benchmark sits unused | `tto` in `_batter_context`; `tto_contact/eye/power_bonus` knobs (~+1.5 rating/pass past 1st); new KPI vs benchmark | KPI `--strict` incl. new TTO gate; overall K%/BB%/AVG gates stay green (retune if needed) | Done (2026-07-15, e5cd08f06 — tto_ops_gap 0.054/0.072 gated & green seeds 1&2; 12 tests) |
 | S2-08 | Player-dispersion KPI gate | Harness validates 13 league averages only; compression risks: `exit_velo_softcap` 105/0.55 (config.py:314-15), shallow eye/contact slopes (physics.py:644-45, 785) | New distribution metrics: SD of qualified AVG/OPS, counts of 30+/40+ HR seasons, sub-.220/.300+ qualified hitters, ERA spread; tolerance vs recent MLB; then widen slopes/soft-cap until green | The new gates themselves; leaders tables pass the eyeball test ("does a 42-HR guy exist?") | Done (2026-07-15, aa33faa44 — `--strict` green seeds 1&2; see change-log for spec deviations) |
 | S2-12 | Usage-pattern KPIs | Hook/bullpen logic elaborate but unvalidated; `role_averages_mlbstats_2020_2024.csv` unused | KPIs: avg pitches/start (~86), relievers/game, appearance leaders, saves/holds distribution | Gates green after S2-03/04 land (these tasks co-tune) | Done (2026-07-15, 4fa23d403 — 6 usage gates default-strict & green seeds 1&2; 30 tests) |
 | S2-13 | Pinch-hitter defensive awareness | `_select_pinch_hitter` (engine.py:2461-2487) ignores defense; PH inherits the vacated position (2436-2440) — a 1B can end up catching | Filter/penalize candidates who can't cover the position; never burn the last catcher | Unit test: last-catcher protection; log audit over a simmed month | Open |
@@ -380,8 +380,7 @@ not vibes.
 
 ## Change log (newest first)
 
-- **2026-07-15** — **S2-07 times-through-order batter bonus implemented**
-  (pending commit). Per `docs/specs/S2-07_tto_penalty.md`: `_batter_context`
+- **2026-07-15** — **S2-07 times-through-order batter bonus implemented** (`e5cd08f06`). Per `docs/specs/S2-07_tto_penalty.md`: `_batter_context`
   gains a `tto` param and adds contact/eye/power bonuses scaled by `(tto-1)`
   (clamped at pass 3) via four new `DEFAULT_TUNING` knobs; the engine emits exact
   per-pass batting splits in `metadata["tto_splits"]` via a snapshot-diff of the
