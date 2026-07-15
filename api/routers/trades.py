@@ -134,127 +134,24 @@ def _find_trade(trade_id: str) -> Trade:
 
 
 def _commit_trade(trade: Trade) -> None:
-    """Apply a trade's roster + pick swap and log the transactions.
+    """Apply a trade's roster + pick swap, log transactions, announce.
 
-    Mirrors the core of ``ui/trade_dialog._process_trade`` but skips the
-    optional contract-transfer + auto-reassign steps (those are best-effort
-    and depend on UI-resident state). Engine-required state (rosters, picks,
-    transaction log) is fully consistent on success.
+    Thin HTTP wrapper (S2-10): the executable logic now lives in
+    ``services.trade_execution.commit_trade`` (FastAPI-free so the CPU-CPU lane
+    can reuse it). A pick-ownership failure surfaces there as ``ValueError`` and
+    is re-raised as an HTTP 400 to preserve the previous behavior.
     """
 
-    from_roster = load_roster(trade.from_team)
-    to_roster = load_roster(trade.to_team)
+    from services.trade_execution import announce_trade, commit_trade
 
-    # Move "give" players from from_team's act roster onto to_team's act roster.
-    for pid in trade.give_player_ids:
-        if pid in from_roster.act:
-            from_roster.act.remove(pid)
-        if pid in to_roster.act:
-            to_roster.act.remove(pid)
-        to_roster.act.append(pid)
-
-    # Move "receive" players the other direction.
-    for pid in trade.receive_player_ids:
-        if pid in to_roster.act:
-            to_roster.act.remove(pid)
-        if pid in from_roster.act:
-            from_roster.act.remove(pid)
-        from_roster.act.append(pid)
-
-    # Transfer draft picks (raises ValueError on bad ownership).
-    for pick_id in trade.give_pick_ids or []:
-        try:
-            transfer_pick(pick_id, trade.from_team, trade.to_team)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(exc),
-            ) from exc
-    for pick_id in trade.receive_pick_ids or []:
-        try:
-            transfer_pick(pick_id, trade.to_team, trade.from_team)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(exc),
-            ) from exc
-
-    save_roster(trade.from_team, from_roster)
-    save_roster(trade.to_team, to_roster)
-
-    # Best-effort transaction log entries.
-    for pid in trade.give_player_ids:
-        try:
-            record_transaction(
-                action="trade_out",
-                team_id=trade.from_team,
-                player_id=pid,
-                from_level="ACT",
-                to_level="ACT",
-                counterparty=trade.to_team,
-                details=f"Trade {trade.trade_id} sent to {trade.to_team}",
-            )
-            record_transaction(
-                action="trade_in",
-                team_id=trade.to_team,
-                player_id=pid,
-                from_level="ACT",
-                to_level="ACT",
-                counterparty=trade.from_team,
-                details=f"Trade {trade.trade_id} acquired from {trade.from_team}",
-            )
-        except Exception:
-            pass
-    for pid in trade.receive_player_ids:
-        try:
-            record_transaction(
-                action="trade_out",
-                team_id=trade.to_team,
-                player_id=pid,
-                from_level="ACT",
-                to_level="ACT",
-                counterparty=trade.from_team,
-                details=f"Trade {trade.trade_id} sent to {trade.from_team}",
-            )
-            record_transaction(
-                action="trade_in",
-                team_id=trade.from_team,
-                player_id=pid,
-                from_level="ACT",
-                to_level="ACT",
-                counterparty=trade.to_team,
-                details=f"Trade {trade.trade_id} acquired from {trade.to_team}",
-            )
-        except Exception:
-            pass
-    for pick_id in trade.give_pick_ids or []:
-        try:
-            record_transaction(
-                action="trade_out",
-                team_id=trade.from_team,
-                player_id=pick_id,
-                player_name=format_pick_label(pick_id),
-                from_level="PICK",
-                to_level="PICK",
-                counterparty=trade.to_team,
-                details=f"Trade {trade.trade_id} sent pick to {trade.to_team}",
-            )
-        except Exception:
-            pass
-    for pick_id in trade.receive_pick_ids or []:
-        try:
-            record_transaction(
-                action="trade_in",
-                team_id=trade.from_team,
-                player_id=pick_id,
-                player_name=format_pick_label(pick_id),
-                from_level="PICK",
-                to_level="PICK",
-                counterparty=trade.to_team,
-                details=f"Trade {trade.trade_id} acquired pick from {trade.to_team}",
-            )
-        except Exception:
-            pass
+    try:
+        commit_trade(trade)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    announce_trade(trade)
 
 
 _CPU_EVAL_FILENAME = "trade_cpu_evals.json"

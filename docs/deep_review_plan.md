@@ -303,7 +303,7 @@ not vibes.
 | ID | Task | Evidence | Fix | Verify | Status |
 |---|---|---|---|---|---|
 | S2-09 | Deadline-aware CPU trading | `cpu_trade_proposals.py:141-165` cadence-random, ignores standings; `finance_ai.py:484-502` already computes contend/bubble/rebuild but only for budgets; deadline exists only as a UI countdown | Feed profile + games-back into `_build_best_offer`: contenders buy (veterans-for-prospects), sellers reverse; hard-block trades after deadline | Season-log audit: buyer/seller behavior around deadline; existing CPU-trade acceptance tests still pass | Done (2026-07-15, 2372e301c — 34 trade tests green; new `services/team_outlook.py`; phase-aware window) |
-| S2-10 | CPU-to-CPU trades | Proposals only target human teams — 28 CPU teams never trade among themselves | Extend target pool; auto-resolve via `evaluate_cpu_trade_offer` both sides; cap league-wide volume (~2-6/deadline season) | Transactions log shows CPU-CPU deals; guardrails (anti-spam caps) hold; league talent balance stable over 3 sim seasons | Open |
+| S2-10 | CPU-to-CPU trades | Proposals only target human teams — 28 CPU teams never trade among themselves | Extend target pool; auto-resolve via `evaluate_cpu_trade_offer` both sides; cap league-wide volume (~2-6/deadline season) | Transactions log shows CPU-CPU deals; guardrails (anti-spam caps) hold; league talent balance stable over 3 sim seasons | Done (2026-07-15, pending commit — 16 proposal + 2 execution tests green; 3-season stability gate NOT run, see change log) |
 | S2-11 | In-season callups + September expansion | `prospect_promotion.py:1-23` offseason-only; no September expansion (comment-only in season_manager.py:77) | Monthly promotion check (AAA→ACT bars, weighted by contend/rebuild); September ACT-size expansion hook | Roster-churn audit over a season; roster-size validation passes; injury replacement still works | Open |
 
 **Sprint 2 exit gate:** KPI harness `--strict` green **including all new gates**
@@ -379,6 +379,42 @@ not vibes.
 ---
 
 ## Change log (newest first)
+
+- **2026-07-15** — **S2-10 CPU-to-CPU trades implemented** (pending commit).
+  Per `docs/specs/S2-10_cpu_to_cpu_trades.md`:
+  - New `services/trade_execution.py` — `commit_trade` (verbatim move of the
+    router's `_commit_trade`, FastAPI-free, `HTTPException`→`ValueError`) +
+    `announce_trade` (news-feed line). `api/routers/trades.py:_commit_trade`
+    is now a thin wrapper that delegates, re-raises `ValueError` as HTTP 400,
+    and announces — so human-accepted/admin-approved/auto-accepted trades now
+    emit news too (free consistency win).
+  - `services/cpu_trade_proposals.py` — a CPU→CPU auto-resolved lane runs after
+    the human-target pass: contenders/rebuilders propose to other CPU teams,
+    the receiver evaluates via the unchanged evaluator (`accept` commits,
+    `counter` gets exactly one round judged by the proposer, else drop), and
+    accepted deals pass `validate_trade` (level caps) + `evaluate_trade_payroll_impact`
+    (first trade lane with a payroll gate) before `commit_trade`. Caps: ≤2
+    executed/rolling-7-days, 21-day per-team cooldown, ≤1 execution/run, 0.30
+    daily cadence. Executed deals persist as `status=accepted, initiated_by=cpu`,
+    hit the transaction log + news feed, mutate the in-memory rosters, and
+    withdraw any pending offer whose assets they moved. The `insufficient_teams`
+    gate now bails only when BOTH passes are impossible (all-CPU leagues trade
+    internally). `_build_best_offer`'s `human_team_ids` kwarg renamed to
+    `target_team_ids`.
+  - Tests: new `tests/test_trade_execution.py` (2) + 7 CPU-CPU cases appended to
+    `test_cpu_trade_proposals.py` (forced-pair, counter accepted/dropped,
+    weekly-cap, cooldown, payroll-block, never-touches-humans invariant over 50
+    runs). Full trade set green: 46 tests
+    (`cpu_trade_proposals`/`trade_execution`/`cpu_trade_evaluator`/
+    `v53_acceptance`/`trade_utils`/`team_outlook`/`league_command_center`).
+  - **3-season stability gate (acceptance criterion 6) NOT run**: it needs a
+    live day-by-day season loop via the season router (fastapi is not installed
+    in this dev environment) and a multi-season sandbox sim — deferred as a
+    manual gate. The automated suites cover criteria 1-5 and 7; the volume caps
+    (2/week → ~24-48 attempts/season, minus evaluator rejections) are designed
+    to land in the 15-40 executed band. Follow-up: run the sandbox 3-season
+    sim + `validate_finance_release.py --seasons 8` when a fastapi env is
+    available.
 
 - **2026-07-15** — **S2-09 deadline-aware CPU trading implemented** (`2372e301c`). Per `docs/specs/S2-09_deadline_aware_trading.md`:
   - New `services/team_outlook.py` — standings-based `team_outlook()` /

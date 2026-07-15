@@ -75,6 +75,11 @@ _DEADLINE_TIMELINE_FACTOR = 1.5    # 0.12 -> 0.18 effective timeline weight
 _VETERAN_AGE = 28                  # "veteran" for pool shaping
 _YOUTH_AGE = 25                    # "youth" for pool shaping
 
+# S2-10 CPU-to-CPU auto-resolved lane.
+_CPU_CPU_MAX_PER_WEEK = 2          # executed deals per rolling 7 sim days
+_CPU_CPU_TEAM_COOLDOWN_DAYS = 21   # either party
+_CPU_CPU_DAILY_CHANCE = 0.30       # per-cycle gate before any pairing work
+
 
 @dataclass(frozen=True)
 class _CandidateOffer:
@@ -180,7 +185,12 @@ def run_cpu_trade_proposal_cycle(
             if not _is_cpu_team(team)
         ]
     result["teams_considered"] = len(cpu_teams)
-    if not cpu_teams or not human_teams:
+    # S2-10: the human-target pass needs at least one CPU + one human team; the
+    # CPU-CPU pass needs >= 2 CPU teams. Bail only when BOTH are impossible
+    # (e.g. an all-human league, or a single lone CPU team).
+    human_pass_possible = bool(cpu_teams and human_teams)
+    cpu_cpu_possible = len(cpu_teams) >= 2
+    if not human_pass_possible and not cpu_cpu_possible:
         result["reason"] = "insufficient_teams"
         return result
 
@@ -273,7 +283,7 @@ def run_cpu_trade_proposal_cycle(
         eligible_count += 1
         offer = _build_best_offer(
             cpu_team_id=cpu_team_id,
-            human_team_ids=human_teams,
+            target_team_ids=human_teams,
             players_by_id=players,
             rosters_by_team=rosters_by_team,
             teams_by_id=teams_by_id,
@@ -349,6 +359,29 @@ def run_cpu_trade_proposal_cycle(
             }
         )
 
+    # S2-10: CPU-to-CPU auto-resolved lane runs after the human-target pass so
+    # it shares every loaded artifact + the single state write below.
+    if cpu_cpu_possible:
+        cpu_cpu_result = _run_cpu_cpu_pass(
+            cpu_teams=cpu_teams,
+            players_by_id=players,
+            rosters_by_team=rosters_by_team,
+            teams_by_id=teams_by_id,
+            pending_trades=pending_trades,
+            league_state=league_state,
+            current_date=current_date,
+            days_to_deadline=days_to_deadline,
+            outlooks=outlooks,
+            data_dir=resolved_data_dir,
+            rng=randomizer,
+            min_score_margin=min_score_margin,
+            blocked_packages=blocked_package_signatures,
+            recent_packages=recent_packages,
+            settings=settings,
+            dates=dates,
+        )
+        result["cpu_cpu_trades"] = cpu_cpu_result
+
     _write_state(proposal_state, data_dir=resolved_data_dir)
     result["days_to_deadline"] = days_to_deadline
     result["offers_created"] = len(offers)
@@ -363,7 +396,7 @@ def run_cpu_trade_proposal_cycle(
 def _build_best_offer(
     *,
     cpu_team_id: str,
-    human_team_ids: Sequence[str],
+    target_team_ids: Sequence[str],
     players_by_id: Mapping[str, object],
     rosters_by_team: Mapping[str, object],
     teams_by_id: Mapping[str, object],
@@ -432,7 +465,7 @@ def _build_best_offer(
         return None
 
     best: _CandidateOffer | None = None
-    target_ids = list(human_team_ids)
+    target_ids = list(target_team_ids)
     if target_ids:
         target_ids = rng.sample(target_ids, len(target_ids))
     for human_team_id in target_ids:
@@ -517,6 +550,333 @@ def _build_best_offer(
                     best = candidate
 
     return best
+
+
+def _factor_for(outlook: str | None, days_to_deadline: int) -> float:
+    """S2-09/S2-10 deadline timeline reweight for an evaluating team."""
+
+    token = str(outlook or "bubble")
+    if 0 <= days_to_deadline <= _DEADLINE_REWEIGHT_DAYS and token in {
+        OUTLOOK_CONTEND,
+        OUTLOOK_REBUILD,
+    }:
+        return _DEADLINE_TIMELINE_FACTOR
+    return 1.0
+
+
+def _run_cpu_cpu_pass(
+    *,
+    cpu_teams: Sequence[str],
+    players_by_id: Mapping[str, object],
+    rosters_by_team: Mapping[str, object],
+    teams_by_id: Mapping[str, object],
+    pending_trades: list[Trade],
+    league_state: dict[str, object],
+    current_date: date,
+    days_to_deadline: int,
+    outlooks: Mapping[str, str],
+    data_dir: Path,
+    rng: random.Random,
+    min_score_margin: float,
+    blocked_packages: set[str],
+    recent_packages: list[dict[str, object]],
+    settings: object,
+    dates: Sequence[str],
+) -> dict[str, object]:
+    """Propose + auto-resolve at most one CPU-to-CPU trade this cycle (S2-10)."""
+
+    from services.roster_validation import validate_trade
+    from services.payroll_policy import evaluate_trade_payroll_impact
+    from services.trade_execution import commit_trade, announce_trade
+    from services.trade_settings import current_league_year
+
+    filtered: dict[str, int] = {
+        "weekly_cap": 0,
+        "cadence_skip": 0,
+        "no_offer": 0,
+        "counter_dropped": 0,
+        "validation_failed": 0,
+        "payroll_blocked": 0,
+        "commit_failed": 0,
+    }
+    executed: list[dict[str, object]] = []
+
+    # State: last-trade dates (cooldown) + rolling execution log (pruned to 30d).
+    cpu_cpu_last = _coerce_state_map(league_state.get("cpu_cpu_last_trade_dates"))
+    executions = [
+        d
+        for d in (league_state.get("cpu_cpu_executions") or [])
+        if _parse_iso_date(str(d)) is not None
+        and 0 <= (current_date - _parse_iso_date(str(d))).days <= 30
+    ]
+    league_state["cpu_cpu_last_trade_dates"] = cpu_cpu_last
+    league_state["cpu_cpu_executions"] = executions
+
+    def _result() -> dict[str, object]:
+        return {"executed": executed, "filtered": filtered}
+
+    # Cap 1: rolling weekly execution ceiling.
+    recent_execs = [
+        d
+        for d in executions
+        if 0 <= (current_date - _parse_iso_date(str(d))).days < 7
+    ]
+    if len(recent_execs) >= _CPU_CPU_MAX_PER_WEEK:
+        filtered["weekly_cap"] = 1
+        return _result()
+
+    # Cap 2: per-cycle cadence gate.
+    if rng.random() > _window_probability(_CPU_CPU_DAILY_CHANCE, len(dates)):
+        filtered["cadence_skip"] = 1
+        return _result()
+
+    def _on_cooldown(team_id: str) -> bool:
+        token = str(team_id or "").strip().upper()
+        last = _parse_iso_date(str(cpu_cpu_last.get(token, "") or ""))
+        if last is None:
+            return False
+        return (current_date - last).days < _CPU_CPU_TEAM_COOLDOWN_DAYS
+
+    # Players mapping (once) for validate_trade.
+    players_map = {
+        pid: {
+            "is_pitcher": bool(getattr(p, "is_pitcher", False)),
+            "primary_position": getattr(p, "primary_position", "") or "",
+            "other_positions": list(getattr(p, "other_positions", []) or []),
+            "first_name": getattr(p, "first_name", "") or "",
+            "last_name": getattr(p, "last_name", "") or "",
+        }
+        for pid, p in players_by_id.items()
+    }
+
+    def _levels(team_id: str) -> dict[str, list[str]]:
+        roster = rosters_by_team.get(str(team_id).strip().upper())
+        return {
+            "act": list(getattr(roster, "act", []) or []),
+            "aaa": list(getattr(roster, "aaa", []) or []),
+            "low": list(getattr(roster, "low", []) or []),
+        }
+
+    trade_settings = {
+        "draft_pick_trading_enabled": bool(
+            getattr(settings, "draft_pick_trading_enabled", True)
+        ),
+        "max_pick_trade_years": getattr(settings, "max_pick_trade_years", None),
+        "current_year": current_league_year(),
+    }
+
+    for proposer in rng.sample(list(cpu_teams), len(cpu_teams)):
+        proposer_outlook = str(outlooks.get(proposer, "bubble") or "bubble")
+        # Only contenders/rebuilders initiate; skip proposers on cooldown.
+        if proposer_outlook == "bubble" or _on_cooldown(proposer):
+            continue
+        eligible_targets = [
+            t for t in cpu_teams if t != proposer and not _on_cooldown(t)
+        ]
+        if not eligible_targets:
+            continue
+
+        offer = _build_best_offer(
+            cpu_team_id=proposer,
+            target_team_ids=eligible_targets,
+            players_by_id=players_by_id,
+            rosters_by_team=rosters_by_team,
+            teams_by_id=teams_by_id,
+            pending_trades=pending_trades,
+            data_dir=data_dir,
+            rng=rng,
+            min_score_margin=min_score_margin,
+            blocked_packages=blocked_packages,
+            target_offer_counts={},
+            pending_target_limit=99,
+            outlook=proposer_outlook,
+            days_to_deadline=days_to_deadline,
+        )
+        if offer is None:
+            filtered["no_offer"] += 1
+            continue
+
+        receiver = offer.target_team_id
+        # Receiver evaluates the offer (already oriented to_team=receiver).
+        evaluation = evaluate_cpu_trade_offer(
+            offer.trade,
+            players_by_id=players_by_id,
+            data_dir=data_dir,
+            teams_by_id=teams_by_id,
+            rosters_by_team=rosters_by_team,
+            allow_counter_offers=True,
+            timeline_weight_factor=_factor_for(
+                outlooks.get(receiver), days_to_deadline
+            ),
+        )
+        if evaluation is None:
+            filtered["no_offer"] += 1
+            continue
+
+        action = str(getattr(evaluation, "action", "")).strip().lower()
+        final: Trade | None = None
+        if action == "accept":
+            final = offer.trade
+        elif action == "counter" and getattr(evaluation, "counter_offer", None):
+            co = evaluation.counter_offer
+            # Perspective flip: evaluator "incoming_*" flow TO the receiver =
+            # FROM the proposer; on the flipped trade (from_team=receiver) those
+            # are the receiver's `receive_*`.
+            counter = Trade(
+                trade_id=uuid.uuid4().hex[:8],
+                from_team=receiver,
+                to_team=proposer,
+                give_player_ids=list(co.get("outgoing_player_ids", []) or []),
+                receive_player_ids=list(co.get("incoming_player_ids", []) or []),
+                give_pick_ids=list(co.get("outgoing_pick_ids", []) or []),
+                receive_pick_ids=list(co.get("incoming_pick_ids", []) or []),
+                initiated_by="cpu",
+            )
+            proposer_eval = evaluate_cpu_trade_offer(
+                counter,
+                players_by_id=players_by_id,
+                data_dir=data_dir,
+                teams_by_id=teams_by_id,
+                rosters_by_team=rosters_by_team,
+                allow_counter_offers=False,
+                timeline_weight_factor=_factor_for(
+                    outlooks.get(proposer), days_to_deadline
+                ),
+            )
+            if (
+                proposer_eval is not None
+                and str(getattr(proposer_eval, "action", "")).strip().lower() == "accept"
+            ):
+                final = counter
+            else:
+                filtered["counter_dropped"] += 1
+                continue
+        else:
+            filtered["no_offer"] += 1
+            continue
+
+        # Guards: level caps + payroll policy for both sides.
+        validation = validate_trade(
+            give_player_ids=list(final.give_player_ids),
+            receive_player_ids=list(final.receive_player_ids),
+            give_pick_ids=list(getattr(final, "give_pick_ids", []) or []),
+            receive_pick_ids=list(getattr(final, "receive_pick_ids", []) or []),
+            from_team_levels=_levels(final.from_team),
+            to_team_levels=_levels(final.to_team),
+            players=players_map,
+            settings=trade_settings,
+        )
+        if not getattr(validation, "ok", False):
+            filtered["validation_failed"] += 1
+            continue
+        payroll = evaluate_trade_payroll_impact(
+            final, players_by_id=players_by_id, data_dir=data_dir
+        )
+        if not bool(getattr(payroll, "allowed", True)):
+            filtered["payroll_blocked"] += 1
+            continue
+
+        # Commit + persist + announce.
+        final.status = "accepted"
+        try:
+            commit_trade(final, data_dir=data_dir)
+        except ValueError:
+            filtered["commit_failed"] += 1
+            continue
+        save_trade(final, data_dir / "trades_pending.csv")
+        announce_trade(final, players_by_id=players_by_id, data_dir=data_dir)
+
+        # State + in-memory roster mutation (blocks double-trades this run).
+        iso = current_date.isoformat()
+        cpu_cpu_last[str(final.from_team).strip().upper()] = iso
+        cpu_cpu_last[str(final.to_team).strip().upper()] = iso
+        executions.append(iso)
+        _apply_roster_swap(rosters_by_team, final)
+        signature = _offer_package_signature(final)
+        if signature:
+            blocked_packages.add(signature)
+        recent_packages.append(
+            {
+                "date": iso,
+                "from_team": final.from_team,
+                "to_team": final.to_team,
+                "give_player_ids": list(final.give_player_ids),
+                "receive_player_ids": list(final.receive_player_ids),
+                "give_pick_ids": list(getattr(final, "give_pick_ids", []) or []),
+                "receive_pick_ids": list(getattr(final, "receive_pick_ids", []) or []),
+            }
+        )
+        pending_trades.append(final)
+        _withdraw_conflicting_pending(final, pending_trades, data_dir)
+
+        executed.append(
+            {
+                "trade_id": final.trade_id,
+                "from_team": final.from_team,
+                "to_team": final.to_team,
+                "give_players": len(final.give_player_ids),
+                "receive_players": len(final.receive_player_ids),
+                "proposer_outlook": proposer_outlook,
+            }
+        )
+        break  # one execution per cycle run (D4)
+
+    return _result()
+
+
+def _apply_roster_swap(rosters_by_team: Mapping[str, object], trade: Trade) -> None:
+    """Mirror commit_trade's ACT<->ACT move on the in-memory roster objects."""
+
+    from_roster = rosters_by_team.get(str(trade.from_team).strip().upper())
+    to_roster = rosters_by_team.get(str(trade.to_team).strip().upper())
+    if from_roster is None or to_roster is None:
+        return
+    from_act = getattr(from_roster, "act", None)
+    to_act = getattr(to_roster, "act", None)
+    if from_act is None or to_act is None:
+        return
+    for pid in trade.give_player_ids:
+        if pid in from_act:
+            from_act.remove(pid)
+        if pid in to_act:
+            to_act.remove(pid)
+        to_act.append(pid)
+    for pid in trade.receive_player_ids:
+        if pid in to_act:
+            to_act.remove(pid)
+        if pid in from_act:
+            from_act.remove(pid)
+        from_act.append(pid)
+
+
+def _withdraw_conflicting_pending(
+    executed: Trade, pending_trades: Sequence[Trade], data_dir: Path
+) -> None:
+    """Withdraw any still-pending offer whose assets the executed deal moved."""
+
+    moved = {
+        str(pid).strip()
+        for pid in list(executed.give_player_ids) + list(executed.receive_player_ids)
+        if str(pid).strip()
+    }
+    if not moved:
+        return
+    for trade in list(pending_trades):
+        if trade is executed:
+            continue
+        if str(getattr(trade, "status", "") or "").strip().lower() != "pending":
+            continue
+        assets = {
+            str(pid).strip()
+            for pid in list(getattr(trade, "give_player_ids", []) or [])
+            + list(getattr(trade, "receive_player_ids", []) or [])
+        }
+        if assets & moved:
+            trade.status = "withdrawn"
+            try:
+                save_trade(trade, data_dir / "trades_pending.csv")
+            except Exception:
+                pass
 
 
 def _team_has_pending_offer(team_id: str, pending_trades: Sequence[Trade]) -> bool:
