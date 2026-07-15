@@ -287,7 +287,7 @@ not vibes.
 | S2-03 | Fix inverted reliever rest | `physics_sim/config.py:333` — ALL non-closers need 2 days rest after any outing (engine.py:449-457); real setup men pitch back-to-back; caps appearances ~54 vs real ~65-70 | Pitch-count-conditional rest (0 days ≤20 pitches); 3-consecutive-day block for all relievers | **New usage KPIs** (S2-12) gate this: reliever appearance leaders ~75-80, distribution vs `role_averages_mlbstats_2020_2024.csv` | Open |
 | S2-04 | Closer in tied 9th | `engine.py:691-698` filters CL to lead-only; `_reliever_score:636-637` penalizes CL when not ahead | Allow CL when tied, inning ≥9 (esp. home); postseason: 8th-inning fireman | Usage KPI: saves distribution unchanged; tied-game 9th-inning pitcher quality improves (spot-check logs) | Open |
 | S2-05 | Position-player rest days | Batter fatigue accumulates (`usage.py:113-130`, in-game degradation up to −35% at engine.py:2809-2827) but **no code ever benches anyone** | Pass `UsageState.batter_workloads` into lineup generation; bench starters over fatigue threshold (catchers more often) | Season sim: starters average ~145-155 games, backup catchers ~40-50 starts; no KPI regressions | Open |
-| S2-06 | Load pitcher `throws` properly | `physics_sim/models.py:13/54` — no `throws` field; platoon logic infers pitcher hand from **batting side**; `_platoon_bonus` (engine.py:2314-2317) gives zero adjustment vs RHP | Add `throws` to model + CSV loader; symmetric platoon adjustment both hands | Data audit: throws populated for all pitchers; platoon KPI (S2-01) measures the corrected gap | Done (2026-07-15, pending commit — `--strict` green seeds 1&2; audit 280/280 pitchers) |
+| S2-06 | Load pitcher `throws` properly | `physics_sim/models.py:13/54` — no `throws` field; platoon logic infers pitcher hand from **batting side**; `_platoon_bonus` (engine.py:2314-2317) gives zero adjustment vs RHP | Add `throws` to model + CSV loader; symmetric platoon adjustment both hands | Data audit: throws populated for all pitchers; platoon KPI (S2-01) measures the corrected gap | Done (2026-07-15, 8daae9e8b — `--strict` green seeds 1&2; audit 280/280 pitchers) |
 
 ### Phase B: outcome realism + validation
 
@@ -380,7 +380,7 @@ not vibes.
 
 ## Change log (newest first)
 
-- **2026-07-15** — **S2-06 pitcher `throws` implemented** (pending commit). Per
+- **2026-07-15** — **S2-06 pitcher `throws` implemented** (`8daae9e8b`). Per
   `docs/specs/S2-06_pitcher_throws.md`: `PitcherRatings` gains a `throws` field
   (loaded from CSV, bats-fallback for legacy CSVs); all 7 pitcher-hand-from-`bats`
   proxies in `physics_sim/engine.py` now read `throws` (grep confirms only
