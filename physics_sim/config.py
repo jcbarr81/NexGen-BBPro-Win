@@ -431,9 +431,11 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "injury_rate_scale": 0.1,
     "injury_overuse_pitch_min": 80.0,
     "injury_overuse_penalty_threshold": 0.6,
-    "handedness_contact_bonus": 2.0,
-    "handedness_power_bonus": 2.0,
-    "handedness_eye_bonus": 2.0,
+    # S2-01: sized so the league platoon-split KPI lands in its 20-32 wOBA-point
+    # band (2.0 produced ~46 pts). Tune these three together.
+    "handedness_contact_bonus": 1.2,
+    "handedness_power_bonus": 1.2,
+    "handedness_eye_bonus": 1.2,
     "handedness_switch_bonus": 0.5,
     "platoon_contact_scale": 0.25,
     "platoon_power_scale": 0.2,

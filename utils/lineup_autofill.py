@@ -37,8 +37,11 @@ def auto_fill_lineup_for_team(
       C, SS, CF, 3B, 2B, 1B, LF, RF, then DH as the best remaining bat.
     - Enforce 9 unique players, never selecting pitchers for the lineup.
     - Batting order is sorted by an overall hitter score (contact/power/speed/defense proxy).
-    - Write both ``vs_lhp`` and ``vs_rhp`` using the same order for now.
-    - Return the 9-player lineup used.
+    - Build ``vs_lhp`` and ``vs_rhp`` from two INDEPENDENT passes: ``hitter_score``
+      is handedness-aware (S2-01), so a lefty-masher can win a slot vs LHP and
+      lose it vs RHP — the two files can differ in personnel and/or order.
+      Depth-chart-preferred slots still pin personnel (only order differs there).
+    - Return the vs_rhp lineup (majority matchup; used as the salvage lineup).
     """
 
     players_path = resolve_app_path(players_file)
@@ -63,15 +66,10 @@ def auto_fill_lineup_for_team(
     def is_pitcher(p: object) -> bool:
         return getattr(p, "is_pitcher", False) or str(getattr(p, "primary_position", "")).upper() == "P"
 
-    lineup: list[tuple[str, str]] = []
-    used: set[str] = set()
-    depth_chart_assignments = 0
-    fallback_assignments = 0
-    emergency_fill_count = 0
     # Scarcity-aware order: C/SS/CF first
     positions = ["C", "SS", "CF", "3B", "2B", "1B", "LF", "RF"]
 
-    def eligible_for(pid: str, pos: str) -> bool:
+    def eligible_for(pid: str, pos: str, used: set[str]) -> bool:
         p = players.get(pid)
         if not p or is_pitcher(p):
             return False
@@ -79,7 +77,7 @@ def auto_fill_lineup_for_team(
         others = [str(x).upper() for x in (getattr(p, "other_positions", []) or [])]
         return pos == primary or pos in others
 
-    def hitter_score(pid: str) -> float:
+    def hitter_score(pid: str, *, vs_hand: str) -> float:
         p = players.get(pid)
         if not p:
             return -1.0
@@ -89,109 +87,133 @@ def auto_fill_lineup_for_team(
         off = 0.5 * ch + 0.5 * ph
         defense = 0.5 * fa + 0.5 * arm
         base_score = (0.6 * off) + (0.2 * sp) + (0.2 * defense)
-        return base_score + _strategy_hitter_bonus(p, profile=profile)
+        return (
+            base_score
+            + _platoon_adjustment(p, vs_hand=vs_hand)
+            + _strategy_hitter_bonus(p, profile=profile)
+        )
 
-    def depth_preferred(pos: str) -> list[str]:
+    def depth_preferred(pos: str, used: set[str]) -> list[str]:
         preferred = depth_order_for_position(depth_chart, pos)
         return [
             pid
             for pid in preferred
-            if pid in act_ids and pid not in used and eligible_for(pid, pos)
+            if pid in act_ids and pid not in used and eligible_for(pid, pos, used)
         ]
 
-    for pos in positions:
-        # Choose best eligible by score, preferring explicit depth chart order
-        preferred = depth_preferred(pos)
-        if preferred:
-            best = preferred[0]
+    def _build_lineup(hand: str) -> tuple[list[tuple[str, str]], dict[str, int]]:
+        """One independent, handedness-aware coverage-first pass."""
+        lineup: list[tuple[str, str]] = []
+        used: set[str] = set()
+        counters = {"depth_chart": 0, "fallback": 0, "emergency": 0}
+        score = lambda pid: hitter_score(pid, vs_hand=hand)
+
+        for pos in positions:
+            # Choose best eligible by score, preferring explicit depth chart order
+            preferred = depth_preferred(pos, used)
+            if preferred:
+                best = preferred[0]
+                lineup.append((best, pos))
+                used.add(best)
+                counters["depth_chart"] += 1
+                continue
+            candidates = [pid for pid in act_ids if pid not in used and eligible_for(pid, pos, used)]
+            if not candidates:
+                candidates = [
+                    pid
+                    for pid in act_ids
+                    if pid not in used and (players.get(pid) and not is_pitcher(players[pid]))
+                ]
+            if not candidates:
+                continue
+            best = max(candidates, key=score)
             lineup.append((best, pos))
             used.add(best)
-            depth_chart_assignments += 1
-            continue
-        candidates = [pid for pid in act_ids if pid not in used and eligible_for(pid, pos)]
-        if not candidates:
-            candidates = [
-                pid
-                for pid in act_ids
-                if pid not in used and (players.get(pid) and not is_pitcher(players[pid]))
-            ]
-        if not candidates:
-            continue
-        best = max(candidates, key=hitter_score)
-        lineup.append((best, pos))
-        used.add(best)
-        fallback_assignments += 1
+            counters["fallback"] += 1
 
-    # DH is any remaining non-pitcher
-    if len(lineup) < 9:
-        dh_pref = [
-            pid
-            for pid in depth_order_for_position(depth_chart, "DH")
-            if pid in act_ids
-            and pid not in used
-            and (players.get(pid) and not is_pitcher(players[pid]))
-        ]
-        if dh_pref:
-            best = dh_pref[0]
-            lineup.append((best, "DH"))
-            used.add(best)
-            depth_chart_assignments += 1
-        else:
-            remaining = [
+        # DH is any remaining non-pitcher
+        if len(lineup) < 9:
+            dh_pref = [
                 pid
-                for pid in act_ids
-                if pid not in used and (players.get(pid) and not is_pitcher(players[pid]))
+                for pid in depth_order_for_position(depth_chart, "DH")
+                if pid in act_ids
+                and pid not in used
+                and (players.get(pid) and not is_pitcher(players[pid]))
             ]
-            if remaining:
-                best = max(remaining, key=hitter_score)
+            if dh_pref:
+                best = dh_pref[0]
                 lineup.append((best, "DH"))
                 used.add(best)
-                fallback_assignments += 1
+                counters["depth_chart"] += 1
+            else:
+                remaining = [
+                    pid
+                    for pid in act_ids
+                    if pid not in used and (players.get(pid) and not is_pitcher(players[pid]))
+                ]
+                if remaining:
+                    best = max(remaining, key=score)
+                    lineup.append((best, "DH"))
+                    used.add(best)
+                    counters["fallback"] += 1
 
-    # If still short, just fill with any remaining ACT players (defensive pos unknown)
-    for pid in act_ids:
-        if len(lineup) >= 9:
-            break
-        if pid in used:
-            continue
-        p = players.get(pid)
-        if p and not is_pitcher(p):
-            lineup.append((pid, "DH"))
-            used.add(pid)
-            emergency_fill_count += 1
-
-    if len(lineup) < 9:
-        fallback_ids = [
-            pid
-            for pid, player in players.items()
-            if pid not in used and player and not is_pitcher(player)
-        ]
-        rng = random.Random(f"{team_id}-lineup-fallback")
-        rng.shuffle(fallback_ids)
-        for pid in fallback_ids:
+        # If still short, fill with any remaining ACT players (defensive pos unknown)
+        for pid in act_ids:
             if len(lineup) >= 9:
                 break
-            lineup.append((pid, "DH"))
-            used.add(pid)
-            emergency_fill_count += 1
+            if pid in used:
+                continue
+            p = players.get(pid)
+            if p and not is_pitcher(p):
+                lineup.append((pid, "DH"))
+                used.add(pid)
+                counters["emergency"] += 1
+
+        if len(lineup) < 9:
+            fallback_ids = [
+                pid
+                for pid, player in players.items()
+                if pid not in used and player and not is_pitcher(player)
+            ]
+            rng = random.Random(f"{team_id}-lineup-fallback")
+            rng.shuffle(fallback_ids)
+            for pid in fallback_ids:
+                if len(lineup) >= 9:
+                    break
+                lineup.append((pid, "DH"))
+                used.add(pid)
+                counters["emergency"] += 1
+
+        # Order batting by hitter_score (best bats earlier). S2-02 replaces only
+        # this sort with slot-specific weighting.
+        ordered = sorted(lineup[:9], key=score, reverse=True)
+        return ordered, counters
 
     lineup_root.mkdir(parents=True, exist_ok=True)
-    # Order batting by hitter_score (best bats earlier)
-    result = sorted(lineup[:9], key=lambda pair: hitter_score(pair[0]), reverse=True)
-    # ``vs`` filters which lineup file(s) to overwrite. ``None`` (default)
-    # writes both vs_lhp and vs_rhp. Pass "lhp" or "rhp" to target one only.
+    # ``vs`` filters which lineup file(s) to overwrite. ``None`` (default) writes
+    # both vs_lhp and vs_rhp from independent passes. Pass "lhp"/"rhp" for one.
+    # A platoon bat left out of one file is automatically on that game's bench
+    # (build_bench = ACT minus lineup) and available to the pinch-hit logic.
     vs_token = (vs or "").strip().lower()
     if vs_token in {"lhp", "rhp"}:
         targets: tuple[str, ...] = (f"vs_{vs_token}",)
     else:
         targets = ("vs_lhp", "vs_rhp")
+    built: dict[str, list[tuple[str, str]]] = {}
+    counters_by_target: dict[str, dict[str, int]] = {}
     for target in targets:
+        hand = "L" if target == "vs_lhp" else "R"
+        built[target], counters_by_target[target] = _build_lineup(hand)
         path = lineup_root / f"{team_id}_{target}.csv"
         with path.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["order", "player_id", "position"])
-            for i, (pid, pos) in enumerate(result, start=1):
+            for i, (pid, pos) in enumerate(built[target], start=1):
                 writer.writerow([i, pid, pos])
+    # Return vs_rhp when both are written (majority matchup / salvage lineup);
+    # the single requested variant otherwise.
+    result = built[targets[-1]]
+    _tot = lambda key: sum(c.get(key, 0) for c in counters_by_target.values())
 
     decision = explanation(
         "lineup_autofill",
@@ -201,9 +223,11 @@ def auto_fill_lineup_for_team(
         context={
             "act_pool_size": len(act_ids),
             "lineup_size": len(result),
-            "depth_chart_assignments": depth_chart_assignments,
-            "fallback_assignments": fallback_assignments,
-            "emergency_fill_count": emergency_fill_count,
+            "targets": list(targets),
+            "assignments_by_target": counters_by_target,
+            "depth_chart_assignments": _tot("depth_chart"),
+            "fallback_assignments": _tot("fallback"),
+            "emergency_fill_count": _tot("emergency"),
             "strategy_profile": profile,
         },
         reasons=[
@@ -214,17 +238,17 @@ def auto_fill_lineup_for_team(
             reason(
                 "depth_chart_preference",
                 "Used depth chart priority where eligible players were available.",
-                details={"count": depth_chart_assignments},
+                details={"count": _tot("depth_chart")},
             ),
             reason(
                 "best_remaining_bat",
                 "Used hitter score to select fallback or DH slots.",
-                details={"count": fallback_assignments},
+                details={"count": _tot("fallback")},
             ),
             reason(
                 "emergency_fill",
                 "Used emergency DH fills when coverage candidates were short.",
-                details={"count": emergency_fill_count},
+                details={"count": _tot("emergency")},
             ),
             reason(
                 "strategy_profile",
@@ -273,6 +297,26 @@ def _norm_rating(value: object) -> float:
     except Exception:
         return 0.0
     return max(0.0, min(99.0, numeric)) / 99.0
+
+
+def _platoon_adjustment(player: object, *, vs_hand: str) -> float:
+    """Mirror the physics engine's platoon scale (engine._batter_context /
+    _platoon_vl_delta) projected onto hitter_score's 0.6*(0.5*ch+0.5*ph) offense
+    weight: 0.6*(0.5*(2h+0.25d) + 0.5*(2h+0.20d)) = 1.2*h + 0.135*d. Keeping the
+    same constants makes lineup choices agree with in-game outcomes (S2-01/S2-06).
+    """
+    hand = "L" if str(vs_hand or "R").upper().startswith("L") else "R"
+    bats = str(getattr(player, "bats", "") or "R").upper()
+    if bats == "S":
+        h = 0.5
+    elif bats == hand:
+        h = -1.0
+    else:
+        h = 1.0
+    d = float(getattr(player, "vl", 50) or 50) - 50.0
+    if hand != "L":
+        d = -0.35 * d  # PLATOON_RHP_COUNTER_SCALE, see S2-06
+    return 1.2 * h + 0.135 * d
 
 
 def _strategy_hitter_bonus(player: object, *, profile: str) -> float:

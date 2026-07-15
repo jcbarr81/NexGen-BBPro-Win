@@ -188,6 +188,44 @@ class BatterLine:
     ci: int = 0
 
 
+# S2-01: per-PA outcome tagging on the pitch log (the log otherwise carries no PA
+# result). A snapshot-diff of these BatterLine counters over a PA yields the
+# outcome; these keys are only mutated during the batter's own PA.
+_PA_RESULT_KEYS = (
+    "ab", "h", "b2", "b3", "hr", "bb", "ibb", "hbp",
+    "so", "sf", "sh", "roe", "fc", "gidp",
+)
+
+
+def _pa_result_token(delta: Dict[str, int]) -> str | None:
+    # Priority matters: IBB also increments bb; hits increment h and ab.
+    if delta.get("hr"):
+        return "hr"
+    if delta.get("b3"):
+        return "3b"
+    if delta.get("b2"):
+        return "2b"
+    if delta.get("h"):
+        return "1b"
+    if delta.get("ibb"):
+        return "ibb"
+    if delta.get("bb"):
+        return "bb"
+    if delta.get("hbp"):
+        return "hbp"
+    if delta.get("so"):
+        return "so"
+    if delta.get("sf"):
+        return "sf"
+    if delta.get("sh"):
+        return "sh"
+    if delta.get("roe"):
+        return "roe"
+    if delta.get("ab") or delta.get("fc") or delta.get("gidp"):
+        return "out"
+    return None
+
+
 @dataclass
 class FieldingLine:
     player_id: str
@@ -3669,7 +3707,19 @@ def simulate_game(
             }
             unearned_runners.intersection_update(base_ids)
 
+        open_pa: list[tuple[BatterLine, dict[str, int]]] = []
+
+        def _close_open_pa() -> None:
+            if not open_pa:
+                return
+            bline, snap = open_pa.pop()
+            delta = {k: getattr(bline, k) - snap[k] for k in _PA_RESULT_KEYS}
+            token = _pa_result_token(delta)
+            if token and pitch_log:
+                pitch_log[-1]["pa_result"] = token
+
         def finalize_half_inning() -> None:
+            _close_open_pa()
             lob = 0
             for runner in (bases.first, bases.second, bases.third):
                 if runner is None:
@@ -3763,6 +3813,10 @@ def simulate_game(
             batter_index += 1
             totals["pa"] += 1
             batter_line.pa += 1
+            _close_open_pa()
+            open_pa.append(
+                (batter_line, {k: getattr(batter_line, k) for k in _PA_RESULT_KEYS})
+            )
             if batter_line.g == 0:
                 batter_line.g = 1
             line.batters_faced += 1

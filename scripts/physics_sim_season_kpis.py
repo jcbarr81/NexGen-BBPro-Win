@@ -82,6 +82,10 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     "qualified_avg300_count": 9.0,
     "qualified_era_sd": 0.30,
     "qualified_k_pct_sd": 0.015,
+    # S2-01: league platoon split (opposite-hand minus same-hand wOBA). Target
+    # supplied via evaluate_tolerances targets= in main (0.026, pass band
+    # 0.020-0.032) — no benchmark CSV row.
+    "platoon_gap_woba": 0.006,
     # NOTE (S2-08): qualified_hr30_count and qualified_sub220_count are
     # computed and reported in every KPI run but deliberately NOT gated here.
     # Both encode MLB *survivorship* — weak regulars get benched/demoted (never
@@ -173,6 +177,45 @@ def _load_player_ratings(path: Path) -> tuple[dict[str, float], dict[str, float]
             except (TypeError, ValueError):
                 continue
     return contact, power, control
+
+
+def _load_player_hands(path: Path) -> tuple[dict[str, str], dict[str, str]]:
+    """Return (bats_by_id, throws_by_id) — S2-01 platoon-split KPI. Mirrors the
+    PitcherRatings.from_row throws fallback (empty throws -> R if bats S, else
+    the bats hand)."""
+    bats: dict[str, str] = {}
+    throws: dict[str, str] = {}
+    with path.open() as handle:
+        for row in csv.DictReader(handle):
+            player_id = row.get("player_id")
+            if not player_id:
+                continue
+            b = str(row.get("bats", "") or "R").strip().upper() or "R"
+            t = str(row.get("throws", "") or "").strip().upper()
+            if t not in {"L", "R"}:
+                t = "R" if b == "S" else (b if b in {"L", "R"} else "R")
+            bats[str(player_id)] = b
+            throws[str(player_id)] = t
+    return bats, throws
+
+
+def _woba_from_pa_counts(c: Counter) -> tuple[float, int]:
+    """League-average wOBA for a platoon bucket (fixed FanGraphs-style weights).
+    ibb and sh are excluded from both numerator and denominator."""
+    uBB = c["bb"]
+    HBP = c["hbp"]
+    B1 = c["1b"]
+    B2 = c["2b"]
+    B3 = c["3b"]
+    HR = c["hr"]
+    AB = B1 + B2 + B3 + HR + c["so"] + c["out"] + c["roe"]
+    den = AB + uBB + c["sf"] + HBP
+    if not den:
+        return 0.0, 0
+    woba = (
+        0.69 * uBB + 0.72 * HBP + 0.88 * B1 + 1.25 * B2 + 1.59 * B3 + 2.05 * HR
+    ) / den
+    return woba, den
 
 
 def _accumulate(counter: Counter, line: dict[str, object], keys: list[str]) -> None:
@@ -654,6 +697,8 @@ def run_sim(
     contact_ratings, power_ratings, control_ratings = _load_player_ratings(
         players_path
     )
+    bats_by_id, throws_by_id = _load_player_hands(players_path)
+    platoon_counts: dict[str, Counter] = defaultdict(Counter)
 
     batting_keys = [
         "g",
@@ -759,6 +804,13 @@ def run_sim(
             for line in (meta.get("fielding_lines", {}) or {}).get(side, []):
                 _accumulate(team_fielding[team_id], line, fielding_keys)
         for entry in result.pitch_log:
+            # PA-result scan runs BEFORE the pitch_type guard — ibb/bunt entries
+            # carry pa_result but no pitch_type (S2-01 platoon-split KPI).
+            pa_result = entry.get("pa_result")
+            if pa_result:
+                b_hand = bats_by_id.get(str(entry.get("batter_id", "")), "R")
+                p_hand = throws_by_id.get(str(entry.get("pitcher_id", "")), "R")
+                platoon_counts[f"{b_hand}{p_hand}"][pa_result] += 1
             if "pitch_type" not in entry:
                 continue
             pitch_counts["pitches"] += 1
@@ -948,6 +1000,25 @@ def run_sim(
         )
     )
 
+    # Platoon-split KPI (S2-01): league wOBA of opposite-hand PAs minus same-hand
+    # PAs (switch hitters excluded from the gap).
+    same_counts = platoon_counts["LL"] + platoon_counts["RR"]
+    opp_counts = platoon_counts["LR"] + platoon_counts["RL"]
+    woba_same, den_same = _woba_from_pa_counts(same_counts)
+    woba_opp, den_opp = _woba_from_pa_counts(opp_counts)
+    gap = woba_opp - woba_same
+    bucket_report: dict[str, dict[str, float | int]] = {}
+    for key, counts in platoon_counts.items():
+        w, n = _woba_from_pa_counts(counts)
+        bucket_report[key] = {"woba": w, "den": n}
+    summary["platoon"] = {
+        "buckets": bucket_report,
+        "gap_woba": gap,
+        "same_pa": den_same,
+        "opp_pa": den_opp,
+    }
+    summary["metrics"]["platoon_gap_woba"] = gap
+
     summary["rating_splits"] = _build_rating_splits(
         batter_totals=batter_totals,
         pitcher_totals=pitcher_totals,
@@ -1022,6 +1093,7 @@ def main() -> None:
         metrics=summary.get("metrics", {}),
         benchmarks=benchmarks,
         tolerances=tolerances,
+        targets={"platoon_gap_woba": 0.026},  # S2-01 pass band 0.020-0.032
     )
     summary["tolerances"] = tolerances
     summary["tolerance_failures"] = failures
