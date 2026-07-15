@@ -285,7 +285,7 @@ not vibes.
 | S2-01 | Platoon lineups vs LHP/RHP | `utils/lineup_autofill.py:181-194` writes identical lineups to both files; `hitter_score:82-92` ignores handedness; the engine's file selection (game_runner:1281-1299) is a no-op | Handedness-aware `hitter_score` (use `vs_left` + `bats`); generate genuinely different vs_lhp/vs_rhp orders | New KPI: league platoon-split (L/R wOBA gap ≈ 25 pts); lineup-diff test: files differ for teams with platoon candidates | Done (2026-07-15, f0af1b340 — platoon_gap_woba 0.024, `--strict` green seeds 1&2) |
 | S2-02 | Modern batting order | `lineup_autofill.py:179-180` strict best-to-worst; OBP not in the score | Slot-specific weight vectors (leadoff eye/speed; 2 best overall; 3-4 power) | Unit tests on constructed rosters; eyeball top-of-order OBP in a season sim | Done (2026-07-15, 62088c81e — 23 tests green; KPI unaffected/green) |
 | S2-03 | Fix inverted reliever rest | `physics_sim/config.py:333` — ALL non-closers need 2 days rest after any outing (engine.py:449-457); real setup men pitch back-to-back; caps appearances ~54 vs real ~65-70 | Pitch-count-conditional rest (0 days ≤20 pitches); 3-consecutive-day block for all relievers | **New usage KPIs** (S2-12) gate this: reliever appearance leaders ~75-80, distribution vs `role_averages_mlbstats_2020_2024.csv` | Done (2026-07-15, 4735f2a2b — canonical table shared engine+tracker; `--strict` green seeds 1&2; 21 unit tests. Full usage-KPI gating lands with S2-12) |
-| S2-04 | Closer in tied 9th | `engine.py:691-698` filters CL to lead-only; `_reliever_score:636-637` penalizes CL when not ahead | Allow CL when tied, inning ≥9 (esp. home); postseason: 8th-inning fireman | Usage KPI: saves distribution unchanged; tied-game 9th-inning pitcher quality improves (spot-check logs) | Open |
+| S2-04 | Closer in tied 9th | `engine.py:691-698` filters CL to lead-only; `_reliever_score:636-637` penalizes CL when not ahead | Allow CL when tied, inning ≥9 (esp. home); postseason: 8th-inning fireman | Usage KPI: saves distribution unchanged; tied-game 9th-inning pitcher quality improves (spot-check logs) | Done (2026-07-15, pending commit — 9 tests; `--strict` green seeds 1&2; league saves 1318. Postseason fireman is a declared non-goal, see change log) |
 | S2-05 | Position-player rest days | Batter fatigue accumulates (`usage.py:113-130`, in-game degradation up to −35% at engine.py:2809-2827) but **no code ever benches anyone** | Pass `UsageState.batter_workloads` into lineup generation; bench starters over fatigue threshold (catchers more often) | Season sim: starters average ~145-155 games, backup catchers ~40-50 starts; no KPI regressions | Open |
 | S2-06 | Load pitcher `throws` properly | `physics_sim/models.py:13/54` — no `throws` field; platoon logic infers pitcher hand from **batting side**; `_platoon_bonus` (engine.py:2314-2317) gives zero adjustment vs RHP | Add `throws` to model + CSV loader; symmetric platoon adjustment both hands | Data audit: throws populated for all pitchers; platoon KPI (S2-01) measures the corrected gap | Done (2026-07-15, 8daae9e8b — `--strict` green seeds 1&2; audit 280/280 pitchers) |
 
@@ -379,6 +379,23 @@ not vibes.
 ---
 
 ## Change log (newest first)
+
+- **2026-07-15** — **S2-04 closer usage in tied games implemented** (pending
+  commit). Per `docs/specs/S2-04_closer_tied_games.md`: `_select_reliever` gains
+  `is_home_defense`; the CL is now eligible + prioritized in a tied game from the
+  9th at home and for both sides in extras (held on the road in a tied 9th so a
+  later lead still yields a save). `_reliever_score`'s not-ahead branch is split
+  tied vs behind (tied: CL 0 / SU +4 / MR +1; behind: CL −6 / SU −2). The 9th-inning
+  proactive-entry block brings the CL into a qualifying tied half-inning. New knob
+  `closer_tied_road_inning_min=10.0`. Three `_select_reliever` call sites pass the
+  defense side. New `tests/test_closer_tied_games.py` (7 cases) + season-smoke
+  green. Verification: `--games 162 --strict` green on seeds 1 & 2; league saves
+  1318 (tied entries award no save by construction, so the saves distribution is
+  unchanged). **Follow-up (needs a plan row):** the postseason 8th-inning fireman
+  is a declared non-goal here — `simulate_game(postseason=…)` exists but NO
+  production caller ever sets it, so a flag-keyed rule would be dead code; it
+  belongs to the task that wires playoff context from the season runner into
+  `simulate_game`.
 
 - **2026-07-15** — **S2-03 pitch-count-conditional reliever rest implemented** (`4735f2a2b`). Per `docs/specs/S2-03_reliever_rest.md`: the flat inverted
   rest rule (every non-closer blocked 2 days after any outing; closer forbidden

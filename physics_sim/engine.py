@@ -683,9 +683,18 @@ def _reliever_score(
                 score += 3.0
             elif role in {"LR"} or role.startswith("SP"):
                 score -= 4.0
+        elif score_diff == 0:
+            # S2-04: tied high leverage — SU is the default tied-game arm; CL is
+            # not penalized (eligibility is gated in _select_reliever).
+            if role == "SU":
+                score += 4.0
+            elif role == "MR":
+                score += 1.0
         else:
-            if role in {"CL", "SU"}:
-                score -= 6.0
+            if role == "CL":
+                score -= 6.0  # never burn the closer down a run
+            elif role == "SU":
+                score -= 2.0
     elif leverage == "long":
         score = endurance * 0.7 + stuff * 0.3
         if role == "LR" or role.startswith("SP"):
@@ -729,6 +738,7 @@ def _select_reliever(
     *,
     inning: int,
     score_diff: int,
+    is_home_defense: bool = False,
     upcoming_batters: List[BatterRatings] | None = None,
     tuning: TuningConfig | None = None,
 ) -> PitcherState:
@@ -739,7 +749,20 @@ def _select_reliever(
     ]
     if not candidates:
         return team_state.current
-    if not (leverage == "high" and score_diff > 0):
+    closer_inning = int((tuning.get("closer_inning_min", 9.0) if tuning else 9.0))
+    tied_road_inning = int(
+        (tuning.get("closer_tied_road_inning_min", 10.0) if tuning else 10.0)
+    )
+    save_chance = leverage == "high" and score_diff > 0
+    # S2-04: allow the CL in a tied game — always at home from the 9th (no save
+    # can materialize), for both sides once extras start (hold on the road in a
+    # tied 9th so a later lead still hands the CL a save).
+    tied_closer_ok = (
+        score_diff == 0
+        and inning >= closer_inning
+        and (is_home_defense or inning >= tied_road_inning)
+    )
+    if not (save_chance or tied_closer_ok):
         non_cl = [
             pitcher
             for pitcher in candidates
@@ -747,10 +770,7 @@ def _select_reliever(
         ]
         if non_cl:
             candidates = non_cl
-    if leverage == "high" and score_diff > 0:
-        closer_inning = int(
-            (tuning.get("closer_inning_min", 9.0) if tuning else 9.0)
-        )
+    if save_chance or tied_closer_ok:
         closers: list[PitcherState] = []
         if inning >= closer_inning:
             closers = [
@@ -760,7 +780,7 @@ def _select_reliever(
             ]
             if closers:
                 candidates = closers
-        if not closers:
+        if not closers and save_chance:
             setup = [
                 pitcher
                 for pitcher in candidates
@@ -2999,6 +3019,7 @@ def _maybe_pitcher_overuse_injury(
         leverage,
         inning=inning,
         score_diff=score_diff,
+        is_home_defense=(team == "home"),
         upcoming_batters=upcoming_batters,
         tuning=tuning,
     )
@@ -3506,6 +3527,7 @@ def simulate_game(
 
         if inning >= 9:
             lead = defense_score - offense_score
+            save_opp = False
             if lead > 0:
                 save_opp = _save_opportunity(
                     lead=lead,
@@ -3513,8 +3535,17 @@ def simulate_game(
                     bases=bases,
                     tuning=tuning,
                 )
-                current_role = (pitching_state.current.staff_role or "").upper()
-                if save_opp and current_role != "CL":
+            closer_inning = int(tuning.get("closer_inning_min", 9.0))
+            tied_road_inning = int(tuning.get("closer_tied_road_inning_min", 10.0))
+            # S2-04: bring the CL into a tied half-inning the defense may use him
+            # in (home from the 9th; both sides once extras start).
+            tied_entry = (
+                lead == 0
+                and inning >= closer_inning
+                and (defense_team == "home" or inning >= tied_road_inning)
+            )
+            current_role = (pitching_state.current.staff_role or "").upper()
+            if (save_opp or tied_entry) and current_role != "CL":
                     upcoming = [
                         lineup[(batter_index + offset) % len(lineup)]
                         for offset in range(min(3, len(lineup)))
@@ -3549,6 +3580,7 @@ def simulate_game(
                             leverage,
                             inning=inning,
                             score_diff=lead,
+                            is_home_defense=(defense_team == "home"),
                             upcoming_batters=upcoming,
                             tuning=tuning,
                         )
@@ -5193,6 +5225,7 @@ def simulate_game(
                     leverage,
                     inning=inning,
                     score_diff=score_diff,
+                    is_home_defense=(defense_team == "home"),
                     upcoming_batters=upcoming,
                     tuning=tuning,
                 )

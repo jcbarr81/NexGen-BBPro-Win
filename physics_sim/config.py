@@ -472,6 +472,9 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "save_opportunity_inning": 1.0,
     "save_long_innings": 3.0,
     "closer_inning_min": 9.0,
+    # S2-04: tied road games hold the closer through the 9th (a later lead can
+    # still hand him a save); from the 10th both sides may use the CL when tied.
+    "closer_tied_road_inning_min": 10.0,
     "hook_runs_allowed": 5.0,
     "hook_hits_allowed": 7.0,
     "hook_walks_allowed": 3.5,
