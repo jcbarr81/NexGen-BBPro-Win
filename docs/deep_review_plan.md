@@ -304,7 +304,7 @@ not vibes.
 |---|---|---|---|---|---|
 | S2-09 | Deadline-aware CPU trading | `cpu_trade_proposals.py:141-165` cadence-random, ignores standings; `finance_ai.py:484-502` already computes contend/bubble/rebuild but only for budgets; deadline exists only as a UI countdown | Feed profile + games-back into `_build_best_offer`: contenders buy (veterans-for-prospects), sellers reverse; hard-block trades after deadline | Season-log audit: buyer/seller behavior around deadline; existing CPU-trade acceptance tests still pass | Done (2026-07-15, 2372e301c — 34 trade tests green; new `services/team_outlook.py`; phase-aware window) |
 | S2-10 | CPU-to-CPU trades | Proposals only target human teams — 28 CPU teams never trade among themselves | Extend target pool; auto-resolve via `evaluate_cpu_trade_offer` both sides; cap league-wide volume (~2-6/deadline season) | Transactions log shows CPU-CPU deals; guardrails (anti-spam caps) hold; league talent balance stable over 3 sim seasons | Done (2026-07-15, e98b23e73 — 16 proposal + 2 execution tests green; 3-season stability gate NOT run, see change log) |
-| S2-11 | In-season callups + September expansion | `prospect_promotion.py:1-23` offseason-only; no September expansion (comment-only in season_manager.py:77) | Monthly promotion check (AAA→ACT bars, weighted by contend/rebuild); September ACT-size expansion hook | Roster-churn audit over a season; roster-size validation passes; injury replacement still works | Done (2026-07-15, pending commit — 11 callup tests green; season-churn audit NOT run, see change log) |
+| S2-11 | In-season callups + September expansion | `prospect_promotion.py:1-23` offseason-only; no September expansion (comment-only in season_manager.py:77) | Monthly promotion check (AAA→ACT bars, weighted by contend/rebuild); September ACT-size expansion hook | Roster-churn audit over a season; roster-size validation passes; injury replacement still works | Done (2026-07-15, 69b9137b2 — 11 callup tests green; season-churn audit NOT run, see change log) |
 
 **Sprint 2 exit gate:** KPI harness `--strict` green **including all new gates**
 (platoon, TTO, dispersion, usage); 3-season stability sim clean;
@@ -380,8 +380,7 @@ not vibes.
 
 ## Change log (newest first)
 
-- **2026-07-15** — **S2-11 in-season callups + September expansion implemented**
-  (pending commit). Per `docs/specs/S2-11_inseason_callups.md`:
+- **2026-07-15** — **S2-11 in-season callups + September expansion implemented** (`69b9137b2`). Per `docs/specs/S2-11_inseason_callups.md`:
   - New `services/inseason_callups.py` — `run_monthly_callups` (idempotent
     per-league/month via `callup_state.json`; CPU teams only; outlook-weighted
     quota + hole gate: contenders promote into holes, rebuilders promote top
