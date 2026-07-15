@@ -497,12 +497,15 @@ def _team_roster_compliance_errors(team_id: str | None) -> List[str]:
         validate_roster_state,
     )
 
+    from utils.roster_loader import active_roster_cap
+
     players = load_players_map()
     levels = load_team_levels(team_id)
+    # S2-11: honor September expansion (ACT cap 25 -> 28 while REGULAR_SEASON).
     result = validate_roster_state(
         current_levels=levels,
         players=players,
-        level_caps=DEFAULT_LEVEL_CAPS,
+        level_caps={**DEFAULT_LEVEL_CAPS, "act": active_roster_cap()},
     )
     return [f"{team_id}: {msg}" for msg in result.errors]
 
@@ -852,6 +855,15 @@ def _run_daily_automations(played_dates: List[str]) -> Dict[str, Any]:
         }
     except Exception as exc:  # pragma: no cover - defensive
         summary["dl_updates_error"] = str(exc)
+
+    try:
+        from services.inseason_callups import run_monthly_callups
+
+        summary["callups"] = run_monthly_callups(
+            played_dates=played_dates, data_dir=get_data_dir()
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        summary["callups_error"] = str(exc)
 
     return summary
 

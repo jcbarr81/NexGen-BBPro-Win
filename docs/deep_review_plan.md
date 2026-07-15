@@ -304,7 +304,7 @@ not vibes.
 |---|---|---|---|---|---|
 | S2-09 | Deadline-aware CPU trading | `cpu_trade_proposals.py:141-165` cadence-random, ignores standings; `finance_ai.py:484-502` already computes contend/bubble/rebuild but only for budgets; deadline exists only as a UI countdown | Feed profile + games-back into `_build_best_offer`: contenders buy (veterans-for-prospects), sellers reverse; hard-block trades after deadline | Season-log audit: buyer/seller behavior around deadline; existing CPU-trade acceptance tests still pass | Done (2026-07-15, 2372e301c — 34 trade tests green; new `services/team_outlook.py`; phase-aware window) |
 | S2-10 | CPU-to-CPU trades | Proposals only target human teams — 28 CPU teams never trade among themselves | Extend target pool; auto-resolve via `evaluate_cpu_trade_offer` both sides; cap league-wide volume (~2-6/deadline season) | Transactions log shows CPU-CPU deals; guardrails (anti-spam caps) hold; league talent balance stable over 3 sim seasons | Done (2026-07-15, e98b23e73 — 16 proposal + 2 execution tests green; 3-season stability gate NOT run, see change log) |
-| S2-11 | In-season callups + September expansion | `prospect_promotion.py:1-23` offseason-only; no September expansion (comment-only in season_manager.py:77) | Monthly promotion check (AAA→ACT bars, weighted by contend/rebuild); September ACT-size expansion hook | Roster-churn audit over a season; roster-size validation passes; injury replacement still works | Open |
+| S2-11 | In-season callups + September expansion | `prospect_promotion.py:1-23` offseason-only; no September expansion (comment-only in season_manager.py:77) | Monthly promotion check (AAA→ACT bars, weighted by contend/rebuild); September ACT-size expansion hook | Roster-churn audit over a season; roster-size validation passes; injury replacement still works | Done (2026-07-15, pending commit — 11 callup tests green; season-churn audit NOT run, see change log) |
 
 **Sprint 2 exit gate:** KPI harness `--strict` green **including all new gates**
 (platoon, TTO, dispersion, usage); 3-season stability sim clean;
@@ -379,6 +379,40 @@ not vibes.
 ---
 
 ## Change log (newest first)
+
+- **2026-07-15** — **S2-11 in-season callups + September expansion implemented**
+  (pending commit). Per `docs/specs/S2-11_inseason_callups.md`:
+  - New `services/inseason_callups.py` — `run_monthly_callups` (idempotent
+    per-league/month via `callup_state.json`; CPU teams only; outlook-weighted
+    quota + hole gate: contenders promote into holes, rebuilders promote top
+    prospects unconditionally after the deadline, bubble teams promote
+    blue-chips into holes; `evaluate_promotion` eligibility + `evaluate_roster_move`/
+    `apply_roster_move` protection/option gates; worst-`_hitter_score` demotion
+    to open a spot with last-catcher/pitcher-floor protection),
+    `run_september_expansion` (fill to 28), `revert_september_expansion`
+    (trim to 25 for playoffs, forced last-resort demotion).
+  - `utils/roster_loader.py` — `SEPTEMBER_ROSTER_SIZE = 28` +
+    `active_roster_cap(sim_date)` (28 Sept 1→end of REGULAR_SEASON, else 25).
+  - `api/routers/season.py` — `_run_daily_automations` hooks `run_monthly_callups`;
+    the owner compliance gate uses `active_roster_cap()`.
+  - `services/dl_automation.py` — `_resolve_destination` uses `active_roster_cap()`.
+  - `playbalance/season_manager.py` — `advance_phase` reverts September
+    expansion on the REGULAR_SEASON→PLAYOFFS edge.
+  - Tests: new `tests/test_inseason_callups.py` (11 passing: idempotency,
+    contender-hole-only, rebuilder-post-deadline, protection, full-roster swap +
+    no-legal-demotion, `active_roster_cap` size, September fill, revert trim +
+    advance-phase wiring, human-teams-untouched; 2 skipped that need fastapi —
+    daily-automations hook + compliance gate). Regression green:
+    `test_prospect_rules`, `test_v53_acceptance` (prospect + injury-replacement
+    regressions), `test_dl_automation`, `test_injury_manager`,
+    `test_roster_loader_injuries`.
+  - **Season-scale roster-churn audit NOT run**: needs a full season sim via the
+    fastapi season loop (not installed in this dev env). Deferred as a manual
+    gate; unit tests cover criteria 1-6, and `validate_roster_state` cap logic
+    is exercised by the compliance-gate test (skipped here, runs where fastapi
+    exists). Follow-up: sim a season on a sandbox, grep the transaction log for
+    `promote`/`demote`, confirm `validate_roster_state` passes for all teams on
+    Oct 1 post-revert.
 
 - **2026-07-15** — **S2-10 CPU-to-CPU trades implemented** (`e98b23e73`).
   Per `docs/specs/S2-10_cpu_to_cpu_trades.md`:

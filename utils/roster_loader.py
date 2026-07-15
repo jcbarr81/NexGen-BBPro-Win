@@ -22,6 +22,33 @@ get_data_dir = _get_data_dir
 
 # Teams should field exactly 25 players on the active roster.
 ACTIVE_ROSTER_SIZE = 25
+# September call-up expansion (S2-11): from Sept 1 through the end of the
+# regular season the active roster may carry up to 28.
+SEPTEMBER_ROSTER_SIZE = 28
+
+
+def active_roster_cap(sim_date: str | None = None) -> int:
+    """Return the active-roster cap for ``sim_date``.
+
+    25 normally; 28 from Sept 1 while the season phase is REGULAR_SEASON.
+    ``sim_date`` is an ISO date; defaults to the current sim date. Any failure
+    falls back to the strict 25-man cap.
+    """
+
+    try:
+        if sim_date is None:
+            from utils.sim_date import get_current_sim_date
+
+            sim_date = get_current_sim_date()
+        month = int(str(sim_date)[5:7])
+        if month >= 9:
+            from playbalance.season_manager import SeasonManager, SeasonPhase
+
+            if SeasonManager().phase == SeasonPhase.REGULAR_SEASON:
+                return SEPTEMBER_ROSTER_SIZE
+    except Exception:
+        pass
+    return ACTIVE_ROSTER_SIZE
 _PLACEHOLDER_PLAYERS_FILE = "data/players.csv"
 _PLACEHOLDER_HITTERS = 17
 _PLACEHOLDER_PITCHERS = 8

@@ -17,7 +17,7 @@ from services.players_repository import save_players
 from utils.news_logger import log_news_event
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
-from utils.roster_loader import load_roster
+from utils.roster_loader import active_roster_cap, load_roster
 from utils.roster_loader import save_roster
 from utils.team_loader import load_teams
 
@@ -60,7 +60,7 @@ def _player_name(player) -> str:
 
 
 def _resolve_destination(roster) -> Optional[str]:
-    if len(getattr(roster, "act", []) or []) < ACTIVE_MAX:
+    if len(getattr(roster, "act", []) or []) < active_roster_cap():
         return "act"
     if len(getattr(roster, "aaa", []) or []) < AAA_MAX:
         return "aaa"
