@@ -61,10 +61,15 @@ def test_generates_logo_and_calls_callback(tmp_path, monkeypatch):
     )
 
     assert calls["size"] == "1024x1024"
-    assert "Testville" in calls["prompt"]
+    # Prompt is now a MASCOT-forward emblem prompt: it references the team name
+    # and a color scheme, deliberately OMITS the city, and uses descriptive
+    # color names instead of hex codes (image models render names better).
     assert "Testers" in calls["prompt"]
-    assert "#112233" in calls["prompt"]
-    assert "#445566" in calls["prompt"]
+    assert "MASCOT" in calls["prompt"]
+    assert "Color scheme:" in calls["prompt"]
+    assert "mascot artwork only" in calls["prompt"]
+    assert "Testville" not in calls["prompt"]
+    assert "#112233" not in calls["prompt"]
 
     outfile = out_dir / "tst.png"
     assert outfile.exists()

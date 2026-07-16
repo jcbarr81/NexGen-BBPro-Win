@@ -1,9 +1,19 @@
 import json
+import os
+
+import pytest
 
 from utils import path_utils
 from utils.stats_persistence import load_stats, reset_stats
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="This asserts POSIX rename-over-open semantics: it holds a read handle "
+    "open across reset_stats(), and os.replace() cannot replace an open file on "
+    "Windows. Production has no persistent readers (load_stats uses short-lived "
+    "handles); the guarantee is exercised on Linux CI.",
+)
 def test_reset_stats_overwrites_payload(tmp_path, monkeypatch):
     monkeypatch.setattr(path_utils, "get_base_dir", lambda: tmp_path)
     monkeypatch.setattr(path_utils, "get_data_dir", lambda: tmp_path / "data")

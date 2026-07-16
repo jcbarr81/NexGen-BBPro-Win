@@ -16,9 +16,27 @@ def _write_career_players(path: Path, totals: dict) -> None:
 @pytest.fixture()
 def data_dir(tmp_path, monkeypatch):
     data_root = tmp_path / "data"
-    monkeypatch.setenv("NEXGEN_DATA_DIR", str(data_root))
+    data_root.mkdir(parents=True, exist_ok=True)
+    # Sentinels: get_data_dir()'s first-run auto-seed does a FULL copy of the
+    # bundled repo data/ (which carries a populated special_events.json + careers/)
+    # only when teams/players/users are missing. Pre-create them so the test
+    # starts from a genuinely clean data dir.
+    (data_root / "teams.csv").write_text(
+        "team_id,name,city,abbreviation,division,stadium,"
+        "primary_color,secondary_color,owner_id\n",
+        encoding="utf-8",
+    )
+    (data_root / "players.csv").write_text(
+        "player_id,first_name,last_name,primary_position,is_pitcher\n",
+        encoding="utf-8",
+    )
+    (data_root / "users.txt").write_text("", encoding="utf-8")
+    monkeypatch.setenv("NEXGEN_DATA_ROOT", str(data_root))
+    # No active-league binding so get_data_dir() resolves to the bare tmp root.
+    monkeypatch.delenv("NEXGEN_ACTIVE_LEAGUE", raising=False)
     import utils.path_utils as path_utils
-    path_utils._DATA_DIR = None
+    # get_data_dir() now caches in _DATA_DIR_CACHE (a dict), not _DATA_DIR.
+    path_utils._DATA_DIR_CACHE.clear()
     import playbalance.season_context as season_context
     importlib.reload(season_context)
     return data_root
