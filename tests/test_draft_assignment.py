@@ -20,12 +20,15 @@ def _prepare_base(tmp_path: Path, monkeypatch) -> Path:
     monkeypatch.setattr("utils.roster_loader.get_data_dir", lambda: data)
     monkeypatch.setattr("utils.player_loader.get_base_dir", lambda: tmp_path)
     monkeypatch.setattr("utils.player_loader.get_data_dir", lambda: data)
-    monkeypatch.setattr(draft_assignment, "BASE", tmp_path)
-    monkeypatch.setattr(draft_assignment, "DATA", data)
+    # draft_assignment resolves paths via get_data_dir() now (the BASE/DATA
+    # module constants were removed); patch the imported reference in its
+    # namespace so _data_dir() points at the tmp data dir.
+    monkeypatch.setattr(draft_assignment, "get_data_dir", lambda: data)
     import services.transaction_log as tx
 
-    monkeypatch.setattr(tx, "_TRANSACTIONS_PATH", data / "transactions.csv")
-    monkeypatch.setattr(tx, "get_base_dir", lambda: tmp_path)
+    # transaction_log resolves via get_data_dir() now (no _TRANSACTIONS_PATH /
+    # get_base_dir); patch the imported reference.
+    monkeypatch.setattr(tx, "get_data_dir", lambda: data)
     reset_player_cache()
     try:
         load_roster.cache_clear()

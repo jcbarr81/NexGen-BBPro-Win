@@ -39,7 +39,7 @@ def test_apply_injury_events_caps_pitcher_dl(monkeypatch):
     roster = Roster(team_id="TST", act=["P1", "P2", "P3", "P4"], aaa=[], low=[], dl=[], ir=[], dl_tiers={})
 
     monkeypatch.setattr(game_runner, "load_players_from_csv", lambda _: list(players_store["players"]))
-    monkeypatch.setattr(game_runner, "save_players_to_csv", lambda players, __: players_store.__setitem__("players", list(players)))
+    monkeypatch.setattr(game_runner, "save_players", lambda players, __: players_store.__setitem__("players", list(players)))
     monkeypatch.setattr(game_runner, "load_roster", lambda team_id, roster_dir=None: roster)
     monkeypatch.setattr(game_runner, "save_roster", lambda team_id, updated: None)
     monkeypatch.setattr(game_runner, "MAX_PITCHERS_ON_DL", 2)
