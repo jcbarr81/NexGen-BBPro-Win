@@ -8,9 +8,13 @@ import pytest
 @pytest.fixture()
 def data_dir(tmp_path, monkeypatch):
     data_root = tmp_path / "data"
-    monkeypatch.setenv("NEXGEN_DATA_DIR", str(data_root))
+    data_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("NEXGEN_DATA_ROOT", str(data_root))
+    # No active-league binding -> get_data_dir() resolves to the bare tmp root.
+    monkeypatch.delenv("NEXGEN_ACTIVE_LEAGUE", raising=False)
     import utils.path_utils as path_utils
-    path_utils._DATA_DIR = None
+    # get_data_dir() caches in _DATA_DIR_CACHE (a dict) now, not _DATA_DIR.
+    path_utils._DATA_DIR_CACHE.clear()
     import playbalance.season_context as season_context
     importlib.reload(season_context)
     return data_root

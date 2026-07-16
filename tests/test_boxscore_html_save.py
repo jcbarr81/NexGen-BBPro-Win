@@ -40,24 +40,24 @@ def _simulate_simple_game():
 
 
 def test_boxscore_html_written():
-    # Ensure a clean output directory
-    shutil.rmtree(Path("data/boxscores"), ignore_errors=True)
-
     home, away = _simulate_simple_game()
     box = generate_boxscore(home, away)
     html = render_boxscore_html(box, home_name="Home", away_name="Away")
 
+    # save_boxscore_html writes under get_data_dir()/boxscores; clean up the
+    # exact files we create (the old repo-root "data/boxscores" rmtree targeted
+    # the wrong path and crashed once boxscores moved into the league data dir).
     path_ex = save_boxscore_html("exhibition", html, "game_ex")
     path_se = save_boxscore_html("season", html, "game_se")
+    try:
+        assert Path(path_ex).is_file()
+        assert Path(path_se).is_file()
 
-    assert Path(path_ex).is_file()
-    assert Path(path_se).is_file()
-
-    text = Path(path_ex).read_text(encoding="utf-8")
-    assert "League Box Score" in text
-    assert "Fa1 La1" in text  # away player
-    assert "Fh1 Lh1" in text  # home player
-
-    # Clean up generated files to keep repository tidy
-    shutil.rmtree(Path("data/boxscores"))
+        text = Path(path_ex).read_text(encoding="utf-8")
+        assert "League Box Score" in text
+        assert "Fa1 La1" in text  # away player
+        assert "Fh1 Lh1" in text  # home player
+    finally:
+        Path(path_ex).unlink(missing_ok=True)
+        Path(path_se).unlink(missing_ok=True)
 
