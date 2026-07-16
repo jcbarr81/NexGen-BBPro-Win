@@ -3,11 +3,13 @@ import json
 from services import season_progress_flags as spf
 
 
-def test_mark_draft_completed_creates_file(tmp_path, monkeypatch):
+def test_mark_draft_completed_creates_file(tmp_path):
+    # mark_draft_completed resolves the file via the progress_path kwarg (or
+    # _progress_path() when omitted); it does not read the PROGRESS_PATH module
+    # attribute, so pass the tmp path explicitly like the playoffs tests do.
     target = tmp_path / "progress.json"
-    monkeypatch.setattr(spf, "PROGRESS_PATH", target)
 
-    spf.mark_draft_completed(2025, retries=2, delay=0)
+    spf.mark_draft_completed(2025, progress_path=target, retries=2, delay=0)
 
     payload = json.loads(target.read_text())
     assert payload["draft_completed_years"] == [2025]
@@ -15,7 +17,6 @@ def test_mark_draft_completed_creates_file(tmp_path, monkeypatch):
 
 def test_mark_draft_completed_retries_on_replace_error(tmp_path, monkeypatch):
     target = tmp_path / "progress.json"
-    monkeypatch.setattr(spf, "PROGRESS_PATH", target)
 
     original_replace = spf.os.replace
     call_count = {"count": 0}
@@ -28,7 +29,7 @@ def test_mark_draft_completed_retries_on_replace_error(tmp_path, monkeypatch):
 
     monkeypatch.setattr(spf.os, "replace", flaky_replace)
 
-    spf.mark_draft_completed(2030, retries=3, delay=0)
+    spf.mark_draft_completed(2030, progress_path=target, retries=3, delay=0)
 
     payload = json.loads(target.read_text())
     assert payload["draft_completed_years"] == [2030]

@@ -221,8 +221,12 @@ def test_phase5_playbalance_and_generator_paths_follow_active_league_switch(
     assert (beta_data / "playbalance_overrides.json").exists()
     assert not (alpha_data / "playbalance_overrides.json").exists()
 
-    first, last, _eth = player_generator.generate_name()
-    assert (first, last) == ("Beta", "Two")
+    # The generator's active data paths must follow the league switch. Its name
+    # POOL deliberately unions the shared data-root names.csv (so cloud leagues
+    # aren't all "John Doe", see _load_name_pool), which means a specific
+    # generate_name() output is NOT league-deterministic — assert the resolved
+    # path instead of a sampled name.
+    assert Path(player_generator.PLAYER_PATH).resolve() == beta_players.resolve()
 
 
 def test_phase5_playbalance_config_defaults_refresh_after_league_switch(
