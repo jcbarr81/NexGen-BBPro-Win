@@ -12,9 +12,14 @@ def _source_text(relative_path: str) -> str:
 
 def test_contracts_service_uses_typed_buyout_event_helper():
     source = _source_text("services/contracts_service.py")
+    # The ledger EVENT must go through the typed helper.
     assert "post_contract_buyout(" in source
-    assert '"contract_buyout"' not in source
-    assert "'contract_buyout'" not in source
+    # No raw event emission via record_ledger_event("contract_buyout", ...). The
+    # bare string is allowed elsewhere as an expense_type= category (a different
+    # taxonomy), so scope the check to event emission rather than banning the
+    # literal outright.
+    assert 'record_ledger_event("contract_buyout"' not in source
+    assert "record_ledger_event('contract_buyout'" not in source
 
 
 def test_offseason_finance_flow_uses_typed_arb_award_event_helper():

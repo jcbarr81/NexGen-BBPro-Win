@@ -184,6 +184,8 @@ def test_pool_sanity_checks(tmp_path, monkeypatch):
     primaries = {p.primary_position for p in pool}
     for pos in ("C", "SS", "CF"):
         assert pos in primaries
-    # Birth years are plausible (year - 18)
+    # Birth years are plausible: draftees span a realistic class age range
+    # (HS ~18 through college ~21), not a single uniform age.
     years = {int(p.birthdate.split("-")[0]) for p in pool}
-    assert years == {year - 18}
+    assert len(years) > 1
+    assert all(year - 22 <= by <= year - 16 for by in years)
