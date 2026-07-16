@@ -8,6 +8,25 @@ from utils.pitcher_recovery import PitcherRecoveryTracker, _parse_date
 from utils.path_utils import get_base_dir, get_data_dir
 
 
+@pytest.fixture(autouse=True)
+def _restore_playbalance_overrides():
+    """`_set_overrides()` calls cfg.save_overrides(), which writes
+    playbalance_overrides.json into the ACTIVE league data dir so the tracker
+    reads the tuned thresholds. Snapshot and restore it so these tests don't
+    leak config onto every downstream make_cfg()/load_config() test in a
+    full-suite run (that leak silently shifts the legacy physics)."""
+
+    target = get_data_dir() / "playbalance_overrides.json"
+    backup = target.read_bytes() if target.exists() else None
+    try:
+        yield
+    finally:
+        if backup is None:
+            target.unlink(missing_ok=True)
+        else:
+            target.write_bytes(backup)
+
+
 def _set_overrides(**values):
     cfg = PlayBalanceConfig.from_file(get_base_dir() / "playbalance" / "PBINI.txt")
     vals = {
