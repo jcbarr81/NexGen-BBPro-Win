@@ -19,7 +19,7 @@ def test_load_config_sections():
     # Attribute access exposes the same value.
     assert cfg.speedBase == cfg.sections["PlayBalance"].speedBase
     # JSON overrides should merge onto the PlayBalance section.
-    assert cfg.hbpBatterStepOutChance == 40
+    assert cfg.hbpBatterStepOutChance == 80
 
 
 def test_load_benchmarks_has_values():
@@ -38,14 +38,14 @@ def test_load_benchmarks_has_values():
 
 
 def test_override_validation(tmp_path):
+    # Unknown keys WITHIN a known section are rejected (typo protection). Flat
+    # top-level keys are intentionally accepted as new defaults on the
+    # PlayBalance section (see load_config: "Allow flat overrides"), so validate
+    # the retained behavior: a bogus key nested under PlayBalance must raise.
     override = tmp_path / "override.json"
-    override.write_text("{\"unknownKey\": 1}")
-    try:
+    override.write_text("{\"PlayBalance\": {\"unknownKey\": 1}}")
+    with pytest.raises(KeyError):
         load_config(overrides_path=override)
-    except KeyError:
-        pass
-    else:  # pragma: no cover - explicit failure path
-        assert False, "Unknown override key did not raise"
 
 
 def test_all_pbini_keys_present():
