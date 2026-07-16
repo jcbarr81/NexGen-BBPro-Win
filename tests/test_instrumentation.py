@@ -6,8 +6,18 @@ from pathlib import Path
 
 import pytest
 
+from playbalance.legacy_guard import legacy_enabled
+
 ROOT = Path(__file__).resolve().parents[1]
 SIM_SCRIPT = ROOT / "scripts" / "playbalance_simulate.py"
+
+# playbalance_simulate.py is the ARCHIVED legacy sim CLI (require_legacy_enabled
+# -> non-zero exit). The physics sim + KPI harness are the shipping path. Skip
+# unless the legacy engine is explicitly enabled.
+pytestmark = pytest.mark.skipif(
+    not legacy_enabled(),
+    reason="Legacy playbalance_simulate.py archived; set PB_ALLOW_LEGACY_ENGINE=1 to run.",
+)
 
 
 def test_playbalance_sim_cli_emits_pitch_counts(tmp_path):
