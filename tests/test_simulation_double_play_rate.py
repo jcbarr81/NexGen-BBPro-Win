@@ -3,6 +3,19 @@ import io
 from datetime import timedelta
 from pathlib import Path
 
+import pytest
+
+from playbalance.legacy_guard import legacy_enabled
+
+# scripts.simulate_season_avg is the ARCHIVED legacy season-average tool; its
+# simulate_season_average() calls require_legacy_enabled(). The physics KPI
+# harness (scripts/physics_sim_season_kpis.py) covers DP rate for the shipping
+# engine. Skip unless the legacy engine is explicitly enabled.
+pytestmark = pytest.mark.skipif(
+    not legacy_enabled(),
+    reason="Legacy season-average script archived; set PB_ALLOW_LEGACY_ENGINE=1 to run.",
+)
+
 import scripts.simulate_season_avg as ssa
 import playbalance.simulation as sim
 from tests.test_physics import make_player, make_pitcher

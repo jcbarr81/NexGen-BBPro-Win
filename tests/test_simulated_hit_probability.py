@@ -8,6 +8,16 @@ from types import SimpleNamespace
 
 import pytest
 
+from playbalance.legacy_guard import legacy_enabled
+
+# Archived legacy season-average tool (simulate_season_average calls
+# require_legacy_enabled). The physics KPI harness covers hit rate for the
+# shipping engine. Skip unless legacy is explicitly enabled.
+pytestmark = pytest.mark.skipif(
+    not legacy_enabled(),
+    reason="Legacy season-average script archived; set PB_ALLOW_LEGACY_ENGINE=1 to run.",
+)
+
 import scripts.simulate_season_avg as ssa
 import playbalance.simulation as sim
 from playbalance.simulation import TeamState
