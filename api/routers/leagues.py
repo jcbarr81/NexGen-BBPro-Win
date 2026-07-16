@@ -26,7 +26,11 @@ def _require_admin(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[s
 
 
 @router.get("", response_model=List[LeagueRecordOut])
-def list_leagues() -> List[LeagueRecordOut]:
+def list_leagues(
+    _identity: Dict[str, Any] = Depends(require_bearer),
+) -> List[LeagueRecordOut]:
+    # Auth required — anonymous discovery uses the dedicated ``/leagues/public``
+    # endpoint; the desktop client only lists the registry after login.
     records = league_registry.list_leagues()
     return [LeagueRecordOut(**asdict(record)) for record in records]
 

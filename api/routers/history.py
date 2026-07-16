@@ -1,9 +1,9 @@
 """League history endpoint.
 
-Reuses the existing PyQt history loader to keep one source of truth:
-``ui.league_history_window._load_history_entries`` already walks the
-season context, resolves artifacts (awards, champions, playoffs
-bracket, record book), and builds a dataclass per archived season.
+Season-history aggregation lives in ``services.league_history`` (a server-safe
+port of the retired ``ui.league_history_window`` loader — removed when the PyQt
+UI was retired in v6.14.52). Keeping it in a service module means this endpoint
+works in the headless Cloud/Electron-sidecar runtime, which does not ship PyQt.
 """
 
 from __future__ import annotations
@@ -21,15 +21,9 @@ router = APIRouter(prefix="/league", tags=["history"], dependencies=[CurrentIden
 @router.get("/history")
 def league_history() -> Dict[str, Any]:
     try:
-        from ui.league_history_window import _load_history_entries
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"History loader unavailable: {exc}",
-        ) from exc
+        from services.league_history import load_history_entries
 
-    try:
-        entries = _load_history_entries()
+        entries = load_history_entries()
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
