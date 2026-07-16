@@ -316,9 +316,8 @@ def test_compliance_gate_accepts_28_in_september(monkeypatch, tmp_path):
     pytest.importorskip("fastapi")
     import api.routers.season as season
 
-    monkeypatch.setattr(season, "load_players_map", lambda: {}, raising=False)
-    # 27-man legal roster in September should pass with the expanded cap.
-    monkeypatch.setattr("utils.roster_loader.active_roster_cap", lambda *a, **k: 28)
+    # 27-man ACT roster (an empty players map produces unrelated composition
+    # errors we ignore — S2-11 only changed the *cap* the gate enforces).
     monkeypatch.setattr(
         "api.routers.validation.load_team_levels",
         lambda team_id: {"act": [f"h{i}" for i in range(27)], "aaa": [], "low": []},
@@ -327,5 +326,13 @@ def test_compliance_gate_accepts_28_in_september(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "api.routers.validation.load_players_map", lambda: {}, raising=False
     )
-    errors = season._team_roster_compliance_errors("CPU")
-    assert errors == []
+
+    # September cap (28): 27 players is NOT over cap.
+    monkeypatch.setattr("utils.roster_loader.active_roster_cap", lambda *a, **k: 28)
+    sept = season._team_roster_compliance_errors("CPU")
+    assert not any("over cap" in e for e in sept)
+
+    # Strict cap (25): the same roster IS over cap — proves the cap flows in.
+    monkeypatch.setattr("utils.roster_loader.active_roster_cap", lambda *a, **k: 25)
+    strict = season._team_roster_compliance_errors("CPU")
+    assert any("over cap" in e for e in strict)
