@@ -15,7 +15,8 @@ def _report(player_id: str, focus: str, *, changes=None) -> TrainingReport:
 
 
 def test_record_and_load_training_history(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(training_history, "_REPORTS_DIR", tmp_path)
+    # Reports dir is resolved via _reports_dir() now (no _REPORTS_DIR constant).
+    monkeypatch.setattr(training_history, "_reports_dir", lambda: tmp_path)
 
     training_history.record_training_session(
         [_report("p1", "Barrel Control")],

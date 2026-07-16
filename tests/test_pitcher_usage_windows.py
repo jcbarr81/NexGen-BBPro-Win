@@ -5,7 +5,7 @@ import pytest
 
 from playbalance.playbalance_config import PlayBalanceConfig
 from utils.pitcher_recovery import PitcherRecoveryTracker, _parse_date
-from utils.path_utils import get_base_dir
+from utils.path_utils import get_base_dir, get_data_dir
 
 
 def _set_overrides(**values):
@@ -43,19 +43,24 @@ def test_rest_curve_applied_in_record_game(tmp_path):
     players_file = get_data_dir() / "players.csv"
     roster_dir = get_data_dir() / "rosters"
 
-    # Day 1: 10 pitches -> 0 days rest
+    # S2-03: relievers (this pid is a closer) delegate to the canonical
+    # pitch-count table shared with the physics engine — reliever_rest_days is
+    # <=12->0, 13-25->1, 26-40->2, >40->3 off days, stored as
+    # available_on = date + off_days + 1 (so a <=12-pitch outing is b2b-eligible
+    # the very next day). This supersedes the legacy restDaysPitchesLvl curve.
+    # Day 1: 10 pitches -> 0 off days -> available next day.
     d1 = "2025-04-01"
     tracker.record_game(team_id, d1, [_dummy_state(pid, 10)], players_file, roster_dir)
     entry = tracker.data.get("teams", {}).get(team_id, {})
     st = entry.get("pitchers", {}).get(pid, {})
-    assert _parse_date(st.get("available_on")) == _parse_date(d1)
+    assert _parse_date(st.get("available_on")) == _parse_date(d1) + timedelta(days=1)
 
-    # Day 2: 35 pitches -> 2 days rest
+    # Day 2: 35 pitches -> 2 off days -> available_on = date + 3.
     d2 = "2025-04-02"
     tracker.record_game(team_id, d2, [_dummy_state(pid, 35)], players_file, roster_dir)
     entry = tracker.data.get("teams", {}).get(team_id, {})
     st = entry.get("pitchers", {}).get(pid, {})
-    assert _parse_date(st.get("available_on")) == _parse_date(d2) + timedelta(days=2)
+    assert _parse_date(st.get("available_on")) == _parse_date(d2) + timedelta(days=3)
 
 
 def test_b2b_allowed_then_third_day_block(tmp_path):

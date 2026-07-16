@@ -4,8 +4,10 @@ from services import training_settings
 
 
 def _setup_tmp_settings(tmp_path, monkeypatch):
+    # The module resolves its file via _settings_path() now (there is no
+    # SETTINGS_PATH constant); redirect that to a tmp file.
     settings_path = tmp_path / "training_settings.json"
-    monkeypatch.setattr(training_settings, "SETTINGS_PATH", settings_path)
+    monkeypatch.setattr(training_settings, "_settings_path", lambda: settings_path)
     monkeypatch.setattr(training_settings, "_resolve_league_id", lambda: "test-league")
     return settings_path
 
