@@ -1,7 +1,17 @@
 # AGENTS instructions
 
+> **New here? Read `docs/CODEX_HANDOFF.md` first.** It is the full onboarding map:
+> architecture, how to run/test/deploy, the current state, where development was
+> left off, and the traps that will otherwise cost you hours.
+
 ## Testing
-- Run targeted tests using `pytest` before commits
+- Run targeted tests using `pytest` before commits.
+- **The whole suite is only reliably green via `python scripts/run_tests_isolated.py`**
+  (per-file process isolation). A single `pytest` run over everything shows ~50
+  cross-file *pollution* failures that are NOT real bugs — see
+  `docs/CODEX_HANDOFF.md` §5. Every file passes on its own.
+- Run with `PYTHONHASHSEED=0`; never run sims/tests against a real user league,
+  and clean stray data with `git clean -fdq data/leagues` (not just `git checkout`).
 - Virtual envrionment exists in .venv, use this interpreter
 
 ## Development guidelines
