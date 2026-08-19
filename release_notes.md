@@ -1,4 +1,24 @@
 <!-- last_build_ref: 79882e43bc2ca284855a0621d24028e4c52b1d6f -->
+# 7.2 Release Notes — Parallel Day Simulation (Sprint 1)
+
+Season simulation can now run a day's games across multiple worker processes
+while producing **byte-identical** results to the single-threaded path.
+
+- **Opt-in and safe by default.** Set `PB_PARALLEL_GAMES` to a worker count
+  (or `auto`) to enable it; unset (or `0`/`1`) keeps the exact serial behavior.
+  On a single-CPU host it automatically degrades to serial.
+- **Proven identical results.** Every game's outcome, season-stats file, and
+  pitcher-recovery state match the serial run exactly (verified across many
+  day counts, seeds, and worker counts). Nothing about how a league plays out
+  changes — only how fast it can be computed.
+- **Engine determinism fix.** Pitching-staff ordering no longer depends on
+  hidden per-process state, so simulations are reproducible regardless of how
+  games are distributed. This is calibration-neutral (KPI output unchanged).
+
+Under the hood, workers simulate games with all persistence intercepted and
+returned to the parent, which applies it in the normal serial order — so the
+saved league state is exactly what a serial run would have written.
+
 # 7.1 Release Notes — CPU League Realism (Sprint 2)
 
 CPU-controlled teams now behave far more like real front offices, and the
