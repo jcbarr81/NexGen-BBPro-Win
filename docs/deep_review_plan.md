@@ -412,6 +412,23 @@ not vibes.
 
 ## Change log (newest first)
 
+- **2026-08-19** — **S1-10 shipped to production (7.2.0) + enabled on cloud.**
+  Merged to `main` (`c93792092`), released 7.2.0. Added packaged-build safety
+  (`api.__main__` `freeze_support()`, `5896fd829`) and a defensive per-game
+  result timeout → serial fallback on a hung worker (`a2f53aa60`,
+  `PB_PARALLEL_RESULT_TIMEOUT`, default 300s). Validated the exact cloud path —
+  the pool spawned from the `api/routers/season.py:245` daemon background thread
+  runs and is byte-identical to serial. Cloud Run raised to **2 vCPU / 4Gi** and
+  `PB_PARALLEL_GAMES=2` set so a single season-sim request can use >1 core
+  (serial otherwise leaves extra vCPUs idle — this is why S1-10 matters for a
+  cloud-only deploy). Safety posture: opt-in, byte-parity, crash→serial (D12) and
+  hang→serial (timeout) fallbacks, so a misbehaving worker degrades gracefully
+  rather than breaking the sim. Awaiting a live smoke-test season.
+
+- **2026-08-18** — **S1-10 implemented** (branch `s1-10-parallel-day`,
+  `c93792092`). Opt-in parallel day simulation; byte-parity verified; KPI-neutral
+  D14 lineup_loader determinism fix. See spec §9a.
+
 - **2026-07-16** — **Sprint 3 spec pass complete.** Added the remaining Sprint 3
   specs to `docs/specs/`: Manager-depth track (`S3-13_team_strategy`,
   `S3-14_hit_and_run`, `S3-15_tto_hooks_openers`, `S3-16_ibb_depth`,
