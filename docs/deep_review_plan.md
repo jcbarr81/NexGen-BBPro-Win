@@ -323,15 +323,28 @@ not vibes.
 
 ## Sprint 3 — Polish & Depth (~2-3 weeks, order flexible)
 
-> **Spec status (2026-07-16):** the **physics/park-environment track
-> (S3-01–S3-05) now has implementation-ready specs** under `docs/specs/`
-> (`S3-01_park_factors.md` … `S3-05_stat_scoring.md`), each with verified
-> current-code anchors, decisions, files-to-change, and a KPI/unit verification
-> gate. **Recommended implementation order** (low-risk → highest-nuance):
-> **S3-04** (extra innings) → **S3-05** (stat scoring) → **S3-03** (foul-outs) →
-> **S3-02** (weather) → **S3-01** (park factors; do last — S3-02 shares its carry
-> lever). UI/IA (S3-06–S3-12) and Manager-depth (S3-13–S3-17) specs are not yet
-> written.
+> **Spec status (2026-07-16): ALL Sprint 3 tracks now have implementation-ready
+> specs** under `docs/specs/` (`S3-01`…`S3-17` + `S3-tail_cleanup.md`), each with
+> verified current-code anchors, decisions, files-to-change, and a verification
+> gate (KPI/unit for engine work; `tsc --noEmit` + `vite build` + click-through
+> for UI). Ready to implement — no more speccing needed.
+>
+> **Recommended implementation order within tracks:**
+> - **Physics** (low-risk → highest-nuance): **S3-04** (extra innings) →
+>   **S3-05** (stat scoring) → **S3-03** (foul-outs) → **S3-02** (weather) →
+>   **S3-01** (park factors; last — S3-02 shares its carry lever).
+> - **Manager depth:** **S3-16** (IBB) / **S3-13** (strategy) first (self-
+>   contained) → **S3-14** (hit-and-run, needs S3-13's multiplier) → **S3-17**
+>   (framing) → **S3-15** (openers; heaviest, touches rotation + rest).
+> - **UI/IA:** the small self-contained ones first — **S3-08** (account),
+>   **S3-10** (all-star/sim-days), **S3-12** (sidebar), **S3-11** (hotkeys) →
+>   then the IA moves **S3-07** (utilities split), **S3-09** (owner finance card),
+>   **S3-06** (consolidate player pages).
+>
+> Anchor corrections made while speccing: S3-01 park data is `physics_sim/park.py`
+> (not `field_geometry.py`); S3-17 framing is a NEW skill (plan's 1617-1628 anchor
+> was `_advance_on_error`); S3-12's Sidebar phase-gate line moved (implementer to
+> re-locate). S3-02 wind knobs confirmed dead code.
 
 ### Park/environment realism
 
@@ -398,6 +411,17 @@ not vibes.
 ---
 
 ## Change log (newest first)
+
+- **2026-07-16** — **Sprint 3 spec pass complete.** Added the remaining Sprint 3
+  specs to `docs/specs/`: Manager-depth track (`S3-13_team_strategy`,
+  `S3-14_hit_and_run`, `S3-15_tto_hooks_openers`, `S3-16_ibb_depth`,
+  `S3-17_catcher_framing`), UI/IA track (`S3-06_consolidate_player_pages`,
+  `S3-07_utilities_split`, `S3-08_account_page`, `S3-09_owner_dashboard_finance`,
+  `S3-10_allstar_simdays_ui`, `S3-11_hotkeys`, `S3-12_sidebar_phase_disabled`),
+  and `S3-tail_cleanup` (validate_help_surface rewrite; records that the
+  PyQt-retirement test breakage was already resolved in the test-hygiene pass).
+  All 17 items + tail are now implementation-ready; per-track order added to the
+  Sprint 3 header note.
 
 - **2026-07-16** — **Sprint 3 physics-track specs written.** Implementation-ready
   specs added for the park/environment track: `docs/specs/S3-01_park_factors.md`
