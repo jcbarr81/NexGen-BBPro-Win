@@ -54,6 +54,38 @@ def team_finance_snapshot(team_id: str) -> Dict[str, Any]:
     return snapshot.as_dict()
 
 
+@router.put("/budgets")
+def set_team_budgets(
+    team_id: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Owner action (finance Phase 2): set this team's budget targets
+    (training / scouting / development / facilities). Runs in the request's
+    league context. Rejected (409) when finance is disabled or the league's
+    ``owner_budgets`` module is off."""
+
+    from services.owner_finance_engine import update_team_budget_targets
+
+    budgets = payload.get("budgets")
+    if not isinstance(budgets, dict):
+        # Tolerate a flat {category: amount} body too.
+        budgets = {k: v for k, v in payload.items() if k != "budgets"}
+    try:
+        result = update_team_budget_targets(team_id, budgets)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save budgets: {exc}",
+        ) from exc
+    if not result.get("saved"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(result.get("message") or "Could not save budget targets."),
+        )
+    return result
+
+
 @router.get("/payroll-context")
 def team_payroll_context(team_id: str) -> Dict[str, Any]:
     """Payroll-vs-threshold outlook for the owner's headroom widget.

@@ -6,18 +6,21 @@
  * transactions table shows the most recent ledger entries.
  */
 
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  Check,
   CreditCard,
   DollarSign,
   Loader2,
+  Pencil,
   PiggyBank,
   Receipt,
   TrendingDown,
   TrendingUp,
   Wallet,
+  X,
 } from "lucide-react";
 
 import {
@@ -35,11 +38,13 @@ import { AppShell } from "@/components/layout/AppShell";
 import { StatCard } from "@/components/StatCard";
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
+  Input,
 } from "@/components/ui";
 
 export function FinancePage() {
@@ -138,8 +143,13 @@ export function FinancePage() {
             />
           </div>
           <BudgetCard
+            teamId={fallbackTeamId}
             actual={snapshot.data.budgets}
             projected={snapshot.data.projected_budgets}
+            editable={
+              !!snapshot.data.financials_enabled &&
+              (snapshot.data.modules?.owner_budgets ?? "off") !== "off"
+            }
           />
           <TransactionsCard
             isLoading={transactions.isLoading}
@@ -279,12 +289,17 @@ function BreakdownCard({
 }
 
 function BudgetCard({
+  teamId,
   actual,
   projected,
+  editable,
 }: {
+  teamId: string;
   actual: Record<string, number>;
   projected: Record<string, number>;
+  editable: boolean;
 }) {
+  const queryClient = useQueryClient();
   const keys = useMemo(() => {
     const all = Array.from(
       new Set([...Object.keys(actual), ...Object.keys(projected)]),
@@ -293,7 +308,33 @@ function BudgetCard({
     return all;
   }, [actual, projected]);
 
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+
+  const save = useMutation({
+    mutationFn: () => {
+      const budgets: Record<string, number> = {};
+      for (const k of keys) {
+        const n = Number(draft[k]);
+        budgets[k] = Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+      }
+      return api.updateTeamBudgets(teamId, budgets);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["finance-snapshot", teamId] });
+      setEditing(false);
+    },
+  });
+
   if (keys.length === 0) return null;
+
+  const startEdit = () => {
+    const d: Record<string, string> = {};
+    for (const k of keys) d[k] = String(actual[k] ?? 0);
+    setDraft(d);
+    save.reset();
+    setEditing(true);
+  };
 
   return (
     <Card>
@@ -301,14 +342,29 @@ function BudgetCard({
         <div>
           <CardTitle>Budgets</CardTitle>
           <CardDescription>
-            Allocated vs projected based on revenue
+            {editable
+              ? "Set your allocation per category — projected is your revenue-based ceiling"
+              : "Allocated vs projected based on revenue"}
           </CardDescription>
         </div>
-        <Badge tone="amber">
-          <DollarSign className="h-3 w-3" /> {keys.length}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge tone="amber">
+            <DollarSign className="h-3 w-3" /> {keys.length}
+          </Badge>
+          {editable && !editing ? (
+            <Button size="sm" variant="secondary" onClick={startEdit}>
+              <Pencil className="h-3.5 w-3.5" /> Edit
+            </Button>
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent>
+        {save.isError ? (
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {(save.error as Error)?.message ?? "Failed to save budgets."}
+          </div>
+        ) : null}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
           {keys.map((key) => {
             const a = actual[key] ?? 0;
@@ -323,16 +379,30 @@ function BudgetCard({
                   <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted capitalize">
                     {key.replace(/_/g, " ")}
                   </div>
-                  <div className="font-display text-lg font-bold text-amber-text">
-                    {formatMoney(a)}
-                  </div>
+                  {editing ? null : (
+                    <div className="font-display text-lg font-bold text-amber-text">
+                      {formatMoney(a)}
+                    </div>
+                  )}
                 </div>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-canvas">
-                  <div
-                    className="h-full bg-amber transition-[width]"
-                    style={{ width: `${ratio * 100}%` }}
+                {editing ? (
+                  <Input
+                    type="number"
+                    min={0}
+                    className="mt-2"
+                    value={draft[key] ?? ""}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, [key]: e.target.value }))
+                    }
                   />
-                </div>
+                ) : (
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-canvas">
+                    <div
+                      className="h-full bg-amber transition-[width]"
+                      style={{ width: `${ratio * 100}%` }}
+                    />
+                  </div>
+                )}
                 <div className="mt-1 text-[11px] text-muted">
                   of {formatMoney(p)} projected
                 </div>
@@ -340,6 +410,30 @@ function BudgetCard({
             );
           })}
         </div>
+        {editing ? (
+          <div className="mt-4 flex items-center justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setEditing(false)}
+              disabled={save.isPending}
+            >
+              <X className="h-3.5 w-3.5" /> Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => save.mutate()}
+              disabled={save.isPending}
+            >
+              {save.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Check className="h-3.5 w-3.5" />
+              )}
+              Save budgets
+            </Button>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

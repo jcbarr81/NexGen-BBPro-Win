@@ -898,6 +898,10 @@ export interface FinanceSnapshot {
   projected_net: number;
   financials_enabled: boolean;
   preset: string;
+  /** Per-module levels (off/basic/...) for the league, so the UI can reveal the
+   * owner actions the selected finance model enables. May be absent on older
+   * servers. e.g. { owner_budgets: "basic", gm_arbitration: "off", ... } */
+  modules?: Record<string, string>;
 }
 
 /**
@@ -2262,6 +2266,13 @@ export const api = {
   financeSnapshot: (teamId: string) =>
     apiRequest<FinanceSnapshot>(
       `/teams/${encodeURIComponent(teamId)}/finance/snapshot`,
+    ),
+  /** Owner action: set this team's budget targets (training/scouting/
+   * development/facilities). Rejected (409) if finance/owner_budgets is off. */
+  updateTeamBudgets: (teamId: string, budgets: Record<string, number>) =>
+    apiRequest<{ saved: boolean; team_id: string; budgets: Record<string, number>; message?: string }>(
+      `/teams/${encodeURIComponent(teamId)}/finance/budgets`,
+      { method: "PUT", body: { budgets } },
     ),
   financeTransactions: (teamId: string, limit = 50) =>
     apiRequest<FinanceTransactions>(

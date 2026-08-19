@@ -112,6 +112,10 @@ class TeamFinanceSnapshot:
     projected_net: int
     financials_enabled: bool
     preset: str
+    # Per-module levels (off/basic/...) for the league, so the client can reveal
+    # exactly the owner actions the selected finance model enables (S1 finance
+    # Phase 1). e.g. {"owner_budgets": "basic", "gm_arbitration": "off", ...}.
+    modules: Dict[str, str]
 
     def as_dict(self) -> Dict[str, object]:
         return {
@@ -127,6 +131,7 @@ class TeamFinanceSnapshot:
             "projected_net": self.projected_net,
             "financials_enabled": self.financials_enabled,
             "preset": self.preset,
+            "modules": dict(self.modules),
         }
 
 
@@ -189,6 +194,7 @@ def project_monthly_owner_finance(
             projected_net=projected_net,
             financials_enabled=bool(settings.enabled),
             preset=settings.preset,
+            modules=dict(settings.modules),
         )
     return snapshots
 
