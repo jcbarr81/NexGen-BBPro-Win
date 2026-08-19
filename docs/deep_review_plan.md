@@ -412,6 +412,22 @@ not vibes.
 
 ## Change log (newest first)
 
+- **2026-08-19** — **Owner finance management Phase 3 shipped (7.4.0 + 7.4.1).**
+  Completes the owner-finance action set per `docs/specs/finance_owner_action_map.md`.
+  Server-side ownership enforcement (`api/security.require_team_owner`, admin/
+  commissioner bypass) added to new endpoints AND retrofitted onto extend / FA
+  sign / qualifying-offer / budgets (7.4.0). **A8 Arbitration** (full loop):
+  `GET/POST /teams/{id}/finance/arbitration[/{pid}]` + dedicated Arbitration
+  panel on FinancePage, module-gated on `gm_arbitration != off` (7.4.0). **A9
+  Contract options** + **A10 pre-arb renew** (7.4.1): `POST /contracts/{pid}/
+  option` (`set_contract_option_decision`) and `/renew` (new `renew_pre_arb_salary`),
+  gated to the ADVANCED `gm_contracts` model; player-page ContractCard "Owner
+  actions" section (exercise/decline options, renew pre-arb salary), fed by a new
+  `contract_meta` block on the player profile. Snapshot module levels exposed via
+  `useLeagueCapabilities.modules`. Note: arbitration is OFF in the `simple`
+  preset (needs `standard`/`mlb_like`), and arb-eligibility only appears after
+  ~3 seasons of service. 124 finance/contract tests green; client type-clean.
+
 - **2026-08-19** — **Owner finance management Phase 1+2 shipped (7.3.0).**
   Phase 1: the team finance snapshot now exposes the league's per-module levels
   (`services/owner_finance_engine.py` `TeamFinanceSnapshot.modules` + `as_dict`;
