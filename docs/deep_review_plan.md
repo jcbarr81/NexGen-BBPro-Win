@@ -323,6 +323,16 @@ not vibes.
 
 ## Sprint 3 — Polish & Depth (~2-3 weeks, order flexible)
 
+> **Spec status (2026-07-16):** the **physics/park-environment track
+> (S3-01–S3-05) now has implementation-ready specs** under `docs/specs/`
+> (`S3-01_park_factors.md` … `S3-05_stat_scoring.md`), each with verified
+> current-code anchors, decisions, files-to-change, and a KPI/unit verification
+> gate. **Recommended implementation order** (low-risk → highest-nuance):
+> **S3-04** (extra innings) → **S3-05** (stat scoring) → **S3-03** (foul-outs) →
+> **S3-02** (weather) → **S3-01** (park factors; do last — S3-02 shares its carry
+> lever). UI/IA (S3-06–S3-12) and Manager-depth (S3-13–S3-17) specs are not yet
+> written.
+
 ### Park/environment realism
 
 | ID | Task | Evidence | Notes | Status |
@@ -388,6 +398,18 @@ not vibes.
 ---
 
 ## Change log (newest first)
+
+- **2026-07-16** — **Sprint 3 physics-track specs written.** Implementation-ready
+  specs added for the park/environment track: `docs/specs/S3-01_park_factors.md`
+  (residual HR-probability, not carry-multiplier), `S3-02_weather.md`
+  (deterministic per-game temp/wind → carry + spray), `S3-03_foul_outs.md`
+  (popup/IFFB class + foul-out catch roll), `S3-04_extra_innings.md` (ghost
+  runner on, no tie cap, league opt-out), `S3-05_stat_scoring.md` (K = catcher
+  PO no assist; catcher interference = E2). Anchors re-verified against 7.1.0
+  (the plan's `field_geometry.py` anchor for S3-01 was stale → park data is in
+  `physics_sim/park.py`; wind knobs confirmed never-read). Recommended order +
+  spec-status note added under the Sprint 3 header. UI/IA + Manager-depth specs
+  still to write.
 
 - **2026-07-16** — **players_normalized.csv restored; player generation fixed**
   (`1467e5f81`). The distribution roster deleted in v3.1.17 is restored from git,
