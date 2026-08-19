@@ -1152,6 +1152,20 @@ export interface PlayerProfile {
   stats_columns: string[];
   overall_details: Array<[string, string]>;
   contract_details: Array<[string, string]>;
+  /** Raw contract fields for owner option/renew actions (may be absent). */
+  contract_meta?: {
+    team_id: string;
+    annual_salary: number;
+    service_time_days: number;
+    arb_eligible: boolean;
+    options: Array<{
+      type?: string;
+      label?: string;
+      salary?: number;
+      decision?: string;
+      buyout?: number;
+    }>;
+  };
   /** Rolling metric chart data — parallel snapshots across the last ~12
    *  season_history JSON files. Hitters: AVG/OPS. Pitchers: ERA/WHIP. */
   rolling_stats?: {

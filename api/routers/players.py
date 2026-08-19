@@ -349,6 +349,29 @@ def get_player_profile(
         ) from exc
 
     payload = _coerce(view_model)
+
+    # Contract meta for owner option/renew actions (finance Phase 3). Raw fields
+    # the pre-formatted contract_details rows don't carry: the option list, and
+    # the service-time / arb-eligibility that decide pre-arb renewal.
+    try:
+        from services.contracts_service import (
+            _normalize_contract,
+            load_contracts_payload,
+        )
+
+        _craw = (load_contracts_payload().get("players") or {}).get(player_id)
+        if isinstance(_craw, dict):
+            _c = _normalize_contract(_craw)
+            payload["contract_meta"] = {
+                "team_id": str(_c.get("team_id") or ""),
+                "annual_salary": int(_c.get("annual_salary") or 0),
+                "service_time_days": int(_c.get("service_time_days") or 0),
+                "arb_eligible": bool(_c.get("arb_eligible")),
+                "options": list(_c.get("options") or []),
+            }
+    except Exception:
+        pass
+
     role = str(identity.get("r", "")).lower()
     if role != "admin":
         details = payload.get("overall_details")

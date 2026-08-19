@@ -60,8 +60,10 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Input,
 } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import { useLeagueCapabilities } from "@/lib/league-capabilities";
 
 export function PlayerProfilePage() {
   const { playerId } = useParams<{ playerId: string }>();
@@ -179,6 +181,7 @@ export function PlayerProfilePage() {
             />
             <ContractCard
               rows={profile.data.contract_details}
+              contractMeta={profile.data.contract_meta}
               playerId={playerId ?? null}
               playerName={profile.data.full_name}
               ownsPlayer={
@@ -818,18 +821,37 @@ function formatStat(value: unknown): string {
   return String(value);
 }
 
+type ContractMeta = {
+  team_id: string;
+  annual_salary: number;
+  service_time_days: number;
+  arb_eligible: boolean;
+  options: Array<{
+    type?: string;
+    label?: string;
+    salary?: number;
+    decision?: string;
+    buyout?: number;
+  }>;
+};
+
 function ContractCard({
   rows,
+  contractMeta,
   playerId,
   playerName,
   ownsPlayer,
 }: {
   rows: Array<[string, string]>;
+  contractMeta?: ContractMeta;
   playerId: string | null;
   playerName: string;
   ownsPlayer: boolean;
 }) {
   const queryClient = useQueryClient();
+  const capabilities = useLeagueCapabilities();
+  const advancedContracts =
+    (capabilities.modules?.gm_contracts ?? "off") === "advanced";
   const [open, setOpen] = useState(false);
   const [years, setYears] = useState("1");
   const [salary, setSalary] = useState("");
@@ -957,6 +979,9 @@ function ContractCard({
             ))}
           </ul>
         )}
+        {ownsPlayer && playerId && advancedContracts && contractMeta ? (
+          <OwnerContractActions playerId={playerId} meta={contractMeta} />
+        ) : null}
       </CardContent>
 
       {open && (
@@ -1121,6 +1146,108 @@ function ContractCard({
         </div>
       )}
     </Card>
+  );
+}
+
+function OwnerContractActions({
+  playerId,
+  meta,
+}: {
+  playerId: string;
+  meta: ContractMeta;
+}) {
+  const queryClient = useQueryClient();
+  const [renewSalary, setRenewSalary] = useState("");
+  const fmt = (n: number) => "$" + Math.round(n || 0).toLocaleString();
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ["player-profile", playerId] });
+
+  const optionMut = useMutation({
+    mutationFn: (vars: { index: number; decision: "exercised" | "declined" }) =>
+      api.decideContractOption(playerId, vars.decision, vars.index),
+    onSuccess: invalidate,
+  });
+  const renewMut = useMutation({
+    mutationFn: () => api.renewContract(playerId, Number(renewSalary) || 0),
+    onSuccess: () => {
+      setRenewSalary("");
+      invalidate();
+    },
+  });
+
+  const pendingOptions = (meta.options ?? [])
+    .map((o, i) => ({ ...o, index: i }))
+    .filter((o) => (o.decision ?? "pending") === "pending");
+  const preArb = !meta.arb_eligible && meta.service_time_days < 3 * 162;
+
+  if (pendingOptions.length === 0 && !preArb) return null;
+
+  return (
+    <div className="space-y-3 border-t border-border/60 px-6 py-4">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+        Owner actions
+      </div>
+
+      {pendingOptions.map((o) => (
+        <div
+          key={o.index}
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surfaceAlt/40 px-3 py-2 text-sm"
+        >
+          <span>
+            {(o.type ?? "team")} option
+            {o.salary ? ` · ${fmt(o.salary)}` : ""}
+            {o.buyout ? ` · buyout ${fmt(o.buyout)}` : ""}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={optionMut.isPending}
+              onClick={() => optionMut.mutate({ index: o.index, decision: "exercised" })}
+            >
+              Exercise
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={optionMut.isPending}
+              onClick={() => optionMut.mutate({ index: o.index, decision: "declined" })}
+            >
+              Decline
+            </Button>
+          </div>
+        </div>
+      ))}
+
+      {preArb ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surfaceAlt/40 px-3 py-2 text-sm">
+          <span>Renew (pre-arb) · current {fmt(meta.annual_salary)}</span>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={0}
+              placeholder="New salary"
+              className="w-32"
+              value={renewSalary}
+              onChange={(e) => setRenewSalary(e.target.value)}
+            />
+            <Button
+              size="sm"
+              disabled={renewMut.isPending || !renewSalary}
+              onClick={() => renewMut.mutate()}
+            >
+              Renew
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {optionMut.isError || renewMut.isError ? (
+        <div className="text-xs text-danger">
+          {((optionMut.error || renewMut.error) as Error)?.message ?? "Action failed."}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
