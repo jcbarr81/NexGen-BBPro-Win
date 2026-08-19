@@ -75,13 +75,12 @@ export function useLeagueCapabilities(): LeagueCapabilities {
   // Default to multi-owner + finance-enabled while loading so we don't
   // flicker items off and back on.
   const multiOwner = mode === "unknown" ? true : mode !== "single_player";
-  // Reflect the real finance state: use the snapshot's flag once we have it;
-  // stay permissive ONLY while the query is still loading (so we don't flicker
-  // the Finance items off and back on). A settled query with no data (e.g. a
-  // 404 because finance was never set up for this league/team) means finance is
-  // NOT available — hide it instead of showing an empty, misleading tile.
-  const financeEnabled =
-    snapshot.data?.financials_enabled ?? (snapshot.isLoading ? true : false);
+  // Show Finance unless the snapshot EXPLICITLY reports it disabled. The
+  // snapshot is per-TEAM and 404s when the team has no team_financials row yet
+  // (even if the league's finance IS enabled) — so a missing snapshot must NOT
+  // hide Finance, or owners lose access. Only an explicit financials_enabled:false
+  // (a loaded snapshot) hides it.
+  const financeEnabled = snapshot.data?.financials_enabled ?? true;
   const phase = String(seasonState.data?.phase ?? "");
 
   return {
