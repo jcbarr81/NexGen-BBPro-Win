@@ -455,11 +455,13 @@ from services.cpu_trade_proposals import _CandidateOffer
 
 def _canned_offer(**kwargs):
     """Deterministic _build_best_offer stand-in: proposer -> first eligible
-    target, both CPU. Returns None for the human pass (empty target list)."""
+    target, both CPU. Returns None/[] for the human pass (empty target list).
+    Honors return_ranked (the CPU-CPU lane shops a ranked shortlist)."""
 
+    ranked = int(kwargs.get("return_ranked", 0) or 0)
     targets = list(kwargs.get("target_team_ids") or [])
     if not targets:
-        return None
+        return [] if ranked else None
     proposer = kwargs["cpu_team_id"]
     receiver = targets[0]
     trade = Trade(
@@ -470,9 +472,10 @@ def _canned_offer(**kwargs):
         receive_player_ids=[f"{receiver}_p"],
         initiated_by="cpu",
     )
-    return _CandidateOffer(
+    offer = _CandidateOffer(
         trade=trade, score_margin=0.5, cpu_team_id=proposer, target_team_id=receiver
     )
+    return [offer] if ranked else offer
 
 
 def _wire_cpu_cpu(monkeypatch, *, teams, outlooks, evaluate, cadence="high"):

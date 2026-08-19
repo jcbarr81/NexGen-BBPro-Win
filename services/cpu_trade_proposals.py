@@ -79,6 +79,7 @@ _YOUTH_AGE = 25                    # "youth" for pool shaping
 _CPU_CPU_MAX_PER_WEEK = 2          # executed deals per rolling 7 sim days
 _CPU_CPU_TEAM_COOLDOWN_DAYS = 21   # either party
 _CPU_CPU_DAILY_CHANCE = 0.30       # per-cycle gate before any pairing work
+_CPU_CPU_OFFER_SHORTLIST = 8       # ranked offers the proposer shops per attempt
 
 
 @dataclass(frozen=True)
@@ -409,7 +410,17 @@ def _build_best_offer(
     pending_target_limit: int,
     outlook: str = "bubble",
     days_to_deadline: int = 999,
-) -> _CandidateOffer | None:
+    return_ranked: int = 0,
+):
+    """Build the best proactive 1-for-1 offer for ``cpu_team_id``.
+
+    Default: return the single highest proposer-margin ``_CandidateOffer`` (or
+    None). When ``return_ranked > 0``, instead return a list of up to
+    ``return_ranked`` proposer-accepted candidates sorted by margin desc — used
+    by the CPU-CPU lane so the proposer can *shop* offers against the receiver
+    (the single margin-max offer is systematically the one the receiver likes
+    least, so the greedy pick almost never closes; S2-10 acceptance-gate finding)."""
+
     cpu_roster = list(getattr(rosters_by_team.get(cpu_team_id), "act", []) or [])
     cpu_roster = [pid for pid in cpu_roster if pid in players_by_id]
     if len(cpu_roster) < 5:
@@ -462,9 +473,10 @@ def _build_best_offer(
         send_candidates = sorted(cpu_roster, key=_value_of)[:10]
         band_low, band_high = 0.82, 1.22
     if not send_candidates:
-        return None
+        return [] if return_ranked else None
 
     best: _CandidateOffer | None = None
+    ranked: list[_CandidateOffer] = []
     target_ids = list(target_team_ids)
     if target_ids:
         target_ids = rng.sample(target_ids, len(target_ids))
@@ -548,7 +560,17 @@ def _build_best_offer(
                 )
                 if best is None or candidate.score_margin > best.score_margin:
                     best = candidate
+                if return_ranked:
+                    ranked.append(candidate)
 
+    if return_ranked:
+        # Shop the most BALANCED offers first (lowest proposer margin above the
+        # min-margin floor). Proposer margin and receiver acceptance are
+        # anti-correlated for 1-for-1 swaps, so the proposer's greediest offer is
+        # the one the receiver likes least; fair deals close and are realistic
+        # (CPU teams should trade fairly, not extract lopsided steals).
+        ranked.sort(key=lambda c: c.score_margin)
+        return ranked[:return_ranked]
     return best
 
 
@@ -676,7 +698,11 @@ def _run_cpu_cpu_pass(
         if not eligible_targets:
             continue
 
-        offer = _build_best_offer(
+        # Ranked shortlist: the proposer shops candidates against the receiver
+        # rather than betting everything on its single margin-max offer, which
+        # is systematically the one the receiver values least (S2-10
+        # acceptance-gate finding — the greedy pick almost never closes).
+        candidates = _build_best_offer(
             cpu_team_id=proposer,
             target_team_ids=eligible_targets,
             players_by_id=players_by_id,
@@ -691,68 +717,72 @@ def _run_cpu_cpu_pass(
             pending_target_limit=99,
             outlook=proposer_outlook,
             days_to_deadline=days_to_deadline,
+            return_ranked=_CPU_CPU_OFFER_SHORTLIST,
         )
-        if offer is None:
+        if not candidates:
             filtered["no_offer"] += 1
             continue
 
-        receiver = offer.target_team_id
-        # Receiver evaluates the offer (already oriented to_team=receiver).
-        evaluation = evaluate_cpu_trade_offer(
-            offer.trade,
-            players_by_id=players_by_id,
-            data_dir=data_dir,
-            teams_by_id=teams_by_id,
-            rosters_by_team=rosters_by_team,
-            allow_counter_offers=True,
-            timeline_weight_factor=_factor_for(
-                outlooks.get(receiver), days_to_deadline
-            ),
-        )
-        if evaluation is None:
-            filtered["no_offer"] += 1
-            continue
-
-        action = str(getattr(evaluation, "action", "")).strip().lower()
         final: Trade | None = None
-        if action == "accept":
-            final = offer.trade
-        elif action == "counter" and getattr(evaluation, "counter_offer", None):
-            co = evaluation.counter_offer
-            # Perspective flip: evaluator "incoming_*" flow TO the receiver =
-            # FROM the proposer; on the flipped trade (from_team=receiver) those
-            # are the receiver's `receive_*`.
-            counter = Trade(
-                trade_id=uuid.uuid4().hex[:8],
-                from_team=receiver,
-                to_team=proposer,
-                give_player_ids=list(co.get("outgoing_player_ids", []) or []),
-                receive_player_ids=list(co.get("incoming_player_ids", []) or []),
-                give_pick_ids=list(co.get("outgoing_pick_ids", []) or []),
-                receive_pick_ids=list(co.get("incoming_pick_ids", []) or []),
-                initiated_by="cpu",
-            )
-            proposer_eval = evaluate_cpu_trade_offer(
-                counter,
+        receiver: str | None = None
+        counter_seen = False
+        for offer in candidates:
+            receiver = offer.target_team_id
+            # Receiver evaluates the offer (already oriented to_team=receiver).
+            evaluation = evaluate_cpu_trade_offer(
+                offer.trade,
                 players_by_id=players_by_id,
                 data_dir=data_dir,
                 teams_by_id=teams_by_id,
                 rosters_by_team=rosters_by_team,
-                allow_counter_offers=False,
+                allow_counter_offers=True,
                 timeline_weight_factor=_factor_for(
-                    outlooks.get(proposer), days_to_deadline
+                    outlooks.get(receiver), days_to_deadline
                 ),
             )
-            if (
-                proposer_eval is not None
-                and str(getattr(proposer_eval, "action", "")).strip().lower() == "accept"
-            ):
-                final = counter
-            else:
-                filtered["counter_dropped"] += 1
+            if evaluation is None:
                 continue
-        else:
-            filtered["no_offer"] += 1
+            action = str(getattr(evaluation, "action", "")).strip().lower()
+            if action == "accept":
+                final = offer.trade
+                break
+            if action == "counter" and getattr(evaluation, "counter_offer", None):
+                counter_seen = True
+                co = evaluation.counter_offer
+                # Perspective flip: evaluator "incoming_*" flow TO the receiver =
+                # FROM the proposer; on the flipped trade (from_team=receiver)
+                # those are the receiver's `receive_*`.
+                counter = Trade(
+                    trade_id=uuid.uuid4().hex[:8],
+                    from_team=receiver,
+                    to_team=proposer,
+                    give_player_ids=list(co.get("outgoing_player_ids", []) or []),
+                    receive_player_ids=list(co.get("incoming_player_ids", []) or []),
+                    give_pick_ids=list(co.get("outgoing_pick_ids", []) or []),
+                    receive_pick_ids=list(co.get("incoming_pick_ids", []) or []),
+                    initiated_by="cpu",
+                )
+                proposer_eval = evaluate_cpu_trade_offer(
+                    counter,
+                    players_by_id=players_by_id,
+                    data_dir=data_dir,
+                    teams_by_id=teams_by_id,
+                    rosters_by_team=rosters_by_team,
+                    allow_counter_offers=False,
+                    timeline_weight_factor=_factor_for(
+                        outlooks.get(proposer), days_to_deadline
+                    ),
+                )
+                if (
+                    proposer_eval is not None
+                    and str(getattr(proposer_eval, "action", "")).strip().lower() == "accept"
+                ):
+                    final = counter
+                    break
+            # otherwise try the next (more receiver-favorable) candidate
+
+        if final is None:
+            filtered["counter_dropped" if counter_seen else "no_offer"] += 1
             continue
 
         # Guards: level caps + payroll policy for both sides.
