@@ -232,5 +232,30 @@ def require_account(
     return {"uid": legacy.get("u"), "email": None, "_legacy": legacy}
 
 
+def require_team_owner(identity: Dict[str, Any], team_id: str) -> None:
+    """Raise 403 unless the caller may act on ``team_id``.
+
+    Allowed for league commissioners + platform super-admins (both surfaced as
+    role ``"admin"``), or the owner whose identity is bound to this team
+    (``identity["t"]``). Admins are short-circuited FIRST because a super-admin's
+    ``t`` is empty and must never accidentally match an empty ``team_id``.
+
+    Used to add server-side ownership enforcement to owner finance actions
+    (contract extend / FA sign / qualifying offers / budgets / arbitration /
+    options / renew) — previously these were gated by auth only, with ownership
+    checked client-side.
+    """
+    if str(identity.get("r") or "").strip().lower() == "admin":
+        return
+    caller_team = str(identity.get("t") or "").strip()
+    target = str(team_id or "").strip()
+    if caller_team and target and caller_team == target:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You do not have permission to act on this team.",
+    )
+
+
 CurrentIdentity = Depends(require_bearer)
 CurrentAccount = Depends(require_account)

@@ -30,6 +30,10 @@ export interface LeagueCapabilities {
   multiOwner: boolean;
   /** True when financial simulation is enabled for this league. */
   financeEnabled: boolean;
+  /** Per-module finance levels (off/basic/advanced/...) so any page can reveal
+   *  owner actions the selected preset enables (e.g. options/renew only when
+   *  modules.gm_contracts === "advanced"). Empty until the snapshot loads. */
+  modules: Record<string, string>;
   /** Current season phase string ("PRESEASON", "REGULAR_SEASON",
    *  "AMATEUR_DRAFT", "PLAYOFFS", "OFFSEASON", or "" while loading). */
   phase: string;
@@ -87,6 +91,7 @@ export function useLeagueCapabilities(): LeagueCapabilities {
     mode,
     multiOwner,
     financeEnabled,
+    modules: snapshot.data?.modules ?? {},
     phase,
     loading: leagues.isLoading || snapshot.isLoading,
   };

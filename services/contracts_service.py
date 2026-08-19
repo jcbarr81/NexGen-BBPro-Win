@@ -380,6 +380,52 @@ def set_contract_option_decision(
     return _normalize_contract(contract)
 
 
+def renew_pre_arb_salary(
+    player_id: str,
+    *,
+    annual_salary: int,
+    data_dir: Path | str | None = None,
+) -> Dict[str, object]:
+    """Renew a PRE-ARB player's salary for the coming year.
+
+    Pre-arbitration players have no negotiating leverage — the team simply sets
+    (renews) their salary. Applies only to players below arbitration eligibility
+    (``service_time_days`` under the ~3-year pre-arb window and not
+    ``arb_eligible``). Salary is floored at the league minimum. Returns
+    ``{"renewed": bool, "message": str, ...}``.
+    """
+
+    pre_arb_service_days = 3 * 162
+    pid = str(player_id or "").strip()
+    if not pid:
+        return {"renewed": False, "message": "player_id is required."}
+    payload = load_contracts_payload(data_dir=data_dir)
+    players = payload.get("players")
+    if not isinstance(players, dict):
+        return {"renewed": False, "message": "No contracts found."}
+    raw = players.get(pid)
+    if not isinstance(raw, Mapping):
+        return {"renewed": False, "message": "No contract for this player."}
+    contract = _normalize_contract(raw)
+    service_days = int(contract.get("service_time_days") or 0)
+    if bool(contract.get("arb_eligible")) or service_days >= pre_arb_service_days:
+        return {
+            "renewed": False,
+            "message": "Renewal applies only to pre-arbitration players.",
+        }
+    new_salary = max(DEFAULT_MIN_SALARY, int(round(float(annual_salary))))
+    contract["annual_salary"] = new_salary
+    players[pid] = contract
+    save_contracts_payload(payload, data_dir=data_dir)
+    return {
+        "renewed": True,
+        "player_id": pid,
+        "annual_salary": new_salary,
+        "team_id": str(contract.get("team_id") or "").strip(),
+        "message": "Contract renewed.",
+    }
+
+
 def contract_payroll_value(
     contract: Mapping[str, object] | object,
     *,

@@ -17,7 +17,7 @@ from services.owner_finance_engine import (
     list_team_financial_transactions,
 )
 
-from ..security import CurrentIdentity, require_bearer
+from ..security import CurrentIdentity, require_bearer, require_team_owner
 
 
 def _current_qo_year() -> int:
@@ -65,6 +65,7 @@ def set_team_budgets(
     league context. Rejected (409) when finance is disabled or the league's
     ``owner_budgets`` module is off."""
 
+    require_team_owner(identity, team_id)
     from services.owner_finance_engine import update_team_budget_targets
 
     budgets = payload.get("budgets")
@@ -83,6 +84,69 @@ def set_team_budgets(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(result.get("message") or "Could not save budget targets."),
         )
+    return result
+
+
+@router.get("/arbitration")
+def team_arbitration_queue(team_id: str) -> Dict[str, Any]:
+    """Arbitration-eligible players for this team + any pending decision each
+    has. Empty when the league's ``gm_arbitration`` (or ``gm_contracts``) module
+    is off — the builder is already module-gated."""
+
+    from utils.path_utils import get_data_dir
+    from services.gm_finance_queue import build_arbitration_queue
+
+    try:
+        rows = build_arbitration_queue(team_id, data_dir=get_data_dir())
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to build arbitration queue: {exc}",
+        ) from exc
+    return {"team_id": team_id, "players": rows}
+
+
+@router.post("/arbitration/{player_id}")
+def submit_arbitration_decision(
+    team_id: str,
+    player_id: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Owner arbitration decision for one player: ``offer_raise`` (agree to the
+    projected raise), ``hold`` (stand pat), or ``non_tender`` (release to free
+    agency). For ``offer_raise`` include the target in ``payload.projected_salary``."""
+
+    require_team_owner(identity, team_id)
+    from utils.path_utils import get_data_dir
+    from services.gm_finance_queue import save_team_queue_decision
+
+    action = str(payload.get("action", "")).strip().lower()
+    if action not in {"offer_raise", "hold", "non_tender"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="action must be one of: offer_raise, hold, non_tender.",
+        )
+    decision_payload = (
+        payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    )
+    try:
+        result = save_team_queue_decision(
+            team_id,
+            queue_type="arbitration",
+            item_id=player_id,
+            action=action,
+            notes=str(payload.get("notes", "") or ""),
+            payload=decision_payload,
+            data_dir=get_data_dir(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save arbitration decision: {exc}",
+        ) from exc
     return result
 
 
@@ -280,6 +344,7 @@ def resolve_team_qualifying_offer(
     the one-year offer (the player then accepts/declines on value); ``false``
     lets him leave as a free agent with no compensation."""
 
+    require_team_owner(identity, team_id)
     from utils.path_utils import get_data_dir
     from services.qualifying_offers import resolve_qualifying_offer
 

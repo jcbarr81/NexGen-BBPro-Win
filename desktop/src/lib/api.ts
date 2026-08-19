@@ -904,6 +904,20 @@ export interface FinanceSnapshot {
   modules?: Record<string, string>;
 }
 
+export interface ArbitrationPlayer {
+  player_id: string;
+  player_name: string;
+  years_left: number;
+  service_time_days: number;
+  current_salary: number;
+  projected_salary: number;
+  recommended_raise_pct: number;
+  recommended_action: string;
+  decision_code?: string;
+  queued_action?: string | null;
+  queued_status?: string | null;
+}
+
 /**
  * Payroll-vs-threshold outlook (GET .../finance/payroll-context) and the
  * `payroll_impact` block on FA offer previews. Numeric fields are only
@@ -2033,6 +2047,22 @@ export const api = {
       `/contracts/${encodeURIComponent(playerId)}/extend`,
       { method: "POST", body: payload },
     ),
+  /** Owner: exercise/decline a contract option (advanced contracts model). */
+  decideContractOption: (
+    playerId: string,
+    decision: "exercised" | "declined",
+    optionIndex = 0,
+  ) =>
+    apiRequest<{ player_id: string; decision: string; option_index: number; contract: ContractRecord }>(
+      `/contracts/${encodeURIComponent(playerId)}/option`,
+      { method: "POST", body: { decision, option_index: optionIndex } },
+    ),
+  /** Owner: renew a pre-arb player's salary (advanced contracts model). */
+  renewContract: (playerId: string, annualSalary: number) =>
+    apiRequest<{ renewed: boolean; player_id: string; annual_salary: number; team_id: string; message?: string }>(
+      `/contracts/${encodeURIComponent(playerId)}/renew`,
+      { method: "POST", body: { annual_salary: annualSalary } },
+    ),
   evaluateExtension: (
     playerId: string,
     payload: { years?: number; annual_salary?: number },
@@ -2273,6 +2303,28 @@ export const api = {
     apiRequest<{ saved: boolean; team_id: string; budgets: Record<string, number>; message?: string }>(
       `/teams/${encodeURIComponent(teamId)}/finance/budgets`,
       { method: "PUT", body: { budgets } },
+    ),
+  /** Arbitration-eligible players for a team (empty when gm_arbitration is off). */
+  teamArbitration: (teamId: string) =>
+    apiRequest<{ team_id: string; players: ArbitrationPlayer[] }>(
+      `/teams/${encodeURIComponent(teamId)}/finance/arbitration`,
+    ),
+  /** Owner arbitration decision: offer_raise / hold / non_tender. */
+  submitArbitrationDecision: (
+    teamId: string,
+    playerId: string,
+    action: "offer_raise" | "hold" | "non_tender",
+    projectedSalary?: number,
+  ) =>
+    apiRequest<Record<string, unknown>>(
+      `/teams/${encodeURIComponent(teamId)}/finance/arbitration/${encodeURIComponent(playerId)}`,
+      {
+        method: "POST",
+        body: {
+          action,
+          ...(projectedSalary != null ? { payload: { projected_salary: projectedSalary } } : {}),
+        },
+      },
     ),
   financeTransactions: (teamId: string, limit = 50) =>
     apiRequest<FinanceTransactions>(

@@ -39,7 +39,7 @@ from services.transaction_log import record_transaction
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster, save_roster
 
-from ..security import CurrentIdentity, require_bearer
+from ..security import CurrentIdentity, require_bearer, require_team_owner
 from ._rating_presentation import compute_overall, rating_context, scale_rating
 
 router = APIRouter(tags=["free-agency"], dependencies=[CurrentIdentity])
@@ -301,6 +301,7 @@ def sign_free_agent(
     payload: Dict[str, Any] = Body(...),
     identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
+    require_team_owner(identity, team_id)
     player_id = str(payload.get("player_id", "")).strip()
     level_raw = str(payload.get("level", "ACT")).strip().upper()
     # Optional override: caller can supply a salary / years from the

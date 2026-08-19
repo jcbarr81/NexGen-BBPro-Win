@@ -13,6 +13,7 @@ import {
   Check,
   CreditCard,
   DollarSign,
+  Gavel,
   Loader2,
   Pencil,
   PiggyBank,
@@ -25,6 +26,7 @@ import {
 
 import {
   api,
+  type ArbitrationPlayer,
   type FinanceSnapshot,
   type FinanceTransaction,
   type PayrollOutlook,
@@ -69,6 +71,13 @@ export function FinancePage() {
     queryKey: ["payroll-context", fallbackTeamId],
     queryFn: () => api.payrollContext(fallbackTeamId as string),
     enabled: !!fallbackTeamId,
+  });
+  const arbitrationOn =
+    (snapshot.data?.modules?.gm_arbitration ?? "off") !== "off";
+  const arbitration = useQuery({
+    queryKey: ["arbitration", fallbackTeamId],
+    queryFn: () => api.teamArbitration(fallbackTeamId as string),
+    enabled: !!fallbackTeamId && arbitrationOn,
   });
 
   if (!fallbackTeamId) {
@@ -151,6 +160,13 @@ export function FinancePage() {
               (snapshot.data.modules?.owner_budgets ?? "off") !== "off"
             }
           />
+          {arbitrationOn ? (
+            <ArbitrationCard
+              teamId={fallbackTeamId}
+              isLoading={arbitration.isLoading}
+              players={arbitration.data?.players ?? []}
+            />
+          ) : null}
           <TransactionsCard
             isLoading={transactions.isLoading}
             isError={transactions.isError}
@@ -432,6 +448,130 @@ function BudgetCard({
               )}
               Save budgets
             </Button>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ArbitrationCard({
+  teamId,
+  isLoading,
+  players,
+}: {
+  teamId: string;
+  isLoading: boolean;
+  players: ArbitrationPlayer[];
+}) {
+  const queryClient = useQueryClient();
+  const submit = useMutation({
+    mutationFn: (vars: {
+      playerId: string;
+      action: "offer_raise" | "hold" | "non_tender";
+      projected?: number;
+    }) =>
+      api.submitArbitrationDecision(teamId, vars.playerId, vars.action, vars.projected),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["arbitration", teamId] }),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Arbitration</CardTitle>
+          <CardDescription>
+            Decide each arbitration-eligible player: offer the raise, hold, or non-tender
+          </CardDescription>
+        </div>
+        <Badge tone="amber">
+          <Gavel className="h-3 w-3" /> {players.length}
+        </Badge>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center gap-2 py-6 text-sm text-muted">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+          </div>
+        ) : players.length === 0 ? (
+          <div className="py-6 text-sm text-muted">
+            No arbitration-eligible players right now. Players become arb-eligible
+            after roughly three seasons of service.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {players.map((p) => {
+              const decided = p.queued_action;
+              return (
+                <div
+                  key={p.player_id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surfaceAlt/40 p-3"
+                >
+                  <div>
+                    <div className="font-semibold">
+                      {p.player_name || p.player_id}
+                    </div>
+                    <div className="text-[11px] text-muted">
+                      {formatMoney(p.current_salary)} → proj{" "}
+                      {formatMoney(p.projected_salary)} · rec:{" "}
+                      {(p.recommended_action || "").replace(/_/g, " ")}
+                    </div>
+                  </div>
+                  {decided ? (
+                    <Badge tone="neutral">
+                      decided: {String(decided).replace(/_/g, " ")}
+                      {p.queued_status ? ` (${p.queued_status})` : ""}
+                    </Badge>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={submit.isPending}
+                        onClick={() =>
+                          submit.mutate({
+                            playerId: p.player_id,
+                            action: "offer_raise",
+                            projected: p.projected_salary,
+                          })
+                        }
+                      >
+                        Offer raise
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={submit.isPending}
+                        onClick={() =>
+                          submit.mutate({ playerId: p.player_id, action: "hold" })
+                        }
+                      >
+                        Hold
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        disabled={submit.isPending}
+                        onClick={() =>
+                          submit.mutate({
+                            playerId: p.player_id,
+                            action: "non_tender",
+                          })
+                        }
+                      >
+                        Non-tender
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {submit.isError ? (
+          <div className="mt-3 text-xs text-danger">
+            {(submit.error as Error)?.message ?? "Failed to save decision."}
           </div>
         ) : null}
       </CardContent>

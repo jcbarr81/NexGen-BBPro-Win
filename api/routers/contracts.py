@@ -36,7 +36,7 @@ from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.sim_date import get_current_sim_date
 
-from ..security import CurrentIdentity, require_bearer
+from ..security import CurrentIdentity, require_bearer, require_team_owner
 
 router = APIRouter(prefix="/contracts", tags=["contracts"], dependencies=[CurrentIdentity])
 
@@ -301,6 +301,9 @@ def extend_player_contract(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="player_id is required.",
         )
+    # Server-side ownership: only the team that rosters this player (or an
+    # admin/commissioner) may extend him.
+    require_team_owner(identity, _roster_team_index().get(pid, ""))
 
     try:
         years = int(payload.get("additional_years", 1) or 1)
@@ -420,6 +423,94 @@ def extend_player_contract(
         "negotiation": evaluation.to_dict() if evaluation else None,
         "forced": force and role == "admin",
     }
+
+
+def _require_advanced_contracts() -> None:
+    """Gate options/renew to leagues on the ADVANCED gm_contracts model (D2)."""
+    from services.finance_settings import load_financial_settings
+
+    settings = load_financial_settings(
+        path=get_data_dir() / "league_financial_settings.json"
+    )
+    if not settings.enabled or settings.module_level("gm_contracts") != "advanced":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This action requires the advanced contracts finance model.",
+        )
+
+
+@router.post("/{player_id}/option")
+def decide_contract_option(
+    player_id: str,
+    payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Owner action: exercise or decline a contract option (team/player/mutual/
+    vesting). Requires the advanced contracts model + team ownership."""
+
+    pid = str(player_id or "").strip()
+    if not pid:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="player_id is required.")
+    require_team_owner(identity, _roster_team_index().get(pid, ""))
+    _require_advanced_contracts()
+
+    decision = str(payload.get("decision", "")).strip().lower()
+    if decision not in {"exercised", "declined"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="decision must be 'exercised' or 'declined'.",
+        )
+    try:
+        option_index = int(payload.get("option_index", 0) or 0)
+    except (TypeError, ValueError):
+        option_index = 0
+
+    from services.contracts_service import set_contract_option_decision
+
+    result = set_contract_option_decision(
+        pid, decision=decision, option_index=option_index, data_dir=get_data_dir()
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No such contract option for this player.",
+        )
+    return {"player_id": pid, "decision": decision, "option_index": option_index, "contract": result}
+
+
+@router.post("/{player_id}/renew")
+def renew_pre_arb_contract(
+    player_id: str,
+    payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Owner action: renew a PRE-ARB player's salary for the coming year (pre-arb
+    players don't negotiate — the team sets the renewal salary). Requires the
+    advanced contracts model + team ownership."""
+
+    pid = str(player_id or "").strip()
+    if not pid:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="player_id is required.")
+    require_team_owner(identity, _roster_team_index().get(pid, ""))
+    _require_advanced_contracts()
+
+    salary_raw = payload.get("annual_salary")
+    if salary_raw is None or salary_raw == "":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="annual_salary is required.")
+    try:
+        annual_salary = int(salary_raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="annual_salary must be a number.")
+
+    from services.contracts_service import renew_pre_arb_salary
+
+    result = renew_pre_arb_salary(pid, annual_salary=annual_salary, data_dir=get_data_dir())
+    if not result.get("renewed"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(result.get("message") or "Could not renew this contract."),
+        )
+    return result
 
 
 @router.get("")
