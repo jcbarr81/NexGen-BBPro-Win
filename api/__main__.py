@@ -60,4 +60,13 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":  # pragma: no cover
+    # S1-10: when this sidecar is a PyInstaller-frozen exe, the parallel-day
+    # ProcessPoolExecutor (spawn) re-launches THIS executable for each worker.
+    # Without freeze_support() a spawned worker would fall through to main() and
+    # start another uvicorn server (and then spawn its own workers) — a fork
+    # bomb. freeze_support() runs the worker task and exits instead; it is a
+    # no-op in a normal ``python -m api`` (unfrozen) launch.
+    import multiprocessing
+
+    multiprocessing.freeze_support()
     raise SystemExit(main())
