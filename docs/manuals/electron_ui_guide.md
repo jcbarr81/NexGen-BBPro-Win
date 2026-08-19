@@ -273,6 +273,16 @@ league wants (revenue, market, budgets, expenses, contracts, payroll rules,
 arbitration, free agency, CPU AI) via a preset (Off / Simple / Standard /
 MLB-Like) or per-module Custom levels.
 
+- **Set your budgets**: when the **owner budgets** module is on (Simple and up),
+  the **Budgets** card is editable — click **Edit**, set each category
+  (training / scouting / development / facilities), and **Save budgets**. The
+  projected figure is your revenue-based ceiling. On presets where budgets are
+  off, the card is read-only.
+- **Arbitration** (Standard / MLB-Like — off in Simple): an **Arbitration**
+  panel lists your arbitration-eligible players with current vs projected salary;
+  choose **Offer raise**, **Hold**, or **Non-tender** for each. Players become
+  arbitration-eligible only after ~3 seasons of service, so new leagues show an
+  empty panel.
 - **Enforcement is On or Off** (no warn/block). When On, the rules behave
   MLB-style: during the season you may exceed the **luxury threshold** but you
   pay the **tax** (and a floor fee for underspending) — nothing is blocked
@@ -297,6 +307,14 @@ FA year, and service time (years + days). Scope it to **All / My team /
 Expiring**, filter by name/team/position, and sort any column. Hover the
 status badges — **Expiring**, **Arb-eligible**, **options**, **Non-gtd** — for
 a plain-language explanation of what each means.
+
+On the **advanced** contracts model (Standard / MLB-Like), a player's **profile
+page** gains an **Owner actions** section on the Contract card for players you
+own: **Exercise / Decline** a pending contract option (a declined option's
+buyout hits your cash), and **Renew** a pre-arbitration player's salary for next
+year (pre-arb players don't negotiate, so you set the figure, floored at the
+league minimum). Contract **extensions** are also negotiated from the profile.
+All owner finance actions are **owner-or-commissioner only** (enforced server-side).
 
 ### Team Settings
 

@@ -1,10 +1,17 @@
 ﻿# Team Owner and Admin Guide
 
-This guide explains how to operate the UBL Simulation application as a **team owner** or as an **administrator**. Launch the app with:
+> **Note — legacy reference.** This guide was written for an earlier desktop
+> (PyQt) build and its menus/dialogs. NexGen-BBPro now runs as a web/Electron app
+> with hub-based navigation and is served in the cloud. The **features** described
+> here (budget editor, arbitration decisions, contract options/renew, offseason
+> checklist, single-player auto-approve vs. multi-owner commissioner queue) are
+> current, but the **access paths** (menus like "Owner Tools", "Financial System
+> Settings" dialogs, `python main.py` launch) no longer match the app. For
+> current instructions use the in-app **Help → Manual** (Electron UI Guide), the
+> **Finance System Manual**, and the in-app tutorials.
 
-```bash
-python main.py
-```
+This guide explains how to operate the application as a **team owner** or as an
+**administrator**.
 
 After signing in, users are presented with dashboards tailored to their role.
 

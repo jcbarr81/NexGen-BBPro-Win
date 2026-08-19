@@ -66,8 +66,8 @@
     <li><a href="#terms">Glossary and Core Terms</a></li>
     <li><a href="#module-map">Finance Modules and What They Control</a></li>
     <li><a href="#presets">Presets, Enforcement Modes, and AI Tuning</a></li>
-    <li><a href="#owner-ops">Owner Ops Tab Deep Guide</a></li>
-    <li><a href="#gm-ops">GM/Coach Ops Tab Deep Guide</a></li>
+    <li><a href="#owner-ops">The Finance Page (Layout &amp; Budgets)</a></li>
+    <li><a href="#gm-ops">Owner Actions: Contracts, Arbitration, Free Agency</a></li>
     <li><a href="#queue-flow">GM Finance Queue and Commissioner Review Flow</a></li>
     <li><a href="#payroll-policy">Payroll Policy Checks (Hybrid Enforcement)</a></li>
     <li><a href="#budget-effects">Budget Effects on Development and Scouting</a></li>
@@ -94,8 +94,8 @@
   <h2 id="terms">2. Glossary and Core Terms</h2>
   <table>
     <tr><th>Term</th><th>Meaning</th></tr>
-    <tr><td>Owner Ops</td><td>Owner-side finance: cash, debt, revenue, expenses, and budget targets.</td></tr>
-    <tr><td>GM/Coach Ops</td><td>Roster/business operations: contracts, payroll, arbitration, free agency queues.</td></tr>
+    <tr><td>Finance Page</td><td>The single owner finance screen (My Team → Finance): cash/debt, payroll headroom, revenue/expenses, editable budgets, arbitration, and the ledger.</td></tr>
+    <tr><td>Owner Actions</td><td>The moves an owner makes: set budgets, decide arbitration, extend/option/renew contracts (on the player profile), sign free agents, tender qualifying offers.</td></tr>
     <tr><td>Finance Preset</td><td>Predefined module profile (off, simple, standard, mlb_like, custom).</td></tr>
     <tr><td>Enforcement</td><td>On or Off. On = MLB-style hybrid: tax/fees in-season, hard solvency gate at Opening Day. (Legacy warn/block configs map to On.)</td></tr>
     <tr><td>GM Queue</td><td>Queue of owner finance decisions awaiting apply/review workflow.</td></tr>
@@ -145,45 +145,50 @@
     to steer arbitration and free-agent recommendation behavior.
   </p>
 
-  <h2 id="owner-ops">5. Owner Ops Tab Deep Guide</h2>
-  <h3>What Owner Ops Shows</h3>
+  <h2 id="owner-ops">5. The Finance Page (Layout &amp; Budgets)</h2>
+  <p>
+    The Finance page (<b>My Team → Finance</b>) is a single scrolling page — there
+    are no separate "Owner Ops" / "GM Ops" tabs. Top to bottom it shows:
+  </p>
   <ul>
-    <li>Current state: cash on hand, debt, and finance enabled/preset context.</li>
-    <li>Projected monthly revenue and expenses.</li>
-    <li>Budget controls and current budget targets.</li>
-    <li>Recent finance transaction history (ledger view).</li>
+    <li><b>Headline stats</b>: cash on hand, debt, and projected net.</li>
+    <li><b>Payroll vs Luxury Threshold</b> (when payroll rules are on): headroom, estimated tax/floor fee, and Opening-Day solvency — the same math settlement charges.</li>
+    <li><b>Payroll alerts</b>: proactive warnings (low cash, high debt, negative projected net).</li>
+    <li><b>Revenue</b> and <b>Expenses</b>: actual vs projection by category.</li>
+    <li><b>Budgets</b> — editable (below).</li>
+    <li><b>Arbitration</b> — when <code>gm_arbitration</code> is on (see section 6).</li>
+    <li><b>Transactions</b>: the finance ledger.</li>
   </ul>
-  <h3>Budget Editing</h3>
+  <h3>Editing Budgets</h3>
   <ul>
-    <li>Budget edits are only available when <code>owner_budgets</code> is enabled.</li>
-    <li>Save writes budget targets for the selected team.</li>
+    <li>The <b>Budgets</b> card is editable when finance is enabled AND the <code>owner_budgets</code> module is not off (Simple preset and up).</li>
+    <li>Click <b>Edit</b>, set each category — <b>training</b>, <b>scouting</b>, <b>development</b>, <b>facilities</b> — and click <b>Save budgets</b>. The projected figure next to each is your revenue-based ceiling.</li>
+    <li>On presets where <code>owner_budgets</code> is off, the card is read-only.</li>
     <li>Budget changes feed multiple gameplay systems (see section 9).</li>
   </ul>
   <div class="good">
-    Good workflow: update budgets before preseason operations and re-check after major roster cost changes.
+    Good workflow: set budgets before preseason operations and re-check after major roster cost changes.
   </div>
 
-  <h2 id="gm-ops">6. GM/Coach Ops Tab Deep Guide</h2>
-  <h3>Main Blocks</h3>
+  <h2 id="gm-ops">6. Owner Actions: Contracts, Arbitration, Free Agency</h2>
+  <h3>Arbitration (on the Finance page)</h3>
   <ul>
-    <li><b>Module Status</b>: quick confirmation of active/inactive finance controls.</li>
-    <li><b>Next Finance Actions</b>: phase-aware guidance and blockers.</li>
-    <li><b>Contracts &amp; Payroll</b>: roster commitments and contract editing actions.</li>
-    <li><b>Queue</b>: arbitration and free-agency target queue tools.</li>
+    <li>When <code>gm_arbitration</code> is on (Standard and MLB-Like presets — it is OFF in Simple), an <b>Arbitration</b> panel lists your arbitration-eligible players with current vs projected salary.</li>
+    <li>For each player you choose <b>Offer raise</b> (agree to the projected raise), <b>Hold</b>, or <b>Non-tender</b> (release to free agency). These are direct owner decisions — there is no separate "recommend, then commissioner-review" step for the owner.</li>
+    <li>Players become arbitration-eligible only after roughly three seasons of service, so a brand-new league shows an empty panel.</li>
   </ul>
-  <h3>Contract Actions</h3>
+  <h3>Contract actions (on the Player Profile page)</h3>
   <ul>
-    <li><b>Extend Contract</b> available when contracts module is enabled.</li>
-    <li>Advanced actions require advanced contract level:
-      guarantees, options, incentives, option decisions.
-    </li>
+    <li><b>Extend</b>: negotiate an extension from a player's profile (Contract card) when the contracts module is on.</li>
+    <li><b>Options</b> and <b>Renew</b>: on the <b>advanced</b> contracts level (Standard / MLB-Like), the Contract card gains an <b>Owner actions</b> section for players you own — <b>Exercise</b> or <b>Decline</b> a pending option (a declined option's buyout hits your cash), and <b>Renew</b> a pre-arbitration player's salary for next year (floored at the league minimum).</li>
   </ul>
-  <h3>Queue Actions</h3>
+  <h3>Free agency &amp; qualifying offers</h3>
   <ul>
-    <li><b>Queue Recommended Arbitration</b> creates/updates arbitration recommendations.</li>
-    <li><b>Queue Recommended FA Targets</b> creates/updates free-agency targets.</li>
-    <li>Use open trade/free agency actions to execute strategic moves after queue review.</li>
+    <li>Sign free agents and tender/decline qualifying offers from the <b>Free Agency</b> page (see sections 8 and 11).</li>
   </ul>
+  <div class="warn">
+    All owner finance actions (extend, sign, qualifying offer, budgets, arbitration, option, renew) are <b>owner-or-commissioner only</b> — enforced server-side.
+  </div>
 
   <h2 id="queue-flow">7. GM Finance Queue and Commissioner Review Flow</h2>
   <h3>Single-Player Leagues</h3>
@@ -240,8 +245,9 @@
     <li>Scouting budget affects scouting confidence profile.</li>
     <li>Lower scouting support increases displayed rating uncertainty.</li>
     <li>Higher scouting support tightens confidence and lowers estimated error.</li>
-    <li>Owners can set team scouting intensity (Low/Normal/High) in Owner Finance to trade credit spend for faster confidence improvement.</li>
-    <li>Commissioners can tune global scouting pace from Financial System Settings (base credits, finance-off multiplier, decay/passive gain, bank cap, auto-spend cap).</li>
+    <li>Your <b>scouting budget</b> (set on the Finance page's Budgets card) trades credit spend for faster confidence improvement.</li>
+    <li>League scouting <b>intensity</b> (off / low / normal / high) is a league-level default the commissioner sets at league creation and from <b>Admin → Commissioner</b> — it is not a per-owner control.</li>
+    <li>Commissioners tune global scouting pace from <b>Admin → Commissioner → Scouting</b> (base credits, finance-off multiplier, decay/passive gain, bank cap, auto-spend cap).</li>
   </ul>
 
   <h2 id="cadence">10. When Finance Events Happen</h2>
@@ -289,7 +295,7 @@
   </ul>
   <h3>Typical Response Pattern</h3>
   <ol>
-    <li>Open the relevant page (League Command Center, Owner Ops, GM/Coach Ops, or Admin queue).</li>
+    <li>Open the relevant page (Finance, Free Agency, a player's profile, the League Command Center, or the Admin finance queue).</li>
     <li>Resolve blocked/pending actions first.</li>
     <li>Re-run overview/refresh and validate alerts clear or downgrade.</li>
   </ol>
@@ -314,8 +320,8 @@
   <h2 id="playbook">14. Recommended Finance Playbook</h2>
   <h3>In-Season (Owner)</h3>
   <ol>
-    <li>Check Owner Ops monthly projection and debt trend.</li>
-    <li>Review GM/Coach Ops queue guidance and apply recommended decisions.</li>
+    <li>Check the Finance page's monthly projection and debt trend.</li>
+    <li>Handle any arbitration decisions and contract options/renewals as they come up.</li>
     <li>Validate payroll warnings before major signings or trades.</li>
   </ol>
   <h3>In-Season (Commissioner)</h3>
@@ -333,9 +339,12 @@
   </ol>
 
   <h2 id="troubleshooting">15. Troubleshooting and Validation</h2>
-  <h3>Buttons disabled in Finance Hub</h3>
+  <h3>Actions disabled or hidden on the Finance page</h3>
   <p>
-    Check module level and global finance enabled state. Disabled modules hide or disable related actions.
+    Check the module level and the global finance-enabled state. When a module is
+    off its actions are hidden (e.g. the Arbitration panel is hidden unless
+    <code>gm_arbitration</code> is on, and the Budgets card is read-only unless
+    <code>owner_budgets</code> is on). Owner actions also require that you own the team.
   </p>
   <h3>Queue action did not apply</h3>
   <p>

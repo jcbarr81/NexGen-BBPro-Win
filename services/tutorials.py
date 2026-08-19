@@ -1,4 +1,4 @@
-"""Tutorial catalog — pure data, shared by the PyQt dashboard and the
+"""Tutorial catalog — pure data, served to the React/Electron client by the
 FastAPI sidecar.
 
 Each tutorial is a list of ``TutorialStep`` objects with an HTML body.
@@ -350,13 +350,17 @@ TUTORIALS: List[Tutorial] = [
     ),
     Tutorial(
         tutorial_id="finance",
-        title="Finance Hub",
-        summary="Snapshot, payroll headroom, luxury tax, signing bonuses, qualifying offers, reminders.",
+        title="Finance",
+        summary="Snapshot, payroll headroom, budgets, arbitration, contracts, signing bonuses, qualifying offers.",
         route="/finance",
         steps=[
             TutorialStep(
                 "Open Finance",
-                "<p>Use <b>My Team → Finance</b>. The page shows cash on hand, debt, current revenue/expense totals, projected monthly budgets, and the transactions ledger. The finance system is <b>modular</b> — a commissioner enables exactly the pieces a league wants (revenue, budgets, contracts, arbitration, free agency, payroll rules, CPU AI) or turns it off entirely.</p>",
+                "<p>Use <b>My Team → Finance</b>. The page shows cash on hand, debt, current revenue/expense totals, projected budgets, and the transactions ledger. The finance system is <b>modular</b> — a commissioner enables exactly the pieces a league wants (revenue, budgets, contracts, arbitration, free agency, payroll rules, CPU AI) or turns it off entirely — so the exact controls you see depend on the league's <b>preset</b> (Off / Simple / Standard / MLB-Like / Custom).</p>",
+            ),
+            TutorialStep(
+                "Set your budgets",
+                "<p>When the <b>owner budgets</b> module is on (Simple and up), the <b>Budgets</b> card is editable. Click <b>Edit</b>, set your allocation for each category — <b>training</b>, <b>scouting</b>, <b>development</b>, <b>facilities</b> — and click <b>Save budgets</b>. The projected figure next to each is your revenue-based ceiling. If your league is on a preset where budgets are off, the card stays read-only.</p>",
             ),
             TutorialStep(
                 "Payroll vs Luxury Threshold",
@@ -365,6 +369,14 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Track contracts league-wide",
                 "<p><b>My Team → Contracts</b> is the league-wide contract tracker: salary (with total commitment for multi-year deals), years left, FA year, and service time. Hover the status badges — <b>Expiring</b>, <b>Arb-eligible</b>, <b>options</b>, <b>Non-gtd</b> — for a plain-language explanation of what each means for your planning.</p>",
+            ),
+            TutorialStep(
+                "Arbitration decisions",
+                "<p>When the league runs arbitration (<b>Standard</b> and <b>MLB-Like</b> presets — it's off in Simple), an <b>Arbitration</b> panel appears on the Finance page listing your arbitration-eligible players with their current and projected salary. For each, choose <b>Offer raise</b> (agree to the projected raise), <b>Hold</b>, or <b>Non-tender</b> (release him to free agency). Players only become arbitration-eligible after roughly three seasons of service, so a brand-new league shows an empty panel.</p>",
+            ),
+            TutorialStep(
+                "Contract options & pre-arb renewals",
+                "<p>On the <b>advanced</b> contracts model (Standard / MLB-Like), a player's profile page gets an <b>Owner actions</b> section on the Contract card for players you own. There you can <b>Exercise</b> or <b>Decline</b> a pending contract option (a declined option's buyout is charged to your cash), and <b>Renew</b> a pre-arbitration player's salary for the coming year — pre-arb players don't negotiate, so you set the figure (floored at the league minimum).</p>",
             ),
             TutorialStep(
                 "Your finance to-do",
@@ -476,7 +488,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Strategy &amp; auto-reassign",
-                "<p>The <b>Strategy &amp; auto-reassign</b> card on the Commissioner page sets the league-default strategy profile and auto-reassign behavior, plus per-team overrides in a scrollable table. Mirrors PyQt's TeamStrategySettingsDialog.</p>",
+                "<p>The <b>Strategy &amp; auto-reassign</b> card on the Commissioner page sets the league-default strategy profile and auto-reassign behavior, plus per-team overrides in a scrollable table.</p>",
             ),
             TutorialStep(
                 "Finance queue & change requests",
