@@ -412,6 +412,21 @@ not vibes.
 
 ## Change log (newest first)
 
+- **2026-08-19** — **Finance/contracts league-creation bug fixed (7.2.1).**
+  Newly created cloud leagues had 0 contracts + no finance settings: in the
+  multi-tenant path `get_data_dir()`/`get_active_league_id()` honor the request's
+  `X-League-Id` ContextVar over `_build_league`'s `switch_active_league()`
+  pointer, and `set_request_league(new)` ran only AFTER `_build_league` returned
+  — so finance + contract seeding (and scouting/trades/injury/draft settings)
+  wrote to the caller's OLD league. Fix: bind the new-league request context
+  inside `_build_league` right after registration (`api/routers/league_create.py`);
+  log (not swallow) finance-setup failures; client no longer defaults finance
+  ENABLED on a settled 404 (`desktop/src/lib/league-capabilities.ts`). Verified
+  live: backfill via re-saving Commissioner finance seeds contracts; new leagues
+  seed on creation; Cloud Run logs clean. This is Phase 0 of an owner-finance
+  plan (Phase 1: expose module levels to the client; Phase 2: owner budget
+  editor; Phase 3: remaining per-preset owner actions).
+
 - **2026-08-19** — **S1-10 shipped to production (7.2.0) + enabled on cloud.**
   Merged to `main` (`c93792092`), released 7.2.0. Added packaged-build safety
   (`api.__main__` `freeze_support()`, `5896fd829`) and a defensive per-game
