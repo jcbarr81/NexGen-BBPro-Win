@@ -84,6 +84,15 @@ Bug fixes and one-file changes. Each is independently committable and deployable
 > (player-dispersion gate), which now also covers: fix/replace the normalizer
 > templates, commit a calibration roster, repair the CI workflow, and bring
 > the strict gate (old + new tolerances) back to green.
+>
+> **RESOLVED (2026-07-16, `1467e5f81`):** S2-08 already migrated the CI + KPI
+> harness onto `data/calibration/**` (no longer depends on
+> `players_normalized.csv`). The remaining consumer — `player_generator` — was
+> fixed by restoring the deleted `data/players_normalized.csv` from git (the
+> last real 735-player snapshot; regenerating stays broken per above) and adding
+> a bundled data-root fallback so leagues without their own normalized roster
+> sample realistic distributions instead of a compressed/elite `players.csv`.
+> Player generation is centered again (`test_player_generator` un-xfailed).
 
 **Sprint 0 exit gate:** all tasks green → typecheck + `vite build` + `pytest` targeted suites + KPI `--strict` → deploy Cloud Run + Hosting → release notes added.
 
@@ -379,6 +388,13 @@ not vibes.
 ---
 
 ## Change log (newest first)
+
+- **2026-07-16** — **players_normalized.csv restored; player generation fixed**
+  (`1467e5f81`). The distribution roster deleted in v3.1.17 is restored from git,
+  and `player_generator` now falls back to the bundled data-root copy when a
+  league lacks its own — so generated hitters are centered again instead of
+  all-elite. CI/KPI were already off this file (S2-08 → `data/calibration/`).
+  See the resolved KPI-blocker note above.
 
 - **2026-07-16** — **S2-10 / S2-11 acceptance gates run** (`23888ebe9`,
   `c5c9b8972`). Added `scripts/sim_seasons_with_automations.py` — sims N seasons
