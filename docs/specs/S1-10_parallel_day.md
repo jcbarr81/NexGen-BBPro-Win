@@ -398,6 +398,53 @@ Run: `python -m pytest tests/test_parallel_day.py -q` plus the §7.1 commands.
 
 ## 8. Handoff deltas vs docs/deep_review_plan.md (S1-10 block, lines 121-151)
 
+## 9a. Implementation notes / deviations (as-built, 2026-08-18)
+
+Implemented on branch `s1-10-parallel-day`. Byte-parity verified serial-vs-parallel
+across days {1,2,3,10,12,15,20}, seeds {42,123,999}, and worker counts {2,3,4,6}
+via `benchmark_sim_days.py` (all three digests identical). Deviations from the
+spec above, each forced by a re-verification against the real code:
+
+- **D14 (NEW) — stateless pitcher-role derivation.** `utils/lineup_loader.py`
+  `_build_default_lists` mutated `assigned_pitching_role` on **cached** player
+  objects and relabeled extra-rotation arms to `"MR"` in place; the old
+  `if not assigned:` guard then honored that persisted value on the next game.
+  Result: staff ordering depended on whether a player had already appeared **in
+  this process**, which (a) made parallel workers diverge from the serial parent
+  from day 2 on and (b) made a persistent worker pool non-deterministic
+  run-to-run. Fixed by **always re-deriving** the non-staff role from static
+  ratings (`get_role`). This changes serial CBL digests (re-baselined) but is
+  **provably KPI-neutral**: the calibration-league KPI JSON is byte-identical
+  with and without the change (the calibration rosters list every pitcher in the
+  staff CSV, so there is no `remaining` set to reorder). This single fix removed
+  the need for `max_tasks_per_child=1`, so the pool reuses workers.
+- **pitcher_roles journal field (NEW).** `record_game` derives `last_role` from
+  `player.assigned_pitching_role` on the worker's in-game player instances. The
+  parent's fresh `day_lookup` resolves that attribute differently, so the worker
+  captures the exact per-pitcher role and the parent applies it before replaying
+  `record_game` (else `pitcher_recovery.json` diverges on last_role/budgets).
+- **usage_in is FULL, usage_out is diffed (revised D7).** The spec's per-game
+  ACT-roster filter on `usage_in` dropped participants and broke day-2 fatigue.
+  As built: every worker receives the **full** fatigue state; the worker returns
+  only the workloads it **changed** (`diff_usage_out`), so the parent merge
+  touches exactly the game's participants without reverting others.
+- **Workload serialization is generic** (`dataclasses.asdict`), not the spec's
+  hardcoded field list — the real `PitcherWorkload`/`BatterWorkload` carry extra
+  fields (`last_pitches`, `last_rest_day`, `rests`).
+- **Pool uses the persistent module singleton** (D4) with worker reuse; the D9
+  per-job resets plus D14 make reuse deterministic.
+- **Performance:** ~1.28x on the 12-team CBL benchmark (fast engine → IPC/pickle
+  overhead dominates); auto-degrades to serial on 1-vCPU. Correctness-first: the
+  full-state payload was kept over a smaller roster-filtered one.
+
+New serial baseline (post-D14), `--source data/leagues/cbl/data --days 10 --seed 123`:
+`scores=aa54184b1dbc941a season_stats=6c7393aac1af7c91 pitcher_recovery=d362dbb72724b58d`.
+
+Pre-existing (NOT from this work): KPI seed 2 fails `tto_ops_gap` (0.088 vs
+0.05±0.025) identically with and without D14.
+
+## 9. Handoff deltas vs docs/deep_review_plan.md (S1-10 block, lines 121-151)
+
 The handoff's intercept list was correct but incomplete. This spec adds, with evidence:
 cross-day seed divergence fix D6 (mandatory, changes serial seeds → re-baseline);
 UsageState payload round-trip D7 (fatigue affects outcomes — "usage day updates" alone is

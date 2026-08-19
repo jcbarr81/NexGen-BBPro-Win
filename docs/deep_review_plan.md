@@ -127,7 +127,7 @@ parallelism.
 | ID | Task | Evidence | Fix | Verify | Status |
 |---|---|---|---|---|---|
 | S1-09 | Engine inner-loop micro-opts | `physics.py:517-905` ~60-80 `float(dict.get())` per pitch; weight dicts rebuilt per pitch; `_batter_context` recomputed per pitch (engine.py:3987) though constant per PA | Frozen tuning attribute struct resolved once per game; precomputed per-count objective tables; hoist batter context + pitcher dict to per-PA; outcome sets → module constants | **Strict parity:** fixed-seed game produces identical play-by-play pre/post; timing per 100 games | Done (2026-07-15, 24bee94b9) |
-| S1-10 | Parallel day simulation | `season_simulator.py:223-235` serial loop; days are embarrassingly parallel (each team plays ≤1 game/day); engine already takes per-game seed | `ProcessPoolExecutor` (persistent pool) per day; tracker/usage/stats updates applied in parent from returned metadata; global `random.seed` untangled (engine.py:3187-3188 mixed RNG) | **Parity:** same seeds serial vs parallel → identical season results; wall-clock benchmark (expect 4-8×); Windows + Cloud Run (single CPU: auto-degrade to serial) | Deferred (2026-07-15 — needs its own focused session; design below) |
+| S1-10 | Parallel day simulation | `season_simulator.py:223-235` serial loop; days are embarrassingly parallel (each team plays ≤1 game/day); engine already takes per-game seed | `ProcessPoolExecutor` (persistent pool) per day; tracker/usage/stats updates applied in parent from returned metadata; global `random.seed` untangled (engine.py:3187-3188 mixed RNG) | **Parity:** same seeds serial vs parallel → identical season results; wall-clock benchmark (expect 4-8×); Windows + Cloud Run (single CPU: auto-degrade to serial) | **Implemented 2026-08-18** (branch `s1-10-parallel-day`) — opt-in `PB_PARALLEL_GAMES`; byte-parity verified; KPI-neutral; awaiting merge. See §9a of the spec for as-built deviations (esp. D14 stateless pitcher-role fix). |
 
 > **S1-10 design handoff (written 2026-07-15, after Phase A/B landed):**
 > *Approach:* side-effect **journal**. Workers simulate with persistence
@@ -177,7 +177,7 @@ wall-clock date, so re-baseline with pre-change code after a calendar roll):
 | After S1-02 (tracker) | 9.46s | parity ✓ |
 | After S1-03/04/05 | ~9.0s | parity ✓ (vs same-day re-baseline) |
 | After S1-09 (engine) | ~9.0-9.6s (run variance) | strict parity ✓ — **cumulative -62%** |
-| After S1-10 (parallel) | _pending_ | |
+| After S1-10 (parallel) | opt-in; ~1.28× at 4 workers on CBL (12-team) | strict byte-parity ✓ serial≡parallel across days/seeds/worker-counts; default (unset) = serial, unchanged |
 
 ---
 
@@ -405,7 +405,7 @@ not vibes.
 | Un-skip / fix tests broken by PyQt retirement | `test_admin_tutorials.py` (imports retired module), `test_auto_tune_solver.py` (legacy-guard collection error), `test_finance_ledger_usage.py` | Open |
 | Delete 3.3 GB dead worktree `.claude/worktrees/elated-diffie` | User's call; disk-space only | Open |
 | Residual PyQt import | `api/routers/history.py:24` imports from retired `ui/`; `NexGen-BBPro.spec` references dead `main.py` | Open |
-| Mixed RNG in engine | `engine.py:3187-3188` seeds both local rng and global `random` — replay fragility; fix lands naturally with S1-10 | Open |
+| Mixed RNG in engine | `engine.py:3187-3188` seeds both local rng and global `random` — replay fragility | **Mitigated (S1-10, 2026-08-18):** the season simulator now draws per-day seeds from a private generator (D6, `_seed_rng`) decoupled from the global stream the engine trashes, so serial≡parallel by construction. The engine's internal dual seeding is untouched but no longer perturbs day-to-day seeds. |
 | Tests pollute the active league | Some tests/suites (e.g. live-sim samples) resolve `get_data_dir()` → the user's active league and mutate lineups/recovery/stats. Twice reverted by hand (2026-07-15). Add a session-scoped pytest fixture that pins `NEXGEN_DATA_ROOT` to a tmp sandbox for the whole suite | Open |
 
 ---

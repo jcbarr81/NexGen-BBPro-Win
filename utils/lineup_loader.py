@@ -151,10 +151,15 @@ def _build_default_lists(
 
     remaining = list(pitcher_lookup.values())
     for pitcher in remaining:
-        assigned = getattr(pitcher, "assigned_pitching_role", None)
-        if not assigned:
-            derived = get_role(pitcher)
-            setattr(pitcher, "assigned_pitching_role", derived or "")
+        # Always derive the non-staff role fresh from the pitcher's static
+        # ratings. ``assigned_pitching_role`` is a mutable attribute on cached
+        # player objects, and later steps here relabel extra rotation arms to
+        # "MR" in place. Honoring a persisted value (the old ``if not assigned``
+        # guard) made staff ordering depend on whether the player had already
+        # appeared in this process — non-deterministic across parallel workers
+        # and inconsistent between a season's first day and the rest (S1-10).
+        derived = get_role(pitcher)
+        setattr(pitcher, "assigned_pitching_role", derived or "")
     remaining.sort(key=lambda p: getattr(p, "endurance", 0), reverse=True)
     ordered_pitchers.extend(remaining)
 

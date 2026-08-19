@@ -108,6 +108,14 @@ class SeasonSimulator:
             self.dates.append(self.draft_date)
             self.dates.sort()
 
+        # Per-day seed generator (S1-10 D6). Created lazily on the first
+        # simulate_next_day() call so callers' random.seed(...) still seeds the
+        # first draw, then decoupled from the global stream — the physics
+        # engine reseeds global random per game (engine.py), which in serial
+        # would feed the next day's seeds; a private generator makes serial and
+        # parallel day-simulation produce byte-identical seeds by construction.
+        self._seed_rng: random.Random | None = None
+
         self._seed_positional = False
         self._seed_keyword = False
         self._seed_required = False
@@ -201,7 +209,14 @@ class SeasonSimulator:
             return
 
         self._tracker.start_day(current_date)
-        seeds = [random.randrange(1 << 30) for _ in games]
+        # S1-10 D6: draw per-day seeds from a private generator decoupled from
+        # the global random stream. The first-ever draw is seeded from the
+        # global stream (honoring any caller random.seed(...)); thereafter the
+        # engine's per-game global reseeding cannot perturb our seed sequence,
+        # so serial and parallel day-simulation stay bit-identical.
+        if self._seed_rng is None:
+            self._seed_rng = random.Random(random.randrange(1 << 62))
+        seeds = [self._seed_rng.randrange(1 << 30) for _ in games]
 
         def _apply_result_to_game(game: Dict[str, str], result) -> None:
             if not isinstance(result, tuple):
@@ -228,20 +243,40 @@ class SeasonSimulator:
         # identical while the O(file-size) parse+rewrite happens once
         # instead of once per game. Same idea for the recovery tracker
         # (S1-02): its ~4 whole-file rewrites per game become one per day.
+        # S1-10: opt-in parallel day simulation. Workers simulate games with all
+        # persistence intercepted into journals; the parent replays them below in
+        # serial game order, so the on-disk state is byte-identical to serial.
+        # Default (PB_PARALLEL_GAMES unset) resolves to 0 workers -> serial path.
+        from playbalance import parallel_day
+
+        workers = parallel_day.resolve_worker_count(len(games))
+        parallel = workers >= 2 and self._parallel_eligible()
+
         with batched_stats_writes(), self._tracker.deferred_saves():
-            for game, seed in zip(games, seeds):
-                result = self._call_simulate_game(game["home"], game["away"], seed, current_date)
-                _apply_result_to_game(game, result)
-                if self.after_game is not None:
-                    try:
-                        self.after_game(game)
-                    except Exception:  # pragma: no cover - persistence is best effort
-                        pass
-                if use_default_save:
-                    meta = {}
-                    if len(result) >= 4 and isinstance(result[3], dict):
-                        meta = result[3]
-                    game_meta.append((game["home"], game["away"], meta))
+            if parallel:
+                self._simulate_day_parallel(
+                    games,
+                    seeds,
+                    current_date,
+                    workers,
+                    use_default_save,
+                    game_meta,
+                    _apply_result_to_game,
+                )
+            else:
+                for game, seed in zip(games, seeds):
+                    result = self._call_simulate_game(game["home"], game["away"], seed, current_date)
+                    _apply_result_to_game(game, result)
+                    if self.after_game is not None:
+                        try:
+                            self.after_game(game)
+                        except Exception:  # pragma: no cover - persistence is best effort
+                            pass
+                    if use_default_save:
+                        meta = {}
+                        if len(result) >= 4 and isinstance(result[3], dict):
+                            meta = result[3]
+                        game_meta.append((game["home"], game["away"], meta))
 
         if use_default_save:
             try:
@@ -296,12 +331,174 @@ class SeasonSimulator:
         self._index += 1
 
     # ------------------------------------------------------------------
+    def _parallel_eligible(self) -> bool:
+        """D2 gate: parallel only for the two audited simulate callables +
+        physics engine. Custom callables (tests/scripts) and the legacy engine
+        have unaudited write paths and always run serial."""
+
+        from playbalance.game_runner import _resolve_game_engine, simulate_game_scores
+
+        if (
+            self.simulate_game is not self._default_simulate_game
+            and self.simulate_game is not simulate_game_scores
+        ):
+            return False
+        try:
+            return _resolve_game_engine(None) == "physics"
+        except Exception:
+            return False
+
+    # ------------------------------------------------------------------
+    def _simulate_day_parallel(
+        self,
+        games: List[Dict[str, str]],
+        seeds: List[int],
+        current_date: str,
+        workers: int,
+        use_default_save: bool,
+        game_meta: list,
+        apply_result: Callable[[Dict[str, str], object], None],
+    ) -> None:
+        """Simulate one day's games in worker processes, then replay their
+        side-effect journals in the parent in serial game order (S1-10).
+
+        Runs inside the caller's ``batched_stats_writes()`` +
+        ``deferred_saves()`` contexts so tracker/stats writes flush once per day
+        exactly as serial does.
+        """
+
+        import logging
+        from concurrent.futures.process import BrokenProcessPool
+
+        from playbalance import game_runner, parallel_day
+        from utils.path_utils import (
+            get_active_league_id,
+            get_data_dir,
+            get_data_root,
+        )
+        from utils.player_loader import load_players_from_csv
+
+        logger = logging.getLogger(__name__)
+        data_dir = get_data_dir()
+        players_file = str(data_dir / "players.csv")
+        roster_dir = str(data_dir / "rosters")
+
+        # 1. Pre-assign starters in games order (home then away), advancing each
+        #    team's next_index exactly once, in the same per-team order as serial.
+        assignments: list[tuple[str | None, str | None]] = []
+        for game in games:
+            home_starter = (
+                self._tracker.assign_starter(game["home"], current_date, players_file, roster_dir)
+                or None
+            )
+            away_starter = (
+                self._tracker.assign_starter(game["away"], current_date, players_file, roster_dir)
+                or None
+            )
+            assignments.append((home_starter, away_starter))
+
+        # 2. Build payloads. One usage context for the day. Every game gets the
+        #    FULL fatigue state (so no participant is ever seeded at zero); the
+        #    worker returns only the players it changed, so the merge is exact.
+        usage_state, game_day = game_runner._physics_usage_context(current_date)
+        data_root = str(get_data_root())
+        league_id = get_active_league_id()
+        usage_in = parallel_day.usage_state_to_payload(usage_state, game_day)
+
+        payloads = []
+        for game, seed, (home_starter, away_starter) in zip(games, seeds, assignments):
+            payloads.append(
+                parallel_day.build_payload(
+                    home=game["home"],
+                    away=game["away"],
+                    seed=seed,
+                    date=current_date,
+                    home_starter=home_starter,
+                    away_starter=away_starter,
+                    data_root=data_root,
+                    league_id=league_id,
+                    usage_in=usage_in,
+                )
+            )
+
+        # 3. Dispatch.
+        pool = parallel_day.get_pool(workers)
+        futures = [pool.submit(parallel_day.simulate_game_job, payload) for payload in payloads]
+
+        # 4. Replay in games order. day_lookup is rebuilt after any game that
+        #    applied injuries (players.csv changed).
+        day_lookup = {p.player_id: p for p in load_players_from_csv(players_file)}
+        day_broken = False
+        for idx, (game, seed, (home_starter, away_starter)) in enumerate(
+            zip(games, seeds, assignments)
+        ):
+            journal = None
+            if not day_broken:
+                try:
+                    journal = futures[idx].result()
+                except Exception as exc:  # includes BrokenProcessPool + journal errors (D12)
+                    logger.warning(
+                        "parallel game %s@%s on %s failed (%s); falling back to serial",
+                        game.get("away"),
+                        game.get("home"),
+                        current_date,
+                        exc,
+                    )
+                    if isinstance(exc, BrokenProcessPool):
+                        parallel_day.shutdown_pool()
+                        day_broken = True  # remaining games this day run serial in-parent
+                    journal = None
+
+            if journal is None:
+                # D12: serial fallback executed in-parent (side effects direct,
+                # batch contexts active), with the pre-assigned starters.
+                result = game_runner.simulate_game_scores(
+                    game["home"],
+                    game["away"],
+                    seed=seed,
+                    game_date=current_date,
+                    home_starter=home_starter,
+                    away_starter=away_starter,
+                    players_file=players_file,
+                    roster_dir=roster_dir,
+                )
+            else:
+                result = game_runner.replay_game_journal(
+                    journal,
+                    tracker=self._tracker,
+                    players_file=players_file,
+                    roster_dir=roster_dir,
+                    game_date=current_date,
+                    day_lookup=day_lookup,
+                )
+                parallel_day.merge_usage_into_state(usage_state, journal.get("usage"))
+                if journal.get("injury_events"):
+                    day_lookup = {
+                        p.player_id: p for p in load_players_from_csv(players_file)
+                    }
+
+            apply_result(game, result)
+            if self.after_game is not None:
+                try:
+                    self.after_game(game)
+                except Exception:  # pragma: no cover - persistence is best effort
+                    pass
+            if use_default_save:
+                meta = {}
+                if len(result) >= 4 and isinstance(result[3], dict):
+                    meta = result[3]
+                game_meta.append((game["home"], game["away"], meta))
+
+    # ------------------------------------------------------------------
     @staticmethod
     def _default_simulate_game(
         home_id: str,
         away_id: str,
         seed: int | None = None,
         game_date: str | None = None,
+        *,
+        home_starter: str | None = None,
+        away_starter: str | None = None,
     ) -> tuple[int, int, str, dict[str, object]]:
         """Run a full play-balance simulation and return score, HTML and metadata."""
 
@@ -314,6 +511,8 @@ class SeasonSimulator:
             roster_dir=str(data_dir / "rosters"),
             lineup_dir=str(data_dir / "lineups"),
             game_date=game_date,
+            home_starter=home_starter,
+            away_starter=away_starter,
         )
 
 

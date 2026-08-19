@@ -39,6 +39,7 @@ from services.decision_explanations import (
 from utils.news_logger import log_news_event
 from utils.pitcher_role import get_role
 from utils.path_utils import get_data_dir, resolve_app_path
+from playbalance.parallel_day import active_journal
 
 LineupEntry = Tuple[str, str]
 
@@ -238,12 +239,17 @@ def _log_bullpen_status(team_id: str, state: TeamState, date_token: str | None) 
         )
     if not lines:
         return
+    header = f"{date_token or 'undated'} team={team_id}"
+    text = header + "\n" + "\n".join(lines) + "\n"
+    jr = active_journal()
+    if jr is not None:
+        # S1-10 (audit row 11): capture the text block; the parent appends it.
+        jr.bullpen_status_logs.append(text)
+        return
     path = get_data_dir() / "tmp" / "bullpen_status.log"
     path.parent.mkdir(parents=True, exist_ok=True)
-    header = f"{date_token or 'undated'} team={team_id}"
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(header + "\n")
-        handle.write("\n".join(lines) + "\n")
+        handle.write(text)
 
 
 def _apply_bullpen_usage_order(
@@ -348,7 +354,12 @@ def _apply_bullpen_usage_order(
     except Exception:
         pass
     if should_persist_decision_logs():
-        append_decision_log(decision)
+        jr = active_journal()
+        if jr is not None:
+            # S1-10 (audit row 12): capture; the parent replays append_decision_log.
+            jr.decision_logs.append(decision.to_dict())
+        else:
+            append_decision_log(decision)
 
 
 def _collect_bullpen_usage_reason_meta(
@@ -987,7 +998,20 @@ def _persist_physics_stats(
     )
 
     teams = [team for team in (home_team, away_team) if team is not None]
-    save_stats(updated_players.values(), teams)
+    jr = active_journal()
+    if jr is not None:
+        # S1-10 (audit row 1): capture cumulative post-game season_stats into the
+        # journal instead of writing. dict() copies are MANDATORY — the worker
+        # mutated shared cached objects in place, so the captured mapping must be
+        # snapshotted now.
+        jr.stats_players.update(
+            {pid: dict(getattr(p, "season_stats", {}) or {}) for pid, p in updated_players.items()}
+        )
+        jr.stats_teams.update(
+            {t.team_id: dict(getattr(t, "season_stats", {}) or {}) for t in teams}
+        )
+    else:
+        save_stats(updated_players.values(), teams)
 
 
 def _run_physics_game(
@@ -1076,7 +1100,17 @@ def _run_physics_game(
     if home_state.team is not None:
         park_name = getattr(home_state.team, "stadium", None)
 
-    usage_state, game_day = _physics_usage_context(date_token)
+    jr = active_journal()
+    if jr is not None and jr.usage_in is not None:
+        # S1-10 (audit row 9): the worker's module-global usage state is
+        # empty/stale; seed a private UsageState from the payload the parent
+        # captured so fatigue-driven outcomes match serial.
+        from playbalance.parallel_day import usage_payload_to_state
+
+        usage_state = usage_payload_to_state(jr.usage_in)
+        game_day = jr.usage_in.get("game_day")
+    else:
+        usage_state, game_day = _physics_usage_context(date_token)
 
     tuning_overrides: Dict[str, Any] = {}
     try:
@@ -1107,6 +1141,13 @@ def _run_physics_game(
         usage_state=usage_state,
         game_day=game_day,
     )
+
+    if jr is not None and usage_state is not None:
+        # S1-10 (audit row 9): hand the parent the post-game fatigue state so it
+        # can overwrite the shared workloads for these (disjoint) players.
+        from playbalance.parallel_day import usage_state_to_payload
+
+        jr.usage_out = usage_state_to_payload(usage_state, game_day)
 
     payload = serialize_game_result(result)
     metadata = (
@@ -1168,12 +1209,18 @@ def _run_physics_game(
                 continue
             team_token = str(team_token)
             event["team_id"] = team_lookup.get(team_token, team_token)
-    _apply_injury_events(
-        injury_events,
-        players_file=str(players_file),
-        roster_dir=str(roster_dir),
-        game_date=date_token,
-    )
+    if jr is not None:
+        # S1-10 (audit row 7): capture normalized events; the parent replays
+        # _apply_injury_events (players/roster writes, news feed, injury reports)
+        # in serial game order.
+        jr.injury_events.extend(injury_events)
+    else:
+        _apply_injury_events(
+            injury_events,
+            players_file=str(players_file),
+            roster_dir=str(roster_dir),
+            game_date=date_token,
+        )
 
     if persist_stats:
         _persist_physics_stats(
@@ -1183,20 +1230,44 @@ def _run_physics_game(
             away_team=away_state.team,
         )
 
-    try:
-        from services.special_events import record_game_special_events
+    if jr is not None:
+        # S1-10 (audit row 8): capture the two line dicts the parent needs to
+        # replay both record_game_special_events AND the tracker record_game
+        # (below). Set unconditionally — pitcher_lines is needed even when no
+        # special event fires.
+        jr.lines = {
+            "batting_lines": metadata.get("batting_lines") or {},
+            "pitcher_lines": metadata.get("pitcher_lines") or {},
+        }
+        # Capture the exact in-game role per pitcher from the SAME player_lookup
+        # instances the serial record_game reads (mutated by prepare_team_state /
+        # lineup_loader). The parent replay applies these before record_game so
+        # last_role / budgets match serial byte-for-byte.
+        _pl = metadata.get("pitcher_lines") or {}
+        _role_pids: set[str] = set()
+        for _side in ("home", "away"):
+            for _line in _pl.get(_side) or []:
+                if isinstance(_line, dict) and _line.get("player_id"):
+                    _role_pids.add(str(_line["player_id"]))
+        jr.pitcher_roles = {
+            pid: str(getattr(players_lookup.get(pid), "assigned_pitching_role", "") or "")
+            for pid in _role_pids
+        }
+    else:
+        try:
+            from services.special_events import record_game_special_events
 
-        record_game_special_events(
-            metadata=metadata,
-            home_id=home_id,
-            away_id=away_id,
-            players_lookup=dict(players_lookup),
-            game_date=date_token,
-        )
-    except Exception:
-        pass
+            record_game_special_events(
+                metadata=metadata,
+                home_id=home_id,
+                away_id=away_id,
+                players_lookup=dict(players_lookup),
+                game_date=date_token,
+            )
+        except Exception:
+            pass
 
-    if tracker and date_token:
+    if jr is None and tracker and date_token:
         def _states_from_lines(lines: list[dict[str, Any]]) -> list[SimpleNamespace]:
             output: list[SimpleNamespace] = []
             for line in lines:
@@ -1598,8 +1669,15 @@ def simulate_game_scores(
     lineup_dir: str | Path | None = None,
     game_date: str | date | None = None,
     engine: str | None = None,
+    home_starter: str | None = None,
+    away_starter: str | None = None,
 ) -> tuple[int, int, str, dict[str, object]]:
-    """Return the final score, rendered HTML and metadata for a matchup."""
+    """Return the final score, rendered HTML and metadata for a matchup.
+
+    ``home_starter`` / ``away_starter`` let a caller pin the starting pitchers
+    (S1-10: the parallel-day parent pre-assigns them so ``next_index`` advances
+    exactly once per team, in serial order, before dispatch).
+    """
 
     data_dir = get_data_dir()
     default_players = {"data/players.csv", "players.csv"}
@@ -1635,8 +1713,152 @@ def simulate_game_scores(
         lineup_dir=resolved_lineups,
         game_date=game_date,
         engine=engine,
+        home_starter=home_starter,
+        away_starter=away_starter,
     )
     return home_state.runs, away_state.runs, html, meta
+
+
+def replay_game_journal(
+    journal: Mapping[str, Any],
+    *,
+    tracker: PitcherRecoveryTracker,
+    players_file: str,
+    roster_dir: str,
+    game_date: str,
+    day_lookup: Mapping[str, object],
+) -> tuple[int, int, str, dict[str, object]]:
+    """Replay a worker's side-effect journal in the parent, in serial game order.
+
+    Mirrors the per-game side-effect sequence of ``run_single_game`` /
+    ``_run_physics_game`` so the resulting on-disk + in-memory state matches a
+    serial day byte-for-byte (S1-10). MUST be called inside the parent's
+    ``batched_stats_writes()`` + ``tracker.deferred_saves()`` contexts, once per
+    game, in the schedule's game order. Returns the ``(home_runs, away_runs,
+    boxscore_html, meta)`` 4-tuple that ``simulate_game_scores`` would return.
+    """
+
+    home_id = str(journal.get("home"))
+    away_id = str(journal.get("away"))
+    roster_dir = str(roster_dir)
+
+    # (a) decision logs + bullpen status logs (captured during worker state prep)
+    for entry in journal.get("decision_logs") or []:
+        try:
+            append_decision_log(entry)
+        except Exception:
+            pass
+    bullpen_logs = journal.get("bullpen_status_logs") or []
+    if bullpen_logs:
+        try:
+            path = get_data_dir() / "tmp" / "bullpen_status.log"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                for text in bullpen_logs:
+                    handle.write(text)
+        except Exception:
+            pass
+
+    # (b) bullpen_game_status normalization for both teams (D10); discard result
+    #     — the normalization lands in the day-end pitcher_recovery.json flush.
+    if game_date:
+        tracker.bullpen_game_status(home_id, game_date, players_file, roster_dir)
+        tracker.bullpen_game_status(away_id, game_date, players_file, roster_dir)
+
+    # (c) injuries (players.csv / rosters / news feed / injury reports)
+    injury_events = journal.get("injury_events") or []
+    if injury_events:
+        _apply_injury_events(
+            list(injury_events),
+            players_file=str(players_file),
+            roster_dir=roster_dir,
+            game_date=game_date,
+        )
+
+    # (d) season stats -> live day batch; also refresh cached Team objects so a
+    #     later degraded (serial) day sees the same cumulative in-memory stats.
+    stats = journal.get("stats") or {}
+    stats_players = stats.get("players") or {}
+    stats_teams = stats.get("teams") or {}
+    if stats_players or stats_teams:
+        from utils.stats_persistence import save_stats
+
+        player_ns = [
+            SimpleNamespace(player_id=pid, season_stats=dict(mapping))
+            for pid, mapping in stats_players.items()
+        ]
+        team_ns = [
+            SimpleNamespace(team_id=tid, season_stats=dict(mapping))
+            for tid, mapping in stats_teams.items()
+        ]
+        save_stats(player_ns, team_ns)
+        try:
+            teams_path = str((get_data_dir() / "teams.csv").resolve(strict=False))
+            cache = _teams_by_id(teams_path)
+            for tid, mapping in stats_teams.items():
+                team_obj = cache.get(tid)
+                if team_obj is not None:
+                    team_obj.season_stats = dict(mapping)
+        except Exception:
+            pass
+
+    # (e) special events (reads only batting_lines / pitcher_lines from metadata)
+    lines = journal.get("lines") or {}
+    try:
+        from services.special_events import record_game_special_events
+
+        record_game_special_events(
+            metadata=lines,
+            home_id=home_id,
+            away_id=away_id,
+            players_lookup=dict(day_lookup),
+            game_date=game_date,
+        )
+    except Exception:
+        pass
+
+    # (f) tracker record_game from pitcher_lines (mirrors _states_from_lines).
+    #     Apply the worker's captured in-game roles onto the player objects so
+    #     record_game derives last_role / budgets exactly as serial did.
+    if game_date:
+        pitcher_lines = lines.get("pitcher_lines") or {}
+        pitcher_roles = journal.get("pitcher_roles") or {}
+
+        def _states_from_lines(side_lines: Any) -> list[SimpleNamespace]:
+            output: list[SimpleNamespace] = []
+            for line in side_lines or []:
+                if not isinstance(line, dict):
+                    continue
+                pid = str(line.get("player_id") or "")
+                player = day_lookup.get(pid)
+                if player is None:
+                    continue
+                if pid in pitcher_roles:
+                    try:
+                        player.assigned_pitching_role = pitcher_roles[pid]
+                    except Exception:
+                        pass
+                pitches = int(line.get("pitches", 0) or 0)
+                output.append(
+                    SimpleNamespace(player=player, pitches_thrown=pitches, simulated_pitches=0)
+                )
+            return output
+
+        if isinstance(pitcher_lines, dict):
+            home_lines = pitcher_lines.get("home") if isinstance(pitcher_lines.get("home"), list) else []
+            away_lines = pitcher_lines.get("away") if isinstance(pitcher_lines.get("away"), list) else []
+            tracker.record_game(home_id, game_date, _states_from_lines(home_lines), players_file, roster_dir)
+            tracker.record_game(away_id, game_date, _states_from_lines(away_lines), players_file, roster_dir)
+
+    result_map = journal.get("result") or {}
+    home_runs = int(result_map.get("home_runs", 0) or 0)
+    away_runs = int(result_map.get("away_runs", 0) or 0)
+    return (
+        home_runs,
+        away_runs,
+        journal.get("boxscore_html") or "",
+        dict(journal.get("meta") or {}),
+    )
 
 
 __all__ = [
@@ -1645,6 +1867,7 @@ __all__ = [
     "prepare_team_state",
     "read_lineup_file",
     "reorder_pitchers",
+    "replay_game_journal",
     "run_single_game",
     "simulate_game_scores",
 ]

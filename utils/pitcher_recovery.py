@@ -216,6 +216,26 @@ class PitcherRecoveryTracker:
                 self._dirty = False
                 self.save()
 
+    @contextmanager
+    def suppressed_saves(self):
+        """Worker mode (S1-10): absorb every deferred save() and DISCARD the
+        dirty flag on exit.
+
+        The parallel-day worker mutates a throwaway tracker copy while it runs a
+        game; the PARENT replays those mutations into the real tracker. So the
+        worker's own tracker writes must never reach disk and must not survive
+        as a pending flush. All in-game tracker mutations route through
+        ``_mark_dirty`` (which honors ``_defer_saves``); ``save()`` is not called
+        directly on the worker's simulate path.
+        """
+        prev = self._defer_saves
+        self._defer_saves = True
+        try:
+            yield
+        finally:
+            self._defer_saves = prev
+            self._dirty = False
+
     # ------------------------------------------------------------------
     @staticmethod
     def _assigned_role_for(pitcher: object) -> str:
