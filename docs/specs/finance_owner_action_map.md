@@ -98,7 +98,17 @@ and a verification pass, on a branch, deployed when confirmed.
 
 ---
 
-## 6. Open decisions (need your call before building)
+## 6a. Decisions (locked 2026-08-19)
+
+- **D5 → build ALL three** (A8 arbitration + A9 options + A10 renew) as one Phase 3.
+- **D1 → dedicated Arbitration panel** (roll-up of arb-eligible players).
+- **D2 → advanced-only** for A9/A10 (require `gm_contracts = advanced`; simple stays extend/release only).
+- **D4 → enforce server-side ownership** on new endpoints AND retrofit existing
+  finance mutations (extend/sign/qualifying-offer/budgets).
+- **D3 → (default, override anytime):** roster-cost breaches are **allowed with a
+  warning** in the owner UI (enforcement stays settlement-side, as today).
+
+## 6. Open decisions (resolved above — kept for context)
 
 - **D1 — Arbitration UX:** should arbitration decisions live on the **player page**
   (per-player, next to Extend), on a dedicated **"Arbitration" panel** listing all
