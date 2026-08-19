@@ -380,6 +380,28 @@ not vibes.
 
 ## Change log (newest first)
 
+- **2026-07-16** — **S2-10 / S2-11 acceptance gates run** (`23888ebe9`,
+  `c5c9b8972`). Added `scripts/sim_seasons_with_automations.py` — sims N seasons
+  on a throwaway sandbox copy of a league (default `cbl`, 12 teams, real
+  players) with the CPU trade + in-season callup automations running each sim
+  day, and reports the acceptance metrics.
+  - **S2-11 (in-season callups): PASS.** 3-season run: 82/101/110 promotions
+    (with matching demotions), September expansion fired, and **every team's
+    roster was legal after the REGULAR_SEASON→PLAYOFFS September revert all
+    three seasons** (`over_cap: []`), 0 automation errors.
+  - **S2-10 (CPU-CPU trades): gap found and fixed.** The gate initially showed
+    **0** executed CPU-CPU trades over a full season despite a healthy outlook
+    spread — the proposer bet on its single margin-max offer, which is
+    systematically the one the receiver values least, so all 224 receiver
+    evaluations rejected. Fixed by shopping a *balanced* ranked shortlist
+    (`_build_best_offer` `return_ranked`; ascending margin) against the receiver
+    (`23888ebe9`). Post-fix 3-season run: volume **[3, 5, 5]/season** (12-team;
+    scales to ~8-13 for 30 teams, low end of the 15-40 target), `no_offer` 0,
+    and **win% stddev does NOT grow (0.0464 → 0.0389)** → criterion 6 (no
+    runaway consolidation) holds. Remaining `counter_dropped` (~150/season) are
+    near-misses under the one-counter-round rule — an optional future tuning
+    lever (see `docs/future_work.md`), not a blocker.
+
 - **2026-07-15** — **S1-10 parallel day simulation: deferral reaffirmed**
   (no code change). After shipping the four Sprint 2 logic specs (S2-09/10/11 +
   S2-13) this session, S1-10 was scoped and deliberately **not** started: it is a

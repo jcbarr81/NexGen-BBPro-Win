@@ -928,3 +928,18 @@ land before channel-specific features.
   internal implementation details.
 - **Status:** Complete (baseline tooltip coverage delivered in v5.2.36).
 
+
+## CPU-CPU trade volume tuning (optional)
+- **Context:** The S2-10 acceptance gate (2026-07-16) fixed the CPU-CPU lane from
+  0 executed trades to a functional ~3-5/season (12-team sandbox; ~8-13 scaled
+  to 30 teams). Talent balance is healthy (win% stddev does not grow).
+- **Observation:** ~150 near-misses/season land as `counter_dropped` — the
+  receiver counters a balanced offer and the proposer declines under the
+  single-counter-round rule (S2-10 decision D2).
+- **Lever (if more volume is wanted):** allow a second counter round, or let the
+  proposer accept slightly more receiver-favorable counters, or widen the
+  CPU-CPU value band. **Caution:** don't overshoot into unrealistic roster churn
+  — the current lane makes fair, meaningful trades, which is the intent.
+- **Verify with:** `python scripts/sim_seasons_with_automations.py --seasons 3`
+  (target: volume up, win% stddev still not growing, rosters legal after revert).
+- **Status:** Open (optional).
