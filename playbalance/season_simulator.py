@@ -368,6 +368,8 @@ class SeasonSimulator:
         """
 
         import logging
+        import os
+        from concurrent.futures import TimeoutError as _FutureTimeout
         from concurrent.futures.process import BrokenProcessPool
 
         from playbalance import game_runner, parallel_day
@@ -379,6 +381,14 @@ class SeasonSimulator:
         from utils.player_loader import load_players_from_csv
 
         logger = logging.getLogger(__name__)
+        # Defensive cap so a worker that hangs (rather than crashes) degrades to
+        # the serial fallback instead of blocking the sim forever. Generous by
+        # default (worker spawn + heavy imports on the first day take seconds);
+        # tune via env without a redeploy.
+        try:
+            result_timeout = float(os.getenv("PB_PARALLEL_RESULT_TIMEOUT", "300") or 300)
+        except ValueError:
+            result_timeout = 300.0
         data_dir = get_data_dir()
         players_file = str(data_dir / "players.csv")
         roster_dir = str(data_dir / "rosters")
@@ -435,8 +445,8 @@ class SeasonSimulator:
             journal = None
             if not day_broken:
                 try:
-                    journal = futures[idx].result()
-                except Exception as exc:  # includes BrokenProcessPool + journal errors (D12)
+                    journal = futures[idx].result(timeout=result_timeout)
+                except Exception as exc:  # BrokenProcessPool / timeout / journal errors (D12)
                     logger.warning(
                         "parallel game %s@%s on %s failed (%s); falling back to serial",
                         game.get("away"),
@@ -444,9 +454,11 @@ class SeasonSimulator:
                         current_date,
                         exc,
                     )
-                    if isinstance(exc, BrokenProcessPool):
+                    if isinstance(exc, (BrokenProcessPool, _FutureTimeout)):
+                        # A dead or hung pool won't recover this day; drop it and
+                        # run the rest of the day serially in-parent.
                         parallel_day.shutdown_pool()
-                        day_broken = True  # remaining games this day run serial in-parent
+                        day_broken = True
                     journal = None
 
             if journal is None:
