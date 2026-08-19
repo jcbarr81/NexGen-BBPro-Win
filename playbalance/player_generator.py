@@ -298,11 +298,20 @@ def _load_rating_distributions(path: Path) -> Dict[str, Any]:
 
 def _rating_distributions() -> Dict[str, Any]:
     global _RATING_DISTRIBUTIONS, _RATING_DISTRIBUTIONS_SOURCE
-    source_path = (
-        Path(NORMALIZED_PLAYER_PATH)
-        if Path(NORMALIZED_PLAYER_PATH).exists()
-        else Path(PLAYER_PATH)
-    ).resolve(strict=False)
+    # Prefer a curated *normalized* roster for the sampling distributions:
+    #   1. the active league's players_normalized.csv, else
+    #   2. the bundled data-root players_normalized.csv (same fallback the name
+    #      pool uses for names.csv — a league without its own normalized roster,
+    #      notably in the cloud, must not fall back to a players.csv whose
+    #      ratings may be compressed/elite and would skew generation), else
+    #   3. the active league's players.csv as a last resort.
+    root_normalized = Path(get_data_root()) / "players_normalized.csv"
+    for candidate in (Path(NORMALIZED_PLAYER_PATH), root_normalized, Path(PLAYER_PATH)):
+        if candidate.exists():
+            source_path = candidate.resolve(strict=False)
+            break
+    else:
+        source_path = Path(PLAYER_PATH).resolve(strict=False)
     if (
         _RATING_DISTRIBUTIONS is None
         or _RATING_DISTRIBUTIONS_SOURCE is None
