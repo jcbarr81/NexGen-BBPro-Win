@@ -412,6 +412,18 @@ not vibes.
 
 ## Change log (newest first)
 
+- **2026-08-19** — **Owner finance management Phase 1+2 shipped (7.3.0).**
+  Phase 1: the team finance snapshot now exposes the league's per-module levels
+  (`services/owner_finance_engine.py` `TeamFinanceSnapshot.modules` + `as_dict`;
+  `FinanceSnapshot.modules` client type), so owner UI can reveal actions the
+  chosen preset enables. Phase 2: owner budget editor — `PUT
+  /teams/{id}/finance/budgets` wraps `update_team_budget_targets` (validates
+  finance enabled + `owner_budgets` != off, request-league scoped); `FinancePage`
+  BudgetCard is editable (training/scouting/development/facilities) when the
+  module is on. 124 finance tests green; deployed backend + client. Phase 3
+  (remaining per-preset owner actions — arbitration decisions, contract
+  options/renew) still open.
+
 - **2026-08-19** — **Finance/contracts league-creation bug fixed (7.2.1).**
   Newly created cloud leagues had 0 contracts + no finance settings: in the
   multi-tenant path `get_data_dir()`/`get_active_league_id()` honor the request's
