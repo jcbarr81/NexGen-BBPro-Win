@@ -9,8 +9,11 @@ POST /admin/bootstrap        Force-set the admin password on first run.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict
 from typing import Any, Dict, List
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
@@ -178,6 +181,18 @@ def _build_league(payload: Dict[str, Any]) -> Dict[str, Any]:
     # from data_root/names.csv (which isn't seeded).
     switch_active_league(record.id)
 
+    # Bind the REQUEST league to the new league for the rest of creation. In the
+    # cloud multi-tenant path the incoming request still carries the caller's
+    # previous X-League-Id, and get_data_dir()/get_active_league_id() honor that
+    # request ContextVar OVER switch_active_league's process pointer. Without this
+    # every get_data_dir()-based settings block below — finance + contract
+    # seeding, scouting, trades, injuries, draft — reads/writes the CALLER's old
+    # league instead of the new one (the "0 contracts in a freshly created
+    # league" bug: contracts were seeded into the wrong league's data dir).
+    from utils import path_utils as _path_utils
+
+    _league_ctx_token = _path_utils.set_request_league(record.id)
+
     # 3. Build teams.csv + initial roster files.
     try:
         create_league(str(data_dir), structure, display_name)
@@ -273,7 +288,11 @@ def _build_league(payload: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 apply_financial_preset(str(finance_cfg["preset"]))
             except Exception:
-                pass
+                logger.exception(
+                    "league_create: apply_financial_preset(%r) failed for league %s",
+                    finance_cfg.get("preset"),
+                    record.id,
+                )
         modules_override = finance_cfg.get("modules")
         ai_override = finance_cfg.get("finance_ai_tuning")
         enabled_override = finance_cfg.get("enabled")
@@ -313,7 +332,10 @@ def _build_league(payload: Dict[str, Any]) -> Dict[str, Any]:
                     ),
                 )
             except Exception:
-                pass
+                logger.exception(
+                    "league_create: update_financial_settings failed for league %s",
+                    record.id,
+                )
 
     scouting_cfg = payload.get("scouting") or {}
     if isinstance(scouting_cfg, dict) and scouting_cfg:
@@ -380,6 +402,12 @@ def _build_league(payload: Dict[str, Any]) -> Dict[str, Any]:
             )
         except Exception:
             pass
+
+    # Release the new-league request binding. Cross-request cleanup is also
+    # handled by the app's X-League-Id middleware, but reset here so the rest of
+    # this request (e.g. the commissioner flow's own set_request_league) starts
+    # from the original context.
+    _path_utils.reset_request_league(_league_ctx_token)
 
     return {
         "league_id": record.id,
