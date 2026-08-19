@@ -1,4 +1,34 @@
 <!-- last_build_ref: 79882e43bc2ca284855a0621d24028e4c52b1d6f -->
+# 7.1 Release Notes — CPU League Realism (Sprint 2)
+
+CPU-controlled teams now behave far more like real front offices, and the
+simulation engine is calibrated and gated against real-MLB benchmarks.
+
+## CPU roster management
+- **Deadline-aware CPU trading:** contenders buy (chase veterans), rebuilders
+  sell (ship veterans for youth/picks), trade volume ramps into the July 31
+  deadline, and proposals stop after it. Offseason trading is now allowed
+  (phase-aware trade window).
+- **CPU-to-CPU trades:** CPU teams now trade with each other, not just with you
+  — fair, mutually-beneficial deals that show up in the transaction log and
+  news feed, with anti-spam caps and payroll/roster guards.
+- **In-season callups + September expansion:** CPU teams promote AAA prospects
+  into real roster holes during the season (protection/option-aware), expand to
+  28 in September, and trim back to 25 for the playoffs.
+
+## On-field realism (physics engine)
+- Platoon-aware lineups vs LHP/RHP and a modern slot-weighted batting order.
+- Pitch-count-based reliever rest, closers used in tied 9th innings/extras, and
+  position-player rest days.
+- Times-through-order penalty (batters improve on later looks), pinch-hitters
+  that respect defense (never burn your last catcher), and pitcher handedness.
+- New KPI gates hold league AVG/OBP/SLG, K%/BB%, home-run and usage
+  distributions to real-MLB tolerances; player generation re-centered.
+
+## Fixes
+- League history and the leagues list endpoints fixed; assorted stability and
+  test-suite hardening.
+
 # 7.0 Release Notes — Financial System Overhaul + Season-Flow Hardening
 
 ## Finance: enforcement is now On / Off (hybrid)
