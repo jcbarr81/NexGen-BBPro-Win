@@ -862,8 +862,13 @@ def _persist_post_sim_state(
     except Exception:
         pass
 
-    # 2. Sync standings.json from season_stats teams rollup.
+    # 2. Sync standings.json from the schedule (see _sync_standings_from_stats).
     _sync_standings_from_stats()
+
+    # 2b. Reconcile the season_stats team rollup's counting fields with the
+    # schedule too — the team-stats page reads them and the in-memory accumulator
+    # can drift on re-sim (see _reconcile_team_records_with_schedule).
+    _reconcile_team_records_with_schedule()
 
     # 3. Bump season_progress.json::sim_index so phase / progress widgets
     # update without waiting for a refetch of the schedule walk.
@@ -1793,6 +1798,56 @@ def _sync_standings_from_stats() -> bool:
                 "runs_against": int(raw.get("ra", 0) or 0),
             }
         save_standings(standings, base_path=get_data_dir())
+        return True
+    except Exception:
+        return False
+
+
+def _reconcile_team_records_with_schedule() -> bool:
+    """Overwrite the season_stats team block's counting fields (g/w/l/r/ra) with
+    values recomputed from the authoritative schedule.
+
+    The team rollup is accumulated on cached, in-memory Team objects
+    (``game_runner._teams_by_id`` is an ``lru_cache``) which — unlike player
+    stats — are never re-synced from disk, so they over-accumulate on any re-sim
+    (observed team ``g`` inflated ~2.5x). Standings already sidestep this by
+    deriving from the schedule; the team-stats endpoint (``TEAM_COLUMNS`` =
+    g/w/l/r/ra) still reads this block, so recompute those same five fields from
+    the schedule here. Idempotent, and recovers already-drifted leagues on the
+    next sim. The detailed fields (``opp_*``, der/rpg/rag) are left untouched —
+    no endpoint surfaces the raw ``opp_*`` counts and the rate stats are
+    invariant to uniform drift.
+    """
+
+    try:
+        from types import SimpleNamespace
+        from utils.stats_persistence import load_stats, save_stats
+
+        records = _team_records_from_schedule()
+        if not records:
+            return False
+        stats_path = get_data_dir() / "season_stats.json"
+        season_stats = load_stats(stats_path) if stats_path.exists() else {}
+        teams_block = (season_stats or {}).get("teams")
+        if not isinstance(teams_block, dict):
+            teams_block = {}
+        changed = []
+        for tid, rec in records.items():
+            wins, losses = rec["wins"], rec["losses"]
+            desired = {
+                "g": wins + losses,
+                "w": wins,
+                "l": losses,
+                "r": rec["runs_for"],
+                "ra": rec["runs_against"],
+            }
+            block = dict(teams_block.get(tid) or {})
+            if all(block.get(k) == v for k, v in desired.items()):
+                continue  # already correct — idempotent no-op
+            block.update(desired)
+            changed.append(SimpleNamespace(team_id=tid, season_stats=block))
+        if changed:
+            save_stats([], changed, path=stats_path)
         return True
     except Exception:
         return False
