@@ -1,0 +1,234 @@
+{
+  "metadata": {
+    "name": "NexGen Standard Injury Catalog",
+    "version": 1,
+    "source": "data/injury_catalog.json",
+    "description": "Baseline injury catalog seeded into every new league. Trigger probabilities, modifiers and severity lists are kept identical to the engine's built-in fallback so injury FREQUENCY and SEVERITY mix are unchanged (calibration-neutral); this catalog only widens the VARIETY of injuries (body parts, names, and rating penalties) that can result from each trigger/severity. Triggers 'throwing', 'swing' and 'fielding' are fired by the engines but intentionally left out here — adding them would create injuries where there currently are none, which needs a KPI/calibration pass."
+  },
+  "triggers": {
+    "collision": {
+      "base_probability": 0.12,
+      "modifiers": { "durability_factor": -0.35 },
+      "severities": ["minor", "moderate"]
+    },
+    "hit_by_pitch": {
+      "base_probability": 0.08,
+      "modifiers": { "durability_factor": -0.25 },
+      "severities": ["minor"]
+    },
+    "pitcher_overuse": {
+      "base_probability": 0.18,
+      "modifiers": { "fatigue_factor": 0.45 },
+      "severities": ["moderate", "major"]
+    }
+  },
+  "injuries": [
+    {
+      "id": "bruised_shoulder",
+      "name": "Bruised Shoulder",
+      "body_part": "shoulder",
+      "eligible_triggers": ["collision", "hit_by_pitch"],
+      "severity_profiles": {
+        "minor": { "min_days": 1, "max_days": 3, "dl_tier": "none", "description": "Day-to-day shoulder contusion", "attributes_penalty": { "pow": -2, "con": -1 } }
+      }
+    },
+    {
+      "id": "jammed_finger",
+      "name": "Jammed Finger",
+      "body_part": "hand",
+      "eligible_triggers": ["collision", "hit_by_pitch"],
+      "severity_profiles": {
+        "minor": { "min_days": 1, "max_days": 3, "dl_tier": "none", "description": "Jammed finger, day-to-day", "attributes_penalty": { "con": -2 } }
+      }
+    },
+    {
+      "id": "bruised_knee",
+      "name": "Bruised Knee",
+      "body_part": "knee",
+      "eligible_triggers": ["collision"],
+      "severity_profiles": {
+        "minor": { "min_days": 1, "max_days": 3, "dl_tier": "none", "description": "Knee contusion, day-to-day", "attributes_penalty": { "spd": -2 } }
+      }
+    },
+    {
+      "id": "bruised_hip",
+      "name": "Hip Contusion",
+      "body_part": "hip",
+      "eligible_triggers": ["collision"],
+      "severity_profiles": {
+        "minor": { "min_days": 1, "max_days": 3, "dl_tier": "none", "description": "Hip pointer, day-to-day", "attributes_penalty": { "spd": -1, "pow": -1 } }
+      }
+    },
+    {
+      "id": "rolled_ankle",
+      "name": "Rolled Ankle",
+      "body_part": "ankle",
+      "eligible_triggers": ["collision"],
+      "severity_profiles": {
+        "minor": { "min_days": 1, "max_days": 3, "dl_tier": "none", "description": "Mildly rolled ankle, day-to-day", "attributes_penalty": { "spd": -2, "con": -1 } },
+        "moderate": { "min_days": 7, "max_days": 12, "dl_tier": "dl15", "description": "Sprained ankle", "attributes_penalty": { "spd": -3 } }
+      }
+    },
+    {
+      "id": "strained_oblique",
+      "name": "Strained Oblique",
+      "body_part": "core",
+      "eligible_triggers": ["collision"],
+      "severity_profiles": {
+        "moderate": { "min_days": 7, "max_days": 12, "dl_tier": "dl15", "description": "Moderate oblique strain", "attributes_penalty": { "spd": -3, "con": -2 } }
+      }
+    },
+    {
+      "id": "sprained_wrist",
+      "name": "Sprained Wrist",
+      "body_part": "wrist",
+      "eligible_triggers": ["collision", "hit_by_pitch"],
+      "severity_profiles": {
+        "moderate": { "min_days": 7, "max_days": 12, "dl_tier": "dl15", "description": "Wrist sprain", "attributes_penalty": { "pow": -3, "con": -2 } }
+      }
+    },
+    {
+      "id": "hamstring_strain",
+      "name": "Hamstring Strain",
+      "body_part": "hamstring",
+      "eligible_triggers": ["collision"],
+      "severity_profiles": {
+        "moderate": { "min_days": 8, "max_days": 14, "dl_tier": "dl15", "description": "Grade 1 hamstring strain", "attributes_penalty": { "spd": -4 } }
+      }
+    },
+    {
+      "id": "ac_joint_sprain",
+      "name": "AC Joint Sprain",
+      "body_part": "shoulder",
+      "eligible_triggers": ["collision"],
+      "severity_profiles": {
+        "moderate": { "min_days": 7, "max_days": 12, "dl_tier": "dl15", "description": "Shoulder AC joint sprain", "attributes_penalty": { "pow": -3, "con": -1 } }
+      }
+    },
+    {
+      "id": "bruised_quad",
+      "name": "Bruised Quad",
+      "body_part": "quadriceps",
+      "eligible_triggers": ["collision"],
+      "severity_profiles": {
+        "moderate": { "min_days": 7, "max_days": 12, "dl_tier": "dl15", "description": "Deep quad contusion", "attributes_penalty": { "spd": -3 } }
+      }
+    },
+    {
+      "id": "bruised_forearm",
+      "name": "Bruised Forearm",
+      "body_part": "forearm",
+      "eligible_triggers": ["hit_by_pitch"],
+      "severity_profiles": {
+        "minor": { "min_days": 1, "max_days": 3, "dl_tier": "none", "description": "Forearm contusion, day-to-day", "attributes_penalty": { "con": -2 } }
+      }
+    },
+    {
+      "id": "bruised_hand",
+      "name": "Bruised Hand",
+      "body_part": "hand",
+      "eligible_triggers": ["hit_by_pitch"],
+      "severity_profiles": {
+        "minor": { "min_days": 1, "max_days": 4, "dl_tier": "none", "description": "Hand contusion, day-to-day", "attributes_penalty": { "pow": -2, "con": -1 } }
+      }
+    },
+    {
+      "id": "bruised_elbow",
+      "name": "Bruised Elbow",
+      "body_part": "elbow",
+      "eligible_triggers": ["hit_by_pitch", "collision"],
+      "severity_profiles": {
+        "minor": { "min_days": 1, "max_days": 3, "dl_tier": "none", "description": "Elbow contusion, day-to-day", "attributes_penalty": { "con": -1 } }
+      }
+    },
+    {
+      "id": "rib_contusion",
+      "name": "Rib Contusion",
+      "body_part": "ribs",
+      "eligible_triggers": ["hit_by_pitch"],
+      "severity_profiles": {
+        "minor": { "min_days": 1, "max_days": 3, "dl_tier": "none", "description": "Bruised ribs, day-to-day", "attributes_penalty": { "pow": -2, "con": -1 } }
+      }
+    },
+    {
+      "id": "bruised_shin",
+      "name": "Bruised Shin",
+      "body_part": "shin",
+      "eligible_triggers": ["hit_by_pitch"],
+      "severity_profiles": {
+        "minor": { "min_days": 1, "max_days": 3, "dl_tier": "none", "description": "Shin contusion, day-to-day", "attributes_penalty": { "spd": -1 } }
+      }
+    },
+    {
+      "id": "elbow_tendinitis",
+      "name": "Elbow Tendinitis",
+      "body_part": "elbow",
+      "eligible_triggers": ["pitcher_overuse"],
+      "pitcher_only": true,
+      "severity_profiles": {
+        "moderate": { "min_days": 10, "max_days": 18, "dl_tier": "dl15", "description": "Tendinitis flare-up", "attributes_penalty": { "vel": -3, "ctrl": -2 } },
+        "major": { "min_days": 30, "max_days": 45, "dl_tier": "ir", "description": "Severe elbow tendinitis", "attributes_penalty": { "vel": -5, "sta": -4 } }
+      }
+    },
+    {
+      "id": "rotator_cuff_inflammation",
+      "name": "Rotator Cuff Inflammation",
+      "body_part": "shoulder",
+      "eligible_triggers": ["pitcher_overuse"],
+      "pitcher_only": true,
+      "severity_profiles": {
+        "moderate": { "min_days": 10, "max_days": 18, "dl_tier": "dl15", "description": "Rotator cuff inflammation", "attributes_penalty": { "vel": -3, "sta": -2 } }
+      }
+    },
+    {
+      "id": "forearm_tightness",
+      "name": "Forearm Tightness",
+      "body_part": "forearm",
+      "eligible_triggers": ["pitcher_overuse"],
+      "pitcher_only": true,
+      "severity_profiles": {
+        "moderate": { "min_days": 10, "max_days": 18, "dl_tier": "dl15", "description": "Forearm tightness", "attributes_penalty": { "vel": -2, "ctrl": -3 } }
+      }
+    },
+    {
+      "id": "biceps_tendinitis",
+      "name": "Biceps Tendinitis",
+      "body_part": "biceps",
+      "eligible_triggers": ["pitcher_overuse"],
+      "pitcher_only": true,
+      "severity_profiles": {
+        "moderate": { "min_days": 12, "max_days": 20, "dl_tier": "dl15", "description": "Biceps tendinitis", "attributes_penalty": { "vel": -2, "sta": -2 } }
+      }
+    },
+    {
+      "id": "ucl_sprain",
+      "name": "UCL Sprain",
+      "body_part": "elbow",
+      "eligible_triggers": ["pitcher_overuse"],
+      "pitcher_only": true,
+      "severity_profiles": {
+        "major": { "min_days": 30, "max_days": 45, "dl_tier": "ir", "description": "Ulnar collateral ligament sprain", "attributes_penalty": { "vel": -5, "sta": -4 } }
+      }
+    },
+    {
+      "id": "rotator_cuff_strain",
+      "name": "Rotator Cuff Strain",
+      "body_part": "shoulder",
+      "eligible_triggers": ["pitcher_overuse"],
+      "pitcher_only": true,
+      "severity_profiles": {
+        "major": { "min_days": 30, "max_days": 45, "dl_tier": "ir", "description": "Rotator cuff strain", "attributes_penalty": { "vel": -4, "sta": -4 } }
+      }
+    },
+    {
+      "id": "labrum_strain",
+      "name": "Labrum Strain",
+      "body_part": "shoulder",
+      "eligible_triggers": ["pitcher_overuse"],
+      "pitcher_only": true,
+      "severity_profiles": {
+        "major": { "min_days": 35, "max_days": 45, "dl_tier": "ir", "description": "Shoulder labrum strain", "attributes_penalty": { "vel": -4, "ctrl": -3 } }
+      }
+    }
+  ]
+}
