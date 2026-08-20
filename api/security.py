@@ -157,13 +157,14 @@ def _identity_from_membership(decoded: Dict[str, Any]) -> Dict[str, Any]:
     uid = decoded.get("uid")
     email = str(decoded.get("email") or "").strip().lower()
     league = path_utils.get_active_league_id()
-    if not league:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing league context (X-League-Id header required).",
-        )
     # Global super-admin (platform owner): admin in EVERY league, no membership
     # required. Allow-list of emails from the NEXGEN_SUPER_ADMINS env var.
+    #
+    # Checked BEFORE the league-context guard on purpose: a super-admin must stay
+    # authenticated even with NO active league. Otherwise deleting the last league
+    # 400s every authenticated endpoint — including the create-league wizard's own
+    # /leagues/presets, /leagues, and /commissioner/settings — bricking the app
+    # with no way to make a new league. ``league_id`` is "" when none is active.
     if email and email in super_admin_emails():
         return {
             "u": uid,
@@ -172,9 +173,14 @@ def _identity_from_membership(decoded: Dict[str, Any]) -> Dict[str, Any]:
             "mr": "super_admin",
             "email": email,
             "handle": decoded.get("name"),
-            "league_id": league,
+            "league_id": league or "",
             "super_admin": True,
         }
+    if not league:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing league context (X-League-Id header required).",
+        )
     member = firestore_store.get_member(league, uid)
     if not member:
         raise HTTPException(
