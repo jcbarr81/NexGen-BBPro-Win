@@ -18,6 +18,8 @@ POST /teams/{team_id}/sign               Submit an offer to a free
 
 from __future__ import annotations
 
+import hashlib
+import random
 from typing import Any, Dict, List, Optional, Sequence
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
@@ -189,8 +191,22 @@ def _competing_bids(
     if not teams:
         return []
 
+    # Seed the bid RNG deterministically from the player id. Without this the
+    # bid book uses a fresh random.Random() every call, so the "competing bids"
+    # preview re-rolled — and visibly changed — on every keystroke while the
+    # owner typed a salary (the evaluate endpoint is re-hit per edit). A stable
+    # per-player seed keeps the field the owner is bidding against steady; the
+    # team-finance inputs still make the numbers realistic.
     try:
-        bids = build_cpu_free_agent_bid_book(player, teams, ai_level=ai_level)
+        player_id = str(getattr(player, "player_id", "") or "").strip()
+        seed = (
+            int(hashlib.md5(player_id.encode("utf-8")).hexdigest()[:8], 16)
+            if player_id
+            else None
+        )
+        bids = build_cpu_free_agent_bid_book(
+            player, teams, ai_level=ai_level, rng=random.Random(seed)
+        )
     except Exception:
         return []
     if not bids:

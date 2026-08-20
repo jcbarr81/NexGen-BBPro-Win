@@ -937,6 +937,19 @@ function PitchingTab({
           </CardDescription>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => autofill.mutate()}
+            disabled={autofill.isPending}
+            title="Auto-assign SP1–SP5 + LR/MR/SU/CL from the active roster"
+          >
+            {autofill.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            Auto-fill
+          </Button>
           {dirty && <Badge tone="warning">Unsaved</Badge>}
           <Badge tone={duplicatePlayers > 0 ? "danger" : "amber"}>
             Filled {filledCount}/{STAFF_ROLES.length}
@@ -1039,17 +1052,6 @@ function PitchingTab({
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={addRow}>
               Add role
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => autofill.mutate()}
-              disabled={autofill.isPending}
-              title="Auto-assign SP1–SP5 + LR/MR/SU/CL from the active roster"
-            >
-              {autofill.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : null}
-              Auto-fill
             </Button>
             <Button
               variant="ghost"

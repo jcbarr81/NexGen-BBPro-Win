@@ -405,6 +405,14 @@ function buildNextStep(state: SeasonState): NextStep | null {
       };
     }
     case "PLAYOFFS":
+      if (state.playoffs_complete) {
+        return {
+          title: "Playoffs complete — champion crowned",
+          body:
+            "The postseason is finished. Click Advance Phase to close out the season and start the Offseason tasks (arbitration, contract rollover, GM finance queue, free agency).",
+          cta: { label: "View Playoffs", to: "/playoffs" },
+        };
+      }
       return {
         title: "Playoffs — resolve the bracket",
         body:

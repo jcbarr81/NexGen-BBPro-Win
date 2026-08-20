@@ -48,6 +48,7 @@ import { useActiveTeamColor } from "@/lib/team-colors";
 import { useTeams } from "@/lib/use-teams";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
+import { QuickLinks } from "@/components/QuickLinks";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { PlayerTrainingDialog } from "@/components/PlayerTrainingDialog";
 import { StarRating } from "@/components/StarRating";
@@ -264,6 +265,13 @@ export function RosterPage() {
             />
           </div>
           <RosterTabs roster={roster.data} actions={actions} />
+          <QuickLinks
+            links={[
+              { label: "Lineups", to: "/lineup" },
+              { label: "Pitching Staff", to: "/lineup" },
+              { label: "Depth Chart", to: "/depth-chart" },
+            ]}
+          />
         </>
       ) : null}
     </AppShell>
@@ -588,6 +596,7 @@ function RosterLevelTable({
             <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
               <HeaderCell label="Player" keyId="name" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="left" />
               <HeaderCell label="Pos" keyId="pos" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
+              <HeaderCell label="Age" keyId="age" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
               <HeaderCell label="B" keyId="bats" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
               <HeaderCell label="Role" keyId="role" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
               <HeaderCell label="OVR" keyId="overall" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
@@ -630,6 +639,8 @@ function getSortValue(p: RosterPlayer, key: SortKey): string | number | null {
       return `${p.last_name}, ${p.first_name}`;
     case "pos":
       return p.primary_position;
+    case "age":
+      return p.age ?? null;
     case "bats":
       return p.bats;
     case "role":
@@ -762,6 +773,9 @@ function RosterRow({
       </td>
       <td className="px-3 py-2 text-right tabular-nums">
         {player.primary_position || "—"}
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums">
+        {player.age ?? "—"}
       </td>
       <td className="px-3 py-2 text-right">{player.bats || "—"}</td>
       <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
