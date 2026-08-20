@@ -188,14 +188,82 @@ def _days_for_kind(
             idx = simulator.dates.index(draft_date)
         except ValueError:
             idx = len(simulator.dates)
-        return max(0, idx - simulator._index)
+        # +1 so the loop actually REACHES the draft-day iteration. The draft
+        # fires via the draft-day intercept in `_simulate_n`, which triggers at
+        # the TOP of the iteration whose ``target_date == draft_date``. Running
+        # exactly ``idx - _index`` days leaves the cursor parked ON draft day
+        # with the loop already exhausted — one iteration short of the intercept,
+        # forcing the user to sim an extra day before the draft starts. The
+        # intercept ``break``s before playing draft day as games, so the +1
+        # can't overshoot into the regular season.
+        return max(0, idx - simulator._index + 1)
     if kind == "to-playoffs":
         return max(0, len(simulator.dates) - simulator._index)
     return 1
 
 
+def _maybe_enter_playoffs(
+    manager: SeasonManager,
+    simulator: SeasonSimulator,
+    result: Dict[str, Any],
+    *,
+    can_progress: bool,
+) -> None:
+    """After a 'to-playoffs' run finishes the regular season, seed the playoff
+    bracket and flip the league into the PLAYOFFS phase — the same transition
+    ``POST /season/advance-phase`` performs.
+
+    Without this the 'To Playoffs' button sims to the final regular-season day
+    and stops at the doorstep, never actually starting the postseason. Mutates
+    ``result`` in place so the polled sim payload reflects what happened.
+
+    Only acts once the WHOLE schedule is played and the league is still in
+    REGULAR_SEASON; a run stopped early (draft intercept, injury pause, cancel)
+    is left untouched so the user just keeps simming.
+    """
+
+    if manager.phase != SeasonPhase.REGULAR_SEASON:
+        return
+    if len(simulator.dates) == 0 or simulator._index < len(simulator.dates):
+        # Regular season not finished yet — nothing to hand off to the postseason.
+        return
+    # The regular season is complete. Entering the playoffs is a season-
+    # progression action, which in owner leagues belongs to the commissioner —
+    # mirror the /advance-phase permission gate rather than letting any owner
+    # flip the whole league into the postseason.
+    if not can_progress:
+        result["playoffs_pending_commissioner"] = True
+        return
+    # Refresh standings so the bracket seeds off the just-finished season, then
+    # build it BEFORE flipping the phase (a bracket that can't seed leaves the
+    # league recoverable in REGULAR_SEASON) — same order as /advance-phase.
+    _sync_standings_from_stats()
+    try:
+        bracket = _ensure_playoff_bracket()
+    except Exception as exc:  # pragma: no cover - defensive
+        bracket = {"error": str(exc)}
+    if not bracket or (isinstance(bracket, dict) and bracket.get("error")):
+        result["playoffs_error"] = (
+            (bracket.get("error") if isinstance(bracket, dict) else None)
+            or "Couldn't seed the playoff bracket — standings or teams are missing."
+        )
+        return
+    try:
+        new_phase = manager.advance_phase()
+    except Exception as exc:  # pragma: no cover - defensive
+        result["playoffs_error"] = f"Failed to enter playoffs: {exc}"
+        return
+    result["new_phase"] = new_phase.value
+    if new_phase == SeasonPhase.PLAYOFFS:
+        result["playoffs"] = bracket
+
+
 def _launch_sim_background(
-    kind: str, *, n_arg: int = 1, team_id: Optional[str] = None
+    kind: str,
+    *,
+    n_arg: int = 1,
+    team_id: Optional[str] = None,
+    can_progress: bool = False,
 ) -> int:
     """Start a sim in a daemon thread and return its run id immediately.
 
@@ -217,6 +285,13 @@ def _launch_sim_background(
             result = _simulate_n(
                 manager, simulator, n, draft_date=draft_date, team_id=team_id
             )
+            # 'To Playoffs' means "take me INTO the postseason", not just to the
+            # last regular-season day — seed the bracket + flip the phase once
+            # the schedule is complete (permission-gated like /advance-phase).
+            if kind == "to-playoffs":
+                _maybe_enter_playoffs(
+                    manager, simulator, result, can_progress=can_progress
+                )
             payload = _state_payload(manager, simulator, draft_date, extra=result)
             # Persist sim writes (season_state, standings, stats, rosters…) to
             # GCS. The request middleware already returned on the 202, so the
@@ -937,8 +1012,17 @@ def _start_sim(kind: str, identity: Dict[str, Any], *, n_arg: int = 1) -> Dict[s
             status_code=status.HTTP_409_CONFLICT,
             detail="A simulation is already in progress.",
         )
+    # Whether this caller may drive season progression (commissioner in owner
+    # leagues, the owner in solo leagues). Only used by 'to-playoffs' to decide
+    # if it can flip the whole league into the postseason once the schedule ends.
+    from utils.league_settings import can_run_season_progression
+
+    can_progress = can_run_season_progression(str(identity.get("r", "")).lower())
     run_id = _launch_sim_background(
-        kind, n_arg=n_arg, team_id=_team_id_from_identity(identity)
+        kind,
+        n_arg=n_arg,
+        team_id=_team_id_from_identity(identity),
+        can_progress=can_progress,
     )
     return {"status": "running", "run_id": run_id, "kind": kind}
 
@@ -1622,16 +1706,75 @@ def _mark_preseason_done(flag: str) -> None:
         pass
 
 
+def _team_records_from_schedule() -> Dict[str, Dict[str, int]]:
+    """Compute team W/L/RF/RA from the authoritative played schedule.
+
+    Standings are a PURE FUNCTION of the game results in schedule.csv, so this
+    is idempotent — re-running or overlapping sims can never inflate it (marking
+    a game played twice is harmless). This is deliberately NOT derived from the
+    ``season_stats`` team rollup, which accumulates on an in-memory counter and
+    was observed to drift badly (team records inflated ~2.5x, some teams dropped
+    entirely) when sims overlapped, even though the schedule and the player
+    stats stayed correct. Every team that has appeared in a decided game is
+    included, so no team can silently show 0-0.
+
+    Only rows with a parseable ``home-away`` score (written as ``f"{home}-{away}"``
+    by ``season_simulator._apply_result_to_game``) count.
+    """
+
+    import re as _re
+
+    records: Dict[str, Dict[str, int]] = {}
+    for row in _load_schedule():
+        result = str(row.get("result", "")).strip()
+        m = _re.match(r"^(\d+)\s*-\s*(\d+)$", result)
+        if not m:
+            continue
+        home = str(row.get("home", "")).strip()
+        away = str(row.get("away", "")).strip()
+        if not home or not away:
+            continue
+        home_runs, away_runs = int(m.group(1)), int(m.group(2))
+        for tid in (home, away):
+            records.setdefault(
+                tid, {"wins": 0, "losses": 0, "runs_for": 0, "runs_against": 0}
+            )
+        records[home]["runs_for"] += home_runs
+        records[home]["runs_against"] += away_runs
+        records[away]["runs_for"] += away_runs
+        records[away]["runs_against"] += home_runs
+        if home_runs > away_runs:
+            records[home]["wins"] += 1
+            records[away]["losses"] += 1
+        elif away_runs > home_runs:
+            records[away]["wins"] += 1
+            records[home]["losses"] += 1
+        # exact tie: no decision recorded
+    return records
+
+
 def _sync_standings_from_stats() -> bool:
-    """Rebuild standings.json from the season_stats team rollup.
+    """Rebuild standings.json from the authoritative schedule results.
 
     Shared by the post-sim persistence path and the playoff-bracket pre-check
     (the bracket seeds from standings, so they must be fresh before we build
-    it). Best-effort: returns True when standings were written.
+    it). Derives from ``schedule.csv`` (idempotent, drift-proof — see
+    ``_team_records_from_schedule``) rather than the ``season_stats`` team
+    rollup. Falls back to the season_stats team block only when the schedule has
+    no decided games yet (e.g. a freshly seeded league). Best-effort: returns
+    True when standings were written.
     """
 
     try:
         from services.standings_repository import save_standings
+
+        records = _team_records_from_schedule()
+        if records:
+            save_standings(records, base_path=get_data_dir())
+            return True
+
+        # Fallback: no decided games in the schedule yet — pull whatever the
+        # season_stats team block has so a freshly-seeded league still renders.
         from utils.stats_persistence import load_stats
 
         stats_path = get_data_dir() / "season_stats.json"
