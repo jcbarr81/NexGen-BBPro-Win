@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import hashlib
 import json
 from pathlib import Path
 from typing import Dict, Mapping
@@ -898,6 +899,55 @@ def _seed_missing_contracts_from_rosters(
     return summary
 
 
+def _seed_contract_years(
+    player: object | None,
+    player_id: str,
+    *,
+    season_year: int,
+    annual_salary: int,
+) -> int:
+    """Pick an inaugural contract length so a brand-new league does NOT open with
+    the entire roster expiring after year one.
+
+    Length TRENDS with age (younger players, entering their prime, sign longer)
+    and quality (stars longer, fringe shorter, using the rating-derived salary as
+    the quality proxy), then a per-player jitter of +/-2 widens the spread so the
+    trend is a tendency rather than a lock — some veterans land multi-year deals
+    and some youngsters land short ones. The jitter is DETERMINISTIC (a stable
+    hash of the player id), so re-seeding the same league is idempotent and there
+    is no reliance on global RNG. Result is clamped to 1..6 years, which staggers
+    free agency across roughly the next six seasons.
+    """
+
+    age = _player_age(player, season_year=season_year)
+    if age is None:
+        base = 3
+    elif age <= 23:
+        base = 5
+    elif age <= 26:
+        base = 4
+    elif age <= 29:
+        base = 3
+    elif age <= 32:
+        base = 2
+    else:
+        base = 1
+
+    # Quality nudge. estimate_salary_for_player encodes an "overall" as
+    # DEFAULT_MIN_SALARY + (overall - 40) * 35_000, so these thresholds map to
+    # roughly overall >= 70 (star) and overall <= 48 (fringe).
+    if annual_salary >= DEFAULT_MIN_SALARY + 30 * 35_000:
+        base += 1
+    elif annual_salary <= DEFAULT_MIN_SALARY + 8 * 35_000:
+        base -= 1
+
+    # Deterministic jitter in [-2, +2] from a stable hash of the player id.
+    digest = hashlib.md5(str(player_id).encode("utf-8")).hexdigest()
+    jitter = (int(digest[:8], 16) % 5) - 2
+
+    return max(1, min(6, base + jitter))
+
+
 def _build_seed_contract(
     *,
     team_id: str,
@@ -905,11 +955,17 @@ def _build_seed_contract(
     player: object | None,
     season_year: int,
 ) -> tuple[Dict[str, object], Dict[str, object]]:
-    years_left = DEFAULT_CONTRACT_YEARS
+    annual_salary = estimate_salary_for_player(player)
+    years_left = _seed_contract_years(
+        player,
+        player_id,
+        season_year=season_year,
+        annual_salary=annual_salary,
+    )
     contract = {
         "team_id": team_id,
         "years_left": years_left,
-        "annual_salary": estimate_salary_for_player(player),
+        "annual_salary": annual_salary,
         "service_time_days": 0,
         "arb_eligible": False,
         "fa_year": season_year + years_left,
