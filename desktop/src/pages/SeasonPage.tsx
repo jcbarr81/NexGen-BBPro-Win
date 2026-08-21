@@ -223,6 +223,7 @@ export function SeasonPage() {
             onSimToPlayoffs={() => simToPlayoffs.mutate()}
             onAdvancePhase={() => advancePhase.mutate()}
           />
+          {state.data.phase === "OFFSEASON" && <FreeAgencyWindowCard />}
           {state.data.phase === "PRESEASON" && (
             <PreseasonActionsCard state={state.data} />
           )}
@@ -890,6 +891,69 @@ function PreseasonActionsCard({ state }: { state: SeasonState }) {
         onOpenChange={setLeagueTrainingOpen}
       />
     </>
+  );
+}
+
+function FreeAgencyWindowCard() {
+  const queryClient = useQueryClient();
+  const teamId = useAuthStore((s) => s.selectedTeamId ?? s.teamId ?? null);
+
+  // Free agency runs in the offseason. Polling opens the window lazily on the
+  // server (finance leagues only) the first time it's hit in the offseason.
+  const faWindow = useQuery({
+    queryKey: ["fa-window"],
+    queryFn: () => api.faWindowState(),
+  });
+  const win = faWindow.data;
+  const windowActive = !!win?.finance_enabled && !!win?.exists;
+  const windowOpen = windowActive && win?.status !== "closed";
+
+  const advanceFaDay = useMutation({
+    mutationFn: () => api.faWindowAdvanceDay(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["fa-window"] });
+      queryClient.invalidateQueries({ queryKey: ["season-state"] });
+      const signed = data.result?.signed ?? [];
+      const msg = signed.length
+        ? `Day advanced — ${signed.length} signing${signed.length === 1 ? "" : "s"}: ${signed
+            .slice(0, 4)
+            .map((s) => s.player_name)
+            .join(", ")}${signed.length > 4 ? "…" : ""}.`
+        : "Day advanced — no signings.";
+      if (data.window?.status === "closed") {
+        toast.success(
+          "Free-agency window closed — CPU teams fill their rosters in the preseason.",
+        );
+      } else {
+        toast.info(msg);
+      }
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+
+  if (!windowActive) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Free Agency</CardTitle>
+          <CardDescription>
+            Bid on free agents (Free Agency page), then advance the window one day
+            at a time until it closes.
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <FaBiddingWindowPanel
+          win={win!}
+          teamId={teamId}
+          onAdvance={() => advanceFaDay.mutate()}
+          advancing={advanceFaDay.isPending}
+          canAdvance={windowOpen}
+        />
+      </CardContent>
+    </Card>
   );
 }
 

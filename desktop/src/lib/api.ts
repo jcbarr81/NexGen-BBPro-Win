@@ -2128,7 +2128,12 @@ export const api = {
     ),
   evaluateFreeAgentOffer: (
     playerId: string,
-    payload: { years?: number; annual_salary?: number; signing_bonus?: number },
+    payload: {
+      years?: number;
+      annual_salary?: number;
+      signing_bonus?: number;
+      team_id?: string;
+    },
   ) =>
     apiRequest<FreeAgentOfferEvaluation>(
       `/free-agents/${encodeURIComponent(playerId)}/evaluate-offer`,

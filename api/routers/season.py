@@ -1260,10 +1260,10 @@ def advance_phase(
                     ),
                 )
 
-    # Leaving PRESEASON: if the owner never played out the FA bidding window,
-    # don't strand open negotiations into April — force it closed so every
-    # remaining free agent takes their best standing offer first.
-    if manager.phase == SeasonPhase.PRESEASON:
+    # Leaving OFFSEASON: if the owner never played out the FA bidding window,
+    # don't strand open negotiations into the new season — force it closed so
+    # every remaining free agent takes their best standing offer first.
+    if manager.phase == SeasonPhase.OFFSEASON:
         try:
             from services.fa_window import close_window, is_open
 
@@ -1605,11 +1605,13 @@ def preseason_list_unsigned(
 
 
 def _maybe_open_fa_window() -> None:
-    """Open the preseason FA bidding window on demand (idempotent).
+    """Open the offseason FA bidding window on demand (idempotent).
 
-    Only opens while the league is in PRESEASON with the finance model on; the
-    window service itself no-ops for finance-off leagues and won't reopen a
-    window that already exists for this preseason.
+    Free agency happens in the OFFSEASON (right after the playoffs, when
+    walk-year players hit the market). Only opens while the league is in
+    OFFSEASON with the finance model on; the window service itself no-ops for
+    finance-off leagues and won't reopen a window that already exists for this
+    offseason.
     """
     try:
         from services.fa_window import finance_fa_enabled, open_window
@@ -1617,7 +1619,7 @@ def _maybe_open_fa_window() -> None:
 
         if not finance_fa_enabled():
             return
-        if SeasonManager().phase != SeasonPhase.PRESEASON:
+        if SeasonManager().phase != SeasonPhase.OFFSEASON:
             return
         open_window(get_current_sim_date() or "")
     except Exception:  # pragma: no cover - defensive

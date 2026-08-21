@@ -272,7 +272,12 @@ def evaluate_fa_offer(
         service_time_days=FA_SERVICE_DAYS,
     )
 
-    callers_team = str(identity.get("t", "")).strip() or None
+    # The caller's team drives payroll impact + excludes our own bid from the
+    # competition list. A commissioner/super-admin has no bound identity["t"], so
+    # honor an explicit team_id from the offer dialog (their selected team).
+    callers_team = (
+        str(payload.get("team_id") or identity.get("t") or "").strip() or None
+    )
     competition = _competing_bids(player, exclude_team_id=callers_team)
 
     # Payroll impact preview for the caller's team: where payroll stands now,

@@ -10,7 +10,12 @@
 import { FormEvent, useMemo, useState } from "react";
 
 import { usePersistedState } from "@/lib/use-persisted-state";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -561,14 +566,25 @@ function SignDialog({
   // solvency impact for our team. Refreshes when the user edits years/
   // salary/bonus so they see the consequences before submitting.
   const previewQ = useQuery({
-    queryKey: ["fa-offer-preview", player?.player_id, years, salary, signingBonus],
+    queryKey: [
+      "fa-offer-preview",
+      player?.player_id,
+      teamId,
+      years,
+      salary,
+      signingBonus,
+    ],
     queryFn: () =>
       api.evaluateFreeAgentOffer(player!.player_id, {
+        team_id: teamId ?? undefined,
         years: Number(years) || 1,
         annual_salary: salary ? Number(salary) : undefined,
         signing_bonus: signingBonus ? Number(signingBonus) : undefined,
       }),
     enabled: !!player,
+    // Keep the prior preview on screen while a new one loads so the panel
+    // doesn't blank/reload on every keystroke.
+    placeholderData: keepPreviousData,
   });
 
   // Submitting an offer opens a multi-day negotiation window (#12) — it does NOT
