@@ -945,6 +945,54 @@ def _run_daily_automations(played_dates: List[str]) -> Dict[str, Any]:
     except Exception as exc:  # pragma: no cover - defensive
         summary["callups_error"] = str(exc)
 
+    # FA negotiation windows (#12): advance each open negotiation one day per
+    # played date — CPU teams bid, blow-away offers win early, deadlines resolve
+    # and sign the winner. Runs in the parent (post-day), so it doesn't touch the
+    # parallel game sim.
+    try:
+        from services import fa_negotiations
+        from services.free_agency import finalize_fa_signing
+        from utils.player_loader import load_players_from_csv
+        from utils.team_loader import load_teams
+
+        data_dir = get_data_dir()
+        players_by_id = {
+            str(getattr(p, "player_id", "")): p
+            for p in load_players_from_csv(str(data_dir / "players.csv"))
+        }
+        try:
+            teams = load_teams()
+        except Exception:
+            teams = []
+
+        def _sign(*, team_id, player_id, offer, player) -> bool:
+            return finalize_fa_signing(
+                team_id,
+                player_id,
+                level=str(offer.get("level", "ACT")),
+                years=int(offer.get("years", 1) or 1),
+                annual_salary=int(offer.get("annual_salary", 0) or 0),
+                signing_bonus=int(offer.get("signing_bonus", 0) or 0),
+                player=player,
+                data_dir=data_dir,
+            )
+
+        neg_summary = {"cpu_offers": 0, "signed": 0, "no_deal": 0}
+        for played_date in played_dates:
+            res = fa_negotiations.process_negotiations(
+                played_date,
+                data_dir=data_dir,
+                sign_fn=_sign,
+                players_by_id=players_by_id,
+                teams=teams,
+            )
+            neg_summary["cpu_offers"] += int(res.get("cpu_offers", 0) or 0)
+            neg_summary["signed"] += len(res.get("signed", []) or [])
+            neg_summary["no_deal"] += len(res.get("no_deal", []) or [])
+        summary["fa_negotiations"] = neg_summary
+    except Exception as exc:  # pragma: no cover - defensive
+        summary["fa_negotiations_error"] = str(exc)
+
     return summary
 
 

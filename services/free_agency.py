@@ -152,6 +152,20 @@ def run_cpu_free_agency_round(
         }
 
     unsigned_players = list_unsigned_players_from_files(data_dir=resolved_data_dir)
+    # Skip players in an active human-initiated negotiation window (#12) so the
+    # instant CPU cycle can't snatch a free agent you're bidding on.
+    try:
+        from services.fa_negotiations import open_negotiation_player_ids
+
+        locked = open_negotiation_player_ids(data_dir=resolved_data_dir)
+        if locked:
+            unsigned_players = [
+                p
+                for p in unsigned_players
+                if str(getattr(p, "player_id", "")) not in locked
+            ]
+    except Exception:
+        pass
     if not unsigned_players:
         return {
             "applied": False,
@@ -484,3 +498,88 @@ def _add_player_to_team_roster(
     except Exception:
         return None
     return target_level
+
+
+_FA_LEVEL_ATTR = {"ACT": "act", "AAA": "aaa", "LOW": "low"}
+
+
+def finalize_fa_signing(
+    team_id: str,
+    player_id: str,
+    *,
+    level: str = "ACT",
+    years: int = 1,
+    annual_salary: int = 0,
+    signing_bonus: int = 0,
+    player: object | None = None,
+    data_dir: Path | str | None = None,
+) -> bool:
+    """Roster + contract for a free agent that just won a negotiation (#12).
+
+    Mirrors the /teams/{id}/sign endpoint's finalize steps so a negotiation
+    resolution signs the winner exactly like a manual signing would. Returns
+    False (no-op) if the player is already rostered somewhere on the team.
+    """
+    tid = str(team_id or "").strip()
+    pid = str(player_id or "").strip()
+    if not tid or not pid:
+        return False
+    lvl = str(level or "ACT").upper()
+    attr = _FA_LEVEL_ATTR.get(lvl, "act")
+    try:
+        roster = load_roster(tid)
+    except Exception:
+        return False
+    for a in ("act", "aaa", "low", "dl", "ir"):
+        if pid in getattr(roster, a, []):
+            return False
+    try:
+        getattr(roster, attr).append(pid)
+        save_roster(tid, roster)
+    except Exception:
+        return False
+    try:
+        sign_free_agent_contract(
+            pid,
+            tid,
+            years_left=max(1, int(years)),
+            annual_salary=int(annual_salary),
+            signing_bonus=int(signing_bonus or 0),
+            player=player,
+            data_dir=data_dir,
+        )
+    except Exception:
+        pass
+    if int(signing_bonus or 0) > 0:
+        try:
+            from services.owner_finance_engine import charge_team_one_time_cost
+
+            charge_team_one_time_cost(
+                tid,
+                int(signing_bonus),
+                expense_type="signing_bonus",
+                memo=f"FA signing bonus: {pid}",
+            )
+        except Exception:
+            pass
+    try:
+        from services.qualifying_offers import track_qo_signing
+
+        track_qo_signing(pid, tid)
+    except Exception:
+        pass
+    try:
+        record_transaction(
+            action="sign",
+            team_id=tid,
+            player_id=pid,
+            from_level="FA",
+            to_level=lvl,
+            details=(
+                f"Signed as free agent to {lvl} "
+                f"(${int(annual_salary):,}/yr x {max(1, int(years))}) via negotiation"
+            ),
+        )
+    except Exception:
+        pass
+    return True

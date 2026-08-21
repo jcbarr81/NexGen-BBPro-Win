@@ -550,3 +550,111 @@ def sign_free_agent(
         "negotiation": negotiation,
         "forced": can_force,
     }
+
+
+@router.post("/free-agents/{player_id}/offer")
+def submit_fa_offer(
+    player_id: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Submit (or update) an offer to a free agent, opening a multi-day
+    negotiation window instead of signing on the spot (#12). CPU teams then bid
+    against you over the window and the player decides at the deadline."""
+    from services.fa_negotiations import submit_offer
+    from utils.sim_date import get_current_sim_date
+
+    team_id = str(identity.get("t", "")).strip()
+    if not team_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No team is bound to this account.",
+        )
+    pid = str(player_id or "").strip()
+    if not pid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="player_id is required."
+        )
+
+    phase_block = _phase_gate_for_fa()
+    if phase_block:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=phase_block)
+
+    player = _find_player(pid)
+    try:
+        years = max(1, int(payload.get("years", 1) or 1))
+    except (TypeError, ValueError):
+        years = 1
+    salary_raw = payload.get("annual_salary")
+    if salary_raw in (None, "") and player is not None:
+        salary = int(fair_market_salary(player, service_time_days=FA_SERVICE_DAYS))
+    else:
+        try:
+            salary = int(salary_raw)
+        except (TypeError, ValueError):
+            salary = (
+                int(fair_market_salary(player, service_time_days=FA_SERVICE_DAYS))
+                if player is not None
+                else 0
+            )
+    try:
+        bonus = max(0, int(payload.get("signing_bonus") or 0))
+    except (TypeError, ValueError):
+        bonus = 0
+    level = str(payload.get("level", "ACT")).strip().upper()
+    if level not in _LEVEL_ATTR:
+        level = "ACT"
+
+    negotiation = submit_offer(
+        pid,
+        team_id,
+        years=years,
+        annual_salary=salary,
+        signing_bonus=bonus,
+        level=level,
+        sim_date=get_current_sim_date() or "",
+        is_cpu=False,
+    )
+
+    payroll_impact: Optional[Dict[str, Any]] = None
+    try:
+        from services.payroll_policy import build_team_payroll_outlook
+
+        payroll_impact = build_team_payroll_outlook(
+            team_id, extra_annual_salary=salary, signing_bonus=bonus
+        )
+    except Exception:
+        payroll_impact = None
+
+    return {
+        "player_id": pid,
+        "negotiation": negotiation,
+        "payroll_impact": payroll_impact,
+    }
+
+
+@router.get("/free-agents/negotiations")
+def list_fa_negotiations(
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """The caller team's open + resolved FA negotiations, for the pending-offers UI."""
+    from services.fa_negotiations import list_team_negotiations
+
+    team_id = str(identity.get("t", "")).strip()
+    return {
+        "team_id": team_id,
+        "negotiations": list_team_negotiations(team_id) if team_id else [],
+    }
+
+
+@router.delete("/free-agents/{player_id}/offer")
+def withdraw_fa_offer(
+    player_id: str,
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Pull the caller team's offer from a free agent's negotiation."""
+    from services.fa_negotiations import withdraw_offer
+
+    team_id = str(identity.get("t", "")).strip()
+    ok = withdraw_offer(str(player_id), team_id) if team_id else False
+    return {"withdrawn": bool(ok)}
