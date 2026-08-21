@@ -54,27 +54,40 @@ def _self_heal_bracket_if_missing() -> bool:
     phase is PLAYOFFS and no bracket is present.
     """
 
+    import logging
+
+    log = logging.getLogger("nexgen.playoffs")
+
     if _list_years():
         return False
     try:
         from playbalance.season_manager import SeasonManager, SeasonPhase
 
-        if SeasonManager().phase != SeasonPhase.PLAYOFFS:
+        phase = SeasonManager().phase
+        if phase != SeasonPhase.PLAYOFFS:
+            log.warning("[playoff-heal] skip: phase=%s (not PLAYOFFS)", getattr(phase, "value", phase))
             return False
     except Exception:
+        log.exception("[playoff-heal] phase check failed")
         return False
 
+    # Standings sync is best-effort — a failure here must not block the heal.
     try:
-        from api.routers.season import (
-            _ensure_playoff_bracket,
-            _sync_standings_from_stats,
-        )
+        from api.routers.season import _sync_standings_from_stats
 
         _sync_standings_from_stats()
+    except Exception:
+        log.exception("[playoff-heal] standings sync failed (continuing)")
+
+    try:
+        from api.routers.season import _ensure_playoff_bracket
+
         result = _ensure_playoff_bracket()
     except Exception:
+        log.exception("[playoff-heal] _ensure_playoff_bracket raised")
         return False
 
+    log.warning("[playoff-heal] ensure result=%r", result)
     if not isinstance(result, dict) or result.get("error") or not (
         result.get("saved") or result.get("reused_existing")
     ):
