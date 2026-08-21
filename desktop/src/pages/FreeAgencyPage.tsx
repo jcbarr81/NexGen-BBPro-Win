@@ -42,6 +42,7 @@ import {
   Button,
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
   Dialog,
@@ -258,6 +259,7 @@ export function FreeAgencyPage() {
       subtitle={`${list.data?.count ?? 0} unsigned players`}
     >
       <QualifyingOffersCard teamId={teamId} />
+      <YourNegotiationsCard teamId={teamId} />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-1 flex-wrap items-center gap-2">
           <div className="relative w-full max-w-xs">
@@ -429,6 +431,113 @@ export function FreeAgencyPage() {
   );
 }
 
+/** Your open free-agent negotiations (bids awaiting the deadline) + recent
+ *  outcomes. CPU teams bid against you until the player decides (#12). */
+function YourNegotiationsCard({ teamId }: { teamId: string | null }) {
+  const queryClient = useQueryClient();
+  const q = useQuery({
+    queryKey: ["fa-negotiations"],
+    queryFn: () => api.listFaNegotiations(),
+    enabled: !!teamId,
+  });
+  const withdraw = useMutation({
+    mutationFn: (playerId: string) => api.withdrawFaOffer(playerId),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["fa-negotiations"] }),
+  });
+
+  const negs = q.data?.negotiations ?? [];
+  const open = negs.filter((n) => n.status === "open");
+  const resolved = negs.filter((n) => n.status === "resolved").slice(-5).reverse();
+  if (open.length === 0 && resolved.length === 0) return null;
+
+  return (
+    <Card className="mb-4">
+      <CardHeader>
+        <div>
+          <CardTitle>Your negotiations</CardTitle>
+          <CardDescription>
+            Open bids run to their deadline while CPU teams counter — the player
+            signs the best offer then.
+          </CardDescription>
+        </div>
+        <Badge tone="amber">{open.length} open</Badge>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {open.map((n) => {
+          const mine = n.your_offer;
+          const leader = n.leading_offer;
+          const youLead = !!leader && leader.team_id === teamId;
+          return (
+            <div
+              key={n.player_id}
+              className="rounded-lg border border-border bg-surfaceAlt/40 px-3 py-2"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold">
+                  {n.player_name ?? n.player_id}
+                </span>
+                <span className="text-xs text-muted">
+                  decides {n.deadline_date}
+                </span>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                {mine && (
+                  <span className="text-muted">
+                    Your bid:{" "}
+                    <span className="font-semibold text-ink">
+                      ${mine.annual_salary.toLocaleString()}/yr × {mine.years}
+                    </span>
+                  </span>
+                )}
+                {leader && (
+                  <span className={youLead ? "text-success" : "text-danger"}>
+                    Leading: {leader.team_id} $
+                    {leader.annual_salary.toLocaleString()}/yr
+                    {youLead ? " (you)" : ""}
+                  </span>
+                )}
+                <span className="text-muted">{n.offer_count} offer(s)</span>
+                {mine && (
+                  <button
+                    type="button"
+                    className="ml-auto font-semibold text-danger hover:underline disabled:opacity-50"
+                    disabled={withdraw.isPending}
+                    onClick={() => withdraw.mutate(n.player_id)}
+                  >
+                    Withdraw
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {resolved.map((n) => {
+          const r = n.resolution;
+          const won = r?.outcome === "signed" && r?.signed_team === teamId;
+          const label =
+            r?.outcome === "signed"
+              ? won
+                ? `You signed ${n.player_name ?? n.player_id}`
+                : `Outbid — ${r?.signed_team} signed ${n.player_name ?? n.player_id}`
+              : r?.outcome === "no_deal"
+              ? `${n.player_name ?? n.player_id} took no deal`
+              : `Offer to ${n.player_name ?? n.player_id} withdrawn`;
+          return (
+            <div
+              key={n.player_id}
+              className="flex items-center justify-between px-3 py-1 text-xs"
+            >
+              <span className="text-muted">{label}</span>
+              <Badge tone={won ? "success" : "neutral"}>{r?.outcome}</Badge>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
 function SignDialog({
   player,
   teamId,
@@ -461,13 +570,14 @@ function SignDialog({
     enabled: !!player,
   });
 
-  const sign = useMutation({
-    // The in-dialog response handles success + failure inline.
+  // Submitting an offer opens a multi-day negotiation window (#12) — it does NOT
+  // sign the player on the spot. CPU teams can counter during the window and the
+  // player decides at the deadline; track it under "Your negotiations".
+  const submitOffer = useMutation({
     meta: { suppressToast: true },
     mutationFn: () => {
       if (!player || !teamId) return Promise.reject(new Error("No team"));
-      return api.signFreeAgent(teamId, {
-        player_id: player.player_id,
+      return api.submitFaOffer(player.player_id, {
         level,
         years: Number(years) || 1,
         annual_salary: salary ? Number(salary) : undefined,
@@ -478,14 +588,15 @@ function SignDialog({
       setError(null);
       setResponse(null);
       queryClient.invalidateQueries({ queryKey: ["free-agents"] });
-      queryClient.invalidateQueries({ queryKey: ["team-roster"] });
-      queryClient.invalidateQueries({ queryKey: ["activity"] });
-      queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["fa-negotiations"] });
       const name = player
         ? `${player.first_name} ${player.last_name}`.trim() || player.player_id
         : "Player";
-      toast.success(`Signed ${name}`, {
-        description: `${data.years}yr × $${data.annual_salary.toLocaleString()} → ${level}.`,
+      const deadline = data.negotiation?.deadline_date;
+      toast.success(`Offer submitted to ${name}`, {
+        description: deadline
+          ? `They decide by ${deadline}. CPU teams may counter — track it under Your negotiations.`
+          : "Track it under Your negotiations.",
       });
       onClose();
     },
@@ -495,27 +606,19 @@ function SignDialog({
         const detail = body?.detail;
         if (detail?.code === "fa_window_closed") {
           setWindowClosed(detail.message);
-          setResponse(null);
           setError(null);
-          return;
-        }
-        if (detail?.negotiation) {
-          setResponse(detail.negotiation);
-          setError(null);
-          setWindowClosed(null);
           return;
         }
       }
-      setResponse(null);
       setWindowClosed(null);
-      setError(err instanceof Error ? err.message : "Sign failed.");
+      setError(err instanceof Error ? err.message : "Offer failed.");
     },
   });
 
   function handleSubmit(ev: FormEvent<HTMLFormElement>) {
     ev.preventDefault();
     setResponse(null);
-    sign.mutate();
+    submitOffer.mutate();
   }
 
   function acceptCounter() {
@@ -711,13 +814,13 @@ function SignDialog({
             <Button
               type="submit"
               disabled={
-                sign.isPending ||
+                submitOffer.isPending ||
                 !teamId ||
                 !!windowClosed ||
                 !!previewQ.data?.phase_gate
               }
             >
-              {sign.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {submitOffer.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Submit offer
             </Button>
           </div>

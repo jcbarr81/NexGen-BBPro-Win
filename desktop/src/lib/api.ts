@@ -954,6 +954,51 @@ export interface PayrollOutlook {
   opening_day_solvent?: boolean;
 }
 
+export interface FaOffer {
+  team_id: string;
+  years: number;
+  annual_salary: number;
+  signing_bonus: number;
+  level: string;
+  date: string;
+  is_cpu: boolean;
+}
+
+export interface FaNegotiationResolution {
+  outcome: "signed" | "no_deal" | "withdrawn";
+  signed_team?: string;
+  years?: number;
+  annual_salary?: number;
+  signing_bonus?: number;
+  is_cpu?: boolean;
+  date?: string;
+  early?: boolean;
+}
+
+export interface FaNegotiationSummary {
+  player_id: string;
+  player_name?: string;
+  status: "open" | "resolved";
+  deadline_date: string;
+  your_offer: FaOffer | null;
+  leading_offer: FaOffer | null;
+  offer_count: number;
+  resolution: FaNegotiationResolution | null;
+}
+
+export interface SubmitFaOfferResponse {
+  player_id: string;
+  negotiation: {
+    player_id: string;
+    opened_date: string;
+    deadline_date: string;
+    status: string;
+    offers: FaOffer[];
+    resolution: FaNegotiationResolution | null;
+  };
+  payroll_impact: PayrollOutlook | null;
+}
+
 export type FinanceTodoSeverity = "info" | "warning" | "critical";
 
 export interface FinanceTodoItem {
@@ -2044,6 +2089,28 @@ export const api = {
     apiRequest<FreeAgentOfferEvaluation>(
       `/free-agents/${encodeURIComponent(playerId)}/evaluate-offer`,
       { method: "POST", body: payload },
+    ),
+  submitFaOffer: (
+    playerId: string,
+    payload: {
+      years?: number;
+      annual_salary?: number;
+      signing_bonus?: number;
+      level?: "ACT" | "AAA" | "LOW";
+    },
+  ) =>
+    apiRequest<SubmitFaOfferResponse>(
+      `/free-agents/${encodeURIComponent(playerId)}/offer`,
+      { method: "POST", body: payload },
+    ),
+  listFaNegotiations: () =>
+    apiRequest<{ team_id: string; negotiations: FaNegotiationSummary[] }>(
+      `/free-agents/negotiations`,
+    ),
+  withdrawFaOffer: (playerId: string) =>
+    apiRequest<{ withdrawn: boolean }>(
+      `/free-agents/${encodeURIComponent(playerId)}/offer`,
+      { method: "DELETE" },
     ),
   extendContract: (
     playerId: string,

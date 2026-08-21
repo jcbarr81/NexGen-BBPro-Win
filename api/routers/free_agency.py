@@ -641,10 +641,15 @@ def list_fa_negotiations(
     from services.fa_negotiations import list_team_negotiations
 
     team_id = str(identity.get("t", "")).strip()
-    return {
-        "team_id": team_id,
-        "negotiations": list_team_negotiations(team_id) if team_id else [],
-    }
+    negotiations = list_team_negotiations(team_id) if team_id else []
+    for neg in negotiations:
+        player = _find_player(str(neg.get("player_id") or ""))
+        if player is not None:
+            name = f"{getattr(player, 'first_name', '')} {getattr(player, 'last_name', '')}".strip()
+            neg["player_name"] = name or str(neg.get("player_id"))
+        else:
+            neg["player_name"] = str(neg.get("player_id"))
+    return {"team_id": team_id, "negotiations": negotiations}
 
 
 @router.delete("/free-agents/{player_id}/offer")
