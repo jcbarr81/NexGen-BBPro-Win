@@ -36,17 +36,21 @@ WINDOW_BLOWAWAY_MULTIPLE = 1.30
 _FILENAME = "fa_negotiations.json"
 
 
-def _patience_day(player_id: str, total_days: int) -> int:
-    """Deterministic per-player "ready to decide" day in ``1..total_days``.
+def _window_patience(player_id: str, total_days: int) -> int:
+    """Deterministic per-player required-exposure in days, in ``1..total_days-1``.
+
+    A player accepts a merely-acceptable leading offer only after their
+    negotiation has been live this many window days — so a player first bid on
+    mid-window still gets at least a day for others to counter before signing,
+    and signings stagger (some sign after 1 day, some after 8, etc.). A true
+    blow-away offer signs earlier; the deadline signs everyone regardless.
 
     Seeded from the player id so it's stable across a window's days and across
-    parallel byte-parity runs. A player will accept a merely-acceptable leading
-    offer once the window reaches this day; a true blow-away offer can still sign
-    them earlier, and the deadline signs everyone regardless.
+    parallel byte-parity runs.
     """
-    total = max(1, int(total_days or 1))
+    total = max(2, int(total_days or 2))
     seed = int(hashlib.md5(f"patience:{player_id}".encode("utf-8")).hexdigest()[:8], 16)
-    return (seed % total) + 1
+    return (seed % (total - 1)) + 1
 
 
 # ---------------------------------------------------------------------------
@@ -102,13 +106,19 @@ def _offer_value(offer: Dict[str, Any]) -> int:
     return salary * years + bonus
 
 
-def _new_negotiation(player_id: str, opened: str) -> Dict[str, Any]:
+def _new_negotiation(
+    player_id: str, opened: str, *, opened_day: Optional[int] = None
+) -> Dict[str, Any]:
     opened_date = _parse_date(opened) or date.today()
     deadline = opened_date + timedelta(days=NEGOTIATION_WINDOW_DAYS)
     return {
         "player_id": player_id,
         "opened_date": opened_date.isoformat(),
         "deadline_date": deadline.isoformat(),
+        # The preseason window day this negotiation first opened on, so
+        # mid-window entries still get a minimum exposure before they can sign.
+        # ``None`` for regular-season windows (which don't use window days).
+        "opened_day": opened_day,
         "status": "open",
         "offers": [],
         "resolution": None,
@@ -140,9 +150,15 @@ def submit_offer(
     level: str = "ACT",
     sim_date: str,
     is_cpu: bool = False,
+    window_day: Optional[int] = None,
     data_dir: Path | str | None = None,
 ) -> Dict[str, Any]:
-    """Submit (or update) a team's offer, opening the window if needed."""
+    """Submit (or update) a team's offer, opening the window if needed.
+
+    ``window_day`` stamps the preseason window day a freshly-opened negotiation
+    started on, so a player you bid on mid-window still gets a day of exposure
+    before they can sign (see :func:`_window_patience`).
+    """
 
     pid = str(player_id or "").strip()
     tid = str(team_id or "").strip()
@@ -150,7 +166,7 @@ def submit_offer(
     negs = payload["negotiations"]
     negotiation = negs.get(pid)
     if not isinstance(negotiation, dict) or negotiation.get("status") != "open":
-        negotiation = _new_negotiation(pid, sim_date)
+        negotiation = _new_negotiation(pid, sim_date, opened_day=window_day)
         negs[pid] = negotiation
     _upsert_offer(
         negotiation,
@@ -472,10 +488,14 @@ def process_negotiations(
             fm = _fair_market_total(player)
             if _player_accepts(leader, player) and fm > 0:
                 if in_window:
-                    # Blow-away offers sign now; otherwise the player waits for
-                    # their own patience day before accepting a fair offer.
+                    # Blow-away offers sign now; otherwise the player waits until
+                    # their negotiation has been live long enough (measured from
+                    # the day it opened, so mid-window entries still get exposure)
+                    # before accepting a fair offer.
                     blowaway = _offer_value(leader) >= WINDOW_BLOWAWAY_MULTIPLE * fm
-                    ripe = int(window_day) >= _patience_day(pid, int(window_total))
+                    opened_day = int(neg.get("opened_day") or 1)
+                    age = int(window_day) - opened_day
+                    ripe = age >= _window_patience(pid, int(window_total))
                     early = blowaway or ripe
                 else:
                     early = _offer_value(leader) >= EARLY_ACCEPT_MULTIPLE * fm
@@ -502,6 +522,7 @@ def seed_cpu_negotiations(
     *,
     ai_level: str = "basic",
     top_n: int = 60,
+    window_day: int = 1,
     data_dir: Path | str | None = None,
 ) -> int:
     """Open CPU-initiated negotiations so the market is alive from day 1.
@@ -532,7 +553,7 @@ def seed_cpu_negotiations(
         neg = negs.get(pid)
         existed = isinstance(neg, dict) and neg.get("status") == "open"
         if not existed:
-            neg = _new_negotiation(pid, sim_date)
+            neg = _new_negotiation(pid, sim_date, opened_day=window_day)
         added = _cpu_bid_round(neg, pid, player, teams, ai_level, sim_date)
         # Only persist a *new* negotiation if a CPU team actually bid; otherwise
         # we'd leave an empty open window that never resolves.

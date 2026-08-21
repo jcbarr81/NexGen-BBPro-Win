@@ -29,42 +29,45 @@ def _fair(monkeypatch, salary, years):
 
 # --- staggered resolution ---------------------------------------------------
 
-def test_fair_offer_waits_for_patience_day(tmp_path, monkeypatch):
+def test_fair_offer_waits_for_exposure(tmp_path, monkeypatch):
     _accept_all(monkeypatch)
     _fair(monkeypatch, 3_000_000, 3)  # fair total 9M
-    pat = neg._patience_day("PX", 14)
-    if pat == 1:  # pick an id that isn't ready on day 1
-        pat = neg._patience_day("PY", 14)
-        pid = "PY"
-    else:
-        pid = "PX"
+    pid = "PX"
     # 3yr x 3.2M = 9.6M: acceptable, but NOT a blow-away (< 1.30 * 9M = 11.7M).
-    neg.submit_offer(pid, "AAA", years=3, annual_salary=3_200_000, sim_date="2025-03-01", data_dir=tmp_path)
+    # opened_day=1 (stamped via window_day).
+    neg.submit_offer(
+        pid, "AAA", years=3, annual_salary=3_200_000,
+        sim_date="2025-03-01", window_day=1, data_dir=tmp_path,
+    )
+    pat = neg._window_patience(pid, 14)  # required exposure days
 
     signed = {}
     sign_fn = lambda **k: signed.__setitem__("t", k["team_id"]) or True
 
-    # A day before the player's patience day: still open, nobody signs.
+    # age = window_day - opened_day(1) = pat-1 -> not enough exposure yet.
     neg.process_negotiations(
         "2025-03-01", data_dir=tmp_path, sign_fn=sign_fn,
-        players_by_id={pid: object()}, window_day=max(1, pat - 1), window_total=14,
+        players_by_id={pid: object()}, window_day=pat, window_total=14,
     )
     assert "t" not in signed
     assert neg.has_open_negotiation(pid, data_dir=tmp_path)
 
-    # On the patience day the acceptable leading offer signs.
+    # One more day (age = pat): the acceptable leading offer signs.
     neg.process_negotiations(
-        "2025-03-08", data_dir=tmp_path, sign_fn=sign_fn,
-        players_by_id={pid: object()}, window_day=pat, window_total=14,
+        "2025-03-02", data_dir=tmp_path, sign_fn=sign_fn,
+        players_by_id={pid: object()}, window_day=pat + 1, window_total=14,
     )
     assert signed.get("t") == "AAA"
 
 
-def test_blowaway_offer_signs_on_day_one(tmp_path, monkeypatch):
+def test_blowaway_offer_signs_immediately(tmp_path, monkeypatch):
     _accept_all(monkeypatch)
     _fair(monkeypatch, 3_000_000, 3)  # fair total 9M
-    # 3yr x 4M = 12M >= 1.30 * 9M = 11.7M -> blow-away, signs immediately.
-    neg.submit_offer("PZ", "AAA", years=3, annual_salary=4_000_000, sim_date="2025-03-01", data_dir=tmp_path)
+    # 3yr x 4M = 12M >= 1.30 * 9M = 11.7M -> blow-away, signs with zero exposure.
+    neg.submit_offer(
+        "PZ", "AAA", years=3, annual_salary=4_000_000,
+        sim_date="2025-03-01", window_day=1, data_dir=tmp_path,
+    )
     signed = {}
     neg.process_negotiations(
         "2025-03-01", data_dir=tmp_path,
@@ -74,12 +77,33 @@ def test_blowaway_offer_signs_on_day_one(tmp_path, monkeypatch):
     assert signed.get("t") == "AAA"
 
 
+def test_mid_window_offer_gets_a_day_of_exposure(tmp_path, monkeypatch):
+    _accept_all(monkeypatch)
+    _fair(monkeypatch, 3_000_000, 3)
+    # A player first bid on late (opened_day=8) must NOT sign the same day, even
+    # though the absolute window day is well past any patience threshold.
+    neg.submit_offer(
+        "PM", "AAA", years=3, annual_salary=3_200_000,
+        sim_date="2025-03-01", window_day=8, data_dir=tmp_path,
+    )
+    signed = {}
+    neg.process_negotiations(
+        "2025-03-08", data_dir=tmp_path,
+        sign_fn=lambda **k: signed.__setitem__("t", k["team_id"]) or True,
+        players_by_id={"PM": object()}, window_day=8, window_total=14,
+    )
+    assert "t" not in signed  # age 0 -> still open, you can counter tomorrow
+    assert neg.has_open_negotiation("PM", data_dir=tmp_path)
+
+
 def test_final_day_forces_resolution(tmp_path, monkeypatch):
     _accept_all(monkeypatch)
     _fair(monkeypatch, 3_000_000, 3)
-    # A plain fair offer that never blows away and whose patience day is late:
-    # the final window day must still sign it (best available offer).
-    neg.submit_offer("PW", "AAA", years=2, annual_salary=2_000_000, sim_date="2025-03-01", data_dir=tmp_path)
+    # A plain fair offer: the final window day must still sign it (best available).
+    neg.submit_offer(
+        "PW", "AAA", years=2, annual_salary=2_000_000,
+        sim_date="2025-03-01", window_day=1, data_dir=tmp_path,
+    )
     signed = {}
     neg.process_negotiations(
         "2025-03-14", data_dir=tmp_path,

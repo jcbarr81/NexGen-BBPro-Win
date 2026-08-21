@@ -149,6 +149,35 @@ def _make_sign_fn(data_dir: Path) -> Callable[..., bool]:
     return _sign
 
 
+def _seed_cpu_for_day(base: Path, start_iso: str, window_day: int, *, teams=None) -> int:
+    """Seed CPU opening bids on the CURRENT unsigned pool for ``window_day``.
+
+    Called on day 1 and again each day as players sign, so CPU teams re-target
+    the free agents still available and pursue newly-attractive players — the
+    market adapts instead of freezing after day 1. Uses the window start date so
+    every negotiation shares the same deadline; the window day is stamped so
+    freshly-opened negotiations still get a minimum exposure before signing.
+    """
+    if teams is None:
+        teams = _load_teams()
+    try:
+        from services.free_agency import list_unsigned_players_from_files
+
+        free_agents = list(list_unsigned_players_from_files(data_dir=base))
+    except Exception:
+        free_agents = []
+    if not free_agents:
+        return 0
+    return fa_negotiations.seed_cpu_negotiations(
+        start_iso,
+        free_agents,
+        teams,
+        ai_level=_ai_level(data_dir=base),
+        window_day=window_day,
+        data_dir=base,
+    )
+
+
 def _player_name(players_by_id: Dict[str, Any], pid: str) -> str:
     p = players_by_id.get(pid)
     if p is None:
@@ -219,24 +248,7 @@ def open_window(
 
     deadline = start + timedelta(days=TOTAL_DAYS)
     players_by_id = _load_players_by_id(base)
-    teams = _load_teams()
-    # Seed CPU bids only on genuine free agents (not rostered / retired) — not
-    # the whole player universe.
-    try:
-        from services.free_agency import list_unsigned_players_from_files
-
-        free_agents = list(list_unsigned_players_from_files(data_dir=base))
-    except Exception:
-        free_agents = []
-
-    seeded = fa_negotiations.seed_cpu_negotiations(
-        start_iso,
-        free_agents,
-        teams,
-        ai_level=_ai_level(data_dir=base),
-        top_n=top_n,
-        data_dir=base,
-    )
+    seeded = _seed_cpu_for_day(base, start_iso, 1)
 
     leaders = _open_leaders(players_by_id, data_dir=base)
     state = {
@@ -311,9 +323,14 @@ def advance_day(
         }
         for s in (summary.get("signed") or [])
     ]
-    leaders = _open_leaders(players_by_id, data_dir=base)
 
     is_final = day >= total
+    if not is_final:
+        # The market moved today — CPU teams re-target whoever is still available
+        # for tomorrow (new negotiations get a day of exposure before they can
+        # sign, so you can still counter or pivot onto them).
+        _seed_cpu_for_day(base, str(state.get("start_date") or ""), day + 1, teams=teams)
+    leaders = _open_leaders(players_by_id, data_dir=base)
     log_entry = {
         "day": day,
         "date": day_date,
@@ -351,6 +368,17 @@ def close_window(*, data_dir: Path | str | None = None) -> Dict[str, Any]:
 def is_open(*, data_dir: Path | str | None = None) -> bool:
     state = load_window(data_dir=data_dir)
     return bool(state and state.get("status") == "open")
+
+
+def current_day(*, data_dir: Path | str | None = None) -> Optional[int]:
+    """The open window's current day (for stamping human offers), else None."""
+    state = load_window(data_dir=data_dir)
+    if state and state.get("status") == "open":
+        try:
+            return int(state.get("day", 1) or 1)
+        except (TypeError, ValueError):
+            return 1
+    return None
 
 
 def unsigned_sweep_locked(*, data_dir: Path | str | None = None) -> bool:

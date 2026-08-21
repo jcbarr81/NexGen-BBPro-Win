@@ -961,6 +961,13 @@ function FaBiddingWindowPanel({
       {latest?.message && (
         <p className="mt-2 text-xs text-muted">{latest.message}</p>
       )}
+      {!closed && (
+        <p className="mt-1 text-[11px] text-muted">
+          Any free agent stays biddable all window — pivot onto anyone as the
+          market thins; a new bid gets a day before they can sign. CPU teams
+          re-target the remaining pool each day.
+        </p>
+      )}
 
       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div>

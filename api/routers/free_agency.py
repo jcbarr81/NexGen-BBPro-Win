@@ -608,6 +608,22 @@ def submit_fa_offer(
     if level not in _LEVEL_ATTR:
         level = "ACT"
 
+    # During an open preseason window, stamp the current window day so a player
+    # you first bid on mid-window still gets a day of exposure before signing —
+    # letting you pivot onto newly-available players as the market thins.
+    window_day: Optional[int] = None
+    sim_date = get_current_sim_date() or ""
+    try:
+        from services.fa_window import current_day, load_window
+
+        window_day = current_day()
+        if window_day is not None:
+            win = load_window()
+            # Keep every window negotiation on the same shared deadline.
+            sim_date = str((win or {}).get("start_date") or sim_date)
+    except Exception:
+        window_day = None
+
     negotiation = submit_offer(
         pid,
         team_id,
@@ -615,8 +631,9 @@ def submit_fa_offer(
         annual_salary=salary,
         signing_bonus=bonus,
         level=level,
-        sim_date=get_current_sim_date() or "",
+        sim_date=sim_date,
         is_cpu=False,
+        window_day=window_day,
     )
 
     payroll_impact: Optional[Dict[str, Any]] = None
