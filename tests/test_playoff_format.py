@@ -62,3 +62,27 @@ def test_default_config_without_choice_still_produces_a_bracket():
     standings = _standings(teams)
     bracket = generate_bracket(standings, teams, PlayoffsConfig())
     assert _seed_count(bracket) >= 2
+
+
+def test_al_nl_split_seeds_two_leagues_into_a_world_series():
+    # 4 divisions (3 teams each) split into two leagues; each seeds its own
+    # bracket and they meet in a World Series.
+    teams = []
+    d2l = {}
+    for div, league in (("D1", "AL"), ("D2", "AL"), ("D3", "NL"), ("D4", "NL")):
+        d2l[div] = league
+        for j in range(3):
+            teams.append(
+                SimpleNamespace(team_id=f"{div}_{j}", division=div, name=f"{div}{j}", city="C")
+            )
+    standings = _standings(teams)
+    cfg = PlayoffsConfig(
+        num_playoff_teams_per_league=2,
+        playoff_slots_by_league_size={6: 2},  # 6 teams / league, division winners only
+        division_to_league=d2l,
+    )
+    bracket = generate_bracket(standings, teams, cfg)
+    assert set((bracket.seeds_by_league or {}).keys()) == {"AL", "NL"}
+    assert len(bracket.seeds_by_league["AL"]) == 2
+    assert len(bracket.seeds_by_league["NL"]) == 2
+    assert any(str(getattr(r, "name", "")).upper() == "WS" for r in bracket.rounds)

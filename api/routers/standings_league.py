@@ -208,6 +208,45 @@ def league_standings() -> Dict[str, Any]:
                     r["magic_number"] = elim
         out_divisions.append({"division": division, "teams": rows})
 
+    # Wildcard race (#2): using the stored playoff format, mark which teams hold
+    # a playoff spot — the division leaders plus the top N wildcards per league —
+    # so the standings show the wildcard hunt, not just division clinches.
+    try:
+        from playbalance.playoffs_config import load_playoffs_config
+
+        pcfg = load_playoffs_config()
+        num_playoff = int(getattr(pcfg, "num_playoff_teams_per_league", 0) or 0)
+        div_to_league = dict(getattr(pcfg, "division_to_league", {}) or {})
+    except Exception:
+        num_playoff, div_to_league = 0, {}
+
+    if num_playoff > 0:
+        by_league: Dict[str, List[Dict[str, Any]]] = {}
+        for d in out_divisions:
+            league = str(div_to_league.get(d["division"], "")) or "LEAGUE"
+            by_league.setdefault(league, []).append(d)
+
+        for divs in by_league.values():
+            wildcard_slots = max(0, num_playoff - len(divs))
+            non_leaders: List[Dict[str, Any]] = []
+            for d in divs:
+                teams = d["teams"]
+                if teams:
+                    teams[0]["playoff_spot"] = "division"
+                    non_leaders.extend(teams[1:])
+            non_leaders.sort(key=lambda r: (-r["pct"], -r["wins"]))
+            for r in non_leaders[:wildcard_slots]:
+                r["playoff_spot"] = "wildcard"
+            # Games back of the last wildcard spot, for the chasers.
+            if 0 < wildcard_slots < len(non_leaders):
+                cutoff = non_leaders[wildcard_slots - 1]
+                cw, cl = cutoff["wins"], cutoff["losses"]
+                for r in non_leaders[wildcard_slots:]:
+                    gb = ((cw - r["wins"]) + (r["losses"] - cl)) / 2
+                    r["gb_wildcard"] = (
+                        "—" if gb <= 1e-6 else f"{gb:.1f}".rstrip("0").rstrip(".")
+                    )
+
     # Divisions themselves sorted alphabetically for stable order.
     out_divisions.sort(key=lambda d: d["division"])
-    return {"divisions": out_divisions}
+    return {"divisions": out_divisions, "playoff_teams_per_league": num_playoff}

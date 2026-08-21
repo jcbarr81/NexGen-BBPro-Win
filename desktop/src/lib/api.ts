@@ -609,6 +609,11 @@ export interface LeagueStandingsRow {
   games_remaining?: number;
   status?: "clinched_division" | "leader" | "in_race" | "eliminated";
   magic_number?: number;
+  // Playoff picture (#2): "division" = holds a division-leader playoff spot;
+  // "wildcard" = currently in a wildcard spot. gb_wildcard = games back of the
+  // last wildcard spot for chasers.
+  playoff_spot?: "division" | "wildcard";
+  gb_wildcard?: string;
 }
 
 export interface LeagueStandingsDivision {

@@ -111,8 +111,12 @@ interface WizardState {
   draftRounds: number;
   draftPoolSize: number;
   // Playoff bracket (#14): total playoff teams (division winners + wildcards).
-  // null = use the rule/quickstart preset default.
+  // null = use the rule/quickstart preset default. When split into two leagues,
+  // this is PER league.
   playoffNumTeams: number | null;
+  // Split the divisions into two leagues (AL/NL style); only offered when the
+  // division count is even. Each league seeds its own bracket -> World Series.
+  playoffSplitLeagues: boolean;
 }
 
 const INITIAL: WizardState = {
@@ -154,6 +158,7 @@ const INITIAL: WizardState = {
   draftRounds: 10,
   draftPoolSize: 200,
   playoffNumTeams: null,
+  playoffSplitLeagues: false,
 };
 
 /**
@@ -336,10 +341,27 @@ export function LeagueCreatePage() {
           rounds: state.draftRounds,
           pool_size: state.draftPoolSize,
         },
-        playoff:
-          state.playoffNumTeams != null
-            ? { num_playoff_teams: state.playoffNumTeams }
-            : undefined,
+        playoff: (() => {
+          const p: Record<string, unknown> = {};
+          if (state.playoffNumTeams != null) {
+            p.num_playoff_teams = state.playoffNumTeams;
+          }
+          const divNames = Object.keys(state.divisions);
+          if (
+            state.playoffSplitLeagues &&
+            divNames.length >= 2 &&
+            divNames.length % 2 === 0
+          ) {
+            // Split the ordered divisions into two leagues (AL/NL style).
+            const half = divNames.length / 2;
+            const d2l: Record<string, string> = {};
+            divNames.forEach((d, i) => {
+              d2l[d] = i < half ? "League 1" : "League 2";
+            });
+            p.division_to_league = d2l;
+          }
+          return Object.keys(p).length ? p : undefined;
+        })(),
       };
       if (isCommissioner) {
         // Cloud: register the league in the control plane with the caller as
@@ -1138,51 +1160,84 @@ function RulesStep({
           </select>
         </div>
         {(() => {
-          // Playoff format (#14): offer bracket shapes that fit this league's
-          // structure — division winners only (when the division count is even)
-          // plus up to 3 wildcards, capped at the total team count.
+          // Playoff format (#14): bracket shapes that fit this league's
+          // structure. Even division counts can split into two leagues (AL/NL),
+          // in which case the format is PER league; either way, up to 3 wildcards.
           const divNames = Object.keys(state.divisions);
           const D = divNames.length;
           const T = divNames.reduce(
             (sum, d) => sum + (state.divisions[d]?.length ?? 0),
             0,
           );
+          if (D < 2) return null;
+          const canSplit = D >= 2 && D % 2 === 0;
+          const split = canSplit && state.playoffSplitLeagues;
+          const leagueDivs = split ? D / 2 : D;
+          const leagueTeams = split ? Math.floor(T / 2) : T;
+          const per = split ? " per league" : "";
           const opts: { value: number; label: string }[] = [];
-          if (D >= 2 && D % 2 === 0) {
-            opts.push({ value: D, label: `Division winners only (${D} teams)` });
+          if (leagueDivs >= 2 && leagueDivs % 2 === 0) {
+            opts.push({
+              value: leagueDivs,
+              label: `Division winners only (${leagueDivs}${per})`,
+            });
           }
           for (let wc = 1; wc <= 3; wc++) {
-            const num = D + wc;
-            if (D >= 1 && num >= 2 && num <= T) {
+            const num = leagueDivs + wc;
+            if (num >= 2 && num <= leagueTeams) {
               opts.push({
                 value: num,
-                label: `Winners + ${wc} wildcard${wc > 1 ? "s" : ""} (${num} teams)`,
+                label: `Winners + ${wc} wildcard${wc > 1 ? "s" : ""} (${num}${per})`,
               });
             }
           }
-          if (opts.length === 0) return null;
           return (
-            <div className="space-y-1.5">
+            <div className="space-y-2 md:col-span-2">
               <Label>Playoff format</Label>
-              <select
-                value={state.playoffNumTeams ?? ""}
-                onChange={(e) =>
-                  onPatch({
-                    playoffNumTeams: e.target.value ? Number(e.target.value) : null,
-                  })
-                }
-                className="h-10 w-full rounded-lg border border-border bg-canvas/60 px-3 text-sm focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
-              >
-                <option value="">Preset default</option>
-                {opts.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+              {canSplit && (
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-muted">
+                  <input
+                    type="checkbox"
+                    checked={state.playoffSplitLeagues}
+                    onChange={(e) =>
+                      onPatch({
+                        playoffSplitLeagues: e.target.checked,
+                        playoffNumTeams: null,
+                      })
+                    }
+                    className="h-3.5 w-3.5 accent-amber"
+                  />
+                  Split into two leagues (AL/NL style) — each seeds its own bracket
+                  into a World Series
+                </label>
+              )}
+              {opts.length > 0 ? (
+                <select
+                  value={state.playoffNumTeams ?? ""}
+                  onChange={(e) =>
+                    onPatch({
+                      playoffNumTeams: e.target.value ? Number(e.target.value) : null,
+                    })
+                  }
+                  className="h-10 w-full rounded-lg border border-border bg-canvas/60 px-3 text-sm focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                >
+                  <option value="">Preset default</option>
+                  {opts.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-xs text-muted">
+                  Add more divisions/teams to configure a playoff format.
+                </p>
+              )}
               <p className="text-xs text-muted">
-                How many teams make the postseason (division winners + wildcards).
-                Options reflect your {D} division{D === 1 ? "" : "s"} / {T} teams.
+                {split
+                  ? `Two leagues of ${leagueDivs} division${leagueDivs === 1 ? "" : "s"} / ${leagueTeams} teams each`
+                  : `Single pool of ${D} divisions / ${T} teams`}
+                . Wildcards are capped at 3 per league.
               </p>
             </div>
           );

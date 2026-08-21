@@ -224,21 +224,39 @@ def _build_league(payload: Dict[str, Any]) -> Dict[str, Any]:
             )
 
             cfg = load_playoffs_config()
+
+            # division -> team count for this new league.
+            divisions = payload.get("divisions") or {}
+            div_sizes = {
+                str(div): (len(teams) if isinstance(teams, (list, tuple)) else 0)
+                for div, teams in divisions.items()
+            }
+
+            # AL/NL split (#14): a division_to_league mapping makes generate_bracket
+            # seed each league separately into a World Series. Compute per-league
+            # sizes so the slot map is keyed correctly.
+            d2l = playoff_cfg.get("division_to_league")
+            if isinstance(d2l, dict) and d2l:
+                cfg.division_to_league = {str(k): str(v) for k, v in d2l.items()}
+                league_sizes: Dict[str, int] = {}
+                for div, size in div_sizes.items():
+                    league = str(d2l.get(div, "")) or "LEAGUE"
+                    league_sizes[league] = league_sizes.get(league, 0) + size
+                sizes = {s for s in league_sizes.values() if s > 0}
+            else:
+                total = sum(div_sizes.values())
+                sizes = {total} if total > 0 else set()
+
             num = playoff_cfg.get("num_playoff_teams")
             if num is not None:
                 num = max(2, int(num))
                 cfg.num_playoff_teams_per_league = num
-                # Also key the exact slot count by this (single-pool) league's
-                # size. _seed_league treats num==6 as an "unset" sentinel and
-                # falls back to an auto bracket; a non-empty
-                # playoff_slots_by_league_size bypasses that, so an explicit
-                # choice (including 6) is always honored.
-                total_teams = 0
-                for teams in (payload.get("divisions") or {}).values():
-                    if isinstance(teams, (list, tuple)):
-                        total_teams += len(teams)
-                if total_teams > 0:
-                    cfg.playoff_slots_by_league_size = {total_teams: num}
+                # Key the exact slot count by (per-)league size. _seed_league
+                # treats num==6 as an "unset" sentinel and falls back to an auto
+                # bracket; a non-empty playoff_slots_by_league_size bypasses that,
+                # so an explicit choice (including 6) is always honored.
+                if sizes:
+                    cfg.playoff_slots_by_league_size = {s: num for s in sizes}
             dwp = playoff_cfg.get("division_winners_priority")
             if dwp is not None:
                 cfg.division_winners_priority = bool(dwp)

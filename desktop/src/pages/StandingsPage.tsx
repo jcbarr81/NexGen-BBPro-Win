@@ -290,17 +290,18 @@ function DivisionCard({
 function StatusCell({ team }: { team: LeagueStandingsRow }) {
   const status = team.status;
   const magic = team.magic_number;
+  // Currently holding a wildcard spot (#2) — highlight it above division status.
+  if (team.playoff_spot === "wildcard") {
+    return (
+      <Badge tone="amber" className="text-[10px]" title="Currently in a wildcard spot">
+        WC
+      </Badge>
+    );
+  }
   if (status === "clinched_division") {
     return (
       <Badge tone="success" className="text-[10px]">
         Clinched
-      </Badge>
-    );
-  }
-  if (status === "eliminated") {
-    return (
-      <Badge tone="danger" className="text-[10px]">
-        Eliminated
       </Badge>
     );
   }
@@ -312,6 +313,24 @@ function StatusCell({ team }: { team: LeagueStandingsRow }) {
       >
         M{magic}
       </span>
+    );
+  }
+  // Not in a playoff spot but chasing — games back of the last wildcard.
+  if (team.gb_wildcard && team.gb_wildcard !== "—") {
+    return (
+      <span
+        className="text-xs tabular-nums text-muted"
+        title="Games back of the last wildcard spot"
+      >
+        WC −{team.gb_wildcard}
+      </span>
+    );
+  }
+  if (status === "eliminated") {
+    return (
+      <Badge tone="danger" className="text-[10px]">
+        Eliminated
+      </Badge>
     );
   }
   if (status === "in_race" && typeof magic === "number" && magic > 0) {
