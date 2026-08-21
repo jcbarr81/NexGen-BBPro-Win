@@ -22,7 +22,7 @@ import hashlib
 import random
 from typing import Any, Dict, List, Optional, Sequence
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 
 from services.contract_negotiator import (
     FA_SERVICE_DAYS,
@@ -564,12 +564,15 @@ def submit_fa_offer(
     from services.fa_negotiations import submit_offer
     from utils.sim_date import get_current_sim_date
 
-    team_id = str(identity.get("t", "")).strip()
+    # team_id comes from the client's selected team (a commissioner/super-admin
+    # has no bound identity["t"], so we can't derive it from the token alone).
+    team_id = str(payload.get("team_id") or identity.get("t") or "").strip()
     if not team_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No team is bound to this account.",
+            detail="team_id is required.",
         )
+    require_team_owner(identity, team_id)
     pid = str(player_id or "").strip()
     if not pid:
         raise HTTPException(
@@ -635,12 +638,13 @@ def submit_fa_offer(
 
 @router.get("/free-agents/negotiations")
 def list_fa_negotiations(
+    team_id: str = Query(default=""),
     identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
     """The caller team's open + resolved FA negotiations, for the pending-offers UI."""
     from services.fa_negotiations import list_team_negotiations
 
-    team_id = str(identity.get("t", "")).strip()
+    team_id = str(team_id or identity.get("t") or "").strip()
     negotiations = list_team_negotiations(team_id) if team_id else []
     for neg in negotiations:
         player = _find_player(str(neg.get("player_id") or ""))
@@ -655,11 +659,15 @@ def list_fa_negotiations(
 @router.delete("/free-agents/{player_id}/offer")
 def withdraw_fa_offer(
     player_id: str,
+    team_id: str = Query(default=""),
     identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
     """Pull the caller team's offer from a free agent's negotiation."""
     from services.fa_negotiations import withdraw_offer
 
-    team_id = str(identity.get("t", "")).strip()
-    ok = withdraw_offer(str(player_id), team_id) if team_id else False
+    tid = str(team_id or identity.get("t") or "").strip()
+    if not tid:
+        return {"withdrawn": False}
+    require_team_owner(identity, tid)
+    ok = withdraw_offer(str(player_id), tid)
     return {"withdrawn": bool(ok)}

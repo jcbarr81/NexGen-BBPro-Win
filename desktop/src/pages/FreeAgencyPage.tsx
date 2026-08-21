@@ -436,12 +436,13 @@ export function FreeAgencyPage() {
 function YourNegotiationsCard({ teamId }: { teamId: string | null }) {
   const queryClient = useQueryClient();
   const q = useQuery({
-    queryKey: ["fa-negotiations"],
-    queryFn: () => api.listFaNegotiations(),
+    queryKey: ["fa-negotiations", teamId],
+    queryFn: () => api.listFaNegotiations(teamId ?? undefined),
     enabled: !!teamId,
   });
   const withdraw = useMutation({
-    mutationFn: (playerId: string) => api.withdrawFaOffer(playerId),
+    mutationFn: (playerId: string) =>
+      api.withdrawFaOffer(playerId, teamId ?? undefined),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["fa-negotiations"] }),
   });
@@ -578,6 +579,7 @@ function SignDialog({
     mutationFn: () => {
       if (!player || !teamId) return Promise.reject(new Error("No team"));
       return api.submitFaOffer(player.player_id, {
+        team_id: teamId,
         level,
         years: Number(years) || 1,
         annual_salary: salary ? Number(salary) : undefined,

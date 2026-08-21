@@ -2093,6 +2093,7 @@ export const api = {
   submitFaOffer: (
     playerId: string,
     payload: {
+      team_id: string;
       years?: number;
       annual_salary?: number;
       signing_bonus?: number;
@@ -2103,13 +2104,13 @@ export const api = {
       `/free-agents/${encodeURIComponent(playerId)}/offer`,
       { method: "POST", body: payload },
     ),
-  listFaNegotiations: () =>
+  listFaNegotiations: (teamId?: string) =>
     apiRequest<{ team_id: string; negotiations: FaNegotiationSummary[] }>(
-      `/free-agents/negotiations`,
+      `/free-agents/negotiations${teamId ? `?team_id=${encodeURIComponent(teamId)}` : ""}`,
     ),
-  withdrawFaOffer: (playerId: string) =>
+  withdrawFaOffer: (playerId: string, teamId?: string) =>
     apiRequest<{ withdrawn: boolean }>(
-      `/free-agents/${encodeURIComponent(playerId)}/offer`,
+      `/free-agents/${encodeURIComponent(playerId)}/offer${teamId ? `?team_id=${encodeURIComponent(teamId)}` : ""}`,
       { method: "DELETE" },
     ),
   extendContract: (

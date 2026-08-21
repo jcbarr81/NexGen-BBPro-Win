@@ -639,6 +639,39 @@ def auto_assign_team(
     assigned.update(roster.ir)
     released = [pid for pid in pool_ids if pid not in assigned]
 
+    # Coverage guard: never release the LAST eligible player for a required
+    # defensive position. The active-roster picker guarantees coverage among the
+    # hitters it sees, but a position player mis-flagged as a pitcher (or an
+    # over-cap release) could still leave the org unable to field a spot (e.g.
+    # no 2B). If a required position has nobody assigned but an eligible player
+    # is about to be released, rescue the best such player into LOW.
+    if released:
+        pool_by_id = {
+            getattr(p, "player_id"): p
+            for p in list(buckets.hitters) + list(buckets.pitchers)
+        }
+
+        def _has_assigned_eligible(pos: str) -> bool:
+            return any(
+                pid in pool_by_id and pos in _eligible_positions(pool_by_id[pid])
+                for pid in assigned
+            )
+
+        for pos in REQUIRED_POSITIONS:
+            if _has_assigned_eligible(pos):
+                continue
+            candidates = [
+                pool_by_id[pid]
+                for pid in released
+                if pid in pool_by_id and pos in _eligible_positions(pool_by_id[pid])
+            ]
+            if not candidates:
+                continue  # genuinely nobody in the org can play here
+            rescue_id = getattr(max(candidates, key=_overall_score), "player_id")
+            released.remove(rescue_id)
+            roster.low.append(rescue_id)
+            assigned.add(rescue_id)
+
     save_roster(team_id, roster)
 
     if released:
