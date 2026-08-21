@@ -100,7 +100,11 @@ FA_SERVICE_DAYS = 6 * 162  # 6+ years: free agency-pending
 # Extension-eligibility guidelines.
 MAX_YEARS_LEFT_FOR_EXTENSION = 2  # arbs/FAs only renegotiate in last 2 years
 REJECTION_COOLDOWN_DAYS = 30  # cool-off after a rejected offer
-PHASES_BLOCKED_FOR_EXTENSION = {"AMATEUR_DRAFT", "PLAYOFFS"}
+# The extension deadline is the END of the playoffs (#9): owners can re-sign
+# walk-year players right through the postseason, and only lose them at the
+# offseason rollover. So the playoffs are NOT blocked — only the amateur draft
+# (a mid-season interruption) pauses extension talks.
+PHASES_BLOCKED_FOR_EXTENSION = {"AMATEUR_DRAFT"}
 
 
 @dataclass(frozen=True)

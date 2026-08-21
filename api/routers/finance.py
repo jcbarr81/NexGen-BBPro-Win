@@ -8,7 +8,7 @@ the Electron page renders the same numbers as the PyQt
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 
@@ -169,6 +169,59 @@ def team_payroll_context(team_id: str) -> Dict[str, Any]:
         ) from exc
 
 
+# Lead time for the walk-year extension reminder (#9). The extension deadline is
+# the end of the playoffs; playoffs run ~this long, so surfacing it once the
+# regular season is inside this window (and through the playoffs) gives owners
+# roughly a month of notice before the offseason rollover claims the players.
+EXTEND_REMINDER_DAYS = 30
+
+
+def _regular_season_days_remaining(data_dir) -> Optional[int]:
+    """Distinct unplayed dates left in the schedule; None if no schedule."""
+
+    import csv
+
+    schedule_path = data_dir / "schedule.csv"
+    if not schedule_path.exists():
+        return None
+    try:
+        unplayed: set[str] = set()
+        with schedule_path.open("r", encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle):
+                result = str(row.get("result", "")).strip()
+                played = bool(result) or str(row.get("played", "")).strip().lower() in {
+                    "1",
+                    "true",
+                    "yes",
+                }
+                if not played:
+                    unplayed.add(str(row.get("date", "")).strip())
+        return len(unplayed)
+    except Exception:
+        return None
+
+
+def _walk_year_count_for_team(team_id: str, *, data_dir) -> int:
+    """How many of the team's players are in their walk year (years_left == 1),
+    i.e. will become free agents at the next offseason rollover unless extended."""
+
+    try:
+        from services.contracts_service import load_contracts_payload
+
+        payload = load_contracts_payload(data_dir=data_dir)
+        players = payload.get("players", {}) if isinstance(payload, dict) else {}
+        tid = str(team_id or "").strip()
+        return sum(
+            1
+            for contract in players.values()
+            if isinstance(contract, dict)
+            and str(contract.get("team_id", "")).strip() == tid
+            and int(contract.get("years_left", 0) or 0) == 1
+        )
+    except Exception:
+        return 0
+
+
 @router.get("/todo")
 def team_finance_todo(team_id: str) -> Dict[str, Any]:
     """Phase-aware list of finance actions the owner should take.
@@ -305,6 +358,28 @@ def team_finance_todo(team_id: str) -> Dict[str, Any]:
                 pass
         except Exception:
             pass
+
+    # Walk-year extension reminder (#9): during the season's final stretch, nudge
+    # the owner to re-sign players in their last year before the offseason
+    # rollover turns them into free agents. The deadline is the end of the
+    # playoffs, so remind through the last ~30 regular-season days and all of the
+    # postseason.
+    if phase in ("REGULAR_SEASON", "PLAYOFFS"):
+        remaining = _regular_season_days_remaining(data_dir)
+        near_deadline = phase == "PLAYOFFS" or (
+            remaining is not None and 0 < remaining <= EXTEND_REMINDER_DAYS
+        )
+        if near_deadline:
+            walk_year = _walk_year_count_for_team(team_id, data_dir=data_dir)
+            if walk_year > 0:
+                add(
+                    "extend_walk_year",
+                    "warning",
+                    f"{walk_year} player(s) are in their walk year — extend them "
+                    "before the offseason (deadline: end of the playoffs) or "
+                    "they'll hit free agency.",
+                    "/contracts",
+                )
 
     return {
         "team_id": team_id,
