@@ -114,9 +114,12 @@ interface WizardState {
   // null = use the rule/quickstart preset default. When split into two leagues,
   // this is PER league.
   playoffNumTeams: number | null;
-  // Split the divisions into two leagues (AL/NL style); only offered when the
-  // division count is even. Each league seeds its own bracket -> World Series.
-  playoffSplitLeagues: boolean;
+  // League structure (#14, defined in the Teams step): split the divisions into
+  // two named leagues (AL/NL style), each seeding its own bracket into a World
+  // Series. divisionLeague maps a division name -> league index (0 or 1).
+  splitLeagues: boolean;
+  leagueNames: string[];
+  divisionLeague: Record<string, number>;
 }
 
 const INITIAL: WizardState = {
@@ -158,7 +161,9 @@ const INITIAL: WizardState = {
   draftRounds: 10,
   draftPoolSize: 200,
   playoffNumTeams: null,
-  playoffSplitLeagues: false,
+  splitLeagues: false,
+  leagueNames: ["League 1", "League 2"],
+  divisionLeague: {},
 };
 
 /**
@@ -346,18 +351,13 @@ export function LeagueCreatePage() {
           if (state.playoffNumTeams != null) {
             p.num_playoff_teams = state.playoffNumTeams;
           }
-          const divNames = Object.keys(state.divisions);
-          if (
-            state.playoffSplitLeagues &&
-            divNames.length >= 2 &&
-            divNames.length % 2 === 0
-          ) {
-            // Split the ordered divisions into two leagues (AL/NL style).
-            const half = divNames.length / 2;
+          // Map each division to its (named) league from the Teams step.
+          if (state.splitLeagues && Object.keys(state.divisions).length >= 2) {
             const d2l: Record<string, string> = {};
-            divNames.forEach((d, i) => {
-              d2l[d] = i < half ? "League 1" : "League 2";
-            });
+            for (const d of Object.keys(state.divisions)) {
+              const li = state.divisionLeague[d] ?? 0;
+              d2l[d] = state.leagueNames[li]?.trim() || `League ${li + 1}`;
+            }
             p.division_to_league = d2l;
           }
           return Object.keys(p).length ? p : undefined;
@@ -970,6 +970,46 @@ function TeamsStep({
     onPatch({ divisions: next });
   }
 
+  // League structure (#14). Renaming a division rebuilds the map (preserving
+  // order) and carries the league assignment across. Committed on blur so the
+  // input doesn't lose focus mid-edit.
+  function renameDivision(oldName: string, raw: string) {
+    const clean = raw.trim();
+    if (!clean || clean === oldName || clean in state.divisions) return;
+    const next: Divisions = {};
+    for (const [name, teams] of Object.entries(state.divisions)) {
+      next[name === oldName ? clean : name] = teams;
+    }
+    const nextLeague = { ...state.divisionLeague };
+    if (oldName in nextLeague) {
+      nextLeague[clean] = nextLeague[oldName] ?? 0;
+      delete nextLeague[oldName];
+    }
+    onPatch({ divisions: next, divisionLeague: nextLeague });
+  }
+
+  function setDivisionLeague(division: string, league: number) {
+    onPatch({
+      divisionLeague: { ...state.divisionLeague, [division]: league },
+    });
+  }
+
+  function toggleSplit(on: boolean) {
+    if (on) {
+      const names = Object.keys(state.divisions);
+      const half = Math.ceil(names.length / 2);
+      const dl: Record<string, number> = {};
+      names.forEach((d, i) => {
+        dl[d] = i < half ? 0 : 1;
+      });
+      onPatch({ splitLeagues: true, divisionLeague: dl, playoffNumTeams: null });
+    } else {
+      onPatch({ splitLeagues: false, playoffNumTeams: null });
+    }
+  }
+
+  const canSplit = Object.keys(state.divisions).length >= 2;
+
   const total = useMemo(
     () =>
       Object.values(state.divisions).reduce((acc, list) => acc + list.length, 0),
@@ -1004,11 +1044,75 @@ function TeamsStep({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {canSplit && (
+          <div className="rounded-xl border border-border bg-surfaceAlt/40 p-3">
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={state.splitLeagues}
+                onChange={(e) => toggleSplit(e.target.checked)}
+                className="h-3.5 w-3.5 accent-amber"
+              />
+              <span className="font-semibold">
+                Split into two leagues (AL/NL style)
+              </span>
+            </label>
+            {state.splitLeagues && (
+              <>
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {[0, 1].map((li) => (
+                    <div key={li} className="space-y-1">
+                      <Label className="text-[11px]">League {li + 1} name</Label>
+                      <Input
+                        value={state.leagueNames[li] ?? ""}
+                        onChange={(e) => {
+                          const names = [...state.leagueNames];
+                          names[li] = e.target.value;
+                          onPatch({ leagueNames: names });
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-muted">
+                  Assign each division to a league below. Each league seeds its
+                  own bracket into a World Series.
+                </p>
+              </>
+            )}
+          </div>
+        )}
         {Object.entries(state.divisions).map(([division, teams]) => (
           <div key={division} className="rounded-xl border border-border bg-surfaceAlt/40 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
-                {division} Division · {teams.length} teams
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Input
+                  key={division}
+                  defaultValue={division}
+                  onBlur={(e) => renameDivision(division, e.target.value)}
+                  className="h-8 w-40 text-xs font-semibold"
+                  title="Division name"
+                />
+                <span className="text-[11px] text-muted">
+                  · {teams.length} teams
+                </span>
+                {state.splitLeagues && (
+                  <select
+                    value={state.divisionLeague[division] ?? 0}
+                    onChange={(e) =>
+                      setDivisionLeague(division, Number(e.target.value))
+                    }
+                    className="h-8 rounded-md border border-border bg-canvas/60 px-2 text-xs"
+                    title="Which league this division belongs to"
+                  >
+                    <option value={0}>
+                      {state.leagueNames[0] || "League 1"}
+                    </option>
+                    <option value={1}>
+                      {state.leagueNames[1] || "League 2"}
+                    </option>
+                  </select>
+                )}
               </div>
               <Button
                 variant="ghost"
@@ -1160,9 +1264,9 @@ function RulesStep({
           </select>
         </div>
         {(() => {
-          // Playoff format (#14): bracket shapes that fit this league's
-          // structure. Even division counts can split into two leagues (AL/NL),
-          // in which case the format is PER league; either way, up to 3 wildcards.
+          // Playoff format (#14): options fit the league structure defined in
+          // the Teams step. If split into two leagues, the format is PER league
+          // and must fit the smaller league; either way, up to 3 wildcards.
           const divNames = Object.keys(state.divisions);
           const D = divNames.length;
           const T = divNames.reduce(
@@ -1170,10 +1274,25 @@ function RulesStep({
             0,
           );
           if (D < 2) return null;
-          const canSplit = D >= 2 && D % 2 === 0;
-          const split = canSplit && state.playoffSplitLeagues;
-          const leagueDivs = split ? D / 2 : D;
-          const leagueTeams = split ? Math.floor(T / 2) : T;
+          const split = state.splitLeagues;
+          let leagueDivs = D;
+          let leagueTeams = T;
+          if (split) {
+            const counts = [0, 1].map((li) => {
+              const divs = divNames.filter(
+                (d) => (state.divisionLeague[d] ?? 0) === li,
+              );
+              return {
+                divs: divs.length,
+                teams: divs.reduce(
+                  (s, d) => s + (state.divisions[d]?.length ?? 0),
+                  0,
+                ),
+              };
+            });
+            leagueDivs = Math.min(counts[0].divs, counts[1].divs);
+            leagueTeams = Math.min(counts[0].teams, counts[1].teams);
+          }
           const per = split ? " per league" : "";
           const opts: { value: number; label: string }[] = [];
           if (leagueDivs >= 2 && leagueDivs % 2 === 0) {
@@ -1194,22 +1313,11 @@ function RulesStep({
           return (
             <div className="space-y-2 md:col-span-2">
               <Label>Playoff format</Label>
-              {canSplit && (
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-muted">
-                  <input
-                    type="checkbox"
-                    checked={state.playoffSplitLeagues}
-                    onChange={(e) =>
-                      onPatch({
-                        playoffSplitLeagues: e.target.checked,
-                        playoffNumTeams: null,
-                      })
-                    }
-                    className="h-3.5 w-3.5 accent-amber"
-                  />
-                  Split into two leagues (AL/NL style) — each seeds its own bracket
-                  into a World Series
-                </label>
+              {split && (
+                <p className="text-xs text-muted">
+                  Two leagues (set in the Teams step) — the format applies per
+                  league, into a World Series.
+                </p>
               )}
               {opts.length > 0 ? (
                 <select
@@ -1230,12 +1338,14 @@ function RulesStep({
                 </select>
               ) : (
                 <p className="text-xs text-muted">
-                  Add more divisions/teams to configure a playoff format.
+                  {split
+                    ? "Balance the two leagues (each needs enough divisions/teams) to configure a format."
+                    : "Add more divisions/teams to configure a playoff format."}
                 </p>
               )}
               <p className="text-xs text-muted">
                 {split
-                  ? `Two leagues of ${leagueDivs} division${leagueDivs === 1 ? "" : "s"} / ${leagueTeams} teams each`
+                  ? `Smaller league: ${leagueDivs} division${leagueDivs === 1 ? "" : "s"} / ${leagueTeams} teams`
                   : `Single pool of ${D} divisions / ${T} teams`}
                 . Wildcards are capped at 3 per league.
               </p>
