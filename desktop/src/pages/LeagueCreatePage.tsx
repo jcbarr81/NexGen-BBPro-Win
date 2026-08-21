@@ -110,6 +110,9 @@ interface WizardState {
   injuryLevel: string;
   draftRounds: number;
   draftPoolSize: number;
+  // Playoff bracket (#14): total playoff teams (division winners + wildcards).
+  // null = use the rule/quickstart preset default.
+  playoffNumTeams: number | null;
 }
 
 const INITIAL: WizardState = {
@@ -150,6 +153,7 @@ const INITIAL: WizardState = {
   injuryLevel: "normal",
   draftRounds: 10,
   draftPoolSize: 200,
+  playoffNumTeams: null,
 };
 
 /**
@@ -332,6 +336,10 @@ export function LeagueCreatePage() {
           rounds: state.draftRounds,
           pool_size: state.draftPoolSize,
         },
+        playoff:
+          state.playoffNumTeams != null
+            ? { num_playoff_teams: state.playoffNumTeams }
+            : undefined,
       };
       if (isCommissioner) {
         // Cloud: register the league in the control plane with the caller as
@@ -1129,6 +1137,56 @@ function RulesStep({
             ))}
           </select>
         </div>
+        {(() => {
+          // Playoff format (#14): offer bracket shapes that fit this league's
+          // structure — division winners only (when the division count is even)
+          // plus up to 3 wildcards, capped at the total team count.
+          const divNames = Object.keys(state.divisions);
+          const D = divNames.length;
+          const T = divNames.reduce(
+            (sum, d) => sum + (state.divisions[d]?.length ?? 0),
+            0,
+          );
+          const opts: { value: number; label: string }[] = [];
+          if (D >= 2 && D % 2 === 0) {
+            opts.push({ value: D, label: `Division winners only (${D} teams)` });
+          }
+          for (let wc = 1; wc <= 3; wc++) {
+            const num = D + wc;
+            if (D >= 1 && num >= 2 && num <= T) {
+              opts.push({
+                value: num,
+                label: `Winners + ${wc} wildcard${wc > 1 ? "s" : ""} (${num} teams)`,
+              });
+            }
+          }
+          if (opts.length === 0) return null;
+          return (
+            <div className="space-y-1.5">
+              <Label>Playoff format</Label>
+              <select
+                value={state.playoffNumTeams ?? ""}
+                onChange={(e) =>
+                  onPatch({
+                    playoffNumTeams: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+                className="h-10 w-full rounded-lg border border-border bg-canvas/60 px-3 text-sm focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+              >
+                <option value="">Preset default</option>
+                {opts.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted">
+                How many teams make the postseason (division winners + wildcards).
+                Options reflect your {D} division{D === 1 ? "" : "s"} / {T} teams.
+              </p>
+            </div>
+          );
+        })()}
         <div className="space-y-1.5">
           <Label>Schedule template</Label>
           <select

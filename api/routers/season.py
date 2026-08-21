@@ -1966,8 +1966,14 @@ def _ensure_playoff_bracket() -> Optional[Dict[str, Any]]:
     if not standings:
         return None
 
+    # Seed from the league's PlayoffsConfig (#14) — the commissioner's chosen
+    # format (playoff teams per league, division-winners priority, series
+    # lengths). generate_bracket reads exactly these attributes; the general
+    # playbalance_config doesn't carry them, so it always fell back to defaults.
     try:
-        from playbalance import playbalance_config as _cfg
+        from playbalance.playoffs_config import load_playoffs_config
+
+        _cfg = load_playoffs_config()
     except Exception:
         _cfg = None
 

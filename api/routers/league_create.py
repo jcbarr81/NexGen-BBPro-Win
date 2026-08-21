@@ -210,6 +210,46 @@ def _build_league(payload: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             pass
 
+    # Playoff format (#14): persist the commissioner's chosen bracket shape so
+    # the postseason seeds exactly that (playoff teams per league + whether
+    # division winners are seeded ahead of wildcards). Overrides any preset
+    # default. Runs inside the request-league context so it writes to the new
+    # league's playoffs_config.json.
+    playoff_cfg = payload.get("playoff")
+    if isinstance(playoff_cfg, dict):
+        try:
+            from playbalance.playoffs_config import (
+                load_playoffs_config,
+                save_playoffs_config,
+            )
+
+            cfg = load_playoffs_config()
+            num = playoff_cfg.get("num_playoff_teams")
+            if num is not None:
+                num = max(2, int(num))
+                cfg.num_playoff_teams_per_league = num
+                # Also key the exact slot count by this (single-pool) league's
+                # size. _seed_league treats num==6 as an "unset" sentinel and
+                # falls back to an auto bracket; a non-empty
+                # playoff_slots_by_league_size bypasses that, so an explicit
+                # choice (including 6) is always honored.
+                total_teams = 0
+                for teams in (payload.get("divisions") or {}).values():
+                    if isinstance(teams, (list, tuple)):
+                        total_teams += len(teams)
+                if total_teams > 0:
+                    cfg.playoff_slots_by_league_size = {total_teams: num}
+            dwp = playoff_cfg.get("division_winners_priority")
+            if dwp is not None:
+                cfg.division_winners_priority = bool(dwp)
+            save_playoffs_config(cfg)
+        except Exception:
+            import logging
+
+            logging.getLogger("nexgen.league_create").exception(
+                "Failed to save playoff config for league %s", record.id
+            )
+
     # Always generate a schedule so the league is playable the moment
     # creation finishes. Without this the Season page shows "No
     # schedule loaded" and the owner has to send an admin to League
