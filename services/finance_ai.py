@@ -383,10 +383,14 @@ def build_cpu_free_agent_bid_book(
     tuning_map = _merge_tuning(settings.finance_ai_tuning)
     fa_star_quality_threshold = _tuning_int(tuning_map, "fa_star_quality_threshold")
 
+    human_ids = _human_owned_team_ids(resolved_data_dir)
+
     bids: Dict[str, int] = {}
     for team in teams:
         team_id = str(getattr(team, "team_id", "") or "").strip()
-        if not team_id or not _is_cpu_team(team):
+        # Never bid FOR a human-owned team (their owner_id is blank in the cloud,
+        # so _is_cpu_team alone would treat them as CPU).
+        if not team_id or team_id in human_ids or not _is_cpu_team(team):
             continue
         strategy = strategy_map.get(team_id)
         raw_strategy_profile = _raw_strategy_profile(strategy)
@@ -521,6 +525,27 @@ def _resolve_budget_tone(
 def _is_cpu_team(team: object) -> bool:
     owner = str(getattr(team, "owner_id", "") or "").strip().lower()
     return owner in {"", "cpu", "ai", "none", "computer", "bot"}
+
+
+def _human_owned_team_ids(data_dir: Path) -> set[str]:
+    """Team ids bound to a human owner in ``users.txt``.
+
+    In the cloud, team ownership lives in ``users.txt`` (written by the
+    memberships bridge), NOT in ``teams.csv`` ``owner_id`` — so a human team
+    looks CPU-owned to ``_is_cpu_team``. CPU free-agency must never bid *for* a
+    human's team, so we exclude these ids explicitly.
+    """
+    try:
+        from utils.user_manager import load_users
+
+        users = load_users(str(Path(data_dir) / "users.txt"))
+    except Exception:
+        return set()
+    return {
+        str(u.get("team_id") or "").strip()
+        for u in users
+        if str(u.get("team_id") or "").strip()
+    }
 
 
 def _free_agent_quality_score(player: object) -> int:
