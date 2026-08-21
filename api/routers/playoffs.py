@@ -54,43 +54,46 @@ def _self_heal_bracket_if_missing() -> bool:
     phase is PLAYOFFS and no bracket is present.
     """
 
-    import logging
-
-    log = logging.getLogger("nexgen.playoffs")
-
     if _list_years():
         return False
     try:
         from playbalance.season_manager import SeasonManager, SeasonPhase
 
-        phase = SeasonManager().phase
-        if phase != SeasonPhase.PLAYOFFS:
-            log.warning("[playoff-heal] skip: phase=%s (not PLAYOFFS)", getattr(phase, "value", phase))
+        if SeasonManager().phase != SeasonPhase.PLAYOFFS:
             return False
     except Exception:
-        log.exception("[playoff-heal] phase check failed")
         return False
 
-    # Standings sync is best-effort — a failure here must not block the heal.
+    # Generate a fresh, year-stamped bracket directly — do NOT defer to
+    # season._ensure_playoff_bracket(), whose "skip if a bracket already exists"
+    # shortcut can latch onto an orphan/no-year ``playoffs.json`` in the local
+    # working copy and never write the ``playoffs_<year>.json`` the page needs.
     try:
-        from api.routers.season import _sync_standings_from_stats
+        from playbalance import playoffs as _pf
+        from playbalance.playoffs_config import load_playoffs_config
+        from utils.team_loader import load_teams
 
-        _sync_standings_from_stats()
+        # Refresh standings from the finished season (best-effort).
+        try:
+            from api.routers.season import _sync_standings_from_stats
+
+            _sync_standings_from_stats()
+        except Exception:
+            pass
+
+        teams = load_teams()
+        standings = _pf._load_standings_snapshot()
+        if not teams or not standings:
+            return False
+        cfg = load_playoffs_config()
+        bracket = _pf.generate_bracket(standings, teams, cfg)
+        # save_bracket names the file from bracket.year -> playoffs_<year>.json.
+        _pf.save_bracket(bracket)
     except Exception:
-        log.exception("[playoff-heal] standings sync failed (continuing)")
-
-    try:
-        from api.routers.season import _ensure_playoff_bracket
-
-        result = _ensure_playoff_bracket()
-    except Exception:
-        log.exception("[playoff-heal] _ensure_playoff_bracket raised")
         return False
 
-    log.warning("[playoff-heal] ensure result=%r", result)
-    if not isinstance(result, dict) or result.get("error") or not (
-        result.get("saved") or result.get("reused_existing")
-    ):
+    if not _list_years():
+        # Year still not recognized (e.g. bracket.year was 0) — nothing gained.
         return False
 
     # Persist immediately — the whole reason we're here is a lost write, so don't
