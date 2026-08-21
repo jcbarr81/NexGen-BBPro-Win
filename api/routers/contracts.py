@@ -205,6 +205,7 @@ def _service_for(player_id: str) -> tuple[int, int, int]:
 def evaluate_extension(
     player_id: str,
     payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
     """Preview how a player would respond to an extension offer.
 
@@ -263,12 +264,30 @@ def evaluate_extension(
         current_annual_salary=current_salary,
         current_years_left=current_years,
     )
+
+    # Payroll impact of the RAISE this extension represents (the delta over the
+    # player's current salary — they already count toward payroll) so the owner
+    # sees how re-signing moves the books, matching the FA offer flow (#10).
+    payroll_impact: Optional[Dict[str, Any]] = None
+    callers_team = str(identity.get("t", "")).strip() or None
+    if callers_team:
+        try:
+            from services.payroll_policy import build_team_payroll_outlook
+
+            delta = max(0, int(offered_salary) - int(current_salary or 0))
+            payroll_impact = build_team_payroll_outlook(
+                callers_team, extra_annual_salary=delta
+            )
+        except Exception:
+            payroll_impact = None
+
     return {
         "player_id": pid,
         "current_annual_salary": current_salary,
         "current_years_left": current_years,
         "service_time_days": service_days,
         "eligibility": eligibility.to_dict(),
+        "payroll_impact": payroll_impact,
         **evaluation.to_dict(),
     }
 

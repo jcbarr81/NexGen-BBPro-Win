@@ -213,6 +213,8 @@ export interface ExtensionEvaluation {
   service_time_days?: number;
   player_id?: string;
   eligibility?: ExtensionEligibility;
+  /** Payroll impact of this extension (the raise over the current salary). */
+  payroll_impact?: PayrollOutlook | null;
 }
 
 export interface ExtensionEligibility {

@@ -40,6 +40,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import { isCloud } from "@/lib/cloud-auth";
 import { toast } from "@/lib/toast-store";
 import { AppShell } from "@/components/layout/AppShell";
+import { OfferImpactPanel } from "@/components/OfferImpactPanel";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { PlayerPickerDialog } from "@/components/PlayerPickerDialog";
 import { PlayerTrainingDialog } from "@/components/PlayerTrainingDialog";
@@ -1045,6 +1046,12 @@ function ContractCard({
                   </div>
                 </div>
               )}
+
+              {previewQ.data?.payroll_impact &&
+                (previewQ.data.payroll_impact.active ||
+                  previewQ.data.payroll_impact.info) && (
+                  <OfferImpactPanel impact={previewQ.data.payroll_impact} />
+                )}
 
               <label className="block space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-wider text-muted">
