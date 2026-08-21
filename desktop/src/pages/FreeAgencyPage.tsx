@@ -602,7 +602,8 @@ function SignDialog({
 
           {/* What this offer does to OUR books: payroll move, tax, cash,
               Opening-Day solvency. Only shown when payroll rules are active. */}
-          {previewQ.data?.payroll_impact?.active &&
+          {(previewQ.data?.payroll_impact?.active ||
+            previewQ.data?.payroll_impact?.info) &&
             !previewQ.data.phase_gate && (
               <OfferImpactPanel impact={previewQ.data.payroll_impact} />
             )}
@@ -910,6 +911,9 @@ function OfferImpactPanel({ impact }: { impact: PayrollOutlook }) {
   const cashAfter = impact.cash_after_bonus ?? impact.cash_on_hand ?? 0;
   const solvent = impact.opening_day_solvent ?? true;
   const feeLabel = impact.level === "mlb_like" ? "luxury tax" : "overage fee";
+  // Enforcement (threshold/tax/headroom) only exists when payroll rules are on;
+  // otherwise this is an informational payroll view (#10).
+  const active = !!impact.active;
 
   return (
     <div className="rounded-md border border-border bg-surfaceAlt/40 px-3 py-2 text-xs">
@@ -930,28 +934,33 @@ function OfferImpactPanel({ impact }: { impact: PayrollOutlook }) {
             >
               {formatMoneyCompact(after)}
             </span>{" "}
-            <span className="text-muted">
-              (threshold {formatMoneyCompact(threshold)})
-            </span>
+            {active && threshold > 0 && (
+              <span className="text-muted">
+                (threshold {formatMoneyCompact(threshold)})
+              </span>
+            )}
           </span>
         </div>
-        {overAfter > 0 ? (
-          <div className="flex items-center justify-between text-danger">
-            <span>
-              {crosses ? "Crosses the luxury threshold" : "Already over threshold"}
-            </span>
-            <span className="tabular-nums font-semibold">
-              est. {formatMoneyCompact(tax)} {feeLabel}
-            </span>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between">
-            <span className="text-muted">Headroom after signing</span>
-            <span className="tabular-nums font-semibold text-success">
-              {formatMoneyCompact(impact.headroom ?? 0)}
-            </span>
-          </div>
-        )}
+        {active &&
+          (overAfter > 0 ? (
+            <div className="flex items-center justify-between text-danger">
+              <span>
+                {crosses
+                  ? "Crosses the luxury threshold"
+                  : "Already over threshold"}
+              </span>
+              <span className="tabular-nums font-semibold">
+                est. {formatMoneyCompact(tax)} {feeLabel}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <span className="text-muted">Headroom after signing</span>
+              <span className="tabular-nums font-semibold text-success">
+                {formatMoneyCompact(impact.headroom ?? 0)}
+              </span>
+            </div>
+          ))}
         {bonus > 0 && (
           <div className="flex items-center justify-between">
             <span className="text-muted">Cash after bonus</span>

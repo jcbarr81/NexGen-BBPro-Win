@@ -926,6 +926,8 @@ export interface ArbitrationPlayer {
 export interface PayrollOutlook {
   team_id: string;
   active: boolean;
+  /** Payroll numbers are present (finance enabled) even if enforcement is off. */
+  info?: boolean;
   finance_enabled: boolean;
   enforcement: string; // "on" | "off"
   preset: string;

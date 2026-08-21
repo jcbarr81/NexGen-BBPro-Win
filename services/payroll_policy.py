@@ -317,29 +317,14 @@ def build_team_payroll_outlook(
         "extra_annual_salary": extra,
         "signing_bonus": bonus,
     }
-    if not active:
+    # Finance fully off — nothing to show.
+    if not bool(settings.enabled):
         return outlook
 
     totals = calculate_annual_payroll_totals(data_dir=resolved_data_dir)
     projections = project_monthly_owner_finance(data_dir=resolved_data_dir)
     payroll = max(0, int(totals.get(clean_team_id, 0) or 0))
     projected = payroll + extra
-    threshold = _payroll_threshold(clean_team_id, level, projections)
-    floor = _payroll_floor(clean_team_id, level, projections)
-    over = max(0, projected - threshold)
-    under = max(0, floor - projected) if level == LEVEL_MLB_LIKE else 0
-
-    # Mirror apply_payroll_rule_accounting_effects: CBT tiers at MLB-like,
-    # flat overage fee at basic, floor fee only at MLB-like.
-    estimated_tax = 0
-    if over > 0:
-        if level == LEVEL_MLB_LIKE:
-            estimated_tax = estimate_mlb_like_cbt_tax(projected, threshold)
-        else:
-            estimated_tax = int(round(float(over) * _BASIC_OVERAGE_FEE_RATE))
-    estimated_floor_fee = (
-        int(round(float(under) * _MLB_LIKE_FLOOR_FEE_RATE)) if under > 0 else 0
-    )
 
     financial_map = _load_team_financial_map(data_dir=resolved_data_dir)
     team_row = financial_map.get(clean_team_id, {})
@@ -355,25 +340,14 @@ def build_team_payroll_outlook(
     cash_after_bonus = cash_on_hand - bonus
     debt_after_bonus = projected_debt + (abs(cash_after_bonus) if cash_after_bonus < 0 else 0)
 
-    if under > 0:
-        zone = "under_floor"
-    elif over > 0:
-        zone = "over_threshold"
-    else:
-        zone = "safe"
-
+    # Informational payroll figures — returned whenever finance is enabled so the
+    # owner always sees "payroll now -> after this contract" plus the cash/solvency
+    # hit, even in leagues where payroll enforcement (gm_payroll_rules) is off (#10).
     outlook.update(
         {
+            "info": True,
             "payroll": payroll,
             "projected_payroll": projected,
-            "threshold": threshold,
-            "floor": floor,
-            "over_threshold": over,
-            "under_floor": under,
-            "headroom": threshold - projected,
-            "estimated_tax": estimated_tax,
-            "estimated_floor_fee": estimated_floor_fee,
-            "zone": zone,
             "cash_on_hand": cash_on_hand,
             "debt": debt,
             "cash_after_bonus": cash_after_bonus,
@@ -382,6 +356,42 @@ def build_team_payroll_outlook(
             "opening_day_solvent": debt_after_bonus <= debt_cap,
         }
     )
+
+    # Threshold / luxury-tax / floor semantics only exist with payroll rules on.
+    if active:
+        threshold = _payroll_threshold(clean_team_id, level, projections)
+        floor = _payroll_floor(clean_team_id, level, projections)
+        over = max(0, projected - threshold)
+        under = max(0, floor - projected) if level == LEVEL_MLB_LIKE else 0
+        # Mirror apply_payroll_rule_accounting_effects: CBT tiers at MLB-like,
+        # flat overage fee at basic, floor fee only at MLB-like.
+        estimated_tax = 0
+        if over > 0:
+            if level == LEVEL_MLB_LIKE:
+                estimated_tax = estimate_mlb_like_cbt_tax(projected, threshold)
+            else:
+                estimated_tax = int(round(float(over) * _BASIC_OVERAGE_FEE_RATE))
+        estimated_floor_fee = (
+            int(round(float(under) * _MLB_LIKE_FLOOR_FEE_RATE)) if under > 0 else 0
+        )
+        if under > 0:
+            zone = "under_floor"
+        elif over > 0:
+            zone = "over_threshold"
+        else:
+            zone = "safe"
+        outlook.update(
+            {
+                "threshold": threshold,
+                "floor": floor,
+                "over_threshold": over,
+                "under_floor": under,
+                "headroom": threshold - projected,
+                "estimated_tax": estimated_tax,
+                "estimated_floor_fee": estimated_floor_fee,
+                "zone": zone,
+            }
+        )
     return outlook
 
 
