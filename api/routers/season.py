@@ -1175,6 +1175,20 @@ def advance_phase(
 
     # Hard finance deadline: a team must be solvent to start the season.
     # Exceeding the luxury threshold is allowed (it's taxed in-season); this
+    # Spring-training gate: Opening Day applies each player's spring rating
+    # gains, which only happens when the owner runs training camp. Training camp
+    # is no longer auto-run at preseason entry (#13) — it's an explicit action —
+    # so refuse to leave PRESEASON until it's been run, and tell the owner why.
+    if manager.phase == SeasonPhase.PRESEASON and not force:
+        if not _read_preseason_done().get("training_camp"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Run Spring Training first — open Preseason Actions and click "
+                    "'Run Training Camp' before starting the Regular Season."
+                ),
+            )
+
     # only blocks an Opening Day that would begin insolvent (projected debt over
     # the league cap). Enforcement-off leagues always pass.
     if manager.phase == SeasonPhase.PRESEASON and not force:
@@ -1255,10 +1269,10 @@ def advance_phase(
             except Exception as exc:  # pragma: no cover - defensive
                 extra["playoffs_error"] = str(exc)
 
-    # OFFSEASON → PRESEASON: spring training camp normally requires a
-    # manual click on the preseason checklist. In solo-player leagues
-    # there's no reason to gate it — auto-run so opening day finds
-    # players with their fresh ratings already applied.
+    # OFFSEASON → PRESEASON: spring training camp is an explicit owner action
+    # (#13) — it is NOT auto-run here. The PRESEASON → REGULAR_SEASON advance is
+    # gated above until the owner runs it, so opening day still finds players
+    # with their spring gains applied, but the checklist reflects a real click.
     if new_phase == SeasonPhase.PRESEASON:
         # A new season has begun — make sure it has a schedule so the
         # commissioner doesn't have to manually regenerate one every year.
@@ -1266,10 +1280,6 @@ def advance_phase(
             extra["schedule"] = _ensure_new_season_schedule()
         except Exception as exc:  # pragma: no cover - defensive
             extra["schedule_error"] = str(exc)
-        try:
-            extra["training_camp"] = _auto_run_training_camp_if_needed()
-        except Exception as exc:  # pragma: no cover - defensive
-            extra["training_camp_error"] = str(exc)
         # If a schedule was just generated, rebuild the simulator so the
         # returned payload reflects the new game count (days_total, draft_date).
         if isinstance(extra.get("schedule"), dict) and extra["schedule"].get(

@@ -356,7 +356,11 @@ function isPhaseReadyToAdvance(state: SeasonState): boolean {
       return isDraftDone(state);
     case "PLAYOFFS":
       return !!state.playoffs_complete;
-    // PRESEASON and OFFSEASON have no backend gate — always ready.
+    case "PRESEASON":
+      // Spring training must be run before Opening Day (#13) — the backend
+      // refuses the advance until it is, so mirror that gate here.
+      return !!state.preseason_done?.training_camp;
+    // OFFSEASON has no backend gate — always ready.
     default:
       return true;
   }
@@ -371,6 +375,8 @@ function advanceBlockedReason(state: SeasonState): string | undefined {
       return "Commit the amateur draft before advancing.";
     case "PLAYOFFS":
       return "Resolve the playoff bracket and crown a champion (Playoffs page) before advancing to the Offseason.";
+    case "PRESEASON":
+      return "Run Spring Training first — open Preseason Actions below and click 'Run Training Camp' before starting the Regular Season.";
     default:
       return undefined;
   }
