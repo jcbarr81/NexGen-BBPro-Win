@@ -39,6 +39,59 @@ def _list_years() -> List[int]:
     return years
 
 
+def _self_heal_bracket_if_missing() -> bool:
+    """Regenerate the playoff bracket if the league is in PLAYOFFS but no
+    ``playoffs_<year>.json`` exists.
+
+    The bracket is written once, during the REGULAR_SEASON -> PLAYOFFS
+    transition. If that write is ever lost (a background-sim write that misses
+    the working-copy push cutoff, an interrupted transition, etc.) the league is
+    stranded in PLAYOFFS with an empty page and no way forward. Re-seeding here
+    from the final standings — using the league's stored PlayoffsConfig, so the
+    commissioner's format is preserved — makes the postseason self-healing.
+
+    Returns True if it generated (and persisted) a bracket. No-op unless the
+    phase is PLAYOFFS and no bracket is present.
+    """
+
+    if _list_years():
+        return False
+    try:
+        from playbalance.season_manager import SeasonManager, SeasonPhase
+
+        if SeasonManager().phase != SeasonPhase.PLAYOFFS:
+            return False
+    except Exception:
+        return False
+
+    try:
+        from api.routers.season import (
+            _ensure_playoff_bracket,
+            _sync_standings_from_stats,
+        )
+
+        _sync_standings_from_stats()
+        result = _ensure_playoff_bracket()
+    except Exception:
+        return False
+
+    if not isinstance(result, dict) or result.get("error") or not (
+        result.get("saved") or result.get("reused_existing")
+    ):
+        return False
+
+    # Persist immediately — the whole reason we're here is a lost write, so don't
+    # rely on a later mutating request to push the freshly-seeded bracket.
+    try:
+        from api import working_copy
+
+        if working_copy.is_enabled():
+            working_copy.push_changes()
+    except Exception:
+        pass
+    return True
+
+
 def _load_year(year: int) -> Dict[str, Any]:
     path = get_data_dir() / f"playoffs_{year}.json"
     if not path.exists():
@@ -64,6 +117,8 @@ def _load_year(year: int) -> Dict[str, Any]:
 @router.get("/years")
 def list_years() -> Dict[str, Any]:
     years = _list_years()
+    if not years and _self_heal_bracket_if_missing():
+        years = _list_years()
     return {"years": years, "latest": years[0] if years else None}
 
 
@@ -73,6 +128,8 @@ def playoffs_view(
 ) -> Dict[str, Any]:
     if year is None:
         years = _list_years()
+        if not years and _self_heal_bracket_if_missing():
+            years = _list_years()
         if not years:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
