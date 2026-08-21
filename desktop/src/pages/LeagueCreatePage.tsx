@@ -570,6 +570,16 @@ function canAdvance(
         if (!team.city.trim() || !team.name.trim()) return false;
       }
     }
+    // When split into two leagues, each league needs at least one division so
+    // the bracket can seed both sides of a World Series.
+    if (state.splitLeagues) {
+      const divs = Object.keys(state.divisions);
+      for (const li of [0, 1]) {
+        if (!divs.some((d) => (state.divisionLeague[d] ?? 0) === li)) {
+          return false;
+        }
+      }
+    }
     return true;
   }
   return true;
@@ -1016,6 +1026,28 @@ function TeamsStep({
     [state.divisions],
   );
 
+  // Why the "Next" button may be disabled. The step gate (canAdvance) requires
+  // every team to have both a city and a nickname; when split, each league also
+  // needs at least one division. Surface these so a disabled Next isn't a
+  // mystery (it's easy to blame the nearby split toggle).
+  const missingTeams = useMemo(
+    () =>
+      Object.values(state.divisions).reduce(
+        (n, teams) =>
+          n + teams.filter((t) => !t.city.trim() || !t.name.trim()).length,
+        0,
+      ),
+    [state.divisions],
+  );
+  const emptyLeague =
+    state.splitLeagues &&
+    [0, 1].some(
+      (li) =>
+        !Object.keys(state.divisions).some(
+          (d) => (state.divisionLeague[d] ?? 0) === li,
+        ),
+    );
+
   return (
     <Card>
       <CardHeader>
@@ -1044,6 +1076,24 @@ function TeamsStep({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {(missingTeams > 0 || emptyLeague) && (
+          <div className="rounded-xl border border-amber/40 bg-amber/10 p-3 text-xs text-amber">
+            {missingTeams > 0 && (
+              <div>
+                {missingTeams} team{missingTeams === 1 ? "" : "s"} still need
+                {missingTeams === 1 ? "s" : ""} a city and nickname before you
+                can continue — use <span className="font-semibold">Randomize
+                all</span> to fill them fast.
+              </div>
+            )}
+            {emptyLeague && (
+              <div className={missingTeams > 0 ? "mt-1" : undefined}>
+                Each league needs at least one division — assign your divisions
+                to both leagues below.
+              </div>
+            )}
+          </div>
+        )}
         {canSplit && (
           <div className="rounded-xl border border-border bg-surfaceAlt/40 p-3">
             <label className="flex cursor-pointer items-center gap-2 text-sm">
