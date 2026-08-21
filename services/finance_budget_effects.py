@@ -19,10 +19,12 @@ from utils.path_utils import get_data_dir
 __all__ = [
     "TeamBudgetEffects",
     "ScoutingDisplayProfile",
+    "FacilitiesInjuryEffect",
     "list_team_budget_effects",
     "training_camp_multiplier_for_team",
     "training_camp_multiplier_by_player",
     "development_multiplier_by_player",
+    "facilities_injury_effects_by_team",
     "scouting_display_profile_for_team",
     "scouting_display_value",
 ]
@@ -47,6 +49,24 @@ class ScoutingDisplayProfile:
     confidence_score: int
     confidence_label: str
     max_rating_error: int
+
+
+@dataclass(frozen=True)
+class FacilitiesInjuryEffect:
+    """Facilities budget → injury outcomes (applied post-game, not in the sim
+    engine, so injury FREQUENCY / calibration is untouched).
+
+    ``recovery_days_factor`` scales DL/injury durations (well-funded < 1.0 =
+    faster recovery; underfunded > 1.0 = slower). ``void_chance`` is the chance a
+    would-be DL stint is downgraded to a one-game day-to-day scare (prevention);
+    it's only positive when facilities are funded above target. Both collapse to
+    a no-op (1.0 / 0.0) when finance/owner_budgets are off, so calibration runs
+    (neutral budgets) see zero change.
+    """
+
+    team_id: str
+    recovery_days_factor: float
+    void_chance: float
 
 
 def list_team_budget_effects(
@@ -106,11 +126,11 @@ def list_team_budget_effects(
             current_budgets.get("facilities", 0),
             target_budgets.get("facilities", 0),
         )
-        camp = (
-            (training * 0.45)
-            + (development * 0.35)
-            + (facilities * 0.20)
-        )
+        # Training camp intensity blends training + development only. Facilities
+        # is no longer folded in here — it now owns injury outcomes (see
+        # facilities_injury_effects_by_team) so each budget line has one clear
+        # identity for the Finance UI.
+        camp = (training * 0.55) + (development * 0.45)
         effects[clean_team_id] = TeamBudgetEffects(
             team_id=clean_team_id,
             training_multiplier=round(training, 4),
@@ -183,6 +203,32 @@ def development_multiplier_by_player(
             continue
         profile = effects.get(clean_team_id)
         out[pid] = float(profile.development_multiplier) if profile else 1.0
+    return out
+
+
+def facilities_injury_effects_by_team(
+    *,
+    data_dir: Path | str | None = None,
+    league_id: str | None = None,
+) -> Dict[str, "FacilitiesInjuryEffect"]:
+    """Return per-team facilities → injury effects (recovery + prevention).
+
+    Derived from each team's facilities_multiplier (0.85–1.15, 1.0 neutral):
+    - recovery_days_factor = clamp(2 - m, 0.85, 1.20): m=1.15 → 0.85 (≈15%
+      faster), m=0.85 → 1.15 (≈15% slower), m=1.0 → 1.0.
+    - void_chance = clamp((m - 1) * 2, 0, 0.30): only well-funded facilities
+      (m>1) get a chance to prevent a DL stint; at/below target it's 0.
+    """
+
+    effects = list_team_budget_effects(data_dir=data_dir, league_id=league_id)
+    out: Dict[str, FacilitiesInjuryEffect] = {}
+    for team_id, eff in effects.items():
+        m = float(eff.facilities_multiplier)
+        out[team_id] = FacilitiesInjuryEffect(
+            team_id=team_id,
+            recovery_days_factor=round(_clamp(2.0 - m, 0.85, 1.20), 4),
+            void_chance=round(_clamp((m - 1.0) * 2.0, 0.0, 0.30), 4),
+        )
     return out
 
 

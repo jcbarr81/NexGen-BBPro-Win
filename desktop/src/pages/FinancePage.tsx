@@ -304,6 +304,18 @@ function BreakdownCard({
   );
 }
 
+// What each budget line actually does in-game, so owners know why they'd fund
+// one over another. Effects scale ±15% with spending vs. the projected target
+// (spend above target for a bonus, below for a penalty) and only apply when the
+// owner-budgets module is on.
+const BUDGET_EFFECTS: Record<string, string> = {
+  training: "Boosts spring-training rating gains at preseason camp.",
+  development: "Speeds player development & the aging curve each offseason.",
+  scouting: "Sharpens rating accuracy on player profiles (less guesswork).",
+  facilities:
+    "Fewer & shorter injuries — prevents some DL stints and speeds recovery.",
+};
+
 function BudgetCard({
   teamId,
   actual,
@@ -359,7 +371,7 @@ function BudgetCard({
           <CardTitle>Budgets</CardTitle>
           <CardDescription>
             {editable
-              ? "Set your allocation per category — projected is your revenue-based ceiling"
+              ? "Set your allocation per category — each has the in-game effect shown below. Spending above the projected target boosts it (up to +15%), below dials it down (to −15%)."
               : "Allocated vs projected based on revenue"}
           </CardDescription>
         </div>
@@ -422,6 +434,11 @@ function BudgetCard({
                 <div className="mt-1 text-[11px] text-muted">
                   of {formatMoney(p)} projected
                 </div>
+                {BUDGET_EFFECTS[key] && (
+                  <div className="mt-1.5 border-t border-border/40 pt-1.5 text-[11px] leading-snug text-subtle">
+                    {BUDGET_EFFECTS[key]}
+                  </div>
+                )}
               </div>
             );
           })}

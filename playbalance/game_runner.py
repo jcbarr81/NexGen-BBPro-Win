@@ -1553,7 +1553,21 @@ def _apply_injury_events(
 ) -> None:
     if not events:
         return
+    import hashlib
+
     injury_date = _parse_injury_date(game_date)
+    # Facilities budget → injury recovery + prevention. Loaded once; neutral
+    # (recovery 1.0 / void 0.0) when finance/owner_budgets are off, so calibration
+    # runs and non-finance leagues are unaffected. Applied HERE (post-game),
+    # not in the sim engine, so injury FREQUENCY stays exactly as calibrated.
+    try:
+        from services.finance_budget_effects import (
+            facilities_injury_effects_by_team,
+        )
+
+        facilities_fx = facilities_injury_effects_by_team()
+    except Exception:
+        facilities_fx = {}
     players = list(load_players_from_csv(players_file))
     player_map = {p.player_id: p for p in players}
     team_rosters: Dict[str, object] = {}
@@ -1592,6 +1606,34 @@ def _apply_injury_events(
             dl_tier = "dl15"
         days = int(event.get("days") or 0)
         description = str(event.get("description") or "Injury")
+
+        # Facilities budget effect. Deterministic (hashed on the injury), so the
+        # parallel-replay and serial paths produce identical DL outcomes.
+        fx = facilities_fx.get(team_id_str)
+        if fx is not None and dl_tier and dl_tier != "none":
+            if days > 0 and fx.recovery_days_factor != 1.0:
+                days = max(1, int(round(days * fx.recovery_days_factor)))
+            if fx.void_chance > 0.0:
+                roll = (
+                    int(
+                        hashlib.md5(
+                            f"{injury_date.isoformat()}:{player_id}:{description}".encode(
+                                "utf-8"
+                            )
+                        ).hexdigest()[:8],
+                        16,
+                    )
+                    % 10000
+                ) / 10000.0
+                if roll < fx.void_chance:
+                    # Prevention: medical staff catches it early — no DL stint,
+                    # just a one-game day-to-day scare.
+                    dl_tier = "none"
+                    event["dl_tier"] = "none"
+                    days = max(1, min(days or DAY_TO_DAY_MAX_DAYS, DAY_TO_DAY_MAX_DAYS))
+                    description = f"{description} (day-to-day)"
+                    event["description"] = description
+
         player.injured = True
         player.injury_description = description
         player.injury_list = dl_tier if dl_tier else None
