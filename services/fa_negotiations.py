@@ -27,7 +27,26 @@ NEGOTIATION_WINDOW_DAYS = 14
 # An offer whose total guaranteed value is this far above the player's
 # fair-market total can win before the deadline ("blow-away" early accept).
 EARLY_ACCEPT_MULTIPLE = 1.15
+# During the preseason bidding window (which advances one explicit day at a
+# time) a genuinely blow-away offer signs the player immediately, while a merely
+# acceptable offer only signs once the player's own patience day arrives — so
+# signings stagger across the window (some day 1, some day 8, some at the
+# deadline) instead of all landing at once.
+WINDOW_BLOWAWAY_MULTIPLE = 1.30
 _FILENAME = "fa_negotiations.json"
+
+
+def _patience_day(player_id: str, total_days: int) -> int:
+    """Deterministic per-player "ready to decide" day in ``1..total_days``.
+
+    Seeded from the player id so it's stable across a window's days and across
+    parallel byte-parity runs. A player will accept a merely-acceptable leading
+    offer once the window reaches this day; a true blow-away offer can still sign
+    them earlier, and the deadline signs everyone regardless.
+    """
+    total = max(1, int(total_days or 1))
+    seed = int(hashlib.md5(f"patience:{player_id}".encode("utf-8")).hexdigest()[:8], 16)
+    return (seed % total) + 1
 
 
 # ---------------------------------------------------------------------------
@@ -398,10 +417,21 @@ def process_negotiations(
     teams: Any = None,
     ai_level: str = "basic",
     notify_fn: Optional[Callable[[Dict[str, Any]], None]] = None,
+    window_day: Optional[int] = None,
+    window_total: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Advance every open negotiation by one sim day: CPU teams bid, blow-away
-    offers can win early, and windows that hit their deadline resolve."""
+    offers can win early, and windows that hit their deadline resolve.
 
+    ``window_day`` / ``window_total`` opt into the preseason bidding-window
+    behavior: resolution is driven by the explicit window day (not the calendar)
+    so signings stagger by each player's patience day, and the final window day
+    forces every remaining player to take the best offer available. When both are
+    ``None`` (the regular-season daily hook) the original calendar-deadline +
+    1.15x early-accept behavior is preserved exactly.
+    """
+
+    in_window = window_day is not None and window_total is not None
     today = _parse_date(sim_date) or date.today()
     payload = load_negotiations(data_dir=data_dir)
     negs = payload["negotiations"]
@@ -429,17 +459,26 @@ def process_negotiations(
             continue
 
         deadline = _parse_date(neg.get("deadline_date"))
-        at_deadline = deadline is not None and today >= deadline
+        at_deadline_date = deadline is not None and today >= deadline
+        # In the preseason window the final window day is the hard deadline
+        # (rather than the calendar), so day 14 signs everyone to the best
+        # available offer regardless of the stored deadline date.
+        final_window_day = in_window and int(window_day) >= int(window_total)
+        at_deadline = at_deadline_date or final_window_day
 
         early = False
         if not at_deadline:
             leader = max(offers, key=_offer_value)
             fm = _fair_market_total(player)
-            early = (
-                fm > 0
-                and _offer_value(leader) >= EARLY_ACCEPT_MULTIPLE * fm
-                and _player_accepts(leader, player)
-            )
+            if _player_accepts(leader, player) and fm > 0:
+                if in_window:
+                    # Blow-away offers sign now; otherwise the player waits for
+                    # their own patience day before accepting a fair offer.
+                    blowaway = _offer_value(leader) >= WINDOW_BLOWAWAY_MULTIPLE * fm
+                    ripe = int(window_day) >= _patience_day(pid, int(window_total))
+                    early = blowaway or ripe
+                else:
+                    early = _offer_value(leader) >= EARLY_ACCEPT_MULTIPLE * fm
 
         if at_deadline or early:
             result = _resolve(
@@ -454,3 +493,57 @@ def process_negotiations(
     if changed:
         save_negotiations(payload, data_dir=data_dir)
     return summary
+
+
+def seed_cpu_negotiations(
+    sim_date: str,
+    free_agents: List[Any],
+    teams: Any,
+    *,
+    ai_level: str = "basic",
+    top_n: int = 60,
+    data_dir: Path | str | None = None,
+) -> int:
+    """Open CPU-initiated negotiations so the market is alive from day 1.
+
+    CPU teams never *start* a negotiation on their own during the daily hook —
+    they only counter inside a window a human opened. For the preseason bidding
+    window we seed one here: for the top ``top_n`` free agents by fair-market
+    value, any CPU team whose strategy + roster needs make it a real bidder posts
+    an opening offer (via the existing bid-book). Players no CPU team wants get no
+    negotiation and fall through to the post-window "list unsigned players" sweep,
+    which is exactly the "top-tier + fill needs, not everyone" behavior we want.
+
+    Returns the number of players that received at least one CPU opening offer.
+    Idempotent: re-running won't lower a standing offer or duplicate a window.
+    """
+
+    if not free_agents or not teams:
+        return 0
+    ranked = sorted(free_agents, key=_fair_market_total, reverse=True)[: max(0, top_n)]
+    payload = load_negotiations(data_dir=data_dir)
+    negs = payload["negotiations"]
+    seeded = 0
+    changed = False
+    for player in ranked:
+        pid = str(getattr(player, "player_id", "") or "").strip()
+        if not pid:
+            continue
+        neg = negs.get(pid)
+        existed = isinstance(neg, dict) and neg.get("status") == "open"
+        if not existed:
+            neg = _new_negotiation(pid, sim_date)
+        added = _cpu_bid_round(neg, pid, player, teams, ai_level, sim_date)
+        # Only persist a *new* negotiation if a CPU team actually bid; otherwise
+        # we'd leave an empty open window that never resolves.
+        if existed:
+            if added:
+                seeded += 1
+                changed = True
+        elif neg.get("offers"):
+            negs[pid] = neg
+            seeded += 1
+            changed = True
+    if changed:
+        save_negotiations(payload, data_dir=data_dir)
+    return seeded

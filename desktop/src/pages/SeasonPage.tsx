@@ -22,6 +22,7 @@ import {
   Banknote,
   Bell,
   Calendar,
+  CalendarClock,
   CalendarDays,
   CalendarRange,
   Dumbbell,
@@ -40,6 +41,7 @@ import { useAuthStore } from "@/lib/auth-store";
 
 import {
   api,
+  type FaWindowStatus,
   type NotificationEvent,
   type SeasonPhase,
   type SeasonState,
@@ -731,6 +733,7 @@ function PreseasonActionsCard({ state }: { state: SeasonState }) {
   const queryClient = useQueryClient();
   const [leagueTrainingOpen, setLeagueTrainingOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const teamId = useAuthStore((s) => s.selectedTeamId ?? s.teamId ?? null);
 
   const freeAgencyDone = !!state.preseason_done?.free_agency;
   const trainingCampDone = !!state.preseason_done?.training_camp;
@@ -738,6 +741,38 @@ function PreseasonActionsCard({ state }: { state: SeasonState }) {
   const refreshSeasonState = () => {
     queryClient.invalidateQueries({ queryKey: ["season-state"] });
   };
+
+  // Preseason FA bidding window (finance leagues only). Opens lazily on the
+  // server the first time this is polled in the preseason.
+  const faWindow = useQuery({
+    queryKey: ["fa-window"],
+    queryFn: () => api.faWindowState(),
+  });
+  const win = faWindow.data;
+  const windowActive = !!win?.finance_enabled && !!win?.exists;
+  const windowOpen = windowActive && win?.status !== "closed";
+  const sweepLocked = !!win?.sweep_locked;
+
+  const advanceFaDay = useMutation({
+    mutationFn: () => api.faWindowAdvanceDay(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["fa-window"] });
+      refreshSeasonState();
+      const signed = data.result?.signed ?? [];
+      const msg = signed.length
+        ? `Day advanced — ${signed.length} signing${signed.length === 1 ? "" : "s"}: ${signed
+            .slice(0, 4)
+            .map((s) => s.player_name)
+            .join(", ")}${signed.length > 4 ? "…" : ""}.`
+        : "Day advanced — no signings.";
+      if (data.window?.status === "closed") {
+        toast.success("Free-agency window closed — you can now let CPU teams fill their rosters.");
+      } else {
+        toast.info(msg);
+      }
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
 
   const listUnsigned = useMutation({
     mutationFn: () => api.preseasonListUnsigned(true),
@@ -785,16 +820,27 @@ function PreseasonActionsCard({ state }: { state: SeasonState }) {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          {windowActive && (
+            <FaBiddingWindowPanel
+              win={win!}
+              teamId={teamId}
+              onAdvance={() => advanceFaDay.mutate()}
+              advancing={advanceFaDay.isPending}
+              canAdvance={windowOpen}
+            />
+          )}
           <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
             <Button
               variant="ghost"
               onClick={() => listUnsigned.mutate()}
-              disabled={listUnsigned.isPending || freeAgencyDone}
+              disabled={listUnsigned.isPending || freeAgencyDone || sweepLocked}
               className="justify-start"
               title={
-                freeAgencyDone
-                  ? "Free agency review already completed for this preseason"
-                  : "Run the CPU free-agency cycle and list remaining unsigned players"
+                sweepLocked
+                  ? `Locked until the free-agency bidding window closes (day ${win?.day} of ${win?.total_days})`
+                  : freeAgencyDone
+                    ? "Free agency review already completed for this preseason"
+                    : "Let CPU teams fill their rosters from the remaining free agents"
               }
             >
               {listUnsigned.isPending ? (
@@ -844,6 +890,127 @@ function PreseasonActionsCard({ state }: { state: SeasonState }) {
         onOpenChange={setLeagueTrainingOpen}
       />
     </>
+  );
+}
+
+function _faMoney(n: number): string {
+  if (!n) return "$0";
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
+  return `$${n}`;
+}
+
+function FaBiddingWindowPanel({
+  win,
+  teamId,
+  onAdvance,
+  advancing,
+  canAdvance,
+}: {
+  win: FaWindowStatus;
+  teamId: string | null;
+  onAdvance: () => void;
+  advancing: boolean;
+  canAdvance: boolean;
+}) {
+  const closed = win.status === "closed";
+  const latest = win.latest;
+  const signedToday = latest?.signed ?? [];
+  const leaders = latest?.leaders ?? [];
+  // Players you're bidding on but no longer leading — you need to counter.
+  const counter = teamId
+    ? leaders.filter(
+        (l) => l.teams_offering.includes(teamId) && l.leader_team !== teamId,
+      )
+    : [];
+  const leading = teamId
+    ? leaders.filter((l) => l.leader_team === teamId)
+    : [];
+
+  return (
+    <div className="rounded-xl border border-amber/40 bg-amber/5 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-amber">
+            Free Agency Bidding
+          </span>
+          <Badge tone={closed ? "neutral" : "amber"}>
+            {closed ? "Closed" : `Day ${win.day} of ${win.total_days}`}
+          </Badge>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/free-agency"
+            className="rounded-md border border-border px-2.5 py-1 text-xs text-muted hover:text-fg"
+          >
+            Bid / counter →
+          </Link>
+          {!closed && (
+            <Button size="sm" onClick={onAdvance} disabled={advancing || !canAdvance}>
+              {advancing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <CalendarClock className="h-3.5 w-3.5" />
+              )}
+              Advance FA day
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {latest?.message && (
+        <p className="mt-2 text-xs text-muted">{latest.message}</p>
+      )}
+
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+            {closed ? "Final signings" : `Signed on day ${latest?.day ?? win.day}`}
+          </div>
+          {signedToday.length === 0 ? (
+            <p className="text-xs text-muted">— none —</p>
+          ) : (
+            <ul className="mt-1 space-y-0.5 text-xs">
+              {signedToday.slice(0, 8).map((s) => (
+                <li key={s.player_id}>
+                  <span className="font-medium">{s.player_name}</span> →{" "}
+                  {s.team_id} ({_faMoney(s.annual_salary)}/yr × {s.years})
+                </li>
+              ))}
+              {signedToday.length > 8 && (
+                <li className="text-muted">+{signedToday.length - 8} more…</li>
+              )}
+            </ul>
+          )}
+        </div>
+        {!closed && (
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+              You need to counter
+            </div>
+            {counter.length === 0 ? (
+              <p className="text-xs text-muted">
+                {leading.length
+                  ? `Leading ${leading.length} bid${leading.length === 1 ? "" : "s"}.`
+                  : "No active bids being outbid."}
+              </p>
+            ) : (
+              <ul className="mt-1 space-y-0.5 text-xs">
+                {counter.slice(0, 8).map((l) => (
+                  <li key={l.player_id}>
+                    <span className="font-medium">{l.player_name}</span> — leader{" "}
+                    {l.leader_team} at {_faMoney(l.leader_salary)}/yr
+                  </li>
+                ))}
+                {counter.length > 8 && (
+                  <li className="text-muted">+{counter.length - 8} more…</li>
+                )}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

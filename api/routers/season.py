@@ -1260,6 +1260,18 @@ def advance_phase(
                     ),
                 )
 
+    # Leaving PRESEASON: if the owner never played out the FA bidding window,
+    # don't strand open negotiations into April — force it closed so every
+    # remaining free agent takes their best standing offer first.
+    if manager.phase == SeasonPhase.PRESEASON:
+        try:
+            from services.fa_window import close_window, is_open
+
+            if is_open():
+                close_window()
+        except Exception:  # pragma: no cover - defensive
+            pass
+
     # Build + verify the playoff bracket BEFORE flipping into PLAYOFFS. The
     # old order flipped the phase first and built the bracket after in a
     # swallow-all try/except — so a failed build stranded the league in
@@ -1529,6 +1541,31 @@ def preseason_list_unsigned(
     can be played without it.
     """
 
+    # Finance leagues run a preseason FA bidding window; the CPU roster-filling
+    # sweep is a POST-window cleanup, so it's locked until the window has closed
+    # (finance-off leagues have no window and are never locked).
+    try:
+        from services.fa_window import unsigned_sweep_locked, window_status
+
+        if unsigned_sweep_locked():
+            st = window_status()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "fa_window_open",
+                    "message": (
+                        "The free-agency bidding window is still open — advance it "
+                        f"to the end (day {st.get('day')} of {st.get('total_days')}) "
+                        "before letting CPU teams fill their rosters."
+                    ),
+                    "window": st,
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
     run_cpu = bool(payload.get("run_cpu", True))
     cpu_running = False
     if run_cpu:
@@ -1565,6 +1602,74 @@ def preseason_list_unsigned(
         "cpu_applied": False,
         "cpu_running": cpu_running,
     }
+
+
+def _maybe_open_fa_window() -> None:
+    """Open the preseason FA bidding window on demand (idempotent).
+
+    Only opens while the league is in PRESEASON with the finance model on; the
+    window service itself no-ops for finance-off leagues and won't reopen a
+    window that already exists for this preseason.
+    """
+    try:
+        from services.fa_window import finance_fa_enabled, open_window
+        from utils.sim_date import get_current_sim_date
+
+        if not finance_fa_enabled():
+            return
+        if SeasonManager().phase != SeasonPhase.PRESEASON:
+            return
+        open_window(get_current_sim_date() or "")
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
+@router.get("/fa-window")
+def fa_window_state() -> Dict[str, Any]:
+    """Preseason FA bidding-window status for the Season page panel.
+
+    Lazily opens the window the first time it's polled in preseason (finance on),
+    so entering the phase and loading the page is enough to kick off day 1.
+    """
+    from services.fa_window import window_status
+
+    _maybe_open_fa_window()
+    return window_status()
+
+
+@router.post("/fa-window/advance-day")
+def fa_window_advance_day(
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Advance the FA bidding window one day (commissioner / solo player only)."""
+    from utils.league_settings import can_run_season_progression
+
+    from services.fa_window import advance_day, window_status
+
+    role = str(identity.get("r", "")).lower()
+    if not can_run_season_progression(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Advancing the free-agency window is restricted to the "
+                "commissioner in owner leagues."
+            ),
+        )
+
+    _maybe_open_fa_window()
+    result = advance_day()
+    if not result.get("ok") and result.get("reason") == "no_window":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "no_fa_window",
+                "message": (
+                    "There's no open free-agency window to advance — it opens "
+                    "automatically in the preseason when the finance model is on."
+                ),
+            },
+        )
+    return {"result": result, "window": window_status()}
 
 
 @router.post("/preseason/training-camp")

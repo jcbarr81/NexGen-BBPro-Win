@@ -991,6 +991,45 @@ export interface FaNegotiationSummary {
   resolution: FaNegotiationResolution | null;
 }
 
+export interface FaWindowSigned {
+  player_id: string;
+  player_name: string;
+  team_id: string;
+  annual_salary: number;
+  years: number;
+}
+
+export interface FaWindowLeader {
+  player_id: string;
+  player_name: string;
+  leader_team: string;
+  leader_is_cpu: boolean;
+  leader_salary: number;
+  leader_years: number;
+  teams_offering: string[];
+}
+
+export interface FaWindowLog {
+  day: number;
+  date: string;
+  signed: FaWindowSigned[];
+  leaders?: FaWindowLeader[];
+  cpu_seeded?: number;
+  message?: string;
+}
+
+export interface FaWindowStatus {
+  finance_enabled: boolean;
+  exists: boolean;
+  status?: string | null;
+  day?: number | null;
+  total_days: number;
+  start_date?: string | null;
+  deadline_date?: string | null;
+  latest?: FaWindowLog | null;
+  sweep_locked: boolean;
+}
+
 export interface SubmitFaOfferResponse {
   player_id: string;
   negotiation: {
@@ -2315,6 +2354,12 @@ export const api = {
       method: "POST",
       body: { run_cpu },
     }),
+  faWindowState: () => apiRequest<FaWindowStatus>("/season/fa-window"),
+  faWindowAdvanceDay: () =>
+    apiRequest<{ result: { ok: boolean; signed?: FaWindowSigned[] }; window: FaWindowStatus }>(
+      "/season/fa-window/advance-day",
+      { method: "POST" },
+    ),
   preseasonTrainingCamp: () =>
     apiRequest<{
       players_processed: number;
