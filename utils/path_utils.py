@@ -411,16 +411,23 @@ def get_data_dir() -> Path:
     data_root = get_data_root()
     active_data = get_active_league_data_dir(data_root=data_root, create=True)
     if active_data is not None:
+        # Seeding is best-effort. A failure here must NOT drop back to the data
+        # root: that pins every read/write for this league to the wrong dir
+        # (the league reads as empty, and saves can clobber it), which is how a
+        # league's contracts/finance could revert to empty defaults. The league
+        # dir already exists (create=True), so use it regardless of seed errors.
         try:
             base_data = get_base_dir() / "data"
             _seed_data_dir(base_data, active_data)
             _clear_readonly_tree(active_data)
-            _DATA_DIR_CACHE[cache_key] = active_data
-            return active_data
         except OSError:
             pass
+        _DATA_DIR_CACHE[cache_key] = active_data
+        return active_data
 
-    _DATA_DIR_CACHE[cache_key] = data_root
+    # No active league resolvable (e.g. before the first pull). Return the root
+    # WITHOUT caching, so we re-resolve to the real league dir as soon as it's
+    # available rather than pinning this cache_key to the root.
     return data_root
 
 

@@ -355,17 +355,23 @@ def push_changes(league_id: Optional[str] = None) -> int:
             deleted.append(remote / Path(rel))
         removed = _parallel_delete(deleted)
 
+        # Advance the cutoff to the time captured BEFORE the scan (t0), never to
+        # "now" after the copy. A file written concurrently DURING this push
+        # (mtime between t0 and now) may be missed by the scan; using t0 as the
+        # next cutoff guarantees the next push re-evaluates it (mtime > t0)
+        # instead of hiding it below a "now" cutoff forever. Worst case a file is
+        # copied twice — harmless. This is what silently dropped background-sim
+        # writes (e.g. the playoff bracket).
         if scope_league_ids is None:
             _known = current
-            _last_sync = time.time()
+            _last_sync = t0
             # A full push refreshed every segment.
             _scope_sync.clear()
         else:
             _known = (_known - known_in_scope) | current
-            now = time.time()
-            _scope_sync[""] = now
+            _scope_sync[""] = t0
             for lid in scope_league_ids:
-                _scope_sync[lid] = now
+                _scope_sync[lid] = t0
         if pushed or removed:
             scope_note = "" if scope_league_ids is None else f" (scope={league_id})"
             _emit(
