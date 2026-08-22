@@ -249,4 +249,21 @@ def league_standings() -> Dict[str, Any]:
 
     # Divisions themselves sorted alphabetically for stable order.
     out_divisions.sort(key=lambda d: d["division"])
-    return {"divisions": out_divisions, "playoff_teams_per_league": num_playoff}
+
+    # Attach each division's league (AL/NL split) so the UI can group leagues
+    # into separate columns, plus the ordered, distinct league list. Alphabetical
+    # league order gives a stable left→right layout (e.g. American before
+    # National). ``league`` is None for single-pool leagues.
+    leagues_ordered: List[str] = []
+    for d in out_divisions:
+        league = str(div_to_league.get(d["division"], "") or "")
+        d["league"] = league or None
+        if league and league not in leagues_ordered:
+            leagues_ordered.append(league)
+    leagues_ordered.sort()
+
+    return {
+        "divisions": out_divisions,
+        "playoff_teams_per_league": num_playoff,
+        "leagues": leagues_ordered,
+    }

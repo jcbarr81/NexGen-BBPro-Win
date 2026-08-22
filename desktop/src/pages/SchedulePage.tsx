@@ -711,12 +711,16 @@ function ScheduleCard({
   teamId,
   teamById,
 }: ScheduleCardProps) {
-  // A full-season league scope can be thousands of games — virtualize the
-  // list so only the visible window of rows mounts.
+  // A full-season LEAGUE scope can be thousands of games — virtualize those so
+  // only the visible window mounts. A team schedule is at most ~162 games, so
+  // render it directly: virtualizing a short list added an initial-measurement
+  // race where the window could compute empty and the body showed no rows.
+  const virtualize = games.length > 400;
   const rowVirtual = useVirtualRows({
-    count: games.length,
+    count: virtualize ? games.length : 0,
     estimateRowHeight: 53,
   });
+  const noop = () => {};
 
   return (
     <Card>
@@ -734,35 +738,50 @@ function ScheduleCard({
           <div className="px-6 py-6 text-sm text-muted">{empty}</div>
         ) : (
           <div
-            ref={rowVirtual.scrollRef}
+            ref={virtualize ? rowVirtual.scrollRef : undefined}
             className="max-h-[70vh] overflow-y-auto"
           >
             <ul className="divide-y divide-border/60">
-              {rowVirtual.paddingTop > 0 && (
-                <li
-                  aria-hidden="true"
-                  style={{ height: rowVirtual.paddingTop }}
-                />
-              )}
-              {rowVirtual.items.map((vi) => {
-                const game = games[vi.index];
-                if (!game) return null;
-                return (
+              {virtualize ? (
+                <>
+                  {rowVirtual.paddingTop > 0 && (
+                    <li
+                      aria-hidden="true"
+                      style={{ height: rowVirtual.paddingTop }}
+                    />
+                  )}
+                  {rowVirtual.items.map((vi) => {
+                    const game = games[vi.index];
+                    if (!game) return null;
+                    return (
+                      <GameRow
+                        key={`${game.date}-${game.home}-${game.away}-${vi.index}`}
+                        index={vi.index}
+                        measureRef={rowVirtual.measureRow}
+                        game={game}
+                        teamId={teamId}
+                        teamById={teamById}
+                      />
+                    );
+                  })}
+                  {rowVirtual.paddingBottom > 0 && (
+                    <li
+                      aria-hidden="true"
+                      style={{ height: rowVirtual.paddingBottom }}
+                    />
+                  )}
+                </>
+              ) : (
+                games.map((game, index) => (
                   <GameRow
-                    key={`${game.date}-${game.home}-${game.away}-${vi.index}`}
-                    index={vi.index}
-                    measureRef={rowVirtual.measureRow}
+                    key={`${game.date}-${game.home}-${game.away}-${index}`}
+                    index={index}
+                    measureRef={noop}
                     game={game}
                     teamId={teamId}
                     teamById={teamById}
                   />
-                );
-              })}
-              {rowVirtual.paddingBottom > 0 && (
-                <li
-                  aria-hidden="true"
-                  style={{ height: rowVirtual.paddingBottom }}
-                />
+                ))
               )}
             </ul>
           </div>

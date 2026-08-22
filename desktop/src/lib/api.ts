@@ -619,10 +619,14 @@ export interface LeagueStandingsRow {
 export interface LeagueStandingsDivision {
   division: string;
   teams: LeagueStandingsRow[];
+  league?: string | null;
 }
 
 export interface LeagueStandings {
   divisions: LeagueStandingsDivision[];
+  // Ordered, distinct leagues (AL/NL split). Empty/absent for a single pool.
+  leagues?: string[];
+  playoff_teams_per_league?: number;
 }
 
 export interface ScheduleGame {

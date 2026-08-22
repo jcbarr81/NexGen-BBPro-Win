@@ -86,6 +86,28 @@ export function StandingsPage() {
             No standings data available yet.
           </CardContent>
         </Card>
+      ) : (standings.data.leagues?.length ?? 0) >= 2 ? (
+        // AL/NL split: one column per league, in order (e.g. American League
+        // left, National League right), each league's divisions stacked.
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          {standings.data.leagues!.map((league) => (
+            <div key={league} className="space-y-4">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-muted">
+                {league}
+              </h2>
+              {standings.data!.divisions
+                .filter((d) => d.league === league)
+                .map((division) => (
+                  <DivisionCard
+                    key={division.division}
+                    division={division.division}
+                    teams={division.teams}
+                    activeTeamId={activeTeamId}
+                  />
+                ))}
+            </div>
+          ))}
+        </div>
       ) : (
         <ReorderableCards
           pageKey="standings"
