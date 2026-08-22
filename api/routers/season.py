@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 
 from playbalance.game_runner import simulate_game_scores
 from playbalance.season_manager import SeasonManager, SeasonPhase
@@ -583,6 +583,82 @@ def _team_roster_compliance_errors(team_id: str | None) -> List[str]:
         level_caps={**DEFAULT_LEVEL_CAPS, "act": active_roster_cap()},
     )
     return [f"{team_id}: {msg}" for msg in result.errors]
+
+
+def _team_lineup_issues(team_id: str) -> List[str]:
+    """Human-readable issues if a team's vs-LHP/vs-RHP lineups aren't set/legal."""
+    try:
+        from api.routers.validation import load_players_map
+        from services.roster_validation import validate_lineup
+        from utils.lineup_loader import load_lineup
+
+        players = load_players_map()
+    except Exception:
+        return []
+    issues: List[str] = []
+    for vs in ("lhp", "rhp"):
+        try:
+            rows = load_lineup(team_id, vs=vs)
+        except Exception:
+            rows = []
+        if not rows:
+            issues.append(f"{team_id}: no vs-{vs.upper()} lineup set")
+            continue
+        try:
+            res = validate_lineup(
+                lineup_rows=[{"player_id": pid, "position": pos} for pid, pos in rows],
+                players=players,
+                vs=vs,
+            )
+        except Exception:
+            continue
+        if not res.ok:
+            first = res.errors[0] if res.errors else "invalid"
+            issues.append(f"{team_id}: vs-{vs.upper()} lineup invalid — {first}")
+    return issues
+
+
+def _team_solvency_issues(team_id: str) -> List[str]:
+    """Opening-Day solvency issue (finance leagues); empty when off/solvent."""
+    try:
+        from services.payroll_policy import evaluate_opening_day_payroll
+
+        res = evaluate_opening_day_payroll(team_id, data_dir=get_data_dir())
+        if res is not None and not getattr(res, "allowed", True):
+            return [f"{team_id}: not solvent for Opening Day (projected debt over the cap)"]
+    except Exception:
+        pass
+    return []
+
+
+def _human_team_ids() -> List[str]:
+    """Team ids bound to a human owner (users.txt), sorted."""
+    try:
+        from services.finance_ai import _human_owned_team_ids
+
+        return sorted(_human_owned_team_ids(get_data_dir()))
+    except Exception:
+        return []
+
+
+def _league_readiness(*, include_lineups: bool = True) -> Dict[str, Any]:
+    """Per-human-team readiness for advancing the season: legal roster, lineups
+    set/legal, and Opening-Day solvency. Multi-owner is commissioner-driven, so
+    the commissioner can see (and unblock) every owner's team, not just their
+    own."""
+    teams: List[Dict[str, Any]] = []
+    for tid in _human_team_ids():
+        issues = list(_team_roster_compliance_errors(tid))
+        if include_lineups:
+            issues += _team_lineup_issues(tid)
+        issues += _team_solvency_issues(tid)
+        teams.append({"team_id": tid, "ready": not issues, "issues": issues})
+    return {
+        "teams": teams,
+        "all_ready": all(t["ready"] for t in teams),
+        "human_team_count": len(teams),
+        "unready": [t["team_id"] for t in teams if not t["ready"]],
+    }
 
 
 def _simulate_n(
@@ -1261,6 +1337,32 @@ def advance_phase(
                 ),
             )
 
+    # Multi-owner readiness gate: in a league with multiple human owners, don't
+    # start the Regular Season while any human team has an illegal roster, an
+    # unset/invalid lineup, or is insolvent. The commissioner sees exactly who's
+    # holding up the league and can CPU-fill them to unblock. Solo / single-human
+    # leagues fall through to the caller-only solvency check below (unchanged).
+    if (
+        manager.phase == SeasonPhase.PRESEASON
+        and not force
+        and len(_human_team_ids()) >= 2
+    ):
+        readiness = _league_readiness()
+        if not readiness["all_ready"]:
+            n = len(readiness["unready"])
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "teams_not_ready",
+                    "message": (
+                        f"{n} team{'s' if n != 1 else ''} aren't ready for Opening "
+                        "Day. Owners can fix their roster/lineups, or use "
+                        "'CPU handle it' per team, before advancing."
+                    ),
+                    "readiness": readiness,
+                },
+            )
+
     # only blocks an Opening Day that would begin insolvent (projected debt over
     # the league cap). Enforcement-off leagues always pass.
     if manager.phase == SeasonPhase.PRESEASON and not force:
@@ -1702,6 +1804,97 @@ def fa_window_advance_day(
             },
         )
     return {"result": result, "window": window_status()}
+
+
+@router.get("/readiness")
+def season_readiness() -> Dict[str, Any]:
+    """Per-human-team readiness for advancing the season (legal roster, lineups
+    set/legal, Opening-Day solvency). The commissioner uses this to see who's
+    holding up the league before advancing."""
+    return _league_readiness()
+
+
+@router.post("/readiness/cpu-fill")
+def season_readiness_cpu_fill(
+    team_id: str = Query(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Commissioner: have the CPU make one team ready (auto-assign roster +
+    auto-fill both lineups) so an inactive owner doesn't stall the league."""
+    _require_season_progression(identity)
+    tid = str(team_id or "").strip()
+    if not tid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="team_id is required."
+        )
+    from services.roster_auto_assign import auto_assign_team
+    from utils.lineup_autofill import auto_fill_lineup_for_team
+
+    try:
+        auto_assign_team(tid)
+    except Exception as exc:  # pragma: no cover - defensive
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Auto-assign failed for {tid}: {exc}",
+        ) from exc
+    for vs in ("lhp", "rhp"):
+        try:
+            auto_fill_lineup_for_team(tid, vs=vs)
+        except Exception:  # pragma: no cover - defensive
+            pass
+    issues = (
+        list(_team_roster_compliance_errors(tid))
+        + _team_lineup_issues(tid)
+        + _team_solvency_issues(tid)
+    )
+    return {
+        "team_id": tid,
+        "ready": not issues,
+        "issues": issues,
+        "readiness": _league_readiness(),
+    }
+
+
+def _deadline_path():
+    return get_data_dir() / "season_deadline.json"
+
+
+def _read_season_deadline() -> Optional[str]:
+    import json as _json
+
+    path = _deadline_path()
+    if not path.exists():
+        return None
+    try:
+        payload = _json.loads(path.read_text(encoding="utf-8"))
+        val = str(payload.get("deadline") or "").strip()
+        return val or None
+    except Exception:
+        return None
+
+
+@router.get("/deadline")
+def get_season_deadline() -> Dict[str, Any]:
+    """The commissioner's current action deadline (informational — nothing
+    auto-fires; the commissioner advances manually)."""
+    return {"deadline": _read_season_deadline()}
+
+
+@router.post("/deadline")
+def set_season_deadline(
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Commissioner sets/clears the owner action deadline (a free-form string —
+    ISO datetime or a label). Surfaced to owners; does NOT auto-advance."""
+    _require_season_progression(identity)
+    import json as _json
+
+    deadline = str(payload.get("deadline") or "").strip() or None
+    path = _deadline_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_json.dumps({"deadline": deadline}), encoding="utf-8")
+    return {"deadline": deadline}
 
 
 @router.post("/preseason/training-camp")

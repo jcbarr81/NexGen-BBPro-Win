@@ -44,6 +44,7 @@ import {
   type FaWindowStatus,
   type NotificationEvent,
   type SeasonPhase,
+  type SeasonReadiness,
   type SeasonState,
 } from "@/lib/api";
 import { toast } from "@/lib/toast-store";
@@ -60,6 +61,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Input,
 } from "@/components/ui";
 
 interface RecentJump {
@@ -96,6 +98,19 @@ export function SeasonPage() {
     queryFn: () => api.seasonState(),
   });
 
+  // Multi-owner: season progression is commissioner-driven. Fetch the league
+  // readiness so the commissioner can see who's holding things up, and so we can
+  // hide the progression controls from non-commissioner owners.
+  const role = useAuthStore((s) => s.role);
+  const isCommish = role === "admin";
+  const readiness = useQuery({
+    queryKey: ["season-readiness"],
+    queryFn: () => api.seasonReadiness(),
+  });
+  const teamId = useAuthStore((s) => s.selectedTeamId ?? s.teamId ?? null);
+  const multiOwner = (readiness.data?.human_team_count ?? 0) >= 2;
+  const canProgress = isCommish || !multiOwner;
+
   function recordJump(label: string, result: SeasonState) {
     setRecent((prev) => {
       const entry: RecentJump = {
@@ -116,6 +131,18 @@ export function SeasonPage() {
   ) {
     return useMutation({
       mutationFn: fn,
+      onError: (err) => {
+        // Surface progression blocks (e.g. "teams not ready", commissioner-only)
+        // and refresh the readiness board so it reflects the reason.
+        const body = (err as { body?: { detail?: unknown } }).body;
+        const detail = body?.detail;
+        const msg =
+          detail && typeof detail === "object" && "message" in detail
+            ? String((detail as { message?: unknown }).message)
+            : (err as Error).message;
+        toast.error(msg);
+        queryClient.invalidateQueries({ queryKey: ["season-readiness"] });
+      },
       onSuccess: (result) => {
         recordJump(label, result);
         queryClient.setQueryData(["season-state"], result);
@@ -199,30 +226,37 @@ export function SeasonPage() {
           <FinanceTodoBanner />
           <PhaseHeader state={state.data} />
           <MetricsRow state={state.data} />
-          <ActionsCard
-            state={state.data}
-            disabled={
-              anyPending ||
-              state.data.days_total === 0 ||
-              !!state.data.draft_blocked ||
-              state.data.phase === "AMATEUR_DRAFT"
-            }
-            simBlocked={state.data.phase !== "REGULAR_SEASON"}
-            // Advance Phase mirrors the backend's advance gates: it's only
-            // enabled once the current phase is actually ready to move on
-            // (regular season finished, draft committed, champion crowned).
-            // PRESEASON/OFFSEASON have no gate and stay enabled.
-            advanceDisabled={
-              anyPending || !isPhaseReadyToAdvance(state.data)
-            }
-            activeLabel={activeLabel}
-            onSimDay={() => simDay.mutate()}
-            onSimWeek={() => simWeek.mutate()}
-            onSimMonth={() => simMonth.mutate()}
-            onSimToDraft={() => simToDraft.mutate()}
-            onSimToPlayoffs={() => simToPlayoffs.mutate()}
-            onAdvancePhase={() => advancePhase.mutate()}
-          />
+          {multiOwner && isCommish && (
+            <ReadinessBoard readiness={readiness.data} />
+          )}
+          {canProgress ? (
+            <ActionsCard
+              state={state.data}
+              disabled={
+                anyPending ||
+                state.data.days_total === 0 ||
+                !!state.data.draft_blocked ||
+                state.data.phase === "AMATEUR_DRAFT"
+              }
+              simBlocked={state.data.phase !== "REGULAR_SEASON"}
+              // Advance Phase mirrors the backend's advance gates: it's only
+              // enabled once the current phase is actually ready to move on
+              // (regular season finished, draft committed, champion crowned).
+              // PRESEASON/OFFSEASON have no gate and stay enabled.
+              advanceDisabled={
+                anyPending || !isPhaseReadyToAdvance(state.data)
+              }
+              activeLabel={activeLabel}
+              onSimDay={() => simDay.mutate()}
+              onSimWeek={() => simWeek.mutate()}
+              onSimMonth={() => simMonth.mutate()}
+              onSimToDraft={() => simToDraft.mutate()}
+              onSimToPlayoffs={() => simToPlayoffs.mutate()}
+              onAdvancePhase={() => advancePhase.mutate()}
+            />
+          ) : (
+            <OwnerWaitingCard teamId={teamId} readiness={readiness.data} />
+          )}
           {state.data.phase === "OFFSEASON" && <FreeAgencyWindowCard />}
           {state.data.phase === "PRESEASON" && (
             <PreseasonActionsCard state={state.data} />
@@ -1082,6 +1116,190 @@ function FaBiddingWindowPanel({
         )}
       </div>
     </div>
+  );
+}
+
+function _issueText(teamId: string, issue: string): string {
+  return issue.startsWith(`${teamId}: `) ? issue.slice(teamId.length + 2) : issue;
+}
+
+/** Commissioner view: every human team's readiness, a deadline setter, and a
+ *  per-team "CPU handle it" button so an inactive owner can't stall the league. */
+function ReadinessBoard({ readiness }: { readiness?: SeasonReadiness }) {
+  const queryClient = useQueryClient();
+  const deadlineQ = useQuery({
+    queryKey: ["season-deadline"],
+    queryFn: () => api.getSeasonDeadline(),
+  });
+  const [deadlineInput, setDeadlineInput] = useState("");
+
+  const cpuFill = useMutation({
+    mutationFn: (tid: string) => api.seasonReadinessCpuFill(tid),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["season-readiness"] });
+      queryClient.invalidateQueries({ queryKey: ["team-roster"] });
+      if (data.ready) {
+        toast.success(`${data.team_id} is ready now (CPU-filled).`);
+      } else {
+        toast.info(
+          `${data.team_id} still has issues: ${data.issues[0] ? _issueText(data.team_id, data.issues[0]) : "see readiness"}`,
+        );
+      }
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+  const setDeadline = useMutation({
+    mutationFn: (d: string | null) => api.setSeasonDeadline(d),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["season-deadline"] });
+      setDeadlineInput("");
+      toast.success("Owner deadline updated.");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+
+  if (!readiness) return null;
+  const teams = readiness.teams ?? [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Owner readiness</CardTitle>
+          <CardDescription>
+            {readiness.all_ready
+              ? "All owners are ready — you can advance the season."
+              : `${readiness.unready.length} team${readiness.unready.length === 1 ? "" : "s"} not ready — Opening Day is blocked until fixed.`}
+          </CardDescription>
+        </div>
+        <Badge tone={readiness.all_ready ? "success" : "danger"}>
+          {readiness.all_ready
+            ? "All ready"
+            : `${readiness.unready.length} blocking`}
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-muted">Owner deadline:</span>
+          <span className="font-semibold text-ink">
+            {deadlineQ.data?.deadline ?? "none set"}
+          </span>
+          <Input
+            className="h-8 w-52"
+            placeholder="e.g. Sun 8pm ET"
+            value={deadlineInput}
+            onChange={(e) => setDeadlineInput(e.target.value)}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={setDeadline.isPending}
+            onClick={() => setDeadline.mutate(deadlineInput.trim() || null)}
+          >
+            Set
+          </Button>
+          {deadlineQ.data?.deadline && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={setDeadline.isPending}
+              onClick={() => setDeadline.mutate(null)}
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          {teams.map((t) => (
+            <div
+              key={t.team_id}
+              className="flex items-start justify-between gap-3 rounded-lg border border-border bg-surfaceAlt/40 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  {t.team_id}
+                  <Badge tone={t.ready ? "success" : "danger"}>
+                    {t.ready ? "ready" : "not ready"}
+                  </Badge>
+                </div>
+                {!t.ready && (
+                  <ul className="mt-1 space-y-0.5 text-[11px] text-danger">
+                    {t.issues.slice(0, 5).map((iss, i) => (
+                      <li key={i}>• {_issueText(t.team_id, iss)}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              {!t.ready && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0"
+                  disabled={cpuFill.isPending}
+                  onClick={() => cpuFill.mutate(t.team_id)}
+                >
+                  CPU handle it
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Non-commissioner owner view: the season is commissioner-driven, so show the
+ *  deadline and this owner's own readiness instead of the progression controls. */
+function OwnerWaitingCard({
+  teamId,
+  readiness,
+}: {
+  teamId: string | null;
+  readiness?: SeasonReadiness;
+}) {
+  const deadlineQ = useQuery({
+    queryKey: ["season-deadline"],
+    queryFn: () => api.getSeasonDeadline(),
+  });
+  const mine = readiness?.teams.find((t) => t.team_id === teamId);
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>The commissioner runs the clock</CardTitle>
+          <CardDescription>
+            Only the commissioner advances the season. Make your roster, lineup,
+            and free-agent moves before the deadline.
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted">Deadline:</span>
+          <span className="font-semibold text-ink">
+            {deadlineQ.data?.deadline ?? "none set"}
+          </span>
+        </div>
+        {mine && (
+          <div className="rounded-lg border border-border bg-surfaceAlt/40 px-3 py-2">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              Your team ({mine.team_id})
+              <Badge tone={mine.ready ? "success" : "danger"}>
+                {mine.ready ? "ready" : "not ready"}
+              </Badge>
+            </div>
+            {!mine.ready && (
+              <ul className="mt-1 space-y-0.5 text-[11px] text-danger">
+                {mine.issues.slice(0, 5).map((iss, i) => (
+                  <li key={i}>• {_issueText(mine.team_id, iss)}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

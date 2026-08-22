@@ -1034,6 +1034,19 @@ export interface FaWindowStatus {
   sweep_locked: boolean;
 }
 
+export interface SeasonReadinessTeam {
+  team_id: string;
+  ready: boolean;
+  issues: string[];
+}
+
+export interface SeasonReadiness {
+  teams: SeasonReadinessTeam[];
+  all_ready: boolean;
+  human_team_count: number;
+  unready: string[];
+}
+
 export interface SubmitFaOfferResponse {
   player_id: string;
   negotiation: {
@@ -2369,6 +2382,24 @@ export const api = {
       "/season/fa-window/advance-day",
       { method: "POST" },
     ),
+  seasonReadiness: () => apiRequest<SeasonReadiness>("/season/readiness"),
+  seasonReadinessCpuFill: (teamId: string) =>
+    apiRequest<{
+      team_id: string;
+      ready: boolean;
+      issues: string[];
+      readiness: SeasonReadiness;
+    }>(
+      `/season/readiness/cpu-fill?team_id=${encodeURIComponent(teamId)}`,
+      { method: "POST" },
+    ),
+  getSeasonDeadline: () =>
+    apiRequest<{ deadline: string | null }>("/season/deadline"),
+  setSeasonDeadline: (deadline: string | null) =>
+    apiRequest<{ deadline: string | null }>("/season/deadline", {
+      method: "POST",
+      body: { deadline },
+    }),
   preseasonTrainingCamp: () =>
     apiRequest<{
       players_processed: number;

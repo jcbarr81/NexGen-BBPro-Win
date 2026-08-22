@@ -75,3 +75,33 @@ def test_accept_requires_receiving_owner(monkeypatch):
     # The receiving (to_team) owner can.
     out = trades.accept_trade("t1", identity={"r": "owner", "t": "BBB"})
     assert out["status"] == "accepted"
+
+
+# --- readiness aggregation ---
+
+def test_league_readiness_aggregates(monkeypatch):
+    monkeypatch.setattr(season, "_human_team_ids", lambda: ["AAA", "BBB"])
+    monkeypatch.setattr(
+        season, "_team_roster_compliance_errors",
+        lambda t: ["BBB: over the ACT cap"] if t == "BBB" else [],
+    )
+    monkeypatch.setattr(season, "_team_lineup_issues", lambda t: [])
+    monkeypatch.setattr(season, "_team_solvency_issues", lambda t: [])
+
+    r = season._league_readiness()
+    assert r["human_team_count"] == 2
+    assert r["all_ready"] is False
+    assert r["unready"] == ["BBB"]
+    aaa = next(t for t in r["teams"] if t["team_id"] == "AAA")
+    bbb = next(t for t in r["teams"] if t["team_id"] == "BBB")
+    assert aaa["ready"] is True and bbb["ready"] is False
+    assert bbb["issues"] == ["BBB: over the ACT cap"]
+
+
+def test_league_readiness_all_ready(monkeypatch):
+    monkeypatch.setattr(season, "_human_team_ids", lambda: ["AAA"])
+    monkeypatch.setattr(season, "_team_roster_compliance_errors", lambda t: [])
+    monkeypatch.setattr(season, "_team_lineup_issues", lambda t: [])
+    monkeypatch.setattr(season, "_team_solvency_issues", lambda t: [])
+    r = season._league_readiness()
+    assert r["all_ready"] is True and r["unready"] == []
