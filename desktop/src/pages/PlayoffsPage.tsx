@@ -421,15 +421,34 @@ function Bracket({
     );
   }
 
-  // Single-pool league: straightforward left-to-right progression.
+  // Single-pool league: a left-to-right bracket funnelling into the decisive
+  // final round (the last round, or an explicit championship), highlighted the
+  // same way the World Series is in the two-league layout.
+  const finalIdx = (() => {
+    const explicit = classified.findIndex(
+      (c) => c.stage === "WS" || c.stage === "CS",
+    );
+    return explicit >= 0 ? explicit : visibleRounds.length - 1;
+  })();
   return (
-    <div
-      className="grid gap-4 overflow-x-auto pb-4"
-      style={{ gridTemplateColumns: `repeat(${visibleRounds.length}, minmax(320px, 1fr))` }}
-    >
-      {visibleRounds.map((round) => (
-        <RoundColumn key={round.name} round={round} myTeamId={myTeamId} />
-      ))}
+    <div className="space-y-3">
+      <div className="flex items-center justify-between px-1 text-xs font-semibold uppercase tracking-[0.14em]">
+        <span className="text-muted">Playoffs</span>
+        <span className="text-amber">Champion →</span>
+      </div>
+      <div
+        className="grid items-start gap-4 overflow-x-auto pb-4"
+        style={{ gridTemplateColumns: `repeat(${visibleRounds.length}, minmax(300px, 1fr))` }}
+      >
+        {visibleRounds.map((round, i) => (
+          <RoundColumn
+            key={round.name}
+            round={round}
+            myTeamId={myTeamId}
+            isFinal={i === finalIdx}
+          />
+        ))}
+      </div>
     </div>
   );
 }
