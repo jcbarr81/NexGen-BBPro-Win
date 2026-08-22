@@ -401,30 +401,6 @@ TUTORIALS: List[Tutorial] = [
         ],
     ),
     Tutorial(
-        tutorial_id="change_request",
-        title="Submit Change Request",
-        summary="Owners bundle edits into a ZIP for commissioner approval.",
-        route="/submit-change-request",
-        steps=[
-            TutorialStep(
-                "Open the page",
-                "<p>Use <b>Transactions → Submit Request</b> after making any roster, lineup, pitching, or depth-chart changes you want reviewed.</p>",
-            ),
-            TutorialStep(
-                "Pick sections",
-                "<p>Check the sections to include in the bundle. Add an optional owner note explaining the change.</p>",
-            ),
-            TutorialStep(
-                "Export ZIP",
-                "<p>Click <b>Export request</b>. A ZIP containing the current snapshot of the selected files is written and made available for download. Send the ZIP to your commissioner.</p>",
-            ),
-            TutorialStep(
-                "Cancel before applied",
-                "<p>The page lists your previously exported requests. If you need to withdraw one before the commissioner applies it, click <b>Export cancel</b> and deliver that bundle instead.</p>",
-            ),
-        ],
-    ),
-    Tutorial(
         tutorial_id="league_hub",
         title="League Hub",
         summary="Standings, leaders, stats, teams, schedule, playoffs, history, ballparks.",
@@ -468,19 +444,19 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Action shortcuts",
-                "<p>Each card has links straight to the relevant admin page (commissioner, finance queue, change requests) so you can jump directly into the fix.</p>",
+                "<p>Each card has links straight to the relevant admin page (commissioner, finance queue) so you can jump directly into the fix.</p>",
             ),
         ],
     ),
     Tutorial(
         tutorial_id="admin_tools",
         title="Admin Tools Overview",
-        summary="Commissioner, finance queue, change requests, users, tuning, league admin, exhibition.",
+        summary="Commissioner, finance queue, users, tuning, league admin, exhibition.",
         route="/commissioner",
         steps=[
             TutorialStep(
                 "Quick-access grid",
-                "<p>The top of <b>Admin → Commissioner</b> has a 10-card quick-access grid linking to every major admin surface: Command Center, Finance Queue, Change Requests, Offseason Flow, Reassign Players, Finance Stability, Exhibition Game, League Admin, Physics Tuning, Users.</p>",
+                "<p>The top of <b>Admin → Commissioner</b> has a quick-access grid linking to every major admin surface: Command Center, Finance Queue, Offseason Flow, Reassign Players, Finance Stability, Exhibition Game, League Admin, Physics Tuning, Users.</p>",
             ),
             TutorialStep(
                 "Commissioner settings",
@@ -491,8 +467,8 @@ TUTORIALS: List[Tutorial] = [
                 "<p>The <b>Strategy &amp; auto-reassign</b> card on the Commissioner page sets the league-default strategy profile and auto-reassign behavior, plus per-team overrides in a scrollable table.</p>",
             ),
             TutorialStep(
-                "Finance queue & change requests",
-                "<p><b>Admin → Finance Queue</b> reviews pending GM decisions (contracts, arbitration) that need commissioner approval. Rows show the <b>player's name</b>, a plain-language decision (e.g. <i>Non-tender — release to free agency</i>), and the <b>salary movement</b>. <b>Apply approved</b> lists exactly which decisions will be committed before you confirm — the write is irreversible. <b>Admin → Change Requests</b> lists owner-submitted bundles with approve/reject/requeue.</p>",
+                "Finance queue",
+                "<p><b>Admin → Finance Queue</b> reviews pending GM decisions (contracts, arbitration) that need commissioner approval. Rows show the <b>player's name</b>, a plain-language decision (e.g. <i>Non-tender — release to free agency</i>), and the <b>salary movement</b>. <b>Apply approved</b> lists exactly which decisions will be committed before you confirm — the write is irreversible.</p>",
             ),
             TutorialStep(
                 "Offseason review tabs",

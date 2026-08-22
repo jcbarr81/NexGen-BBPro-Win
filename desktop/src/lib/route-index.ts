@@ -33,7 +33,6 @@ import {
   Gavel,
   GraduationCap,
   HeartPulse,
-  Inbox,
   Layers,
   LayoutDashboard,
   LineChart,
@@ -42,7 +41,6 @@ import {
   Medal,
   Newspaper,
   PlusSquare,
-  Send,
   Settings,
   Settings2,
   Shuffle,
@@ -153,7 +151,6 @@ export const ROUTE_INDEX: RouteMeta[] = [
   { path: "/free-agency", label: "Free Agency", description: "Sign unsigned players to your roster", Icon: Briefcase, hub: "transactions" },
   { path: "/trades", label: "Trades", description: "Propose, respond, withdraw", Icon: ArrowLeftRight, hub: "transactions" },
   { path: "/draft", label: "Draft", description: "Live board + history (admin tools)", Icon: GraduationCap, hub: "transactions", capability: "draft-phase" },
-  { path: "/submit-change-request", label: "Submit Request", description: "Bundle owner edits for approval", Icon: Send, hub: "transactions", capability: "multi-owner" },
   { path: "/transactions", label: "Activity", description: "Per-team transactions log", Icon: Activity, hub: "transactions" },
 
   // Admin
@@ -161,7 +158,6 @@ export const ROUTE_INDEX: RouteMeta[] = [
   { path: "/league-members", label: "Members", description: "Invites, join requests & team assignments", Icon: Users, hub: "admin", adminOnly: true },
   { path: "/command-center", label: "Command Center", description: "League-wide attention cards", Icon: Command, hub: "admin", adminOnly: true },
   { path: "/finance-queue", label: "Finance Queue", description: "Pending GM finance decisions", Icon: ListChecks, hub: "admin", adminOnly: true, capability: "finance" },
-  { path: "/change-requests", label: "Change Requests", description: "Owner-submitted bundles", Icon: Inbox, hub: "admin", adminOnly: true, capability: "multi-owner" },
   { path: "/exhibition", label: "Exhibition Game", description: "One-off what-if simulation", Icon: Swords, hub: "admin", adminOnly: true },
   { path: "/offseason", label: "Offseason Flow", description: "End-of-season finance rollover", Icon: Snowflake, hub: "admin", adminOnly: true },
   { path: "/reassign", label: "Reassign Players", description: "Bulk auto-assign league rosters", Icon: Shuffle, hub: "admin", adminOnly: true },

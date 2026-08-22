@@ -18,7 +18,7 @@ everyone; admin-only sections are marked.
 3. [Today](#today) — [Dashboard](#dashboard) · [Season](#season) · [News](#news)
 4. [My Team](#my-team) — [Roster](#roster) · [Lineup](#lineup) · [Depth Chart](#depth-chart) · [Training](#training) · [Injuries](#injuries) · [Notifications](#notifications) · [Finance](#finance) · [Contracts](#contracts) · [Settings](#team-settings)
 5. [League](#league) — Standings · Leaders · Stats · Players · Teams · Schedule · Playoffs · History · Hall of Fame · Records · Ballparks
-6. [Transactions](#transactions) — Free Agency · Trades · Draft · Submit Change Request · Activity
+6. [Transactions](#transactions) — Free Agency · Trades · Draft · Activity
 7. [Admin (Commissioner)](#admin-commissioner)
 8. [Platform admin (Super-admin)](#platform-admin-super-admin)
 9. [Logos & avatars](#logos--avatars)
@@ -116,15 +116,14 @@ The sidebar has a handful of top-level destinations plus a pinned
   Injuries, Notifications, Finance, Team Settings.
 - **League** *(hub)* — Standings, Leaders, Stats, Players, Teams, Schedule,
   Playoffs, History, Hall of Fame, Records, Ballparks.
-- **Transactions** *(hub)* — Free Agency, Trades, Draft, Submit Request,
-  Activity.
+- **Transactions** *(hub)* — Free Agency, Trades, Draft, Activity.
 - **Admin** *(hub, commissioner-only)* — Commissioner, Command Center, Finance
-  Queue, Change Requests, Members, Exhibition Game, Offseason Flow, Reassign
+  Queue, Members, Exhibition Game, Offseason Flow, Reassign
   Players, Finance Stability, League Admin, Physics Tuning, Utilities.
 - **Notifications** — top-level because it's how owners pause a sim.
 
 **Hubs** are card grids of every page in a category; capability-gated cards
-auto-hide (Finance pages need finance enabled, Submit Request needs multi-owner,
+auto-hide (Finance pages need finance enabled, some pages need multi-owner,
 etc.). **Breadcrumbs** in each header (e.g. `Home / My Team / Roster`) jump up a
 level. The **chevron** at the top of the sidebar collapses it to an icon strip;
 **section chevrons** collapse individual groups. Favorites and collapse states
@@ -250,7 +249,7 @@ the sim** when a flagged event occurs.
 - **Recent events tab** — the last ~100 notifications for your team.
 
 During a sim each day is run, then the engine checks news-based detectors
-(injuries, milestones, trades, change requests) and state-based detectors
+(injuries, milestones, trades) and state-based detectors
 (streaks, phase transitions, low cash). A stop-rule breaks the loop early and
 the Season page shows the reason.
 
@@ -351,8 +350,6 @@ All owner finance actions are **owner-or-commissioner only** (enforced server-si
   **Veto**, **Force approve**, or **Approve**.
 - **Draft** — **Now** (live state/order), **History** (completed picks), and an
   **Admin** tab (Initialize, Generate pool, Manual pick, Reset).
-- **Submit Change Request** — bundle your roster/lineup edits into a snapshot for
-  commissioner review (multi-owner leagues).
 - **Activity** — the full transactions ledger, filterable by team and type.
 
 ---
@@ -371,10 +368,9 @@ and are hidden from owners.
   [Accounts, leagues & membership](#accounts-leagues--membership)).
 - **Command Center** — league-wide attention dashboard (injuries, pending
   approvals, roster conflicts, deadlines, finance risks).
-- **Finance Queue / Change Requests** — review pending GM decisions with player
+- **Finance Queue** — review pending GM decisions with player
   names, plain-language actions, and salary movement; **Apply approved** shows
   a confirmation summary of exactly what will be committed (irreversible).
-  Change Requests lists owner-submitted bundles with approve/reject/requeue.
 - **Offseason Flow** — overview, checklist, **Run pipeline**, and a four-tab
   review (Contracts, Arbitration, Budgets, GM Queue).
 - **Reassign Players** — bulk auto-assign, league-wide or single team.

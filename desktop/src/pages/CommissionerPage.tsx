@@ -19,7 +19,6 @@ import {
   Eye,
   GraduationCap,
   HeartPulse,
-  Inbox,
   ListChecks,
   Loader2,
   RefreshCw,
@@ -930,12 +929,6 @@ function QuickAccessGrid() {
       label: "Finance Queue",
       description: "Pending GM decisions",
       Icon: ListChecks,
-    },
-    {
-      to: "/change-requests",
-      label: "Change Requests",
-      description: "Owner-submitted bundles",
-      Icon: Inbox,
     },
     {
       to: "/offseason",

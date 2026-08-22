@@ -1913,20 +1913,6 @@ export const api = {
     }),
   getExportJob: (jobId: string) =>
     apiRequest<ExportJobStatus>(`/exports/jobs/${encodeURIComponent(jobId)}`),
-  changeRequests: (statusFilter?: string) =>
-    apiRequest<{
-      count: number;
-      requests: Array<Record<string, unknown>>;
-    }>(`/change-requests${statusFilter ? `?status_filter=${encodeURIComponent(statusFilter)}` : ""}`),
-  updateChangeRequest: (payload: {
-    request_id: string;
-    status: string;
-    note?: string;
-  }) =>
-    apiRequest<{ request: Record<string, unknown> }>(
-      "/change-requests/status",
-      { method: "POST", body: payload },
-    ),
   hallOfFame: () =>
     apiRequest<{
       inductees: Array<Record<string, unknown>>;
@@ -2779,43 +2765,6 @@ export const api = {
       method: "POST",
       body: { season_metrics },
     }),
-  teamChangeRequests: (teamId: string) =>
-    apiRequest<{
-      team_id: string;
-      count: number;
-      requests: Array<Record<string, unknown>>;
-    }>(`/teams/${encodeURIComponent(teamId)}/change-requests`),
-  exportTeamChangeRequest: (
-    teamId: string,
-    payload: {
-      owner_name: string;
-      note: string;
-      sections: { roster: boolean; lineups: boolean; pitching: boolean; depth: boolean };
-    },
-  ) =>
-    apiRequest<{
-      request_id: string;
-      export_path: string;
-      filename: string;
-      summary: string;
-      file_count: number;
-    }>(`/teams/${encodeURIComponent(teamId)}/change-requests/export`, {
-      method: "POST",
-      body: payload,
-    }),
-  cancelTeamChangeRequest: (
-    teamId: string,
-    requestId: string,
-    ownerName: string,
-  ) =>
-    apiRequest<{ request_id: string; export_path: string; filename: string }>(
-      `/teams/${encodeURIComponent(teamId)}/change-requests/${encodeURIComponent(requestId)}/cancel`,
-      { method: "POST", body: { owner_name: ownerName } },
-    ),
-  changeRequestDownloadUrl: (teamId: string, filename: string) => {
-    const { apiBaseUrl } = getBridge();
-    return `${apiBaseUrl}/teams/${encodeURIComponent(teamId)}/change-requests/download/${encodeURIComponent(filename)}`;
-  },
   teamStats: (teamId: string) =>
     apiRequest<{
       team_id: string;

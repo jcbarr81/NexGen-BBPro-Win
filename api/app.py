@@ -101,8 +101,6 @@ from .routers import (
     auth,
     awards,
     boxscore,
-    change_request_export,
-    change_requests,
     command_center,
     commissioner,
     contracts,
@@ -327,8 +325,6 @@ def create_app() -> FastAPI:
     app.include_router(commissioner.router)
     app.include_router(command_center.router)
     app.include_router(finance_queue.router)
-    app.include_router(change_requests.router)
-    app.include_router(change_request_export.router)
     app.include_router(hof.router)
     app.include_router(exports.router)
     app.include_router(ai_settings.router)

@@ -67,7 +67,7 @@ P2 - ADMIN + LONGER-TERM
 - [ ] Career arc views and year-over-year comparisons for players/teams
 - [x] Export reports to CSV/PDF for league history and analytics
 - [x] Rule presets, schedule templates, and quick-start league setups
-- [x] Online league tooling: change requests, approval queues, sync/audit log
+- [x] Online league tooling: live shared-data editing, approval queues, sync/audit log
 - [x] Multi-league management: league switcher + per-league settings isolation
 - [ ] Optional shared player pools across leagues
 

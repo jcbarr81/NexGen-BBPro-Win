@@ -3,7 +3,7 @@
  *
  * The sidebar (and a handful of pages) use these flags to hide navigation
  * that doesn't make sense for the current league — e.g. a single-player
- * league has no owner change-request flow, and a league with financial
+ * league hides multi-owner coordination pages, and a league with financial
  * simulation disabled doesn't need the Finance Queue or Stability pages.
  *
  * Sources:

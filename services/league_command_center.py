@@ -10,7 +10,6 @@ import csv
 import json
 
 from playbalance.season_manager import SeasonManager
-from services.change_requests import list_requests
 from services.finance_reporting import (
     build_commissioner_projection_report,
     build_finance_alerts,
@@ -238,18 +237,13 @@ def _build_pending_approvals_card(data_dir: Path, *, max_items: int) -> CommandC
     )
 
     try:
-        requests_pending = len(list_requests(status="pending", path=data_dir / "change_requests.json"))
-    except Exception:
-        requests_pending = 0
-
-    try:
         queue = summarize_queue_decisions(data_dir=data_dir)
     except Exception:
         queue = {}
     gm_pending = int(queue.get("pending", 0) or 0)
     gm_unapplied = int(queue.get("approved_unapplied", 0) or 0)
 
-    total = pending_trades + requests_pending + gm_pending + gm_unapplied
+    total = pending_trades + gm_pending + gm_unapplied
     severity = "critical" if total >= 8 else ("warning" if total > 0 else "info")
     summary = (
         f"{total} approval item(s) pending commissioner action."
@@ -258,7 +252,6 @@ def _build_pending_approvals_card(data_dir: Path, *, max_items: int) -> CommandC
     )
     items = [
         {"label": "Pending/Owner-Accepted Trades", "count": pending_trades},
-        {"label": "Owner Change Requests", "count": requests_pending},
         {"label": "GM Finance Queue Pending", "count": gm_pending},
         {"label": "GM Queue Approved Not Applied", "count": gm_unapplied},
     ][:max_items]
@@ -269,7 +262,7 @@ def _build_pending_approvals_card(data_dir: Path, *, max_items: int) -> CommandC
         summary=summary,
         count=total,
         items=items,
-        actions=["Review Pending Trades", "Review Change Requests", "Review GM Finance Queue"],
+        actions=["Review Pending Trades", "Review GM Finance Queue"],
     )
 
 

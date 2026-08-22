@@ -42,7 +42,7 @@ Team owners manage their franchise through the Owner Dashboard.
 - **Position Players / Pitchers**: open detailed windows to inspect players by role.
 - **Lineups**: launch the lineup editor to set batting orders.
 - **Pitching Staff**: manage pitching roles and rotations.
-- **Submit Change Request**: export roster/lineup/pitching/depth chart updates for commissioner approval.
+  - Roster, lineup, pitching, and depth-chart edits apply directly to the shared league data — there is no export/approval step.
 - **Finance page**: now split into **Owner Ops** (cash/debt, projections, budgets, ledger history) and **GM/Coach Ops** (module status, payroll/contracts, arbitration/free-agency queues, and quick actions).
   - Owner Ops now includes editable budget fields for training, scouting, development, and facilities when the Owner Budgets module is enabled.
   - Owner Ops now includes a **Scouting Controls** card where owners can set scouting intensity (Low/Normal/High) and review current scouting confidence, estimated error band, and monthly scouting-credit pace.
@@ -68,7 +68,6 @@ Team owners manage their franchise through the Owner Dashboard.
 - **News Feed**: display the latest league news.
 
 ### Tutorials
-- Open the **Tutorials** menu and run **Owner Change Requests** for a step-by-step walkthrough of exporting updates and sending the ZIP bundle to the commissioner.
 - Run **Trades & Transactions** to review current trade flow behavior, including draft-pick trades and commissioner-approval mode.
 - Run **Finance Hub Overview** to walk through the new Owner Ops + GM/Coach Ops finance hub and the related queue/actions workflow.
 - Run **League Command Center** to review league-wide operational alerts and suggested next actions.
@@ -85,7 +84,6 @@ Team owners manage their franchise through the Owner Dashboard.
 
 ### Owner Tools Menu
 - Use the top-bar **Owner Tools** menu for direct access to core workflows:
-  - **Submit Change Request** (commissioner approval export)
   - **Lineup Editor**
   - **Pitching Staff**
   - **Reassign Players**
@@ -245,10 +243,9 @@ existing visual style and theme.
 ### Admin
 - New Home page with overview metrics: Pending Trades, Teams, Players,
   Season Phase; plus Draft Day and status. Priority Queues: Review Trades,
-  Review Change Requests, Open Season Hub, Open Draft Hub.
+  Open Season Hub, Open Draft Hub.
 - Transactions page grouped into:
   - Trade Queue: Review Pending Trades, Open Trade Settings.
-  - Owner Change Queue: Review Change Requests.
 - Season page grouped into:
   - Season Flow: Open Season Progress, Run Exhibition Game, Open Playoffs Viewer.
     - Season Progress: supports milestone actions - Simulate to Midseason,

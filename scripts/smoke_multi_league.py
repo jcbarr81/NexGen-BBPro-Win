@@ -131,7 +131,6 @@ def run_smoke(data_root: Path) -> Dict[str, Any]:
     team_loader = _reload_module("utils.team_loader")
     player_loader = _reload_module("utils.player_loader")
     user_manager = _reload_module("utils.user_manager")
-    change_requests = _reload_module("services.change_requests")
     trade_utils = _reload_module("utils.trade_utils")
     trade_model = _reload_module("models.trade")
     season_progress_flags = _reload_module("services.season_progress_flags")
@@ -175,16 +174,9 @@ def run_smoke(data_root: Path) -> Dict[str, Any]:
         report=report,
     )
 
-    # Check 2: change requests and pending trades do not bleed across leagues.
+    # Check 2: pending trades do not bleed across leagues.
     league_registry.set_active_league("alpha", ensure_data_dir=True)
     path_utils._DATA_DIR = None  # type: ignore[attr-defined]
-    request = change_requests.create_request(
-        team_id="T1",
-        owner_name="owner_alpha",
-        files=[{"path": "rosters/T1.csv", "sha256": "abc", "bytes": 12}],
-        summary="Smoke request",
-    )
-    change_requests.add_request(request)
     trade_utils.save_trade(
         trade_model.Trade(
             trade_id="SMOKE-1",
@@ -195,25 +187,16 @@ def run_smoke(data_root: Path) -> Dict[str, Any]:
             status="accepted",
         )
     )
-    alpha_requests = len(change_requests.list_requests())
     alpha_trades = len(trade_utils.load_trades())
 
     league_registry.set_active_league("beta", ensure_data_dir=True)
     path_utils._DATA_DIR = None  # type: ignore[attr-defined]
-    beta_requests = len(change_requests.list_requests())
     beta_trades = len(trade_utils.load_trades())
 
     _check(
-        name="request_and_trade_isolation",
-        passed=(
-            alpha_requests == 1
-            and alpha_trades == 1
-            and beta_requests == 0
-            and beta_trades == 0
-        ),
+        name="trade_isolation",
+        passed=(alpha_trades == 1 and beta_trades == 0),
         details={
-            "alpha_requests": alpha_requests,
-            "beta_requests": beta_requests,
             "alpha_trades": alpha_trades,
             "beta_trades": beta_trades,
         },

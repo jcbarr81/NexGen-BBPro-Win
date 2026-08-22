@@ -199,21 +199,6 @@ def run_validation() -> dict[str, Any]:
         code="admin_onboarding_note_missing_in_docs",
     )
     _require_contains(
-        text=guide,
-        token="ZIP bundle",
-        path=OWNER_ADMIN_GUIDE,
-        findings=findings,
-        code="owner_change_request_zip_note_missing_in_docs",
-    )
-    _require_absent(
-        text=guide,
-        token="JSON bundle",
-        path=OWNER_ADMIN_GUIDE,
-        findings=findings,
-        code="stale_json_bundle_wording_in_docs",
-    )
-
-    _require_contains(
         text=game_manual,
         token="NexGen-BBPro Complete Game Manual",
         path=GAME_MANUAL,

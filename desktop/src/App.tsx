@@ -151,9 +151,6 @@ const CommandCenterPage = lazy(() =>
 const FinanceQueuePage = lazy(() =>
   named("FinanceQueuePage", () => import("@/pages/FinanceQueuePage")),
 );
-const ChangeRequestsPage = lazy(() =>
-  named("ChangeRequestsPage", () => import("@/pages/ChangeRequestsPage")),
-);
 const HallOfFamePage = lazy(() =>
   named("HallOfFamePage", () => import("@/pages/HallOfFamePage")),
 );
@@ -177,12 +174,6 @@ const ReassignPage = lazy(() =>
 );
 const FinanceStabilityPage = lazy(() =>
   named("FinanceStabilityPage", () => import("@/pages/FinanceStabilityPage")),
-);
-const ChangeRequestExportPage = lazy(() =>
-  named(
-    "ChangeRequestExportPage",
-    () => import("@/pages/ChangeRequestExportPage"),
-  ),
 );
 const HelpPage = lazy(() =>
   named("HelpPage", () => import("@/pages/HelpPage")),
@@ -626,14 +617,6 @@ export default function App() {
           }
         />
         <Route
-          path="/change-requests"
-          element={
-            <RequireAdmin>
-              <ChangeRequestsPage />
-            </RequireAdmin>
-          }
-        />
-        <Route
           path="/hall-of-fame"
           element={
             <RequireLeague>
@@ -703,14 +686,6 @@ export default function App() {
             <RequireAdmin>
               <FinanceStabilityPage />
             </RequireAdmin>
-          }
-        />
-        <Route
-          path="/submit-change-request"
-          element={
-            <RequireLeague>
-              <ChangeRequestExportPage />
-            </RequireLeague>
           }
         />
         <Route
