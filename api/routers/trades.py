@@ -13,7 +13,7 @@ import csv
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 
 from models.trade import Trade
 from services.draft_pick_ledger import format_pick_label, transfer_pick
@@ -23,9 +23,31 @@ from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster, save_roster
 from utils.trade_utils import load_trades, save_trade
 
-from ..security import CurrentIdentity
+from ..security import CurrentIdentity, require_bearer, require_team_owner
 
 router = APIRouter(prefix="/trades", tags=["trades"], dependencies=[CurrentIdentity])
+
+
+def _require_admin(identity: Dict[str, Any]) -> None:
+    """Commissioner/super-admin only (trade approve/veto/reverse)."""
+    if str(identity.get("r", "")).lower() != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action is restricted to the commissioner.",
+        )
+
+
+def _require_trade_party(identity: Dict[str, Any], trade: Trade) -> None:
+    """Either team in the trade (or the commissioner) — e.g. to reject."""
+    if str(identity.get("r", "")).lower() == "admin":
+        return
+    team = str(identity.get("t") or "").strip()
+    if team and team in {trade.from_team, trade.to_team}:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You're not a party to this trade.",
+    )
 
 
 def _player_label(player: Any | None, pid: str) -> str:
@@ -227,8 +249,13 @@ def _trade_payload_to_dict(payload: Dict[str, Any]) -> Trade:
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def propose_trade(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+def propose_trade(
+    payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
     trade = _trade_payload_to_dict(payload)
+    # You can only propose a trade FROM a team you own (or as the commissioner).
+    require_team_owner(identity, trade.from_team)
 
     # Run the shared validator before persisting. We wire in the current
     # commissioner trade settings so draft-pick toggles + year caps fire.
@@ -387,8 +414,15 @@ def propose_trade(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
 
 
 @router.post("/{trade_id}/accept")
-def accept_trade(trade_id: str) -> Dict[str, Any]:
+def accept_trade(
+    trade_id: str,
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
     trade = _find_trade(trade_id)
+    # Only the RECEIVING team's owner (to_team) — or the commissioner — may
+    # accept. Both owners agreeing is enough to commit (no separate commissioner
+    # approval); the commissioner can reverse a committed trade afterward.
+    require_team_owner(identity, trade.to_team)
     if str(trade.status).lower() in {"accepted", "rejected"}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -410,22 +444,16 @@ def accept_trade(trade_id: str) -> Dict[str, Any]:
 def admin_approve_trade(
     trade_id: str,
     payload: Dict[str, Any] = Body(default_factory=dict),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
     """Commissioner override: force-accept a pending trade.
 
     Bypasses the per-owner acceptance step. Still runs payroll policy +
     shared validator; if ``force=true`` is passed, those are reduced to
-    warnings. Requires admin role.
+    warnings. Commissioner-only.
     """
 
-    from ..security import require_bearer
-    from fastapi import Depends  # noqa: F401 — import only for typing hint
-
-    # Manual identity check since this route sits inside a bulk router.
-    # Accept/reject endpoints are already behind CurrentIdentity; we
-    # additionally enforce admin here.
-    # (Dependency injection is applied via the router-level dependency.)
-
+    _require_admin(identity)
     force = bool(payload.get("force", False))
     trade = _find_trade(trade_id)
     if str(trade.status).lower() in {"accepted", "rejected", "vetoed"}:
@@ -481,9 +509,11 @@ def admin_approve_trade(
 def admin_veto_trade(
     trade_id: str,
     payload: Dict[str, Any] = Body(default_factory=dict),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
     """Commissioner veto: reject a pending trade with an admin note."""
 
+    _require_admin(identity)
     trade = _find_trade(trade_id)
     if str(trade.status).lower() in {"accepted", "rejected", "vetoed"}:
         raise HTTPException(
@@ -507,6 +537,7 @@ def admin_veto_trade(
 def counter_trade(
     trade_id: str,
     payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
     """Owner counters a CPU offer.
 
@@ -523,6 +554,8 @@ def counter_trade(
     """
 
     original = _find_trade(trade_id)
+    # The countering owner must own the team the CPU made the offer TO.
+    require_team_owner(identity, original.to_team)
     if str(original.status).lower() in {"accepted", "rejected", "vetoed"}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -698,8 +731,13 @@ def counter_trade(
 
 
 @router.post("/{trade_id}/reject")
-def reject_trade(trade_id: str) -> Dict[str, Any]:
+def reject_trade(
+    trade_id: str,
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
     trade = _find_trade(trade_id)
+    # Either party to the trade (or the commissioner) may decline it.
+    _require_trade_party(identity, trade)
     if str(trade.status).lower() == "accepted":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -717,15 +755,22 @@ def reject_trade(trade_id: str) -> Dict[str, Any]:
 
 
 @router.delete("/{trade_id}")
-def withdraw_trade(trade_id: str) -> Dict[str, Any]:
+def withdraw_trade(
+    trade_id: str,
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
     """Withdraw a pending trade by writing the file without it."""
 
     trades = load_trades()
-    if not any(t.trade_id == trade_id for t in trades):
+    target = next((t for t in trades if t.trade_id == trade_id), None)
+    if target is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Trade {trade_id} not found.",
         )
+    # Only the initiating team's owner (from_team) — or the commissioner — may
+    # withdraw a pending proposal.
+    require_team_owner(identity, target.from_team)
     keep = [t for t in trades if t.trade_id != trade_id]
     path = get_data_dir() / "trades_pending.csv"
     with path.open("w", newline="") as handle:

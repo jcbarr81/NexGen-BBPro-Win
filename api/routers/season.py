@@ -1053,6 +1053,21 @@ def _team_id_from_identity(identity: Dict[str, Any]) -> Optional[str]:
     return raw or None
 
 
+def _require_season_progression(identity: Dict[str, Any]) -> None:
+    """Guard for league-wide progression actions — commissioner-only in owner
+    leagues, the lone owner in solo leagues."""
+    from utils.league_settings import can_run_season_progression
+
+    if not can_run_season_progression(str(identity.get("r", "")).lower()):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "This is a league-wide action restricted to the commissioner in "
+                "owner leagues."
+            ),
+        )
+
+
 # All multi-day sims run as background jobs (see _launch_sim_background): the
 # endpoint returns immediately with {status:"running", run_id} and the client
 # polls /season/sim-progress for the final state. This keeps every sim request
@@ -1065,12 +1080,21 @@ def _start_sim(kind: str, identity: Dict[str, Any], *, n_arg: int = 1) -> Dict[s
             status_code=status.HTTP_409_CONFLICT,
             detail="A simulation is already in progress.",
         )
-    # Whether this caller may drive season progression (commissioner in owner
-    # leagues, the owner in solo leagues). Only used by 'to-playoffs' to decide
-    # if it can flip the whole league into the postseason once the schedule ends.
+    # Season progression is commissioner-driven in owner leagues (owners act on
+    # their own team in between advances); in solo leagues the lone owner passes.
+    # This gates EVERY sim endpoint (day/days/week/month/to-draft/to-playoffs)
+    # since they all route through here.
     from utils.league_settings import can_run_season_progression
 
     can_progress = can_run_season_progression(str(identity.get("r", "")).lower())
+    if not can_progress:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Simulating the season is restricted to the commissioner in "
+                "owner leagues."
+            ),
+        )
     run_id = _launch_sim_background(
         kind,
         n_arg=n_arg,
@@ -1449,7 +1473,9 @@ def _auto_run_training_camp_if_needed() -> Dict[str, Any]:
     except Exception:
         pass
     try:
-        result = preseason_training_camp()
+        # System-driven (offseason→preseason auto-run) — pass an admin identity
+        # so the commissioner-only guard on the endpoint is a no-op here.
+        result = preseason_training_camp(identity={"r": "admin"})
         out["ran"] = True
         out.update(result)
     except HTTPException as exc:
@@ -1530,6 +1556,7 @@ def _run_cpu_free_agency_async() -> None:
 @router.post("/preseason/list-unsigned")
 def preseason_list_unsigned(
     payload: Dict[str, Any] = Body(default_factory=dict),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
     """List unsigned free agents; kick off the CPU market in the background.
 
@@ -1540,6 +1567,9 @@ def preseason_list_unsigned(
     This step is optional: it lets you review/sign free agents, but the season
     can be played without it.
     """
+
+    # League-wide CPU free-agency sweep — commissioner-only in owner leagues.
+    _require_season_progression(identity)
 
     # Finance leagues run a preseason FA bidding window; the CPU roster-filling
     # sweep is a POST-window cleanup, so it's locked until the window has closed
@@ -1675,12 +1705,20 @@ def fa_window_advance_day(
 
 
 @router.post("/preseason/training-camp")
-def preseason_training_camp() -> Dict[str, Any]:
+def preseason_training_camp(
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
     """Run spring training camp for every player.
 
     Ports ``ui/season_progress_window._run_training_camp``. Marks the
     ``preseason_done.training_camp`` flag so the UI reflects completion.
+
+    League-wide (runs for every player), so it's commissioner-only in owner
+    leagues. Internal callers (the offseason→preseason auto-run) pass a synthetic
+    admin identity so the guard is a no-op for them.
     """
+
+    _require_season_progression(identity)
 
     data_dir = get_data_dir()
 
