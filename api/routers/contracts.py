@@ -269,7 +269,11 @@ def evaluate_extension(
     # player's current salary — they already count toward payroll) so the owner
     # sees how re-signing moves the books, matching the FA offer flow (#10).
     payroll_impact: Optional[Dict[str, Any]] = None
-    callers_team = str(identity.get("t", "")).strip() or None
+    # Honor an explicit team_id from the dialog — a commissioner/super-admin has
+    # no bound identity["t"], so without it the payroll panel never shows.
+    callers_team = (
+        str(payload.get("team_id") or identity.get("t") or "").strip() or None
+    )
     if callers_team:
         try:
             from services.payroll_policy import build_team_payroll_outlook

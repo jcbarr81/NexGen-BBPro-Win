@@ -9,7 +9,12 @@
  */
 
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -853,6 +858,10 @@ function ContractCard({
   const capabilities = useLeagueCapabilities();
   const advancedContracts =
     (capabilities.modules?.gm_contracts ?? "off") === "advanced";
+  // The player is on our team (extensions require ownsPlayer), so the selected
+  // team is the one to bill — a commissioner has no bound identity["t"], so we
+  // must pass it explicitly or the payroll panel never shows.
+  const teamId = useAuthStore((s) => s.selectedTeamId ?? s.teamId ?? null);
   const [open, setOpen] = useState(false);
   const [years, setYears] = useState("1");
   const [salary, setSalary] = useState("");
@@ -869,15 +878,18 @@ function ContractCard({
     queryKey: [
       "extension-preview",
       playerId,
+      teamId,
       years,
       salary,
     ],
     queryFn: () =>
       api.evaluateExtension(playerId!, {
+        team_id: teamId ?? undefined,
         years: Number(years) || 1,
         annual_salary: salary ? Number(salary) : undefined,
       }),
     enabled: open && !!playerId,
+    placeholderData: keepPreviousData,
   });
 
   // Surface ineligibility from the preview so the form gates BEFORE

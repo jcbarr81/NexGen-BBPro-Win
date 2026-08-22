@@ -2200,7 +2200,7 @@ export const api = {
     ),
   evaluateExtension: (
     playerId: string,
-    payload: { years?: number; annual_salary?: number },
+    payload: { years?: number; annual_salary?: number; team_id?: string },
   ) =>
     apiRequest<ExtensionEvaluation>(
       `/contracts/${encodeURIComponent(playerId)}/evaluate-extension`,
