@@ -224,6 +224,8 @@ function TeamDetailBody({
 
       <MyFaOffersCard teamId={teamId} />
 
+      <TeamActivityCard teamId={teamId} />
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <div className="lg:col-span-3">
           <DivisionStandingsCard
@@ -871,6 +873,93 @@ function MyFaOffersCard({ teamId }: { teamId: string | undefined }) {
                 </Badge>
                 <span className="text-muted">decides {n.deadline_date}</span>
               </span>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+function _txTone(action: string): "success" | "danger" | "amber" | "neutral" {
+  const a = action.toLowerCase();
+  if (a.startsWith("trade")) return "amber";
+  if (a === "sign" || a === "promote" || a === "trade_in" || a === "activate")
+    return "success";
+  if (a === "cut" || a === "release" || a === "trade_out" || a === "demote")
+    return "danger";
+  return "neutral";
+}
+
+function _txLabel(action: string): string {
+  const map: Record<string, string> = {
+    trade_in: "Trade in",
+    trade_out: "Trade out",
+    sign: "Signed",
+    cut: "Cut",
+    release: "Released",
+    promote: "Called up",
+    demote: "Sent down",
+    assign: "Assigned",
+    activate: "Activated",
+  };
+  return map[action.toLowerCase()] ?? (action || "Move");
+}
+
+function TeamActivityCard({ teamId }: { teamId: string | undefined }) {
+  const q = useQuery({
+    queryKey: ["team-activity", teamId],
+    queryFn: () => api.activity({ teamId: teamId as string, limit: 12 }),
+    enabled: !!teamId,
+  });
+  const rows = q.data?.transactions ?? [];
+  if (!teamId || rows.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Recent moves</CardTitle>
+          <CardDescription>
+            Trades, signings, call-ups and cuts for this team.
+          </CardDescription>
+        </div>
+        <Link
+          to="/transactions"
+          className="rounded-md border border-border px-2.5 py-1 text-xs text-muted hover:text-fg"
+        >
+          All activity →
+        </Link>
+      </CardHeader>
+      <CardContent className="space-y-1.5">
+        {rows.slice(0, 10).map((row, i) => {
+          const action = row.action || "";
+          const when = (row.season_date || row.timestamp || "").slice(0, 10);
+          const counterparty = row.counterparty || "";
+          return (
+            <div
+              key={`${i}-${row.player_id}-${action}`}
+              className="flex items-center justify-between gap-3 text-xs"
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <Badge tone={_txTone(action)}>{_txLabel(action)}</Badge>
+                <span className="truncate font-medium">
+                  {row.player_name || row.player_id}
+                </span>
+                {counterparty && (
+                  <Link
+                    to={`/team/${encodeURIComponent(counterparty)}`}
+                    className="shrink-0 text-muted hover:text-amber"
+                  >
+                    ↔ {counterparty}
+                  </Link>
+                )}
+                {!counterparty && row.from_level && row.to_level && (
+                  <span className="shrink-0 text-[11px] uppercase tracking-wider text-muted">
+                    {row.from_level} → {row.to_level}
+                  </span>
+                )}
+              </div>
+              <span className="shrink-0 text-muted">{when}</span>
             </div>
           );
         })}
