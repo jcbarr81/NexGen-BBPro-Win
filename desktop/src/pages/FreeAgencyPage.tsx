@@ -506,6 +506,13 @@ function YourNegotiationsCard({ teamId }: { teamId: string | null }) {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["fa-negotiations"] }),
   });
+  // Current payroll + threshold, so we can project "if I sign everyone I've bid
+  // on, where does my payroll land?" across all open offers.
+  const payroll = useQuery({
+    queryKey: ["payroll-context", teamId],
+    queryFn: () => api.payrollContext(teamId as string),
+    enabled: !!teamId,
+  });
 
   const negs = q.data?.negotiations ?? [];
   const open = negs.filter((n) => n.status === "open");
@@ -525,6 +532,60 @@ function YourNegotiationsCard({ teamId }: { teamId: string | null }) {
         <Badge tone="amber">{open.length} open</Badge>
       </CardHeader>
       <CardContent className="space-y-2">
+        {open.length > 0 &&
+          payroll.data?.active &&
+          payroll.data.payroll != null &&
+          payroll.data.threshold != null &&
+          (() => {
+            const po = payroll.data;
+            const current = po.payroll ?? 0;
+            const pending = open.reduce(
+              (sum, n) => sum + (n.your_offer?.annual_salary ?? 0),
+              0,
+            );
+            const projected = current + pending;
+            const threshold = po.threshold ?? 0;
+            const left = threshold - projected;
+            const over = left < 0;
+            return (
+              <div className="rounded-lg border border-border bg-surfaceAlt/40 px-3 py-2 text-xs">
+                <div className="font-semibold uppercase tracking-wider text-muted">
+                  If you sign all {open.length} offer
+                  {open.length === 1 ? "" : "s"}
+                </div>
+                <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5">
+                  <span className="text-muted">Payroll now</span>
+                  <span className="text-right tabular-nums">
+                    {_money(current)}
+                  </span>
+                  <span className="text-muted">+ your open offers</span>
+                  <span className="text-right tabular-nums text-amber">
+                    +{_money(pending)}
+                  </span>
+                  <span className="text-muted">Projected payroll</span>
+                  <span className="text-right font-semibold tabular-nums">
+                    {_money(projected)}
+                  </span>
+                  <span className="text-muted">
+                    vs threshold {_money(threshold)}
+                  </span>
+                  <span
+                    className={`text-right font-semibold tabular-nums ${over ? "text-danger" : "text-success"}`}
+                  >
+                    {over
+                      ? `${_money(-left)} over`
+                      : `${_money(left)} left`}
+                  </span>
+                </div>
+                {over && (
+                  <p className="mt-1 text-[11px] text-danger">
+                    Signing every open offer would push you over the tax
+                    threshold — expect luxury tax on the overage.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
         {open.map((n) => {
           const mine = n.your_offer;
           const leader = n.leading_offer;
