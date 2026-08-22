@@ -1032,6 +1032,10 @@ export interface FaWindowStatus {
   deadline_date?: string | null;
   latest?: FaWindowLog | null;
   sweep_locked: boolean;
+  // Multi-owner participation this window.
+  human_teams?: string[];
+  participants?: string[];
+  waiting?: string[];
 }
 
 export interface SeasonReadinessTeam {

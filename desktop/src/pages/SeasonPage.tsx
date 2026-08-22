@@ -931,6 +931,8 @@ function PreseasonActionsCard({ state }: { state: SeasonState }) {
 function FreeAgencyWindowCard() {
   const queryClient = useQueryClient();
   const teamId = useAuthStore((s) => s.selectedTeamId ?? s.teamId ?? null);
+  const role = useAuthStore((s) => s.role);
+  const isCommish = role === "admin";
 
   // Free agency runs in the offseason. Polling opens the window lazily on the
   // server (finance leagues only) the first time it's hit in the offseason.
@@ -938,9 +940,18 @@ function FreeAgencyWindowCard() {
     queryKey: ["fa-window"],
     queryFn: () => api.faWindowState(),
   });
+  const deadlineQ = useQuery({
+    queryKey: ["season-deadline"],
+    queryFn: () => api.getSeasonDeadline(),
+  });
   const win = faWindow.data;
   const windowActive = !!win?.finance_enabled && !!win?.exists;
   const windowOpen = windowActive && win?.status !== "closed";
+  const humanTeams = win?.human_teams ?? [];
+  const multiOwner = humanTeams.length >= 2;
+  // Commissioner-driven: only the commissioner advances the FA day in a
+  // multi-owner league (the lone owner does in solo).
+  const canProgress = isCommish || !multiOwner;
 
   const advanceFaDay = useMutation({
     mutationFn: () => api.faWindowAdvanceDay(),
@@ -978,13 +989,39 @@ function FreeAgencyWindowCard() {
           </CardDescription>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
+        {multiOwner && (
+          <div className="rounded-lg border border-border bg-surfaceAlt/40 px-3 py-2 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-muted">
+                Owners bidding:{" "}
+                <span className="font-semibold text-ink">
+                  {(win?.participants ?? []).length}/{humanTeams.length}
+                </span>
+              </span>
+              {deadlineQ.data?.deadline && (
+                <span className="text-muted">
+                  Deadline:{" "}
+                  <span className="font-semibold text-ink">
+                    {deadlineQ.data.deadline}
+                  </span>
+                </span>
+              )}
+            </div>
+            {(win?.waiting ?? []).length > 0 && (
+              <div className="mt-1 text-[11px] text-muted">
+                Yet to bid: {(win?.waiting ?? []).join(", ")}
+              </div>
+            )}
+          </div>
+        )}
         <FaBiddingWindowPanel
           win={win!}
           teamId={teamId}
           onAdvance={() => advanceFaDay.mutate()}
           advancing={advanceFaDay.isPending}
-          canAdvance={windowOpen}
+          canAdvance={windowOpen && canProgress}
+          showAdvance={canProgress}
         />
       </CardContent>
     </Card>
@@ -1004,12 +1041,14 @@ function FaBiddingWindowPanel({
   onAdvance,
   advancing,
   canAdvance,
+  showAdvance = true,
 }: {
   win: FaWindowStatus;
   teamId: string | null;
   onAdvance: () => void;
   advancing: boolean;
   canAdvance: boolean;
+  showAdvance?: boolean;
 }) {
   const closed = win.status === "closed";
   const latest = win.latest;
@@ -1043,7 +1082,7 @@ function FaBiddingWindowPanel({
           >
             Bid / counter →
           </Link>
-          {!closed && (
+          {!closed && showAdvance && (
             <Button size="sm" onClick={onAdvance} disabled={advancing || !canAdvance}>
               {advancing ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1052,6 +1091,11 @@ function FaBiddingWindowPanel({
               )}
               Advance FA day
             </Button>
+          )}
+          {!closed && !showAdvance && (
+            <span className="text-[11px] text-muted">
+              The commissioner advances the day
+            </span>
           )}
         </div>
       </div>

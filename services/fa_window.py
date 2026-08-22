@@ -394,8 +394,36 @@ def unsigned_sweep_locked(*, data_dir: Path | str | None = None) -> bool:
     return bool(state and state.get("status") != "closed")
 
 
+def _human_participation(base: Path) -> Dict[str, Any]:
+    """Which human-owned teams have a live (non-CPU) bid in the open window —
+    so a multi-owner league's commissioner can see who's engaged before
+    advancing the day."""
+    try:
+        from services.finance_ai import _human_owned_team_ids
+
+        human = sorted(_human_owned_team_ids(base))
+    except Exception:
+        human = []
+    bidders: set[str] = set()
+    if human:
+        negs = fa_negotiations.load_negotiations(data_dir=base)["negotiations"]
+        human_set = set(human)
+        for neg in negs.values():
+            if not isinstance(neg, dict) or neg.get("status") != "open":
+                continue
+            for offer in neg.get("offers", []) or []:
+                tid = str(offer.get("team_id") or "").strip()
+                if tid in human_set and not offer.get("is_cpu"):
+                    bidders.add(tid)
+    return {
+        "human_teams": human,
+        "participants": sorted(bidders),
+        "waiting": [t for t in human if t not in bidders],
+    }
+
+
 def window_status(*, data_dir: Path | str | None = None) -> Dict[str, Any]:
-    """UI-facing status payload for the Season page preseason panel."""
+    """UI-facing status payload for the Season page FA-window panel."""
     base = get_data_dir() if data_dir is None else Path(data_dir)
     enabled = finance_fa_enabled(data_dir=base)
     state = load_window(data_dir=base)
@@ -410,4 +438,5 @@ def window_status(*, data_dir: Path | str | None = None) -> Dict[str, Any]:
         "deadline_date": (state or {}).get("deadline_date"),
         "latest": log[-1] if log else None,
         "sweep_locked": unsigned_sweep_locked(data_dir=base),
+        **_human_participation(base),
     }
