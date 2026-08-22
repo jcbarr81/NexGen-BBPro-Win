@@ -55,7 +55,6 @@ const BADGE_TIPS = {
     "Big-league service time (162 days = 1 season). Drives arbitration and free-agency eligibility.",
 } as const;
 
-type Scope = "all" | "mine" | "expiring";
 type SortKey =
   | "name"
   | "team"
@@ -68,9 +67,15 @@ type SortDir = "asc" | "desc";
 
 export function ContractsPage() {
   const userTeamId = useAuthStore((s) => s.selectedTeamId ?? s.teamId);
-  const [scope, setScope] = usePersistedState<Scope>(
-    "contracts:scope",
-    "all",
+  // Independent toggles so "my team" and "expiring" can be combined — the
+  // common "which of MY players are about to expire?" question.
+  const [mineOnly, setMineOnly] = usePersistedState<boolean>(
+    "contracts:mineOnly",
+    false,
+  );
+  const [expiringOnly, setExpiringOnly] = usePersistedState<boolean>(
+    "contracts:expiringOnly",
+    false,
   );
   const [search, setSearch] = usePersistedState("contracts:search", "");
   const [sortKey, setSortKey] = usePersistedState<SortKey>(
@@ -82,8 +87,8 @@ export function ContractsPage() {
     "desc",
   );
 
-  const teamFilter = scope === "mine" && userTeamId ? userTeamId : undefined;
-  const expiringFilter = scope === "expiring";
+  const teamFilter = mineOnly && userTeamId ? userTeamId : undefined;
+  const expiringFilter = expiringOnly;
 
   const contractsQ = useQuery({
     queryKey: ["contracts", { team: teamFilter, expiring: expiringFilter }],
@@ -178,27 +183,46 @@ export function ContractsPage() {
             <div className="flex gap-1 rounded-lg border border-border bg-surfaceAlt p-1">
               {(
                 [
-                  { key: "all", label: "All" },
-                  { key: "mine", label: "My team" },
-                  { key: "expiring", label: "Expiring" },
-                ] as Array<{ key: Scope; label: string }>
-              ).map(({ key, label }) => (
+                  {
+                    key: "mine",
+                    label: "My team",
+                    active: mineOnly,
+                    toggle: () => setMineOnly((v) => !v),
+                    disabled: !userTeamId,
+                    icon: false,
+                  },
+                  {
+                    key: "expiring",
+                    label: "Expiring",
+                    active: expiringOnly,
+                    toggle: () => setExpiringOnly((v) => !v),
+                    disabled: false,
+                    icon: true,
+                  },
+                ] as Array<{
+                  key: string;
+                  label: string;
+                  active: boolean;
+                  toggle: () => void;
+                  disabled: boolean;
+                  icon: boolean;
+                }>
+              ).map(({ key, label, active, toggle, disabled, icon }) => (
                 <button
                   key={key}
                   type="button"
-                  onClick={() => setScope(key)}
-                  disabled={key === "mine" && !userTeamId}
+                  onClick={toggle}
+                  disabled={disabled}
+                  aria-pressed={active}
                   className={cn(
                     "rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider transition disabled:opacity-40",
-                    scope === key
+                    active
                       ? "bg-amber text-espresso"
                       : "text-muted hover:bg-surface hover:text-ink",
                   )}
                 >
                   <span className="inline-flex items-center gap-1">
-                    {key === "expiring" && (
-                      <Filter className="h-3 w-3 opacity-80" />
-                    )}
+                    {icon && <Filter className="h-3 w-3 opacity-80" />}
                     {label}
                   </span>
                 </button>
@@ -217,7 +241,8 @@ export function ContractsPage() {
             </div>
           ) : filteredSorted.length === 0 ? (
             <div className="rounded-md border border-border bg-surfaceAlt/40 px-4 py-6 text-sm text-muted">
-              No contracts match. Try clearing the filter or switching scope.
+              No contracts match. Try clearing the search or the My team /
+              Expiring filters.
             </div>
           ) : (
             <div
