@@ -137,6 +137,54 @@ function prettyRoundName(name: string): string {
   return map[stripped.toUpperCase()] ?? stripped;
 }
 
+type RoundStage = "WC" | "DS" | "CS" | "WS" | "OTHER";
+
+/** Split a round name into its league (if any) and its stage, so a two-league
+ *  postseason ("American League WC", "National League CS", "WS") can be laid out
+ *  as a mirrored bracket funnelling into the World Series. */
+function classifyRound(name: string): {
+  league: string | null;
+  stage: RoundStage;
+  order: number;
+} {
+  const n = name.trim();
+  if (n.toUpperCase() === "WS" || /world series/i.test(n)) {
+    return { league: null, stage: "WS", order: 4 };
+  }
+  let stage: RoundStage = "OTHER";
+  let order = 2;
+  if (/\bwc\b|wild ?card/i.test(n)) {
+    stage = "WC";
+    order = 1;
+  } else if (/\bds\b|division series/i.test(n)) {
+    stage = "DS";
+    order = 2;
+  } else if (/\bcs\b|championship series/i.test(n)) {
+    stage = "CS";
+    order = 3;
+  }
+  const league =
+    n
+      .replace(/\b(wc|ds|cs)\b/i, "")
+      .replace(/wild ?card|division series|championship series/i, "")
+      .replace(/^league\s+/i, "")
+      .trim() || null;
+  return { league, stage, order };
+}
+
+/** Just the stage label (league shown separately in the bracket header). */
+function stageLabel(name: string): string {
+  const { stage } = classifyRound(name);
+  const map: Record<RoundStage, string> = {
+    WC: "Wild Card",
+    DS: "Division Series",
+    CS: "Championship Series",
+    WS: "World Series",
+    OTHER: prettyRoundName(name),
+  };
+  return map[stage];
+}
+
 function hasPlayedGames(playoffs: Playoffs): boolean {
   return playoffs.rounds.some((r) =>
     r.matchups.some((m) => m.games.some((g) => !!g.result)),
@@ -322,6 +370,58 @@ function Bracket({
       </Card>
     );
   }
+
+  // Detect a two-league postseason (AL/NL) and lay it out like a real bracket:
+  // League 1 funnels inward on the LEFT (Wild Card → Division → Championship),
+  // the World Series sits in the MIDDLE, and League 2 mirrors it on the RIGHT.
+  const classified = visibleRounds.map((round) => ({
+    round,
+    ...classifyRound(round.name),
+  }));
+  const leagues = [
+    ...new Set(classified.filter((c) => c.league).map((c) => c.league!)),
+  ].sort();
+  const ws = classified.find((c) => c.stage === "WS");
+
+  if (leagues.length >= 2 && ws) {
+    const [leftLeague, rightLeague] = leagues;
+    const byOrder = (a: { order: number }, b: { order: number }) =>
+      a.order - b.order;
+    const left = classified
+      .filter((c) => c.league === leftLeague)
+      .sort(byOrder); // WC → DS → CS (outermost → center)
+    const right = classified
+      .filter((c) => c.league === rightLeague)
+      .sort(byOrder);
+    const rightMirrored = [...right].reverse(); // CS → DS → WC (center → outermost)
+    const colCount = left.length + 1 + rightMirrored.length;
+
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1 text-xs font-semibold uppercase tracking-[0.14em]">
+          <span className="text-muted">{leftLeague}</span>
+          <span className="text-amber">World Series</span>
+          <span className="text-muted">{rightLeague}</span>
+        </div>
+        <div
+          className="grid items-start gap-3 overflow-x-auto pb-4"
+          style={{
+            gridTemplateColumns: `repeat(${colCount}, minmax(240px, 1fr))`,
+          }}
+        >
+          {left.map((c) => (
+            <RoundColumn key={c.round.name} round={c.round} myTeamId={myTeamId} />
+          ))}
+          <RoundColumn round={ws.round} myTeamId={myTeamId} isFinal />
+          {rightMirrored.map((c) => (
+            <RoundColumn key={c.round.name} round={c.round} myTeamId={myTeamId} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Single-pool league: straightforward left-to-right progression.
   return (
     <div
       className="grid gap-4 overflow-x-auto pb-4"
@@ -337,15 +437,29 @@ function Bracket({
 function RoundColumn({
   round,
   myTeamId,
+  isFinal = false,
 }: {
   round: PlayoffRound;
   myTeamId: string | null;
+  isFinal?: boolean;
 }) {
   return (
     <div className="space-y-3">
-      <div className="sticky top-0 z-10 rounded-lg border border-border bg-surfaceAlt/80 px-3 py-2 backdrop-blur">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
-          {prettyRoundName(round.name)}
+      <div
+        className={cn(
+          "sticky top-0 z-10 rounded-lg border px-3 py-2 backdrop-blur",
+          isFinal
+            ? "border-amber/60 bg-amber/10"
+            : "border-border bg-surfaceAlt/80",
+        )}
+      >
+        <div
+          className={cn(
+            "text-[11px] font-semibold uppercase tracking-[0.14em]",
+            isFinal ? "text-amber" : "text-muted",
+          )}
+        >
+          {stageLabel(round.name)}
         </div>
         <div className="text-sm">
           {round.matchups.length} series
