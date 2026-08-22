@@ -179,9 +179,16 @@ export function RosterPage() {
       });
       invalidateCompliance();
       const released = data.released_count ?? 0;
+      const overflow = data.overflow_count ?? 0;
       if (released > 0) {
         toast.success(
-          `Auto-assign complete — rebalanced. Released ${released} player${released === 1 ? "" : "s"} to free agency.`,
+          `Auto-assign complete — rebalanced. Released ${released} player${released === 1 ? "" : "s"} to free agency (org over the 50-player limit).`,
+        );
+      } else if (overflow > 0) {
+        // Under the org limit but couldn't legally seat everyone (LOW is
+        // prospects-only), so nobody was cut — they're parked in AAA to trim.
+        toast.info(
+          `Auto-assign complete — but ${overflow} player${overflow === 1 ? "" : "s"} couldn't fit a legal slot (LOW is reserved for under-27 players). They were kept in AAA over the cap — trim your roster manually rather than losing them.`,
         );
       } else {
         toast.success("Auto-assign complete — roster levels rebalanced");
@@ -342,7 +349,7 @@ function ConfirmAutoAssignButton({
             await confirm({
               title: "Auto-assign roster levels?",
               description:
-                "Rebuild ACT/AAA/LOW assignments for this team based on each player's position and ratings. Injured players (DL/IR) stay where they are. If the organization is over the 50-player ACT+AAA+LOW limit (e.g. just after the draft), the lowest-rated extras will be released to free agency — every release is logged on the Transactions page.",
+                "Rebuild ACT/AAA/LOW assignments for this team based on each player's position and ratings. Injured players (DL/IR) stay where they are. Players are only released to free agency if the organization is genuinely OVER the 50-player ACT+AAA+LOW limit (e.g. just after the draft) — those releases are logged on the Transactions page. If you're under the limit but have more veterans than ACT+AAA can hold (LOW is reserved for under-27 prospects), nobody is cut — the extras are parked in AAA over the cap for you to trim manually.",
               confirmLabel: "Auto-assign",
               danger: true,
             })

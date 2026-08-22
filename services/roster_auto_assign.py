@@ -672,6 +672,22 @@ def auto_assign_team(
             roster.low.append(rescue_id)
             assigned.add(rescue_id)
 
+    # Only RELEASE on genuine over-capacity (the org has more players than
+    # ACT+AAA+LOW can hold). A would-be release UNDER that limit only happens
+    # because LOW is reserved for under-LOW_LEVEL_MAX_AGE players, so a veteran
+    # surplus has no soft slot — but silently cutting a player from an under-cap
+    # roster surprises owners (the whole point of this fix). Keep those players
+    # instead (parked in AAA, which has no age cap) and report them as
+    # ``overflow`` so the UI can ask the owner to trim manually, rather than
+    # releasing them to free agency.
+    total_cap = ACTIVE_MAX + AAA_MAX + LOW_MAX
+    overflow: List[str] = []
+    if released and len(pool_ids) <= total_cap:
+        overflow = list(released)
+        released = []
+        roster.aaa = list(dict.fromkeys(list(roster.aaa) + overflow))
+        assigned.update(overflow)
+
     save_roster(team_id, roster)
 
     if released:
@@ -699,7 +715,7 @@ def auto_assign_team(
         except Exception:
             pass
 
-    return {"released": released}
+    return {"released": released, "overflow": overflow}
 
 
 def auto_assign_all_teams(

@@ -42,11 +42,16 @@ async def auto_assign_one(team_id: str) -> Dict[str, Any]:
             detail=f"Auto-assign failed: {exc}",
         ) from exc
     released = list((result or {}).get("released") or [])
+    overflow = list((result or {}).get("overflow") or [])
     return {
         "team_id": team_id,
         "status": "ok",
         "released": released,
         "released_count": len(released),
+        # Players kept over the AAA soft-cap (org under the total limit) instead
+        # of being cut — the UI should ask the owner to trim these manually.
+        "overflow": overflow,
+        "overflow_count": len(overflow),
     }
 
 

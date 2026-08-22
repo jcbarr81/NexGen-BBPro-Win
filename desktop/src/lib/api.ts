@@ -2681,6 +2681,8 @@ export const api = {
       status: string;
       released: string[];
       released_count: number;
+      overflow: string[];
+      overflow_count: number;
     }>(`/teams/${encodeURIComponent(teamId)}/auto-assign`, { method: "POST" }),
   autoAssignAll: () =>
     apiRequest<{ status: string }>("/reassign/all", { method: "POST" }),
