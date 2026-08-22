@@ -222,6 +222,8 @@ function TeamDetailBody({
 
       <TeamStatsPanel teamId={teamId} />
 
+      <MyFaOffersCard teamId={teamId} />
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <div className="lg:col-span-3">
           <DivisionStandingsCard
@@ -813,6 +815,65 @@ function ErrorCard({ message }: { message: string }) {
       <CardContent className="flex items-center gap-3 py-10 text-danger">
         <AlertTriangle className="h-5 w-5" />
         <span className="text-sm">{message}</span>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MyFaOffersCard({ teamId }: { teamId: string | undefined }) {
+  const userTeamId = useAuthStore((s) => s.teamId);
+  const selectedTeamId = useAuthStore((s) => s.selectedTeamId);
+  const isOwnTeam =
+    !!teamId && (teamId === userTeamId || teamId === selectedTeamId);
+  const q = useQuery({
+    queryKey: ["fa-negotiations", teamId],
+    queryFn: () => api.listFaNegotiations(teamId as string),
+    enabled: isOwnTeam,
+  });
+  if (!isOwnTeam) return null;
+  const open = (q.data?.negotiations ?? []).filter((n) => n.status === "open");
+  if (open.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Your free-agent offers</CardTitle>
+          <CardDescription>
+            Open bids you&apos;ve submitted — they resolve at each deadline.
+          </CardDescription>
+        </div>
+        <Link
+          to="/free-agency"
+          className="rounded-md border border-border px-2.5 py-1 text-xs text-muted hover:text-fg"
+        >
+          Manage →
+        </Link>
+      </CardHeader>
+      <CardContent className="space-y-1.5">
+        {open.map((n) => {
+          const mine = n.your_offer;
+          const leader = n.leading_offer;
+          const youLead = !!leader && leader.team_id === teamId;
+          return (
+            <div
+              key={n.player_id}
+              className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-xs"
+            >
+              <span className="font-medium">{n.player_name ?? n.player_id}</span>
+              <span className="flex items-center gap-2">
+                {mine && (
+                  <span className="tabular-nums text-muted">
+                    ${mine.annual_salary.toLocaleString()}/yr ×{mine.years}
+                  </span>
+                )}
+                <Badge tone={youLead ? "success" : "danger"}>
+                  {youLead ? "leading" : "outbid"}
+                </Badge>
+                <span className="text-muted">decides {n.deadline_date}</span>
+              </span>
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );

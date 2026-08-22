@@ -7,7 +7,7 @@
  * caches so the rest of the UI stays in sync.
  */
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { usePersistedState } from "@/lib/use-persisted-state";
 import {
@@ -32,6 +32,7 @@ import {
   api,
   ApiError,
   type ExtensionEvaluation,
+  type FaOffer,
   type FreeAgentSignRejection,
   type RatingContextEntry,
 } from "@/lib/api";
@@ -99,6 +100,26 @@ function writePositionContextPref(value: boolean) {
   } catch {
     /* ignore */
   }
+}
+
+function _money(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
+  return `$${n}`;
+}
+
+/** Total guaranteed money of an offer (salary × years + bonus), compact. This
+ * is what the player ranks offers by — surfaced so "why aren't I leading" with
+ * a higher annual salary is obvious. */
+function _faTotal(o: {
+  annual_salary: number;
+  years: number;
+  signing_bonus?: number;
+}): string {
+  const total =
+    Math.max(0, o.annual_salary) * Math.max(1, o.years) +
+    Math.max(0, o.signing_bonus ?? 0);
+  return _money(total);
 }
 
 function QualifyingOffersCard({ teamId }: { teamId: string | null }) {
@@ -200,6 +221,23 @@ export function FreeAgencyPage() {
     queryKey: ["free-agents"],
     queryFn: () => api.freeAgents(2000),
   });
+
+  // Your open offers, so the list can flag "you've bid" and the dialog can
+  // pre-fill your standing offer (a player you bid on still appears here).
+  const negsQ = useQuery({
+    queryKey: ["fa-negotiations", teamId],
+    queryFn: () => api.listFaNegotiations(teamId ?? undefined),
+    enabled: !!teamId,
+  });
+  const myOpenOffers = useMemo(() => {
+    const m = new Map<string, FaOffer>();
+    for (const n of negsQ.data?.negotiations ?? []) {
+      if (n.status === "open" && n.your_offer) {
+        m.set(String(n.player_id), n.your_offer);
+      }
+    }
+    return m;
+  }, [negsQ.data]);
 
   const positions = useMemo(() => {
     const s = new Set<string>();
@@ -380,6 +418,15 @@ export function FreeAgencyPage() {
                             {fa.last_name}
                             {fa.first_name ? `, ${fa.first_name}` : ""}
                           </Link>
+                          {myOpenOffers.has(fa.player_id) && (
+                            <Badge tone="amber" className="text-[10px]">
+                              you bid{" "}
+                              {_money(
+                                myOpenOffers.get(fa.player_id)!.annual_salary,
+                              )}
+                              /yr
+                            </Badge>
+                          )}
                         </div>
                       </td>
                       <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
@@ -413,9 +460,16 @@ export function FreeAgencyPage() {
                           size="sm"
                           onClick={() => setSigning(fa)}
                           disabled={!teamId}
-                          title={teamId ? "Sign to your team" : "No active team"}
+                          title={
+                            !teamId
+                              ? "No active team"
+                              : myOpenOffers.has(fa.player_id)
+                                ? "Update your offer"
+                                : "Make an offer"
+                          }
                         >
-                          <UserPlus className="h-3 w-3" /> Sign
+                          <UserPlus className="h-3 w-3" />{" "}
+                          {myOpenOffers.has(fa.player_id) ? "Update" : "Offer"}
                         </Button>
                       </td>
                     </tr>
@@ -430,6 +484,7 @@ export function FreeAgencyPage() {
       <SignDialog
         player={signing}
         teamId={teamId}
+        existingOffer={signing ? myOpenOffers.get(signing.player_id) ?? null : null}
         onClose={() => setSigning(null)}
       />
     </AppShell>
@@ -492,18 +547,31 @@ function YourNegotiationsCard({ teamId }: { teamId: string | null }) {
                   <span className="text-muted">
                     Your bid:{" "}
                     <span className="font-semibold text-ink">
-                      ${mine.annual_salary.toLocaleString()}/yr × {mine.years}
+                      ${mine.annual_salary.toLocaleString()}/yr × {mine.years} ={" "}
+                      {_faTotal(mine)}
                     </span>
                   </span>
                 )}
                 {leader && (
                   <span className={youLead ? "text-success" : "text-danger"}>
                     Leading: {leader.team_id} $
-                    {leader.annual_salary.toLocaleString()}/yr
+                    {leader.annual_salary.toLocaleString()}/yr × {leader.years} ={" "}
+                    {_faTotal(leader)}
                     {youLead ? " (you)" : ""}
                   </span>
                 )}
                 <span className="text-muted">{n.offer_count} offer(s)</span>
+                {/* Players sign the biggest TOTAL guaranteed deal — so a longer
+                    contract can lead even at a lower annual salary. */}
+                {leader &&
+                  mine &&
+                  !youLead &&
+                  mine.annual_salary > leader.annual_salary && (
+                    <span className="basis-full text-[11px] text-muted">
+                      They lead on total money (more years) — add years or raise
+                      your total to pass them.
+                    </span>
+                  )}
                 {mine && (
                   <button
                     type="button"
@@ -547,10 +615,12 @@ function YourNegotiationsCard({ teamId }: { teamId: string | null }) {
 function SignDialog({
   player,
   teamId,
+  existingOffer,
   onClose,
 }: {
   player: FreeAgent | null;
   teamId: string | null;
+  existingOffer: FaOffer | null;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -561,6 +631,30 @@ function SignDialog({
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<ExtensionEvaluation | null>(null);
   const [windowClosed, setWindowClosed] = useState<string | null>(null);
+
+  // When the dialog opens for a player, pre-fill from your standing offer if you
+  // already bid on them (so re-opening doesn't look like a fresh, empty offer),
+  // else reset to defaults.
+  useEffect(() => {
+    if (!player) return;
+    if (existingOffer) {
+      setYears(String(existingOffer.years ?? 3));
+      setSalary(String(existingOffer.annual_salary ?? ""));
+      setSigningBonus(
+        existingOffer.signing_bonus ? String(existingOffer.signing_bonus) : "",
+      );
+      const lvl = String(existingOffer.level ?? "ACT").toUpperCase();
+      setLevel(lvl === "AAA" || lvl === "LOW" ? (lvl as "AAA" | "LOW") : "ACT");
+    } else {
+      setYears("3");
+      setSalary("");
+      setSigningBonus("");
+      setLevel("ACT");
+    }
+    setError(null);
+    setResponse(null);
+    setWindowClosed(null);
+  }, [player, existingOffer]);
 
   // Live preview: fair-market estimate + competing CPU bids + payroll/tax/
   // solvency impact for our team. Refreshes when the user edits years/
@@ -663,6 +757,17 @@ function SignDialog({
             and competing bids before deciding.
           </DialogDescription>
         </DialogHeader>
+
+        {existingOffer && (
+          <div className="rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-xs text-amber">
+            You already have an open bid:{" "}
+            <span className="font-semibold">
+              ${existingOffer.annual_salary.toLocaleString()}/yr ×{" "}
+              {existingOffer.years} = {_faTotal(existingOffer)}
+            </span>
+            . Editing below updates it.
+          </div>
+        )}
 
         {/* Phase-gate banner — replaces the rest of the form when the
             FA window is closed. */}
@@ -839,7 +944,7 @@ function SignDialog({
               }
             >
               {submitOffer.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Submit offer
+              {existingOffer ? "Update offer" : "Submit offer"}
             </Button>
           </div>
         </form>

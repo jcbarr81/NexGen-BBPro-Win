@@ -893,6 +893,9 @@ function ContractCard({
         annual_salary: salary ? Number(salary) : undefined,
       }),
     onSuccess: (data) => {
+      // Confirm the acceptance — an accepted extension used to close silently.
+      const agreedYears = Number(years) || 1;
+      const agreedSalary = salary ? Number(salary) : undefined;
       setOpen(false);
       setError(null);
       setSalary("");
@@ -902,6 +905,11 @@ function ContractCard({
       queryClient.invalidateQueries({ queryKey: ["player-profile", playerId] });
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
       queryClient.invalidateQueries({ queryKey: ["team-roster"] });
+      toast.success(`${playerName} accepted the extension`, {
+        description: `+${agreedYears} year${agreedYears === 1 ? "" : "s"}${
+          agreedSalary ? ` at $${agreedSalary.toLocaleString()}/yr` : " at market value"
+        }.`,
+      });
       void data;
     },
     onError: (err) => {
@@ -1177,8 +1185,14 @@ function OwnerContractActions({
   const renewMut = useMutation({
     mutationFn: () => api.renewContract(playerId, Number(renewSalary) || 0),
     onSuccess: () => {
+      const amt = Number(renewSalary) || 0;
       setRenewSalary("");
       invalidate();
+      toast.success("Contract renewed", {
+        description: amt
+          ? `Renewed at $${amt.toLocaleString()}/yr.`
+          : "Renewed at the pre-arbitration figure.",
+      });
     },
   });
 
