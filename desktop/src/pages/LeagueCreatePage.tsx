@@ -1474,7 +1474,36 @@ function RulesStep({
             <input
               type="checkbox"
               checked={state.financeEnabled}
-              onChange={(e) => onPatch({ financeEnabled: e.target.checked })}
+              onChange={(e) => {
+                const on = e.target.checked;
+                // Enabling finance while the preset is still "off" (the default)
+                // would create a finance-"on" league with every module off — the
+                // exact trap that made finance look enabled but do nothing. When
+                // turning it on, default to a real preset if one isn't chosen.
+                if (
+                  on &&
+                  (state.financePreset === "off" || !state.financePreset)
+                ) {
+                  const preset = "standard";
+                  const profile =
+                    commish?.options.finance_preset_profiles?.[preset];
+                  onPatch({
+                    financeEnabled: true,
+                    financePreset: preset,
+                    ...(profile
+                      ? {
+                          financeEnforcement: profile.enforcement_mode,
+                          financeModules: {
+                            ...state.financeModules,
+                            ...profile.modules,
+                          },
+                        }
+                      : {}),
+                  });
+                } else {
+                  onPatch({ financeEnabled: on });
+                }
+              }}
               className="h-4 w-4 accent-amber"
             />
             Enable finance module
@@ -1513,11 +1542,15 @@ function RulesStep({
                       "mlb_like",
                       "off",
                       "custom",
-                    ]).map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
+                    ])
+                      // Finance is enabled here (this selector only shows then),
+                      // so "off" is contradictory — omit it.
+                      .filter((p) => p !== "off")
+                      .map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
                   </select>
                   <p className="text-[11px] leading-snug text-muted">
                     {FINANCE_PRESET_DESCRIPTIONS[state.financePreset] ?? ""}
