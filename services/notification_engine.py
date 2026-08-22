@@ -277,20 +277,6 @@ def _detect_news_events(
                         stop_sim=bool(rule.stop_sim),
                     )
                 )
-        elif category == "change_request":
-            rule = settings.rule("commissioner_action_required")
-            if rule.enabled and rule.notify:
-                events.append(
-                    NotificationEvent(
-                        rule_id="commissioner_action_required",
-                        severity="warning",
-                        title="Commissioner action required",
-                        message=message,
-                        sim_date=sim_date,
-                        payload={"team_id": team_id},
-                        stop_sim=bool(rule.stop_sim),
-                    )
-                )
         elif category == "trade":
             rule = settings.rule("trade_decided")
             if rule.enabled and rule.notify:

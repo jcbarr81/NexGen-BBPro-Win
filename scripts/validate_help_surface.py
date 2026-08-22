@@ -11,8 +11,9 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OWNER_DASHBOARD = ROOT / "ui" / "owner_dashboard.py"
-ADMIN_DASHBOARD = ROOT / "ui" / "_admin_dashboard_legacy.py"
+# The legacy PyQt owner/admin dashboards were retired with the desktop app; the
+# help surface now lives in the React renderer + docs, so this linter validates
+# the docs/manuals only.
 OWNER_ADMIN_GUIDE = ROOT / "docs" / "owner_admin_guide.md"
 GAME_MANUAL = ROOT / "docs" / "manuals" / "game_manual.html"
 FINANCE_MANUAL = ROOT / "docs" / "manuals" / "finance_system_manual.html"
@@ -108,21 +109,12 @@ def _require_absent(
 def run_validation() -> dict[str, Any]:
     findings: list[dict[str, Any]] = []
 
-    owner_ui = _load_text(OWNER_DASHBOARD, findings)
-    admin_ui = _load_text(ADMIN_DASHBOARD, findings)
     guide = _load_text(OWNER_ADMIN_GUIDE, findings)
     game_manual = _load_text(GAME_MANUAL, findings)
     finance_manual = _load_text(FINANCE_MANUAL, findings)
     checklist = _load_text(POST_INSTALL_CHECKLIST, findings)
 
     for label in ADMIN_WORKFLOW_LABELS:
-        _require_contains(
-            text=admin_ui,
-            token=label,
-            path=ADMIN_DASHBOARD,
-            findings=findings,
-            code="admin_workflow_missing_in_ui",
-        )
         _require_contains(
             text=guide,
             token=label,
@@ -133,13 +125,6 @@ def run_validation() -> dict[str, Any]:
 
     for label in ADMIN_ASSET_LABELS:
         _require_contains(
-            text=admin_ui,
-            token=label,
-            path=ADMIN_DASHBOARD,
-            findings=findings,
-            code="admin_asset_tutorial_missing_in_ui",
-        )
-        _require_contains(
             text=guide,
             token=label,
             path=OWNER_ADMIN_GUIDE,
@@ -148,20 +133,6 @@ def run_validation() -> dict[str, Any]:
         )
 
     for label in MANUAL_LABELS:
-        _require_contains(
-            text=owner_ui,
-            token=label,
-            path=OWNER_DASHBOARD,
-            findings=findings,
-            code="manual_label_missing_in_owner_ui",
-        )
-        _require_contains(
-            text=admin_ui,
-            token=label,
-            path=ADMIN_DASHBOARD,
-            findings=findings,
-            code="manual_label_missing_in_admin_ui",
-        )
         _require_contains(
             text=guide,
             token=label,
@@ -234,8 +205,6 @@ def run_validation() -> dict[str, Any]:
         "error_count": len(errors),
         "findings": findings,
         "checked_files": [
-            str(OWNER_DASHBOARD),
-            str(ADMIN_DASHBOARD),
             str(OWNER_ADMIN_GUIDE),
             str(GAME_MANUAL),
             str(FINANCE_MANUAL),
