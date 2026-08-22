@@ -43,6 +43,7 @@ import {
   api,
   type FaWindowStatus,
   type NotificationEvent,
+  type SeasonActionItem,
   type SeasonPhase,
   type SeasonReadiness,
   type SeasonState,
@@ -226,6 +227,7 @@ export function SeasonPage() {
           <FinanceTodoBanner />
           <PhaseHeader state={state.data} />
           <MetricsRow state={state.data} />
+          {teamId && <ActionItemsCard />}
           {multiOwner && isCommish && (
             <ReadinessBoard readiness={readiness.data} />
           )}
@@ -1165,6 +1167,68 @@ function FaBiddingWindowPanel({
 
 function _issueText(teamId: string, issue: string): string {
   return issue.startsWith(`${teamId}: `) ? issue.slice(teamId.length + 2) : issue;
+}
+
+/** Per-owner "turn feed": the things waiting on THIS owner right now (incoming
+ *  trade offers, an open FA window they haven't bid in, a preseason roster
+ *  that's blocking advancement). Computed live from current state. */
+function ActionItemsCard() {
+  const items = useQuery({
+    queryKey: ["season-action-items"],
+    queryFn: () => api.seasonActionItems(),
+    refetchOnWindowFocus: true,
+  });
+
+  const data = items.data;
+  // Nothing to nag about — stay quiet rather than render an empty card.
+  if (!data || data.count === 0) return null;
+
+  return (
+    <Card className="border-amber/40">
+      <CardHeader>
+        <div>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Bell className="h-4 w-4 text-amber" />
+            Needs your attention
+          </CardTitle>
+          <CardDescription>
+            {data.count} item{data.count === 1 ? "" : "s"} waiting on you
+            {data.deadline ? ` · deadline ${data.deadline}` : ""}
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {data.items.map((item) => (
+          <ActionItemRow key={item.kind} item={item} />
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ActionItemRow({ item }: { item: SeasonActionItem }) {
+  return (
+    <Link
+      to={item.href}
+      className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surfaceAlt/40 px-3 py-2 transition hover:border-amber/60 hover:bg-amber/10"
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle
+          className={cn(
+            "mt-0.5 h-4 w-4 shrink-0",
+            item.severity === "action" ? "text-amber" : "text-muted",
+          )}
+        />
+        <div>
+          <div className="text-sm font-semibold">{item.title}</div>
+          {item.detail && (
+            <div className="text-xs text-muted">{item.detail}</div>
+          )}
+        </div>
+      </div>
+      <ArrowRight className="h-4 w-4 shrink-0 text-muted" />
+    </Link>
+  );
 }
 
 /** Commissioner view: every human team's readiness, a deadline setter, and a

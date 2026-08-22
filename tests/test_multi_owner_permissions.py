@@ -166,6 +166,55 @@ def test_reverse_success_flips_and_marks(monkeypatch):
     assert committed == {"from_team": "BBB", "to_team": "AAA"}
 
 
+# --- per-owner action-items feed (Phase E) ---
+
+def test_action_items_team_none(monkeypatch):
+    monkeypatch.setattr(season, "_read_season_deadline", lambda: None)
+    out = season.season_action_items(identity={"r": "admin", "t": ""})
+    assert out["team_id"] is None
+    assert out["items"] == [] and out["count"] == 0
+
+
+def test_action_items_flags_incoming_trade(monkeypatch):
+    monkeypatch.setattr(season, "_read_season_deadline", lambda: None)
+    monkeypatch.setattr(
+        season, "SeasonManager",
+        lambda: SimpleNamespace(phase=SimpleNamespace(value="REGULAR_SEASON")),
+    )
+    monkeypatch.setattr("services.fa_window.window_status", lambda: {"status": None})
+    pend = Trade(
+        trade_id="t1", from_team="BBB", to_team="AAA",
+        give_player_ids=["p1"], receive_player_ids=["p2"], status="pending",
+    )
+    other = Trade(
+        trade_id="t2", from_team="AAA", to_team="CCC",
+        give_player_ids=["p3"], receive_player_ids=["p4"], status="pending",
+    )
+    monkeypatch.setattr("utils.trade_utils.load_trades", lambda: [pend, other])
+
+    out = season.season_action_items(identity={"r": "owner", "t": "AAA"})
+    kinds = [i["kind"] for i in out["items"]]
+    assert "trade_offer" in kinds
+    offer = next(i for i in out["items"] if i["kind"] == "trade_offer")
+    assert offer["count"] == 1 and offer["href"] == "/trades"
+
+
+def test_action_items_fa_waiting(monkeypatch):
+    monkeypatch.setattr(season, "_read_season_deadline", lambda: "2026-03-01")
+    monkeypatch.setattr(
+        season, "SeasonManager",
+        lambda: SimpleNamespace(phase=SimpleNamespace(value="OFFSEASON")),
+    )
+    monkeypatch.setattr("utils.trade_utils.load_trades", lambda: [])
+    monkeypatch.setattr(
+        "services.fa_window.window_status",
+        lambda: {"status": "open", "day": 3, "total_days": 14, "waiting": ["AAA"]},
+    )
+    out = season.season_action_items(identity={"r": "owner", "t": "AAA"})
+    assert any(i["kind"] == "fa_bid_needed" for i in out["items"])
+    assert out["deadline"] == "2026-03-01"
+
+
 def test_league_readiness_all_ready(monkeypatch):
     monkeypatch.setattr(season, "_human_team_ids", lambda: ["AAA"])
     monkeypatch.setattr(season, "_team_roster_compliance_errors", lambda t: [])

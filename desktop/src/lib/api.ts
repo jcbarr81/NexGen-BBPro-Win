@@ -1059,6 +1059,22 @@ export interface SeasonReadiness {
   unready: string[];
 }
 
+export interface SeasonActionItem {
+  kind: string;
+  severity: "action" | "info";
+  title: string;
+  detail: string;
+  count: number;
+  href: string;
+}
+
+export interface SeasonActionItems {
+  team_id: string | null;
+  items: SeasonActionItem[];
+  count: number;
+  deadline: string | null;
+}
+
 export interface SubmitFaOfferResponse {
   player_id: string;
   negotiation: {
@@ -2395,6 +2411,8 @@ export const api = {
       { method: "POST" },
     ),
   seasonReadiness: () => apiRequest<SeasonReadiness>("/season/readiness"),
+  seasonActionItems: () =>
+    apiRequest<SeasonActionItems>("/season/action-items"),
   seasonReadinessCpuFill: (teamId: string) =>
     apiRequest<{
       team_id: string;

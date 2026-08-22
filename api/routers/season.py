@@ -1897,6 +1897,111 @@ def set_season_deadline(
     return {"deadline": deadline}
 
 
+def _my_team_readiness_issues(team_id: str) -> List[str]:
+    """Readiness issues for a single team (roster + lineup + solvency)."""
+    issues = list(_team_roster_compliance_errors(team_id))
+    issues += _team_lineup_issues(team_id)
+    issues += _team_solvency_issues(team_id)
+    return issues
+
+
+@router.get("/action-items")
+def season_action_items(
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Per-owner "what needs my attention" feed for multi-owner coordination.
+
+    Computed live from current state (not the historical notification log), so
+    an owner logging in sees the turn-style items waiting on them right now:
+    incoming trade offers, an open FA window they haven't bid in, and — during
+    the preseason — a roster/lineup that's blocking the commissioner from
+    advancing. Purely a read; nothing here mutates state or auto-advances."""
+
+    team_id = str(identity.get("t") or "").strip()
+    items: List[Dict[str, Any]] = []
+    deadline = _read_season_deadline()
+
+    if not team_id:
+        # Team-less commissioner: the readiness board + FA panel already cover
+        # their coordination view, so there are no per-owner action items.
+        return {"team_id": None, "items": [], "count": 0, "deadline": deadline}
+
+    try:
+        phase = SeasonManager().phase.value
+    except Exception:
+        phase = None
+
+    # 1. Incoming trade offers addressed to my team.
+    try:
+        from utils.trade_utils import load_trades
+
+        pending = [
+            t
+            for t in load_trades()
+            if t.to_team == team_id and str(t.status).lower() == "pending"
+        ]
+    except Exception:
+        pending = []
+    if pending:
+        n = len(pending)
+        items.append(
+            {
+                "kind": "trade_offer",
+                "severity": "action",
+                "title": f"{n} trade offer{'s' if n != 1 else ''} awaiting your response",
+                "detail": "Review and accept, reject, or counter them on the Transactions page.",
+                "count": n,
+                "href": "/trades",
+            }
+        )
+
+    # 2. FA bidding window open and you have no live offer in it.
+    try:
+        from services.fa_window import window_status
+
+        win = window_status()
+    except Exception:
+        win = {}
+    if str(win.get("status")) == "open" and team_id in (win.get("waiting") or []):
+        day = win.get("day")
+        total = win.get("total_days")
+        when = f" (day {day} of {total})" if day and total else ""
+        items.append(
+            {
+                "kind": "fa_bid_needed",
+                "severity": "action",
+                "title": f"Free-agency window is open{when} — you have no active bid",
+                "detail": "Place or update offers before the commissioner advances the day.",
+                "count": 0,
+                "href": "/free-agency",
+            }
+        )
+
+    # 3. Preseason: your team is blocking the season from advancing.
+    if str(phase) == "PRESEASON":
+        human = _human_team_ids()
+        if len(human) >= 2:
+            my_issues = _my_team_readiness_issues(team_id)
+            if my_issues:
+                items.append(
+                    {
+                        "kind": "roster_not_ready",
+                        "severity": "action",
+                        "title": "Your team isn't ready for Opening Day",
+                        "detail": "; ".join(my_issues[:3]),
+                        "count": len(my_issues),
+                        "href": "/roster",
+                    }
+                )
+
+    return {
+        "team_id": team_id,
+        "items": items,
+        "count": len(items),
+        "deadline": deadline,
+    }
+
+
 @router.post("/preseason/training-camp")
 def preseason_training_camp(
     identity: Dict[str, Any] = Depends(require_bearer),
