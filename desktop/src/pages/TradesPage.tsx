@@ -18,6 +18,7 @@ import {
   Clock,
   Loader2,
   Plus,
+  RotateCcw,
   Trash2,
   XCircle,
 } from "lucide-react";
@@ -64,7 +65,9 @@ const STATUS_ORDER: Array<{ key: string; label: string }> = [
   { key: "pending", label: "Pending" },
   { key: "owner_accepted", label: "Owner Accepted" },
   { key: "accepted", label: "Accepted" },
+  { key: "reversed", label: "Reversed" },
   { key: "rejected", label: "Rejected" },
+  { key: "vetoed", label: "Vetoed" },
 ];
 
 interface ProposeTradePrefill {
@@ -85,6 +88,7 @@ export function TradesPage() {
   const [prefill, setPrefill] = useState<ProposeTradePrefill | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [vetoTarget, setVetoTarget] = useState<string | null>(null);
+  const [reverseTarget, setReverseTarget] = useState<string | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const effectiveScope: Scope = teamId ? scope : "all";
 
@@ -178,6 +182,33 @@ export function TradesPage() {
     onError: (err) =>
       setActionError(err instanceof Error ? err.message : "Veto failed."),
   });
+  const reverseMutation = useMutation({
+    meta: { suppressToast: true },
+    mutationFn: ({ id, note }: { id: string; note: string }) =>
+      api.reverseTrade(id, note),
+    onSuccess: () => {
+      setActionError(null);
+      refresh();
+      toast.info("Trade reversed");
+    },
+    onError: (err) => {
+      // The 409 blocker payload arrives as a JSON string in the message.
+      const raw = err instanceof Error ? err.message : "Reverse failed.";
+      let msg = raw;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed?.message) {
+          msg = parsed.message;
+          if (Array.isArray(parsed.blockers) && parsed.blockers.length) {
+            msg += " " + parsed.blockers.join("; ");
+          }
+        }
+      } catch {
+        /* not JSON — use raw */
+      }
+      setActionError(msg);
+    },
+  });
 
   const isAdmin = useAuthStore((s) => s.role) === "admin";
   const [counterTarget, setCounterTarget] = useState<TradeRecord | null>(null);
@@ -225,12 +256,16 @@ export function TradesPage() {
     adminVeto: (id: string) => {
       setVetoTarget(id);
     },
+    reverse: (id: string) => {
+      setReverseTarget(id);
+    },
     pending:
       acceptMutation.isPending ||
       rejectMutation.isPending ||
       withdrawMutation.isPending ||
       adminApproveMutation.isPending ||
-      adminVetoMutation.isPending,
+      adminVetoMutation.isPending ||
+      reverseMutation.isPending,
   };
 
   // Stable ordered list of (status, rows) so the tab row doesn't reshuffle
@@ -241,25 +276,25 @@ export function TradesPage() {
       return [] as Array<{ key: string; label: string; rows: TradeRecord[] }>;
     const groups = trades.data.grouped ?? {};
 
-    // Synthetic tab: pending offers from the CPU addressed to the user.
-    // These are the ones that need a response right now, so they get
-    // top billing.
-    const cpuInbox = (groups["pending"] ?? []).filter(
-      (t) =>
-        t.initiated_by === "cpu" && !!teamId && t.to_team === teamId,
+    // Synthetic tab: every pending offer addressed to the user that needs
+    // a response right now — CPU offers AND human owner-to-owner proposals.
+    // These get top billing so an incoming trade never hides in the general
+    // Pending list.
+    const inbox = (groups["pending"] ?? []).filter(
+      (t) => !!teamId && t.to_team === teamId,
     );
 
     const known: Array<{ key: string; label: string; rows: TradeRecord[] }> = [];
     if (teamId) {
-      known.push({ key: "from_cpu", label: "Offers from CPU", rows: cpuInbox });
+      known.push({ key: "inbox", label: "Offers to you", rows: inbox });
     }
     for (const { key, label } of STATUS_ORDER) {
       let rows = groups[key] ?? [];
-      // Don't double-list the CPU offers in the regular Pending tab —
-      // they're already visible in From CPU.
-      if (key === "pending" && cpuInbox.length > 0) {
-        const cpuIds = new Set(cpuInbox.map((t) => t.trade_id));
-        rows = rows.filter((t) => !cpuIds.has(t.trade_id));
+      // Don't double-list the inbox offers in the regular Pending tab —
+      // they're already surfaced in "Offers to you".
+      if (key === "pending" && inbox.length > 0) {
+        const inboxIds = new Set(inbox.map((t) => t.trade_id));
+        rows = rows.filter((t) => !inboxIds.has(t.trade_id));
       }
       known.push({ key, label, rows });
     }
@@ -454,6 +489,15 @@ export function TradesPage() {
           setVetoTarget(null);
         }}
       />
+      <ReverseDialog
+        tradeId={reverseTarget}
+        onOpenChange={(open) => !open && setReverseTarget(null)}
+        onConfirm={(note) => {
+          if (!reverseTarget) return;
+          reverseMutation.mutate({ id: reverseTarget, note });
+          setReverseTarget(null);
+        }}
+      />
       {confirmDialog}
     </AppShell>
   );
@@ -508,6 +552,57 @@ function VetoDialog({
   );
 }
 
+function ReverseDialog({
+  tradeId,
+  onOpenChange,
+  onConfirm,
+}: {
+  tradeId: string | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (note: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  return (
+    <Dialog open={!!tradeId} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reverse trade</DialogTitle>
+          <DialogDescription>
+            Undo this committed trade, swapping the players and picks back to
+            their original teams. Both owners are notified. Use this for a
+            lopsided deal — it only works while the traded assets are still
+            where the trade left them.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="reverse-note">Reason (shown to owners)</Label>
+          <textarea
+            id="reverse-note"
+            className="h-24 w-full rounded-md border border-border bg-surface px-2 py-1 text-sm"
+            placeholder="e.g. Clearly lopsided — reversing per league policy"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </div>
+        <div className="mt-3 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              onConfirm(note);
+              setNote("");
+            }}
+          >
+            Confirm reverse
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 interface RowActions {
   teamId: string | null;
   isAdmin: boolean;
@@ -518,6 +613,7 @@ interface RowActions {
   adminApprove: (id: string) => void;
   adminForceApprove: (id: string) => void;
   adminVeto: (id: string) => void;
+  reverse: (id: string) => void;
   pending: boolean;
 }
 
@@ -567,6 +663,8 @@ function TradeCard({
   // can withdraw. Admin (no team) sees both.
   const canRespond = isPending && (!activeTeamId || toActive);
   const canWithdraw = isPending && (!activeTeamId || fromActive);
+  // Commissioner can undo a lopsided deal after it commits.
+  const canReverse = status === "accepted" && actions.isAdmin;
   return (
     <Card>
       <CardHeader>
@@ -605,6 +703,31 @@ function TradeCard({
         />
       </CardContent>
       {trade.cpu_eval && <CpuEvalBlock evaluation={trade.cpu_eval} />}
+      {status === "reversed" && (
+        <div className="flex items-center gap-2 border-t border-border/60 bg-surfaceAlt/40 px-6 py-2 text-xs text-muted">
+          <RotateCcw className="h-3 w-3" />
+          <span>
+            Reversed by the commissioner
+            {trade.reversal?.note ? ` — ${trade.reversal.note}` : ""}
+          </span>
+        </div>
+      )}
+      {canReverse && (
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/60 bg-surfaceAlt/40 px-6 py-3">
+          <span className="mr-auto text-[10px] uppercase tracking-wider text-amber">
+            Admin
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => actions.reverse(trade.trade_id)}
+            disabled={actions.pending}
+            title="Undo this committed trade, swapping the assets back"
+          >
+            <RotateCcw className="h-3 w-3" /> Reverse
+          </Button>
+        </div>
+      )}
       {(canRespond || canWithdraw || (isPending && actions.isAdmin)) && (
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/60 bg-surfaceAlt/40 px-6 py-3">
           {canWithdraw && (
@@ -764,17 +887,19 @@ function StatusBadge({ status }: { status: string }) {
 
 function toneFor(status: string): "amber" | "success" | "danger" | "neutral" {
   const key = status.toLowerCase();
-  if (key === "from_cpu") return "amber";
+  if (key === "inbox") return "amber";
   if (key === "pending" || key === "owner_accepted") return "amber";
   if (key === "accepted") return "success";
-  if (key === "rejected") return "danger";
+  if (key === "rejected" || key === "vetoed") return "danger";
+  if (key === "reversed") return "neutral";
   return "neutral";
 }
 
 function iconFor(status: string) {
   const key = status.toLowerCase();
   if (key === "accepted") return CheckCircle2;
-  if (key === "rejected") return XCircle;
+  if (key === "reversed") return RotateCcw;
+  if (key === "rejected" || key === "vetoed") return XCircle;
   return Clock;
 }
 

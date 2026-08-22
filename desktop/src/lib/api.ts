@@ -720,6 +720,13 @@ export interface TradeCpuEvaluation {
   reasons: string[];
 }
 
+export interface TradeReversal {
+  note: string;
+  from_team: string;
+  to_team: string;
+  by: string;
+}
+
 export interface TradeRecord {
   trade_id: string;
   from_team: string;
@@ -727,6 +734,7 @@ export interface TradeRecord {
   status: string;
   initiated_by: "human" | "cpu";
   cpu_eval: TradeCpuEvaluation | null;
+  reversal?: TradeReversal | null;
   give_players: TradePlayer[];
   receive_players: TradePlayer[];
   give_picks: string[];
@@ -2574,6 +2582,11 @@ export const api = {
   adminVetoTrade: (tradeId: string, note = "") =>
     apiRequest<{ trade_id: string; status: string; note: string }>(
       `/trades/${encodeURIComponent(tradeId)}/veto`,
+      { method: "POST", body: { note } },
+    ),
+  reverseTrade: (tradeId: string, note = "") =>
+    apiRequest<{ trade_id: string; status: string; note: string }>(
+      `/trades/${encodeURIComponent(tradeId)}/reverse`,
       { method: "POST", body: { note } },
     ),
   acceptTrade: (tradeId: string) =>

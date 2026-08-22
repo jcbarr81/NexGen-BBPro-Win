@@ -99,6 +99,7 @@ def list_trades(
 ) -> Dict[str, Any]:
     trades = load_trades()
     cpu_evals = _load_cpu_evals()
+    reversals = _load_reversals()
 
     # One players.csv hydration for all trades.
     try:
@@ -122,6 +123,7 @@ def list_trades(
                 "status": trade.status,
                 "initiated_by": getattr(trade, "initiated_by", "human") or "human",
                 "cpu_eval": cpu_evals.get(trade.trade_id),
+                "reversal": reversals.get(trade.trade_id),
                 "give_players": [
                     _player_summary(players.get(pid), pid) for pid in trade.give_player_ids
                 ],
@@ -206,6 +208,43 @@ def _persist_cpu_eval(trade_id: str, evaluation: Dict[str, Any]) -> None:
     history = _load_cpu_evals()
     history[str(trade_id)] = evaluation
     path = _cpu_eval_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(history, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+_REVERSAL_FILENAME = "trade_reversals.json"
+
+
+def _reversal_path():
+    from utils.path_utils import get_data_dir
+
+    return get_data_dir() / _REVERSAL_FILENAME
+
+
+def _load_reversals() -> Dict[str, Dict[str, Any]]:
+    import json
+
+    path = _reversal_path()
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {str(k): v for k, v in payload.items() if isinstance(v, dict)}
+
+
+def _persist_reversal(trade_id: str, record: Dict[str, Any]) -> None:
+    import json
+
+    history = _load_reversals()
+    history[str(trade_id)] = record
+    path = _reversal_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(history, indent=2), encoding="utf-8")
@@ -530,6 +569,136 @@ def admin_veto_trade(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
+    return {"trade_id": trade.trade_id, "status": trade.status, "note": note}
+
+
+_ROSTER_LEVELS = ("act", "aaa", "low", "dl", "ir")
+
+
+def _roster_members(roster: Any) -> set[str]:
+    members: set[str] = set()
+    for level in _ROSTER_LEVELS:
+        members.update(getattr(roster, level, []) or [])
+    return members
+
+
+@router.post("/{trade_id}/reverse")
+def reverse_trade(
+    trade_id: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Commissioner undo of a committed (accepted) trade.
+
+    Per the multi-owner rule set: owners agreeing commits a trade with no
+    commissioner pre-approval, but the commissioner may REVERSE a committed
+    trade if it's lopsided. The reverse swaps the players/picks back to their
+    original teams and marks the trade ``reversed`` with an audit note.
+
+    Safe only while the traded assets are still where the trade left them
+    (give players on the receiving team, receive players on the proposing
+    team, picks with their new owners). If a player has since been optioned,
+    released, or traded on, the reverse is refused so we never duplicate or
+    misplace a roster spot — the commissioner resolves that case manually.
+    """
+
+    _require_admin(identity)
+    trade = _find_trade(trade_id)
+    if str(trade.status).lower() != "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Only an accepted trade can be reversed (this one is {trade.status}).",
+        )
+
+    note = str(payload.get("note", "")).strip()
+
+    # Verify the assets are still in place before reversing.
+    from_roster = load_roster(trade.from_team)
+    to_roster = load_roster(trade.to_team)
+    from_members = _roster_members(from_roster)
+    to_members = _roster_members(to_roster)
+
+    misplaced: List[str] = []
+    for pid in trade.give_player_ids:  # went from_team -> to_team
+        if pid not in to_members:
+            misplaced.append(f"{pid} is no longer on {trade.to_team}")
+    for pid in trade.receive_player_ids:  # went to_team -> from_team
+        if pid not in from_members:
+            misplaced.append(f"{pid} is no longer on {trade.from_team}")
+
+    from services.draft_pick_ledger import get_pick_owner, parse_pick_id
+
+    def _pick_misplaced(pick_ids: List[str], expected_owner: str) -> None:
+        for pick_id in pick_ids or []:
+            try:
+                year, round_no, original_team = parse_pick_id(pick_id)
+                owner = get_pick_owner(year, round_no, original_team)
+            except Exception:
+                continue
+            if owner != expected_owner:
+                misplaced.append(f"pick {pick_id} is no longer held by {expected_owner}")
+
+    _pick_misplaced(trade.give_pick_ids, trade.to_team)
+    _pick_misplaced(trade.receive_pick_ids, trade.from_team)
+
+    if misplaced:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": (
+                    "This trade can't be auto-reversed because assets have moved "
+                    "since it was committed. Resolve it manually."
+                ),
+                "blockers": misplaced,
+            },
+        )
+
+    # Build the mirror trade (proposing/receiving flipped) and commit it,
+    # which walks the same roster + pick swap in reverse.
+    reverse = Trade(
+        trade_id=trade.trade_id,  # same id so transaction log ties them together
+        from_team=trade.to_team,
+        to_team=trade.from_team,
+        give_player_ids=list(trade.give_player_ids),
+        receive_player_ids=list(trade.receive_player_ids),
+        give_pick_ids=list(trade.give_pick_ids or []),
+        receive_pick_ids=list(trade.receive_pick_ids or []),
+        initiated_by=getattr(trade, "initiated_by", "human") or "human",
+    )
+    _commit_trade(reverse)
+
+    trade.status = "reversed"
+    try:
+        save_trade(trade)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
+    _persist_reversal(
+        trade.trade_id,
+        {
+            "note": note,
+            "from_team": trade.from_team,
+            "to_team": trade.to_team,
+            "by": str(identity.get("u") or "commissioner"),
+        },
+    )
+
+    # News line so both owners SEE the reversal.
+    try:
+        from utils.news_logger import log_news_event
+
+        suffix = f" — {note}" if note else ""
+        log_news_event(
+            f"TRADE REVERSED by the commissioner: {trade.from_team} ⇄ "
+            f"{trade.to_team} (trade {trade.trade_id}){suffix}",
+            category="trade",
+            team_id=trade.from_team,
+        )
+    except Exception:
+        pass
+
     return {"trade_id": trade.trade_id, "status": trade.status, "note": note}
 
 

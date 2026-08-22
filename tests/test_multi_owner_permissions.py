@@ -9,10 +9,17 @@ from fastapi import HTTPException
 
 import api.routers.season as season
 import api.routers.trades as trades
+from models.trade import Trade
 
 
 def _tr(from_team="AAA", to_team="BBB"):
     return SimpleNamespace(from_team=from_team, to_team=to_team)
+
+
+def _roster(*, act=(), aaa=(), low=(), dl=(), ir=()):
+    return SimpleNamespace(
+        act=list(act), aaa=list(aaa), low=list(low), dl=list(dl), ir=list(ir)
+    )
 
 
 # --- season progression gate ---
@@ -96,6 +103,67 @@ def test_league_readiness_aggregates(monkeypatch):
     bbb = next(t for t in r["teams"] if t["team_id"] == "BBB")
     assert aaa["ready"] is True and bbb["ready"] is False
     assert bbb["issues"] == ["BBB: over the ACT cap"]
+
+
+# --- trade reverse (commissioner undo of a committed trade) ---
+
+def test_reverse_requires_admin():
+    with pytest.raises(HTTPException) as exc:
+        trades.reverse_trade("t1", payload={}, identity={"r": "owner", "t": "AAA"})
+    assert exc.value.status_code == 403
+
+
+def test_reverse_only_accepted(monkeypatch):
+    tr = Trade(
+        trade_id="t1", from_team="AAA", to_team="BBB",
+        give_player_ids=["p1"], receive_player_ids=["p2"], status="pending",
+    )
+    monkeypatch.setattr(trades, "_find_trade", lambda tid: tr)
+    with pytest.raises(HTTPException) as exc:
+        trades.reverse_trade("t1", payload={}, identity={"r": "admin"})
+    assert exc.value.status_code == 409
+
+
+def test_reverse_blocks_when_asset_moved(monkeypatch):
+    # p1 went AAA->BBB, p2 went BBB->AAA. But p1 is no longer on BBB.
+    tr = Trade(
+        trade_id="t1", from_team="AAA", to_team="BBB",
+        give_player_ids=["p1"], receive_player_ids=["p2"], status="accepted",
+    )
+    monkeypatch.setattr(trades, "_find_trade", lambda tid: tr)
+    rosters = {"AAA": _roster(act=["p2"]), "BBB": _roster(act=[])}
+    monkeypatch.setattr(trades, "load_roster", lambda tid: rosters[tid])
+    with pytest.raises(HTTPException) as exc:
+        trades.reverse_trade("t1", payload={}, identity={"r": "admin"})
+    assert exc.value.status_code == 409
+    assert "blockers" in exc.value.detail
+
+
+def test_reverse_success_flips_and_marks(monkeypatch):
+    tr = Trade(
+        trade_id="t1", from_team="AAA", to_team="BBB",
+        give_player_ids=["p1"], receive_player_ids=["p2"], status="accepted",
+    )
+    monkeypatch.setattr(trades, "_find_trade", lambda tid: tr)
+    # Assets in place: p1 on BBB (received it), p2 on AAA (received it).
+    rosters = {"AAA": _roster(act=["p2"]), "BBB": _roster(act=["p1"])}
+    monkeypatch.setattr(trades, "load_roster", lambda tid: rosters[tid])
+
+    committed = {}
+    monkeypatch.setattr(
+        trades, "_commit_trade",
+        lambda t: committed.update(from_team=t.from_team, to_team=t.to_team),
+    )
+    monkeypatch.setattr(trades, "save_trade", lambda t: None)
+    monkeypatch.setattr(trades, "_persist_reversal", lambda tid, rec: None)
+
+    out = trades.reverse_trade(
+        "t1", payload={"note": "lopsided"}, identity={"r": "admin", "u": "boss"}
+    )
+    assert out["status"] == "reversed"
+    assert tr.status == "reversed"
+    # The mirror trade swaps proposing/receiving teams.
+    assert committed == {"from_team": "BBB", "to_team": "AAA"}
 
 
 def test_league_readiness_all_ready(monkeypatch):
