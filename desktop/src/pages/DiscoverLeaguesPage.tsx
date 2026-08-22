@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Loader2, Ticket } from "lucide-react";
 
@@ -20,8 +20,12 @@ import { toast } from "@/lib/toast-store";
 
 export function DiscoverLeaguesPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const setActiveLeague = useAuthStore((s) => s.setActiveLeague);
-  const [code, setCode] = useState("");
+  // Pre-fill from an emailed invite link, e.g. /discover?code=ABCD2345.
+  const [code, setCode] = useState(() =>
+    (searchParams.get("code") ?? "").trim().toUpperCase(),
+  );
   const [redeeming, setRedeeming] = useState(false);
   const [requested, setRequested] = useState<Record<string, boolean>>({});
 

@@ -1,7 +1,18 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Copy, Loader2, Ticket, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  Copy,
+  Loader2,
+  Mail,
+  Send,
+  Ticket,
+  Trash2,
+  XCircle,
+} from "lucide-react";
 
 import { api } from "@/lib/api";
 import { useTeams } from "@/lib/use-teams";
@@ -13,8 +24,16 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Input,
 } from "@/components/ui";
 import { toast } from "@/lib/toast-store";
+
+function parseEmails(raw: string): string[] {
+  return raw
+    .split(/[,\s]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
 
 function TeamSelect({
   value,
@@ -40,6 +59,236 @@ function TeamSelect({
         </option>
       ))}
     </select>
+  );
+}
+
+type EmailResult = {
+  email: string;
+  team_id: string;
+  code: string | null;
+  sent: boolean;
+  error: string | null;
+};
+
+function EmailInvitesCard({
+  teams,
+}: {
+  teams: Array<{ team_id: string; name: string; city: string }>;
+}) {
+  const qc = useQueryClient();
+  const statusQ = useQuery({
+    queryKey: ["invite-email-status"],
+    queryFn: () => api.inviteEmailStatus(),
+  });
+  const recipientsQ = useQuery({
+    queryKey: ["invite-recipients"],
+    queryFn: () => api.inviteRecipients(),
+    enabled: statusQ.data?.configured === true,
+  });
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [extra, setExtra] = useState("");
+  const [team, setTeam] = useState("");
+  const [results, setResults] = useState<EmailResult[] | null>(null);
+
+  const send = useMutation({
+    mutationFn: () => {
+      const emails = Array.from(
+        new Set([...selected, ...parseEmails(extra)]),
+      );
+      return api.emailInvites({
+        team_id: team || undefined,
+        recipients: emails,
+      });
+    },
+    onSuccess: (data) => {
+      setResults(data.results);
+      qc.invalidateQueries({ queryKey: ["invites"] });
+      if (data.sent_count > 0) {
+        toast.success(
+          `Sent ${data.sent_count} invite${data.sent_count === 1 ? "" : "s"}`,
+        );
+      }
+      if (data.failed_count > 0) {
+        toast.error(
+          `${data.failed_count} invite${data.failed_count === 1 ? "" : "s"} failed`,
+        );
+      }
+      setSelected(new Set());
+      setExtra("");
+    },
+    onError: (err) =>
+      toast.error("Couldn't send invites", {
+        description: err instanceof Error ? err.message : undefined,
+      }),
+  });
+
+  const totalChosen = selected.size + parseEmails(extra).length;
+
+  // Not configured yet → show the one-time setup hint instead of a dead form.
+  if (statusQ.data && !statusQ.data.configured) {
+    return (
+      <Card>
+        <CardHeader>
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="h-4 w-4" /> Email invites
+            </CardTitle>
+            <CardDescription>
+              Email invite codes straight to owners — once email is set up.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-start gap-2 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+            <div className="space-y-1">
+              <p className="font-semibold">Email isn't configured yet.</p>
+              <p className="text-muted">
+                Set <span className="font-mono">SENDGRID_API_KEY</span> and{" "}
+                <span className="font-mono">INVITE_EMAIL_FROM</span> (a verified
+                SendGrid sender) on the server, then reload. Until then you can
+                still generate a code above and share it manually.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const recipients = recipientsQ.data?.recipients ?? [];
+
+  function toggle(email: string) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(email)) next.delete(email);
+      else next.add(email);
+      return next;
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="h-4 w-4" /> Email invites
+          </CardTitle>
+          <CardDescription>
+            Pick registered users (or type any email), choose a team, and each
+            gets their own code by email.
+            {statusQ.data?.from_address ? (
+              <>
+                {" "}
+                Sent from{" "}
+                <span className="font-mono">{statusQ.data.from_address}</span>.
+              </>
+            ) : null}
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Registered users */}
+        {recipientsQ.isLoading ? (
+          <p className="text-sm text-muted">Loading users…</p>
+        ) : recipients.length === 0 ? (
+          <p className="text-sm text-muted">
+            No registered users to list yet — use the email box below.
+          </p>
+        ) : (
+          <div className="max-h-56 space-y-1 overflow-auto rounded-md border border-border p-2">
+            {recipients.map((r) => (
+              <label
+                key={r.uid || r.email}
+                className={
+                  "flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm " +
+                  (r.in_league
+                    ? "opacity-50"
+                    : "cursor-pointer hover:bg-surfaceAlt/60")
+                }
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    disabled={r.in_league}
+                    checked={selected.has(r.email)}
+                    onChange={() => toggle(r.email)}
+                  />
+                  <div>
+                    <div className="font-semibold">{r.handle}</div>
+                    <div className="text-xs text-muted">{r.email}</div>
+                  </div>
+                </div>
+                {r.in_league && (
+                  <Badge tone="neutral">
+                    in league{r.team_id ? ` · ${r.team_id}` : ""}
+                  </Badge>
+                )}
+              </label>
+            ))}
+          </div>
+        )}
+
+        {/* Free-text emails */}
+        <div className="space-y-1">
+          <label className="text-xs font-semibold uppercase tracking-wider text-muted">
+            Or invite by email
+          </label>
+          <Input
+            value={extra}
+            onChange={(e) => setExtra(e.target.value)}
+            placeholder="friend@example.com, another@example.com"
+          />
+        </div>
+
+        {/* Team + send */}
+        <div className="flex flex-wrap items-center gap-2">
+          <TeamSelect
+            value={team}
+            onChange={setTeam}
+            teams={teams}
+            placeholder="Any team (assign later)"
+          />
+          <Button
+            onClick={() => send.mutate()}
+            disabled={send.isPending || totalChosen === 0}
+          >
+            {send.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+            Send {totalChosen > 0 ? `${totalChosen} ` : ""}invite
+            {totalChosen === 1 ? "" : "s"}
+          </Button>
+        </div>
+
+        {/* Results */}
+        {results && results.length > 0 && (
+          <div className="space-y-1 rounded-md border border-border p-2 text-sm">
+            {results.map((r) => (
+              <div key={r.email} className="flex items-center gap-2">
+                {r.sent ? (
+                  <CheckCircle2 className="h-4 w-4 text-success" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-danger" />
+                )}
+                <span className="font-semibold">{r.email}</span>
+                {r.sent ? (
+                  <span className="text-muted">
+                    sent{r.team_id ? ` · ${r.team_id}` : ""}
+                    {r.code ? ` · ${r.code}` : ""}
+                  </span>
+                ) : (
+                  <span className="text-danger">{r.error}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -158,6 +407,9 @@ export function CommissionerMembersPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Email invites */}
+        <EmailInvitesCard teams={teams} />
 
         {/* Join requests */}
         <Card>

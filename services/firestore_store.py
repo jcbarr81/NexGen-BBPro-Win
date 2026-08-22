@@ -88,6 +88,12 @@ def get_account(uid: str) -> Optional[Dict[str, Any]]:
     return _doc_to_dict(_db().collection("accounts").document(uid).get())
 
 
+def list_accounts() -> List[Dict[str, Any]]:
+    """Every registered account (uid, email, handle, ...). Small collection;
+    used by the commissioner invite-by-email recipient picker."""
+    return [_doc_to_dict(d) for d in _db().collection("accounts").stream()]
+
+
 def upsert_account(uid: str, *, email: str, handle: str, package: str) -> Dict[str, Any]:
     ref = _db().collection("accounts").document(uid)
     existing = ref.get()
@@ -275,7 +281,13 @@ def list_user_memberships(uid: str) -> List[Dict[str, Any]]:
 # knowing the league id. ``league_id`` is a field (single-field auto-index).
 
 def create_invite(
-    league_id: str, *, code: str, team_id: str, created_by: str, max_uses: int = 1
+    league_id: str,
+    *,
+    code: str,
+    team_id: str,
+    created_by: str,
+    max_uses: int = 1,
+    email: str = "",
 ) -> Dict[str, Any]:
     ref = _db().collection("invites").document(code)
     ref.set(
@@ -287,6 +299,9 @@ def create_invite(
             "created_by": created_by,
             "max_uses": max_uses,
             "uses": 0,
+            # Recorded when the invite was emailed to a specific address, so the
+            # invites list can show who it was sent to (delivery is not tracked).
+            "email": (email or "").strip(),
             "created_at": _server_ts(),
         }
     )

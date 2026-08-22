@@ -1659,6 +1659,39 @@ export const api = {
       `/invites/${encodeURIComponent(code)}/revoke`,
       { method: "POST" },
     ),
+  inviteEmailStatus: () =>
+    apiRequest<{
+      configured: boolean;
+      from_address: string | null;
+      from_name: string;
+      provider: string;
+    }>("/invites/email/status"),
+  inviteRecipients: () =>
+    apiRequest<{
+      recipients: Array<{
+        uid: string;
+        email: string;
+        handle: string;
+        in_league: boolean;
+        team_id: string;
+      }>;
+      count: number;
+    }>("/invites/recipients"),
+  emailInvites: (payload: {
+    team_id?: string;
+    recipients: Array<string | { email: string; team_id?: string }>;
+  }) =>
+    apiRequest<{
+      results: Array<{
+        email: string;
+        team_id: string;
+        code: string | null;
+        sent: boolean;
+        error: string | null;
+      }>;
+      sent_count: number;
+      failed_count: number;
+    }>("/invites/email", { method: "POST", body: payload }),
   redeemInvite: (code: string) =>
     apiRequest<{ league_id: string; team_id: string; status: string }>(
       "/invites/redeem",
