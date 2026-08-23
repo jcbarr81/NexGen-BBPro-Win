@@ -68,6 +68,8 @@ cython_debug/
 # Virtual environments
 .env
 .venv
+.venv2
+.venv2/
 env/
 venv/
 ENV/
@@ -76,6 +78,9 @@ venv.bak/
 .env/
 .venv/
 pythonenv*
+
+# Firebase hosting deploy cache
+.firebase/
 
 # IDE / Editor directories
 .vscode/
