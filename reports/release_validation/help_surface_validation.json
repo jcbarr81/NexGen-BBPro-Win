@@ -3,11 +3,9 @@
   "error_count": 0,
   "findings": [],
   "checked_files": [
-    "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\ui\\owner_dashboard.py",
-    "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\ui\\_admin_dashboard_legacy.py",
-    "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\docs\\owner_admin_guide.md",
-    "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\docs\\manuals\\game_manual.html",
-    "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\docs\\manuals\\finance_system_manual.html",
-    "C:\\Users\\james\\Documents\\Baseball-AI\\NexGen-BBPro\\docs\\post_installer_ui_checklist.md"
+    "C:\\Users\\james\\OneDrive\\Documents\\Baseball-AI\\NexGen-BBPro\\docs\\owner_admin_guide.md",
+    "C:\\Users\\james\\OneDrive\\Documents\\Baseball-AI\\NexGen-BBPro\\docs\\manuals\\game_manual.html",
+    "C:\\Users\\james\\OneDrive\\Documents\\Baseball-AI\\NexGen-BBPro\\docs\\manuals\\finance_system_manual.html",
+    "C:\\Users\\james\\OneDrive\\Documents\\Baseball-AI\\NexGen-BBPro\\docs\\post_installer_ui_checklist.md"
   ]
 }
