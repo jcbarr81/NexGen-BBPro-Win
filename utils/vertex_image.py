@@ -26,12 +26,13 @@ from typing import Any, Dict, Optional, Tuple
 
 _LOG = logging.getLogger("nexgen.vertex_image")
 
-# Imagen model + region. Overridable via env without a code change.
-# Default to a "fast" model: the base ``imagen-3.0-generate`` quota is only
-# 1 req/min (instant 429 on a batch); ``imagen-4.0-fast-generate`` allows
-# 20/min and is cheaper — plenty for logos/avatars.
-_MODEL = os.environ.get("NEXGEN_VERTEX_IMAGE_MODEL", "imagen-4.0-fast-generate-001")
-_LOCATION = os.environ.get("NEXGEN_VERTEX_LOCATION", "us-central1")
+# Image model + region. Overridable via env without a code change.
+# Default to the Gemini-native image model ("Nano Banana" family), served from
+# the ``global`` endpoint via generateContent. The older Imagen ``:predict``
+# models were retired; a model id starting with "imagen" still routes through
+# the legacy predict path below for backward compatibility.
+_MODEL = os.environ.get("NEXGEN_VERTEX_IMAGE_MODEL", "gemini-2.5-flash-image")
+_LOCATION = os.environ.get("NEXGEN_VERTEX_LOCATION", "global")
 _SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 
 # Pace requests to stay under the per-minute quota (20/min ≈ 1 per 3s) with a
@@ -100,8 +101,13 @@ def status() -> Dict[str, Any]:
     return {
         "status": "ok",
         "ok": True,
-        "message": f"Vertex AI Imagen ready ({_MODEL} @ {_LOCATION}).",
+        "message": f"Vertex AI image generation ready ({_MODEL} @ {_LOCATION}).",
     }
+
+
+def _api_host() -> str:
+    """The regional API host — the ``global`` location uses the un-prefixed host."""
+    return "aiplatform.googleapis.com" if _LOCATION == "global" else f"{_LOCATION}-aiplatform.googleapis.com"
 
 
 def _access_token() -> Tuple[str, str]:
@@ -140,18 +146,29 @@ def generate_png(prompt: str, size: int = 1024) -> bytes:
     the caller can fall back to another engine.
     """
     if not is_available():
-        raise RuntimeError("Vertex AI Imagen is not available.")
+        raise RuntimeError("Vertex AI image generation is not available.")
     import httpx
 
     token, project = _access_token()
+    is_imagen = _MODEL.lower().startswith("imagen")
+    verb = "predict" if is_imagen else "generateContent"
     url = (
-        f"https://{_LOCATION}-aiplatform.googleapis.com/v1/projects/{project}"
-        f"/locations/{_LOCATION}/publishers/google/models/{_MODEL}:predict"
+        f"https://{_api_host()}/v1/projects/{project}"
+        f"/locations/{_LOCATION}/publishers/google/models/{_MODEL}:{verb}"
     )
-    body = {
-        "instances": [{"prompt": prompt}],
-        "parameters": {"sampleCount": 1, "aspectRatio": "1:1"},
-    }
+    if is_imagen:
+        # Legacy Imagen ``:predict`` shape.
+        body: dict = {
+            "instances": [{"prompt": prompt}],
+            "parameters": {"sampleCount": 1, "aspectRatio": "1:1"},
+        }
+    else:
+        # Gemini-native image ("Nano Banana"): generateContent with an IMAGE
+        # response modality; the image comes back as inline base64 data.
+        body = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"responseModalities": ["IMAGE"]},
+        }
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     backoff = 8.0
@@ -160,19 +177,36 @@ def generate_png(prompt: str, size: int = 1024) -> bytes:
         _throttle()
         resp = httpx.post(url, headers=headers, json=body, timeout=120.0)
         if resp.status_code == 200:
-            preds = (resp.json() or {}).get("predictions") or []
-            if not preds:
-                raise RuntimeError("Vertex AI returned no image (prompt may have been filtered).")
-            b64 = preds[0].get("bytesBase64Encoded")
-            if not b64:
-                raise RuntimeError("Vertex AI prediction had no image bytes.")
-            return base64.b64decode(b64)
+            return _decode_image(resp.json() or {}, is_imagen)
         if resp.status_code == 429 and attempt < _MAX_RETRIES:
             # Rate limited — wait out the per-minute window and retry.
-            _LOG.warning("Vertex Imagen 429 (attempt %d); backing off %.0fs", attempt + 1, backoff)
+            _LOG.warning("Vertex image 429 (attempt %d); backing off %.0fs", attempt + 1, backoff)
             time.sleep(backoff)
             backoff = min(backoff * 2, 60.0)
             continue
         last_err = f"{resp.status_code}: {resp.text[:300]}"
         break
-    raise RuntimeError(f"Vertex Imagen error {last_err}")
+    raise RuntimeError(f"Vertex image error {last_err}")
+
+
+def _decode_image(payload: dict, is_imagen: bool) -> bytes:
+    """Pull the PNG bytes out of an Imagen or Gemini-image response."""
+    if is_imagen:
+        preds = payload.get("predictions") or []
+        if not preds:
+            raise RuntimeError("Vertex AI returned no image (prompt may have been filtered).")
+        b64 = preds[0].get("bytesBase64Encoded")
+        if not b64:
+            raise RuntimeError("Vertex AI prediction had no image bytes.")
+        return base64.b64decode(b64)
+
+    # Gemini image: candidates[0].content.parts[].inlineData.data (base64).
+    cands = payload.get("candidates") or []
+    if not cands:
+        raise RuntimeError("Vertex AI returned no image (prompt may have been filtered).")
+    for part in cands[0].get("content", {}).get("parts", []) or []:
+        inline = part.get("inlineData") or part.get("inline_data")
+        if inline and inline.get("data"):
+            return base64.b64decode(inline["data"])
+    reason = cands[0].get("finishReason") or "unknown"
+    raise RuntimeError(f"Vertex AI response contained no image (finishReason={reason}).")
