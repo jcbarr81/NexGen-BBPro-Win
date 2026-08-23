@@ -1722,6 +1722,17 @@ export const api = {
       `/members/${encodeURIComponent(uid)}/assign-team`,
       { method: "POST", body: { team_id } },
     ),
+  messageLeague: (payload: { subject: string; body: string }) =>
+    apiRequest<{
+      results: Array<{
+        email: string;
+        handle: string;
+        sent: boolean;
+        error: string | null;
+      }>;
+      sent_count: number;
+      failed_count: number;
+    }>("/league/message", { method: "POST", body: payload }),
   /** Super-admin: regenerate one player's AI avatar (spot-check before a full run). */
   regeneratePlayerAvatar: (playerId: string) =>
     apiRequest<{ player_id: string; ok: boolean }>(

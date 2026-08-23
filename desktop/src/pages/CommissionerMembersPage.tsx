@@ -292,6 +292,131 @@ function EmailInvitesCard({
   );
 }
 
+function MessageLeagueCard() {
+  const statusQ = useQuery({
+    queryKey: ["invite-email-status"],
+    queryFn: () => api.inviteEmailStatus(),
+  });
+  const recipientsQ = useQuery({
+    queryKey: ["invite-recipients"],
+    queryFn: () => api.inviteRecipients(),
+    enabled: statusQ.data?.configured === true,
+  });
+  const audience = (recipientsQ.data?.recipients ?? []).filter(
+    (r) => r.in_league,
+  ).length;
+
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [results, setResults] = useState<
+    Array<{ email: string; handle: string; sent: boolean; error: string | null }>
+  | null>(null);
+
+  const send = useMutation({
+    mutationFn: () => api.messageLeague({ subject, body }),
+    onSuccess: (data) => {
+      setResults(data.results);
+      if (data.sent_count > 0) {
+        toast.success(
+          `Message sent to ${data.sent_count} member${data.sent_count === 1 ? "" : "s"}`,
+        );
+      }
+      if (data.failed_count > 0) {
+        toast.error(
+          `${data.failed_count} message${data.failed_count === 1 ? "" : "s"} failed`,
+        );
+      }
+      setSubject("");
+      setBody("");
+    },
+    onError: (err) =>
+      toast.error("Couldn't send message", {
+        description: err instanceof Error ? err.message : undefined,
+      }),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="h-4 w-4" /> Message the league
+          </CardTitle>
+          <CardDescription>
+            Email every member who has an address on file. Replies come back to
+            you.
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {statusQ.data && !statusQ.data.configured ? (
+          <div className="flex items-start gap-2 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+            <p className="text-muted">
+              Set up email (see the card above) to message the league.
+            </p>
+          </div>
+        ) : (
+          <>
+            <Input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Subject"
+            />
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={5}
+              placeholder="Your message to the league…"
+              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm"
+            />
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-muted">
+                {recipientsQ.isLoading
+                  ? "Counting recipients…"
+                  : `Will send to ${audience} member${audience === 1 ? "" : "s"} with an email on file.`}
+              </span>
+              <Button
+                onClick={() => send.mutate()}
+                disabled={
+                  send.isPending ||
+                  !subject.trim() ||
+                  !body.trim() ||
+                  audience === 0
+                }
+              >
+                {send.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                Send to league
+              </Button>
+            </div>
+            {results && results.length > 0 && (
+              <div className="space-y-1 rounded-md border border-border p-2 text-sm">
+                {results.map((r) => (
+                  <div key={r.email} className="flex items-center gap-2">
+                    {r.sent ? (
+                      <CheckCircle2 className="h-4 w-4 text-success" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-danger" />
+                    )}
+                    <span className="font-semibold">{r.handle}</span>
+                    <span className={r.sent ? "text-muted" : "text-danger"}>
+                      {r.sent ? r.email : r.error}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function CommissionerMembersPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -410,6 +535,9 @@ export function CommissionerMembersPage() {
 
         {/* Email invites */}
         <EmailInvitesCard teams={teams} />
+
+        {/* Message the league */}
+        <MessageLeagueCard />
 
         {/* Join requests */}
         <Card>

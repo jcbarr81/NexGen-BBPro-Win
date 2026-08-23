@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 import services.email_sender as email_sender
 import api.routers.invites as invites
+import api.routers.join_requests as join_requests
 
 
 # --- email_sender config + send ---------------------------------------------
@@ -135,3 +136,71 @@ def test_email_invites_flags_bad_address(monkeypatch):
     )
     assert out["sent_count"] == 0 and out["failed_count"] == 1
     assert out["results"][0]["error"]
+
+
+# --- endpoint: POST /league/message (commissioner broadcast) -----------------
+
+def _msg_ident():
+    return {"r": "admin", "u": "boss", "league_id": "alpha", "email": "commish@x.com"}
+
+
+def test_message_league_blocks_when_not_configured(monkeypatch):
+    monkeypatch.setattr(email_sender, "is_enabled", lambda: False)
+    with pytest.raises(HTTPException) as exc:
+        join_requests.message_league(
+            payload={"subject": "Hi", "body": "There"}, identity=_msg_ident()
+        )
+    assert exc.value.status_code == 400
+
+
+def test_message_league_requires_subject_and_body(monkeypatch):
+    monkeypatch.setattr(email_sender, "is_enabled", lambda: True)
+    with pytest.raises(HTTPException):
+        join_requests.message_league(
+            payload={"subject": "", "body": "x"}, identity=_msg_ident()
+        )
+    with pytest.raises(HTTPException):
+        join_requests.message_league(
+            payload={"subject": "x", "body": ""}, identity=_msg_ident()
+        )
+
+
+def test_message_league_sends_to_members_with_email(monkeypatch):
+    monkeypatch.setattr(email_sender, "is_enabled", lambda: True)
+    import services.firestore_store as fs
+
+    monkeypatch.setattr(
+        fs, "list_members",
+        lambda lid: [
+            {"uid": "u1", "handle": "Alice"},
+            {"uid": "u2", "handle": "Bob"},
+            {"uid": "u3", "handle": "NoEmail"},
+        ],
+    )
+    emails = {"u1": "alice@x.com", "u2": "bob@y.com", "u3": ""}
+    monkeypatch.setattr(fs, "get_account", lambda uid: {"email": emails[uid]})
+    monkeypatch.setattr(fs, "get_league", lambda lid: {"display_name": "Alpha"})
+
+    sent = []
+    monkeypatch.setattr(email_sender, "send_email", lambda **kw: sent.append(kw))
+
+    out = join_requests.message_league(
+        payload={"subject": "News", "body": "Play ball"}, identity=_msg_ident()
+    )
+    assert out["sent_count"] == 2 and out["failed_count"] == 0
+    # Member without an email is skipped; replies routed to the commissioner.
+    assert {s["to"] for s in sent} == {"alice@x.com", "bob@y.com"}
+    assert all(s["reply_to"] == "commish@x.com" for s in sent)
+
+
+def test_message_league_400_when_no_member_emails(monkeypatch):
+    monkeypatch.setattr(email_sender, "is_enabled", lambda: True)
+    import services.firestore_store as fs
+
+    monkeypatch.setattr(fs, "list_members", lambda lid: [{"uid": "u1", "handle": "A"}])
+    monkeypatch.setattr(fs, "get_account", lambda uid: {"email": ""})
+    with pytest.raises(HTTPException) as exc:
+        join_requests.message_league(
+            payload={"subject": "x", "body": "y"}, identity=_msg_ident()
+        )
+    assert exc.value.status_code == 400

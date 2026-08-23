@@ -65,8 +65,19 @@ def status() -> Dict[str, Any]:
     }
 
 
-def send_email(*, to: str, subject: str, html: str, text: Optional[str] = None) -> None:
-    """Send one email via SendGrid. Raises :class:`EmailError` on any failure."""
+def send_email(
+    *,
+    to: str,
+    subject: str,
+    html: str,
+    text: Optional[str] = None,
+    reply_to: Optional[str] = None,
+) -> None:
+    """Send one email via SendGrid. Raises :class:`EmailError` on any failure.
+
+    ``reply_to`` sets a Reply-To header (e.g. so a league broadcast's replies go
+    back to the commissioner rather than the shared sender address).
+    """
     to = (to or "").strip()
     if not to:
         raise EmailError("A recipient email address is required.")
@@ -89,6 +100,9 @@ def send_email(*, to: str, subject: str, html: str, text: Optional[str] = None) 
         "subject": subject,
         "content": content,
     }
+    reply_to = (reply_to or "").strip()
+    if reply_to:
+        payload["reply_to"] = {"email": reply_to}
 
     try:
         resp = httpx.post(

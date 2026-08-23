@@ -154,3 +154,109 @@ def assign_team(
     _validate_and_provision(league, member_uid, str(member.get("role") or "owner"), team_id)
     firestore_store.set_member_team(league, member_uid, team_id)
     return {"uid": member_uid, "team_id": team_id, "status": "active"}
+
+
+def _league_member_emails(league: str) -> list[dict]:
+    """Unique {uid, handle, email} for this league's members that have an email
+    on file (from their account). De-duplicated by email."""
+    from services import firestore_store
+
+    seen: set[str] = set()
+    out: list[dict] = []
+    for m in firestore_store.list_members(league):
+        if not m:
+            continue
+        uid = str(m.get("uid") or "")
+        if not uid:
+            continue
+        acct = firestore_store.get_account(uid) or {}
+        email = str(acct.get("email") or "").strip()
+        if not email or email.lower() in seen:
+            continue
+        seen.add(email.lower())
+        out.append(
+            {
+                "uid": uid,
+                "handle": m.get("handle") or acct.get("handle") or email.split("@")[0],
+                "email": email,
+            }
+        )
+    return out
+
+
+@router.post("/league/message")
+def message_league(
+    payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(_require_commissioner),
+) -> Dict[str, Any]:
+    """Commissioner broadcast: email every league member who has an address on
+    file. Replies go back to the commissioner (Reply-To), and each member is a
+    separate send so recipients never see each other's addresses.
+    """
+    from services import email_sender, firestore_store
+
+    if not email_sender.is_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Email isn't configured yet. Set SENDGRID_API_KEY and "
+                "INVITE_EMAIL_FROM on the server to message the league."
+            ),
+        )
+
+    subject = str((payload or {}).get("subject", "")).strip()
+    body = str((payload or {}).get("body", "")).strip()
+    if not subject:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="A subject is required."
+        )
+    if not body:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="A message body is required."
+        )
+
+    league = _league_of(identity)
+    recipients = _league_member_emails(league)
+    if not recipients:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No league members have an email address on file.",
+        )
+
+    league_rec = firestore_store.get_league(league) or {}
+    league_name = league_rec.get("display_name") or league
+    reply_to = str(identity.get("email") or "").strip() or None
+
+    # Escape the body for HTML and keep the author's line breaks.
+    import html as _html
+
+    body_html = _html.escape(body).replace("\n", "<br>")
+    html = (
+        f"<div style=\"font-family:sans-serif\">"
+        f"<p>{body_html}</p>"
+        f"<hr style=\"border:none;border-top:1px solid #ddd;margin:16px 0\">"
+        f"<p style=\"color:#888;font-size:12px\">"
+        f"Sent by the commissioner of {_html.escape(league_name)} via NexGen BBPro."
+        f"</p></div>"
+    )
+    text = f"{body}\n\n—\nSent by the commissioner of {league_name} via NexGen BBPro."
+
+    results = []
+    for r in recipients:
+        try:
+            email_sender.send_email(
+                to=r["email"], subject=subject, html=html, text=text, reply_to=reply_to
+            )
+            results.append({"email": r["email"], "handle": r["handle"], "sent": True, "error": None})
+        except email_sender.EmailError as exc:
+            results.append(
+                {"email": r["email"], "handle": r["handle"], "sent": False, "error": str(exc)}
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            results.append(
+                {"email": r["email"], "handle": r["handle"], "sent": False,
+                 "error": f"Unexpected error: {exc}"}
+            )
+
+    sent = sum(1 for r in results if r["sent"])
+    return {"results": results, "sent_count": sent, "failed_count": len(results) - sent}
