@@ -272,8 +272,14 @@ async def generate_avatars(
     from utils import path_utils
 
     initial = bool(payload.get("initial_creation", False))
+    # only_failed: regenerate ONLY players whose avatar is missing or is a
+    # template/failed fallback (not a real 512x512 AI portrait). Implies the AI
+    # engine — filling stragglers with another template would be pointless.
+    only_failed = bool(payload.get("only_failed", False))
     raw_engine = str(payload.get("engine", "") or "").strip().lower()
     engine = raw_engine if raw_engine in {"ai", "template"} else "template"
+    if only_failed:
+        engine = "ai"
     # Capture the request's league HERE (in the request context); ContextVars do
     # NOT propagate into the run_in_executor thread, so we rebind it inside _run.
     league = path_utils.get_active_league_id()
@@ -304,6 +310,7 @@ async def generate_avatars(
                 engine=engine,
                 progress_callback=_track_progress,
                 status_callback=_track_engine,
+                only_failed=only_failed,
             )
         except Exception as exc:
             logging.exception("Avatar generation failed")
@@ -324,7 +331,11 @@ async def generate_avatars(
         job_registry.complete(
             job_id,
             output_dir=str(out_dir) if out_dir else None,
-            result={"engine": engine_used["value"], "initial_creation": initial},
+            result={
+                "engine": engine_used["value"],
+                "initial_creation": initial,
+                "only_failed": only_failed,
+            },
         )
 
     asyncio.get_running_loop().run_in_executor(None, _run)

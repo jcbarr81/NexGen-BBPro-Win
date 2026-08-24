@@ -219,6 +219,21 @@ def _recolor_by_hex(img, src_hex: str, dst_hex: str, feather: float = 3.0,
     return bgr_new
 
 
+def _png_size(path: Path) -> tuple[int, int] | None:
+    """Read a PNG's (width, height) from its IHDR header without decoding the
+    image. Returns None if the file is missing/unreadable or not a PNG."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(24)
+    except OSError:
+        return None
+    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    width = int.from_bytes(head[16:20], "big")
+    height = int.from_bytes(head[20:24], "big")
+    return (width, height)
+
+
 def generate_player_avatars(
     out_dir: str | None = None,
     progress_callback=None,
@@ -226,6 +241,7 @@ def generate_player_avatars(
     engine: str = "template",
     status_callback=None,
     only_player_ids: set[str] | None = None,
+    only_failed: bool = False,
 ) -> str:
     """Generate avatars for all players.
 
@@ -326,7 +342,14 @@ def generate_player_avatars(
         if not player:
             return
         out_file = out_path / f"{pid}.png"
-        if not initial_creation and out_file.exists():
+        if only_failed:
+            # Only (re)generate players who don't already have a real AI
+            # portrait. AI avatars are saved at 512x512; a template/failed
+            # fallback is the recolored 1024x1024 base (or missing), so anything
+            # that isn't 512x512 gets regenerated and the good ones are left be.
+            if out_file.exists() and _png_size(out_file) == (512, 512):
+                return
+        elif not initial_creation and out_file.exists():
             return
 
         ethnicity = player.ethnicity or _infer_ethnicity(

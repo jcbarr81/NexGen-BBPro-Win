@@ -145,9 +145,10 @@ export function UtilitiesPage() {
       tileKey: string;
       initial: boolean;
       engine?: "ai" | "template";
+      onlyFailed?: boolean;
     }) =>
       runExportJob(
-        () => api.generateAvatars(args.initial, args.engine),
+        () => api.generateAvatars(args.initial, args.engine, args.onlyFailed),
         (status) => recordProgress(args.tileKey, status),
       ),
     onSuccess: (_res, args) => {
@@ -158,7 +159,9 @@ export function UtilitiesPage() {
         true,
         args.initial
           ? "Initial creation complete — all avatars regenerated."
-          : "Avatars generated for players missing one.",
+          : args.onlyFailed
+            ? "Filled in template/missing avatars with AI portraits."
+            : "Avatars generated for players missing one.",
       );
     },
     onError: (e, args) => {
@@ -282,8 +285,8 @@ export function UtilitiesPage() {
             />
             <ActionTile
               icon={<UserSquare2 className="h-5 w-5" />}
-              title="Fill missing avatars (AI)"
-              description="Unique AI portrait per player (ethnicity, hair, facial hair + team colors) — only for players without one yet. Reused after; ~3s/player + small AI cost."
+              title="Fill missing / template avatars (AI)"
+              description="AI-generates a unique portrait for any player who doesn't have one yet OR is still showing a generic template — leaves real AI avatars untouched. Only bills for the players that need one."
               pending={activeAction === "avatars-fill"}
               progress={progress["avatars-fill"]}
               result={results["avatars-fill"]}
@@ -294,6 +297,7 @@ export function UtilitiesPage() {
                   tileKey: "avatars-fill",
                   initial: false,
                   engine: "ai",
+                  onlyFailed: true,
                 });
               }}
             />
