@@ -219,19 +219,34 @@ def _recolor_by_hex(img, src_hex: str, dst_hex: str, feather: float = 3.0,
     return bgr_new
 
 
-def _png_size(path: Path) -> tuple[int, int] | None:
-    """Read a PNG's (width, height) from its IHDR header without decoding the
-    image. Returns None if the file is missing/unreadable or not a PNG."""
+# Marker written into AI-generated avatar PNGs (a tEXt chunk) so a later
+# "fill template/missing" pass can tell a real AI portrait from a template
+# fallback — they're otherwise indistinguishable (same size, both unique-looking
+# painted headshots, so no image heuristic separates them reliably).
+_AI_MARKER_KEY = "nexgen_avatar"
+_AI_MARKER_VALUE = "ai"
+_AI_MARKER_BYTES = _AI_MARKER_KEY.encode() + b"\x00" + _AI_MARKER_VALUE.encode()
+
+
+def _save_ai_png(im, out_file: Path) -> None:
+    """Save an AI-generated avatar PNG tagged with the engine marker."""
+    from PIL.PngImagePlugin import PngInfo
+
+    meta = PngInfo()
+    meta.add_text(_AI_MARKER_KEY, _AI_MARKER_VALUE)
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    im.save(out_file, format="PNG", pnginfo=meta)
+
+
+def _avatar_is_ai(path: Path) -> bool:
+    """True if this avatar PNG carries the AI-engine marker (i.e. it's a real
+    AI portrait, not a template fallback). Reads raw bytes — no decode."""
     try:
         with open(path, "rb") as fh:
-            head = fh.read(24)
+            data = fh.read()
     except OSError:
-        return None
-    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n":
-        return None
-    width = int.from_bytes(head[16:20], "big")
-    height = int.from_bytes(head[20:24], "big")
-    return (width, height)
+        return False
+    return _AI_MARKER_BYTES in data
 
 
 def generate_player_avatars(
@@ -344,10 +359,12 @@ def generate_player_avatars(
         out_file = out_path / f"{pid}.png"
         if only_failed:
             # Only (re)generate players who don't already have a real AI
-            # portrait. AI avatars are saved at 512x512; a template/failed
-            # fallback is the recolored 1024x1024 base (or missing), so anything
-            # that isn't 512x512 gets regenerated and the good ones are left be.
-            if out_file.exists() and _png_size(out_file) == (512, 512):
+            # portrait. AI avatars carry the engine marker; template fallbacks
+            # (and missing files) don't, so those get regenerated and the real
+            # AI ones are left untouched. Any avatar predating the marker counts
+            # as un-tagged, so the first fill pass re-does the whole league once
+            # and tags it; after that, fills target only genuine stragglers.
+            if out_file.exists() and _avatar_is_ai(out_file):
                 return
         elif not initial_creation and out_file.exists():
             return
@@ -373,8 +390,7 @@ def generate_player_avatars(
             with Image.open(BytesIO(img_bytes)) as im:
                 if im.size != (512, 512):
                     im = im.resize((512, 512))
-                out_file.parent.mkdir(parents=True, exist_ok=True)
-                im.save(out_file, format="PNG")
+                _save_ai_png(im, out_file)
             return
 
         # Template engine: recolor a bundled face template to team/player colors.
@@ -529,7 +545,7 @@ def regenerate_one_avatar(player_id: str, out_dir: str | None = None) -> str:
     with Image.open(BytesIO(img_bytes)) as im:
         if im.size != (512, 512):
             im = im.resize((512, 512))
-        im.save(out_file, format="PNG")
+        _save_ai_png(im, out_file)
     return str(out_file)
 
 
@@ -812,8 +828,7 @@ def generate_avatar(
     with Image.open(BytesIO(image_bytes)) as img:
         if img.size != (size, size):
             img = img.resize((size, size))
-        Path(out_file).parent.mkdir(parents=True, exist_ok=True)
-        img.save(out_file, format="PNG")
+        _save_ai_png(img, Path(out_file))
     return out_file
 
 __all__ = ["generate_avatar", "generate_player_avatars"]

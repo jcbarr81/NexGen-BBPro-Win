@@ -1,37 +1,33 @@
-"""The PNG-size discriminator behind "fill template/missing avatars only":
-real AI avatars are saved 512x512, template/failed fallbacks are 1024x1024."""
+"""The marker behind "fill template/missing avatars only": AI portraits are
+tagged with a PNG text marker; templates/missing files aren't, so a fill pass
+regenerates exactly the untagged ones (and the good AI avatars are left alone).
 
-import struct
+Existing avatars are otherwise indistinguishable — same 512x512 size, both
+unique-looking painted headshots — so no image heuristic separates them; the
+marker is the reliable discriminator.
+"""
 
-from utils.avatar_generator import _png_size
+import pytest
 
+from utils.avatar_generator import _avatar_is_ai, _save_ai_png
 
-def _png_header(width: int, height: int) -> bytes:
-    # 8-byte signature + IHDR length(13) + "IHDR" + width + height (big-endian).
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + struct.pack(">I", 13)
-        + b"IHDR"
-        + struct.pack(">I", width)
-        + struct.pack(">I", height)
-    )
+PIL = pytest.importorskip("PIL")
+from PIL import Image  # noqa: E402
 
 
-def test_png_size_reads_dimensions(tmp_path):
-    ai = tmp_path / "ai.png"
-    ai.write_bytes(_png_header(512, 512) + b"\x00" * 32)
-    tmpl = tmp_path / "tmpl.png"
-    tmpl.write_bytes(_png_header(1024, 1024) + b"\x00" * 32)
-
-    assert _png_size(ai) == (512, 512)
-    assert _png_size(tmpl) == (1024, 1024)
-    # The rule the batch uses: only a real AI avatar is 512x512.
-    assert _png_size(ai) == (512, 512)
-    assert _png_size(tmpl) != (512, 512)
+def test_saved_ai_avatar_is_tagged(tmp_path):
+    out = tmp_path / "p.png"
+    _save_ai_png(Image.new("RGB", (512, 512), (10, 20, 30)), out)
+    assert out.exists()
+    assert _avatar_is_ai(out) is True
 
 
-def test_png_size_missing_or_not_png(tmp_path):
-    assert _png_size(tmp_path / "nope.png") is None
-    junk = tmp_path / "junk.png"
-    junk.write_bytes(b"not a png at all")
-    assert _png_size(junk) is None
+def test_plain_png_is_not_ai(tmp_path):
+    # A template/other PNG saved without the marker reads as not-AI.
+    out = tmp_path / "tmpl.png"
+    Image.new("RGB", (512, 512), (0, 0, 0)).save(out, format="PNG")
+    assert _avatar_is_ai(out) is False
+
+
+def test_missing_file_is_not_ai(tmp_path):
+    assert _avatar_is_ai(tmp_path / "nope.png") is False
