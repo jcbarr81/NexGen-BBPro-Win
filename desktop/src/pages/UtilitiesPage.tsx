@@ -65,6 +65,13 @@ export function UtilitiesPage() {
   // each have two sibling tiles that share the same useMutation, so the
   // "is this running" signal needs a finer key than the mutation itself.
   const [activeAction, setActiveAction] = useState<string | null>(null);
+  // Per-team avatar fill: a team dropdown + button. Teams only needed by admins.
+  const [avatarTeam, setAvatarTeam] = useState("");
+  const teamsQ = useQuery({
+    queryKey: ["teams"],
+    queryFn: () => api.listTeams(),
+    enabled: isAdmin,
+  });
 
   const health = useQuery({
     queryKey: ["healthz"],
@@ -146,9 +153,16 @@ export function UtilitiesPage() {
       initial: boolean;
       engine?: "ai" | "template";
       onlyFailed?: boolean;
+      teamId?: string;
     }) =>
       runExportJob(
-        () => api.generateAvatars(args.initial, args.engine, args.onlyFailed),
+        () =>
+          api.generateAvatars(
+            args.initial,
+            args.engine,
+            args.onlyFailed,
+            args.teamId,
+          ),
         (status) => recordProgress(args.tileKey, status),
       ),
     onSuccess: (_res, args) => {
@@ -303,6 +317,41 @@ export function UtilitiesPage() {
             />
             <ActionTile
               icon={<UserSquare2 className="h-5 w-5" />}
+              title="Fill one team's avatars (AI)"
+              description="Do a single team at a time — ~25–30 players, a few minutes, saved as it goes. If it's interrupted it only costs that team, and re-running resumes. Safest for large leagues."
+              pending={activeAction === "avatars-team"}
+              progress={progress["avatars-team"]}
+              result={results["avatars-team"]}
+              disabled={!isAdmin || activeAction !== null || !avatarTeam}
+              extra={
+                <select
+                  value={avatarTeam}
+                  onChange={(e) => setAvatarTeam(e.target.value)}
+                  disabled={!isAdmin || activeAction !== null}
+                  className="mt-2 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm"
+                >
+                  <option value="">Select a team…</option>
+                  {(teamsQ.data ?? []).map((t) => (
+                    <option key={t.team_id} value={t.team_id}>
+                      {t.city} {t.name} ({t.team_id})
+                    </option>
+                  ))}
+                </select>
+              }
+              onRun={() => {
+                if (!avatarTeam) return;
+                setActiveAction("avatars-team");
+                avatars.mutate({
+                  tileKey: "avatars-team",
+                  initial: false,
+                  engine: "ai",
+                  onlyFailed: true,
+                  teamId: avatarTeam,
+                });
+              }}
+            />
+            <ActionTile
+              icon={<UserSquare2 className="h-5 w-5" />}
               title="Regenerate all avatars (AI)"
               description="Wipes every avatar and AI-generates all from scratch. Slow + bills per image for the whole league."
               pending={activeAction === "avatars-regen"}
@@ -406,6 +455,7 @@ function ActionTile({
   result,
   disabled,
   onRun,
+  extra,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -415,6 +465,7 @@ function ActionTile({
   result: ActionResult | undefined;
   disabled?: boolean;
   onRun: () => void;
+  extra?: React.ReactNode;
 }) {
   const showBar = pending && progress && progress.total > 0;
   const pct = showBar
@@ -428,6 +479,7 @@ function ActionTile({
       <div className="min-w-0 flex-1">
         <div className="truncate font-semibold">{title}</div>
         <div className="mt-1 text-xs text-muted">{description}</div>
+        {extra}
         <Button
           variant="outline"
           size="sm"

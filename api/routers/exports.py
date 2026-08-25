@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import traceback
 from dataclasses import asdict, is_dataclass
@@ -280,6 +281,10 @@ async def generate_avatars(
     engine = raw_engine if raw_engine in {"ai", "template"} else "template"
     if only_failed:
         engine = "ai"
+    # Optional: restrict generation to one team's roster (safer, save-as-you-go
+    # chunk — a team is ~25-30 players, a few minutes, so a hiccup costs one team
+    # instead of the whole league).
+    team_id = str(payload.get("team_id", "") or "").strip()
     # Capture the request's league HERE (in the request context); ContextVars do
     # NOT propagate into the run_in_executor thread, so we rebind it inside _run.
     league = path_utils.get_active_league_id()
@@ -293,16 +298,61 @@ async def generate_avatars(
 
     job_id = job_registry.create("avatars")
 
+    # Persist generated avatars every N players so a mid-run failure (or a 503
+    # under load) can never wipe the whole batch — each flush that succeeds is
+    # durable, and the marker-fix in working_copy means a flush that fails is
+    # retried on the next one. 0 disables (falls back to the end-only push).
+    try:
+        push_every = int(os.getenv("NEXGEN_AVATAR_PUSH_EVERY", "20"))
+    except ValueError:
+        push_every = 20
+
     def _run() -> None:
+        import threading
+
         token = path_utils.set_request_league(league) if league else None
         engine_used: Dict[str, str] = {"value": engine}
+
+        # Resolve one team's roster to a player-id set, inside the league context.
+        only_ids = None
+        if team_id:
+            try:
+                from utils.roster_loader import load_roster
+
+                r = load_roster(team_id)
+                only_ids = set(
+                    list(r.act) + list(r.aaa) + list(r.low) + list(r.dl) + list(r.ir)
+                )
+            except Exception:
+                only_ids = None
 
         def _track_engine(value: str) -> None:
             engine_used["value"] = value
             job_registry.update_phase(job_id, f"engine:{value}")
 
+        _push_state = {"last": 0}
+        _push_guard = threading.Lock()
+
+        def _flush(done: int) -> None:
+            try:
+                from api import working_copy
+
+                if working_copy.is_enabled():
+                    working_copy.push_changes(league)
+            except Exception:
+                logging.exception("avatar incremental push failed")
+
         def _track_progress(done: int, total: int) -> None:
             job_registry.update_progress(job_id, done, total)
+            if push_every <= 0:
+                return
+            do_flush = False
+            with _push_guard:
+                if done - _push_state["last"] >= push_every:
+                    _push_state["last"] = done
+                    do_flush = True
+            if do_flush:
+                _flush(done)
 
         try:
             out_dir = generate_player_avatars(
@@ -311,9 +361,13 @@ async def generate_avatars(
                 progress_callback=_track_progress,
                 status_callback=_track_engine,
                 only_failed=only_failed,
+                only_player_ids=only_ids,
             )
         except Exception as exc:
             logging.exception("Avatar generation failed")
+            # Even on failure, flush whatever finished before the error so a
+            # partial run isn't lost.
+            _flush(-1)
             job_registry.fail(job_id, f"{exc}\n\n{traceback.format_exc()}")
             return
         finally:

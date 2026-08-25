@@ -1951,10 +1951,11 @@ export const api = {
     initial_creation: boolean = false,
     engine?: "ai" | "template",
     only_failed: boolean = false,
+    team_id?: string,
   ) =>
     apiRequest<ExportJobStart>("/exports/avatars", {
       method: "POST",
-      body: { initial_creation, engine, only_failed },
+      body: { initial_creation, engine, only_failed, team_id },
     }),
   getExportJob: (jobId: string) =>
     apiRequest<ExportJobStatus>(`/exports/jobs/${encodeURIComponent(jobId)}`),

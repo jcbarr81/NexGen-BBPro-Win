@@ -322,6 +322,14 @@ def push_changes(league_id: Optional[str] = None) -> int:
                     _scan(src, league_cutoff)
 
         pushed = _parallel_copy(changed)
+        # Did every file we meant to copy actually land? If any copy FAILED
+        # (e.g. the remote/FUSE was briefly unavailable — exactly what happened
+        # under the 503 that stranded a 2-hour avatar run), we must NOT advance
+        # the cutoff past those files, or they'd be hidden below the "saved up
+        # to here" line forever and never retried. Leaving the cutoff put makes
+        # the next push re-scan and re-attempt them (re-copying a few already-
+        # saved files is harmless).
+        all_copied = pushed >= len(changed)
         # Anything we previously synced but is gone locally → delete on remote,
         # EXCEPT files of a league no longer present locally AT ALL. That means
         # the league simply wasn't pulled this run (selective/partial pull), not
@@ -364,14 +372,16 @@ def push_changes(league_id: Optional[str] = None) -> int:
         # writes (e.g. the playoff bracket).
         if scope_league_ids is None:
             _known = current
-            _last_sync = t0
-            # A full push refreshed every segment.
-            _scope_sync.clear()
+            if all_copied:
+                _last_sync = t0
+                # A full push refreshed every segment.
+                _scope_sync.clear()
         else:
             _known = (_known - known_in_scope) | current
-            _scope_sync[""] = t0
-            for lid in scope_league_ids:
-                _scope_sync[lid] = t0
+            if all_copied:
+                _scope_sync[""] = t0
+                for lid in scope_league_ids:
+                    _scope_sync[lid] = t0
         if pushed or removed:
             scope_note = "" if scope_league_ids is None else f" (scope={league_id})"
             _emit(
