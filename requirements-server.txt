@@ -20,4 +20,10 @@ opencv-python-headless
 # Firebase Auth (ID-token verification) + Firestore client for the multi-tenant
 # control plane (accounts, memberships, invites, join-requests). Cloud-only;
 # guarded by NEXGEN_FIREBASE=1 so local/Electron never imports it.
-firebase-admin
+#
+# PIN both: google-cloud-firestore 2.29.0 URL-encodes the "(default)" database id
+# ("400 Invalid database id %28default%29"), breaking every Firestore read — so
+# leaving these unpinned lets a rebuild silently upgrade into that bug and take
+# down login. 2.28.0 is verified working; bump deliberately after testing.
+firebase-admin==7.5.0
+google-cloud-firestore==2.28.0
