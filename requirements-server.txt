@@ -21,9 +21,14 @@ opencv-python-headless
 # control plane (accounts, memberships, invites, join-requests). Cloud-only;
 # guarded by NEXGEN_FIREBASE=1 so local/Electron never imports it.
 #
-# PIN both: google-cloud-firestore 2.29.0 URL-encodes the "(default)" database id
-# ("400 Invalid database id %28default%29"), breaking every Firestore read — so
-# leaving these unpinned lets a rebuild silently upgrade into that bug and take
-# down login. 2.28.0 is verified working; bump deliberately after testing.
+# PIN the Firestore + gRPC transport stack. The real bug: google-api-core >=2.35
+# URL-encodes the "(default)" database id in the x-goog-request-params routing
+# header ("400 Invalid database id %28default%29"), breaking EVERY Firestore read
+# (login 500s). It's the routing layer, not firestore itself — so api-core/grpcio
+# must be pinned too. These are the exact versions verified working; leaving any
+# unpinned lets a rebuild drift back into the bug. Bump deliberately after testing.
 firebase-admin==7.5.0
 google-cloud-firestore==2.28.0
+google-api-core==2.31.0
+grpcio==1.82.1
+grpcio-status==1.82.1
