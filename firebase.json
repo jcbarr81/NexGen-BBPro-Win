@@ -4,6 +4,10 @@
     "public": "desktop/dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [
+      { "source": "/discover", "destination": "/index.html" },
+      { "source": "/register", "destination": "/index.html" },
+      { "source": "/my-leagues", "destination": "/index.html" },
+      { "source": "/home", "destination": "/index.html" },
       {
         "source": "**",
         "run": {
