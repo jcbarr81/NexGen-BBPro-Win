@@ -444,14 +444,19 @@ def validate_roster_move(
                 f"(age limit: {LOW_LEVEL_MAX_AGE - 1})."
             )
 
-    # Active-roster composition after the move.
+    # Active-roster composition after the move — a WARNING, not a hard block.
+    # Like the cap, this must not stop an owner mid-edit: a move that doesn't
+    # even touch ACT (e.g. AAA<->LOW) shouldn't be rejected just because ACT is
+    # temporarily short a position or a defensive slot. The season/sim gate
+    # (validate_roster_state) still HARD-errors on this, so a game can never
+    # start while the active roster is illegal.
     act_ids = post.get("act", [])
     act_players = [players[pid] for pid in act_ids if pid in players]
     non_pitchers = [p for p in act_players if not _is_pitcher(p)]
     if len(non_pitchers) < MIN_POSITION_PLAYERS_ACT:
-        result.error(
+        result.warn(
             f"Active roster would have {len(non_pitchers)} position players "
-            f"(minimum {MIN_POSITION_PLAYERS_ACT})."
+            f"(minimum {MIN_POSITION_PLAYERS_ACT}) — fix before the next game."
         )
 
     covered: Set[str] = set()
@@ -459,8 +464,9 @@ def validate_roster_move(
         covered |= _player_positions(p)
     missing = [pos for pos in REQUIRED_DEF_POSITIONS if pos not in covered]
     if missing:
-        result.error(
-            f"Active roster would not cover these positions after the move: {', '.join(missing)}."
+        result.warn(
+            f"Active roster would not cover these positions after the move: "
+            f"{', '.join(missing)} — fix before the next game."
         )
 
     return result

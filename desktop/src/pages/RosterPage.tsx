@@ -128,6 +128,12 @@ export function RosterPage() {
 
   const teams = useTeams({ enabled: !teamId });
 
+  // The set of level changes from the most recent auto-assign, surfaced as a
+  // dismissible summary so the owner can see exactly which players moved.
+  const [autoAssignMoves, setAutoAssignMoves] = useState<
+    { player_id: string; name: string; from: string; to: string }[] | null
+  >(null);
+
   const fallbackTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
   const teamAccentColor = useActiveTeamColor(fallbackTeamId ?? undefined);
 
@@ -160,12 +166,15 @@ export function RosterPage() {
     onSuccess: (data, args) => {
       queryClient.setQueryData(["team-roster", fallbackTeamId], data);
       invalidateCompliance();
-      // Over-cap moves are allowed (send a player down next); the compliance
-      // banner surfaces the over-cap state and the sim gate enforces it.
-      const overCap = (data.levels?.ACT?.length ?? 0) > 25 && args.to === "ACT";
-      if (overCap) {
+      // Over-cap moves are allowed at any level (send a player down next); the
+      // compliance banner surfaces the over-cap state and the sim gate enforces
+      // it. Applies to ACT (25), AAA (15) and LOW (10).
+      const LEVEL_CAPS: Record<string, number> = { ACT: 25, AAA: 15, LOW: 10 };
+      const cap = LEVEL_CAPS[args.to];
+      const count = data.levels?.[args.to as keyof typeof data.levels]?.length ?? 0;
+      if (cap != null && count > cap) {
         toast.info(
-          `Moved to ACT — now ${data.levels.ACT.length}/25. Send a player down before your next game.`,
+          `Moved to ${args.to} — now ${count}/${cap}. Send a player down before your next game.`,
         );
       } else {
         toast.success(`Moved to ${args.to}`);
@@ -200,6 +209,7 @@ export function RosterPage() {
         queryKey: ["team-roster", fallbackTeamId],
       });
       invalidateCompliance();
+      setAutoAssignMoves(data.moved ?? []);
       const released = data.released_count ?? 0;
       const overflow = data.overflow_count ?? 0;
       if (released > 0) {
@@ -281,6 +291,12 @@ export function RosterPage() {
           {compliance.data && !compliance.data.ok && (
             <ComplianceBanner data={compliance.data} />
           )}
+          {autoAssignMoves && (
+            <AutoAssignMovesSummary
+              moves={autoAssignMoves}
+              onDismiss={() => setAutoAssignMoves(null)}
+            />
+          )}
           {actions.error && (
             <div className="mb-4 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -351,6 +367,50 @@ function ComplianceBanner({ data }: { data: ComplianceBannerData }) {
   );
 }
 
+
+function AutoAssignMovesSummary({
+  moves,
+  onDismiss,
+}: {
+  moves: { player_id: string; name: string; from: string; to: string }[];
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="mb-4 rounded-md border border-info/40 bg-info/10 px-4 py-3 text-sm">
+      <div className="flex items-start gap-2">
+        <Shuffle className="mt-0.5 h-4 w-4 shrink-0 text-info" />
+        <div className="flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="font-semibold">
+              {moves.length === 0
+                ? "Auto-assign complete — no players needed to move"
+                : `Auto-assign moved ${moves.length} player${moves.length === 1 ? "" : "s"}`}
+            </div>
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="text-xs text-muted hover:text-fg"
+            >
+              Dismiss
+            </button>
+          </div>
+          {moves.length > 0 && (
+            <ul className="mt-2 grid grid-cols-1 gap-x-6 gap-y-0.5 text-xs sm:grid-cols-2">
+              {moves.map((m) => (
+                <li key={m.player_id} className="flex items-center gap-1.5">
+                  <span className="font-medium">{m.name}</span>
+                  <span className="text-muted">
+                    {m.from} → {m.to}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ConfirmAutoAssignButton({
   pending,

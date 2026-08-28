@@ -47,6 +47,30 @@ def test_move_into_full_level_allowed_as_warning():
     assert any("cap" in w.lower() for w in mv.warnings)
 
 
+def test_move_between_aaa_low_not_blocked_by_act_state():
+    # A move that doesn't touch ACT (AAA<->LOW) must succeed even if ACT is
+    # temporarily broken/empty — the sim gate enforces ACT legality, not a move.
+    players = {"LOWP": _pp("1B", age=20)}
+    levels = {"act": [], "aaa": [f"A{i}" for i in range(15)], "low": ["LOWP"], "dl": [], "ir": []}
+    for i in range(15):
+        players[f"A{i}"] = _pp("1B", age=22)
+    mv = validate_roster_move(
+        current_levels=levels, player_id="LOWP", target_level="aaa", players=players
+    )
+    assert mv.ok, mv.errors
+    assert any("cap" in w.lower() for w in mv.warnings)
+
+
+def test_move_to_low_still_blocks_over_age():
+    # The LOW age gate is a real structural rule and stays a hard error.
+    players = {"OLD": _pp("1B", age=30)}
+    levels = {"act": [], "aaa": ["OLD"], "low": [], "dl": [], "ir": []}
+    mv = validate_roster_move(
+        current_levels=levels, player_id="OLD", target_level="low", players=players
+    )
+    assert not mv.ok
+
+
 def test_swap_allows_promote_into_full_act():
     # The atomic swap endpoint also handles it (net headcount unchanged).
     players, levels = _build()

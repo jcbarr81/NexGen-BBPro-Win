@@ -43,6 +43,7 @@ async def auto_assign_one(team_id: str) -> Dict[str, Any]:
         ) from exc
     released = list((result or {}).get("released") or [])
     overflow = list((result or {}).get("overflow") or [])
+    moved = list((result or {}).get("moved") or [])
     return {
         "team_id": team_id,
         "status": "ok",
@@ -52,6 +53,10 @@ async def auto_assign_one(team_id: str) -> Dict[str, Any]:
         # of being cut — the UI should ask the owner to trim these manually.
         "overflow": overflow,
         "overflow_count": len(overflow),
+        # Every player whose level changed, so the UI can show what moved
+        # instead of only the resulting counts.
+        "moved": moved,
+        "moved_count": len(moved),
     }
 
 

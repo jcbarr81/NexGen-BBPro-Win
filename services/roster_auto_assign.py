@@ -715,7 +715,33 @@ def auto_assign_team(
         except Exception:
             pass
 
-    return {"released": released, "overflow": overflow}
+    # Report exactly which players changed level, so the UI can show the owner
+    # what auto-assign did rather than just the resulting counts. A player is
+    # "moved" if its post-assign level differs from where it started.
+    post_levels: Dict[str, str] = {}
+    for level in ("act", "aaa", "low", "dl", "ir"):
+        for pid in getattr(roster, level, []) or []:
+            post_levels.setdefault(pid, level.upper())
+    for pid in released:
+        post_levels.setdefault(pid, "FA")
+
+    def _name(pid: str) -> str:
+        p = players.get(pid)
+        if p is None:
+            return pid
+        first = str(getattr(p, "first_name", "") or "").strip()
+        last = str(getattr(p, "last_name", "") or "").strip()
+        full = (first + " " + last).strip()
+        return full or pid
+
+    moved: List[Dict[str, str]] = []
+    for pid in pool_ids:
+        frm = pre_levels.get(pid)
+        to = post_levels.get(pid)
+        if frm and to and frm != to:
+            moved.append({"player_id": pid, "name": _name(pid), "from": frm, "to": to})
+
+    return {"released": released, "overflow": overflow, "moved": moved}
 
 
 def auto_assign_all_teams(

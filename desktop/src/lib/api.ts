@@ -2793,6 +2793,8 @@ export const api = {
       released_count: number;
       overflow: string[];
       overflow_count: number;
+      moved: { player_id: string; name: string; from: string; to: string }[];
+      moved_count: number;
     }>(`/teams/${encodeURIComponent(teamId)}/auto-assign`, { method: "POST" }),
   autoAssignAll: () =>
     apiRequest<{ status: string }>("/reassign/all", { method: "POST" }),
