@@ -310,6 +310,106 @@ def move_roster(
     return team_roster(team_id)
 
 
+@router.post("/roster/swap")
+def swap_roster(
+    team_id: str,
+    payload: Dict[str, Any] = Body(...),
+) -> Dict[str, Any]:
+    """Swap two players' roster levels in one atomic operation.
+
+    Solves the "can't promote into a full level" dead-end: instead of freeing a
+    slot first (the DL workaround), the caller names the exchange partner and
+    both move at once. Validated as a net move (headcounts unchanged), then
+    applied to the in-memory roster and saved ONCE — a rejected or failed swap
+    never leaves the roster half-changed.
+    """
+    a = str(payload.get("player_a_id", "")).strip()
+    b = str(payload.get("player_b_id", "")).strip()
+    if not a or not b:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="player_a_id and player_b_id are required.",
+        )
+    if a == b:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pick two different players to swap.",
+        )
+
+    try:
+        roster = load_roster(team_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load roster: {exc}",
+        ) from exc
+
+    la = _find_level(roster, a)
+    lb = _find_level(roster, b)
+    if la is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{a} is not on {team_id}'s roster.")
+    if lb is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{b} is not on {team_id}'s roster.")
+    if la == lb:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Both players are already at the same level — nothing to swap.",
+        )
+
+    from services.roster_validation import DEFAULT_LEVEL_CAPS, validate_roster_swap
+
+    from .validation import load_players_map, load_team_levels
+
+    players_map = load_players_map()
+    current_levels = load_team_levels(team_id)
+    result = validate_roster_swap(
+        current_levels=current_levels,
+        player_a_id=a,
+        player_b_id=b,
+        players=players_map,
+        level_caps=DEFAULT_LEVEL_CAPS,
+    )
+    if not result.ok:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "Swap would violate league rules.",
+                "errors": result.errors,
+                "warnings": result.warnings,
+            },
+        )
+
+    # Apply both moves to the in-memory roster, THEN save once (atomic).
+    try:
+        roster.move_player(a, _LEVEL_ATTR[la], _LEVEL_ATTR[lb])
+        roster.move_player(b, _LEVEL_ATTR[lb], _LEVEL_ATTR[la])
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    try:
+        save_roster(team_id, roster)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save roster: {exc}",
+        ) from exc
+
+    for pid, frm, to in ((a, la, lb), (b, lb, la)):
+        try:
+            record_transaction(
+                action="assign",
+                team_id=team_id,
+                player_id=pid,
+                from_level=frm,
+                to_level=to,
+                details=f"Swapped {frm}<->{to}",
+            )
+        except Exception:
+            pass
+
+    return team_roster(team_id)
+
+
 @router.post("/roster/cut")
 def cut_roster(
     team_id: str,

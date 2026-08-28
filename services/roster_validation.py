@@ -462,6 +462,106 @@ def validate_roster_move(
     return result
 
 
+def validate_roster_swap(
+    *,
+    current_levels: Mapping[str, Sequence[str]],
+    player_a_id: str,
+    player_b_id: str,
+    players: Mapping[str, Mapping[str, Any]],
+    level_caps: Mapping[str, int] | None = None,
+) -> ValidationResult:
+    """Validate swapping the roster LEVELS of two players (A<->B) atomically.
+
+    A swap exchanges the levels of two players in one operation, so each
+    affected level's headcount is unchanged — which is exactly what lets a
+    promote into a *full* level succeed (the exchange partner goes the other
+    way). Same rules as :func:`validate_roster_move`, evaluated on the FINAL
+    post-swap state: level caps, LOW age gate for whoever lands in LOW, and ACT
+    composition (min position players + defensive coverage).
+    """
+    result = ValidationResult()
+    caps = {**DEFAULT_LEVEL_CAPS, **(level_caps or {})}
+
+    if player_a_id == player_b_id:
+        result.error("Pick two different players to swap.")
+        return result
+    pa = players.get(player_a_id)
+    pb = players.get(player_b_id)
+    if not pa:
+        result.error(f"Player {player_a_id} not found.")
+        return result
+    if not pb:
+        result.error(f"Player {player_b_id} not found.")
+        return result
+
+    norm = {k.lower(): list(v) for k, v in current_levels.items()}
+
+    def _level_of(pid: str) -> str | None:
+        for lvl, ids in norm.items():
+            if pid in ids:
+                return lvl
+        return None
+
+    la = _level_of(player_a_id)
+    lb = _level_of(player_b_id)
+    if la is None:
+        result.error(f"{_player_label(pa, player_a_id)} is not on the roster.")
+        return result
+    if lb is None:
+        result.error(f"{_player_label(pb, player_b_id)} is not on the roster.")
+        return result
+    if la == lb:
+        result.error("Both players are already at the same level — nothing to swap.")
+        return result
+
+    # Final state: remove both, then place A at B's old level and B at A's.
+    post = {
+        lvl: [pid for pid in ids if pid not in (player_a_id, player_b_id)]
+        for lvl, ids in norm.items()
+    }
+    post.setdefault(la, [])
+    post.setdefault(lb, [])
+    post[lb].append(player_a_id)
+    post[la].append(player_b_id)
+
+    for lvl, cap in caps.items():
+        if lvl in post and len(post[lvl]) > cap:
+            result.error(f"{lvl.upper()} would exceed cap ({len(post[lvl])}/{cap}).")
+
+    # LOW age gate for whichever player ends up at LOW.
+    for pid, pl, dest in ((player_a_id, pa, lb), (player_b_id, pb, la)):
+        if dest == "low":
+            age = pl.get("age")
+            try:
+                age_int = int(age) if age is not None else None
+            except (TypeError, ValueError):
+                age_int = None
+            if age_int is not None and age_int >= LOW_LEVEL_MAX_AGE:
+                result.error(
+                    f"{_player_label(pl, pid)} (age {age_int}) cannot be assigned to LOW "
+                    f"(age limit: {LOW_LEVEL_MAX_AGE - 1})."
+                )
+
+    # ACT composition after the swap.
+    act_players = [players[pid] for pid in post.get("act", []) if pid in players]
+    non_pitchers = [p for p in act_players if not _is_pitcher(p)]
+    if len(non_pitchers) < MIN_POSITION_PLAYERS_ACT:
+        result.error(
+            f"Active roster would have {len(non_pitchers)} position players "
+            f"(minimum {MIN_POSITION_PLAYERS_ACT})."
+        )
+    covered: Set[str] = set()
+    for p in non_pitchers:
+        covered |= _player_positions(p)
+    missing = [pos for pos in REQUIRED_DEF_POSITIONS if pos not in covered]
+    if missing:
+        result.error(
+            f"Active roster would not cover these positions after the swap: {', '.join(missing)}."
+        )
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # 4b. Roster-state validation (no proposed move)
 

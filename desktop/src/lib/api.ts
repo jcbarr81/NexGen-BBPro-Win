@@ -1793,6 +1793,14 @@ export const api = {
       `/teams/${encodeURIComponent(teamId)}/roster/move`,
       { method: "POST", body: payload },
     ),
+  swapRoster: (
+    teamId: string,
+    payload: { player_a_id: string; player_b_id: string },
+  ) =>
+    apiRequest<TeamRoster>(
+      `/teams/${encodeURIComponent(teamId)}/roster/swap`,
+      { method: "POST", body: payload },
+    ),
   cutRoster: (teamId: string, player_id: string) =>
     apiRequest<TeamRoster>(
       `/teams/${encodeURIComponent(teamId)}/roster/cut`,

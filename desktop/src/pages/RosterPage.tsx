@@ -57,6 +57,11 @@ import {
   Button,
   Card,
   CardContent,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -153,7 +158,30 @@ export function RosterPage() {
     });
   };
 
+  // When a move fails because the target level is full, offer a swap instead of
+  // a dead-end error (the reported "no open roster slots" problem).
+  const [swapPrompt, setSwapPrompt] = useState<{
+    playerId: string;
+    playerName: string;
+    toLevel: RosterLevel;
+  } | null>(null);
+
+  function _errorDetail(err: unknown): { detail: string; capFull: boolean } {
+    const msg = err instanceof Error ? err.message : String(err);
+    try {
+      const p = JSON.parse(msg);
+      const errs: string[] = Array.isArray(p?.errors) ? p.errors : [];
+      const detail =
+        (p?.message ?? msg) + (errs.length ? " " + errs.join("; ") : "");
+      const capFull = errs.some((e) => /exceed cap/i.test(e));
+      return { detail, capFull };
+    } catch {
+      return { detail: msg, capFull: false };
+    }
+  }
+
   const moveMutation = useMutation({
+    meta: { suppressToast: true },
     mutationFn: (args: MoveArgs) =>
       api.moveRoster(fallbackTeamId as string, args),
     onSuccess: (data, args) => {
@@ -161,6 +189,34 @@ export function RosterPage() {
       invalidateCompliance();
       toast.success(`Moved to ${args.to}`);
     },
+    onError: (err, args) => {
+      const { detail, capFull } = _errorDetail(err);
+      if (capFull && args.to !== "DL" && args.to !== "IR") {
+        // Target level is full — let them swap a player back the other way.
+        const all = Object.values(roster.data?.levels ?? {}).flat();
+        const p = all.find((x) => x.player_id === args.player_id);
+        setSwapPrompt({
+          playerId: args.player_id,
+          playerName: p ? `${p.first_name} ${p.last_name}` : args.player_id,
+          toLevel: args.to,
+        });
+      } else {
+        toast.error("Move failed", { description: detail });
+      }
+    },
+  });
+  const swapMutation = useMutation({
+    meta: { suppressToast: true },
+    mutationFn: (args: { player_a_id: string; player_b_id: string }) =>
+      api.swapRoster(fallbackTeamId as string, args),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["team-roster", fallbackTeamId], data);
+      invalidateCompliance();
+      setSwapPrompt(null);
+      toast.success("Players swapped");
+    },
+    onError: (err) =>
+      toast.error("Swap failed", { description: _errorDetail(err).detail }),
   });
   const cutMutation = useMutation({
     mutationFn: (playerId: string) =>
@@ -281,7 +337,74 @@ export function RosterPage() {
           />
         </>
       ) : null}
+      <SwapDialog
+        prompt={swapPrompt}
+        candidates={
+          swapPrompt ? roster.data?.levels?.[swapPrompt.toLevel] ?? [] : []
+        }
+        pending={swapMutation.isPending}
+        onClose={() => setSwapPrompt(null)}
+        onSwap={(partnerId) =>
+          swapPrompt &&
+          swapMutation.mutate({
+            player_a_id: swapPrompt.playerId,
+            player_b_id: partnerId,
+          })
+        }
+      />
     </AppShell>
+  );
+}
+
+function SwapDialog({
+  prompt,
+  candidates,
+  pending,
+  onClose,
+  onSwap,
+}: {
+  prompt: { playerId: string; playerName: string; toLevel: RosterLevel } | null;
+  candidates: RosterPlayer[];
+  pending: boolean;
+  onClose: () => void;
+  onSwap: (partnerId: string) => void;
+}) {
+  if (!prompt) return null;
+  return (
+    <Dialog open={!!prompt} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{LEVEL_LABEL[prompt.toLevel]} is full</DialogTitle>
+          <DialogDescription>
+            To move <b>{prompt.playerName}</b> up to {LEVEL_LABEL[prompt.toLevel]},
+            pick a player to send the other way — they'll swap in one move (no
+            need to DL anyone first).
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-72 space-y-1 overflow-auto">
+          {candidates.length === 0 ? (
+            <p className="text-sm text-muted">No players at that level to swap.</p>
+          ) : (
+            candidates.map((p) => (
+              <button
+                key={p.player_id}
+                type="button"
+                disabled={pending}
+                onClick={() => onSwap(p.player_id)}
+                className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-surfaceAlt/40 px-3 py-2 text-left text-sm transition hover:border-amber/60 hover:bg-amber/10 disabled:opacity-50"
+              >
+                <span className="truncate font-semibold">
+                  {p.first_name} {p.last_name}
+                </span>
+                <span className="text-[11px] uppercase tracking-wider text-muted">
+                  {p.primary_position || p.role}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
