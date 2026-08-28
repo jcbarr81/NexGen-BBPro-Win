@@ -34,18 +34,24 @@ def _build():
     return players, levels
 
 
-def test_swap_allows_promote_into_full_act():
+def test_move_into_full_level_allowed_as_warning():
+    # An owner must be able to promote into a full ACT (going 26/25) intending to
+    # demote someone next. That's now allowed (ok) with a WARNING, not blocked.
     players, levels = _build()
     players["AAA_POS"] = _pp("1B")
     levels["aaa"].append("AAA_POS")
-
-    # A plain move up would fail — ACT is full.
     mv = validate_roster_move(
         current_levels=levels, player_id="AAA_POS", target_level="act", players=players
     )
-    assert not mv.ok
+    assert mv.ok, mv.errors
+    assert any("cap" in w.lower() for w in mv.warnings)
 
-    # But swapping the AAA player up for an ACT pitcher down is fine.
+
+def test_swap_allows_promote_into_full_act():
+    # The atomic swap endpoint also handles it (net headcount unchanged).
+    players, levels = _build()
+    players["AAA_POS"] = _pp("1B")
+    levels["aaa"].append("AAA_POS")
     sw = validate_roster_swap(
         current_levels=levels, player_a_id="AAA_POS", player_b_id="ACT_P0", players=players
     )

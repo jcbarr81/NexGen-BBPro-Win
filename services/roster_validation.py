@@ -416,10 +416,14 @@ def validate_roster_move(
     if player_id not in post[target]:
         post[target].append(player_id)
 
-    # Level caps.
+    # Level caps: a WARNING, not a hard block. An owner must be able to promote
+    # into a full level intending to demote someone next (or bench-manage over a
+    # move or two). The season/sim gate (validate_roster_state) still HARD-errors
+    # on an over-cap roster, so games can never start while it's illegal.
     if target in caps and len(post[target]) > caps[target]:
-        result.error(
-            f"{target.upper()} would exceed cap ({len(post[target])}/{caps[target]})."
+        result.warn(
+            f"{target.upper()} is over the {caps[target]}-man cap "
+            f"({len(post[target])}/{caps[target]}) — send a player down before the next game."
         )
 
     player = players.get(player_id)
