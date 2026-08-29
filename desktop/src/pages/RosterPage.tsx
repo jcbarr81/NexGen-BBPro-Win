@@ -69,6 +69,11 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
   Tabs,
   TabsContent,
   TabsList,
@@ -133,6 +138,9 @@ export function RosterPage() {
   const [autoAssignMoves, setAutoAssignMoves] = useState<
     { player_id: string; name: string; from: string; to: string }[] | null
   >(null);
+  // The pending dry-run preview shown before the owner commits.
+  const [autoAssignPreview, setAutoAssignPreview] =
+    useState<AutoAssignPreview | null>(null);
 
   const fallbackTeamId = teamId ?? teams.data?.[0]?.team_id ?? null;
   const teamAccentColor = useActiveTeamColor(fallbackTeamId ?? undefined);
@@ -202,14 +210,36 @@ export function RosterPage() {
       toast.success("Released to free agency");
     },
   });
-  const autoAssignMutation = useMutation({
-    mutationFn: () => api.autoAssignTeam(fallbackTeamId as string),
+  // Auto-assign runs as preview → confirm: a dry-run computes the moves without
+  // saving, the owner reviews them, then Apply commits the same mode for real.
+  const previewMutation = useMutation({
+    mutationFn: (mode: AutoAssignMode) =>
+      api.autoAssignTeam(fallbackTeamId as string, { mode, dryRun: true }),
+    onSuccess: (data) => {
+      setAutoAssignPreview({
+        mode: data.mode,
+        moves: data.moved ?? [],
+        released: data.released_count ?? 0,
+        overflow: data.overflow_count ?? 0,
+      });
+    },
+    onError: (err) => {
+      toast.error("Couldn't preview auto-assign", {
+        description: (err as Error).message,
+      });
+    },
+  });
+
+  const applyMutation = useMutation({
+    mutationFn: (mode: AutoAssignMode) =>
+      api.autoAssignTeam(fallbackTeamId as string, { mode, dryRun: false }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({
         queryKey: ["team-roster", fallbackTeamId],
       });
       invalidateCompliance();
       setAutoAssignMoves(data.moved ?? []);
+      setAutoAssignPreview(null);
       const released = data.released_count ?? 0;
       const overflow = data.overflow_count ?? 0;
       if (released > 0) {
@@ -222,8 +252,10 @@ export function RosterPage() {
         toast.info(
           `Auto-assign complete — but ${overflow} player${overflow === 1 ? "" : "s"} couldn't fit a legal slot (LOW is reserved for under-27 players). They were kept in AAA over the cap — trim your roster manually rather than losing them.`,
         );
+      } else if ((data.moved ?? []).length === 0) {
+        toast.success("Roster already set — no moves were needed");
       } else {
-        toast.success("Auto-assign complete — roster levels rebalanced");
+        toast.success("Auto-assign complete — roster levels updated");
       }
     },
     onError: (err) => {
@@ -304,11 +336,17 @@ export function RosterPage() {
             </div>
           )}
           <div className="mb-4 flex items-center justify-end">
-            <ConfirmAutoAssignButton
-              pending={autoAssignMutation.isPending}
-              onConfirm={() => autoAssignMutation.mutate()}
+            <AutoAssignMenu
+              pending={previewMutation.isPending}
+              onPreview={(mode) => previewMutation.mutate(mode)}
             />
           </div>
+          <AutoAssignPreviewDialog
+            preview={autoAssignPreview}
+            applying={applyMutation.isPending}
+            onApply={(mode) => applyMutation.mutate(mode)}
+            onCancel={() => setAutoAssignPreview(null)}
+          />
           <RosterTabs roster={roster.data} actions={actions} />
           <QuickLinks
             links={[
@@ -412,43 +450,154 @@ function AutoAssignMovesSummary({
   );
 }
 
-function ConfirmAutoAssignButton({
+type AutoAssignMode = "full" | "gaps";
+
+interface AutoAssignPreview {
+  mode: AutoAssignMode;
+  moves: { player_id: string; name: string; from: string; to: string }[];
+  released: number;
+  overflow: number;
+}
+
+const AUTO_ASSIGN_MODE_LABEL: Record<AutoAssignMode, string> = {
+  full: "Full reassign",
+  gaps: "Fill gaps only",
+};
+
+function AutoAssignMenu({
   pending,
-  onConfirm,
+  onPreview,
 }: {
   pending: boolean;
-  onConfirm: () => void;
+  onPreview: (mode: AutoAssignMode) => void;
 }) {
-  const { confirm, dialog } = useConfirmDialog();
   return (
-    <>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={pending}
-        onClick={async () => {
-          if (
-            await confirm({
-              title: "Auto-assign roster levels?",
-              description:
-                "Rebuild ACT/AAA/LOW assignments for this team based on each player's position and ratings. Injured players (DL/IR) stay where they are. Players are only released to free agency if the organization is genuinely OVER the 50-player ACT+AAA+LOW limit (e.g. just after the draft) — those releases are logged on the Transactions page. If you're under the limit but have more veterans than ACT+AAA can hold (LOW is reserved for under-27 prospects), nobody is cut — the extras are parked in AAA over the cap for you to trim manually.",
-              confirmLabel: "Auto-assign",
-              danger: true,
-            })
-          ) {
-            onConfirm();
-          }
-        }}
-      >
-        {pending ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Shuffle className="h-4 w-4" />
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="outline" disabled={pending}>
+          {pending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Shuffle className="h-4 w-4" />
+          )}
+          Auto-assign roster
+          <ChevronDown className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuLabel>Preview before applying</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => onPreview("gaps")}>
+          <div>
+            <div className="font-medium">Fill gaps only</div>
+            <div className="text-xs text-muted">
+              Keep your roster; only fix illegal spots (injuries, coverage,
+              over-cap). Recommended for in-season tweaks.
+            </div>
+          </div>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => onPreview("full")}>
+          <div>
+            <div className="font-medium">Full reassign</div>
+            <div className="text-xs text-muted">
+              Rebuild ACT/AAA/LOW from scratch by position &amp; ratings. Best as
+              a first setup.
+            </div>
+          </div>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function AutoAssignPreviewDialog({
+  preview,
+  applying,
+  onApply,
+  onCancel,
+}: {
+  preview: AutoAssignPreview | null;
+  applying: boolean;
+  onApply: (mode: AutoAssignMode) => void;
+  onCancel: () => void;
+}) {
+  const moves = preview?.moves ?? [];
+  return (
+    <Dialog
+      open={preview !== null}
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
+    >
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {preview ? AUTO_ASSIGN_MODE_LABEL[preview.mode] : "Auto-assign"} —
+            preview
+          </DialogTitle>
+          <DialogDescription>
+            {moves.length === 0
+              ? "No moves needed — your roster is already set for this mode. Nothing will change."
+              : `This will move ${moves.length} player${moves.length === 1 ? "" : "s"}. Nothing is saved until you apply.`}
+          </DialogDescription>
+        </DialogHeader>
+        {moves.length > 0 && (
+          <ul className="max-h-72 overflow-y-auto rounded-md border border-border/60 divide-y divide-border/40 text-sm">
+            {moves.map((m) => (
+              <li
+                key={m.player_id}
+                className="flex items-center justify-between gap-3 px-3 py-1.5"
+              >
+                <span className="font-medium">{m.name}</span>
+                <span className="text-xs text-muted">
+                  {m.from} → {m.to}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
-        Auto-assign roster
-      </Button>
-      {dialog}
-    </>
+        {preview && (preview.released > 0 || preview.overflow > 0) && (
+          <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+            {preview.released > 0 && (
+              <div>
+                {preview.released} player{preview.released === 1 ? "" : "s"} would
+                be released to free agency (org over the 50-player limit).
+              </div>
+            )}
+            {preview.overflow > 0 && (
+              <div>
+                {preview.overflow} player{preview.overflow === 1 ? "" : "s"}{" "}
+                couldn&apos;t fit a legal slot and would be parked over the cap to
+                trim manually.
+              </div>
+            )}
+          </div>
+        )}
+        <div className="mt-2 flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onCancel} disabled={applying}>
+            Cancel
+          </Button>
+          {moves.length === 0 ? (
+            <Button size="sm" onClick={onCancel} disabled={applying}>
+              Close
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              disabled={applying || !preview}
+              onClick={() => preview && onApply(preview.mode)}
+            >
+              {applying ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Shuffle className="h-4 w-4" />
+              )}
+              Apply moves
+            </Button>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

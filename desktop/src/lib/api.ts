@@ -2785,17 +2785,30 @@ export const api = {
       method: "POST",
       body: { stage_id },
     }),
-  autoAssignTeam: (teamId: string) =>
-    apiRequest<{
+  autoAssignTeam: (
+    teamId: string,
+    opts?: { mode?: "full" | "gaps"; dryRun?: boolean },
+  ) => {
+    const params = new URLSearchParams();
+    if (opts?.mode) params.set("mode", opts.mode);
+    if (opts?.dryRun) params.set("dry_run", "true");
+    const qs = params.toString();
+    return apiRequest<{
       team_id: string;
       status: string;
+      mode: "full" | "gaps";
+      dry_run: boolean;
       released: string[];
       released_count: number;
       overflow: string[];
       overflow_count: number;
       moved: { player_id: string; name: string; from: string; to: string }[];
       moved_count: number;
-    }>(`/teams/${encodeURIComponent(teamId)}/auto-assign`, { method: "POST" }),
+    }>(
+      `/teams/${encodeURIComponent(teamId)}/auto-assign${qs ? `?${qs}` : ""}`,
+      { method: "POST" },
+    );
+  },
   autoAssignAll: () =>
     apiRequest<{ status: string }>("/reassign/all", { method: "POST" }),
   financeStabilityRun: (payload: {

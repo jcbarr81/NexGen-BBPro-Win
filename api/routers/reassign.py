@@ -33,9 +33,28 @@ def _require_admin(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[s
 
 
 @team_router.post("/auto-assign")
-async def auto_assign_one(team_id: str) -> Dict[str, Any]:
+async def auto_assign_one(
+    team_id: str,
+    mode: str = "full",
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Auto-assign a team's roster.
+
+    ``mode``: ``full`` rebuilds ACT/AAA/LOW from scratch by ratings (default);
+    ``gaps`` keeps the owner's placements and only fixes what's illegal.
+    ``dry_run=true`` computes the moves and returns them WITHOUT saving — the
+    UI uses it to preview before the owner confirms.
+    """
+    mode = (mode or "full").lower()
+    if mode not in {"full", "gaps"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="mode must be 'full' or 'gaps'.",
+        )
     try:
-        result = await asyncio.to_thread(auto_assign_team, team_id)
+        result = await asyncio.to_thread(
+            auto_assign_team, team_id, mode=mode, dry_run=dry_run
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -47,6 +66,8 @@ async def auto_assign_one(team_id: str) -> Dict[str, Any]:
     return {
         "team_id": team_id,
         "status": "ok",
+        "mode": mode,
+        "dry_run": bool(dry_run),
         "released": released,
         "released_count": len(released),
         # Players kept over the AAA soft-cap (org under the total limit) instead

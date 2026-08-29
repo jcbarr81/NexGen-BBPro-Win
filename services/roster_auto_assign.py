@@ -13,13 +13,14 @@ Players marked as injured are moved to the disabled list (DL) and are not
 considered for the Active roster. Existing DL/IR assignments are preserved.
 """
 
+import copy
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Set, Tuple
 
 from playbalance.aging import calculate_age, get_sim_date
-from services.roster_validation import LOW_LEVEL_MAX_AGE
+from services.roster_validation import LOW_LEVEL_MAX_AGE, MIN_POSITION_PLAYERS_ACT
 from services.team_strategy_profiles import resolve_team_strategy_profile
 from utils.player_loader import load_players_from_csv
 from utils.team_loader import load_teams
@@ -552,6 +553,146 @@ def _pick_minor_rosters(
     return aaa_ids, low_ids
 
 
+def _gaps_assignment(
+    roster,
+    players: Dict[str, object],
+    *,
+    as_of_date: date | None = None,
+    age_cache: Dict[str, int | None] | None = None,
+) -> Tuple[List[str], List[str], List[str], List[str], List[str]]:
+    """"Fill gaps only" assignment: keep the owner's current ACT/AAA/LOW
+    placements and make ONLY the moves required for legality —
+
+      1. injured players on ACT/AAA/LOW go to the DL,
+      2. players who have aged out of LOW (>= LOW_LEVEL_MAX_AGE) move up to AAA,
+      3. the fewest best-fit players are promoted from AAA (then LOW) to restore
+         ACT defensive coverage and the position-player minimum, and
+      4. the lowest-value excess is demoted when a level is over its cap.
+
+    Returns ``(act, aaa, low, dl, overflow)``. Unlike a full reassign it never
+    releases anyone and never reshuffles a player who is already legally placed.
+    """
+
+    act = [pid for pid in roster.act if pid in players]
+    aaa = [pid for pid in roster.aaa if pid in players]
+    low = [pid for pid in roster.low if pid in players]
+    dl = list(roster.dl)
+
+    def is_pitcher(pid: str) -> bool:
+        p = players[pid]
+        return bool(
+            getattr(p, "is_pitcher", False)
+            or str(getattr(p, "primary_position", "")).upper() == "P"
+        )
+
+    def score(pid: str) -> float:
+        return _overall_score(players[pid])
+
+    def elig(pid: str) -> Set[str]:
+        return _eligible_positions(players[pid])
+
+    def age(pid: str) -> int | None:
+        return _player_age(players[pid], as_of_date=as_of_date, age_cache=age_cache)
+
+    def act_hitters() -> List[str]:
+        return [pid for pid in act if not is_pitcher(pid)]
+
+    def act_coverage() -> Set[str]:
+        covered: Set[str] = set()
+        for pid in act_hitters():
+            covered |= elig(pid)
+        return covered
+
+    # 1. Injured players don't belong on an active/minor roster.
+    for level in (act, aaa, low):
+        for pid in list(level):
+            if getattr(players[pid], "injured", False):
+                level.remove(pid)
+                if pid not in dl:
+                    dl.append(pid)
+
+    # 2. LOW is prospects-only: promote anyone who has aged out to AAA.
+    for pid in list(low):
+        player_age = age(pid)
+        if player_age is not None and player_age >= LOW_LEVEL_MAX_AGE:
+            low.remove(pid)
+            aaa.append(pid)
+
+    # 3a. Restore missing ACT defensive coverage with the best eligible minor-leaguer.
+    for pos in REQUIRED_POSITIONS:
+        if pos in act_coverage():
+            continue
+        for src in (aaa, low):
+            candidates = sorted(
+                [pid for pid in src if not is_pitcher(pid) and pos in elig(pid)],
+                key=score,
+                reverse=True,
+            )
+            if candidates:
+                cand = candidates[0]
+                src.remove(cand)
+                act.append(cand)
+                break
+
+    # 3b. Restore the position-player minimum with the best available hitter.
+    while len(act_hitters()) < MIN_POSITION_PLAYERS_ACT:
+        promoted = False
+        for src in (aaa, low):
+            candidates = sorted(
+                [pid for pid in src if not is_pitcher(pid)], key=score, reverse=True
+            )
+            if candidates:
+                cand = candidates[0]
+                src.remove(cand)
+                act.append(cand)
+                promoted = True
+                break
+        if not promoted:
+            break  # org genuinely has too few position players
+
+    # 4. Trim over-cap levels, lowest value first, without breaking ACT legality.
+    def _can_drop_from_act(pid: str) -> bool:
+        if is_pitcher(pid):
+            return True
+        remaining = [h for h in act_hitters() if h != pid]
+        if len(remaining) < MIN_POSITION_PLAYERS_ACT:
+            return False
+        covered: Set[str] = set()
+        for other in remaining:
+            covered |= elig(other)
+        return all(pos in covered for pos in REQUIRED_POSITIONS)
+
+    # ACT over cap -> demote the lowest-value droppable player to AAA.
+    for pid in sorted(list(act), key=score):
+        if len(act) <= ACTIVE_MAX:
+            break
+        if _can_drop_from_act(pid):
+            act.remove(pid)
+            aaa.append(pid)
+
+    # AAA over cap -> demote lowest-value age-eligible players to LOW (if room).
+    for pid in sorted(list(aaa), key=score):
+        if len(aaa) <= AAA_MAX or len(low) >= LOW_MAX:
+            break
+        player_age = age(pid)
+        if player_age is not None and player_age >= LOW_LEVEL_MAX_AGE:
+            continue  # can't send an aged-out player to LOW
+        aaa.remove(pid)
+        low.append(pid)
+
+    # Anything still over a cap is kept in place and reported as overflow for the
+    # owner to trim manually (gaps mode never releases anyone).
+    overflow: List[str] = []
+    if len(act) > ACTIVE_MAX:
+        overflow.extend(sorted(act, key=score)[: len(act) - ACTIVE_MAX])
+    if len(aaa) > AAA_MAX:
+        overflow.extend(sorted(aaa, key=score)[: len(aaa) - AAA_MAX])
+    if len(low) > LOW_MAX:
+        overflow.extend(sorted(low, key=score)[: len(low) - LOW_MAX])
+
+    return act, aaa, low, dl, overflow
+
+
 def auto_assign_team(
     team_id: str,
     *,
@@ -561,6 +702,8 @@ def auto_assign_team(
     as_of_date: date | None = None,
     age_cache: Dict[str, int | None] | None = None,
     strategy_profile: str | None = None,
+    mode: str = "full",
+    dry_run: bool = False,
 ) -> Dict[str, List[str]]:
     """Re-balance ACT / AAA / LOW for *team_id*.
 
@@ -578,7 +721,9 @@ def auto_assign_team(
     players = players_by_id
     if players is None:
         players = {p.player_id: p for p in load_players_from_csv(players_file)}
-    roster = load_roster(team_id, roster_dir)
+    # Deep-copy so a dry_run (preview) never mutates the service-cached roster,
+    # and a real run can't leave the cache holding uncommitted edits.
+    roster = copy.deepcopy(load_roster(team_id, roster_dir))
 
     # Build the pool from current org players (ACT/AAA/LOW); keep DL/IR intact
     pool_ids = roster.act + roster.aaa + roster.low
@@ -588,109 +733,123 @@ def auto_assign_team(
     for level in ("act", "aaa", "low"):
         for pid in getattr(roster, level, []) or []:
             pre_levels.setdefault(pid, level.upper())
-    pool = [players[pid] for pid in pool_ids if pid in players]
-    buckets = _split_players(pool)
-    profile = _resolve_strategy_profile_token(
-        team_id,
-        explicit=strategy_profile,
-        players_file=players_file,
-    )
+    if mode == "gaps":
+        # "Fill gaps only" — preserve the owner's placements, fix only what's
+        # illegal. Never releases anyone; over-cap surplus is reported as overflow.
+        act_ids, aaa_ids, low_ids, merged_dl, overflow = _gaps_assignment(
+            roster, players, as_of_date=as_of_date, age_cache=age_cache
+        )
+        roster.act = act_ids
+        roster.aaa = aaa_ids
+        roster.low = low_ids
+        roster.dl = merged_dl
+        roster.dl_tiers = {pid: roster.dl_tiers.get(pid, "dl15") for pid in merged_dl}
+        released: List[str] = []
+    else:
+        pool = [players[pid] for pid in pool_ids if pid in players]
+        buckets = _split_players(pool)
+        profile = _resolve_strategy_profile_token(
+            team_id,
+            explicit=strategy_profile,
+            players_file=players_file,
+        )
 
-    # Choose Active roster
-    act_ids, rest_hitters, rest_pitchers = _pick_active_roster(
-        buckets.hitters,
-        buckets.pitchers,
-        as_of_date=as_of_date,
-        age_cache=age_cache,
-        strategy_profile=profile,
-    )
+        # Choose Active roster
+        act_ids, rest_hitters, rest_pitchers = _pick_active_roster(
+            buckets.hitters,
+            buckets.pitchers,
+            as_of_date=as_of_date,
+            age_cache=age_cache,
+            strategy_profile=profile,
+        )
 
-    # Balance minors so AAA isn't stacked with only hitters or pitchers.
-    aaa_ids, low_ids = _pick_minor_rosters(
-        rest_hitters,
-        rest_pitchers,
-        as_of_date=as_of_date,
-        age_cache=age_cache,
-        strategy_profile=profile,
-    )
+        # Balance minors so AAA isn't stacked with only hitters or pitchers.
+        aaa_ids, low_ids = _pick_minor_rosters(
+            rest_hitters,
+            rest_pitchers,
+            as_of_date=as_of_date,
+            age_cache=age_cache,
+            strategy_profile=profile,
+        )
 
-    # Preserve injured players on DL/IR: keep existing DL/IR and move any newly
-    # identified injured players from the org pool to DL if they aren't already there.
-    injured_ids = {getattr(p, "player_id") for p in buckets.injured}
-    # Maintain original ordering but append any new injured
-    roster.act = act_ids
-    roster.aaa = aaa_ids
-    roster.low = low_ids
-    merged_dl = list(dict.fromkeys(list(roster.dl) + [pid for pid in pool_ids if pid in injured_ids]))
-    roster.dl = merged_dl
-    # Default any new assignments to the 15-day DL; UI/workflows can upgrade them later.
-    roster.dl_tiers = {pid: roster.dl_tiers.get(pid, "dl15") for pid in merged_dl}
+        # Preserve injured players on DL/IR: keep existing DL/IR and move any newly
+        # identified injured players from the org pool to DL if they aren't already there.
+        injured_ids = {getattr(p, "player_id") for p in buckets.injured}
+        # Maintain original ordering but append any new injured
+        roster.act = act_ids
+        roster.aaa = aaa_ids
+        roster.low = low_ids
+        merged_dl = list(dict.fromkeys(list(roster.dl) + [pid for pid in pool_ids if pid in injured_ids]))
+        roster.dl = merged_dl
+        # Default any new assignments to the 15-day DL; UI/workflows can upgrade them later.
+        roster.dl_tiers = {pid: roster.dl_tiers.get(pid, "dl15") for pid in merged_dl}
 
-    # Identify any player who was in the org pool (ACT/AAA/LOW pre-assign)
-    # but didn't land on ACT / AAA / LOW / DL / IR after the rebalance.
-    # _pick_minor_rosters truncates LOW at LOW_MAX, so after a 4-round
-    # draft a 14-player LOW gets clipped to 10 and the bottom four
-    # otherwise vanish without a trace.
-    assigned: Set[str] = set()
-    assigned.update(act_ids)
-    assigned.update(aaa_ids)
-    assigned.update(low_ids)
-    assigned.update(merged_dl)
-    assigned.update(roster.ir)
-    released = [pid for pid in pool_ids if pid not in assigned]
+        # Identify any player who was in the org pool (ACT/AAA/LOW pre-assign)
+        # but didn't land on ACT / AAA / LOW / DL / IR after the rebalance.
+        # _pick_minor_rosters truncates LOW at LOW_MAX, so after a 4-round
+        # draft a 14-player LOW gets clipped to 10 and the bottom four
+        # otherwise vanish without a trace.
+        assigned: Set[str] = set()
+        assigned.update(act_ids)
+        assigned.update(aaa_ids)
+        assigned.update(low_ids)
+        assigned.update(merged_dl)
+        assigned.update(roster.ir)
+        released = [pid for pid in pool_ids if pid not in assigned]
 
-    # Coverage guard: never release the LAST eligible player for a required
-    # defensive position. The active-roster picker guarantees coverage among the
-    # hitters it sees, but a position player mis-flagged as a pitcher (or an
-    # over-cap release) could still leave the org unable to field a spot (e.g.
-    # no 2B). If a required position has nobody assigned but an eligible player
-    # is about to be released, rescue the best such player into LOW.
-    if released:
-        pool_by_id = {
-            getattr(p, "player_id"): p
-            for p in list(buckets.hitters) + list(buckets.pitchers)
-        }
+        # Coverage guard: never release the LAST eligible player for a required
+        # defensive position. The active-roster picker guarantees coverage among the
+        # hitters it sees, but a position player mis-flagged as a pitcher (or an
+        # over-cap release) could still leave the org unable to field a spot (e.g.
+        # no 2B). If a required position has nobody assigned but an eligible player
+        # is about to be released, rescue the best such player into LOW.
+        if released:
+            pool_by_id = {
+                getattr(p, "player_id"): p
+                for p in list(buckets.hitters) + list(buckets.pitchers)
+            }
 
-        def _has_assigned_eligible(pos: str) -> bool:
-            return any(
-                pid in pool_by_id and pos in _eligible_positions(pool_by_id[pid])
-                for pid in assigned
-            )
+            def _has_assigned_eligible(pos: str) -> bool:
+                return any(
+                    pid in pool_by_id and pos in _eligible_positions(pool_by_id[pid])
+                    for pid in assigned
+                )
 
-        for pos in REQUIRED_POSITIONS:
-            if _has_assigned_eligible(pos):
-                continue
-            candidates = [
-                pool_by_id[pid]
-                for pid in released
-                if pid in pool_by_id and pos in _eligible_positions(pool_by_id[pid])
-            ]
-            if not candidates:
-                continue  # genuinely nobody in the org can play here
-            rescue_id = getattr(max(candidates, key=_overall_score), "player_id")
-            released.remove(rescue_id)
-            roster.low.append(rescue_id)
-            assigned.add(rescue_id)
+            for pos in REQUIRED_POSITIONS:
+                if _has_assigned_eligible(pos):
+                    continue
+                candidates = [
+                    pool_by_id[pid]
+                    for pid in released
+                    if pid in pool_by_id and pos in _eligible_positions(pool_by_id[pid])
+                ]
+                if not candidates:
+                    continue  # genuinely nobody in the org can play here
+                rescue_id = getattr(max(candidates, key=_overall_score), "player_id")
+                released.remove(rescue_id)
+                roster.low.append(rescue_id)
+                assigned.add(rescue_id)
 
-    # Only RELEASE on genuine over-capacity (the org has more players than
-    # ACT+AAA+LOW can hold). A would-be release UNDER that limit only happens
-    # because LOW is reserved for under-LOW_LEVEL_MAX_AGE players, so a veteran
-    # surplus has no soft slot — but silently cutting a player from an under-cap
-    # roster surprises owners (the whole point of this fix). Keep those players
-    # instead (parked in AAA, which has no age cap) and report them as
-    # ``overflow`` so the UI can ask the owner to trim manually, rather than
-    # releasing them to free agency.
-    total_cap = ACTIVE_MAX + AAA_MAX + LOW_MAX
-    overflow: List[str] = []
-    if released and len(pool_ids) <= total_cap:
-        overflow = list(released)
-        released = []
-        roster.aaa = list(dict.fromkeys(list(roster.aaa) + overflow))
-        assigned.update(overflow)
+        # Only RELEASE on genuine over-capacity (the org has more players than
+        # ACT+AAA+LOW can hold). A would-be release UNDER that limit only happens
+        # because LOW is reserved for under-LOW_LEVEL_MAX_AGE players, so a veteran
+        # surplus has no soft slot — but silently cutting a player from an under-cap
+        # roster surprises owners (the whole point of this fix). Keep those players
+        # instead (parked in AAA, which has no age cap) and report them as
+        # ``overflow`` so the UI can ask the owner to trim manually, rather than
+        # releasing them to free agency.
+        total_cap = ACTIVE_MAX + AAA_MAX + LOW_MAX
+        overflow: List[str] = []
+        if released and len(pool_ids) <= total_cap:
+            overflow = list(released)
+            released = []
+            roster.aaa = list(dict.fromkeys(list(roster.aaa) + overflow))
+            assigned.update(overflow)
 
-    save_roster(team_id, roster)
+    if not dry_run:
+        save_roster(team_id, roster)
 
-    if released:
+    if not dry_run and released:
         try:
             from services.transaction_log import record_transaction
 
@@ -741,7 +900,13 @@ def auto_assign_team(
         if frm and to and frm != to:
             moved.append({"player_id": pid, "name": _name(pid), "from": frm, "to": to})
 
-    return {"released": released, "overflow": overflow, "moved": moved}
+    return {
+        "released": released,
+        "overflow": overflow,
+        "moved": moved,
+        "mode": mode,
+        "dry_run": dry_run,
+    }
 
 
 def auto_assign_all_teams(
