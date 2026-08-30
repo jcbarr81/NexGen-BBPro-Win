@@ -130,3 +130,6 @@ Iron8/data/
 data/news_feed.txt
 data/record_book_snapshot.json
 data/special_events.json
+
+# Discord release-announcement webhook (secret, do not commit)
+scripts/.discord_webhook
