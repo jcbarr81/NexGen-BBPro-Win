@@ -263,6 +263,7 @@ class InjurySimulator:
         context: Optional[Mapping[str, float]] = None,
         force: bool = False,
         severity_override: Optional[str] = None,
+        is_pitcher: Optional[bool] = None,
     ) -> Optional[InjuryOutcome]:
         """Attempt to generate an injury for ``player`` based on ``trigger``.
 
@@ -299,7 +300,9 @@ class InjurySimulator:
         if severity is None:
             return None
 
-        template_pair = self._choose_injury_template(trigger, severity, player)
+        template_pair = self._choose_injury_template(
+            trigger, severity, player, is_pitcher=is_pitcher
+        )
         if template_pair is None:
             return None
         injury, profile = template_pair
@@ -341,7 +344,11 @@ class InjurySimulator:
         severities: List[str] = list(trigger_def.get("severities") or [])
         if not severities:
             severities = list(self.severity_weights.keys())
-        weights = [self.severity_weights.get(sev, 0.0) for sev in severities]
+        # A trigger may override the global minor/moderate/major mix with its own
+        # "severity_weights" — e.g. arm injuries skew toward the longer "major"
+        # tier so average days-per-stint reflects real serious injuries.
+        weight_source = trigger_def.get("severity_weights") or self.severity_weights
+        weights = [float(weight_source.get(sev, 0.0)) for sev in severities]
         total = sum(weights)
         if total <= 0:
             return self.rng.choice(severities) if severities else None
@@ -358,11 +365,16 @@ class InjurySimulator:
         trigger: str,
         severity: str,
         player: object,
+        is_pitcher: Optional[bool] = None,
     ) -> Optional[tuple[Mapping[str, Any], Mapping[str, Any]]]:
-        is_pitcher = bool(
-            getattr(player, "is_pitcher", False)
-            or str(getattr(player, "primary_position", "")).upper() == "P"
-        )
+        # Physics-engine pitcher objects (PitcherRatings) carry neither
+        # ``is_pitcher`` nor ``primary_position``, so callers that know the role
+        # (e.g. the overuse path) pass it explicitly; otherwise auto-detect.
+        if is_pitcher is None:
+            is_pitcher = bool(
+                getattr(player, "is_pitcher", False)
+                or str(getattr(player, "primary_position", "")).upper() == "P"
+            )
         candidates: List[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
         for injury in self.injuries:
             triggers = injury.get("eligible_triggers") or []

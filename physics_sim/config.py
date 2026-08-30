@@ -443,8 +443,20 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "catcher_interference_rate": 0.0005,
     "injuries_enabled": 1.0,
     "injury_rate_scale": 0.1,
+    # Overuse fires only for a genuinely tired pitcher (80+ pitches, high fatigue)
+    # — realistic; volume is balanced by injury_overuse_scale below rather than by
+    # loosening these. (The old gate never fired at all because pitcher objects
+    # weren't recognized as pitchers; that's fixed in injury_simulator.)
     "injury_overuse_pitch_min": 80.0,
     "injury_overuse_penalty_threshold": 0.6,
+    # Injury calibration (Phase 3): per-trigger multipliers on top of the
+    # commissioner's injury_rate_scale, so the trigger MIX (pitcher vs position,
+    # overuse vs swing vs error) can be balanced in code without editing every
+    # per-league catalog. Tuned against scripts/injury_rate_kpi.py toward the MLB
+    # baseline (~27 injuries/team, ~56% pitcher share).
+    "injury_overuse_scale": 0.19,
+    "injury_swing_scale": 1.02,
+    "injury_error_scale": 2.0,
     # S2-01: sized so the league platoon-split KPI lands in its 20-32 wOBA-point
     # band (2.0 produced ~46 pts). Tune these three together.
     "handedness_contact_bonus": 1.2,

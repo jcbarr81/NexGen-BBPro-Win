@@ -2873,12 +2873,15 @@ def _maybe_injure_player(
     base_attr: str | None = None,
     unearned_runners: set[str] | None = None,
     runner_pitchers: dict[str, PitcherLine] | None = None,
+    extra_scale: float = 1.0,
 ) -> dict[str, Any] | None:
     if injury_sim is None:
         return None
     if player.player_id in injured_players:
         return None
-    rate_scale = tuning.get("injury_rate_scale", 0.1)
+    # extra_scale is a per-trigger multiplier (injury_swing_scale / _error_scale)
+    # layered on top of the commissioner's injury_rate_scale.
+    rate_scale = tuning.get("injury_rate_scale", 0.1) * extra_scale
     if rate_scale <= 0.0 or random.random() >= rate_scale:
         return None
     outcome = injury_sim.maybe_create_injury(trigger, player, context=context)
@@ -3022,13 +3025,16 @@ def _maybe_pitcher_overuse_injury(
     threshold = tuning.get("injury_overuse_penalty_threshold", 0.6)
     if pitcher_state.last_penalty < threshold:
         return False
-    rate_scale = tuning.get("injury_rate_scale", 0.1)
+    rate_scale = tuning.get("injury_rate_scale", 0.1) * tuning.get(
+        "injury_overuse_scale", 1.0
+    )
     if rate_scale <= 0.0 or random.random() >= rate_scale:
         return False
     outcome = injury_sim.maybe_create_injury(
         "pitcher_overuse",
         pitcher,
         context={"fatigue": min(1.5, pitcher_state.last_penalty)},
+        is_pitcher=True,
     )
     if outcome is None:
         return False
@@ -4371,6 +4377,7 @@ def simulate_game(
                         pitcher_id=pitcher_state.pitcher.player_id,
                         tuning=tuning,
                         lineup_state=offense_state,
+                        extra_scale=tuning.get("injury_swing_scale", 1.0),
                     )
                     if swing_injury and pitch_log:
                         pitch_log[-1]["injury"] = swing_injury
@@ -4854,6 +4861,7 @@ def simulate_game(
                                         pitcher_id=pitcher_state.pitcher.player_id,
                                         tuning=tuning,
                                         lineup_state=defense_state,
+                                        extra_scale=tuning.get("injury_error_scale", 1.0),
                                     )
                                     if fielder_injury:
                                         pitch_log[-1]["injury"] = fielder_injury

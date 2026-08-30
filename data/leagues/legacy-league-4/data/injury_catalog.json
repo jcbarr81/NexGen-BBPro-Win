@@ -732,7 +732,8 @@
       "name": "Elbow UCL Sprain",
       "body_part": "elbow",
       "eligible_triggers": [
-        "throwing"
+        "throwing",
+        "pitcher_overuse"
       ],
       "severity_profiles": {
         "moderate": {
