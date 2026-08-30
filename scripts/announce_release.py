@@ -86,7 +86,12 @@ def post_to_discord(webhook: str, content: str) -> None:
     req = urllib.request.Request(
         webhook,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            # Discord sits behind Cloudflare, which blocks the default
+            # "Python-urllib/x" User-Agent (HTTP 403, error 1010). Send a real one.
+            "User-Agent": "NexGen-BBPro-Release-Announcer/1.0",
+        },
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
