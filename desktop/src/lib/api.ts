@@ -1059,6 +1059,36 @@ export interface SeasonReadiness {
   unready: string[];
 }
 
+export type SeasonScheduleRunKind =
+  | ""
+  | "days"
+  | "week"
+  | "month"
+  | "to-draft"
+  | "to-playoffs";
+
+export interface SeasonScheduleInput {
+  deadline: string | null; // ISO-8601, or null to clear
+  run_kind: SeasonScheduleRunKind;
+  run_n: number;
+  cpu_fill: boolean;
+  recurring: boolean;
+  recur_days: number;
+  auto_run?: boolean;
+  note?: string;
+}
+
+export interface SeasonSchedule extends SeasonScheduleInput {
+  deadline_utc: string | null;
+  is_scheduled: boolean;
+  past_due: boolean;
+  seconds_remaining: number | null;
+  run_label: string;
+  unready_count: number;
+  unready: string[];
+  sim_running: boolean;
+}
+
 export interface SeasonActionItem {
   kind: string;
   severity: "action" | "info";
@@ -2470,6 +2500,20 @@ export const api = {
       method: "POST",
       body: { deadline },
     }),
+  getSeasonSchedule: () => apiRequest<SeasonSchedule>("/season/schedule"),
+  setSeasonSchedule: (payload: SeasonScheduleInput) =>
+    apiRequest<SeasonSchedule>("/season/schedule", {
+      method: "POST",
+      body: payload,
+    }),
+  runSeasonSchedule: () =>
+    apiRequest<{
+      filled: string[];
+      run_label: string | null;
+      next_deadline: string | null;
+      recurring: boolean;
+      schedule: SeasonSchedule;
+    }>("/season/schedule/run", { method: "POST" }),
   preseasonTrainingCamp: () =>
     apiRequest<{
       players_processed: number;

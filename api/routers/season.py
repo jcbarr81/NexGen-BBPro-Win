@@ -1349,19 +1349,38 @@ def advance_phase(
     ):
         readiness = _league_readiness()
         if not readiness["all_ready"]:
-            n = len(readiness["unready"])
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": "teams_not_ready",
-                    "message": (
-                        f"{n} team{'s' if n != 1 else ''} aren't ready for Opening "
-                        "Day. Owners can fix their roster/lineups, or use "
-                        "'CPU handle it' per team, before advancing."
-                    ),
-                    "readiness": readiness,
-                },
-            )
+            # If the owner deadline has passed, don't block — CPU-fill the
+            # stragglers so one inactive owner can't stall Opening Day, then
+            # let the advance proceed. Before the deadline (or none set), the
+            # commissioner still gets the readiness board + per-team CPU-fill.
+            _sched = _read_schedule()
+            _dl = _parse_iso_utc(_sched["deadline"])
+            if _dl is not None and _now_utc() >= _dl and _sched["cpu_fill"]:
+                filled = _cpu_fill_all_unready()
+                try:
+                    from utils.news_logger import log_news_event
+
+                    if filled:
+                        log_news_event(
+                            f"Owner deadline passed — CPU set {len(filled)} "
+                            "unready team(s) for Opening Day."
+                        )
+                except Exception:  # pragma: no cover - defensive
+                    pass
+            else:
+                n = len(readiness["unready"])
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "code": "teams_not_ready",
+                        "message": (
+                            f"{n} team{'s' if n != 1 else ''} aren't ready for Opening "
+                            "Day. Owners can fix their roster/lineups, or use "
+                            "'CPU handle it' per team, before advancing."
+                        ),
+                        "readiness": readiness,
+                    },
+                )
 
     # only blocks an Opening Day that would begin insolvent (projected debt over
     # the league cap). Enforcement-off leagues always pass.
@@ -1891,9 +1910,13 @@ def set_season_deadline(
     import json as _json
 
     deadline = str(payload.get("deadline") or "").strip() or None
+    # Preserve the rest of the progression schedule (run config) when only the
+    # deadline is being set via this legacy endpoint.
+    sched = _read_schedule()
+    sched["deadline"] = deadline
     path = _deadline_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_json.dumps({"deadline": deadline}), encoding="utf-8")
+    path.write_text(_json.dumps(sched), encoding="utf-8")
     return {"deadline": deadline}
 
 
@@ -1903,6 +1926,266 @@ def _my_team_readiness_issues(team_id: str) -> List[str]:
     issues += _team_lineup_issues(team_id)
     issues += _team_solvency_issues(team_id)
     return issues
+
+
+# ---------------------------------------------------------------------------
+# Progression schedule — owner-deadline enforcement (Phase 1: manual/one-click)
+#
+# The commissioner sets a real deadline plus what should happen when it passes
+# (CPU-fill unready teams and/or simulate a timeframe). Once the deadline is
+# past, the commissioner runs it with one click (POST /season/schedule/run):
+# it CPU-fills stragglers first — so one inactive owner can't stall the league —
+# then kicks off the configured simulation. Recurring schedules roll the
+# deadline forward after each run. Phase 2 will add automatic firing on a
+# cloud scheduler; the runner here is what that will call.
+
+_SCHEDULE_RUN_KINDS = {"", "days", "week", "month", "to-draft", "to-playoffs"}
+
+
+def _now_utc():
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc)
+
+
+def _parse_iso_utc(value):
+    """Parse an ISO-8601 string to an aware UTC datetime, or None (a legacy
+    free-form label like "Sun 8pm ET" is not enforceable → None)."""
+    from datetime import datetime, timezone
+
+    s = str(value or "").strip()
+    if not s:
+        return None
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _read_schedule() -> Dict[str, Any]:
+    import json as _json
+
+    path = _deadline_path()
+    data: Dict[str, Any] = {}
+    if path.exists():
+        try:
+            data = _json.loads(path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            data = {}
+    run_kind = str(data.get("run_kind") or "").strip().lower()
+    if run_kind not in _SCHEDULE_RUN_KINDS:
+        run_kind = ""
+    try:
+        run_n = max(1, int(data.get("run_n") or 1))
+    except (TypeError, ValueError):
+        run_n = 1
+    try:
+        recur_days = max(1, int(data.get("recur_days") or 7))
+    except (TypeError, ValueError):
+        recur_days = 7
+    return {
+        "deadline": str(data.get("deadline") or "").strip() or None,
+        "run_kind": run_kind,
+        "run_n": run_n,
+        "cpu_fill": bool(data.get("cpu_fill", True)),
+        "recurring": bool(data.get("recurring", False)),
+        "recur_days": recur_days,
+        "auto_run": bool(data.get("auto_run", False)),
+        "note": str(data.get("note") or "").strip(),
+    }
+
+
+def _write_schedule(sched: Dict[str, Any]) -> None:
+    import json as _json
+
+    path = _deadline_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_json.dumps(sched), encoding="utf-8")
+
+
+def _run_label(run_kind: str, run_n: int) -> str:
+    if run_kind == "days":
+        return f"simulate {run_n} day{'s' if run_n != 1 else ''}"
+    if run_kind == "week":
+        return "simulate 1 week"
+    if run_kind == "month":
+        return "simulate 1 month"
+    if run_kind == "to-draft":
+        return "simulate to the draft"
+    if run_kind == "to-playoffs":
+        return "simulate to the playoffs"
+    return "get every team ready"
+
+
+def _schedule_view() -> Dict[str, Any]:
+    sched = _read_schedule()
+    dt = _parse_iso_utc(sched["deadline"])
+    now = _now_utc()
+    unready = _league_readiness()["unready"] if len(_human_team_ids()) >= 2 else []
+    return {
+        **sched,
+        "deadline_utc": dt.isoformat() if dt else None,
+        "is_scheduled": dt is not None,
+        "past_due": bool(dt and now >= dt),
+        "seconds_remaining": int((dt - now).total_seconds()) if dt else None,
+        "run_label": _run_label(sched["run_kind"], sched["run_n"]),
+        "unready_count": len(unready),
+        "unready": unready,
+        "sim_running": _sim_running(),
+    }
+
+
+def _cpu_fill_team(tid: str) -> None:
+    from services.roster_auto_assign import auto_assign_team
+    from utils.lineup_autofill import auto_fill_lineup_for_team
+
+    try:
+        auto_assign_team(tid)
+    except Exception:  # pragma: no cover - defensive
+        pass
+    for vs in ("lhp", "rhp"):
+        try:
+            auto_fill_lineup_for_team(tid, vs=vs)
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+
+def _cpu_fill_all_unready() -> List[str]:
+    """CPU-fill every human team that isn't ready; return the filled team ids."""
+    if len(_human_team_ids()) < 2:
+        return []
+    filled: List[str] = []
+    for tid in list(_league_readiness()["unready"]):
+        if not tid:
+            continue
+        _cpu_fill_team(str(tid))
+        filled.append(str(tid))
+    return filled
+
+
+def _run_schedule(identity: Dict[str, Any], *, force: bool = False) -> Dict[str, Any]:
+    """Execute the configured progression: CPU-fill stragglers, then kick off the
+    configured sim. Rolls a recurring deadline forward (or clears a one-shot)."""
+    sched = _read_schedule()
+    dt = _parse_iso_utc(sched["deadline"])
+    if not force:
+        if dt is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No enforceable deadline is set (set a date/time first).",
+            )
+        if _now_utc() < dt:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The deadline hasn't passed yet.",
+            )
+    if _sim_running():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A simulation is already in progress.",
+        )
+    filled = _cpu_fill_all_unready() if sched["cpu_fill"] else []
+    started = None
+    if sched["run_kind"]:
+        started = _start_sim(sched["run_kind"], identity, n_arg=sched["run_n"])
+    # Roll a recurring deadline forward; clear a one-shot.
+    next_deadline = None
+    if dt is not None and sched["recurring"]:
+        from datetime import timedelta
+
+        next_deadline = (dt + timedelta(days=sched["recur_days"])).isoformat()
+    sched["deadline"] = next_deadline
+    _write_schedule(sched)
+    try:
+        from utils.news_logger import log_news_event
+
+        parts: List[str] = []
+        if filled:
+            parts.append(f"CPU-filled {len(filled)} unready team(s)")
+        if sched["run_kind"]:
+            parts.append(_run_label(sched["run_kind"], sched["run_n"]))
+        if parts:
+            log_news_event("Scheduled progression: " + "; ".join(parts) + ".")
+    except Exception:  # pragma: no cover - defensive
+        pass
+    return {
+        "filled": filled,
+        "started": started,
+        "run_label": _run_label(sched["run_kind"], sched["run_n"]) if sched["run_kind"] else None,
+        "next_deadline": next_deadline,
+        "recurring": sched["recurring"],
+    }
+
+
+@router.get("/schedule")
+def get_season_schedule() -> Dict[str, Any]:
+    """The commissioner's progression schedule + computed status (surfaced to
+    owners so they can see the deadline/countdown)."""
+    return _schedule_view()
+
+
+@router.post("/schedule")
+def set_season_schedule(
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Commissioner sets the progression schedule: an ISO-8601 deadline plus what
+    runs when it passes (cpu_fill + an optional sim timeframe), one-shot or
+    recurring."""
+    _require_season_progression(identity)
+    deadline_in = str(payload.get("deadline") or "").strip() or None
+    if deadline_in is not None and _parse_iso_utc(deadline_in) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "deadline must be an ISO-8601 datetime "
+                "(e.g. 2026-09-01T20:00:00-04:00) or empty."
+            ),
+        )
+    run_kind = str(payload.get("run_kind") or "").strip().lower()
+    if run_kind not in _SCHEDULE_RUN_KINDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"run_kind must be one of {sorted(_SCHEDULE_RUN_KINDS)}.",
+        )
+    try:
+        run_n = max(1, int(payload.get("run_n") or 1))
+    except (TypeError, ValueError):
+        run_n = 1
+    try:
+        recur_days = max(1, int(payload.get("recur_days") or 7))
+    except (TypeError, ValueError):
+        recur_days = 7
+    _write_schedule(
+        {
+            "deadline": deadline_in,
+            "run_kind": run_kind,
+            "run_n": run_n,
+            "cpu_fill": bool(payload.get("cpu_fill", True)),
+            "recurring": bool(payload.get("recurring", False)),
+            "recur_days": recur_days,
+            "auto_run": bool(payload.get("auto_run", False)),
+            "note": str(payload.get("note") or "").strip(),
+        }
+    )
+    return _schedule_view()
+
+
+@router.post("/schedule/run")
+def run_season_schedule(
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Commissioner runs the scheduled progression once the deadline has passed
+    (CPU-fill stragglers + start the configured sim)."""
+    _require_season_progression(identity)
+    result = _run_schedule(identity, force=bool((payload or {}).get("force", False)))
+    return {**result, "schedule": _schedule_view()}
 
 
 @router.get("/action-items")

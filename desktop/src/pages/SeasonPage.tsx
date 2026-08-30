@@ -13,7 +13,7 @@
  * playoffs -> offseason) are advanced explicitly via "Advance Phase".
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -46,6 +46,8 @@ import {
   type SeasonActionItem,
   type SeasonPhase,
   type SeasonReadiness,
+  type SeasonScheduleInput,
+  type SeasonScheduleRunKind,
   type SeasonState,
 } from "@/lib/api";
 import { toast } from "@/lib/toast-store";
@@ -1005,7 +1007,7 @@ function FreeAgencyWindowCard() {
                 <span className="text-muted">
                   Deadline:{" "}
                   <span className="font-semibold text-ink">
-                    {deadlineQ.data.deadline}
+                    {formatDeadlineLocal(deadlineQ.data.deadline)}
                   </span>
                 </span>
               )}
@@ -1193,11 +1195,14 @@ function ActionItemsCard() {
           </CardTitle>
           <CardDescription>
             {data.count} item{data.count === 1 ? "" : "s"} waiting on you
-            {data.deadline ? ` · deadline ${data.deadline}` : ""}
+            {data.deadline
+              ? ` · deadline ${formatDeadlineLocal(data.deadline)}`
+              : ""}
           </CardDescription>
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
+        <ProgressionSchedulePanel />
         {data.items.map((item) => (
           <ActionItemRow key={item.kind} item={item} />
         ))}
@@ -1231,15 +1236,232 @@ function ActionItemRow({ item }: { item: SeasonActionItem }) {
   );
 }
 
+const RUN_KIND_OPTIONS: { value: SeasonScheduleRunKind; label: string }[] = [
+  { value: "", label: "Just get every team ready (no sim)" },
+  { value: "days", label: "Simulate N days" },
+  { value: "week", label: "Simulate 1 week" },
+  { value: "month", label: "Simulate 1 month" },
+  { value: "to-draft", label: "Simulate to the draft" },
+  { value: "to-playoffs", label: "Simulate to the playoffs" },
+];
+
+/** ISO (UTC) → the value a <input type="datetime-local"> expects (local time). */
+function isoToLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatCountdown(iso: string | null): string {
+  if (!iso) return "";
+  const ms = new Date(iso).getTime() - Date.now();
+  const abs = Math.abs(ms);
+  const mins = Math.round(abs / 60000);
+  const h = Math.floor(mins / 60);
+  const d = Math.floor(h / 24);
+  let rel: string;
+  if (d >= 1) rel = `${d}d ${h % 24}h`;
+  else if (h >= 1) rel = `${h}h ${mins % 60}m`;
+  else rel = `${mins}m`;
+  return ms >= 0 ? `in ${rel}` : `${rel} ago`;
+}
+
+/** Format a stored deadline (ISO) as local time; a legacy free-form label is
+ *  shown as-is. */
+function formatDeadlineLocal(s: string | null | undefined): string {
+  if (!s) return "";
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? s : d.toLocaleString();
+}
+
+/** Commissioner-configurable progression schedule: a real deadline + what runs
+ *  when it passes. Owners see a read-only countdown (canEdit=false). */
+function ProgressionSchedulePanel({ canEdit = false }: { canEdit?: boolean }) {
+  const queryClient = useQueryClient();
+  const scheduleQ = useQuery({
+    queryKey: ["season-schedule"],
+    queryFn: () => api.getSeasonSchedule(),
+    refetchInterval: 30_000,
+  });
+  const sched = scheduleQ.data;
+
+  const [form, setForm] = useState<SeasonScheduleInput | null>(null);
+  // Seed the editable form from the server once (and when identity changes),
+  // without clobbering in-progress edits on every refetch.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (sched && !seededRef.current) {
+      seededRef.current = true;
+      setForm({
+        deadline: sched.deadline_utc,
+        run_kind: sched.run_kind,
+        run_n: sched.run_n,
+        cpu_fill: sched.cpu_fill,
+        recurring: sched.recurring,
+        recur_days: sched.recur_days,
+      });
+    }
+  }, [sched]);
+
+  const save = useMutation({
+    mutationFn: (payload: SeasonScheduleInput) => api.setSeasonSchedule(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["season-schedule"] });
+      toast.success("Progression schedule saved.");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+  const run = useMutation({
+    mutationFn: () => api.runSeasonSchedule(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["season-schedule"] });
+      queryClient.invalidateQueries({ queryKey: ["season-readiness"] });
+      queryClient.invalidateQueries({ queryKey: ["sim-progress"] });
+      const filled = data.filled?.length ?? 0;
+      toast.success(
+        `Ran scheduled progression${filled ? ` — CPU-filled ${filled} team${filled === 1 ? "" : "s"}` : ""}${data.run_label ? `, ${data.run_label} started` : ""}.`,
+      );
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+
+  if (!sched) return null;
+
+  // Read-only (owner) view: just the deadline + countdown.
+  if (!canEdit) {
+    if (!sched.is_scheduled) return null;
+    return (
+      <div className="rounded-md border border-border bg-surfaceAlt/40 px-3 py-2 text-xs">
+        <span className="text-muted">Next deadline: </span>
+        <span className="font-semibold text-ink">
+          {sched.deadline_utc ? new Date(sched.deadline_utc).toLocaleString() : "—"}
+        </span>
+        {sched.deadline_utc && (
+          <span className={sched.past_due ? "ml-2 text-danger" : "ml-2 text-muted"}>
+            ({sched.past_due ? "passed" : formatCountdown(sched.deadline_utc)})
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  const patch = (p: Partial<SeasonScheduleInput>) =>
+    setForm((f) => (f ? { ...f, ...p } : f));
+
+  return (
+    <div className="space-y-2 rounded-md border border-border bg-surfaceAlt/30 p-3">
+      <div className="flex flex-wrap items-end gap-2 text-xs">
+        <label className="flex flex-col gap-1">
+          <span className="text-muted">Owner deadline (your local time)</span>
+          <Input
+            type="datetime-local"
+            className="h-8 w-56"
+            value={form ? isoToLocalInput(form.deadline) : ""}
+            onChange={(e) =>
+              patch({
+                deadline: e.target.value
+                  ? new Date(e.target.value).toISOString()
+                  : null,
+              })
+            }
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-muted">When it passes</span>
+          <select
+            className="h-8 rounded-md border border-border bg-surface px-2"
+            value={form?.run_kind ?? ""}
+            onChange={(e) =>
+              patch({ run_kind: e.target.value as SeasonScheduleRunKind })
+            }
+          >
+            {RUN_KIND_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {form?.run_kind === "days" && (
+          <label className="flex flex-col gap-1">
+            <span className="text-muted"># days</span>
+            <Input
+              type="number"
+              min={1}
+              className="h-8 w-20"
+              value={form.run_n}
+              onChange={(e) => patch({ run_n: Math.max(1, Number(e.target.value) || 1) })}
+            />
+          </label>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-4 text-xs">
+        <label className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={form?.cpu_fill ?? true}
+            onChange={(e) => patch({ cpu_fill: e.target.checked })}
+          />
+          <span>CPU-fill unready teams first</span>
+        </label>
+        <label className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={form?.recurring ?? false}
+            onChange={(e) => patch({ recurring: e.target.checked })}
+          />
+          <span>Repeat every</span>
+          <Input
+            type="number"
+            min={1}
+            className="h-7 w-16"
+            disabled={!form?.recurring}
+            value={form?.recur_days ?? 7}
+            onChange={(e) => patch({ recur_days: Math.max(1, Number(e.target.value) || 1) })}
+          />
+          <span>days</span>
+        </label>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!form || save.isPending}
+          onClick={() => form && save.mutate(form)}
+        >
+          Save schedule
+        </Button>
+      </div>
+      {sched.is_scheduled && (
+        <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+          <span className="text-muted">Deadline:</span>
+          <span className="font-semibold text-ink">
+            {sched.deadline_utc ? new Date(sched.deadline_utc).toLocaleString() : "—"}
+          </span>
+          <span className={sched.past_due ? "text-danger" : "text-muted"}>
+            ({sched.past_due ? "passed" : formatCountdown(sched.deadline_utc)})
+          </span>
+          {sched.past_due && (
+            <Button
+              size="sm"
+              disabled={run.isPending || sched.sim_running}
+              onClick={() => run.mutate()}
+            >
+              {sched.sim_running
+                ? "Sim running…"
+                : `Run now${sched.unready_count ? ` (CPU-fill ${sched.unready_count})` : ""} — ${sched.run_label}`}
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Commissioner view: every human team's readiness, a deadline setter, and a
  *  per-team "CPU handle it" button so an inactive owner can't stall the league. */
 function ReadinessBoard({ readiness }: { readiness?: SeasonReadiness }) {
   const queryClient = useQueryClient();
-  const deadlineQ = useQuery({
-    queryKey: ["season-deadline"],
-    queryFn: () => api.getSeasonDeadline(),
-  });
-  const [deadlineInput, setDeadlineInput] = useState("");
 
   const cpuFill = useMutation({
     mutationFn: (tid: string) => api.seasonReadinessCpuFill(tid),
@@ -1256,16 +1478,6 @@ function ReadinessBoard({ readiness }: { readiness?: SeasonReadiness }) {
     },
     onError: (err) => toast.error((err as Error).message),
   });
-  const setDeadline = useMutation({
-    mutationFn: (d: string | null) => api.setSeasonDeadline(d),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["season-deadline"] });
-      setDeadlineInput("");
-      toast.success("Owner deadline updated.");
-    },
-    onError: (err) => toast.error((err as Error).message),
-  });
-
   if (!readiness) return null;
   const teams = readiness.teams ?? [];
 
@@ -1287,36 +1499,7 @@ function ReadinessBoard({ readiness }: { readiness?: SeasonReadiness }) {
         </Badge>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-muted">Owner deadline:</span>
-          <span className="font-semibold text-ink">
-            {deadlineQ.data?.deadline ?? "none set"}
-          </span>
-          <Input
-            className="h-8 w-52"
-            placeholder="e.g. Sun 8pm ET"
-            value={deadlineInput}
-            onChange={(e) => setDeadlineInput(e.target.value)}
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={setDeadline.isPending}
-            onClick={() => setDeadline.mutate(deadlineInput.trim() || null)}
-          >
-            Set
-          </Button>
-          {deadlineQ.data?.deadline && (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={setDeadline.isPending}
-              onClick={() => setDeadline.mutate(null)}
-            >
-              Clear
-            </Button>
-          )}
-        </div>
+        <ProgressionSchedulePanel canEdit />
         <div className="space-y-1.5">
           {teams.map((t) => (
             <div
