@@ -49,6 +49,26 @@ _FALLBACK_INJURY_CATALOG: Dict[str, Any] = {
             "modifiers": {"fatigue_factor": 0.45},
             "severities": ["moderate", "major"],
         },
+        # Phase 1 of injury calibration: these three triggers are DEFINED (and
+        # kept identical to data/injury_catalog.json so the seed test's
+        # calibration-neutrality check passes) but the engines don't yet roll
+        # them. Engine call sites (Phase 2) + probability calibration (Phase 3)
+        # are pending. Values here are starting points, not final.
+        "throwing": {
+            "base_probability": 0.06,
+            "modifiers": {"durability_factor": -0.30},
+            "severities": ["minor", "moderate", "major"],
+        },
+        "swing": {
+            "base_probability": 0.008,
+            "modifiers": {"durability_factor": -0.20},
+            "severities": ["minor", "moderate", "major"],
+        },
+        "fielding": {
+            "base_probability": 0.05,
+            "modifiers": {"durability_factor": -0.30},
+            "severities": ["minor", "moderate", "major"],
+        },
     },
     "injuries": [
         {
