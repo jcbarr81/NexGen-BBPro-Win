@@ -168,6 +168,19 @@ def main() -> None:
 
     output_path = args.players if args.in_place else args.output
     assert output_path is not None
+    # Guard against the ratings-compression feedback loop: normalize() samples
+    # each rating from the INPUT file's OWN distribution (line 113), so writing
+    # back over the input narrows the spread toward the median — and re-running
+    # collapses every rating toward ~50 with hard floors (this flattened a live
+    # league once: pitcher endurance 48-54, movement pinned to 52). Always read
+    # from a healthy wide-spread source and write to a DIFFERENT file.
+    if output_path.resolve(strict=False) == args.players.resolve(strict=False):
+        parser.error(
+            "Refusing in-place normalization: this samples from the input's own "
+            "distribution, so overwriting it compresses ratings toward the mean "
+            "(re-running collapses them to ~50). Use --output to a DIFFERENT file "
+            "sourced from a healthy, wide-spread players.csv."
+        )
     normalize(args.players, output_path)
     print(f"Normalized players written to {output_path}")
 
