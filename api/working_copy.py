@@ -26,6 +26,7 @@ sim, never the prior committed state.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import threading
@@ -116,9 +117,63 @@ def delete_league_remote(league_id: str) -> bool:
     return removed
 
 
+# Critical per-league finance files that must never be clobbered by an EMPTY
+# copy. A partially-hydrated working copy once let a finance read zero these, and
+# the push then overwrote the real bucket data. This guard refuses to overwrite a
+# non-empty one with an empty one (in either sync direction).
+_CRITICAL_FINANCE_JSON = {"contracts.json", "team_financials.json"}
+
+
+def _finance_json_is_empty(path: Path) -> bool:
+    """True when a contracts/team_financials JSON carries no real data."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False  # unreadable → don't treat as a known-empty; don't block
+    if not isinstance(data, dict):
+        return False
+    if path.name == "contracts.json":
+        players = data.get("players")
+        return not (isinstance(players, dict) and players)
+    # team_financials.json: empty if no teams, or every team entry is all-zero.
+    teams = data.get("teams")
+    if not isinstance(teams, dict) or not teams:
+        return True
+
+    def _has_money(entry: object) -> bool:
+        if not isinstance(entry, dict):
+            return False
+        for value in entry.values():
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, (int, float)) and value:
+                return True
+            if isinstance(value, dict) and any(
+                isinstance(v, (int, float)) and not isinstance(v, bool) and v
+                for v in value.values()
+            ):
+                return True
+        return False
+
+    return not any(_has_money(entry) for entry in teams.values())
+
+
 def _copy_one(pair: Tuple[Path, Path]) -> int:
     src, dst = pair
     try:
+        # Never overwrite a non-empty critical finance file with an empty one.
+        if (
+            src.name in _CRITICAL_FINANCE_JSON
+            and dst.exists()
+            and dst.stat().st_size > 0
+            and _finance_json_is_empty(src)
+            and not _finance_json_is_empty(dst)
+        ):
+            _emit(
+                f"skip empty-overwrite: {src.name} local is empty but remote has "
+                f"data ({dst})"
+            )
+            return 1  # treated as handled so the sync cutoff still advances
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
         return 1

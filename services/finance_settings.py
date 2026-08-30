@@ -457,8 +457,17 @@ def ensure_financial_defaults(
     data_dir: Path | str | None = None,
     league_id: str | None = None,
     season_year: int | None = None,
+    write_missing: bool = True,
 ) -> Dict[str, Path]:
-    """Ensure baseline financial files exist for a league data directory."""
+    """Ensure baseline financial files exist for a league data directory.
+
+    ``write_missing`` MUST be False on read paths. When False, a missing or
+    unreadable ``team_financials.json``/``contracts.json`` is left untouched
+    instead of being (re)written with empty defaults — critical because the
+    working copy can be briefly incomplete after a partial startup pull, and a
+    read must never persist empties that a later push would clobber the bucket
+    with (that wiped a live league's contracts + finances once).
+    """
 
     resolved_data_dir = Path(data_dir) if data_dir is not None else get_data_dir()
     resolved_data_dir.mkdir(parents=True, exist_ok=True)
@@ -474,8 +483,9 @@ def ensure_financial_defaults(
         team_financials_path,
         data_dir=resolved_data_dir,
         season_year=season_year,
+        write_missing=write_missing,
     )
-    _ensure_contracts_file(contracts_path)
+    _ensure_contracts_file(contracts_path, write_missing=write_missing)
     _ensure_financial_transactions_file(transactions_path)
     return {
         "settings": settings_path,
@@ -782,8 +792,14 @@ def _ensure_team_financials_file(
     *,
     data_dir: Path,
     season_year: int | None = None,
+    write_missing: bool = True,
 ) -> None:
     payload = _read_json_mapping(path)
+    # On a read path, never fabricate this file: a missing/unreadable file (empty
+    # payload) on a partially-hydrated working copy must not be overwritten with
+    # zeroed teams (a later push would clobber the real bucket data).
+    if not write_missing and not payload:
+        return
     teams_payload = payload.get("teams")
     existing_teams = teams_payload if isinstance(teams_payload, Mapping) else {}
     resolved_year = _resolve_season_year(data_dir=data_dir, season_year=season_year)
@@ -814,8 +830,13 @@ def _ensure_team_financials_file(
     path.write_text(json.dumps(normalized_payload, indent=2), encoding="utf-8")
 
 
-def _ensure_contracts_file(path: Path) -> None:
+def _ensure_contracts_file(path: Path, *, write_missing: bool = True) -> None:
     payload = _read_json_mapping(path)
+    # On a read path, never fabricate this file: a missing/unreadable file (empty
+    # payload) on a partially-hydrated working copy must not be overwritten with
+    # an empty contracts map (a later push would clobber the real bucket data).
+    if not write_missing and not payload:
+        return
     players = payload.get("players")
     normalized_payload = {
         "version": CONTRACTS_VERSION,

@@ -143,7 +143,12 @@ def project_monthly_owner_finance(
     """Return monthly projections for all teams in the current league."""
 
     resolved_data_dir = _resolve_data_dir(data_dir)
-    ensure_financial_defaults(data_dir=resolved_data_dir, league_id=league_id)
+    # Read path: never (re)write missing finance files. On a partially-hydrated
+    # working copy this used to zero team_financials.json + contracts.json, which
+    # a later push then clobbered the bucket with.
+    ensure_financial_defaults(
+        data_dir=resolved_data_dir, league_id=league_id, write_missing=False
+    )
     settings = load_financial_settings(
         path=resolved_data_dir / "league_financial_settings.json",
         league_id=league_id,
