@@ -999,6 +999,7 @@ def _build_backfill_contract(
         player,
         service_time_days=service_time_days,
         season_year=season_year,
+        player_id=player_id,
     )
     arb_eligible = years_left <= 1 and service_time_days >= (3 * 172)
     contract = {
@@ -1182,17 +1183,35 @@ def _infer_backfill_years_left(
     *,
     service_time_days: int,
     season_year: int,
+    player_id: str = "",
 ) -> int:
+    """Years remaining for a backfilled contract, STAGGERED across seasons.
+
+    The old logic only produced a walk year (1 year left) for a player with 3+
+    years of accrued service time — but a freshly backfilled league has zero
+    service time, so every contract came out 2-3 years and NOBODY ever reached
+    free agency. Instead, stagger length by age plus a deterministic per-player
+    jitter (like the inaugural seeder) so a realistic slice of the league expires
+    each season, including this one. Clamped to 1..6.
+    """
     age = _player_age(player, season_year=season_year)
     if age is None:
-        return 1
-    if age <= 24:
-        return 3
-    if age <= 29:
-        return 2
-    if service_time_days >= (3 * 172):
-        return 1
-    return 2
+        base = 2
+    elif age <= 24:
+        base = 4
+    elif age <= 29:
+        base = 3
+    elif age <= 32:
+        base = 2
+    else:
+        base = 1
+
+    # Deterministic jitter in [-2, +2] from a stable hash of the player id, so
+    # re-running the backfill is idempotent and there is no global-RNG reliance.
+    key = str(player_id or getattr(player, "player_id", "") or season_year)
+    digest = hashlib.md5(key.encode("utf-8")).hexdigest()
+    jitter = (int(digest[:8], 16) % 5) - 2
+    return max(1, min(6, base + jitter))
 
 
 def _safe_number(value: object) -> float:
