@@ -4355,6 +4355,25 @@ def simulate_game(
                     tracker["swings"] = tracker.get("swings", 0) + 1
                     if not res.in_zone:
                         tracker["o_zone_swings"] = tracker.get("o_zone_swings", 0) + 1
+                    # A swing can strain an oblique/hamstring/back. Gated by
+                    # injury_rate_scale inside _maybe_injure_player; inert until
+                    # the catalog defines the 'swing' trigger (Phase 1/2).
+                    swing_injury = _maybe_injure_player(
+                        injury_sim=injury_sim,
+                        injured_players=injured_players,
+                        injury_events=injury_events,
+                        player=batter,
+                        trigger="swing",
+                        context=None,
+                        inning=inning,
+                        outs=outs,
+                        team=batting_team,
+                        pitcher_id=pitcher_state.pitcher.player_id,
+                        tuning=tuning,
+                        lineup_state=offense_state,
+                    )
+                    if swing_injury and pitch_log:
+                        pitch_log[-1]["injury"] = swing_injury
                 if res.pitch_type == last_pitch_type:
                     last_pitch_repeat += 1
                 else:
@@ -4812,6 +4831,32 @@ def simulate_game(
                                     _fielding_line(
                                         defense_state, error_fielder.player_id
                                     ).e += 1
+                                    # A throwing error can strain the arm; a
+                                    # fielding misplay can hurt legs/hands. The
+                                    # roll is gated by injury_rate_scale inside
+                                    # _maybe_injure_player and only produces
+                                    # anything once the catalog defines these
+                                    # triggers (injury calibration Phase 1/2).
+                                    fielder_injury = _maybe_injure_player(
+                                        injury_sim=injury_sim,
+                                        injured_players=injured_players,
+                                        injury_events=injury_events,
+                                        player=error_fielder,
+                                        trigger=(
+                                            "throwing"
+                                            if error_type == "throwing"
+                                            else "fielding"
+                                        ),
+                                        context=None,
+                                        inning=inning,
+                                        outs=outs,
+                                        team=defense_team,
+                                        pitcher_id=pitcher_state.pitcher.player_id,
+                                        tuning=tuning,
+                                        lineup_state=defense_state,
+                                    )
+                                    if fielder_injury:
+                                        pitch_log[-1]["injury"] = fielder_injury
                                 line.inning_baserunners += 1
                                 line.consecutive_hits = 0
                                 batter_line.roe += 1
