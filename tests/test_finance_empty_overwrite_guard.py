@@ -47,6 +47,18 @@ def test_team_financials_not_created_on_read_when_missing(tmp_path):
     assert not path.exists()
 
 
+def test_settings_not_rewritten_on_read_when_missing(tmp_path):
+    # The read path must not persist finance settings — otherwise a hydration gap
+    # would save disabled defaults over the league's real enabled settings.
+    from services.finance_settings import ensure_financial_defaults
+
+    (tmp_path / "teams.csv").write_text("team_id,name\nBAL,Orioles\n")
+    ensure_financial_defaults(data_dir=tmp_path, write_missing=False)
+    assert not (tmp_path / "league_financial_settings.json").exists()
+    ensure_financial_defaults(data_dir=tmp_path, write_missing=True)
+    assert (tmp_path / "league_financial_settings.json").exists()
+
+
 # --- Guard 2: push never overwrites a non-empty finance file with an empty one -
 
 def _dst(tmp_path, name, data):

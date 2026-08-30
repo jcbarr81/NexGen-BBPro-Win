@@ -477,7 +477,14 @@ def ensure_financial_defaults(
     transactions_path = resolved_data_dir / FINANCIAL_TRANSACTIONS_FILENAME
 
     settings = load_financial_settings(path=settings_path, league_id=league_id)
-    save_financial_settings(settings, path=settings_path, league_id=settings.league_id)
+    if write_missing:
+        # Read paths must NOT (re)persist settings: on a partially-hydrated
+        # working copy the load returns disabled defaults, and saving them would
+        # turn finance OFF (and re-key to the default "league") over the real
+        # enabled settings — exactly how a live league's finances got disabled.
+        save_financial_settings(
+            settings, path=settings_path, league_id=settings.league_id
+        )
 
     _ensure_team_financials_file(
         team_financials_path,
