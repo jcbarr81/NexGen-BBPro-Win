@@ -77,13 +77,15 @@ const COLUMNS: Array<{ key: string; label: string }> = [
 type SortKey = "name" | "age" | "role" | "overall" | string;
 type SortDir = "asc" | "desc";
 
-/** PyQt's get_role() fallback: if ``role`` is empty, infer from endurance
- *  — pitchers with endurance > 50 are starters, otherwise relievers. */
+/** Mirror of the backend get_role(): endurance is the source of truth for the
+ *  SP/RP split (a stored role can be stale or mislabeled by generation, which is
+ *  why a high-endurance arm could show as a reliever). Pitchers with endurance
+ *  > 55 are starters, otherwise relievers; stored role is only a last resort. */
 function pitcherRole(p: RosterPlayer): "SP" | "RP" {
-  const stored = (p.role || "").toUpperCase();
-  if (stored === "SP" || stored === "RP") return stored;
   const endurance = Number(p.ratings.endurance);
-  return Number.isFinite(endurance) && endurance > 50 ? "SP" : "RP";
+  if (Number.isFinite(endurance)) return endurance > 55 ? "SP" : "RP";
+  const stored = (p.role || "").toUpperCase();
+  return stored === "SP" ? "SP" : "RP";
 }
 
 export function PitchersPage() {

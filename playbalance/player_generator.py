@@ -11,6 +11,7 @@ except Exception:  # pragma: no cover - optional dependency for CLI usage
     pd = None
 
 from utils.path_utils import ActivePath, get_data_dir, get_data_root
+from utils.pitcher_role import role_from_endurance
 
 # Constants
 BASE_DIR = ActivePath(get_data_dir)
@@ -1918,7 +1919,7 @@ def _maybe_add_pitching(player: Dict, age: int, throws: str, allocation: float =
             "control": control,
             "movement": movement,
             "hold_runner": hold_runner,
-            "role": "SP" if endurance > 55 else "RP",
+            "role": role_from_endurance(endurance),
             "delivery": delivery,
             "pot_endurance": bounded_potential(endurance, age),
             "pot_control": bounded_potential(control, age),
@@ -2041,8 +2042,13 @@ def generate_player(
                 .strip()
                 .upper()
             )
-            role = "SP" if endurance > 55 else "RP"
-            if preferred_pitching_role in {"CL", "SU", "RP", "MR", "LR"}:
+            role = role_from_endurance(endurance)
+            # Only genuinely short-relief hints force RP regardless of stamina;
+            # long/middle relievers keep an endurance-derived role so a
+            # high-endurance arm isn't mislabeled a reliever (LR/MR bands can
+            # exceed the SP threshold). preferred_pitching_role stays as the
+            # finer bullpen-slot hint.
+            if preferred_pitching_role in {"CL", "SU"}:
                 role = "RP"
             if pitcher_archetype == "closer" and not preferred_pitching_role:
                 preferred_pitching_role = "CL"
@@ -2075,7 +2081,7 @@ def generate_player(
             arm = core_ratings["arm"]
             fa = core_ratings["fa"]
 
-            role = "SP" if endurance > 55 else "RP"
+            role = role_from_endurance(endurance)
             preferred_pitching_role = ""
             if pitcher_archetype == "closer":
                 role = "RP"

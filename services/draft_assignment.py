@@ -8,6 +8,7 @@ from services.transaction_log import record_transaction, reset_player_cache
 from utils.exceptions import DraftRosterError
 from utils.news_logger import log_news_event
 from utils.path_utils import get_data_dir
+from utils.pitcher_role import role_from_endurance
 from utils.roster_loader import load_roster, save_roster
 
 LOW_MAX = 10
@@ -113,7 +114,7 @@ def _default_row_from_pool(pool_row: Dict[str, Any]) -> Dict[str, Any]:
     bats = _as_text("bats", "R")
     role = _as_text("role", "").strip()
     if not role:
-        role = "SP" if is_pitcher and endurance >= 55 else ("RP" if is_pitcher else "")
+        role = role_from_endurance(endurance) if is_pitcher else ""
 
     row.update(
         {

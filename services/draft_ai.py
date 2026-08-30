@@ -6,6 +6,7 @@ from datetime import date
 from typing import Any, Dict, Iterable
 
 from utils.path_utils import get_data_dir
+from utils.pitcher_role import get_role, role_from_endurance
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster
 
@@ -32,11 +33,10 @@ def _as_pitcher(player: Any) -> bool:
 
 
 def _is_sp(player: Any) -> bool:
-    role = str(getattr(player, "role", "") or "").upper()
-    if role == "SP":
-        return True
-    endurance = getattr(player, "endurance", 0) or 0
-    return _as_pitcher(player) and endurance >= 70
+    # Use the canonical endurance-based role so draft need-counting matches the
+    # rest of the app (a stale stored role no longer miscounts a high-endurance
+    # arm as a reliever).
+    return _as_pitcher(player) and get_role(player) == "SP"
 
 
 def compute_team_needs(team_id: str) -> Dict[str, float]:
@@ -194,7 +194,7 @@ def score_prospect(
             + _safe_int(prospect.get("movement"), 0)
         )
         endurance = _safe_int(prospect.get("endurance"), 0)
-        bucket = "SP" if endurance >= 70 else "RP"
+        bucket = role_from_endurance(endurance) or "RP"
     else:
         base = (
             _safe_int(prospect.get("ch"), 0)

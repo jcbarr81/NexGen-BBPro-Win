@@ -308,7 +308,7 @@ def _probable_starter_for_team(
             player = players.get(pid)
             if player is None:
                 continue
-            role = getattr(player, "role", None) or get_role(player)
+            role = get_role(player)
             if role == "SP":
                 endurance = int(getattr(player, "endurance", 0) or 0)
                 starters.append((endurance, player))

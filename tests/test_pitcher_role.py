@@ -26,8 +26,21 @@ def make_pitcher(**kwargs):
     return Pitcher(**defaults)
 
 
-def test_explicit_role_overrides_primary_and_endurance():
-    p = make_pitcher(role="SP", primary_position="RP", endurance=0)
+def test_endurance_overrides_stale_stored_role():
+    # The fix: a high-endurance arm mislabeled RP by generation now resolves to
+    # SP — endurance is the source of truth, not the stored role.
+    p = make_pitcher(role="RP", primary_position="P", endurance=78)
+    assert get_role(p) == "SP"
+
+
+def test_explicit_primary_position_wins():
+    # An explicit SP/RP primary_position still overrides everything.
+    p = make_pitcher(role="RP", primary_position="SP", endurance=0)
+    assert get_role(p) == "SP"
+
+
+def test_stored_role_used_only_when_endurance_missing():
+    p = {"role": "SP", "primary_position": "P", "endurance": None}
     assert get_role(p) == "SP"
 
 
