@@ -41,7 +41,32 @@ __all__ = [
 CONTRACTS_VERSION = 1
 DEFAULT_CONTRACT_YEARS = 1
 DEFAULT_MIN_SALARY = 800_000
-MAX_ESTIMATED_SALARY = 35_000_000
+MAX_ESTIMATED_SALARY = 45_000_000
+
+# --- Salary model (v2) -------------------------------------------------------
+# Bumped when the salary math changes in a way we want to be able to detect on a
+# per-contract basis. NEW contracts are stamped with this under "salary_model";
+# EXISTING contracts (no stamp, or a lower stamp) are NEVER re-priced — the
+# seeder only fills MISSING rows, so deploying a new model cannot rewrite the
+# salaries already stored in a live league (see _seed_missing_contracts_from_rosters).
+SALARY_MODEL_VERSION = 2
+
+# Quality -> market value curve. Ratings are calibrated to roughly a 20..80 band
+# (mean ~50). We map a star-weighted "quality" onto a CONVEX curve so value
+# accelerates at the top: an average regular is a few million, a genuine star is
+# $20M+, and an elite talent approaches the market ceiling. This is the FULL
+# free-agent (open-market) value; the service-time tier below discounts it for
+# cost-controlled (pre-arb / arbitration) players.
+MARKET_MIN_SALARY = 800_000          # replacement-level open-market value
+MARKET_MAX_SALARY = 40_000_000       # elite open-market value
+QUALITY_FLOOR = 35.0                 # at/below -> market minimum
+QUALITY_CEIL = 75.0                  # at/above -> market maximum
+QUALITY_CONVEXITY = 2.2              # >1 makes the low/mid cheap, the top expensive
+
+# Service-time tiers (fractions of open-market value).
+ARB_SERVICE_DAYS = 3 * 172           # 3 accrued seasons -> arbitration eligible
+FA_SERVICE_DAYS = 6 * 172            # 6 accrued seasons -> free agency (full market)
+ARB_FRACTIONS = {1: 0.30, 2: 0.50, 3: 0.70}  # rising share of market across arb years
 
 
 def load_contracts_payload(*, data_dir: Path | str | None = None) -> Dict[str, object]:
@@ -602,37 +627,129 @@ def rollover_contracts_for_new_season(
     }
 
 
-def estimate_salary_for_player(player: object | None) -> int:
-    """Estimate a default annual salary from core rating attributes."""
+def _player_quality_score(player: object | None) -> float | None:
+    """Star-weighted "overall" on the rating scale (~20..80).
+
+    A flat average of every rating dilutes stars (a 49-HR slugger with average
+    speed/defense averages out to mediocre). Instead we weight the ratings that
+    actually drive value: bat (power + contact/eye) for hitters, stuff + command
+    for pitchers. Returns None when no usable ratings are present.
+    """
 
     if player is None:
-        return DEFAULT_MIN_SALARY
+        return None
     is_pitcher = bool(getattr(player, "is_pitcher", False)) or str(
         getattr(player, "primary_position", "") or ""
     ).strip().upper() == "P"
 
     if is_pitcher:
-        values = [
-            _safe_number(getattr(player, "arm", 0)),
-            _safe_number(getattr(player, "control", 0)),
-            _safe_number(getattr(player, "movement", 0)),
-            _safe_number(getattr(player, "endurance", 0)),
+        weighted = [
+            (_safe_number(getattr(player, "arm", 0)), 0.40),       # stuff / velocity
+            (_safe_number(getattr(player, "control", 0)), 0.34),   # command
+            (_safe_number(getattr(player, "movement", 0)), 0.18),  # movement
+            (_safe_number(getattr(player, "endurance", 0)), 0.08), # workload (minor $ driver)
         ]
     else:
-        values = [
-            _safe_number(getattr(player, "ch", 0)),
-            _safe_number(getattr(player, "ph", 0)),
-            _safe_number(getattr(player, "sp", 0)),
-            _safe_number(getattr(player, "eye", 0)),
-            _safe_number(getattr(player, "fa", 0)),
-            _safe_number(getattr(player, "arm", 0)),
+        weighted = [
+            (_safe_number(getattr(player, "ph", 0)), 0.34),   # power
+            (_safe_number(getattr(player, "ch", 0)), 0.30),   # contact
+            (_safe_number(getattr(player, "eye", 0)), 0.16),  # on-base
+            (_safe_number(getattr(player, "sp", 0)), 0.10),   # speed
+            (_safe_number(getattr(player, "fa", 0)), 0.06),   # fielding
+            (_safe_number(getattr(player, "arm", 0)), 0.04),  # arm
         ]
-    values = [value for value in values if value > 0]
-    if not values:
-        return DEFAULT_MIN_SALARY
-    overall = sum(values) / len(values)
-    salary = DEFAULT_MIN_SALARY + max(0, int(round(overall)) - 40) * 35_000
-    return max(DEFAULT_MIN_SALARY, min(MAX_ESTIMATED_SALARY, int(salary)))
+    present = [(value, weight) for value, weight in weighted if value > 0]
+    if not present:
+        return None
+    total_weight = sum(weight for _, weight in present)
+    if total_weight <= 0:
+        return None
+    return sum(value * weight for value, weight in present) / total_weight
+
+
+def estimate_market_value_for_player(player: object | None) -> int:
+    """Open-market (full free-agent) annual value from ratings, via a convex
+    quality->salary curve. This is what a player commands on the open market;
+    cost-controlled players are discounted from it by _apply_service_time_tier.
+    """
+
+    quality = _player_quality_score(player)
+    if quality is None:
+        return MARKET_MIN_SALARY
+    span = max(1.0, QUALITY_CEIL - QUALITY_FLOOR)
+    t = (quality - QUALITY_FLOOR) / span
+    t = max(0.0, min(1.0, t))
+    curved = t ** QUALITY_CONVEXITY
+    value = MARKET_MIN_SALARY + (MARKET_MAX_SALARY - MARKET_MIN_SALARY) * curved
+    return int(max(MARKET_MIN_SALARY, min(MAX_ESTIMATED_SALARY, round(value))))
+
+
+def _career_stage(*, service_time_days: int, age: int | None) -> tuple[str, int]:
+    """Classify a player's earning stage. Returns (stage, arb_year).
+
+    stage in {"pre_arb", "arb", "fa"}; arb_year is 1..3 for arbitration, else 0.
+    Uses accrued service time when known; otherwise (a fresh/inaugural league
+    with no service history) derives the stage from AGE so veterans are priced at
+    market and young players stay cheap.
+    """
+
+    service_time_days = max(0, int(service_time_days or 0))
+    if service_time_days > 0:
+        if service_time_days >= FA_SERVICE_DAYS:
+            return "fa", 0
+        if service_time_days >= ARB_SERVICE_DAYS:
+            arb_year = min(3, max(1, (service_time_days // 172) - 2))
+            return "arb", arb_year
+        return "pre_arb", 0
+
+    # No service history: infer from age.
+    if age is None:
+        return "arb", 2
+    if age <= 24:
+        return "pre_arb", 0
+    if age <= 28:
+        return "arb", min(3, max(1, age - 24))
+    return "fa", 0
+
+
+def _apply_service_time_tier(market_value: int, stage: str, arb_year: int) -> int:
+    """Discount open-market value for cost-controlled players."""
+
+    if stage == "pre_arb":
+        salary = DEFAULT_MIN_SALARY
+    elif stage == "arb":
+        fraction = ARB_FRACTIONS.get(int(arb_year), 0.50)
+        salary = max(DEFAULT_MIN_SALARY, int(round(market_value * fraction)))
+    else:  # "fa" -> full open-market value
+        salary = market_value
+    return int(max(DEFAULT_MIN_SALARY, min(MAX_ESTIMATED_SALARY, salary)))
+
+
+def estimate_contract_salary(
+    player: object | None,
+    *,
+    service_time_days: int = 0,
+    age: int | None = None,
+) -> tuple[int, int, str, int]:
+    """Full salary estimate for a NEW contract. Returns
+    (salary, market_value, stage, arb_year).
+    """
+
+    market_value = estimate_market_value_for_player(player)
+    stage, arb_year = _career_stage(service_time_days=service_time_days, age=age)
+    salary = _apply_service_time_tier(market_value, stage, arb_year)
+    return salary, market_value, stage, arb_year
+
+
+def estimate_salary_for_player(player: object | None) -> int:
+    """Default annual salary for a player at open-market (full FA) value.
+
+    Kept as the public entry point used when signing a free agent (who, by
+    definition, is paid market value). Contract seeding/backfill instead call
+    estimate_contract_salary to apply the service-time discount.
+    """
+
+    return estimate_market_value_for_player(player)
 
 
 def seed_inaugural_contracts_from_rosters(
@@ -904,7 +1021,7 @@ def _seed_contract_years(
     player_id: str,
     *,
     season_year: int,
-    annual_salary: int,
+    market_value: int,
 ) -> int:
     """Pick an inaugural contract length so a brand-new league does NOT open with
     the entire roster expiring after year one.
@@ -933,12 +1050,10 @@ def _seed_contract_years(
     else:
         base = 1
 
-    # Quality nudge. estimate_salary_for_player encodes an "overall" as
-    # DEFAULT_MIN_SALARY + (overall - 40) * 35_000, so these thresholds map to
-    # roughly overall >= 70 (star) and overall <= 48 (fringe).
-    if annual_salary >= DEFAULT_MIN_SALARY + 30 * 35_000:
+    # Quality nudge off the open-market value: stars sign longer, fringe shorter.
+    if market_value >= 15_000_000:
         base += 1
-    elif annual_salary <= DEFAULT_MIN_SALARY + 8 * 35_000:
+    elif market_value <= 2_500_000:
         base -= 1
 
     # Deterministic jitter in [-2, +2] from a stable hash of the player id.
@@ -955,29 +1070,33 @@ def _build_seed_contract(
     player: object | None,
     season_year: int,
 ) -> tuple[Dict[str, object], Dict[str, object]]:
-    annual_salary = estimate_salary_for_player(player)
+    age = _player_age(player, season_year=season_year)
+    annual_salary, market_value, stage, _arb_year = estimate_contract_salary(
+        player, service_time_days=0, age=age
+    )
     years_left = _seed_contract_years(
         player,
         player_id,
         season_year=season_year,
-        annual_salary=annual_salary,
+        market_value=market_value,
     )
     contract = {
         "team_id": team_id,
         "years_left": years_left,
         "annual_salary": annual_salary,
         "service_time_days": 0,
-        "arb_eligible": False,
+        "arb_eligible": stage == "arb",
         "fa_year": season_year + years_left,
         "guaranteed": True,
         "buyout_guarantee": 0,
         "options": [],
         "incentives": [],
+        "salary_model": SALARY_MODEL_VERSION,
     }
     return contract, {
         "player_id": player_id,
         "service_time_days": 0,
-        "arb_eligible": False,
+        "arb_eligible": stage == "arb",
         "years_left": years_left,
     }
 
@@ -1001,11 +1120,17 @@ def _build_backfill_contract(
         season_year=season_year,
         player_id=player_id,
     )
-    arb_eligible = years_left <= 1 and service_time_days >= (3 * 172)
+    age = _player_age(player, season_year=season_year)
+    annual_salary, _market_value, stage, _arb_year = estimate_contract_salary(
+        player, service_time_days=service_time_days, age=age
+    )
+    arb_eligible = stage == "arb" or (
+        years_left <= 1 and service_time_days >= ARB_SERVICE_DAYS
+    )
     contract = {
         "team_id": team_id,
         "years_left": years_left,
-        "annual_salary": estimate_salary_for_player(player),
+        "annual_salary": annual_salary,
         "service_time_days": service_time_days,
         "arb_eligible": arb_eligible,
         "fa_year": season_year + years_left,
@@ -1013,6 +1138,7 @@ def _build_backfill_contract(
         "buyout_guarantee": 0,
         "options": [],
         "incentives": [],
+        "salary_model": SALARY_MODEL_VERSION,
     }
     return contract, {
         "player_id": player_id,
@@ -1392,7 +1518,7 @@ def _normalize_contract(raw: object) -> Dict[str, object]:
     buyout_guarantee = max(0, int(round(_safe_number(payload.get("buyout_guarantee", 0)))))
     guaranteed = bool(payload.get("guaranteed", True))
     signing_bonus = max(0, int(round(_safe_number(payload.get("signing_bonus", 0)))))
-    return {
+    normalized: Dict[str, object] = {
         "team_id": team_id,
         "years_left": years_left,
         "annual_salary": salary,
@@ -1405,3 +1531,10 @@ def _normalize_contract(raw: object) -> Dict[str, object]:
         "options": options,
         "incentives": incentives,
     }
+    # Preserve the salary-model stamp only when a contract carries one, so
+    # pre-existing (unstamped) contracts stay unstamped and are never treated as
+    # priced under the new model. See SALARY_MODEL_VERSION.
+    salary_model = payload.get("salary_model")
+    if salary_model is not None:
+        normalized["salary_model"] = int(_safe_number(salary_model))
+    return normalized

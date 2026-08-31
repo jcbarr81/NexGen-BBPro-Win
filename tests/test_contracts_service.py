@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from services.contracts_service import (
     DEFAULT_MIN_SALARY,
+    SALARY_MODEL_VERSION,
     backfill_missing_contracts_from_rosters,
     contract_payroll_value,
     extend_contract,
@@ -188,12 +189,16 @@ def test_backfill_missing_contracts_from_rosters_for_established_league(tmp_path
     assert summary["seeded"] == 1
     assert summary["teams"] == ["AAA"]
     assert summary["inferred_service_time_days"] == 344
-    assert summary["term_breakdown"]["2y"] == 1
+    # years_left is staggered by age (25 -> base 3) + deterministic jitter -> 4.
+    assert summary["term_breakdown"]["4y_plus"] == 1
     assert contract is not None
     assert contract["team_id"] == "AAA"
     assert contract["service_time_days"] == 344
-    assert contract["years_left"] == 2
-    assert contract["fa_year"] == 2034
+    assert contract["years_left"] == 4
+    assert contract["fa_year"] == 2036
+    # 344 days < 3 seasons of service -> still pre-arb -> league-minimum salary.
+    assert contract["annual_salary"] == DEFAULT_MIN_SALARY
+    assert contract["salary_model"] == SALARY_MODEL_VERSION
 
 
 def test_transfer_contract_updates_team_and_preserves_salary(tmp_path):

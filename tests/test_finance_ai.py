@@ -316,7 +316,7 @@ def test_build_cpu_free_agent_bid_book_uses_profiles_and_skips_human_teams(tmp_p
                 "season_year": 2030,
                 "teams": {
                     "AAA": {"cash_on_hand": 20_000_000, "debt": 0},
-                    "BBB": {"cash_on_hand": 1_000_000, "debt": 7_500_000},
+                    "BBB": {"cash_on_hand": 12_000_000, "debt": 0},
                     "CCC": {"cash_on_hand": 8_000_000, "debt": 0},
                 },
             },
@@ -344,12 +344,14 @@ def test_build_cpu_free_agent_bid_book_uses_profiles_and_skips_human_teams(tmp_p
         player_id="P9",
         is_pitcher=False,
         primary_position="1B",
-        ch=66,
-        ph=63,
-        sp=52,
-        eye=58,
-        fa=55,
-        arm=56,
+        # Solid regular (~$11M market) — cheap enough that a rebuilding CPU team
+        # still bids, so the profile-ranking assertion (AAA > BBB) can be checked.
+        ch=60,
+        ph=58,
+        sp=50,
+        eye=54,
+        fa=52,
+        arm=53,
     )
 
     bids = build_cpu_free_agent_bid_book(
@@ -442,12 +444,15 @@ def test_build_cpu_free_agent_bid_book_respects_commitment_tuning_limits(tmp_pat
         player_id="P9",
         is_pitcher=False,
         primary_position="1B",
-        ch=90,
-        ph=88,
-        sp=78,
-        eye=85,
-        fa=82,
-        arm=80,
+        # A genuine superstar (quality >= the star threshold): the ONLY thing that
+        # should keep this team out of the bidding is the future-commitment limit,
+        # which this test toggles — not the cautious-budget salary avoidance.
+        ch=95,
+        ph=95,
+        sp=90,
+        eye=92,
+        fa=90,
+        arm=90,
     )
 
     blocked_bids = build_cpu_free_agent_bid_book(

@@ -26,8 +26,8 @@ def _player(pid, age, ovr):
 
 def _years(pid, age, ovr):
     p = _player(pid, age, ovr)
-    sal = cs.estimate_salary_for_player(p)
-    return cs._seed_contract_years(p, pid, season_year=YEAR, annual_salary=sal)
+    mv = cs.estimate_market_value_for_player(p)
+    return cs._seed_contract_years(p, pid, season_year=YEAR, market_value=mv)
 
 
 PIDS = [f"P{i:04d}" for i in range(300)]
@@ -76,7 +76,9 @@ def test_crossover_from_randomness():
     # The jitter must let SOME veterans land multi-year deals and SOME youngsters
     # land short ones (the user's explicit ask).
     vets_long = [pid for pid in PIDS if _years(pid, 35, 58) >= 2]
-    kids_short = [pid for pid in PIDS if _years(pid, 22, 62) <= 3]
+    # A mid-tier young player (not a star, so no length bonus) — the jitter must
+    # still push SOME to a short deal.
+    kids_short = [pid for pid in PIDS if _years(pid, 22, 52) <= 3]
     assert vets_long, "no veteran got a multi-year deal"
     assert kids_short, "no young player got a short deal"
 
