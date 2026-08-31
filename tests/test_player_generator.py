@@ -269,11 +269,36 @@ def test_hitter_contact_speed_distribution_centered():
     assert elite_combo < 5
 
 
-def test_pitcher_control_movement_floor():
+def test_pitcher_control_movement_distribution():
+    # Bootstrap generation reproduces the calibrated rating distribution rather
+    # than flooring control/movement at 50/52 (that floor pinned every pitcher to
+    # the same value — part of the compression that made pitchers look identical
+    # and threw off the sim stats). Assert valid, varied ratings instead.
     random.seed(99)
     pitchers = [generate_player(is_pitcher=True) for _ in range(200)]
-    assert all(p["control"] >= 50 for p in pitchers)
-    assert all(p["movement"] >= 52 for p in pitchers)
+    controls = [p["control"] for p in pitchers]
+    movements = [p["movement"] for p in pitchers]
+    assert all(10 <= c <= 99 for c in controls)
+    assert all(10 <= m <= 99 for m in movements)
+    assert max(controls) - min(controls) >= 15  # real spread, not pinned
+    assert max(movements) - min(movements) >= 15
+
+
+def test_bootstrap_generation_matches_seed_distribution():
+    # Bootstrap (the default normalized path) draws whole correlated rating
+    # vectors from the seed, so fresh generation reproduces the seed's aggregate
+    # means/spread — this is what keeps new-league sim stats calibrated instead
+    # of the independent per-rating sampler that clipped tails and inflated
+    # spread. Verify the generated endurance keeps a real SP/RP spread.
+    import statistics
+
+    random.seed(3)
+    pitchers = [generate_player(is_pitcher=True) for _ in range(300)]
+    endurance = [p["endurance"] for p in pitchers]
+    # A genuine spread (not the ~50 compression), with both starters and
+    # relievers represented.
+    assert statistics.pstdev(endurance) >= 8
+    assert any(e > 55 for e in endurance) and any(e <= 55 for e in endurance)
 
 
 def test_generate_closer_archetype():

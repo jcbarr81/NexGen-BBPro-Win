@@ -229,6 +229,13 @@ def _load_rating_distributions(path: Path) -> Dict[str, Any]:
             "SP": _empty_rating_bucket(PITCHER_PITCH_KEYS),
             "RP": _empty_rating_bucket(PITCHER_PITCH_KEYS),
         },
+        # Whole correlated rating vectors, for bootstrap generation: drawing a
+        # real donor's full vector keeps ratings correlated (a slugger's high
+        # power / low contact stay together) and reproduces the source
+        # distribution's aggregate stats — unlike sampling each rating
+        # independently, which clips tails and inflates player-to-player spread.
+        "hitter_rows": {"ALL": [], "by_pos": {}},
+        "pitcher_rows": {"ALL": [], "SP": [], "RP": []},
     }
     for pos in PRIMARY_POSITION_WEIGHTS:
         pools["hitters"]["by_pos"][pos] = _empty_rating_bucket(HITTER_RATING_KEYS)
@@ -267,6 +274,18 @@ def _load_rating_distributions(path: Path) -> Dict[str, Any]:
                         continue
                     pools["pitches"]["ALL"][key].append(value)
                     pools["pitches"][bucket][key].append(value)
+                donor: Dict[str, Any] = {
+                    k: (_parse_int_field(row, k) or 50) for k in PITCHER_RATING_KEYS
+                }
+                for k in PITCHER_PITCH_KEYS:
+                    v = _parse_int_field(row, k)
+                    donor[k] = v if (v is not None and v > 0) else 0
+                donor["preferred_pitching_role"] = str(
+                    row.get("preferred_pitching_role") or ""
+                ).strip()
+                donor["pitcher_archetype"] = str(row.get("pitcher_archetype") or "").strip()
+                pools["pitcher_rows"]["ALL"].append(donor)
+                pools["pitcher_rows"][bucket].append(donor)
             else:
                 pos = (row.get("primary_position") or "CF").strip().upper()
                 pos_bucket = pools["hitters"]["by_pos"].setdefault(
@@ -275,6 +294,7 @@ def _load_rating_distributions(path: Path) -> Dict[str, Any]:
                 ch_val = _parse_int_field(row, "ch") or 50
                 sc_val = _parse_int_field(row, "sc") or 50
                 eye_val = _derive_eye_rating(ch_val, sc_val)
+                hdonor: Dict[str, Any] = {}
                 for key in HITTER_RATING_KEYS:
                     if key == "eye":
                         value = eye_val
@@ -284,6 +304,11 @@ def _load_rating_distributions(path: Path) -> Dict[str, Any]:
                         continue
                     pools["hitters"]["ALL"][key].append(value)
                     pos_bucket[key].append(value)
+                    hdonor[key] = value
+                hdonor.setdefault("durability", _parse_int_field(row, "durability") or 50)
+                hdonor["hitter_archetype"] = str(row.get("hitter_archetype") or "").strip()
+                pools["hitter_rows"]["ALL"].append(hdonor)
+                pools["hitter_rows"]["by_pos"].setdefault(pos, []).append(hdonor)
     for bucket in pools["hitters"]["ALL"].values():
         bucket.sort()
     for pos_bucket in pools["hitters"]["by_pos"].values():
@@ -786,11 +811,62 @@ def _apply_hitter_tail_boost(
     return ch, ph, sp, eye, pl, gf
 
 
+def _bootstrap_hitter_ratings(primary_pos: str, bats: str) -> Dict[str, Any] | None:
+    """Draw a real hitter's whole rating vector (same position) + small jitter, so
+    ratings stay correlated and the aggregate distribution matches the source."""
+    dist = _rating_distributions()
+    rows = dist.get("hitter_rows", {})
+    pool = rows.get("by_pos", {}).get(primary_pos) or rows.get("ALL") or []
+    if not pool:
+        return None
+    donor = random.choice(pool)
+    out: Dict[str, Any] = {}
+    for key in HITTER_RATING_KEYS:
+        out[key] = max(10, min(99, int(donor.get(key, 50)) + random.randint(-3, 3)))
+    # The donor's vl encodes its own handedness; re-nudge for this player's bats.
+    if bats == "L":
+        out["vl"] = max(30, out["vl"] - 4)
+    elif bats == "R":
+        out["vl"] = min(99, out["vl"] + 4)
+    out["hitter_archetype"] = donor.get("hitter_archetype", "")
+    return out
+
+
+def _bootstrap_pitcher_ratings(throws: str) -> Dict[str, Any] | None:
+    """Draw a real pitcher's whole rating vector (+ pitch mix) + small jitter."""
+    dist = _rating_distributions()
+    pool = dist.get("pitcher_rows", {}).get("ALL") or []
+    if not pool:
+        return None
+    donor = random.choice(pool)
+    out: Dict[str, Any] = {}
+    for key in PITCHER_RATING_KEYS:
+        out[key] = max(10, min(99, int(donor.get(key, 50)) + random.randint(-3, 3)))
+    for key in PITCHER_PITCH_KEYS:
+        dv = int(donor.get(key, 0) or 0)
+        out[key] = 0 if dv <= 0 else max(10, min(99, dv + random.randint(-3, 3)))
+    if throws == "L":
+        out["vl"] = min(99, out["vl"] + 4)
+    else:
+        out["vl"] = max(30, out["vl"] - 2)
+    out["role"] = role_from_endurance(out["endurance"]) or "RP"
+    out["preferred_pitching_role"] = donor.get("preferred_pitching_role", "")
+    out["pitcher_archetype"] = donor.get("pitcher_archetype", "")
+    return out
+
+
 def _sample_normalized_hitter(
     primary_pos: str,
     bats: str,
     archetype: Optional[str] = None,
 ) -> Dict[str, Any] | None:
+    # Bootstrap from real correlated rating vectors for the general case; the
+    # template/band path is kept for explicit-archetype requests and as a
+    # fallback when no donor pool is available.
+    if not archetype:
+        boot = _bootstrap_hitter_ratings(primary_pos, bats)
+        if boot is not None:
+            return boot
     template = _choose_hitter_template(primary_pos, archetype)
     bands = HITTER_TEMPLATES[template]["bands"]
     ch = _sample_from_distribution("ch", position=primary_pos, band=bands.get("ch", (0.4, 0.7)))
@@ -911,6 +987,10 @@ def _sample_normalized_pitcher(
     archetype: Optional[str],
     throws: str,
 ) -> Dict[str, Any] | None:
+    if not archetype:
+        boot = _bootstrap_pitcher_ratings(throws)
+        if boot is not None:
+            return boot
     template = _choose_pitcher_template(archetype)
     spec = PITCHER_TEMPLATES[template]
     role = spec["role"]
