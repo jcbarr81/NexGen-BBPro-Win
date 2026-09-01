@@ -42,6 +42,11 @@ from ..security import CurrentIdentity, require_bearer
 
 router = APIRouter(prefix="/season", tags=["season"], dependencies=[CurrentIdentity])
 
+# A sibling router WITHOUT the bearer-identity gate, for machine callers that
+# authenticate with a shared secret instead of a logged-in user (the Cloud
+# Scheduler auto-run tick). Endpoints here MUST do their own authorization.
+machine_router = APIRouter(prefix="/season", tags=["season"])
+
 
 # Safety cap so a runaway request can't spin forever. One full season is
 # typically ~180 days so anything up to ~220 covers all reasonable jumps.
@@ -2242,7 +2247,7 @@ def _iter_league_ids() -> List[str]:
     return ids
 
 
-@router.post("/schedule/tick")
+@machine_router.post("/schedule/tick")
 def tick_season_schedule(
     x_scheduler_token: Optional[str] = Header(default=None, alias="X-Scheduler-Token"),
 ) -> Dict[str, Any]:
