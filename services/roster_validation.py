@@ -741,15 +741,20 @@ def validate_trade(
 
     # Post-trade roster sanity (caps only — defensive coverage is
     # expensive to compute without full player detail; leave as a hook).
+    # A trade may leave a team temporarily over a roster cap: that's a WARNING,
+    # not a blocker. Owners get their rosters compliant afterward, and the
+    # season/sim gate (validate_roster_state) still HARD-errors on caps, so an
+    # over-limit roster can never actually start a game.
     if from_team_levels and to_team_levels:
         post_from = _apply_trade(from_team_levels, drop=give_player_ids, add=receive_player_ids)
         post_to = _apply_trade(to_team_levels, drop=receive_player_ids, add=give_player_ids)
         for side, post in (("your team", post_from), ("other team", post_to)):
             for level, cap in DEFAULT_LEVEL_CAPS.items():
                 if len(post.get(level, [])) > cap:
-                    result.error(
-                        f"{side.title()} {level.upper()} would exceed cap "
-                        f"({len(post[level])}/{cap}) after the trade."
+                    result.warn(
+                        f"{side.title()} {level.upper()} would be over the limit "
+                        f"({len(post[level])}/{cap}) after the trade — get the "
+                        "roster compliant before the next sim."
                     )
 
     return result
