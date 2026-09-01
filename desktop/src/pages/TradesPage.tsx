@@ -9,7 +9,12 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowLeftRight,
@@ -20,6 +25,7 @@ import {
   Loader2,
   Plus,
   RotateCcw,
+  Scale,
   Search,
   Trash2,
   XCircle,
@@ -27,6 +33,7 @@ import {
 
 import {
   api,
+  type PlayerProfile,
   type RosterLevel,
   type RosterPlayer,
   type Team,
@@ -673,6 +680,9 @@ function TradeCard({
   const canWithdraw = isPending && (!activeTeamId || fromActive);
   // Commissioner can undo a lopsided deal after it commits.
   const canReverse = status === "accepted" && actions.isAdmin;
+  const [compareOpen, setCompareOpen] = useState(false);
+  const hasPlayers =
+    trade.give_players.length + trade.receive_players.length > 0;
   return (
     <Card>
       <CardHeader>
@@ -688,9 +698,26 @@ function TradeCard({
               CPU offer
             </Badge>
           )}
+          {hasPlayers && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCompareOpen(true)}
+              title="Compare the players in this trade side by side"
+            >
+              <Scale className="h-3 w-3" /> Compare
+            </Button>
+          )}
           <StatusBadge status={trade.status} />
         </div>
       </CardHeader>
+      {hasPlayers && (
+        <TradeComparisonDialog
+          open={compareOpen}
+          onOpenChange={setCompareOpen}
+          trade={trade}
+        />
+      )}
       <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto_1fr]">
         <TradeSide
           teamId={trade.from_team}
@@ -816,6 +843,138 @@ function TradeCard({
         </div>
       )}
     </Card>
+  );
+}
+
+/** Side-by-side ratings comparison of the players in a trade, so an owner can
+ *  size up an offer without leaving the trades screen to look each guy up. */
+function TradeComparisonDialog({
+  open,
+  onOpenChange,
+  trade,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  trade: TradeRecord;
+}) {
+  const allIds = [
+    ...trade.give_players.map((p) => p.player_id),
+    ...trade.receive_players.map((p) => p.player_id),
+  ];
+  const results = useQueries({
+    queries: allIds.map((id) => ({
+      queryKey: ["player-profile", id],
+      queryFn: () => api.playerProfile(id),
+      enabled: open,
+      staleTime: 60_000,
+    })),
+  });
+  const profileById = new Map<
+    string,
+    { data?: PlayerProfile; loading: boolean }
+  >();
+  allIds.forEach((id, i) =>
+    profileById.set(id, {
+      data: results[i]?.data,
+      loading: results[i]?.isLoading ?? false,
+    }),
+  );
+
+  const column = (teamId: string, players: TradePlayer[]) => (
+    <div className="space-y-2">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+        {teamId} sends
+      </div>
+      {players.length === 0 ? (
+        <div className="rounded-lg border border-border bg-canvas/40 px-3 py-6 text-center text-xs text-muted">
+          No players (picks only).
+        </div>
+      ) : (
+        players.map((tp) => {
+          const entry = profileById.get(tp.player_id);
+          return (
+            <PlayerCompareCard
+              key={tp.player_id}
+              tp={tp}
+              profile={entry?.data}
+              loading={entry?.loading ?? false}
+            />
+          );
+        })
+      )}
+    </div>
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Compare players</DialogTitle>
+          <DialogDescription>
+            {trade.from_team} ⇄ {trade.to_team}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 md:grid-cols-2">
+          {column(trade.from_team, trade.give_players)}
+          {column(trade.to_team, trade.receive_players)}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PlayerCompareCard({
+  tp,
+  profile,
+  loading,
+}: {
+  tp: TradePlayer;
+  profile?: PlayerProfile;
+  loading: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-canvas/40 p-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-semibold text-ink">
+            {profile?.full_name ?? tp.name}
+          </div>
+          <div className="truncate text-[11px] text-muted">
+            {profile?.positions_text || tp.position}
+            {profile?.age_text ? ` · ${profile.age_text}` : ""}
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          {profile?.overall_display != null && (
+            <div className="text-lg font-bold leading-none text-amber">
+              {Math.round(profile.overall_display)}
+            </div>
+          )}
+          {profile?.overall_stars_text && (
+            <div className="text-[11px] text-amber">
+              ★ {profile.overall_stars_text}
+            </div>
+          )}
+        </div>
+      </div>
+      {loading ? (
+        <div className="mt-2 flex items-center gap-2 text-xs text-muted">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading ratings…
+        </div>
+      ) : profile && profile.overview_ratings.length > 0 ? (
+        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+          {profile.overview_ratings.map(([label, value]) => (
+            <div
+              key={label}
+              className="flex items-center justify-between gap-2"
+            >
+              <dt className="truncate text-muted">{label}</dt>
+              <dd className="font-medium text-ink">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+    </div>
   );
 }
 
