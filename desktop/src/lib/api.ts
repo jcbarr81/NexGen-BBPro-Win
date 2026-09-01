@@ -727,6 +727,23 @@ export interface TradeReversal {
   by: string;
 }
 
+/** Live preview of how a CPU team would respond to an offer (POST /trades/evaluate). */
+export interface TradeEvaluation {
+  /** False when the target is a human team — no meter is shown. */
+  is_cpu: boolean;
+  /** True when there's nothing on either side of the offer yet. */
+  empty?: boolean;
+  /** 0-100 chance the CPU accepts the offer as-is. */
+  likelihood?: number;
+  band?: "red" | "orange" | "yellow" | "green";
+  predicted_action?: "accept" | "reject" | "counter";
+  will_counter?: boolean;
+  value_delta?: number;
+  strategy_profile?: string;
+  competitive_window?: string;
+  reasons?: string[];
+}
+
 export interface TradeRecord {
   trade_id: string;
   from_team: string;
@@ -2671,6 +2688,18 @@ export const api = {
       "/trades",
       { method: "POST", body: payload },
     ),
+  evaluateTrade: (payload: {
+    from_team: string;
+    to_team: string;
+    give_player_ids: string[];
+    receive_player_ids: string[];
+    give_pick_ids?: string[];
+    receive_pick_ids?: string[];
+  }) =>
+    apiRequest<TradeEvaluation>("/trades/evaluate", {
+      method: "POST",
+      body: payload,
+    }),
   adminApproveTrade: (tradeId: string, force = false) =>
     apiRequest<{
       trade_id: string;

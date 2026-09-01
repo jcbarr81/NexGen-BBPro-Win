@@ -19,14 +19,19 @@ import {
   Loader2,
   Plus,
   RotateCcw,
+  Search,
   Trash2,
   XCircle,
 } from "lucide-react";
 
 import {
   api,
+  type RosterLevel,
+  type RosterPlayer,
   type Team,
+  type TeamRoster,
   type TradeCpuEvaluation,
+  type TradeEvaluation,
   type TradePlayer,
   type TradeRecord,
 } from "@/lib/api";
@@ -1108,24 +1113,23 @@ function ProposeTradeDialog({
 }) {
   const [fromTeam, setFromTeam] = useState(defaultFromTeam);
   const [toTeam, setToTeam] = useState(defaultToTeam);
-  const [givePlayers, setGivePlayers] = useState(defaultGivePlayers.join(", "));
-  const [receivePlayers, setReceivePlayers] = useState(
-    defaultReceivePlayers.join(", "),
-  );
+  const [giveIds, setGiveIds] = useState<string[]>(defaultGivePlayers);
+  const [receiveIds, setReceiveIds] = useState<string[]>(defaultReceivePlayers);
   const [givePicks, setGivePicks] = useState("");
   const [receivePicks, setReceivePicks] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // Re-sync the local form state when the dialog re-opens with new
-  // defaults. Without this useEffect the prefill from a "Trade for
-  // Player" deep-link only applies on the very first open, and a later
-  // open from a different player would keep the previous values.
+  // Re-sync the local form state when the dialog re-opens with new defaults
+  // (e.g. a "Trade for Player" deep-link), so a later open doesn't keep the
+  // previous values.
   useEffect(() => {
     if (open) {
       setFromTeam(defaultFromTeam);
       setToTeam(defaultToTeam);
-      setGivePlayers(defaultGivePlayers.join(", "));
-      setReceivePlayers(defaultReceivePlayers.join(", "));
+      setGiveIds(defaultGivePlayers);
+      setReceiveIds(defaultReceivePlayers);
+      setGivePicks("");
+      setReceivePicks("");
       setError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1133,27 +1137,88 @@ function ProposeTradeDialog({
     open,
     defaultFromTeam,
     defaultToTeam,
-    // Stringify list defaults so the dep-comparison is by content, not
-    // by array identity (a parent might pass a fresh array each render).
     defaultGivePlayers.join(","),
     defaultReceivePlayers.join(","),
   ]);
+
+  // Each side's roster feeds a checklist of real players (name/pos/overall) —
+  // owners never type raw ids.
+  const fromRosterQ = useQuery({
+    queryKey: ["team-roster", fromTeam, "trade"],
+    queryFn: () => api.teamRoster(fromTeam),
+    enabled: open && !!fromTeam,
+    staleTime: 30_000,
+  });
+  const toRosterQ = useQuery({
+    queryKey: ["team-roster", toTeam, "trade"],
+    queryFn: () => api.teamRoster(toTeam),
+    enabled: open && !!toTeam,
+    staleTime: 30_000,
+  });
+
+  // Drop any selection that isn't on the currently loaded roster (e.g. after
+  // switching teams), so the offer never references a stale player id.
+  useEffect(() => {
+    const roster = fromRosterQ.data;
+    if (!roster) return;
+    const ids = new Set(flattenRoster(roster).map((p) => p.player_id));
+    setGiveIds((cur) => cur.filter((id) => ids.has(id)));
+  }, [fromRosterQ.data]);
+  useEffect(() => {
+    const roster = toRosterQ.data;
+    if (!roster) return;
+    const ids = new Set(flattenRoster(roster).map((p) => p.player_id));
+    setReceiveIds((cur) => cur.filter((id) => ids.has(id)));
+  }, [toRosterQ.data]);
+
+  const givePickIds = useMemo(() => parseIds(givePicks), [givePicks]);
+  const receivePickIds = useMemo(() => parseIds(receivePicks), [receivePicks]);
+
+  // Debounce the offer so the live CPU-acceptance preview doesn't fire on every
+  // single click/keystroke.
+  const evalKey = JSON.stringify({
+    fromTeam,
+    toTeam,
+    giveIds,
+    receiveIds,
+    givePickIds,
+    receivePickIds,
+  });
+  const [debouncedKey, setDebouncedKey] = useState(evalKey);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedKey(evalKey), 350);
+    return () => clearTimeout(timer);
+  }, [evalKey]);
+  const evalQ = useQuery({
+    queryKey: ["trade-eval", debouncedKey],
+    queryFn: () =>
+      api.evaluateTrade({
+        from_team: fromTeam,
+        to_team: toTeam,
+        give_player_ids: giveIds,
+        receive_player_ids: receiveIds,
+        give_pick_ids: givePickIds,
+        receive_pick_ids: receivePickIds,
+      }),
+    enabled: open && !!fromTeam && !!toTeam && fromTeam !== toTeam,
+    staleTime: 5_000,
+  });
 
   const mutation = useMutation({
     mutationFn: () =>
       api.proposeTrade({
         from_team: fromTeam,
         to_team: toTeam,
-        give_player_ids: parseIds(givePlayers),
-        receive_player_ids: parseIds(receivePlayers),
-        give_pick_ids: parseIds(givePicks),
-        receive_pick_ids: parseIds(receivePicks),
+        give_player_ids: giveIds,
+        receive_player_ids: receiveIds,
+        give_pick_ids: givePickIds,
+        receive_pick_ids: receivePickIds,
       }),
     onSuccess: () => {
       setError(null);
       onProposed();
-      setGivePlayers("");
-      setReceivePlayers("");
+      setGiveIds([]);
+      setReceiveIds([]);
       setGivePicks("");
       setReceivePicks("");
       onOpenChange(false);
@@ -1168,16 +1233,33 @@ function ProposeTradeDialog({
       setError("Pick two different teams.");
       return;
     }
+    if (
+      giveIds.length === 0 &&
+      receiveIds.length === 0 &&
+      givePickIds.length === 0 &&
+      receivePickIds.length === 0
+    ) {
+      setError("Add at least one player or pick to the offer.");
+      return;
+    }
     mutation.mutate();
   }
 
+  const toggle = (side: "give" | "receive", id: string) => {
+    const setter = side === "give" ? setGiveIds : setReceiveIds;
+    setter((cur) =>
+      cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
+    );
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>Propose Trade</DialogTitle>
           <DialogDescription>
-            Player + pick lists accept comma- or space-separated IDs.
+            Pick players from each roster. Offers to a CPU team show how likely
+            they are to accept.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -1199,25 +1281,29 @@ function ProposeTradeDialog({
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="give-players">Give players</Label>
-              <Input
-                id="give-players"
-                placeholder="e.g. P1234, P5678"
-                value={givePlayers}
-                onChange={(e) => setGivePlayers(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="receive-players">Receive players</Label>
-              <Input
-                id="receive-players"
-                placeholder="e.g. P9999"
-                value={receivePlayers}
-                onChange={(e) => setReceivePlayers(e.target.value)}
-              />
-            </div>
+            <RosterMultiSelect
+              label={`You give${fromTeam ? ` — ${fromTeam}` : ""}`}
+              teamId={fromTeam}
+              roster={fromRosterQ.data}
+              loading={fromRosterQ.isLoading}
+              selectedIds={giveIds}
+              onToggle={(id) => toggle("give", id)}
+            />
+            <RosterMultiSelect
+              label={`You receive${toTeam ? ` — ${toTeam}` : ""}`}
+              teamId={toTeam}
+              roster={toRosterQ.data}
+              loading={toRosterQ.isLoading}
+              selectedIds={receiveIds}
+              onToggle={(id) => toggle("receive", id)}
+            />
           </div>
+
+          <AcceptanceMeter
+            toTeam={toTeam}
+            evaluation={evalQ.data}
+            loading={evalQ.isFetching}
+          />
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
@@ -1262,6 +1348,212 @@ function ProposeTradeDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Levels whose players can be included in a trade (whole org, injured included).
+const TRADE_LEVELS: RosterLevel[] = ["ACT", "AAA", "LOW", "DL", "IR"];
+
+function flattenRoster(roster: TeamRoster): RosterPlayer[] {
+  return TRADE_LEVELS.flatMap((lvl) => roster.levels[lvl] ?? []);
+}
+
+/** Searchable, multi-select checklist of a team's players for a trade side. */
+function RosterMultiSelect({
+  label,
+  teamId,
+  roster,
+  loading,
+  selectedIds,
+  onToggle,
+}: {
+  label: string;
+  teamId: string;
+  roster?: TeamRoster;
+  loading: boolean;
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const players = roster ? flattenRoster(roster) : [];
+  const needle = query.trim().toLowerCase();
+  const filtered = needle
+    ? players.filter((p) =>
+        `${p.first_name} ${p.last_name} ${p.primary_position}`
+          .toLowerCase()
+          .includes(needle),
+      )
+    : players;
+  const selectedSet = new Set(selectedIds);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+          {label}
+        </span>
+        {selectedIds.length > 0 && (
+          <span className="text-[11px] font-semibold text-amber">
+            {selectedIds.length} selected
+          </span>
+        )}
+      </div>
+      {!teamId ? (
+        <div className="rounded-lg border border-border bg-canvas/40 px-3 py-6 text-center text-xs text-muted">
+          Pick a team first.
+        </div>
+      ) : (
+        <div className="rounded-lg border border-border bg-canvas/40">
+          <div className="border-b border-border/60 p-1.5">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search players…"
+                className="h-8 w-full rounded-md border border-border bg-surface pl-7 pr-2 text-xs text-ink focus:border-amber focus:outline-none"
+              />
+            </div>
+          </div>
+          <div className="max-h-52 overflow-y-auto p-1">
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading roster…
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="py-6 text-center text-xs text-muted">
+                {players.length === 0 ? "No players." : "No matches."}
+              </div>
+            ) : (
+              filtered.map((p) => {
+                const sel = selectedSet.has(p.player_id);
+                return (
+                  <button
+                    type="button"
+                    key={p.player_id}
+                    onClick={() => onToggle(p.player_id)}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs",
+                      sel
+                        ? "bg-amber/15 text-ink"
+                        : "text-ink/90 hover:bg-surfaceAlt/60",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      readOnly
+                      checked={sel}
+                      className="pointer-events-none h-3.5 w-3.5 accent-amber"
+                    />
+                    <span className="w-9 shrink-0 font-medium text-muted">
+                      {p.primary_position}
+                    </span>
+                    <span className="flex-1 truncate">
+                      {p.first_name} {p.last_name}
+                    </span>
+                    {p.overall_stars_text && (
+                      <span className="shrink-0 text-amber">
+                        ★{p.overall_stars_text}
+                      </span>
+                    )}
+                    {typeof p.age === "number" && (
+                      <span className="w-8 shrink-0 text-right text-muted">
+                        {p.age}y
+                      </span>
+                    )}
+                    {p.injured && (
+                      <Badge tone="warning" className="shrink-0">
+                        {p.level === "DL" || p.level === "IR" ? p.level : "INJ"}
+                      </Badge>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const BAND_COLOR: Record<string, string> = {
+  red: "#ef4444",
+  orange: "#f97316",
+  yellow: "#eab308",
+  green: "#22c55e",
+};
+
+function acceptanceLabel(ev: TradeEvaluation): string {
+  if (ev.will_counter) return "Likely to reject as-is — but may counter";
+  const pct = ev.likelihood ?? 0;
+  if (ev.predicted_action === "accept") {
+    return pct >= 80 ? "Very likely to accept" : "Likely to accept";
+  }
+  return pct >= 20 ? "Unlikely to accept" : "Very unlikely to accept";
+}
+
+/** Red→orange→yellow→green bar showing how likely a CPU team is to accept. */
+function AcceptanceMeter({
+  toTeam,
+  evaluation,
+  loading,
+}: {
+  toTeam: string;
+  evaluation?: TradeEvaluation;
+  loading: boolean;
+}) {
+  if (!toTeam) return null;
+  if (!evaluation) {
+    return loading ? (
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-canvas/40 px-3 py-2 text-xs text-muted">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Sizing up the deal…
+      </div>
+    ) : null;
+  }
+  if (!evaluation.is_cpu) {
+    return (
+      <div className="rounded-lg border border-border bg-canvas/40 px-3 py-2 text-xs text-muted">
+        {toTeam} is owner-controlled — they’ll review your offer in their inbox.
+      </div>
+    );
+  }
+  if (evaluation.empty || typeof evaluation.likelihood !== "number") {
+    return (
+      <div className="rounded-lg border border-border bg-canvas/40 px-3 py-2 text-xs text-muted">
+        Add players to see how likely {toTeam} is to accept.
+      </div>
+    );
+  }
+  const pct = Math.max(0, Math.min(100, evaluation.likelihood));
+  const color = BAND_COLOR[evaluation.band ?? "red"] ?? BAND_COLOR.red;
+  return (
+    <div className="space-y-1.5 rounded-lg border border-border bg-canvas/40 px-3 py-2.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-semibold text-ink">
+          Chance {toTeam} accepts
+        </span>
+        <span className="font-semibold" style={{ color }}>
+          {pct}%{loading ? " …" : ""}
+        </span>
+      </div>
+      <div className="h-2.5 w-full overflow-hidden rounded-full bg-surfaceAlt">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${pct}%`, backgroundColor: color }}
+        />
+      </div>
+      <div className="text-xs font-medium" style={{ color }}>
+        {acceptanceLabel(evaluation)}
+      </div>
+      {evaluation.reasons && evaluation.reasons.length > 0 && (
+        <ul className="space-y-0.5 pt-0.5 text-[11px] text-muted">
+          {evaluation.reasons.slice(0, 3).map((r, i) => (
+            <li key={i}>• {r}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

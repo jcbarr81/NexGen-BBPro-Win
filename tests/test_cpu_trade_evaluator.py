@@ -410,3 +410,46 @@ def test_timeline_weight_factor_scales_score():
     assert abs(base.timeline_delta) > 0.0
     assert boosted.total_score - base.total_score == \
         __import__("pytest").approx(0.06 * base.timeline_delta)
+
+
+# --- acceptance_likelihood (owner-facing meter) -----------------------------
+
+from services.cpu_trade_evaluator import acceptance_likelihood  # noqa: E402
+
+
+def test_acceptance_likelihood_is_monotonic_and_bounded():
+    prev = -1
+    for score in (-3.0, -1.0, -0.22, 0.0, 0.22, 1.0, 3.0):
+        m = acceptance_likelihood(score, "balanced")
+        assert 0 <= m["likelihood"] <= 100
+        assert m["likelihood"] >= prev
+        prev = m["likelihood"]
+
+
+def test_acceptance_likelihood_clear_accept_is_green():
+    base = 0.45  # balanced window
+    hi = acceptance_likelihood(base + 0.5, "balanced")
+    assert hi["likelihood"] == 100
+    assert hi["band"] == "green"
+    assert hi["predicted_action"] == "accept"
+
+
+def test_acceptance_likelihood_far_below_is_red_reject():
+    lo = acceptance_likelihood(0.45 - 3.0, "balanced")
+    assert lo["likelihood"] == 0
+    assert lo["band"] == "red"
+    assert lo["predicted_action"] == "reject"
+
+
+def test_acceptance_likelihood_counterable_offer_is_never_red():
+    # Just short of the base but well within the counter window.
+    m = acceptance_likelihood(0.45 - 0.5, "balanced")
+    assert m["predicted_action"] == "counter"
+    assert m["band"] == "orange"  # bumped up from red for a counterable offer
+
+
+def test_acceptance_likelihood_window_matters():
+    # Same score: a rebuilder (low bar) is far likelier than a contender.
+    contend = acceptance_likelihood(0.5, "contend")
+    rebuild = acceptance_likelihood(0.5, "rebuild")
+    assert rebuild["likelihood"] > contend["likelihood"]

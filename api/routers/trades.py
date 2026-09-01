@@ -287,6 +287,66 @@ def _trade_payload_to_dict(payload: Dict[str, Any]) -> Trade:
     )
 
 
+@router.post("/evaluate")
+def evaluate_trade_preview(
+    payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Preview how a CPU team would respond to an offer WITHOUT proposing it.
+
+    Powers the acceptance meter in the Propose Trade dialog: the owner builds an
+    offer and sees, live, how likely the CPU team is to accept. Nothing is
+    saved. Returns ``{"is_cpu": False}`` when the target is a human team (no
+    meter); otherwise a likelihood (0-100), a red/orange/yellow/green band, the
+    predicted action, and the top reasons."""
+
+    trade = _trade_payload_to_dict(payload)
+    # You can only size up a deal FROM a team you own (commissioner passes too).
+    require_team_owner(identity, trade.from_team)
+
+    from services.cpu_trade_evaluator import (
+        acceptance_likelihood,
+        evaluate_cpu_trade_offer,
+        is_cpu_owned_team,
+    )
+
+    if not is_cpu_owned_team(trade.to_team):
+        return {"is_cpu": False}
+
+    empty = not (
+        trade.give_player_ids
+        or trade.receive_player_ids
+        or trade.give_pick_ids
+        or trade.receive_pick_ids
+    )
+    if empty:
+        return {"is_cpu": True, "empty": True}
+
+    # A fixed id keeps the per-trade decision jitter (and thus the reason text)
+    # stable while the owner tweaks the offer, so the meter doesn't flicker.
+    trade.trade_id = "preview"
+    evaluation = evaluate_cpu_trade_offer(trade)
+    if evaluation is None:
+        return {"is_cpu": False}
+    meter = acceptance_likelihood(
+        evaluation.total_score, evaluation.competitive_window
+    )
+    predicted = str(meter["predicted_action"])
+    return {
+        "is_cpu": True,
+        "likelihood": int(meter["likelihood"]),
+        "band": str(meter["band"]),
+        "predicted_action": predicted,
+        "will_counter": predicted == "counter",
+        "value_delta": float(evaluation.value_delta),
+        "strategy_profile": evaluation.strategy_profile,
+        "competitive_window": evaluation.competitive_window,
+        "reasons": [
+            getattr(r, "summary", str(r)) for r in (evaluation.reasons or [])
+        ][:4],
+    }
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def propose_trade(
     payload: Dict[str, Any] = Body(...),

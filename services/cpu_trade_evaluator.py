@@ -542,11 +542,67 @@ def _window_threshold(window: str) -> float:
     return 0.45
 
 
+# _decision_variation spans a symmetric uniform band around the base threshold,
+# so the probability that a given offer clears the (per-trade) jittered
+# threshold is linear in how far its score sits above/below the base.
+_DECISION_JITTER_HALF_RANGE = 0.22  # (bucket-0.5)*0.44 -> [-0.22, +0.22]
+# Beyond this shortfall a rejected offer is too far apart to counter (mirrors the
+# 0 < score_gap <= 1.8 counter window in evaluate_cpu_trade_offer).
+_COUNTER_WINDOW = 1.8
+
+
 def _decision_variation(trade_id: str, team_id: str) -> float:
     token = f"{trade_id}|{team_id}"
     digest = sha256(token.encode("utf-8")).hexdigest()
     bucket = int(digest[:8], 16) / float(0xFFFFFFFF)
     return (bucket - 0.5) * 0.44
+
+
+def acceptance_likelihood(total_score: float, window: str) -> dict[str, object]:
+    """Turn a raw offer score into an owner-facing acceptance meter.
+
+    ``total_score`` is what :func:`evaluate_cpu_trade_offer` computes; the CPU
+    accepts when it clears ``base_threshold + jitter`` where ``jitter`` is
+    uniform in ``[-0.22, +0.22]``. So the acceptance probability is simply how
+    far the score sits into that band. Returns ``likelihood`` (0-100), a
+    red/orange/yellow/green ``band``, and the median-case ``predicted_action``
+    (accept / counter / reject) — everything the UI meter needs.
+    """
+
+    base = _window_threshold(str(window or ""))
+    margin = float(total_score) - base
+    half = _DECISION_JITTER_HALF_RANGE
+    prob = (margin + half) / (2.0 * half)
+    prob = max(0.0, min(1.0, prob))
+    likelihood = int(round(prob * 100))
+
+    # Median-case (jitter = 0) outcome, so the label matches the "expected" run.
+    if margin >= 0.0:
+        predicted_action = "accept"
+    elif (-margin) <= _COUNTER_WINDOW:
+        predicted_action = "counter"
+    else:
+        predicted_action = "reject"
+
+    if likelihood >= 75:
+        band = "green"
+    elif likelihood >= 45:
+        band = "yellow"
+    elif likelihood >= 20:
+        band = "orange"
+    else:
+        band = "red"
+    # A rejected-but-counterable offer is still "engagement" — never show the
+    # bleakest red for one the CPU would answer with a counter.
+    if predicted_action == "counter" and band == "red":
+        band = "orange"
+
+    return {
+        "likelihood": likelihood,
+        "band": band,
+        "predicted_action": predicted_action,
+        "margin": round(margin, 3),
+    }
 
 
 def _build_counter_offer(
