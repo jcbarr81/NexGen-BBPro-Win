@@ -727,6 +727,22 @@ export interface TradeReversal {
   by: string;
 }
 
+export interface TradablePick {
+  pick_id: string;
+  /** Human label, e.g. "2027 Round 1 (CHI)". */
+  label: string;
+  year: number;
+  round_no: number;
+  original_team: string;
+}
+
+export interface TeamTradablePicks {
+  team_id: string;
+  /** False when the commissioner has draft-pick trading turned off. */
+  enabled: boolean;
+  picks: TradablePick[];
+}
+
 /** Live preview of how a CPU team would respond to an offer (POST /trades/evaluate). */
 export interface TradeEvaluation {
   /** False when the target is a human team — no meter is shown. */
@@ -2700,6 +2716,10 @@ export const api = {
       method: "POST",
       body: payload,
     }),
+  teamTradablePicks: (teamId: string) =>
+    apiRequest<TeamTradablePicks>(
+      `/trades/team-picks/${encodeURIComponent(teamId)}`,
+    ),
   adminApproveTrade: (tradeId: string, force = false) =>
     apiRequest<{
       trade_id: string;

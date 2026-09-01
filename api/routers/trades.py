@@ -346,6 +346,49 @@ def evaluate_trade_preview(
     }
 
 
+@router.get("/team-picks/{team_id}")
+def team_tradable_picks(
+    team_id: str,
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Draft picks a team can trade, with human-readable labels, for the pick
+    dropdowns in the Propose Trade dialog. ``enabled`` is False (and ``picks``
+    empty) when the commissioner has pick trading turned off."""
+
+    from services.draft_pick_ledger import list_team_tradable_picks
+
+    enabled = True
+    try:
+        from services.commissioner_settings import load_trade_settings
+
+        ts = load_trade_settings()
+        enabled = bool(
+            getattr(ts, "draft_pick_trading_enabled", True)
+            if not isinstance(ts, dict)
+            else ts.get("draft_pick_trading_enabled", True)
+        )
+    except Exception:
+        enabled = True
+
+    picks: List[Dict[str, Any]] = []
+    if enabled:
+        try:
+            for pick in list_team_tradable_picks(team_id):
+                picks.append(
+                    {
+                        "pick_id": pick.pick_id,
+                        "label": format_pick_label(pick.pick_id),
+                        "year": pick.year,
+                        "round_no": pick.round_no,
+                        "original_team": pick.original_team,
+                    }
+                )
+        except Exception:
+            picks = []
+    picks.sort(key=lambda p: (p["year"], p["round_no"], p["original_team"]))
+    return {"team_id": team_id, "enabled": enabled, "picks": picks}
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def propose_trade(
     payload: Dict[str, Any] = Body(...),

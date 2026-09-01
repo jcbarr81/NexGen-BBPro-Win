@@ -7,7 +7,7 @@
  * (validates pick ownership, deadline, etc., on the server).
  */
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -15,6 +15,7 @@ import {
   ArrowLeftRight,
   ArrowRight,
   CheckCircle2,
+  ChevronDown,
   Clock,
   Loader2,
   Plus,
@@ -30,6 +31,8 @@ import {
   type RosterPlayer,
   type Team,
   type TeamRoster,
+  type TeamTradablePicks,
+  type TradablePick,
   type TradeCpuEvaluation,
   type TradeEvaluation,
   type TradePlayer,
@@ -1115,8 +1118,8 @@ function ProposeTradeDialog({
   const [toTeam, setToTeam] = useState(defaultToTeam);
   const [giveIds, setGiveIds] = useState<string[]>(defaultGivePlayers);
   const [receiveIds, setReceiveIds] = useState<string[]>(defaultReceivePlayers);
-  const [givePicks, setGivePicks] = useState("");
-  const [receivePicks, setReceivePicks] = useState("");
+  const [givePickIds, setGivePickIds] = useState<string[]>([]);
+  const [receivePickIds, setReceivePickIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   // Re-sync the local form state when the dialog re-opens with new defaults
@@ -1128,8 +1131,8 @@ function ProposeTradeDialog({
       setToTeam(defaultToTeam);
       setGiveIds(defaultGivePlayers);
       setReceiveIds(defaultReceivePlayers);
-      setGivePicks("");
-      setReceivePicks("");
+      setGivePickIds([]);
+      setReceivePickIds([]);
       setError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1155,21 +1158,33 @@ function ProposeTradeDialog({
     enabled: open && !!toTeam,
     staleTime: 30_000,
   });
+  // Draft picks each team can trade, for the pick dropdowns.
+  const fromPicksQ = useQuery({
+    queryKey: ["team-picks", fromTeam],
+    queryFn: () => api.teamTradablePicks(fromTeam),
+    enabled: open && !!fromTeam,
+    staleTime: 30_000,
+  });
+  const toPicksQ = useQuery({
+    queryKey: ["team-picks", toTeam],
+    queryFn: () => api.teamTradablePicks(toTeam),
+    enabled: open && !!toTeam,
+    staleTime: 30_000,
+  });
 
-  // Switching a team clears only that side's picks. We do this on the explicit
-  // user action (not in a roster-load effect) so a pre-loaded selection from
+  // Switching a team clears only that side's picks/players. We do this on the
+  // explicit user action (not in a load effect) so a pre-loaded selection from
   // the "Trade for Player" deep-link is never wiped by load timing.
   const changeFromTeam = (value: string) => {
     setFromTeam(value);
     setGiveIds([]);
+    setGivePickIds([]);
   };
   const changeToTeam = (value: string) => {
     setToTeam(value);
     setReceiveIds([]);
+    setReceivePickIds([]);
   };
-
-  const givePickIds = useMemo(() => parseIds(givePicks), [givePicks]);
-  const receivePickIds = useMemo(() => parseIds(receivePicks), [receivePicks]);
 
   // Debounce the offer so the live CPU-acceptance preview doesn't fire on every
   // single click/keystroke.
@@ -1216,8 +1231,8 @@ function ProposeTradeDialog({
       onProposed();
       setGiveIds([]);
       setReceiveIds([]);
-      setGivePicks("");
-      setReceivePicks("");
+      setGivePickIds([]);
+      setReceivePickIds([]);
       onOpenChange(false);
     },
     onError: (err) =>
@@ -1244,6 +1259,12 @@ function ProposeTradeDialog({
 
   const toggle = (side: "give" | "receive", id: string) => {
     const setter = side === "give" ? setGiveIds : setReceiveIds;
+    setter((cur) =>
+      cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
+    );
+  };
+  const togglePick = (side: "give" | "receive", id: string) => {
+    const setter = side === "give" ? setGivePickIds : setReceivePickIds;
     setter((cur) =>
       cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
     );
@@ -1303,24 +1324,22 @@ function ProposeTradeDialog({
           />
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="give-picks">Give picks (optional)</Label>
-              <Input
-                id="give-picks"
-                placeholder="2027|1|CHI"
-                value={givePicks}
-                onChange={(e) => setGivePicks(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="receive-picks">Receive picks (optional)</Label>
-              <Input
-                id="receive-picks"
-                placeholder="2027|2|DAL"
-                value={receivePicks}
-                onChange={(e) => setReceivePicks(e.target.value)}
-              />
-            </div>
+            <PickMultiSelect
+              label="Give picks (optional)"
+              teamId={fromTeam}
+              data={fromPicksQ.data}
+              loading={fromPicksQ.isLoading}
+              selectedIds={givePickIds}
+              onToggle={(id) => togglePick("give", id)}
+            />
+            <PickMultiSelect
+              label="Receive picks (optional)"
+              teamId={toTeam}
+              data={toPicksQ.data}
+              loading={toPicksQ.isLoading}
+              selectedIds={receivePickIds}
+              onToggle={(id) => togglePick("receive", id)}
+            />
           </div>
 
           {error && (
@@ -1477,6 +1496,107 @@ function RosterMultiSelect({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Dropdown that lets an owner pick multiple of a team's tradable draft picks. */
+function PickMultiSelect({
+  label,
+  teamId,
+  data,
+  loading,
+  selectedIds,
+  onToggle,
+}: {
+  label: string;
+  teamId: string;
+  data?: TeamTradablePicks;
+  loading: boolean;
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const picks: TradablePick[] = data?.picks ?? [];
+  const enabled = data?.enabled ?? true;
+  const selectedSet = new Set(selectedIds);
+  const selectedLabels = picks
+    .filter((p) => selectedSet.has(p.pick_id))
+    .map((p) => p.label);
+  const disabled = !teamId || !enabled || (!loading && picks.length === 0);
+
+  const summary = !teamId
+    ? "Pick a team first"
+    : loading
+      ? "Loading picks…"
+      : !enabled
+        ? "Pick trading is off"
+        : picks.length === 0
+          ? "No tradable picks"
+          : selectedLabels.length === 0
+            ? "None selected"
+            : selectedLabels.length <= 2
+              ? selectedLabels.join(", ")
+              : `${selectedLabels.length} picks selected`;
+
+  return (
+    <div className="space-y-1.5" ref={ref}>
+      <Label>{label}</Label>
+      <div className="relative">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setOpen((o) => !o)}
+          className={cn(
+            "flex h-10 w-full items-center justify-between gap-2 rounded-lg border border-border bg-canvas/60 px-3 text-sm focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40",
+            disabled ? "cursor-not-allowed text-muted" : "text-ink",
+          )}
+        >
+          <span className="truncate">{summary}</span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
+        </button>
+        {open && picks.length > 0 && (
+          <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-border bg-surface p-1 shadow-lg">
+            {picks.map((p) => {
+              const sel = selectedSet.has(p.pick_id);
+              return (
+                <button
+                  type="button"
+                  key={p.pick_id}
+                  onClick={() => onToggle(p.pick_id)}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs",
+                    sel
+                      ? "bg-amber/15 text-ink"
+                      : "text-ink/90 hover:bg-surfaceAlt/60",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    readOnly
+                    checked={sel}
+                    className="pointer-events-none h-3.5 w-3.5 accent-amber"
+                  />
+                  <span className="flex-1 truncate">{p.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
