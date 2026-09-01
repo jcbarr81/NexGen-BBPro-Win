@@ -1301,6 +1301,7 @@ function ProgressionSchedulePanel({ canEdit = false }: { canEdit?: boolean }) {
         cpu_fill: sched.cpu_fill,
         recurring: sched.recurring,
         recur_days: sched.recur_days,
+        auto_run: sched.auto_run,
       });
     }
   }, [sched]);
@@ -1423,6 +1424,14 @@ function ProgressionSchedulePanel({ canEdit = false }: { canEdit?: boolean }) {
           />
           <span>days</span>
         </label>
+        <label className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={form?.auto_run ?? false}
+            onChange={(e) => patch({ auto_run: e.target.checked })}
+          />
+          <span>Run automatically (no click)</span>
+        </label>
         <Button
           size="sm"
           variant="outline"
@@ -1432,6 +1441,13 @@ function ProgressionSchedulePanel({ canEdit = false }: { canEdit?: boolean }) {
           Save schedule
         </Button>
       </div>
+      {form?.auto_run && (
+        <div className="text-[11px] text-muted">
+          The league will sim on its own within a few minutes of the deadline
+          passing — no need to click “Run now.” Leave this off to review and run
+          each deadline manually.
+        </div>
+      )}
       {sched.is_scheduled && (
         <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
           <span className="text-muted">Deadline:</span>

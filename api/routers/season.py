@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
 
 from playbalance.game_runner import simulate_game_scores
 from playbalance.season_manager import SeasonManager, SeasonPhase
@@ -2186,6 +2186,142 @@ def run_season_schedule(
     _require_season_progression(identity)
     result = _run_schedule(identity, force=bool((payload or {}).get("force", False)))
     return {**result, "schedule": _schedule_view()}
+
+
+# Phase 2 — automatic firing. A Google Cloud Scheduler job POSTs /schedule/tick
+# on an interval; for every league whose schedule has auto_run enabled and whose
+# deadline has passed, we run it with no commissioner click. Cloud Scheduler is
+# not a logged-in user, so this is authorized by a shared secret
+# (NEXGEN_SCHEDULER_TOKEN) rather than the normal bearer identity.
+_SCHEDULER_IDENTITY: Dict[str, Any] = {
+    "u": "cloud-scheduler",
+    "r": "admin",
+    "mr": "admin",
+    "t": "",
+}
+
+
+def _iter_league_ids() -> List[str]:
+    """All non-archived league ids (cloud multi-tenant), for the scheduler tick.
+
+    Prefers the league registry (so archived leagues are skipped); falls back to
+    scanning the leagues directory when there is no registry (single-tenant)."""
+    import json as _json
+
+    from utils import path_utils
+
+    ids: List[str] = []
+    seen: set[str] = set()
+    try:
+        reg = path_utils.get_league_registry_path()
+    except Exception:
+        reg = None
+    if reg is not None and reg.exists():
+        try:
+            payload = _json.loads(reg.read_text(encoding="utf-8")) or {}
+            for entry in payload.get("leagues", []) or []:
+                if not isinstance(entry, dict):
+                    continue
+                lid = str(entry.get("id") or "").strip()
+                state = str(entry.get("status", "active")).strip().lower()
+                if lid and state != "archived" and lid not in seen:
+                    seen.add(lid)
+                    ids.append(lid)
+        except Exception:
+            ids = []
+    if not ids:
+        try:
+            root = path_utils.get_leagues_root()
+        except Exception:
+            root = None
+        if root is not None and root.exists():
+            for child in sorted(root.iterdir()):
+                if child.is_dir() and child.name not in seen:
+                    seen.add(child.name)
+                    ids.append(child.name)
+    return ids
+
+
+@router.post("/schedule/tick")
+def tick_season_schedule(
+    x_scheduler_token: Optional[str] = Header(default=None, alias="X-Scheduler-Token"),
+) -> Dict[str, Any]:
+    """Machine-triggered auto-run (Phase 2), for a Cloud Scheduler job.
+
+    For every league whose schedule has ``auto_run`` on and whose deadline has
+    passed, CPU-fill stragglers and start the configured sim — no commissioner
+    click. Sims are a single global job, so at most ONE league's sim starts per
+    tick; any other eligible leagues fire on later ticks. One-shot deadlines
+    clear after firing and recurring ones roll forward, so a league never
+    double-runs. Authorized by the shared secret ``NEXGEN_SCHEDULER_TOKEN`` (not
+    a bearer identity), because Cloud Scheduler is not a logged-in user."""
+    import hmac
+    import os as _os
+
+    from utils import path_utils
+
+    expected = str(_os.environ.get("NEXGEN_SCHEDULER_TOKEN") or "").strip()
+    if not expected:
+        # Not provisioned — refuse rather than run an unauthenticated action.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Automatic scheduling is not configured on this server.",
+        )
+    provided = str(x_scheduler_token or "").strip()
+    if not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or missing scheduler token.",
+        )
+
+    considered: List[Dict[str, Any]] = []
+    fired: List[Dict[str, Any]] = []
+
+    # Global sim lock: if a sim is already running, do nothing this tick.
+    if _sim_running():
+        return {"status": "sim_busy", "fired": fired, "considered": considered}
+
+    for league in _iter_league_ids():
+        token = path_utils.set_request_league(league)
+        try:
+            sched = _read_schedule()
+            dt = _parse_iso_utc(sched["deadline"])
+            past_due = bool(dt and _now_utc() >= dt)
+            eligible = bool(sched["auto_run"] and past_due)
+            row: Dict[str, Any] = {
+                "league": league,
+                "auto_run": bool(sched["auto_run"]),
+                "past_due": past_due,
+                "eligible": eligible,
+            }
+            considered.append(row)
+            if not eligible:
+                continue
+            try:
+                result = _run_schedule(_SCHEDULER_IDENTITY, force=False)
+            except HTTPException as exc:
+                row["skipped"] = str(getattr(exc, "detail", exc))
+                # A sim started (409) means the global lock is taken — stop.
+                if exc.status_code == status.HTTP_409_CONFLICT:
+                    break
+                continue
+            # Persist this league's CPU-fill writes now. The sim case pushes
+            # again from its background thread when it finishes, but a CPU-fill-
+            # only run (run_kind="") has no such push, so do it here explicitly.
+            try:
+                from api import working_copy
+
+                if working_copy.is_enabled():
+                    working_copy.push_changes(league)
+            except Exception:  # pragma: no cover - defensive
+                pass
+            fired.append({"league": league, **result})
+            if result.get("started"):
+                break  # global sim lock now consumed; other leagues wait
+        finally:
+            path_utils.reset_request_league(token)
+
+    return {"status": "ok", "fired": fired, "considered": considered}
 
 
 @router.get("/action-items")

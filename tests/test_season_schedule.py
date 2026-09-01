@@ -8,8 +8,10 @@ CPU-fills stragglers and starts the sim; a recurring deadline rolls forward.
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from fastapi import HTTPException
 
 import api.routers.season as s
+from utils import path_utils
 
 
 @pytest.fixture
@@ -106,3 +108,115 @@ def test_run_oneshot_clears_deadline(sched_file, monkeypatch):
     result = s._run_schedule({"r": "admin"})
     assert result["next_deadline"] is None
     assert s._read_schedule()["deadline"] is None  # one-shot cleared
+
+
+# --- Phase 2: automatic firing (Cloud Scheduler tick) -----------------------
+
+_PAST = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+
+
+def _eligible_sched(**over):
+    base = {
+        "deadline": _PAST, "run_kind": "days", "run_n": 3, "cpu_fill": True,
+        "recurring": False, "recur_days": 7, "auto_run": True, "note": "",
+    }
+    base.update(over)
+    return base
+
+
+def test_tick_requires_configured_token(monkeypatch):
+    monkeypatch.delenv("NEXGEN_SCHEDULER_TOKEN", raising=False)
+    with pytest.raises(HTTPException) as ei:
+        s.tick_season_schedule(x_scheduler_token="anything")
+    assert ei.value.status_code == 503
+
+
+def test_tick_rejects_wrong_token(monkeypatch):
+    monkeypatch.setenv("NEXGEN_SCHEDULER_TOKEN", "secret")
+    with pytest.raises(HTTPException) as ei:
+        s.tick_season_schedule(x_scheduler_token="wrong")
+    assert ei.value.status_code == 403
+    with pytest.raises(HTTPException):
+        s.tick_season_schedule(x_scheduler_token=None)  # missing header
+
+
+def test_tick_fires_eligible_auto_run_league(monkeypatch):
+    monkeypatch.setenv("NEXGEN_SCHEDULER_TOKEN", "secret")
+    monkeypatch.setattr(s, "_sim_running", lambda: False)
+    monkeypatch.setattr(s, "_iter_league_ids", lambda: ["l1"])
+    monkeypatch.setattr(s, "_read_schedule", lambda: _eligible_sched())
+    ran = {}
+
+    def fake_run(identity, *, force=False):
+        ran["identity"] = identity
+        ran["force"] = force
+        return {"filled": ["B"], "started": {"status": "running"},
+                "run_label": "simulate 3 days", "next_deadline": None,
+                "recurring": False}
+
+    monkeypatch.setattr(s, "_run_schedule", fake_run)
+    out = s.tick_season_schedule(x_scheduler_token="secret")
+    assert out["status"] == "ok"
+    assert [f["league"] for f in out["fired"]] == ["l1"]
+    # Ran as a synthetic commissioner, honoring the real deadline (force=False).
+    assert ran["identity"]["r"] == "admin" and ran["force"] is False
+
+
+def test_tick_skips_when_auto_run_off(monkeypatch):
+    monkeypatch.setenv("NEXGEN_SCHEDULER_TOKEN", "secret")
+    monkeypatch.setattr(s, "_sim_running", lambda: False)
+    monkeypatch.setattr(s, "_iter_league_ids", lambda: ["l1"])
+    monkeypatch.setattr(s, "_read_schedule", lambda: _eligible_sched(auto_run=False))
+    monkeypatch.setattr(
+        s, "_run_schedule",
+        lambda *a, **k: pytest.fail("auto_run is off; must not run"),
+    )
+    out = s.tick_season_schedule(x_scheduler_token="secret")
+    assert out["fired"] == []
+    assert out["considered"][0]["eligible"] is False
+
+
+def test_tick_skips_when_deadline_not_passed(monkeypatch):
+    monkeypatch.setenv("NEXGEN_SCHEDULER_TOKEN", "secret")
+    monkeypatch.setattr(s, "_sim_running", lambda: False)
+    monkeypatch.setattr(s, "_iter_league_ids", lambda: ["l1"])
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    monkeypatch.setattr(s, "_read_schedule", lambda: _eligible_sched(deadline=future))
+    monkeypatch.setattr(
+        s, "_run_schedule", lambda *a, **k: pytest.fail("deadline not passed"),
+    )
+    out = s.tick_season_schedule(x_scheduler_token="secret")
+    assert out["fired"] == []
+    assert out["considered"][0]["past_due"] is False
+
+
+def test_tick_noop_when_sim_already_running(monkeypatch):
+    monkeypatch.setenv("NEXGEN_SCHEDULER_TOKEN", "secret")
+    monkeypatch.setattr(s, "_sim_running", lambda: True)
+    monkeypatch.setattr(
+        s, "_run_schedule", lambda *a, **k: pytest.fail("a sim is already running"),
+    )
+    out = s.tick_season_schedule(x_scheduler_token="secret")
+    assert out["status"] == "sim_busy"
+    assert out["fired"] == []
+
+
+def test_tick_starts_at_most_one_sim_per_tick(monkeypatch):
+    monkeypatch.setenv("NEXGEN_SCHEDULER_TOKEN", "secret")
+    monkeypatch.setattr(s, "_sim_running", lambda: False)
+    monkeypatch.setattr(s, "_iter_league_ids", lambda: ["l1", "l2"])
+    monkeypatch.setattr(s, "_read_schedule", lambda: _eligible_sched(run_kind="week"))
+    ran = []
+
+    def fake_run(identity, *, force=False):
+        ran.append(path_utils.get_request_league())
+        return {"filled": [], "started": {"status": "running"},
+                "run_label": "simulate 1 week", "next_deadline": None,
+                "recurring": False}
+
+    monkeypatch.setattr(s, "_run_schedule", fake_run)
+    out = s.tick_season_schedule(x_scheduler_token="secret")
+    # Sims are a single global job: the first eligible league starts, the loop
+    # stops, and the rest wait for a later tick.
+    assert ran == ["l1"]
+    assert [f["league"] for f in out["fired"]] == ["l1"]
