@@ -453,3 +453,43 @@ def test_acceptance_likelihood_window_matters():
     contend = acceptance_likelihood(0.5, "contend")
     rebuild = acceptance_likelihood(0.5, "rebuild")
     assert rebuild["likelihood"] > contend["likelihood"]
+
+
+# --- owner_facing_reasons (plain language, no jargon) -----------------------
+
+from types import SimpleNamespace as _NS  # noqa: E402
+
+from services.cpu_trade_evaluator import owner_facing_reasons  # noqa: E402
+
+
+def test_owner_facing_reasons_are_plain_language():
+    ev = _NS(
+        value_delta=-3.12,
+        fit_delta=-0.8,
+        timeline_delta=-0.6,
+        competitive_window="rebuild",
+        details={"roster_needs": ["C", "SS"]},
+    )
+    reasons = owner_facing_reasons(ev)
+    assert reasons  # non-empty
+    joined = " ".join(reasons)
+    # No dataclass reprs, tags, or raw deltas leaking through.
+    assert "DecisionReason" not in joined
+    assert "delta" not in joined.lower()
+    assert "tag=" not in joined and "weight=" not in joined
+    assert "-3.12" not in joined
+    # A lopsided offer reads as giving up more than you get.
+    assert any("giving up more" in r for r in reasons)
+
+
+def test_owner_facing_reasons_positive_deal():
+    ev = _NS(
+        value_delta=1.5,
+        fit_delta=0.6,
+        timeline_delta=0.6,
+        competitive_window="contend",
+        details={"roster_needs": ["CF"]},
+    )
+    reasons = owner_facing_reasons(ev)
+    assert any("ahead on talent" in r for r in reasons)
+    assert len(reasons) <= 4

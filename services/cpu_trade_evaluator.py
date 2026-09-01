@@ -605,6 +605,47 @@ def acceptance_likelihood(total_score: float, window: str) -> dict[str, object]:
     }
 
 
+def owner_facing_reasons(evaluation: "CpuTradeEvaluation") -> list[str]:
+    """Plain-English reasons for the owner's acceptance meter — no jargon, no
+    raw deltas. Explains WHY the CPU leans the way it does in words an owner
+    reads at a glance."""
+
+    out: list[str] = []
+
+    value_delta = float(getattr(evaluation, "value_delta", 0.0))
+    if value_delta <= -0.75:
+        out.append("They'd be giving up more talent than they'd get back.")
+    elif value_delta < -0.1:
+        out.append("The players coming back are a little light for them.")
+    elif value_delta <= 0.75:
+        out.append("The talent on both sides is about even.")
+    else:
+        out.append("They'd come out ahead on talent in this deal.")
+
+    details = getattr(evaluation, "details", {})
+    needs = details.get("roster_needs") if isinstance(details, Mapping) else None
+    needs = [str(n) for n in (needs or []) if str(n).strip()]
+    fit_delta = float(getattr(evaluation, "fit_delta", 0.0))
+    if fit_delta >= 0.5 and needs:
+        out.append(f"It helps a spot they need ({', '.join(needs[:3])}).")
+    elif fit_delta <= -0.5:
+        out.append("It doesn't fit what their roster needs right now.")
+
+    window = str(getattr(evaluation, "competitive_window", "") or "")
+    if window == "contend":
+        out.append("They're trying to win now, so they want a clear upgrade.")
+    elif window == "rebuild":
+        out.append("They're rebuilding and lean toward younger players and picks.")
+
+    timeline_delta = float(getattr(evaluation, "timeline_delta", 0.0))
+    if timeline_delta <= -0.5:
+        out.append("The player ages don't fit their timeline.")
+    elif timeline_delta >= 0.5:
+        out.append("The player ages fit their timeline well.")
+
+    return out[:4]
+
+
 def _build_counter_offer(
     *,
     from_team: str,

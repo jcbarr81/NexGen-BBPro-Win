@@ -308,6 +308,7 @@ def evaluate_trade_preview(
         acceptance_likelihood,
         evaluate_cpu_trade_offer,
         is_cpu_owned_team,
+        owner_facing_reasons,
     )
 
     if not is_cpu_owned_team(trade.to_team):
@@ -341,9 +342,7 @@ def evaluate_trade_preview(
         "value_delta": float(evaluation.value_delta),
         "strategy_profile": evaluation.strategy_profile,
         "competitive_window": evaluation.competitive_window,
-        "reasons": [
-            getattr(r, "summary", str(r)) for r in (evaluation.reasons or [])
-        ][:4],
+        "reasons": owner_facing_reasons(evaluation),
     }
 
 
@@ -441,7 +440,7 @@ def propose_trade(
                     "strategy_profile": evaluation.strategy_profile,
                     "competitive_window": evaluation.competitive_window,
                     "reasons": [
-                        getattr(r, "summary", str(r))
+                        (str(getattr(r, "message", "")).strip() or str(r))
                         for r in (evaluation.reasons or [])
                     ],
                 }
@@ -900,7 +899,7 @@ def counter_trade(
                     "strategy_profile": evaluation.strategy_profile,
                     "competitive_window": evaluation.competitive_window,
                     "reasons": [
-                        getattr(r, "summary", str(r))
+                        (str(getattr(r, "message", "")).strip() or str(r))
                         for r in (evaluation.reasons or [])
                     ],
                 }
