@@ -1156,20 +1156,17 @@ function ProposeTradeDialog({
     staleTime: 30_000,
   });
 
-  // Drop any selection that isn't on the currently loaded roster (e.g. after
-  // switching teams), so the offer never references a stale player id.
-  useEffect(() => {
-    const roster = fromRosterQ.data;
-    if (!roster) return;
-    const ids = new Set(flattenRoster(roster).map((p) => p.player_id));
-    setGiveIds((cur) => cur.filter((id) => ids.has(id)));
-  }, [fromRosterQ.data]);
-  useEffect(() => {
-    const roster = toRosterQ.data;
-    if (!roster) return;
-    const ids = new Set(flattenRoster(roster).map((p) => p.player_id));
-    setReceiveIds((cur) => cur.filter((id) => ids.has(id)));
-  }, [toRosterQ.data]);
+  // Switching a team clears only that side's picks. We do this on the explicit
+  // user action (not in a roster-load effect) so a pre-loaded selection from
+  // the "Trade for Player" deep-link is never wiped by load timing.
+  const changeFromTeam = (value: string) => {
+    setFromTeam(value);
+    setGiveIds([]);
+  };
+  const changeToTeam = (value: string) => {
+    setToTeam(value);
+    setReceiveIds([]);
+  };
 
   const givePickIds = useMemo(() => parseIds(givePicks), [givePicks]);
   const receivePickIds = useMemo(() => parseIds(receivePicks), [receivePicks]);
@@ -1269,14 +1266,14 @@ function ProposeTradeDialog({
               value={fromTeam}
               teams={teams}
               exclude={toTeam}
-              onChange={setFromTeam}
+              onChange={changeFromTeam}
             />
             <TeamPicker
               label="To"
               value={toTeam}
               teams={teams}
               exclude={fromTeam}
-              onChange={setToTeam}
+              onChange={changeToTeam}
             />
           </div>
 
@@ -1377,14 +1374,21 @@ function RosterMultiSelect({
   const [query, setQuery] = useState("");
   const players = roster ? flattenRoster(roster) : [];
   const needle = query.trim().toLowerCase();
-  const filtered = needle
+  const selectedSet = new Set(selectedIds);
+  const matched = needle
     ? players.filter((p) =>
         `${p.first_name} ${p.last_name} ${p.primary_position}`
           .toLowerCase()
           .includes(needle),
       )
     : players;
-  const selectedSet = new Set(selectedIds);
+  // Selected players float to the top so a pre-loaded pick is immediately
+  // visible without scrolling; order is otherwise stable.
+  const filtered = [...matched].sort((a, b) => {
+    const sa = selectedSet.has(a.player_id) ? 0 : 1;
+    const sb = selectedSet.has(b.player_id) ? 0 : 1;
+    return sa - sb;
+  });
 
   return (
     <div className="space-y-1.5">
