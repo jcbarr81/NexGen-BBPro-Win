@@ -1789,10 +1789,17 @@ def fa_window_state() -> Dict[str, Any]:
     Lazily opens the window the first time it's polled in preseason (finance on),
     so entering the phase and loading the page is enough to kick off day 1.
     """
+    from services import fa_schedule
     from services.fa_window import window_status
 
     _maybe_open_fa_window()
-    return window_status()
+    st = window_status()
+    # Nested under its own key so it can never collide with a window_status
+    # field (``deadline_date`` there is a SIM date; this is a wall clock).
+    st["schedule"] = fa_schedule.schedule_view(
+        window_open=bool(st.get("exists") and st.get("status") != "closed")
+    )
+    return st
 
 
 @router.post("/fa-window/advance-day")
@@ -1827,7 +1834,67 @@ def fa_window_advance_day(
                 ),
             },
         )
-    return {"result": result, "window": window_status()}
+    st = window_status()
+    if result.get("ok"):
+        _roll_fa_deadline(closed=st.get("status") == "closed")
+    st["schedule"] = _fa_schedule_view(st)
+    return {"result": result, "window": st}
+
+
+def _fa_schedule_view(window: Dict[str, Any]) -> Dict[str, Any]:
+    from services import fa_schedule
+
+    return fa_schedule.schedule_view(
+        window_open=bool(window.get("exists") and window.get("status") != "closed")
+    )
+
+
+def _roll_fa_deadline(*, closed: bool) -> Optional[str]:
+    """Re-arm the FA clock after a day advanced. Never let a scheduling problem
+    fail an advance that already mutated real league data."""
+    try:
+        from services import fa_schedule
+
+        return fa_schedule.roll_after_advance(closed=closed)
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+
+@router.get("/fa-window/schedule")
+def get_fa_window_schedule() -> Dict[str, Any]:
+    """The FA per-day deadline config + countdown (readable by every owner)."""
+    from services.fa_window import window_status
+
+    return _fa_schedule_view(window_status())
+
+
+@router.post("/fa-window/schedule")
+def set_fa_window_schedule(
+    payload: Optional[Dict[str, Any]] = Body(default=None),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Commissioner: set when the current FA day is due, how long each day gets,
+    and whether the day advances on its own once the deadline passes.
+
+    A passed deadline advances the day for everyone — it never CPU-fills or
+    blocks, because declining to bid is a legitimate choice.
+    """
+    _require_season_progression(identity)
+    from services import fa_schedule
+    from services.fa_window import window_status
+
+    body = payload or {}
+    try:
+        fa_schedule.set_schedule(
+            deadline=body.get("deadline"),
+            auto_advance=body.get("auto_advance"),
+            advance_hours=body.get("advance_hours"),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return _fa_schedule_view(window_status())
 
 
 @router.get("/readiness")
@@ -2247,6 +2314,66 @@ def _iter_league_ids() -> List[str]:
     return ids
 
 
+# Free-agency windows run on their own clock (services/fa_schedule.py). Unlike
+# a season run, advancing a window day is a fast synchronous call rather than a
+# sim, so several leagues can advance in the same tick — capped so one tick
+# stays quick, and never while a sim holds the global lock (the sim thread owns
+# the league context, and we must not write another league underneath it).
+_FA_MAX_ADVANCES_PER_TICK = 3
+
+
+def _tick_fa_windows() -> List[Dict[str, Any]]:
+    """Advance every league whose FA deadline has passed with auto-advance on."""
+    from utils import path_utils
+
+    advanced: List[Dict[str, Any]] = []
+    for league in _iter_league_ids():
+        if len(advanced) >= _FA_MAX_ADVANCES_PER_TICK or _sim_running():
+            break
+        token = path_utils.set_request_league(league)
+        try:
+            from services import fa_schedule
+            from services.fa_window import advance_day, is_open, window_status
+
+            if not fa_schedule.is_due():
+                continue
+            if not is_open():
+                # Past due but nothing to advance (closed, or never opened this
+                # offseason) — drop the stale deadline so it stops reading as
+                # perpetually overdue.
+                fa_schedule.clear()
+                continue
+            result = advance_day()
+            if not result.get("ok"):
+                continue
+            st = window_status()
+            closed = st.get("status") == "closed"
+            fa_schedule.roll_after_advance(closed=closed)
+            advanced.append(
+                {
+                    "league": league,
+                    "day": result.get("day"),
+                    "signed": len(result.get("signed") or []),
+                    "closed": closed,
+                }
+            )
+            # Persist now: advance_day wrote contracts/negotiations/rosters and
+            # there is no background thread to push them like a sim has.
+            try:
+                from api import working_copy
+
+                if working_copy.is_enabled():
+                    working_copy.push_changes(league)
+            except Exception:  # pragma: no cover - defensive
+                pass
+        except Exception as exc:  # pragma: no cover - defensive
+            # nexgen.* logs don't surface in Cloud Run, so report in the response.
+            advanced.append({"league": league, "error": str(exc)})
+        finally:
+            path_utils.reset_request_league(token)
+    return advanced
+
+
 @machine_router.post("/schedule/tick")
 def tick_season_schedule(
     x_scheduler_token: Optional[str] = Header(default=None, alias="X-Scheduler-Token"),
@@ -2284,7 +2411,16 @@ def tick_season_schedule(
 
     # Global sim lock: if a sim is already running, do nothing this tick.
     if _sim_running():
-        return {"status": "sim_busy", "fired": fired, "considered": considered}
+        return {
+            "status": "sim_busy",
+            "fired": fired,
+            "considered": considered,
+            "fa_advanced": [],
+        }
+
+    # Free-agency day deadlines run first: they're quick, and a season run below
+    # may take the global sim lock for the rest of the tick.
+    fa_advanced = _tick_fa_windows()
 
     for league in _iter_league_ids():
         token = path_utils.set_request_league(league)
@@ -2326,7 +2462,12 @@ def tick_season_schedule(
         finally:
             path_utils.reset_request_league(token)
 
-    return {"status": "ok", "fired": fired, "considered": considered}
+    return {
+        "status": "ok",
+        "fired": fired,
+        "considered": considered,
+        "fa_advanced": fa_advanced,
+    }
 
 
 @router.get("/action-items")
@@ -2390,12 +2531,24 @@ def season_action_items(
         day = win.get("day")
         total = win.get("total_days")
         when = f" (day {day} of {total})" if day and total else ""
+        # A real deadline beats "before the commissioner advances" — tell the
+        # owner when their bids are actually due.
+        fa_sched = _fa_schedule_view(win)
+        if fa_sched.get("deadline_utc"):
+            due = (
+                "This day closes automatically at "
+                if fa_sched.get("will_auto_advance")
+                else "Bids are due by "
+            ) + str(fa_sched["deadline_utc"])
+            detail = f"Place or update offers first. {due}."
+        else:
+            detail = "Place or update offers before the commissioner advances the day."
         items.append(
             {
                 "kind": "fa_bid_needed",
                 "severity": "action",
                 "title": f"Free-agency window is open{when} — you have no active bid",
-                "detail": "Place or update offers before the commissioner advances the day.",
+                "detail": detail,
                 "count": 0,
                 "href": "/free-agency",
             }

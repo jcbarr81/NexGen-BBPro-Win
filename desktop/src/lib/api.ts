@@ -1063,6 +1063,23 @@ export interface FaWindowLog {
   message?: string;
 }
 
+/** Per-day deadline for the FA bidding window. Distinct from the window's own
+ *  ``deadline_date``, which is a SIM date (when the auction ends in-game);
+ *  this is a real-world clock for when the CURRENT day's bids are due. */
+export interface FaWindowScheduleInput {
+  deadline: string | null;
+  auto_advance: boolean;
+  advance_hours: number;
+}
+
+export interface FaWindowSchedule extends FaWindowScheduleInput {
+  deadline_utc: string | null;
+  is_scheduled: boolean;
+  past_due: boolean;
+  seconds_remaining: number | null;
+  will_auto_advance: boolean;
+}
+
 export interface FaWindowStatus {
   finance_enabled: boolean;
   exists: boolean;
@@ -1077,6 +1094,7 @@ export interface FaWindowStatus {
   human_teams?: string[];
   participants?: string[];
   waiting?: string[];
+  schedule?: FaWindowSchedule;
 }
 
 export interface SeasonReadinessTeam {
@@ -2513,6 +2531,13 @@ export const api = {
       "/season/fa-window/advance-day",
       { method: "POST" },
     ),
+  faWindowSchedule: () =>
+    apiRequest<FaWindowSchedule>("/season/fa-window/schedule"),
+  setFaWindowSchedule: (payload: Partial<FaWindowScheduleInput>) =>
+    apiRequest<FaWindowSchedule>("/season/fa-window/schedule", {
+      method: "POST",
+      body: payload,
+    }),
   seasonReadiness: () => apiRequest<SeasonReadiness>("/season/readiness"),
   seasonActionItems: () =>
     apiRequest<SeasonActionItems>("/season/action-items"),

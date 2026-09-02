@@ -41,6 +41,8 @@ import { useAuthStore } from "@/lib/auth-store";
 
 import {
   api,
+  type FaWindowSchedule,
+  type FaWindowScheduleInput,
   type FaWindowStatus,
   type NotificationEvent,
   type SeasonActionItem,
@@ -944,10 +946,6 @@ function FreeAgencyWindowCard() {
     queryKey: ["fa-window"],
     queryFn: () => api.faWindowState(),
   });
-  const deadlineQ = useQuery({
-    queryKey: ["season-deadline"],
-    queryFn: () => api.getSeasonDeadline(),
-  });
   const win = faWindow.data;
   const windowActive = !!win?.finance_enabled && !!win?.exists;
   const windowOpen = windowActive && win?.status !== "closed";
@@ -1003,11 +1001,22 @@ function FreeAgencyWindowCard() {
                   {(win?.participants ?? []).length}/{humanTeams.length}
                 </span>
               </span>
-              {deadlineQ.data?.deadline && (
+              {win?.schedule?.is_scheduled && (
                 <span className="text-muted">
-                  Deadline:{" "}
+                  Bids due:{" "}
                   <span className="font-semibold text-ink">
-                    {formatDeadlineLocal(deadlineQ.data.deadline)}
+                    {formatDeadlineLocal(win.schedule.deadline_utc)}
+                  </span>
+                  <span
+                    className={
+                      win.schedule.past_due ? "ml-1.5 text-danger" : "ml-1.5"
+                    }
+                  >
+                    (
+                    {win.schedule.past_due
+                      ? "passed"
+                      : formatCountdown(win.schedule.deadline_utc)}
+                    )
                   </span>
                 </span>
               )}
@@ -1019,6 +1028,9 @@ function FreeAgencyWindowCard() {
             )}
           </div>
         )}
+        {windowOpen && (
+          <FaDeadlinePanel sched={win?.schedule} canEdit={canProgress} />
+        )}
         <FaBiddingWindowPanel
           win={win!}
           teamId={teamId}
@@ -1029,6 +1041,146 @@ function FreeAgencyWindowCard() {
         />
       </CardContent>
     </Card>
+  );
+}
+
+/** The FA window's per-day clock: when this day's bids are due, and whether the
+ *  day rolls on its own. Commissioners configure it; owners see the countdown.
+ *
+ *  Unlike the season deadline this never CPU-fills or blocks — choosing not to
+ *  bid is a legitimate move, so a passed deadline just advances the day. */
+function FaDeadlinePanel({
+  sched,
+  canEdit,
+}: {
+  sched?: FaWindowSchedule;
+  canEdit: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState<FaWindowScheduleInput | null>(null);
+  const seededRef = useRef(false);
+
+  useEffect(() => {
+    if (sched && !seededRef.current) {
+      seededRef.current = true;
+      setForm({
+        deadline: sched.deadline_utc,
+        auto_advance: sched.auto_advance,
+        advance_hours: sched.advance_hours,
+      });
+    }
+  }, [sched]);
+
+  const save = useMutation({
+    mutationFn: (payload: FaWindowScheduleInput) =>
+      api.setFaWindowSchedule({ ...payload, deadline: payload.deadline ?? "" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["fa-window"] });
+      toast.success("Free-agency deadline saved.");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+
+  if (!sched) return null;
+
+  // Owners just need to know when to bid by; no deadline set means nothing to say.
+  if (!canEdit) {
+    if (!sched.is_scheduled) return null;
+    return (
+      <div className="rounded-md border border-border bg-surfaceAlt/40 px-3 py-2 text-xs">
+        <span className="text-muted">Bids for this day are due: </span>
+        <span className="font-semibold text-ink">
+          {formatDeadlineLocal(sched.deadline_utc)}
+        </span>
+        <span className={sched.past_due ? "ml-2 text-danger" : "ml-2 text-muted"}>
+          ({sched.past_due ? "passed" : formatCountdown(sched.deadline_utc)})
+        </span>
+        {sched.will_auto_advance && (
+          <span className="ml-2 text-muted">— the day advances automatically.</span>
+        )}
+      </div>
+    );
+  }
+
+  const patch = (p: Partial<FaWindowScheduleInput>) =>
+    setForm((f) => (f ? { ...f, ...p } : f));
+
+  return (
+    <div className="space-y-2 rounded-md border border-border bg-surfaceAlt/30 p-3">
+      <div className="flex flex-wrap items-end gap-2 text-xs">
+        <label className="flex flex-col gap-1">
+          <span className="text-muted">Bids due (your local time)</span>
+          <Input
+            type="datetime-local"
+            className="h-8 w-56"
+            value={form ? isoToLocalInput(form.deadline) : ""}
+            onChange={(e) =>
+              patch({
+                deadline: e.target.value
+                  ? new Date(e.target.value).toISOString()
+                  : null,
+              })
+            }
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-muted">Each day lasts</span>
+          <div className="flex items-center gap-1.5">
+            <Input
+              type="number"
+              min={1}
+              className="h-8 w-20"
+              value={form?.advance_hours ?? 24}
+              onChange={(e) =>
+                patch({ advance_hours: Math.max(1, Number(e.target.value) || 24) })
+              }
+            />
+            <span className="text-muted">hours</span>
+          </div>
+        </label>
+        <label className="flex items-center gap-1.5 pb-1.5">
+          <input
+            type="checkbox"
+            checked={form?.auto_advance ?? false}
+            onChange={(e) => patch({ auto_advance: e.target.checked })}
+          />
+          <span>Advance automatically (no click)</span>
+        </label>
+        <Button
+          size="sm"
+          variant="outline"
+          className="mb-0.5"
+          disabled={!form || save.isPending}
+          onClick={() => form && save.mutate(form)}
+        >
+          Save deadline
+        </Button>
+      </div>
+      {form?.auto_advance ? (
+        <div className="text-[11px] text-muted">
+          Once the deadline passes, the window moves to the next day on its own
+          within a few minutes and the clock resets for the following day.
+          Owners who haven’t bid simply don’t bid — nothing is filled in for
+          them.
+        </div>
+      ) : (
+        <div className="text-[11px] text-muted">
+          The deadline tells owners when to bid by; you still click “Advance FA
+          day.” Turn on automatic advancing so the window doesn’t stall.
+        </div>
+      )}
+      {sched.is_scheduled && (
+        <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+          <span className="text-muted">Current deadline:</span>
+          <span className="font-semibold text-ink">
+            {formatDeadlineLocal(sched.deadline_utc)}
+          </span>
+          <span className={sched.past_due ? "text-danger" : "text-muted"}>
+            ({sched.past_due ? "passed" : formatCountdown(sched.deadline_utc)})
+          </span>
+        </div>
+      )}
+    </div>
   );
 }
 
