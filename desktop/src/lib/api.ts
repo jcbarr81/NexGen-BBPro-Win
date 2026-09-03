@@ -2406,6 +2406,43 @@ export const api = {
       ir: TeamInjuryEntry[];
       day_to_day: TeamInjuryEntry[];
     }>(`/teams/${encodeURIComponent(teamId)}/injuries`),
+  placeOnInjuredList: (
+    teamId: string,
+    playerId: string,
+    listName?: string,
+  ) =>
+    apiRequest<{
+      team_id: string;
+      player_id: string;
+      injury_list: string;
+      list_label: string;
+      injury_eligible_date: string;
+      days_remaining: number | null;
+    }>(
+      `/teams/${encodeURIComponent(teamId)}/injuries/${encodeURIComponent(playerId)}/place`,
+      { method: "POST", body: listName ? { list_name: listName } : {} },
+    ),
+  activateFromInjuredList: (
+    teamId: string,
+    playerId: string,
+    destination: "act" | "aaa" | "low" = "act",
+  ) =>
+    apiRequest<{
+      team_id: string;
+      player_id: string;
+      destination: string;
+      lineup_restored: Record<string, string>;
+    }>(
+      `/teams/${encodeURIComponent(teamId)}/injuries/${encodeURIComponent(playerId)}/activate`,
+      { method: "POST", body: { destination } },
+    ),
+  getIlSettings: () =>
+    apiRequest<{ auto_activate_il: boolean }>("/season/il-settings"),
+  setIlSettings: (autoActivate: boolean) =>
+    apiRequest<{ auto_activate_il: boolean }>("/season/il-settings", {
+      method: "POST",
+      body: { auto_activate_il: autoActivate },
+    }),
   news: (
     params: { q?: string; teamId?: string; category?: string; limit?: number } = {},
   ) => {

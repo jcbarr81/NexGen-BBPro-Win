@@ -137,6 +137,9 @@ def _save_progress(
     if playoffs_done is not None:
         payload["playoffs_done"] = playoffs_done
     if "auto_activate_dl" not in payload:
+        # A batch run has no owner to wait on, so it must never honour the
+        # league's manual-activation setting or players would pile up on the
+        # injured list across simulated seasons.
         payload["auto_activate_dl"] = True
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

@@ -6,7 +6,7 @@
  * remaining and rehab status. Player names link straight to the profile.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { api, type TeamInjuryEntry } from "@/lib/api";
+import { toast } from "@/lib/toast-store";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { useActiveTeamColor } from "@/lib/team-colors";
@@ -27,6 +28,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { StatCard } from "@/components/StatCard";
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
@@ -45,6 +47,10 @@ export function InjuryPage() {
     queryKey: ["team-injuries", activeTeamId],
     queryFn: () => api.teamInjuries(activeTeamId as string),
     enabled: !!activeTeamId,
+  });
+  const ilSettings = useQuery({
+    queryKey: ["il-settings"],
+    queryFn: () => api.getIlSettings(),
   });
 
   if (!activeTeamId) {
@@ -122,20 +128,30 @@ export function InjuryPage() {
             />
           </section>
 
+          {ilSettings.data && !ilSettings.data.auto_activate_il && (
+            <p className="text-xs text-muted">
+              Your commissioner has handed injured-list moves to the owners —
+              activate your own players when they're eligible.
+            </p>
+          )}
+
           <InjuryTable
             title="Injured List"
+            teamId={activeTeamId}
             description="10-day (position players) and 15-day (pitchers) — eligible activations highlighted"
             entries={injuries.data.dl}
             emptyText="Nobody on the injured list."
           />
           <InjuryTable
             title="60-Day Injured List"
+            teamId={activeTeamId}
             description="Roster spot opened up; counts toward 40-man only"
             entries={injuries.data.ir}
             emptyText="Nobody on the 60-day IL."
           />
           <InjuryTable
             title="Day-to-day"
+            teamId={activeTeamId}
             description="Active roster, flagged as banged up"
             entries={injuries.data.day_to_day}
             emptyText="No day-to-day injuries flagged."
@@ -151,11 +167,13 @@ function InjuryTable({
   description,
   entries,
   emptyText,
+  teamId,
 }: {
   title: string;
   description: string;
   entries: TeamInjuryEntry[];
   emptyText: string;
+  teamId: string;
 }) {
   return (
     <Card>
@@ -187,7 +205,7 @@ function InjuryTable({
             </thead>
             <tbody>
               {entries.map((entry) => (
-                <InjuryRow key={entry.player_id} entry={entry} />
+                <InjuryRow key={entry.player_id} entry={entry} teamId={teamId} />
               ))}
             </tbody>
           </table></div>
@@ -197,8 +215,48 @@ function InjuryTable({
   );
 }
 
-function InjuryRow({ entry }: { entry: TeamInjuryEntry }) {
+function InjuryRow({
+  entry,
+  teamId,
+}: {
+  entry: TeamInjuryEntry;
+  teamId: string;
+}) {
+  const queryClient = useQueryClient();
   const eligibleSoon = entry.dl_eligible || entry.days_remaining === 0;
+  const onList = entry.level === "DL" || entry.level === "IR";
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["team-injuries"] });
+    queryClient.invalidateQueries({ queryKey: ["team-roster"] });
+  };
+
+  const activate = useMutation({
+    mutationFn: () => api.activateFromInjuredList(teamId, entry.player_id, "act"),
+    onSuccess: (data) => {
+      refresh();
+      const spot = Object.values(data.lineup_restored ?? {})[0];
+      toast.success(
+        `${entry.first_name} ${entry.last_name} activated`
+          + (spot ? ` — back in the lineup at ${spot}.` : "."),
+      );
+    },
+    onError: (err) => toast.error(readError(err)),
+  });
+
+  const place = useMutation({
+    mutationFn: () => api.placeOnInjuredList(teamId, entry.player_id),
+    onSuccess: (data) => {
+      refresh();
+      toast.success(
+        `${entry.first_name} ${entry.last_name} placed on the ${data.list_label}`
+          + (data.days_remaining ? ` — eligible in ${data.days_remaining} days.` : "."),
+      );
+    },
+    onError: (err) => toast.error(readError(err)),
+  });
+
+  const busy = activate.isPending || place.isPending;
   return (
     <tr
       className={cn(
@@ -235,10 +293,35 @@ function InjuryRow({ entry }: { entry: TeamInjuryEntry }) {
         <DaysCell entry={entry} />
       </td>
       <td className="px-6 py-2 text-right">
-        {entry.dl_eligible ? (
-          <Badge tone="success">
-            <CalendarCheck className="h-3 w-3" /> Now
-          </Badge>
+        {onList && entry.dl_eligible ? (
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => activate.mutate()}
+            title="Return this player to the active roster"
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <CalendarCheck className="h-3.5 w-3.5" />
+            )}
+            Activate
+          </Button>
+        ) : !onList ? (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => place.mutate()}
+            title="Move this player to the injured list and free an active-roster spot"
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Stethoscope className="h-3.5 w-3.5" />
+            )}
+            Place on IL
+          </Button>
         ) : entry.return_date ? (
           <span className="text-xs text-muted">{entry.return_date}</span>
         ) : entry.injury_eligible_date ? (
@@ -276,4 +359,20 @@ function listTone(
   if (level === "DL") return "warning";
   if (level === "ACT") return "amber";
   return "neutral";
+}
+
+
+/** Surface the server's message — the useful ones (still serving the minimum,
+ *  active roster full) arrive as a structured detail rather than a bare string. */
+function readError(err: unknown): string {
+  const message = (err as Error)?.message ?? "Something went wrong.";
+  try {
+    const parsed = JSON.parse(message);
+    if (parsed && typeof parsed === "object" && "message" in parsed) {
+      return String((parsed as { message: unknown }).message);
+    }
+  } catch {
+    // not JSON — the raw message is already the useful thing
+  }
+  return message;
 }

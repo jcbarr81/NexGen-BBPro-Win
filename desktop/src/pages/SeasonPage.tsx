@@ -29,6 +29,7 @@ import {
   FastForward,
   Flag,
   GraduationCap,
+  HeartPulse,
   Loader2,
   Play,
   Sparkles,
@@ -238,6 +239,7 @@ export function SeasonPage() {
               phase={state.data.phase}
             />
           )}
+          {canProgress && <InjuredListPolicyCard />}
           {canProgress ? (
             <ActionsCard
               state={state.data}
@@ -1962,3 +1964,67 @@ function severityTone(
   return "amber";
 }
 
+
+/** Who works the injured list: the sim, or the owners.
+ *
+ *  Default is the sim, which is how the league behaved before owners could
+ *  touch the list at all — turning it off is a deliberate choice to manage
+ *  activations by hand. CPU clubs keep activating themselves either way, and a
+ *  passed owner deadline activates anyone still waiting, so an inactive owner
+ *  can't strand a healthy player. */
+function InjuredListPolicyCard() {
+  const queryClient = useQueryClient();
+  const settings = useQuery({
+    queryKey: ["il-settings"],
+    queryFn: () => api.getIlSettings(),
+  });
+  const save = useMutation({
+    mutationFn: (enabled: boolean) => api.setIlSettings(enabled),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["il-settings"] });
+      toast.success(
+        data.auto_activate_il
+          ? "The sim will activate players as soon as they're eligible."
+          : "Owners now activate their own players off the injured list.",
+      );
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+
+  if (!settings.data) return null;
+  const auto = settings.data.auto_activate_il;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <HeartPulse className="h-4 w-4 text-amber" /> Injured list
+          </CardTitle>
+          <CardDescription>
+            {auto
+              ? "Players are activated automatically the moment their stint is up."
+              : "Owners activate their own players; the CPU still runs its own clubs."}
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <label className="flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={auto}
+            disabled={save.isPending}
+            onChange={(e) => save.mutate(e.target.checked)}
+          />
+          <span>Activate eligible players automatically</span>
+        </label>
+        {!auto && (
+          <p className="mt-2 text-[11px] text-muted">
+            Anyone left waiting is activated for them when the owner deadline
+            passes, so a quiet owner can't leave a healthy player on the list.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

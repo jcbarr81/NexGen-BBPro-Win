@@ -74,6 +74,30 @@ def is_owner_league(settings: Optional[Dict[str, Any]] = None) -> bool:
     return str(payload.get("mode") or _DEFAULT_MODE) == _OWNER_MODE
 
 
+# Whether the sim activates players off the injured list on its own the moment
+# their minimum lapses. Default ON, which is what the league did before owners
+# could touch the list at all — turning it off is an explicit choice to manage
+# activations by hand. CPU-owned teams ignore this and always auto-activate, so
+# an unowned club can never strand a healthy player.
+AUTO_ACTIVATE_IL_KEY = "auto_activate_il"
+
+
+def auto_activate_il(settings: Optional[Dict[str, Any]] = None) -> bool:
+    """Should eligible players be activated automatically? Defaults to True."""
+
+    payload = settings if settings is not None else load_league_settings()
+    return bool(payload.get(AUTO_ACTIVATE_IL_KEY, True))
+
+
+def set_auto_activate_il(
+    enabled: bool, *, path: Path | str | None = None
+) -> Dict[str, Any]:
+    settings = load_league_settings(path)
+    settings[AUTO_ACTIVATE_IL_KEY] = bool(enabled)
+    save_league_settings(settings, path)
+    return settings
+
+
 def can_run_season_progression(
     actor_role: Optional[str],
     *,

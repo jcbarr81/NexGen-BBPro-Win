@@ -1898,6 +1898,33 @@ def set_fa_window_schedule(
     return _fa_schedule_view(window_status())
 
 
+@router.get("/il-settings")
+def get_il_settings() -> Dict[str, Any]:
+    """Whether the sim activates injured players on its own (every owner reads
+    this; only the commissioner can change it)."""
+
+    from utils.league_settings import auto_activate_il
+
+    return {"auto_activate_il": auto_activate_il()}
+
+
+@router.post("/il-settings")
+def set_il_settings(
+    payload: Optional[Dict[str, Any]] = Body(default=None),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Commissioner: hand injured-list activations to the owners, or take them
+    back. Off means each owner activates their own players; the CPU still runs
+    its own clubs, and a passed owner deadline activates anyone left waiting."""
+
+    _require_season_progression(identity)
+    from utils.league_settings import auto_activate_il, set_auto_activate_il
+
+    enabled = bool((payload or {}).get("auto_activate_il", True))
+    set_auto_activate_il(enabled)
+    return {"auto_activate_il": auto_activate_il()}
+
+
 @router.get("/readiness")
 def season_readiness() -> Dict[str, Any]:
     """Per-human-team readiness for advancing the season (legal roster, lineups
@@ -2141,6 +2168,23 @@ def _cpu_fill_all_unready() -> List[str]:
     return filled
 
 
+def _cpu_activate_eligible() -> List[str]:
+    """Activate every player whose injured-list stint has elapsed.
+
+    Runs with ``force_auto_activate`` so it ignores the league's
+    ``auto_activate_il`` setting: this IS the fallback for owners who left that
+    off and then stopped showing up.
+    """
+
+    try:
+        from services.dl_automation import process_disabled_lists
+
+        summary = process_disabled_lists(force_auto_activate=True)
+        return list(getattr(summary, "activated", []) or [])
+    except Exception:  # pragma: no cover - defensive
+        return []
+
+
 def _run_schedule(identity: Dict[str, Any], *, force: bool = False) -> Dict[str, Any]:
     """Execute the configured progression: CPU-fill stragglers, then kick off the
     configured sim. Rolls a recurring deadline forward (or clears a one-shot)."""
@@ -2163,6 +2207,13 @@ def _run_schedule(identity: Dict[str, Any], *, force: bool = False) -> Dict[str,
             detail="A simulation is already in progress.",
         )
     filled = _cpu_fill_all_unready() if sched["cpu_fill"] else []
+    # With auto-activation off, a disengaged owner could leave a healthy player
+    # on the injured list indefinitely. The deadline IS their grace period, so
+    # when it passes the CPU activates anyone whose stint has elapsed — the same
+    # bargain as CPU-filling an unready roster.
+    activated: List[str] = []
+    if sched["cpu_fill"]:
+        activated = _cpu_activate_eligible()
     started = None
     if sched["run_kind"]:
         started = _start_sim(sched["run_kind"], identity, n_arg=sched["run_n"])
@@ -2180,6 +2231,8 @@ def _run_schedule(identity: Dict[str, Any], *, force: bool = False) -> Dict[str,
         parts: List[str] = []
         if filled:
             parts.append(f"CPU-filled {len(filled)} unready team(s)")
+        if activated:
+            parts.append(f"activated {len(activated)} eligible injured player(s)")
         if sched["run_kind"]:
             parts.append(_run_label(sched["run_kind"], sched["run_n"]))
         if parts:
@@ -2188,6 +2241,7 @@ def _run_schedule(identity: Dict[str, Any], *, force: bool = False) -> Dict[str,
         pass
     return {
         "filled": filled,
+        "activated": activated,
         "started": started,
         "run_label": _run_label(sched["run_kind"], sched["run_n"]) if sched["run_kind"] else None,
         "next_deadline": next_deadline,

@@ -32,6 +32,7 @@ class DLAutomationSummary:
     rehab_ready: List[str] = field(default_factory=list)
     rehab_progressed: int = 0
     lineup_restored: List[str] = field(default_factory=list)
+    awaiting_owner: List[str] = field(default_factory=list)
 
     def has_updates(self) -> bool:
         return any(
@@ -42,6 +43,7 @@ class DLAutomationSummary:
                 self.rehab_ready,
                 self.rehab_progressed,
                 self.lineup_restored,
+                self.awaiting_owner,
             )
         )
 
@@ -87,16 +89,51 @@ def _resolve_destination(roster) -> Optional[str]:
     return None
 
 
+def _teams_managing_their_own_il(data_dir) -> set:
+    """Human-owned teams that have opted out of automatic activation.
+
+    CPU teams are never in this set: nobody is watching them, so a club without
+    an owner must keep activating on its own or it would strand healthy players
+    on the list forever.
+    """
+
+    try:
+        from utils.league_settings import auto_activate_il
+
+        if auto_activate_il():
+            return set()
+    except Exception:  # pragma: no cover - defensive
+        return set()
+    try:
+        from services.finance_ai import _human_owned_team_ids
+
+        return set(_human_owned_team_ids(data_dir))
+    except Exception:  # pragma: no cover - defensive
+        return set()
+
+
 def process_disabled_lists(
     today: DateLike = None,
     *,
     days_elapsed: int = 1,
     auto_activate: bool = True,
+    force_auto_activate: bool = False,
 ) -> DLAutomationSummary:
-    """Progress disabled list eligibility and optionally activate players."""
+    """Progress disabled list eligibility and optionally activate players.
+
+    ``auto_activate`` is the caller's intent; the league's ``auto_activate_il``
+    setting can still hold back HUMAN-owned teams so their owner decides when a
+    player comes back. ``force_auto_activate`` overrides that for batch tools
+    (the long-run sim harness) that have no owner to wait for.
+    """
 
     summary = DLAutomationSummary()
     target_date = _coerce_date(today)
+    owner_managed = (
+        set()
+        if (force_auto_activate or not auto_activate)
+        else _teams_managing_their_own_il(get_data_dir())
+    )
     players = list(load_players_from_csv("data/players.csv"))
     player_map = {getattr(p, "player_id", ""): p for p in players}
     teams = []
@@ -138,6 +175,15 @@ def process_disabled_lists(
 
             list_label = disabled_list_label(getattr(player, "injury_list", ""))
             base_msg = f"{_player_name(player)} ready to return from {list_label or 'injury list'} ({team_id})"
+
+            if auto_activate and team_id in owner_managed:
+                # The owner runs this team's injured list by hand.
+                summary.awaiting_owner.append(
+                    f"{_player_name(player)} is eligible to come off the "
+                    f"{list_label or 'injured list'} ({team_id})"
+                )
+                log_news_event(base_msg + " — waiting on the owner.", category="injury")
+                continue
 
             if auto_activate:
                 destination = _resolve_destination(roster)
