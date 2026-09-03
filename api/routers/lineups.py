@@ -13,14 +13,14 @@ import csv
 from pathlib import Path
 from typing import Any, Dict, List, Literal
 
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from utils.lineup_autofill import auto_fill_lineup_for_team
 from utils.lineup_loader import load_lineup
 from utils.path_utils import get_data_dir, resolve_app_path
 from utils.roster_loader import load_roster
 
-from ..security import CurrentIdentity
+from ..security import CurrentIdentity, require_bearer, require_team_owner
 
 router = APIRouter(
     prefix="/teams/{team_id}",
@@ -69,7 +69,13 @@ def save_lineup(
     team_id: str,
     vs: Vs,
     payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
+    # Team-scoped write: ownership is enforced server-side. This was gated
+    # by authentication only, so any signed-in user could edit another
+    # club's data. Admins short-circuit inside require_team_owner.
+    require_team_owner(identity, team_id)
+
     rows_in = payload.get("lineup")
     if not isinstance(rows_in, list):
         raise HTTPException(
@@ -114,7 +120,16 @@ def save_lineup(
 
 
 @router.post("/lineup/autofill")
-def autofill_lineup(team_id: str, vs: str | None = None) -> Dict[str, Any]:
+def autofill_lineup(
+    team_id: str,
+    vs: str | None = None,
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    # Team-scoped write: ownership is enforced server-side. This was gated
+    # by authentication only, so any signed-in user could edit another
+    # club's data. Admins short-circuit inside require_team_owner.
+    require_team_owner(identity, team_id)
+
     """Autofill the team's batting order(s).
 
     ``vs`` is optional — pass ``"lhp"`` or ``"rhp"`` to write only that
@@ -163,7 +178,15 @@ def get_pitching_staff(team_id: str) -> Dict[str, Any]:
 
 
 @router.post("/pitching/autofill")
-def autofill_pitching_staff_endpoint(team_id: str) -> Dict[str, Any]:
+def autofill_pitching_staff_endpoint(
+    team_id: str,
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    # Team-scoped write: ownership is enforced server-side. This was gated
+    # by authentication only, so any signed-in user could edit another
+    # club's data. Admins short-circuit inside require_team_owner.
+    require_team_owner(identity, team_id)
+
     """Auto-assign SP1-SP5 + LR/MR/SU/CL using the same heuristic the
     PyQt Pitching Editor's "Auto-Fill Staff" button fires
     (``utils.pitching_autofill.autofill_pitching_staff``). Persists the
@@ -219,7 +242,13 @@ def autofill_pitching_staff_endpoint(team_id: str) -> Dict[str, Any]:
 def save_pitching_staff(
     team_id: str,
     payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
+    # Team-scoped write: ownership is enforced server-side. This was gated
+    # by authentication only, so any signed-in user could edit another
+    # club's data. Admins short-circuit inside require_team_owner.
+    require_team_owner(identity, team_id)
+
     rows_in = payload.get("staff")
     if not isinstance(rows_in, list):
         raise HTTPException(

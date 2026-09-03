@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from utils.depth_chart import (
     DEPTH_CHART_POSITIONS,
@@ -18,7 +18,7 @@ from utils.depth_chart import (
 )
 from utils.depth_chart_autofill import auto_generate_depth_chart
 
-from ..security import CurrentIdentity
+from ..security import CurrentIdentity, require_bearer, require_team_owner
 
 router = APIRouter(prefix="/teams/{team_id}/depth-chart", tags=["depth-chart"], dependencies=[CurrentIdentity])
 
@@ -38,7 +38,13 @@ def get_depth_chart(team_id: str) -> Dict[str, Any]:
 def save(
     team_id: str,
     payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
+    # Team-scoped write: ownership is enforced server-side. This was gated
+    # by authentication only, so any signed-in user could edit another
+    # club's data. Admins short-circuit inside require_team_owner.
+    require_team_owner(identity, team_id)
+
     raw = payload.get("chart")
     if not isinstance(raw, dict):
         raise HTTPException(
@@ -78,7 +84,15 @@ def save(
 
 
 @router.post("/auto-fill")
-def auto_fill(team_id: str) -> Dict[str, Any]:
+def auto_fill(
+    team_id: str,
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    # Team-scoped write: ownership is enforced server-side. This was gated
+    # by authentication only, so any signed-in user could edit another
+    # club's data. Admins short-circuit inside require_team_owner.
+    require_team_owner(identity, team_id)
+
     """Auto-generate the depth chart from the current roster + ratings.
 
     Mirrors the PyQt depth-chart dialog's "Auto Populate" button: each

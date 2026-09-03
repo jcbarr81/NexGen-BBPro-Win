@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from services.training_settings import (
     HITTER_TRACKS,
@@ -22,7 +22,7 @@ from services.training_settings import (
     update_league_training_defaults,
 )
 
-from ..security import CurrentIdentity
+from ..security import CurrentIdentity, require_bearer, require_team_owner
 
 router = APIRouter(
     prefix="/teams/{team_id}/training",
@@ -82,7 +82,13 @@ def get_training(team_id: str) -> Dict[str, Any]:
 def save_training(
     team_id: str,
     payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
+    # Team-scoped write: ownership is enforced server-side. This was gated
+    # by authentication only, so any signed-in user could edit another
+    # club's data. Admins short-circuit inside require_team_owner.
+    require_team_owner(identity, team_id)
+
     hitters = payload.get("hitters")
     pitchers = payload.get("pitchers")
     if not isinstance(hitters, dict) or not isinstance(pitchers, dict):
@@ -100,7 +106,15 @@ def save_training(
 
 
 @router.delete("")
-def reset_training(team_id: str) -> Dict[str, Any]:
+def reset_training(
+    team_id: str,
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    # Team-scoped write: ownership is enforced server-side. This was gated
+    # by authentication only, so any signed-in user could edit another
+    # club's data. Admins short-circuit inside require_team_owner.
+    require_team_owner(identity, team_id)
+
     clear_team_training_weights(team_id)
     return _serialize(team_id)
 

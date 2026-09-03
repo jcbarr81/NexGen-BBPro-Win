@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from models.team import Team
 from services.team_auto_reassign_settings import (
@@ -42,7 +42,7 @@ except Exception:  # pragma: no cover
     def _ballpark_names() -> List[str]:
         return []
 
-from ..security import CurrentIdentity
+from ..security import CurrentIdentity, require_bearer, require_team_owner
 
 router = APIRouter(
     prefix="/teams/{team_id}/settings",
@@ -109,7 +109,13 @@ def get_settings(team_id: str) -> Dict[str, Any]:
 def save_settings(
     team_id: str,
     payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
+    # Team-scoped write: ownership is enforced server-side. This was gated
+    # by authentication only, so any signed-in user could edit another
+    # club's data. Admins short-circuit inside require_team_owner.
+    require_team_owner(identity, team_id)
+
     team = _team(team_id)
 
     # Pluck only the editable fields. None means "leave unchanged".

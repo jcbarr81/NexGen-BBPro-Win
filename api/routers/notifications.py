@@ -20,7 +20,7 @@ from services.notification_settings import (
     save_notification_settings,
 )
 
-from ..security import require_bearer
+from ..security import require_bearer, require_team_owner
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -47,8 +47,13 @@ def get_settings(
 def put_settings(
     team_id: str,
     payload: Dict[str, Any] = Body(...),
-    _: Dict[str, Any] = Depends(require_bearer),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
+    # Team-scoped write: ownership is enforced server-side. This was gated by
+    # authentication only, so any signed-in user could rewrite another club's
+    # alert preferences. Admins short-circuit inside require_team_owner.
+    require_team_owner(identity, team_id)
+
     try:
         settings = save_notification_settings(team_id, payload)
     except Exception as exc:
