@@ -31,6 +31,7 @@ class DLAutomationSummary:
     blocked: List[str] = field(default_factory=list)
     rehab_ready: List[str] = field(default_factory=list)
     rehab_progressed: int = 0
+    lineup_restored: List[str] = field(default_factory=list)
 
     def has_updates(self) -> bool:
         return any(
@@ -40,6 +41,7 @@ class DLAutomationSummary:
                 self.blocked,
                 self.rehab_ready,
                 self.rehab_progressed,
+                self.lineup_restored,
             )
         )
 
@@ -153,6 +155,32 @@ def process_disabled_lists(
                 mutated_rosters.add(team_id)
                 dest_label = destination.upper()
                 msg = f"Activated {_player_name(player)} to {dest_label} ({team_id})"
+
+                # Coming off the list isn't symmetrical with going on it. The
+                # injury left the lineup a man short, so the sim rebuilt it and
+                # a replacement took the spot; activation restores the roster
+                # but leaves a perfectly valid nine in place, so the regular
+                # starter would sit behind his own backup indefinitely. Put him
+                # back wherever the depth chart says he's the starter.
+                if destination == "act":
+                    try:
+                        from services.lineup_restore import restore_depth_chart_starter
+
+                        restored = restore_depth_chart_starter(
+                            team_id,
+                            pid,
+                            lineup_dir=get_data_dir() / "lineups",
+                            active_ids=list(getattr(roster, "act", []) or []),
+                        )
+                        if restored:
+                            position = next(iter(restored.values()))
+                            msg += f", back in the lineup at {position}"
+                            summary.lineup_restored.append(
+                                f"{_player_name(player)} restored at {position} ({team_id})"
+                            )
+                    except Exception:  # pragma: no cover - defensive
+                        pass
+
                 summary.activated.append(msg)
                 log_news_event(msg, category="injury")
             else:

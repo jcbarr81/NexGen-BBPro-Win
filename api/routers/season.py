@@ -1013,6 +1013,7 @@ def _run_daily_automations(played_dates: List[str]) -> Dict[str, Any]:
             "activated": len(getattr(dl_summary, "activated", []) or []),
             "alerts": len(getattr(dl_summary, "alerts", []) or []),
             "blocked": len(getattr(dl_summary, "blocked", []) or []),
+            "lineup_restored": len(getattr(dl_summary, "lineup_restored", []) or []),
         }
     except Exception as exc:  # pragma: no cover - defensive
         summary["dl_updates_error"] = str(exc)
