@@ -85,7 +85,8 @@ def test_pitcher_only_injury_respects_role():
     outcome = sim.maybe_create_injury("pitcher_overuse", _player(is_pitcher=True), force=True)
     assert outcome is not None
     assert outcome.days == 30
-    assert outcome.dl_tier == "ir"
+    # The old "ir" is MLB's 60-day IL.
+    assert outcome.dl_tier == "il60"
 
 
 def test_probability_gate_can_block_injury(monkeypatch):

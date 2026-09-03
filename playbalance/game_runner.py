@@ -1666,9 +1666,11 @@ def _apply_injury_events(
                 pitcher_dl_counts[team_id_str] = current + 1
 
         if dl_tier and dl_tier != "none":
-            place_on_injury_list(player, roster, list_name=dl_tier)
-            if dl_tier == "dl15":
-                player.return_date = eligible.isoformat()
+            # Pass the SIM date. Without it the placement stamped date.today()
+            # over the sim dates set just above, so an injured list ran on the
+            # wall clock: a stint expired 15 days after you happened to press
+            # the button, however much baseball had been played in between.
+            place_on_injury_list(player, roster, list_name=dl_tier, today=injury_date)
         log_news_event(
             f"{getattr(player, 'first_name', '')} {getattr(player, 'last_name', '')} injured ({description})",
             category="injury",

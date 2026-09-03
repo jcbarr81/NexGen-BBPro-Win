@@ -14,7 +14,10 @@ import pytest
 from services import injury_simulator as isim
 
 CATALOG_PATH = Path(__file__).resolve().parents[1] / "data" / "injury_catalog.json"
-VALID_TIERS = {"none", "dl15", "ir"}
+# The simulator emits MLB list names. "dl15" survives as the "standard
+# stint" marker that injury_manager resolves by role (10-day for a
+# position player, 15-day for a pitcher).
+VALID_TIERS = {"none", "dl15", "il7", "il10", "il15", "il60"}
 VALID_ATTRS = {"pow", "con", "spd", "vel", "ctrl", "sta"}
 
 

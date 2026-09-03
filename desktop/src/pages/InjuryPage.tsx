@@ -1,7 +1,7 @@
 /**
  * Phase 4 port of ui/injury_center_window.py.
  *
- * Concentrates a team's injured players: DL (15/45-day), 60-day IR, and
+ * Concentrates a team's injured players: the 10/15-day IL, the 60-day IL, and
  * day-to-day ACT-roster guys. Each row shows the injury, list type, days
  * remaining and rehab status. Player names link straight to the profile.
  */
@@ -72,7 +72,7 @@ export function InjuryPage() {
   return (
     <AppShell
       title="Injury Center"
-      subtitle={`${activeTeamId} · DL, IR, and day-to-day status`}
+      subtitle={`${activeTeamId} · injured list and day-to-day status`}
       teamAccentColor={teamAccentColor}
     >
       {injuries.isLoading ? (
@@ -93,13 +93,13 @@ export function InjuryPage() {
         <div className="space-y-6 animate-fade-in">
           <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <StatCard
-              label="On Disabled List"
+              label="On Injured List"
               value={injuries.data.counts.dl}
               Icon={HeartPulse}
               tone={injuries.data.counts.dl > 0 ? "danger" : "neutral"}
             />
             <StatCard
-              label="On 60-day IR"
+              label="On 60-Day IL"
               value={injuries.data.counts.ir}
               Icon={ClipboardList}
               tone={injuries.data.counts.ir > 0 ? "danger" : "neutral"}
@@ -123,16 +123,16 @@ export function InjuryPage() {
           </section>
 
           <InjuryTable
-            title="Disabled List"
-            description="DL15 + DL45 — eligible activations highlighted"
+            title="Injured List"
+            description="10-day (position players) and 15-day (pitchers) — eligible activations highlighted"
             entries={injuries.data.dl}
-            emptyText="Nobody on the DL."
+            emptyText="Nobody on the injured list."
           />
           <InjuryTable
-            title="60-day Injured Reserve"
+            title="60-Day Injured List"
             description="Roster spot opened up; counts toward 40-man only"
             entries={injuries.data.ir}
-            emptyText="Nobody on the 60-day IR."
+            emptyText="Nobody on the 60-day IL."
           />
           <InjuryTable
             title="Day-to-day"

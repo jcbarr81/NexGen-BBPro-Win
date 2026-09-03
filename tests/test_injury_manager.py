@@ -45,10 +45,11 @@ def test_injury_and_recovery_flow(tmp_path, monkeypatch):
     place_on_injury_list(p1, roster, list_name="dl15", today=start_day)
 
     assert p1.injured is True
-    assert p1.injury_list == "dl15"
+    # A legacy "dl15" resolves by role: this player is a P, so the 15-day list.
+    assert p1.injury_list == "il15"
     assert p1.injury_start_date == start_day.isoformat()
     assert p1.injury_eligible_date == (start_day + timedelta(days=15)).isoformat()
-    assert roster.dl_tiers["p1"] == "dl15"
+    assert roster.dl_tiers["p1"] == "il15"
     assert p1.ready is False
     assert "p2" in roster.act  # replacement promoted
 

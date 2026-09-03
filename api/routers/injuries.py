@@ -25,8 +25,22 @@ from ..security import CurrentIdentity
 router = APIRouter(prefix="/teams/{team_id}", tags=["injuries"], dependencies=[CurrentIdentity])
 
 
+def _sim_today() -> date:
+    """The league's current date — the clock the injured list is measured in."""
+
+    try:
+        from utils.sim_date import get_current_sim_date
+
+        sim_date = (get_current_sim_date() or "").strip()
+        if sim_date:
+            return date.fromisoformat(sim_date[:10])
+    except Exception:  # pragma: no cover - defensive
+        pass
+    return date.today()
+
+
 def _player_block(player: Any, level: str, dl_tier: str | None) -> Dict[str, Any]:
-    today = date.today()
+    today = _sim_today()
     days_remaining: int | None = None
     try:
         days_remaining = disabled_list_days_remaining(player, today)

@@ -239,15 +239,23 @@ class InjurySimulator:
 
     @staticmethod
     def _normalize_tier(value: str | None) -> str:
-        """Map legacy tiers to the simplified DL/IR scheme."""
+        """Map catalog tiers onto MLB's injured lists.
+
+        ``dl15`` stays as-is here rather than resolving to a list: the standard
+        stint is 10 days for a position player and 15 for a pitcher, and this
+        function has no player in hand. ``services.injury_manager`` makes that
+        call at placement time.
+        """
 
         tier = (value or "dl15").strip().lower()
-        if tier in {"dl45", "45", "45-day", "45 day"}:
-            return "ir"
-        if tier in {"dl15", "dl", "15", "15-day", "15 day"}:
+        if tier in {"dl45", "45", "45-day", "45 day", "ir", "injured reserve", "il60"}:
+            return "il60"
+        if tier in {"il7", "7-day", "7 day"}:
+            return "il7"
+        if tier in {"il10", "10-day", "10 day"}:
+            return "il10"
+        if tier in {"il15", "dl15", "dl", "15", "15-day", "15 day"}:
             return "dl15"
-        if tier in {"ir", "injured reserve"}:
-            return "ir"
         if tier == "none":
             return "none"
         return "dl15"

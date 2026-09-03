@@ -45,6 +45,14 @@ class DLAutomationSummary:
 
 
 def _coerce_date(value: DateLike) -> date:
+    """Resolve a caller's date, defaulting to the LEAGUE's current sim date.
+
+    The season router calls this with ``today=None`` and a comment saying it
+    "defaults to current sim date" — which was not true: it fell through to the
+    wall clock, so players were activated off the injured list after N days of
+    real time rather than N days of league time.
+    """
+
     if isinstance(value, date):
         return value
     if isinstance(value, str) and value.strip():
@@ -52,6 +60,14 @@ def _coerce_date(value: DateLike) -> date:
             return date.fromisoformat(value.strip())
         except ValueError:
             pass
+    try:
+        from utils.sim_date import get_current_sim_date
+
+        sim_date = (get_current_sim_date() or "").strip()
+        if sim_date:
+            return date.fromisoformat(sim_date[:10])
+    except Exception:  # pragma: no cover - defensive
+        pass
     return datetime.now(timezone.utc).date()
 
 
