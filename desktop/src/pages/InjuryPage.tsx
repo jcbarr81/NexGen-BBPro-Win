@@ -3,7 +3,7 @@
  *
  * Concentrates a team's injured players: the 10/15-day IL, the 60-day IL, and
  * day-to-day ACT-roster guys. Each row shows the injury, list type, days
- * remaining and rehab status. Player names link straight to the profile.
+ * remaining. Player names link straight to the profile.
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -272,11 +272,6 @@ function InjuryRow({
           {entry.last_name}
           {entry.first_name ? `, ${entry.first_name}` : ""}
         </Link>
-        {entry.rehab_assignment && (
-          <Badge tone="amber" className="ml-2">
-            Rehab · {entry.rehab_days}d
-          </Badge>
-        )}
       </td>
       <td className="px-3 py-2 text-xs uppercase tracking-wider text-muted">
         {entry.primary_position || (entry.is_pitcher ? "PIT" : "POS")}

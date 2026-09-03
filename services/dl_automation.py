@@ -29,8 +29,6 @@ class DLAutomationSummary:
     activated: List[str] = field(default_factory=list)
     alerts: List[str] = field(default_factory=list)
     blocked: List[str] = field(default_factory=list)
-    rehab_ready: List[str] = field(default_factory=list)
-    rehab_progressed: int = 0
     lineup_restored: List[str] = field(default_factory=list)
     awaiting_owner: List[str] = field(default_factory=list)
 
@@ -40,8 +38,6 @@ class DLAutomationSummary:
                 self.activated,
                 self.alerts,
                 self.blocked,
-                self.rehab_ready,
-                self.rehab_progressed,
                 self.lineup_restored,
                 self.awaiting_owner,
             )

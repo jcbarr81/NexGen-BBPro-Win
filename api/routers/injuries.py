@@ -1,7 +1,7 @@
 """Injury center endpoint.
 
 Surfaces a team's DL + IR rosters with descriptions, list type, return
-date, days remaining, and rehab status. Reuses the same helpers the PyQt
+date and days remaining. Reuses the same helpers the PyQt
 ``ui/injury_center_window.py`` calls.
 """
 
@@ -68,8 +68,6 @@ def _player_block(player: Any, level: str, dl_tier: str | None) -> Dict[str, Any
         "injury_eligible_date": getattr(player, "injury_eligible_date", "") or "",
         "injury_start_date": getattr(player, "injury_start_date", "") or "",
         "injury_minimum_days": getattr(player, "injury_minimum_days", "") or "",
-        "rehab_assignment": bool(getattr(player, "injury_rehab_assignment", False)),
-        "rehab_days": int(getattr(player, "injury_rehab_days", 0) or 0),
         "days_remaining": days_remaining,
         "dl_eligible": eligible,
     }

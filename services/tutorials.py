@@ -217,12 +217,12 @@ TUTORIALS: List[Tutorial] = [
                 "<p>Open <b>My Team → Injuries</b>. Players are split into DL, IR, and day-to-day groups. Counts and return dates live at the top of each group.</p>",
             ),
             TutorialStep(
-                "DL tiers",
-                "<p>DL supports 15-day and 45-day tiers. Eligible-to-activate date and days remaining are shown on every row; activation is blocked until the DL minimum is met.</p>",
+                "IL tiers",
+                "<p>The injured list follows MLB: 10 days for position players, 15 for pitchers, and a 60-day list for long-term injuries. Every row shows the eligible-to-activate date and days remaining, counted in LEAGUE days — a stint elapses as you play games, not as real-world time passes.</p>",
             ),
             TutorialStep(
-                "Activate or rehab",
-                "<p>Use <b>Activate</b> to return the player to ACT. If rating confidence is low after a long stint, promote from AAA first to cover the slot.</p>",
+                "Placing and activating",
+                "<p>Use <b>Place on IL</b> on an injured player to open an active-roster spot, and <b>Activate</b> to bring him back once his stint is up. If the active roster is full, option someone down from the Roster page first. Commissioners can hand these moves to owners (or keep them automatic) on the Season page.</p>",
             ),
             TutorialStep(
                 "News trail",

@@ -1327,8 +1327,6 @@ export interface TeamInjuryEntry {
   injury_eligible_date: string;
   injury_start_date: string;
   injury_minimum_days: string | number;
-  rehab_assignment: boolean;
-  rehab_days: number;
   days_remaining: number | null;
   dl_eligible: boolean;
 }
