@@ -233,7 +233,10 @@ export function SeasonPage() {
           <MetricsRow state={state.data} />
           {teamId && <ActionItemsCard />}
           {multiOwner && isCommish && (
-            <ReadinessBoard readiness={readiness.data} />
+            <ReadinessBoard
+              readiness={readiness.data}
+              phase={state.data.phase}
+            />
           )}
           {canProgress ? (
             <ActionsCard
@@ -1628,7 +1631,13 @@ function ProgressionSchedulePanel({ canEdit = false }: { canEdit?: boolean }) {
 
 /** Commissioner view: every human team's readiness, a deadline setter, and a
  *  per-team "CPU handle it" button so an inactive owner can't stall the league. */
-function ReadinessBoard({ readiness }: { readiness?: SeasonReadiness }) {
+function ReadinessBoard({
+  readiness,
+  phase,
+}: {
+  readiness?: SeasonReadiness;
+  phase?: string;
+}) {
   const queryClient = useQueryClient();
 
   const cpuFill = useMutation({
@@ -1648,6 +1657,13 @@ function ReadinessBoard({ readiness }: { readiness?: SeasonReadiness }) {
   });
   if (!readiness) return null;
   const teams = readiness.teams ?? [];
+  // The readiness gate only guards the PRESEASON -> REGULAR advance (see the
+  // multi-owner check in advance_phase). Once the season is under way an
+  // unready team isn't blocking anything, so don't keep claiming Opening Day
+  // is held up months after it happened — say what's actually true.
+  const blocksOpeningDay = String(phase ?? "").toUpperCase() === "PRESEASON";
+  const n = readiness.unready.length;
+  const plural = n === 1 ? "" : "s";
 
   return (
     <Card>
@@ -1657,13 +1673,21 @@ function ReadinessBoard({ readiness }: { readiness?: SeasonReadiness }) {
           <CardDescription>
             {readiness.all_ready
               ? "All owners are ready — you can advance the season."
-              : `${readiness.unready.length} team${readiness.unready.length === 1 ? "" : "s"} not ready — Opening Day is blocked until fixed.`}
+              : blocksOpeningDay
+                ? `${n} team${plural} not ready — Opening Day is blocked until fixed.`
+                : `${n} team${plural} still have roster or lineup problems to clean up.`}
           </CardDescription>
         </div>
-        <Badge tone={readiness.all_ready ? "success" : "danger"}>
+        <Badge
+          tone={
+            readiness.all_ready ? "success" : blocksOpeningDay ? "danger" : "amber"
+          }
+        >
           {readiness.all_ready
             ? "All ready"
-            : `${readiness.unready.length} blocking`}
+            : blocksOpeningDay
+              ? `${n} blocking`
+              : `${n} need${n === 1 ? "s" : ""} attention`}
         </Badge>
       </CardHeader>
       <CardContent className="space-y-3">
