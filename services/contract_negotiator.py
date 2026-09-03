@@ -94,8 +94,14 @@ def evaluate_free_agent_bids(
 # to make the negotiation feel real without modeling agent psychology.
 
 # Service-time tiers (in days; MLB uses 172 days = 1 year of service).
-PRE_ARB_SERVICE_DAYS = 3 * 162  # under 3 years: pre-arbitration
-FA_SERVICE_DAYS = 6 * 162  # 6+ years: free agency-pending
+# A service YEAR is 172 days, matching contracts_service, qualifying_offers and
+# fa_negotiations. This module used to say 162 (a schedule length, not a service
+# year), which mattered once salaries started coming from the shared model: a
+# player this module called a free agent at 6*162=972 days is still short of the
+# model's 6*172=1032, so he would have been priced as an arbitration case at 70%
+# of market every time free agency asked what he was worth.
+PRE_ARB_SERVICE_DAYS = 3 * 172  # under 3 years: pre-arbitration
+FA_SERVICE_DAYS = 6 * 172  # 6+ years: free agency-pending
 
 # Extension-eligibility guidelines.
 MAX_YEARS_LEFT_FOR_EXTENSION = 2  # arbs/FAs only renegotiate in last 2 years
@@ -232,36 +238,40 @@ class ExtensionEvaluation:
 
 
 def _talent_score(player: object) -> float:
-    """Crude 0-100 talent measure. Reuses display ratings for consistency
-    with what the user sees on the player profile."""
+    """Star-weighted quality on the rating scale (~20..80).
 
-    overall = getattr(player, "overall_display", None)
-    if overall is None:
-        overall = getattr(player, "overall_raw", None)
-    if overall is None:
-        # Fall back to averaged primary ratings.
-        is_pitcher = bool(getattr(player, "is_pitcher", False))
-        keys = (
-            ("arm", "control", "movement", "endurance")
-            if is_pitcher
-            else ("ch", "ph", "sp", "eye", "fa", "arm")
-        )
-        values = []
-        for key in keys:
-            raw = getattr(player, key, None)
-            if raw is None:
-                continue
-            try:
-                values.append(float(raw))
-            except (TypeError, ValueError):
-                continue
-        if not values:
-            return 50.0
-        overall = sum(values) / len(values)
+    This is the SAME score the salary model prices off
+    (:func:`services.contracts_service._player_quality_score`), so a player's
+    asking price and the length of deal they want can never disagree about how
+    good he is.
+
+    It used to read ``overall_display`` / ``overall_raw`` and claim it matched
+    what the profile page shows. Those attributes are computed in the
+    presentation layer and never set on ``Player``, so it always fell through
+    to a six-rating average on a different scale from the displayed overall —
+    three different numbers for the same player, and the one nobody could see
+    was the one that set his price.
+    """
+
+    from services.contracts_service import _player_quality_score
+
     try:
-        return max(0.0, min(100.0, float(overall)))
-    except (TypeError, ValueError):
+        quality = _player_quality_score(player)
+    except Exception:  # pragma: no cover - defensive
+        quality = None
+    if quality is None:
         return 50.0
+    return max(0.0, min(100.0, float(quality)))
+
+
+def _age_of(player: object) -> Optional[int]:
+    birthdate = getattr(player, "birthdate", None)
+    if not birthdate:
+        return None
+    try:
+        return calculate_age(str(birthdate))
+    except Exception:  # pragma: no cover - defensive
+        return None
 
 
 def _service_tier(service_time_days: int) -> str:
@@ -272,73 +282,166 @@ def _service_tier(service_time_days: int) -> str:
     return "free_agent"
 
 
+# A player signing away cost-controlled years trades upside for guaranteed
+# money, so an extension is cheaper per year than buying those seasons one at a
+# time. The discount scales with how much team control he's giving up: a pure
+# free-agent extension is priced at market (no discount at all).
+EXTENSION_MAX_SECURITY_DISCOUNT = 0.20
+
+# Deal-length cutoffs on the star-weighted quality scale (~20..80). Live leagues
+# run roughly 37..63 with a mean near 51, so "good" and "star" sit where the top
+# quarter and the top handful of players actually are.
+QUALITY_GOOD = 55.0
+QUALITY_STAR = 60.0
+
+
+# What a player whose ratings can't be read is assumed to be worth. The salary
+# model floors an unratable player at the league minimum, which is right for
+# seeding a contract but wrong at a negotiating table: it would let anyone sign
+# a player for the minimum whenever his ratings failed to load. Value him at a
+# non-committal middle instead, which is what this module always did.
+UNRATED_MARKET_VALUE = 1_500_000
+
+
+def _market_value(player: object) -> int:
+    """Open-market annual value, with a safe default for an unratable player."""
+
+    from services.contracts_service import (
+        _player_quality_score,
+        estimate_market_value_for_player,
+    )
+
+    try:
+        if _player_quality_score(player) is None:
+            return UNRATED_MARKET_VALUE
+        return int(estimate_market_value_for_player(player))
+    except Exception:  # pragma: no cover - defensive
+        return UNRATED_MARKET_VALUE
+
+
+def _season_value(
+    market_value: int, *, service_time_days: int, age: Optional[int]
+) -> int:
+    """What one season costs at the tier the player is in for that season."""
+
+    from services.contracts_service import (
+        _apply_service_time_tier,
+        _career_stage,
+    )
+
+    stage, arb_year = _career_stage(service_time_days=service_time_days, age=age)
+    return int(_apply_service_time_tier(market_value, stage, arb_year))
+
+
+def extension_annual_value(
+    player: object,
+    *,
+    covered_years: int,
+    service_time_days: int = 0,
+    current_annual_salary: int = 0,
+) -> int:
+    """The annual salary an extension covering *covered_years* seasons is worth.
+
+    Priced per season and then annualized, because an extension buys seasons the
+    player has not reached yet: a 23-year-old signing six years sells two pre-arb
+    seasons, three arbitration seasons, and a free-agent season, and the last of
+    those is worth many times the first. Pricing every year at his CURRENT tier
+    — which is what both older models did — quotes six years of pre-arb minimum
+    for a player who will be a free agent partway through the deal.
+
+    Two floors apply. League minimum, obviously; and his existing salary, because
+    ``extend_contract`` overwrites ``annual_salary`` for the whole contract, so a
+    quote below the current figure would retroactively cut money he has already
+    been guaranteed.
+    """
+
+    covered_years = max(1, int(covered_years))
+    market_value = _market_value(player)
+    age = _age_of(player)
+    service = max(0, int(service_time_days or 0))
+
+    # Advance whichever clock the player actually has. _career_stage falls back
+    # to age only when service time is zero, so handing it a fabricated
+    # 172/344/516 for a player with no service history flips him out of the
+    # age path and back to "rookie" — which priced a 30-year-old free agent's
+    # second extension year at the pre-arb minimum and made a four-year deal
+    # cheaper per year than a two-year one.
+    has_service = service > 0
+
+    season_values: List[int] = []
+    controlled = 0
+    for offset in range(covered_years):
+        season_service = service + (172 * offset) if has_service else 0
+        season_age = None if age is None else age + offset
+        value = _season_value(
+            market_value, service_time_days=season_service, age=season_age
+        )
+        season_values.append(value)
+        if value < market_value:
+            controlled += 1
+
+    annual = sum(season_values) / len(season_values)
+
+    # Security discount, proportional to the share of the deal that is bought-out
+    # team control. All-FA years => no discount.
+    discount = EXTENSION_MAX_SECURITY_DISCOUNT * (controlled / covered_years)
+    annual *= 1.0 - discount
+
+    floor = max(800_000, int(current_annual_salary or 0))
+    return int(max(floor, round(annual)))
+
+
 def fair_market_salary(
     player: object,
     *,
     service_time_days: int = 0,
 ) -> int:
-    """Estimate the open-market annual salary for *player*.
+    """Estimate the annual salary *player* commands for a SINGLE season.
 
-    Curve (rough; tunable):
-      <50 OVR : league min (~$800k)
-      50-59  : $1.5M
-      60-69  : $4M
-      70-79  : $10M
-      80-89  : $20M
-      90+    : $32M
+    Delegates to the league's one salary model
+    (:func:`services.contracts_service.estimate_contract_salary`): a convex
+    quality->market curve, discounted by career stage (pre-arb / arbitration
+    year 1-3 / free agent). This module used to carry a second, coarser ladder
+    of its own, so what a player was worth depended on which code path asked.
 
-    Pre-arb tier multiplies by 0.15, arbitration by 0.55, FA by 1.0.
-    Aging discount applied for players 33+.
+    For multi-year extensions use :func:`extension_annual_value`, which prices
+    each covered season at the tier the player will actually be in that year.
     """
 
-    talent = _talent_score(player)
-    if talent >= 90:
-        base = 32_000_000
-    elif talent >= 80:
-        base = 20_000_000
-    elif talent >= 70:
-        base = 10_000_000
-    elif talent >= 60:
-        base = 4_000_000
-    elif talent >= 50:
-        base = 1_500_000
-    else:
-        base = 800_000
-
-    tier = _service_tier(service_time_days)
-    if tier == "pre_arb":
-        base = max(800_000, int(base * 0.15))
-    elif tier == "arbitration":
-        base = int(base * 0.55)
-    # else free agent — full market
+    age = _age_of(player)
+    salary = _season_value(
+        _market_value(player),
+        service_time_days=max(0, int(service_time_days or 0)),
+        age=age,
+    )
 
     # Aging discount: players over 33 expect shorter, smaller deals.
-    age = None
-    birthdate = getattr(player, "birthdate", None)
-    if birthdate:
-        age = calculate_age(str(birthdate))
     if age is not None and age >= 33:
-        base = int(base * (1.0 - min(0.4, (age - 33) * 0.05)))
+        salary = int(salary * (1.0 - min(0.4, (age - 33) * 0.05)))
 
-    return max(800_000, base)
+    return max(800_000, int(salary))
 
 
 def fair_market_years(player: object, *, service_time_days: int = 0) -> int:
-    """How many years a player would expect, balancing security vs. age."""
+    """How many years a player would expect, balancing security vs. age.
 
-    age = None
-    birthdate = getattr(player, "birthdate", None)
-    if birthdate:
-        age = calculate_age(str(birthdate))
-    talent = _talent_score(player)
+    Thresholds are on the star-weighted quality scale (~20..80, see
+    :func:`_talent_score`), not a 0-100 display overall — the old 70/75/80 cuts
+    were written for a scale this function never actually received, so in a real
+    league they never fired and everyone wanted the same short deal.
+
+    A pre-arb player no longer anchors on one year. Signing away arbitration and
+    free-agent seasons for guaranteed money is precisely what a young player
+    wants out of an extension; it's the team that pays for the privilege.
+    """
+
+    age = _age_of(player)
+    quality = _talent_score(player)
     tier = _service_tier(service_time_days)
 
-    # Pre-arb players don't really negotiate — they take what's offered
-    # but anchor expectations on a 1-year deal.
-    if tier == "pre_arb":
-        return 1
     if age is None:
-        # Fallback: arb tier wants ~3 years, FA wants ~4.
+        if tier == "pre_arb":
+            return 5
         return 3 if tier == "arbitration" else 4
 
     if age >= 36:
@@ -346,11 +449,11 @@ def fair_market_years(player: object, *, service_time_days: int = 0) -> int:
     if age >= 33:
         return 2
     if age >= 30:
-        return 3 if talent >= 70 else 2
+        return 3 if quality >= QUALITY_GOOD else 2
     if age >= 27:
-        return 5 if talent >= 75 else 4
+        return 5 if quality >= QUALITY_STAR else 4
     # Under 27: long deals if the talent is there.
-    return 7 if talent >= 80 else 5
+    return 7 if quality >= QUALITY_STAR else 5
 
 
 def evaluate_extension_offer(
@@ -365,49 +468,43 @@ def evaluate_extension_offer(
     """Decide whether *player* accepts the offer.
 
     Decision tree:
-      1. Compute fair-market salary + length.
+      1. Price the extension across every season it covers (the player's current
+         remaining years plus the years being added), since ``extend_contract``
+         applies one salary to the whole deal.
       2. Salary check: offered/fair ratio.
          >= 0.95 → "accepted" (player likes the deal)
          0.80-0.95 → "countered" with fair_market salary at the offered length
          < 0.80 → "rejected" (lowball)
       3. Length sanity: if the player is 33+ and the deal is 5+ years,
          counter to the player's preferred length even if salary was fine.
-      4. Pre-arb players accept anything at or above league min.
+
+    Pre-arbitration players used to short-circuit here and accept ANY offer at
+    or above the league minimum — regardless of talent, of how many arbitration
+    and free-agent seasons the extension bought out, and of what they were
+    already earning. That let a team re-sign a good 23-year-old on $1.2M for
+    $800k, cutting his guaranteed money while buying his best years. They now
+    negotiate on the same terms as everyone else; being cheap to extend comes
+    from the per-season tier pricing, not from a rule that says they cannot say
+    no.
     """
 
     offered_years = max(1, int(offered_years))
     offered_annual_salary = max(800_000, int(offered_annual_salary))
-    fair_salary = fair_market_salary(player, service_time_days=service_time_days)
-    fair_years = fair_market_years(player, service_time_days=service_time_days)
     tier = _service_tier(service_time_days)
 
-    # Pre-arb players are easy.
-    if tier == "pre_arb":
-        if offered_annual_salary >= 800_000:
-            return ExtensionEvaluation(
-                decision="accepted",
-                fair_market_salary=fair_salary,
-                fair_market_years=fair_years,
-                counter_salary=None,
-                counter_years=None,
-                reason="Pre-arbitration player accepts at or above league minimum.",
-                service_tier=tier,
-            )
-        return ExtensionEvaluation(
-            decision="rejected",
-            fair_market_salary=fair_salary,
-            fair_market_years=fair_years,
-            counter_salary=800_000,
-            counter_years=offered_years,
-            reason="Cannot offer below the league minimum.",
-            service_tier=tier,
-        )
+    # The new salary applies to the seasons still on the deal as well as the
+    # ones being added, so price all of them.
+    covered_years = max(1, int(current_years_left or 0) + offered_years)
+    fair_salary = extension_annual_value(
+        player,
+        covered_years=covered_years,
+        service_time_days=service_time_days,
+        current_annual_salary=current_annual_salary,
+    )
+    fair_years = fair_market_years(player, service_time_days=service_time_days)
 
     salary_ratio = offered_annual_salary / max(1, fair_salary)
-    age = None
-    birthdate = getattr(player, "birthdate", None)
-    if birthdate:
-        age = calculate_age(str(birthdate))
+    age = _age_of(player)
 
     # Length sanity check for older players.
     length_too_long = (

@@ -59,6 +59,8 @@ type SortKey =
   | "name"
   | "team"
   | "pos"
+  | "age"
+  | "overall"
   | "salary"
   | "years_left"
   | "fa_year"
@@ -276,6 +278,20 @@ export function ContractsPage() {
                       onClick={toggleSort}
                     />
                     <ContractHeader
+                      label="Age"
+                      keyId="age"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onClick={toggleSort}
+                    />
+                    <ContractHeader
+                      label="Ovr"
+                      keyId="overall"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onClick={toggleSort}
+                    />
+                    <ContractHeader
                       label="Salary"
                       keyId="salary"
                       sortKey={sortKey}
@@ -315,7 +331,7 @@ export function ContractsPage() {
                   {rowVirtual.paddingTop > 0 && (
                     <tr aria-hidden="true">
                       <td
-                        colSpan={8}
+                        colSpan={10}
                         style={{ height: rowVirtual.paddingTop, padding: 0 }}
                       />
                     </tr>
@@ -369,6 +385,12 @@ export function ContractsPage() {
                         </td>
                         <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
                           {row.primary_position || "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">
+                          {row.age ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium">
+                          {row.overall ?? "—"}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           <div>{formatMoneyCompact(row.annual_salary)}/yr</div>
@@ -435,7 +457,7 @@ export function ContractsPage() {
                   {rowVirtual.paddingBottom > 0 && (
                     <tr aria-hidden="true">
                       <td
-                        colSpan={8}
+                        colSpan={10}
                         style={{ height: rowVirtual.paddingBottom, padding: 0 }}
                       />
                     </tr>
@@ -458,6 +480,12 @@ function sortValue(row: ContractListRow, key: SortKey): string | number {
       return row.team_id;
     case "pos":
       return row.primary_position;
+    // Missing age/overall sort to the bottom either way rather than reading
+    // as the league's worst player.
+    case "age":
+      return row.age ?? Number.MAX_SAFE_INTEGER;
+    case "overall":
+      return row.overall ?? -1;
     case "salary":
       return row.annual_salary;
     case "years_left":

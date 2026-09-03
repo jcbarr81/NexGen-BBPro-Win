@@ -119,6 +119,9 @@ export interface ContractListRow {
   last_name: string;
   primary_position: string;
   is_pitcher: boolean;
+  /** Null when the player's birthdate/ratings can't be resolved. */
+  age: number | null;
+  overall: number | null;
   team_id: string;
   annual_salary: number;
   years_left: number;

@@ -36,6 +36,7 @@ from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.sim_date import get_current_sim_date
 
+from ._rating_presentation import compute_overall
 from ..security import CurrentIdentity, require_bearer, require_team_owner
 
 router = APIRouter(prefix="/contracts", tags=["contracts"], dependencies=[CurrentIdentity])
@@ -103,6 +104,20 @@ def _team_for(player_id: str, players: Dict[str, Any]) -> str:
     """
 
     return _roster_team_index().get(player_id, "")
+
+
+def _age_of_player(player: Any) -> Optional[int]:
+    """Player age from birthdate, or None when it can't be determined."""
+
+    birthdate = str(getattr(player, "birthdate", "") or "").strip()
+    if not birthdate:
+        return None
+    try:
+        from playbalance.aging import calculate_age
+
+        return calculate_age(birthdate)
+    except Exception:
+        return None
 
 
 def _resolve_player(player_id: str) -> Any:
@@ -583,6 +598,20 @@ def list_contracts(
         last = getattr(player, "last_name", "") if player else ""
         position = getattr(player, "primary_position", "") if player else ""
         is_pitcher = bool(getattr(player, "is_pitcher", False)) if player else False
+        # Age and overall so a salary can be read against the player it's
+        # paying — sorting by either against salary is how you spot a deal
+        # that's out of line. Same overall the roster/list views show.
+        age = _age_of_player(player)
+        overall = None
+        if player is not None:
+            try:
+                overall = compute_overall(
+                    lambda key: getattr(player, key, None),
+                    is_pitcher=is_pitcher,
+                    position=position or None,
+                ).get("overall_display")
+            except Exception:  # pragma: no cover - defensive
+                overall = None
         annual_salary = int(raw.get("annual_salary", 0) or 0)
         fa_year = int(raw.get("fa_year", current_year + years_left) or 0)
         options = raw.get("options") or []
@@ -599,6 +628,8 @@ def list_contracts(
                 "last_name": last,
                 "primary_position": position,
                 "is_pitcher": is_pitcher,
+                "age": age,
+                "overall": overall,
                 "team_id": team,
                 "annual_salary": annual_salary,
                 "years_left": years_left,
