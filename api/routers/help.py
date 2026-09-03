@@ -21,10 +21,13 @@ from ..security import CurrentIdentity
 router = APIRouter(prefix="/help", tags=["help"], dependencies=[CurrentIdentity])
 
 
+# The installer manual is deliberately not served: it documents the retired
+# desktop build's setup flow, and the app has been cloud-only for some time.
+# The file stays on disk for reference. The two below describe the old desktop
+# UI and are kept as historical reference, which the Help page says on the tab.
 _LEGACY_MANUALS: Dict[str, str] = {
     "game": "game_manual.html",
     "finance": "finance_system_manual.html",
-    "installer": "game_manual_installer.html",
 }
 
 

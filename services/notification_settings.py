@@ -50,19 +50,19 @@ RULE_CATEGORIES: List[Dict[str, Any]] = [
             },
             {
                 "id": "injury_dl15",
-                "label": "Player placed on 15-day DL",
+                "label": "Player placed on the injured list",
                 "default_notify": True,
                 "default_stop": True,
             },
             {
                 "id": "injury_dl45",
-                "label": "Player placed on 45-day DL",
+                "label": "Player placed on a long-term injured list",
                 "default_notify": True,
                 "default_stop": True,
             },
             {
                 "id": "injury_ir60",
-                "label": "Player placed on 60-day IR",
+                "label": "Player placed on the 60-day IL",
                 "default_notify": True,
                 "default_stop": True,
             },

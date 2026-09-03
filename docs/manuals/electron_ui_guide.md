@@ -190,8 +190,9 @@ Tabular view of your roster, grouped by level (Active / AAA / Low / DL / IR).
 
 - Columns: position, role, bats/throws, ratings (overall stars + role-specific).
 - **Right-click any row** (or the three-dot button) for: Open profile, Training
-  focus…, Move to Active, Send to AAA / Low-A, Place on DL (15), 60-day IR,
-  Shift to 45-day DL, Release / Cut.
+  focus…, Move to Active, Send to AAA / Low-A, Release / Cut. Injured-list moves
+  live on the Injury Center page (see below), which starts the stint properly
+  and promotes a replacement.
 - **Cut** confirms, then writes a release transaction.
 - Click a player's name to open their profile (which includes a large avatar).
 
@@ -231,9 +232,28 @@ mix. Ctrl+S.
 
 ### Injuries
 
-Three sections — DL (15- and 45-day), IR (open-ended), day-to-day. Each DL row
-shows the eligible-to-activate date and minimum required. **Activate** returns a
-player to ACT once eligible. Every event writes to news + transactions.
+Three sections — the injured list, the 60-day injured list, and day-to-day
+players who are still on the active roster.
+
+The lists follow MLB: **10 days** for position players, **15 days** for pitchers,
+and a **60-day** list for long-term injuries. A minimum is a floor, not a
+recovery time — a six-week hamstring keeps a player out six weeks even on the
+10-day list.
+
+Stints are counted in **league days, not real-world days**: the clock advances as
+you play games, so simulating a month moves an injured player a month closer to
+returning, and leaving the league idle for a week moves nobody.
+
+Each row shows the eligible-to-activate date and days remaining. **Place on IL**
+moves an injured active-roster player onto a list and opens a roster spot;
+**Activate** brings him back once his stint is up, and if your depth chart lists
+him first at his position he goes straight back into the lineup there. If the
+active roster is full, option someone down on the Roster page first.
+
+By default the sim activates players automatically the moment they are eligible.
+A commissioner can hand that decision to the owners from the Season page; the
+CPU still runs its own clubs either way, and anyone left waiting is activated
+when the owner deadline passes. Every event writes to news + transactions.
 
 ### Notifications
 
@@ -244,8 +264,8 @@ the sim** when a flagged event occurs.
   the batch), *Stop sim* (break the loop immediately), and an optional
   *threshold*. Rules are grouped into Health & roster, Performance & milestones,
   Transactions, Calendar & deadlines, Finance, League & admin, and Draft.
-- **Defaults** — the serious injury tiers (15-day, 45-day, 60-day IR,
-  season-ending) stop the sim; day-to-day is notify-only.
+- **Defaults** — injured-list placements and season-ending injuries stop the
+  sim; day-to-day knocks are notify-only.
 - **Recent events tab** — the last ~100 notifications for your team.
 
 During a sim each day is run, then the engine checks news-based detectors
@@ -345,9 +365,13 @@ All owner finance actions are **owner-or-commissioner only** (enforced server-si
   books"** panel: payroll before → after vs the luxury threshold, estimated
   tax, cash remaining after the signing bonus, and an Opening Day solvency
   flag.
-- **Trades** — pending offers, history, and the composer (move players + picks
-  between give/receive). Owners accept/reject/withdraw; commissioners can
-  **Veto**, **Force approve**, or **Approve**.
+- **Trades** — pending offers, history, and the composer. Both sides are
+  searchable lists of the real rosters (position, name, overall stars, age,
+  injury flag), with draft picks in a multi-select below — no player ids to look
+  up. Against a CPU team a red→orange→yellow→green bar shows how likely they are
+  to accept, with the reasons, and updates live as you change the offer;
+  **Compare** puts the two sides side by side. Owners accept/reject/withdraw;
+  commissioners can **Veto**, **Force approve**, or **Approve**.
 - **Draft** — **Now** (live state/order), **History** (completed picks), and an
   **Admin** tab (Initialize, Generate pool, Manual pick, Reset).
 - **Activity** — the full transactions ledger, filterable by team and type.
@@ -466,7 +490,8 @@ a "Restore unsaved changes" banner offers to reinstate them.
 - **Manual tab** — this guide, with a sticky table of contents and live keyword
   search.
 - **Tutorials tab** — step-through walkthroughs for the major flows.
-- **Legacy manuals tab** — the older HTML game / finance / installer manuals.
+- **Legacy manuals tab** — the older HTML game and finance manuals. These
+  describe the retired desktop build and are kept for reference only.
 
 ---
 

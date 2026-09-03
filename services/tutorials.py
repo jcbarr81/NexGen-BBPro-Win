@@ -80,6 +80,14 @@ TUTORIALS: List[Tutorial] = [
                 "<p>Buttons cover <b>Sim Day</b>, <b>Sim Week</b>, <b>Sim Month</b>, a custom <b>N Days</b> field, <b>Sim to Draft</b>, and <b>Sim to Playoffs</b>. Each advances the shared season state.</p>",
             ),
             TutorialStep(
+                "Deadlines and running on a clock",
+                "<p>In a league with several owners the commissioner sets an <b>owner deadline</b> on this page — a real date and time, plus what should happen when it passes: get every team ready, or sim a set stretch. Owners see the countdown. Ticking <b>Run automatically</b> means the league advances on its own within a few minutes of the deadline, so nobody has to be at a keyboard; leave it off to review and run each one by hand. A recurring deadline rolls forward on its own schedule.</p>",
+            ),
+            TutorialStep(
+                "Nobody gets stalled",
+                "<p>When the deadline passes, teams that aren't ready are filled in by the CPU — legal rosters, lineups set — so one inactive owner can't hold up everybody else. The readiness board above shows who's holding things up before you advance, with a per-team <b>CPU handle it</b> button if you'd rather not wait.</p>",
+            ),
+            TutorialStep(
                 "Phase transitions",
                 "<p>Click <b>Advance Phase</b> to move on (Preseason → Regular Season → Amateur Draft mid-season → finish the schedule → Playoffs → Offseason). The button is only enabled when the phase is actually ready — the schedule is fully played, the draft is committed, or a champion has been crowned — so it never skips a stage. After the amateur draft commits, the regular season resumes automatically; you don't have to advance out of it.</p>",
             ),
@@ -117,7 +125,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Right-click context menu",
-                "<p><b>Right-click any player row</b> for a quick menu with Open profile, <b>Training focus…</b> (opens the per-player override dialog), Move to Active, Send to AAA, Send to Low-A, Place on DL (15), Place on 60-day IR, Shift to 45-day DL, and Release / Cut. The three-dot button at the end of the row opens the same menu.</p>",
+                "<p><b>Right-click any player row</b> for a quick menu with Open profile, <b>Training focus…</b> (opens the per-player override dialog), Move to Active, Send to AAA, Send to Low-A, and Release / Cut. The three-dot button at the end of the row opens the same menu. To put someone on the injured list, use <b>Place on IL</b> on the Injury Center page — that starts the stint properly and promotes a replacement.</p>",
             ),
             TutorialStep(
                 "Move validation",
@@ -245,6 +253,14 @@ TUTORIALS: List[Tutorial] = [
                 "<p>Click <b>Sign</b> on a row, pick the destination level (ACT/AAA/LOW), set the salary/years, and optionally a <b>signing bonus</b> (which debits your cash now). The dialog previews the player's <b>fair-market value</b>, likely response, and the top <b>competing CPU bids</b> so you know who you're up against. Confirm — the server enforces roster caps and writes a sign transaction.</p>",
             ),
             TutorialStep(
+                "The offseason bidding window",
+                "<p>With the finance model on, offseason free agency runs as a <b>multi-day auction</b> rather than first-come-first-served. Every free agent stays biddable for the whole window, CPU teams post and raise offers each day, and nobody signs until a bid has had a day of exposure — so you can always counter or pivot to someone else. The Season page shows which day you're on and who's still unsigned.</p>",
+            ),
+            TutorialStep(
+                "Bids are due by the deadline",
+                "<p>Your commissioner can put a clock on each day of the window — you'll see <b>Bids due</b> with a countdown, and the day can roll over on its own once it passes. Not bidding is a legitimate choice: the day simply advances, and nothing is bid on your behalf.</p>",
+            ),
+            TutorialStep(
                 "Qualifying offers",
                 "<p>In the offseason, a <b>Qualifying offers</b> card appears for your team's eligible departing free agents. Choose <b>Tender QO</b> (a one-year offer the player may accept or decline) or <b>Let walk</b>. A declined QO whose player signs elsewhere earns you a compensation draft pick.</p>",
             ),
@@ -270,7 +286,15 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Propose a trade",
-                "<p>Click <b>Propose Trade</b>, pick the partner team, and move players + draft picks between give/receive lists. Commissioner-approval and pick-year caps are set in <b>Admin → Commissioner</b>.</p>",
+                "<p>Click <b>Propose Trade</b> and pick the partner team. Both sides are searchable lists of that team's actual roster — each row shows position, name, overall stars, age, and an injury flag — so you never need a player id. Draft picks are a multi-select dropdown below. Commissioner-approval and pick-year caps are set in <b>Admin → Commissioner</b>.</p>",
+            ),
+            TutorialStep(
+                "Will a CPU team accept?",
+                "<p>When the other side is CPU-run, a bar under the offer shows how likely they are to say yes, from red through orange and yellow to green, with the reasons underneath (what they think of the value, whether it fits their roster, and whether they're contending or rebuilding). It updates as you add and remove pieces, so you can tune an offer before you send it. Trading with another human shows a note instead — only they can decide.</p>",
+            ),
+            TutorialStep(
+                "Compare the two sides",
+                "<p><b>Compare</b> opens the players on both sides side by side, so you can size up an offer without leaving the dialog.</p>",
             ),
             TutorialStep(
                 "Respond to offers",
@@ -648,7 +672,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Default safety net",
-                "<p>Out of the box, <b>15-day DL / 45-day DL / 60-day IR / season-ending injuries</b> all stop the sim — that's the most common reason owners want to be interrupted. Day-to-day injuries notify-only by default so the AI can keep going and you only see them in the banner. Edit any of these on this page if you'd rather have the AI auto-handle a tier or be paused for a different one.</p>",
+                "<p>Out of the box, <b>injured-list and season-ending injuries</b> stop the sim — that's the most common reason owners want to be interrupted. Day-to-day knocks are notify-only by default so the AI can keep going and you only see them in the banner. Edit any of these on this page if you'd rather have the AI auto-handle a tier or be paused for a different one.</p>",
             ),
             TutorialStep(
                 "Categories at a glance",
@@ -660,7 +684,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Resuming after a stop",
-                "<p>When a sim stops early, a warning banner above the Season page tells you which rule fired (e.g. <i>Sim paused: Player on 15-day DL</i>). Fix what needs fixing — adjust the lineup, claim a free agent, place the player on the DL — then re-click your sim button to keep going. Existing DL automation already moved the player, so the AI has done its part.</p>",
+                "<p>When a sim stops early, a warning banner above the Season page tells you which rule fired (e.g. <i>Sim paused: Player injured</i>). Fix what needs fixing — adjust the lineup, claim a free agent, call someone up — then re-click your sim button to keep going. The sim has already moved the injured player to the injured list and promoted a replacement, so the AI has done its part.</p>",
             ),
         ],
     ),
