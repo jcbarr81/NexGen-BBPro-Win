@@ -1120,8 +1120,6 @@ const ROSTER_DESTINATIONS: Array<{ target: RosterLevel; label: string }> = [
   { target: "ACT", label: "Move to Active" },
   { target: "AAA", label: "Send to AAA" },
   { target: "LOW", label: "Send to Low-A" },
-  { target: "DL", label: "Place on DL (15)" },
-  { target: "IR", label: "Place on 60-day IR" },
 ];
 
 function RowActionsMenu({

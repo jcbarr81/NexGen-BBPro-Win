@@ -61,8 +61,13 @@ def _player_block(player: Any, level: str, dl_tier: str | None) -> Dict[str, Any
         "primary_position": getattr(player, "primary_position", ""),
         "is_pitcher": bool(getattr(player, "is_pitcher", False)),
         "level": level,
-        "dl_tier": dl_tier,
-        "list_label": disabled_list_label(dl_tier or ""),
+        # The player record is the source of truth for WHICH list he is on; the
+        # roster file only records the level (short list vs 60-day), so a tier
+        # read from there can't tell a 10-day stint from a 15-day one.
+        "dl_tier": getattr(player, "injury_list", None) or dl_tier,
+        "list_label": disabled_list_label(
+            getattr(player, "injury_list", "") or dl_tier or ""
+        ),
         "injury_description": getattr(player, "injury_description", "") or "",
         "return_date": getattr(player, "return_date", "") or "",
         "injury_eligible_date": getattr(player, "injury_eligible_date", "") or "",

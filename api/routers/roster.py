@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from services.roster_moves import cut_player
 from services.transaction_log import record_transaction
@@ -22,7 +22,7 @@ from utils.pitcher_role import get_display_role, get_role
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster, save_roster
 
-from ..security import CurrentIdentity
+from ..security import CurrentIdentity, require_bearer, require_team_owner
 from ._rating_presentation import compute_overall, rating_context, scale_rating
 
 router = APIRouter(prefix="/teams/{team_id}", tags=["roster"], dependencies=[CurrentIdentity])
@@ -224,7 +224,13 @@ def _find_level(roster, player_id: str) -> Optional[str]:
 def move_roster(
     team_id: str,
     payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
+    # Roster writes were gated by authentication only, so any signed-in user
+    # could option, swap or release ANOTHER team's players. Ownership is now
+    # enforced server-side, matching the finance and injured-list actions.
+    require_team_owner(identity, team_id)
+
     player_id = str(payload.get("player_id", "")).strip()
     to_level = str(payload.get("to", "")).strip().upper()
     dl_tier = str(payload.get("dl_tier", "")).strip().lower() or None
@@ -233,6 +239,24 @@ def move_roster(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="player_id and a valid 'to' level are required.",
+        )
+
+    # The injured list is not a roster level you can slide someone into. This
+    # path only moved the player between lists: it never started a stint (no
+    # list, no dates, no minimum, no replacement promoted), and going the other
+    # way never cleared the injury, leaving a player active but still flagged
+    # injured and still counted as serving time. The Injury Center endpoints do
+    # all of that correctly, so they own both directions.
+    if to_level in {"DL", "IR"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "use_injury_center",
+                "message": (
+                    "Injured-list moves happen on the Injury Center page, which "
+                    "starts the stint and promotes a replacement."
+                ),
+            },
         )
 
     try:
@@ -251,6 +275,21 @@ def move_roster(
         )
     if from_level == to_level:
         return team_roster(team_id)
+
+    # And the same in reverse: sliding a player OFF the list here skipped the
+    # eligibility check entirely and left `injured`, `injury_list` and the dates
+    # set, so he was active and still serving a stint at the same time.
+    if from_level in {"DL", "IR"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "use_injury_center",
+                "message": (
+                    "Activate this player from the Injury Center page — it "
+                    "checks his stint is up and clears the injury properly."
+                ),
+            },
+        )
 
     # Run the shared roster-move validator before mutating state.
     from services.roster_validation import DEFAULT_LEVEL_CAPS, validate_roster_move
@@ -314,6 +353,7 @@ def move_roster(
 def swap_roster(
     team_id: str,
     payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
     """Swap two players' roster levels in one atomic operation.
 
@@ -323,6 +363,8 @@ def swap_roster(
     applied to the in-memory roster and saved ONCE — a rejected or failed swap
     never leaves the roster half-changed.
     """
+    require_team_owner(identity, team_id)
+
     a = str(payload.get("player_a_id", "")).strip()
     b = str(payload.get("player_b_id", "")).strip()
     if not a or not b:
@@ -414,7 +456,10 @@ def swap_roster(
 def cut_roster(
     team_id: str,
     payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
+    require_team_owner(identity, team_id)
+
     player_id = str(payload.get("player_id", "")).strip()
     if not player_id:
         raise HTTPException(

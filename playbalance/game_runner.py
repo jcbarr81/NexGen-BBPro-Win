@@ -1671,8 +1671,22 @@ def _apply_injury_events(
             # wall clock: a stint expired 15 days after you happened to press
             # the button, however much baseball had been played in between.
             place_on_injury_list(player, roster, list_name=dl_tier, today=injury_date)
+        # Name the list in the news line. The notification engine classifies
+        # injuries by matching this text, and "Wrist strain" carries no tier —
+        # so every injured-list placement was landing in the day-to-day bucket
+        # and the "stop the sim" rules for real injuries never fired. It also
+        # reads better: you could not tell a stint from a bruise in the feed.
+        _list_label = ""
+        if dl_tier and dl_tier != "none":
+            try:
+                from services.injury_manager import disabled_list_label, injury_list_for
+
+                _list_label = disabled_list_label(injury_list_for(player, dl_tier))
+            except Exception:  # pragma: no cover - defensive
+                _list_label = ""
         log_news_event(
-            f"{getattr(player, 'first_name', '')} {getattr(player, 'last_name', '')} injured ({description})",
+            f"{getattr(player, 'first_name', '')} {getattr(player, 'last_name', '')} "
+            f"injured ({description})" + (f" — {_list_label}" if _list_label else ""),
             category="injury",
             team_id=team_id_str,
         )

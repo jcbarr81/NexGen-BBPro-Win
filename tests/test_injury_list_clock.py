@@ -235,3 +235,45 @@ def test_short_lists_use_the_dl_roster_level(sim_clock):
     assert "p1" in roster.dl
     assert roster.dl_tiers["p1"] == "il10"
     assert "p1" not in roster.ir
+
+
+# --- roster persistence -----------------------------------------------------
+
+
+def _roundtrip(tmp_path, tier):
+    """Save a roster holding one player on `tier`, reload it, report the level."""
+    from utils.roster_io import read_roster_csv, write_roster_csv
+
+    path = tmp_path / "T.csv"
+    sixty = tier in {"il60", "ir", "dl45"}
+    roster = Roster(
+        team_id="T", act=[], aaa=[], low=[],
+        dl=[] if sixty else ["p1"], ir=["p1"] if sixty else [],
+    )
+    roster.dl_tiers = {} if sixty else {"p1": tier}
+    write_roster_csv(roster, path)
+    back = read_roster_csv(path, "T")
+    return "dl" if "p1" in back.dl else ("ir" if "p1" in back.ir else "lost")
+
+
+@pytest.mark.parametrize("tier", ["il7", "il10", "il15", "dl15"])
+def test_short_lists_survive_a_roster_roundtrip(tmp_path, tier):
+    """Regression: the writer kept `DL15` for the legacy tier and wrote every
+    OTHER tier as IR. Renaming the tiers to MLB's therefore moved a 10-day
+    stint onto the 60-day list the first time the roster was saved."""
+    assert _roundtrip(tmp_path, tier) == "dl"
+
+
+def test_the_sixty_day_list_still_uses_the_ir_level(tmp_path):
+    assert _roundtrip(tmp_path, "il60") == "ir"
+
+
+def test_a_short_list_player_is_never_written_to_the_ir_level(tmp_path):
+    from utils.roster_io import write_roster_csv
+
+    path = tmp_path / "T.csv"
+    roster = Roster(team_id="T", act=[], aaa=[], low=[], dl=["p1"], ir=[])
+    roster.dl_tiers = {"p1": "il10"}
+    write_roster_csv(roster, path)
+    assert "IR" not in path.read_text()
+    assert "p1,DL15" in path.read_text()

@@ -5,6 +5,11 @@ from pathlib import Path
 
 from models.roster import Roster
 
+# Tier names that belong on the 60-day level. Every other injured-list tier
+# (MLB's 7/10/15-day lists, and the legacy "dl15") shares the short-list level,
+# whose on-disk token stays "DL15" so every existing reader keeps working.
+_SIXTY_DAY_TIERS = {"il60", "ir", "dl45"}
+
 
 def read_roster_csv(path: str | Path, team_id: str) -> Roster:
     """Load a roster CSV without applying placeholder or depth logic."""
@@ -69,12 +74,22 @@ def write_roster_csv(roster: Roster, path: str | Path) -> None:
 
         ir_ids = set(roster.ir)
         for player_id in roster.dl:
-            tier = (roster.dl_tiers or {}).get(player_id, "dl15")
-            if tier == "dl15":
-                writer.writerow([player_id, "DL15"])
-            else:
+            tier = str((roster.dl_tiers or {}).get(player_id, "dl15") or "").lower()
+            # The roster file records the LEVEL a player occupies, not which
+            # injured list he is on: that lives on the player record
+            # (``injury_list``), which is the single source of truth and is what
+            # the UI labels from. Everything short of the 60-day list is the
+            # same roster level.
+            #
+            # This used to be `if tier == "dl15" ... else IR`, which meant that
+            # once the tiers were renamed to MLB's (il10 / il15), the first save
+            # after an injury silently wrote those players to the 60-day level —
+            # a 10-day stint became a 60-day one on reload.
+            if tier in _SIXTY_DAY_TIERS:
                 if player_id not in ir_ids:
                     writer.writerow([player_id, "IR"])
+            else:
+                writer.writerow([player_id, "DL15"])
 
         for player_id in roster.ir:
             writer.writerow([player_id, "IR"])

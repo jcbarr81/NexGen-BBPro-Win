@@ -180,13 +180,26 @@ def capture_pre_state(team_id: str, *, phase: Optional[str] = None) -> DaySnapsh
 # Detectors
 
 
+# Rule ids are deliberately unchanged even though the lists were renamed:
+# per-team notification settings are stored against these keys, so renaming them
+# would silently reset everyone's preferences. MLB's 7/10/15-day lists all map
+# onto the short-list rule, and the 60-day list onto the long one.
 _INJURY_TIER_PATTERNS: List[Tuple[str, re.Pattern]] = [
-    # Order matters: more-specific tiers first.
+    # Order matters: more-specific tiers first. Day-to-day is now checked BEFORE
+    # the list patterns, so a "day-to-day" description can never be promoted
+    # into a stop-the-sim rule by the word "day".
     ("injury_season_ending", re.compile(r"\bseason[- ]ending\b", re.IGNORECASE)),
-    ("injury_ir60", re.compile(r"\b60[- ]day\b|\bir(?:60)?\b", re.IGNORECASE)),
-    ("injury_dl45", re.compile(r"\b45[- ]day\b", re.IGNORECASE)),
-    ("injury_dl15", re.compile(r"\b15[- ]day\b|\bdl(?:15)?\b|disabled list", re.IGNORECASE)),
     ("injury_day_to_day", re.compile(r"\bday[- ]to[- ]day\b", re.IGNORECASE)),
+    ("injury_ir60", re.compile(r"\b60[- ]day\b|\bil60\b|\bir(?:60)?\b", re.IGNORECASE)),
+    ("injury_dl45", re.compile(r"\b45[- ]day\b", re.IGNORECASE)),
+    (
+        "injury_dl15",
+        re.compile(
+            r"\b(?:7|10|15)[- ]day\b|\bil(?:7|10|15)\b|\bdl(?:15)?\b"
+            r"|injured list|disabled list",
+            re.IGNORECASE,
+        ),
+    ),
 ]
 
 _INJURY_RETURN_PATTERN = re.compile(
