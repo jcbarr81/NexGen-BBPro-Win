@@ -1024,13 +1024,34 @@ def simulate_series(matchup: Matchup, *, year: int, round_name: str, series_inde
                 low_wins += 1
         # Save boxscore html if provided
         box_path = None
+        game_id = f"{year}_{round_name}_S{series_index}_G{game_no}_{away}_at_{home}"
         if html:
             try:
                 from playbalance.simulation import save_boxscore_html as _save_html
-                game_id = f"{year}_{round_name}_S{series_index}_G{game_no}_{away}_at_{home}"
+
                 box_path = _save_html("playoffs", html, game_id)
-            except Exception:
+                from services import boxscore_diagnostics as _diag
+
+                _diag.record_success()
+            except Exception as exc:
                 box_path = None
+                try:
+                    from services import boxscore_diagnostics as _diag
+
+                    _diag.record_failure("playoffs:save", game_id, exc)
+                except Exception:
+                    pass
+        else:
+            try:
+                from services import boxscore_diagnostics as _diag
+
+                _diag.record_failure(
+                    "playoffs:no_html",
+                    game_id,
+                    ValueError("simulator returned no boxscore html"),
+                )
+            except Exception:
+                pass
 
         result_str = None
         if isinstance(home_runs, int) and isinstance(away_runs, int):

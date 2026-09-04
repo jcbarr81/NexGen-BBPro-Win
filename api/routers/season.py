@@ -914,6 +914,7 @@ def _persist_post_sim_state(
     try:
         from playbalance.schedule_generator import save_schedule
         from playbalance.simulation import save_boxscore_html
+        from services import boxscore_diagnostics
 
         played_set = {str(d) for d in played_dates}
         for game in simulator.schedule:
@@ -928,20 +929,41 @@ def _persist_post_sim_state(
                 # — the boxscore API serves by path, and embedding megabytes
                 # of HTML in schedule.csv made every save O(season).
                 html = game.pop("boxscore_html", None)
-                if html and not game.get("boxscore"):
+                game_id = (
+                    f"{game.get('date', '')}_{game.get('away', '')}"
+                    f"_at_{game.get('home', '')}"
+                )
+                if not html:
+                    # Distinct from a failed write: the simulator handed back no
+                    # HTML at all, which points upstream rather than at the disk.
+                    boxscore_diagnostics.record_failure(
+                        "season:no_html",
+                        game_id,
+                        ValueError("simulator returned no boxscore_html"),
+                    )
+                elif not game.get("boxscore"):
                     try:
-                        game_id = (
-                            f"{game.get('date', '')}_{game.get('away', '')}"
-                            f"_at_{game.get('home', '')}"
-                        )
                         game["boxscore"] = save_boxscore_html(
                             "season", str(html), game_id
                         )
-                    except Exception:
-                        pass
+                        boxscore_diagnostics.record_success()
+                    except Exception as exc:
+                        # This was `pass`. Not one box score has ever been written
+                        # in production and the reason died right here.
+                        boxscore_diagnostics.record_failure(
+                            "season:save",
+                            game_id,
+                            exc,
+                            extra={"data_dir": get_data_dir()},
+                        )
         save_schedule(simulator.schedule, _schedule_path())
-    except Exception:
-        pass
+    except Exception as exc:
+        try:
+            from services import boxscore_diagnostics as _diag
+
+            _diag.record_failure("season:persist_block", "-", exc)
+        except Exception:
+            pass
 
     # 2. Sync standings.json from the schedule (see _sync_standings_from_stats).
     _sync_standings_from_stats()
