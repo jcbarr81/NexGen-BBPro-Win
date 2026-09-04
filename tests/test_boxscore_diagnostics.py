@@ -118,3 +118,41 @@ def test_a_successful_save_still_records_the_path(tmp_path, monkeypatch):
     assert schedule[0]["boxscore"].endswith("2026-04-01_BBB_at_AAA.html")
     assert schedule[0]["played"] == "1"
     assert diag.read_failures() == []
+
+
+# --- every save site must be instrumented ----------------------------------
+
+
+def test_every_boxscore_save_site_is_instrumented():
+    """There are two save sites in playoffs.py and one in the season persist
+    path. Instrumenting only some of them wastes a whole diagnose-deploy-sim
+    round trip on the one that wasn't covered — which is exactly what happened.
+    """
+    import inspect
+
+    import api.routers.season as season_mod
+    import playbalance.playoffs as playoffs_mod
+
+    for module in (playoffs_mod, season_mod):
+        src = inspect.getsource(module)
+        saves = src.count("save_boxscore_html")
+        # Each site imports the saver once; every one needs a recorded outcome.
+        assert src.count("record_failure") >= 1, module.__name__
+        # playoffs has two independent save sites; both must report.
+        if module is playoffs_mod:
+            assert saves >= 2
+            assert src.count("playoffs:") >= 1
+            assert src.count("playoffs_single:") >= 1
+
+
+def test_no_bare_swallow_remains_around_a_boxscore_save():
+    """A bare `except Exception: pass` immediately after a save is what hid
+    this for months."""
+    import inspect
+
+    import playbalance.playoffs as playoffs_mod
+
+    src = inspect.getsource(playoffs_mod)
+    for chunk in src.split("save_boxscore_html")[1:]:
+        window = chunk[:400]
+        assert "record_failure" in window or "record_success" in window

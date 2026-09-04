@@ -1137,13 +1137,55 @@ def _simulate_next_series_game(
             low_wins += 1
 
     box_path = None
+    game_id = f"{year}_{round_name}_S{series_index}_G{played_games}_{away}_at_{home}"
     if html:
         try:
             from playbalance.simulation import save_boxscore_html as _save_html
-            game_id = f"{year}_{round_name}_S{series_index}_G{played_games}_{away}_at_{home}"
+
             box_path = _save_html("playoffs", html, game_id)
-        except Exception:
+            from services import boxscore_diagnostics as _diag
+
+            _diag.record_success()
+        except Exception as exc:
             box_path = None
+            try:
+                from services import boxscore_diagnostics as _diag
+
+                _diag.record_failure("playoffs_single:save", game_id, exc)
+            except Exception:
+                pass
+    else:
+        # `if html:` had no else, so a missing box score vanished without trace.
+        # Describe what the simulator actually handed back, so one sim settles
+        # whether the HTML is missing or the write is failing.
+        try:
+            from services import boxscore_diagnostics as _diag
+
+            shape = {
+                "result_type": type(result).__name__,
+                "result_len": len(result) if isinstance(result, tuple) else "n/a",
+                "elem2_type": (
+                    type(result[2]).__name__
+                    if isinstance(result, tuple) and len(result) >= 3
+                    else "absent"
+                ),
+                "elem2_len": (
+                    len(result[2])
+                    if isinstance(result, tuple)
+                    and len(result) >= 3
+                    and isinstance(result[2], str)
+                    else "n/a"
+                ),
+                "simulate_game": getattr(simulate_game, "__name__", str(simulate_game)),
+            }
+            _diag.record_failure(
+                "playoffs_single:no_html",
+                game_id,
+                ValueError("simulator returned no boxscore html"),
+                extra=shape,
+            )
+        except Exception:
+            pass
 
     result_str = None
     if isinstance(home_runs, int) and isinstance(away_runs, int):
