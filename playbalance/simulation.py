@@ -4026,6 +4026,35 @@ def _boxscore_template(path_str: str) -> str | None:
         return None
 
 
+def _boxscore_template_paths() -> list[Path]:
+    """Where the box score template may live, best first.
+
+    It used to live ONLY in ``samples/``, which is excluded from the deployed
+    image by both .dockerignore and .gcloudignore. So in the cloud the template
+    was always missing, ``render_boxscore_html`` returned "" by design, and
+    every box score was silently dropped — a whole season of played games with
+    nothing to show. It now ships inside the ``playbalance`` package, which is
+    part of the application; ``samples/`` is kept as a fallback so an existing
+    checkout still works. A negation re-include in .dockerignore is NOT an
+    option: Cloud Build's builder does not honour re-including under an
+    excluded directory (see the note in .dockerignore).
+    """
+
+    return [
+        Path(__file__).resolve().parent / "templates" / "espn_boxscore_template.html",
+        get_base_dir() / "playbalance" / "templates" / "espn_boxscore_template.html",
+        get_base_dir() / "samples" / "espn_boxscore_template.html",
+    ]
+
+
+def _load_boxscore_template() -> str | None:
+    for candidate in _boxscore_template_paths():
+        template = _boxscore_template(str(candidate))
+        if template is not None:
+            return template
+    return None
+
+
 def render_boxscore_html(
     box: Dict[str, Dict[str, object]],
     home_name: str = "Home",
@@ -4034,7 +4063,7 @@ def render_boxscore_html(
     home_abbr: str | None = None,
     away_abbr: str | None = None,
 ) -> str:
-    """Render ``box`` using the ``espn_boxscore_template.html`` sample."""
+    """Render ``box`` using ``espn_boxscore_template.html``."""
 
     if str(os.getenv("PB_SKIP_BOXSCORE_HTML", "")).lower() in {"1", "true", "yes", "on"}:
         return ""
@@ -4042,13 +4071,25 @@ def render_boxscore_html(
     home_abbr = home_abbr or home_name
     away_abbr = away_abbr or away_name
 
-    template_path = get_base_dir() / "samples" / "espn_boxscore_template.html"
-    template = _boxscore_template(str(template_path))
+    template = _load_boxscore_template()
     if template is None:
-        # Template missing from a packaged build — degrade gracefully so
-        # the season sim doesn't bubble [Errno 2] up into the UI. The
-        # box dict still drives the in-app boxscore card; only the
-        # exported HTML view is unavailable.
+        # No template anywhere: degrade gracefully rather than bubbling
+        # [Errno 2] out of the season sim. Record it, though — a silent "" here
+        # is what stopped every box score in production from being written
+        # while looking, from the outside, like nothing was wrong at all.
+        try:
+            from services import boxscore_diagnostics as _diag
+
+            _diag.record_failure(
+                "render:template_missing",
+                "-",
+                FileNotFoundError(
+                    "espn_boxscore_template.html not found in "
+                    + ", ".join(str(p) for p in _boxscore_template_paths())
+                ),
+            )
+        except Exception:
+            pass
         return ""
 
     repl: Dict[str, object] = {
