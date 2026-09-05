@@ -172,11 +172,40 @@ def _find_player(player_id: str):
 
 
 def _persist(team_id: str, roster, save_roster, player) -> None:
+    """Save the roster and the modified player.
+
+    ``save_players`` REPLACES players.csv with exactly the list it is handed —
+    it is not an upsert. This passed ``[player]``, so a single Place-on-IL or
+    Activate rewrote the league's entire player file down to that one player and
+    destroyed everyone else. Read the full set, swap in the changed player, and
+    write them all back.
+    """
+
     from services.players_repository import save_players
+    from utils.player_loader import load_players_from_csv
 
     save_roster(team_id, roster)
+
+    pid = str(getattr(player, "player_id", "") or "")
     try:
-        save_players([player])
+        everyone = list(load_players_from_csv("data/players.csv"))
+    except Exception:  # pragma: no cover - defensive
+        everyone = []
+
+    # Refuse to write a file that would lose players. A truncating write is far
+    # worse than a lost injury flag: the flag is one field, the file is the
+    # league. If the read looks wrong, leave the file alone.
+    if len(everyone) < 2 or not any(
+        str(getattr(p, "player_id", "") or "") == pid for p in everyone
+    ):
+        return
+
+    merged = [
+        player if str(getattr(p, "player_id", "") or "") == pid else p
+        for p in everyone
+    ]
+    try:
+        save_players(merged)
     except Exception:  # pragma: no cover - defensive
         pass
 
