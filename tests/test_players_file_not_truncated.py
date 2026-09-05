@@ -2,15 +2,20 @@
 
 ``services.players_repository.save_players`` REPLACES players.csv with exactly
 the list it is handed — it is not an upsert. The injured-list endpoints called
-it as ``save_players([player])``, so a single Place-on-IL or Activate rewrote a
+it as a single-element list, so one Place-on-IL or Activate rewrote a
 1,000-player league file down to one row. Every other player was destroyed, and
-the roster page filled with ids that no longer resolved to anybody.
+the roster page filled with ids that no longer resolved to anybody. It was only
+recoverable because the bucket had object versioning.
 
-Recovered from GCS object versioning. These stop it recurring.
+The specific call is fixed, but the trap was in the API: a function named
+"save players" that quietly means "these are now ALL the players". So the guard
+lives in the repository, where it protects every caller — including ones not
+written yet — and ``update_players`` gives future code the right tool.
 """
 
 import csv
 import inspect
+import re
 from pathlib import Path
 
 import pytest
@@ -18,83 +23,129 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 
 
-class _P:
-    def __init__(self, pid, first="A", last="B"):
-        self.player_id = pid
-        self.first_name = first
-        self.last_name = last
-        self.injured = False
-        self.injury_list = None
-        self.primary_position = "CF"
-        self.is_pitcher = False
+def _real(pid):
+    from models.player import Player
+
+    return Player(
+        player_id=pid,
+        first_name="A",
+        last_name="B",
+        birthdate="2000-01-01",
+        height=72,
+        weight=180,
+        bats="R",
+        primary_position="CF",
+        other_positions=[],
+        gf=0,
+    )
 
 
-# --- the specific regression ------------------------------------------------
+def _rows(path):
+    with path.open(newline="", encoding="utf-8") as fh:
+        return list(csv.DictReader(fh))
 
 
-def test_persist_writes_every_player_not_just_the_changed_one(monkeypatch, tmp_path):
-    import api.routers.injuries as inj
+# --- the guard, at the source ----------------------------------------------
 
-    everyone = [_P(f"P{i}") for i in range(50)]
-    changed = everyone[7]
+
+def test_save_players_refuses_to_wipe_the_league(tmp_path):
+    """The incident, in miniature: most of the file replaced by a single row."""
+    from services.players_repository import PlayersFileShrinkError, save_players
+
+    target = tmp_path / "players.csv"
+    save_players([_real(f"P{i}") for i in range(100)], target)
+
+    with pytest.raises(PlayersFileShrinkError) as exc:
+        save_players([_real("P1")], target)
+    assert "REPLACES" in str(exc.value)
+
+    # And crucially the file is untouched — it refuses BEFORE writing.
+    assert len(_rows(target)) == 100
+
+
+def test_a_deliberate_cull_is_still_possible(tmp_path):
+    from services.players_repository import save_players
+
+    target = tmp_path / "players.csv"
+    save_players([_real(f"P{i}") for i in range(100)], target)
+    save_players([_real("P1")], target, allow_shrink=True)
+    assert len(_rows(target)) == 1
+
+
+def test_ordinary_shrinkage_is_not_blocked(tmp_path):
+    """Retirements and releases move a few percent, not most of the file."""
+    from services.players_repository import save_players
+
+    target = tmp_path / "players.csv"
+    save_players([_real(f"P{i}") for i in range(100)], target)
+    save_players([_real(f"P{i}") for i in range(95)], target)
+    assert len(_rows(target)) == 95
+
+
+def test_a_new_or_tiny_file_is_not_guarded(tmp_path):
+    """A fresh league writing its first players must not trip the guard."""
+    from services.players_repository import save_players
+
+    target = tmp_path / "players.csv"
+    save_players([_real("P1")], target)
+    save_players([_real("P1"), _real("P2")], target)
+    assert len(_rows(target)) == 2
+
+
+# --- the tool callers should reach for -------------------------------------
+
+
+def test_update_players_changes_one_and_keeps_the_rest(tmp_path):
+    from services.players_repository import save_players, update_players
+    from utils.player_loader import load_players_from_csv
+
+    target = tmp_path / "players.csv"
+    save_players([_real(f"P{i}") for i in range(50)], target)
+
+    changed = _real("P7")
     changed.injured = True
+    changed.injury_list = "il10"
+    update_players([changed], target)
 
-    monkeypatch.setattr(inj, "load_players_from_csv", lambda *a, **k: everyone, raising=False)
-
-    written = {}
-
-    def fake_save(players, path=None):
-        written["ids"] = [p.player_id for p in players]
-        return players
-
-    import services.players_repository as repo
-
-    monkeypatch.setattr(repo, "save_players", fake_save)
-    monkeypatch.setattr(
-        "utils.player_loader.load_players_from_csv", lambda *a, **k: everyone
-    )
-
-    inj._persist("T", object(), lambda *a: None, changed)
-
-    assert written.get("ids"), "nothing was written at all"
-    assert len(written["ids"]) == 50, (
-        f"wrote {len(written['ids'])} players instead of 50 — this is the wipe"
-    )
-    assert "P7" in written["ids"]
+    everyone = list(load_players_from_csv(target))
+    assert len(everyone) == 50
+    assert {p.player_id for p in everyone} == {f"P{i}" for i in range(50)}
+    assert str({p.player_id: p for p in everyone}["P7"].injury_list) == "il10"
 
 
-def test_persist_refuses_to_write_when_the_read_looks_wrong(monkeypatch):
-    """A truncating write is worse than a lost injury flag: the flag is one
-    field, the file is the league. If the read comes back empty or missing the
-    player, leave the file alone."""
+def test_update_players_refuses_when_the_read_is_empty(tmp_path):
+    """Otherwise the 'upsert' would create a file containing only the change."""
+    from services.players_repository import PlayersFileShrinkError, update_players
+
+    with pytest.raises(PlayersFileShrinkError):
+        update_players([_real("P1")], tmp_path / "does-not-exist.csv")
+
+
+# --- the endpoint that had the bug -----------------------------------------
+
+
+def test_persist_uses_the_upsert_helper():
     import api.routers.injuries as inj
-    import services.players_repository as repo
 
-    calls = []
-    monkeypatch.setattr(repo, "save_players", lambda *a, **k: calls.append(a))
-
-    monkeypatch.setattr("utils.player_loader.load_players_from_csv", lambda *a, **k: [])
-    inj._persist("T", object(), lambda *a: None, _P("P1"))
-    assert not calls, "wrote to players.csv from an empty read"
-
-    # Player absent from the loaded set — also refuse.
-    monkeypatch.setattr(
-        "utils.player_loader.load_players_from_csv",
-        lambda *a, **k: [_P("PX"), _P("PY")],
+    src = inspect.getsource(inj._persist)
+    assert "update_players" in src, "the injured-list persist must upsert"
+    assert not re.search(r"\bsave_players\(", src), (
+        "_persist reaching for save_players again is how the wipe happened"
     )
-    inj._persist("T", object(), lambda *a: None, _P("P1"))
-    assert not calls, "wrote when the changed player wasn't in the file"
 
 
 # --- the general rule -------------------------------------------------------
 
 
-def test_no_caller_passes_a_literal_single_player_list():
-    """save_players([x]) is the shape of the bug. Every legitimate caller hands
-    it the full set it just loaded."""
+def test_no_caller_replaces_the_file_with_a_literal_list():
+    """``save_players([...])`` as a STATEMENT is the shape of the bug.
+
+    Matches actual calls only, so the repository's own documentation of the
+    hazard doesn't flag itself.
+    """
+    call = re.compile(r"^(?:\w+\s*=\s*)?save_players\(\[")
     offenders = []
-    roots = ("api", "services", "playbalance", "utils", "scripts")
-    for root in roots:
+    for root in ("api", "services", "playbalance", "utils", "scripts"):
         for path in (REPO / root).rglob("*.py"):
             if "__pycache__" in path.parts:
                 continue
@@ -103,37 +154,23 @@ def test_no_caller_passes_a_literal_single_player_list():
             except Exception:
                 continue
             for line_no, line in enumerate(src.splitlines(), 1):
-                stripped = line.strip()
-                if stripped.startswith("#"):
-                    continue
-                if "save_players([" in stripped:
-                    offenders.append(f"{path.relative_to(REPO)}:{line_no}: {stripped}")
+                if call.match(line.strip()):
+                    offenders.append(f"{path.relative_to(REPO)}:{line_no}")
     assert not offenders, (
-        "save_players replaces the whole file; these pass a single-element "
-        "list and would wipe every other player:\n  " + "\n  ".join(offenders)
+        "save_players REPLACES the file; these hand it a literal list and would "
+        "delete every other player:\n  " + "\n  ".join(offenders)
     )
 
 
-def test_save_players_really_does_replace_the_whole_file(tmp_path):
-    """Documents the sharp edge, so the next reader doesn't assume upsert."""
+def test_save_players_really_does_replace(tmp_path):
+    """Documents the sharp edge, so nobody reads it as an upsert again."""
     from services.players_repository import save_players
-    from utils.player_writer import save_players_to_csv  # noqa: F401
-
-    def real(pid):
-        from models.player import Player
-
-        return Player(
-            player_id=pid, first_name="A", last_name="B", birthdate="2000-01-01",
-            height=72, weight=180, bats="R", primary_position="CF",
-            other_positions=[], gf=0,
-        )
 
     target = tmp_path / "players.csv"
-    save_players([real("P1"), real("P2"), real("P3")], target)
-    assert len(list(csv.DictReader(target.open(newline="", encoding="utf-8")))) == 3
+    save_players([_real("P1"), _real("P2"), _real("P3")], target)
+    assert len(_rows(target)) == 3
 
-    save_players([real("P1")], target)
-    rows = list(csv.DictReader(target.open(newline="", encoding="utf-8")))
-    assert len(rows) == 1, (
-        "if this ever becomes an upsert, the guards above can be relaxed"
+    save_players([_real("P1")], target, allow_shrink=True)
+    assert len(_rows(target)) == 1, (
+        "if this ever becomes a true upsert, the guards above can be relaxed"
     )
