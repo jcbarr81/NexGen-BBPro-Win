@@ -23,6 +23,8 @@ WEBHOOK_ENV = "NEXGEN_DISCORD_WEBHOOK_URL"
 # Discord rejects anything longer; we truncate rather than lose the post.
 MAX_CONTENT = 1900
 
+USER_AGENT = "NexGen-BBPro-Server/1.0"
+
 _TIMEOUT_SECONDS = 10
 
 
@@ -56,11 +58,18 @@ def post(content: str, *, username: str = "NexGen BBPro") -> bool:
     request = urllib.request.Request(
         url,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            # Discord sits behind Cloudflare, which rejects the default
+            # "Python-urllib/x" User-Agent with HTTP 403 / error 1010. Send a
+            # real one. scripts/announce_release.py hit this first.
+            "User-Agent": USER_AGENT,
+        },
         method="POST",
     )
     try:
         with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
+            # Discord returns 204 No Content on a successful webhook post.
             return 200 <= int(response.status) < 300
     except urllib.error.HTTPError as exc:  # pragma: no cover - network dependent
         _record(f"HTTP {exc.code} from Discord")

@@ -198,3 +198,27 @@ def test_the_hook_swallows_its_own_failures(monkeypatch):
     )
     # Must not raise: the sim is already done and persisted.
     S._announce_sim_to_discord("alpha-test", object(), object(), {"played_dates": ["x"]})
+
+
+def test_the_post_sends_a_real_user_agent(monkeypatch):
+    """Discord sits behind Cloudflare, which rejects the default
+    "Python-urllib/x" agent with HTTP 403 / error 1010 — a silent no-post."""
+    monkeypatch.setenv(discord_notify.WEBHOOK_ENV, "https://example.invalid/hook")
+    seen = {}
+
+    class _Resp:
+        status = 204
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(request, timeout=None):
+        seen["ua"] = request.get_header("User-agent")
+        return _Resp()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    assert discord_notify.post("hi") is True
+    assert seen["ua"] and "urllib" not in seen["ua"].lower()
