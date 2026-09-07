@@ -263,6 +263,56 @@ def _maybe_enter_playoffs(
         result["playoffs"] = bracket
 
 
+def _announce_sim_to_discord(
+    league: Optional[str],
+    simulator: SeasonSimulator,
+    manager: SeasonManager,
+    result: Dict[str, Any],
+) -> None:
+    """Post a "simulation finished" summary to Discord.
+
+    Best-effort and entirely self-contained: the sim has already run and been
+    persisted, so nothing here may raise. Silently does nothing when no webhook
+    is configured, which is every environment that has not opted in.
+    """
+
+    try:
+        from services import discord_notify
+        from services.sim_announcement import build_message, count_games
+
+        if not discord_notify.is_configured():
+            return
+
+        played_dates = list(result.get("played_dates") or [])
+        if not played_dates:
+            return
+
+        schedule = getattr(simulator, "schedule", []) or []
+        games = count_games(schedule, played_dates)
+
+        sched = _schedule_view()
+        try:
+            phase = manager.phase.value
+        except Exception:
+            phase = None
+
+        message = build_message(
+            league_id=str(league or ""),
+            played_dates=played_dates,
+            games=games,
+            current_sim_date=played_dates[-1] if played_dates else None,
+            next_deadline=sched.get("deadline_utc"),
+            next_run_label=sched.get("run_label"),
+            auto_run=bool(sched.get("auto_run")),
+            stopped_reason=result.get("sim_stopped_reason"),
+            phase=phase,
+        )
+        if message:
+            discord_notify.post(message)
+    except Exception:  # pragma: no cover - never break a completed sim
+        pass
+
+
 def _launch_sim_background(
     kind: str,
     *,
@@ -312,6 +362,9 @@ def _launch_sim_background(
                 logging.getLogger("nexgen.season").exception(
                     "sim working-copy push failed"
                 )
+            # Announce AFTER the push: the post says the work is done, so the
+            # work should be durable before anyone reads it.
+            _announce_sim_to_discord(league, simulator, manager, result)
             _finish_sim_job(result=payload)
         except Exception as exc:  # pragma: no cover - defensive
             import logging
