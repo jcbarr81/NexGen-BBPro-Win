@@ -785,10 +785,11 @@ function TradeCard({
               >
                 <XCircle className="h-3 w-3" /> Reject
               </Button>
-              {/* Counter only makes sense on CPU offers — owner-to-owner
-                  trades have a different back-and-forth (the recipient
-                  can withdraw and submit their own from scratch). */}
-              {trade.initiated_by === "cpu" && (
+              {/* Counter any offer you have received. This was CPU-only,
+                  which left an owner facing a human proposal with no way to
+                  negotiate short of rejecting it and rebuilding the whole
+                  trade from scratch. */}
+              {(
                 <Button
                   variant="outline"
                   size="sm"
@@ -1127,34 +1128,67 @@ function CounterTradeDialog({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
-  // Initialize from the original trade (if any) flipped to owner POV.
-  const [give, setGive] = useState("");
-  const [receive, setReceive] = useState("");
+  const [giveIds, setGiveIds] = useState<string[]>([]);
+  const [receiveIds, setReceiveIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Refresh the form when the target trade changes.
+  // The offer came TO you, so flip it: what you would give up is what they
+  // asked for, and what you receive is what they put on the table.
+  const myTeam = trade?.to_team ?? teamId ?? "";
+  const theirTeam = trade?.from_team ?? "";
+
   useEffect(() => {
     if (!trade) {
-      setGive("");
-      setReceive("");
+      setGiveIds([]);
+      setReceiveIds([]);
       setError(null);
       return;
     }
-    // Original trade is CPU → owner. From the owner's POV, what they
-    // would "give" up = the CPU's "receive_players"; what they get =
-    // CPU's "give_players". So just swap.
-    setGive(trade.receive_players.map((p) => p.player_id).join(", "));
-    setReceive(trade.give_players.map((p) => p.player_id).join(", "));
+    setGiveIds(trade.receive_players.map((p) => p.player_id));
+    setReceiveIds(trade.give_players.map((p) => p.player_id));
     setError(null);
   }, [trade]);
+
+  const myRosterQ = useQuery({
+    queryKey: ["team-roster", myTeam],
+    queryFn: () => api.teamRoster(myTeam),
+    enabled: !!trade && !!myTeam,
+  });
+  const theirRosterQ = useQuery({
+    queryKey: ["team-roster", theirTeam],
+    queryFn: () => api.teamRoster(theirTeam),
+    enabled: !!trade && !!theirTeam,
+  });
+
+  // Live read on how the other side is likely to take it — same preview the
+  // Propose dialog uses. Debounced so dragging through a roster doesn't
+  // hammer the endpoint.
+  const evalKey = JSON.stringify({ myTeam, theirTeam, giveIds, receiveIds });
+  const [debouncedKey, setDebouncedKey] = useState(evalKey);
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedKey(evalKey), 350);
+    return () => clearTimeout(id);
+  }, [evalKey]);
+
+  const evalQ = useQuery({
+    queryKey: ["trade-evaluate", debouncedKey],
+    queryFn: () =>
+      api.evaluateTrade({
+        from_team: myTeam,
+        to_team: theirTeam,
+        give_player_ids: giveIds,
+        receive_player_ids: receiveIds,
+      }),
+    enabled: !!trade && !!myTeam && !!theirTeam,
+  });
 
   const counter = useMutation({
     meta: { suppressToast: true },
     mutationFn: () => {
       if (!trade) return Promise.reject(new Error("No trade selected"));
       return api.counterTrade(trade.trade_id, {
-        give_player_ids: parseIds(give),
-        receive_player_ids: parseIds(receive),
+        give_player_ids: giveIds,
+        receive_player_ids: receiveIds,
       });
     },
     onSuccess: (data) => {
@@ -1162,15 +1196,15 @@ function CounterTradeDialog({
       queryClient.invalidateQueries({ queryKey: ["trades"] });
       const action = data.cpu_response?.action;
       if (action === "accept") {
-        toast.success("Counter accepted", {
-          description: "Trade committed.",
-        });
+        toast.success("Counter accepted", { description: "Trade committed." });
       } else if (action === "counter") {
-        toast.info("CPU re-countered your offer");
+        toast.info("They re-countered your offer");
       } else if (action === "reject") {
-        toast.info("CPU rejected your counter");
+        toast.info("Your counter was rejected");
       } else {
-        toast.info("Counter submitted");
+        toast.info("Counter sent", {
+          description: `${theirTeam} will see it in their offers.`,
+        });
       }
       onClose();
     },
@@ -1178,55 +1212,59 @@ function CounterTradeDialog({
       setError(err instanceof Error ? err.message : "Counter failed."),
   });
 
+  function toggle(side: "give" | "receive", id: string) {
+    const setter = side === "give" ? setGiveIds : setReceiveIds;
+    setter((cur) =>
+      cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
+    );
+  }
+
   function handleSubmit(ev: FormEvent<HTMLFormElement>) {
     ev.preventDefault();
+    if (giveIds.length === 0 && receiveIds.length === 0) {
+      setError("Put at least one player on the table.");
+      return;
+    }
     counter.mutate();
   }
 
   if (!trade) return null;
   return (
     <Dialog open={!!trade} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>
-            Counter {trade.from_team}'s offer
-          </DialogTitle>
+          <DialogTitle>Counter {theirTeam}'s offer</DialogTitle>
           <DialogDescription>
-            Edit the terms below. The CPU will re-evaluate and may
-            accept, reject, or counter again.
+            Pre-filled with their terms. Change either side and send it back —
+            the original offer is withdrawn when you do.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="counter-give">
-              You give ({teamId ?? "your team"} → {trade.from_team})
-            </Label>
-            <Input
-              id="counter-give"
-              value={give}
-              onChange={(e) => setGive(e.target.value)}
-              placeholder="player_id, player_id, …"
+          <div className="grid gap-4 sm:grid-cols-2">
+            <RosterMultiSelect
+              label={`You give — ${myTeam}`}
+              teamId={myTeam}
+              roster={myRosterQ.data}
+              loading={myRosterQ.isLoading}
+              selectedIds={giveIds}
+              onToggle={(id) => toggle("give", id)}
             />
-            <p className="text-[11px] text-muted">
-              Comma- or pipe-separated player IDs from {teamId ?? "your"}{" "}
-              roster.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="counter-receive">
-              You receive ({trade.from_team} → {teamId ?? "your team"})
-            </Label>
-            <Input
-              id="counter-receive"
-              value={receive}
-              onChange={(e) => setReceive(e.target.value)}
-              placeholder="player_id, player_id, …"
+            <RosterMultiSelect
+              label={`You receive — ${theirTeam}`}
+              teamId={theirTeam}
+              roster={theirRosterQ.data}
+              loading={theirRosterQ.isLoading}
+              selectedIds={receiveIds}
+              onToggle={(id) => toggle("receive", id)}
             />
-            <p className="text-[11px] text-muted">
-              Comma- or pipe-separated player IDs from {trade.from_team}'s
-              roster.
-            </p>
           </div>
+
+          <AcceptanceMeter
+            toTeam={theirTeam}
+            evaluation={evalQ.data}
+            loading={evalQ.isFetching}
+          />
+
           {error && (
             <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
               {error}
@@ -1238,7 +1276,7 @@ function CounterTradeDialog({
             </Button>
             <Button type="submit" disabled={counter.isPending}>
               {counter.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Submit counter
+              Send counter
             </Button>
           </div>
         </form>
@@ -1874,11 +1912,4 @@ function TeamPicker({
       </select>
     </label>
   );
-}
-
-function parseIds(raw: string): string[] {
-  return raw
-    .split(/[,\s]+/)
-    .map((x) => x.trim())
-    .filter(Boolean);
 }

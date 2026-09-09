@@ -810,13 +810,18 @@ def counter_trade(
     payload: Dict[str, Any] = Body(...),
     identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
-    """Owner counters a CPU offer.
+    """Owner counters an offer they have received.
 
-    Rejects the original CPU-initiated trade and files a new
-    owner-initiated trade in the opposite direction with the modified
-    terms. That counter then runs through the same CPU evaluation as
-    any direct propose, so the CPU may accept, reject, or counter
-    again — same logic as a fresh proposal.
+    Rejects the original trade and files a new owner-initiated trade in the
+    opposite direction with the modified terms. Where the counter is aimed at
+    a CPU club it runs through the same CPU evaluation as any direct propose,
+    so the CPU may accept, reject, or counter again. Aimed at another owner it
+    simply lands in their inbox as a normal pending proposal.
+
+    Countering used to be refused for anything but a CPU offer, which left an
+    owner facing a human proposal with no way to negotiate — the only route
+    was to reject it and build a fresh trade from scratch, re-picking every
+    player.
 
     Body:
       give_player_ids / receive_player_ids / give_pick_ids / receive_pick_ids
@@ -832,22 +837,20 @@ def counter_trade(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Trade {trade_id} is already {original.status}.",
         )
-    if (original.initiated_by or "human") != "cpu":
+    # You counter an offer someone sent YOU. Revising your own outstanding
+    # proposal is a withdraw-and-repropose, not a counter — otherwise the
+    # other side's inbox would churn under them.
+    if str(original.from_team) == str(original.to_team):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Only CPU-initiated offers can be countered. To revise "
-                "your own pending proposal, withdraw it and submit a "
-                "new one."
-            ),
+            detail="A trade cannot be countered against itself.",
         )
 
-    # Owner-perspective: give = what owner_team parts with → counter
-    # trade has from_team=owner_team, to_team=cpu_team (the original's
-    # from_team was the CPU). The owner's "give" players go from the
-    # owner's roster to the CPU's roster.
+    # Owner-perspective: give = what owner_team parts with → the counter has
+    # from_team=owner_team, to_team=the proposer. The counter-party may be a
+    # CPU club or another owner; the evaluation below branches on which.
     owner_team = original.to_team
-    cpu_team = original.from_team
+    counterparty_team = original.from_team
 
     def _ids(key: str) -> List[str]:
         raw = payload.get(key) or []
@@ -861,7 +864,7 @@ def counter_trade(
     counter = Trade(
         trade_id=uuid.uuid4().hex[:8],
         from_team=owner_team,
-        to_team=cpu_team,
+        to_team=counterparty_team,
         give_player_ids=_ids("give_player_ids"),
         receive_player_ids=_ids("receive_player_ids"),
         give_pick_ids=_ids("give_pick_ids"),
