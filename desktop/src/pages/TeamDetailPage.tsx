@@ -7,7 +7,7 @@
  * existing sidecar endpoint -- no new server code needed.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -32,6 +32,8 @@ import { usePersistedState } from "@/lib/use-persisted-state";
 import {
   api,
   type DivisionStanding,
+  type DivisionStandings,
+  type RosterLevel,
   type ScheduleGame,
   type Team,
   type TeamSnapshot,
@@ -222,6 +224,8 @@ function TeamDetailBody({
 
       <TeamStatsPanel teamId={teamId} />
 
+      <TeamRosterCard teamId={teamId} />
+
       <MyFaOffersCard teamId={teamId} />
 
       <TeamActivityCard teamId={teamId} />
@@ -256,6 +260,140 @@ function TeamDetailBody({
         </div>
       </div>
     </div>
+  );
+}
+
+
+// Read-only roster browser for ANY team.
+//
+// The data was always public — GET /teams/{id}/roster returns every level with
+// ratings — but nothing surfaced it: the Roster page is hard-scoped to your own
+// club, and this page previously used the roster only to count "N in minors".
+// So an owner sizing up a trade had no way to see who was in another team's
+// AAA or Low-A.
+const ROSTER_LEVEL_TABS: Array<{ key: RosterLevel; label: string }> = [
+  { key: "ACT", label: "Active" },
+  { key: "AAA", label: "AAA" },
+  { key: "LOW", label: "Low-A" },
+  { key: "DL", label: "Injured" },
+  { key: "IR", label: "60-Day" },
+];
+
+function TeamRosterCard({ teamId }: { teamId: string }) {
+  const [level, setLevel] = useState<RosterLevel>("ACT");
+  const roster = useQuery({
+    queryKey: ["team-roster", teamId],
+    queryFn: () => api.teamRoster(teamId),
+  });
+
+  const players = roster.data?.levels?.[level] ?? [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <UsersIcon className="h-4 w-4 text-amber" /> Roster
+          </CardTitle>
+          <CardDescription>
+            Every level, with ratings — useful when you are weighing a trade.
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="mb-3 flex flex-wrap gap-1 rounded-lg border border-border bg-surfaceAlt p-1">
+          {ROSTER_LEVEL_TABS.map((tab) => {
+            const count = roster.data?.levels?.[tab.key]?.length ?? 0;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setLevel(tab.key)}
+                aria-pressed={level === tab.key}
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider transition",
+                  level === tab.key
+                    ? "bg-amber/20 text-amber-text"
+                    : "text-muted hover:text-ink",
+                )}
+              >
+                {tab.label}
+                <span className="ml-1.5 text-[10px] opacity-70">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {roster.isLoading ? (
+          <div className="flex items-center gap-2 py-6 text-sm text-muted">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading roster…
+          </div>
+        ) : roster.isError ? (
+          <div className="py-6 text-sm text-danger">
+            {(roster.error as Error)?.message}
+          </div>
+        ) : players.length === 0 ? (
+          <div className="py-6 text-sm text-muted">Nobody at this level.</div>
+        ) : (
+          <div className="max-h-[420px] overflow-auto">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-surface">
+                  <tr className="border-b border-border text-muted">
+                    <th className="px-3 py-2 text-left font-semibold">Player</th>
+                    <th className="px-2 py-2 text-left font-semibold">Pos</th>
+                    <th className="px-2 py-2 text-right font-semibold">Age</th>
+                    <th className="px-2 py-2 text-center font-semibold">B/T</th>
+                    <th className="px-2 py-2 text-right font-semibold">Ovr</th>
+                    <th className="px-3 py-2 text-left font-semibold">Rating</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {players.map((p) => (
+                    <tr
+                      key={p.player_id}
+                      className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
+                    >
+                      <td className="px-3 py-1.5">
+                        <Link
+                          to={`/player/${encodeURIComponent(p.player_id)}`}
+                          className="font-semibold hover:text-amber"
+                        >
+                          {p.last_name}
+                          {p.first_name ? `, ${p.first_name}` : ""}
+                        </Link>
+                        {p.injured && (
+                          <Badge tone="warning" className="ml-2 text-[10px]">
+                            {p.injury_description || "Injured"}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 uppercase text-muted">
+                        {p.is_pitcher
+                          ? p.preferred_pitching_role || p.role || "P"
+                          : p.primary_position || "—"}
+                      </td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-muted">
+                        {p.age ?? "—"}
+                      </td>
+                      <td className="px-2 py-1.5 text-center text-muted">
+                        {p.bats || "—"}/{p.throws || "—"}
+                      </td>
+                      <td className="px-2 py-1.5 text-right tabular-nums font-medium">
+                        {p.overall_display ?? "—"}
+                      </td>
+                      <td className="px-3 py-1.5 text-amber-text">
+                        {p.overall_stars_text || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
