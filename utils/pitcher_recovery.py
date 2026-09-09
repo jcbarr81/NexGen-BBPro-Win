@@ -22,6 +22,21 @@ def _resolve_path(path: str | Path) -> Path:
     return resolve_app_path(path)
 
 
+def _record_rotation_decision(**fields: object) -> None:
+    """Hand a starter decision to the rotation diagnostics, if they are on.
+
+    Imported lazily and wrapped: the tracker is in the path of every simulated
+    game and must not gain a hard dependency on a diagnostic.
+    """
+
+    try:
+        from services.rotation_diagnostics import record_decision
+
+        record_decision(**fields)  # type: ignore[arg-type]
+    except Exception:  # pragma: no cover - diagnostics must never break a sim
+        pass
+
+
 def _parse_date(value: str | None) -> date:
     if not value:
         return _EPOCH
@@ -475,9 +490,10 @@ class PitcherRecoveryTracker:
         pitcher_ids = [p.player_id for p in active_pitchers]
 
         saved_rotation = self._load_saved_rotation(team_id, roster_dir, pitcher_ids)
+        staff_roles = self._load_staff_roles(team_id, roster_dir)
 
         if entry is None:
-            entry = self._build_team_entry(active_pitchers, saved_rotation)
+            entry = self._build_team_entry(active_pitchers, saved_rotation, staff_roles)
             teams[team_id] = entry
             self._mark_dirty()
             if self._current_date is not None:
@@ -489,11 +505,17 @@ class PitcherRecoveryTracker:
         for pid in pitcher_ids:
             if pid not in entry_pitchers:
                 pitcher = next((p for p in active_pitchers if p.player_id == pid), None)
-                entry_pitchers[pid] = self._initial_status(pitcher).to_dict()
+                entry_pitchers[pid] = self._initial_status(
+                    pitcher, staff_roles.get(pid)
+                ).to_dict()
             else:
                 current = _PitcherStatus.from_dict(entry_pitchers[pid])
                 pitcher = next((p for p in active_pitchers if p.player_id == pid), None)
-                role = self._role_key(current.last_role or self._assigned_role_for(pitcher))
+                role = self._role_key(
+                    current.last_role
+                    or staff_roles.get(pid)
+                    or self._assigned_role_for(pitcher)
+                )
                 self._ensure_budget_initialized(current, pitcher, role)
                 current.last_role = role
                 entry_pitchers[pid] = current.to_dict()
@@ -538,11 +560,19 @@ class PitcherRecoveryTracker:
         return entry
 
     # ------------------------------------------------------------------
-    def _build_team_entry(self, pitchers: Iterable[object], saved_rotation: list[str] | None = None) -> Dict[str, object]:
+    def _build_team_entry(
+        self,
+        pitchers: Iterable[object],
+        saved_rotation: list[str] | None = None,
+        staff_roles: Dict[str, str] | None = None,
+    ) -> Dict[str, object]:
         pitcher_list = list(pitchers)
         rotation = saved_rotation or self._build_rotation(pitcher_list)
+        roles = staff_roles or {}
         status = {
-            getattr(p, "player_id"): self._initial_status(p).to_dict()
+            getattr(p, "player_id"): self._initial_status(
+                p, roles.get(getattr(p, "player_id", ""))
+            ).to_dict()
             for p in pitcher_list
         }
         return {
@@ -550,6 +580,37 @@ class PitcherRecoveryTracker:
             "next_index": 0,
             "pitchers": status,
         }
+
+    def _load_staff_roles(
+        self,
+        team_id: str,
+        roster_dir: str | Path,
+    ) -> Dict[str, str]:
+        """The owner's staff assignments (``{team}_pitching.csv``) as pid -> role.
+
+        The ``role`` column in ``players.csv`` is not trustworthy as a staff
+        role: it is a *derived* classification, and a league seeded before the
+        role-resolution fix (7.38.0) has every pitcher — starters included —
+        stored as "RP", which ``_role_key`` then rounds to "MR". The owner's own
+        staff file is the authority on who is a starter, so consult it first.
+        """
+
+        path = _resolve_path(roster_dir) / f"{team_id}_pitching.csv"
+        roles: Dict[str, str] = {}
+        if not path.exists():
+            return roles
+        try:
+            with path.open("r", newline="", encoding="utf-8") as handle:
+                for row in csv.reader(handle):
+                    if len(row) < 2:
+                        continue
+                    pid = row[0].strip()
+                    role = row[1].strip().upper()
+                    if pid and role:
+                        roles.setdefault(pid, role)
+        except OSError:
+            return {}
+        return roles
 
     def _load_saved_rotation(
         self,
@@ -609,14 +670,15 @@ class PitcherRecoveryTracker:
             rotation = [pid for pid, _ in relievers[:5]]
         return rotation
 
-    def _initial_status(self, pitcher: object) -> _PitcherStatus:
+    def _initial_status(
+        self, pitcher: object, staff_role: str | None = None
+    ) -> _PitcherStatus:
         status = _PitcherStatus()
-        role = self._assigned_role_for(pitcher)
+        role = staff_role or self._assigned_role_for(pitcher)
         role_key = self._role_key(role)
         status.last_role = role_key
         self._ensure_budget_initialized(status, pitcher, role_key)
         return status
-
 
     # ------------------------------------------------------------------
     def ensure_team(
@@ -652,6 +714,7 @@ class PitcherRecoveryTracker:
             if _parse_date(status.available_on) <= date_obj:
                 chosen_index = idx
                 break
+        used_fallback = chosen_index is None
         if chosen_index is None:
             # Everyone is tired; choose the least-rested pitcher.
             chosen_index = min(
@@ -661,7 +724,21 @@ class PitcherRecoveryTracker:
                 ),
             )
         pid = rotation[chosen_index]
-        entry["next_index"] = (chosen_index + 1) % total
+        next_index_out = (chosen_index + 1) % total
+        _record_rotation_decision(
+            team_id=team_id,
+            date_str=date_str,
+            rotation=rotation,
+            next_index_in=next_index,
+            chosen_index=chosen_index,
+            next_index_out=next_index_out,
+            availability=[
+                _PitcherStatus.from_dict(pitchers.get(slot_pid, {})).available_on or ""
+                for slot_pid in rotation
+            ],
+            used_fallback=used_fallback,
+        )
+        entry["next_index"] = next_index_out
         self._assignments[team_id] = pid
         self._mark_dirty()
         return pid
