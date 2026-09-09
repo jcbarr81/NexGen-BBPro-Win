@@ -64,36 +64,16 @@ def _player_lookup() -> Dict[str, Any]:
 
 
 def _roster_team_index() -> Dict[str, str]:
-    """Best-effort ``player_id -> team_id`` map built from ONE pass over the
-    roster CSVs.
+    """``player_id -> team_id`` from the roster CSVs.
 
-    Mirrors the old per-player ``_team_for`` scan exactly: every roster level
-    counts (any row whose first cell is the player id, regardless of
-    ACT/AAA/LOW/DL/IR), and the first roster file in glob order that contains
-    the player wins. Building the dict once turns the league tracker's
-    contracts x rosters file-open storm into a single roster sweep.
+    Delegates to the shared lookup so the leaderboards and the contract tracker
+    resolve teams identically — players.csv has no team_id column, so roster
+    membership is the only source.
     """
 
-    rosters_dir = get_data_dir() / "rosters"
-    if not rosters_dir.exists():
-        return {}
-    import csv
+    from services.team_lookup import player_team_index
 
-    index: Dict[str, str] = {}
-    for roster_file in rosters_dir.glob("*.csv"):
-        try:
-            with roster_file.open("r", encoding="utf-8", newline="") as fh:
-                for row in csv.reader(fh):
-                    if len(row) < 1:
-                        continue
-                    pid = (row[0] or "").strip()
-                    if pid:
-                        # First file containing the player wins (glob order),
-                        # matching the early-return of the per-player scan.
-                        index.setdefault(pid, roster_file.stem)
-        except OSError:
-            continue
-    return index
+    return player_team_index()
 
 
 def _team_for(player_id: str, players: Dict[str, Any]) -> str:

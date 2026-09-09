@@ -97,12 +97,25 @@ def _has_sample(stats: Dict[str, Any], key: str) -> bool:
     return True
 
 
-def _player_label(player: Any) -> Dict[str, Any]:
+def _player_label(
+    player: Any, team_index: Dict[str, str] | None = None
+) -> Dict[str, Any]:
+    """Label a leaderboard row.
+
+    ``team_id`` has to come from the roster files: players.csv carries no such
+    column, so ``player.team_id`` is always empty and the client — which
+    renders the team chip only when one is present — showed none at all.
+    """
+
+    player_id = getattr(player, "player_id", "")
+    team_id = str(getattr(player, "team_id", "") or "")
+    if not team_id and team_index is not None:
+        team_id = team_index.get(str(player_id), "")
     return {
-        "player_id": getattr(player, "player_id", ""),
+        "player_id": player_id,
         "first_name": getattr(player, "first_name", ""),
         "last_name": getattr(player, "last_name", ""),
-        "team_id": str(getattr(player, "team_id", "") or ""),
+        "team_id": team_id,
     }
 
 
@@ -114,6 +127,15 @@ def league_leaders(
         season = _load_season_stats()
     except Exception:
         season = {"players": {}, "teams": {}}
+
+    # Roster membership is the only source of a player's team — players.csv has
+    # no team_id column. Built once per request, not per leaderboard row.
+    from services.team_lookup import player_team_index
+
+    try:
+        team_index = player_team_index()
+    except Exception:
+        team_index = {}
 
     # Hydrate players + season stats.
     players_by_id = {
@@ -198,7 +220,7 @@ def league_leaders(
                     "leaders": [
                         {
                             "rank": i + 1,
-                            "player": _player_label(player),
+                            "player": _player_label(player, team_index),
                             "value": float(value)
                             if isinstance(value, (int, float))
                             else value,
