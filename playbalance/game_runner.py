@@ -1014,6 +1014,27 @@ def _persist_physics_stats(
         save_stats(updated_players.values(), teams)
 
 
+def _assigned_starter_id(state: TeamState) -> str | None:
+    """The starter this team's state was prepared with, if any.
+
+    ``reorder_pitchers`` has already moved the assigned starter to the front of
+    ``state.pitchers`` and given him the G/GS credit, so either source agrees;
+    ``current_pitcher_state`` is preferred because it is what the box score
+    will report.
+    """
+
+    current = getattr(state, "current_pitcher_state", None)
+    pid = getattr(getattr(current, "player", None), "player_id", None)
+    if pid:
+        return str(pid)
+    pitchers = getattr(state, "pitchers", None) or []
+    if pitchers:
+        pid = getattr(pitchers[0], "player_id", None)
+        if pid:
+            return str(pid)
+    return None
+
+
 def _run_physics_game(
     *,
     home_id: str,
@@ -1140,6 +1161,11 @@ def _run_physics_game(
         tuning_overrides=tuning_overrides,
         usage_state=usage_state,
         game_day=game_day,
+        # The rotation tracker already decided who starts, weighing the whole
+        # season's rest. Tell the engine, or it re-picks a slot from `game_day`
+        # -- a counter that restarts at zero each process (7.41.0).
+        away_starter_id=_assigned_starter_id(away_state),
+        home_starter_id=_assigned_starter_id(home_state),
     )
 
     if jr is not None and usage_state is not None:

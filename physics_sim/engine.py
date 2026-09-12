@@ -340,7 +340,19 @@ def _order_pitchers_for_game(
     usage_state: UsageState | None,
     game_day: int | None,
     tuning: TuningConfig,
+    forced_starter_id: str | None = None,
 ) -> List[PitcherRatings]:
+    """Order a staff for one game, starter first.
+
+    ``forced_starter_id`` is the starter the season's rotation tracker already
+    assigned. When given it wins outright: the tracker knows the whole season,
+    while this function only sees one game. Without it the rotation slot comes
+    from ``game_day``, which is a counter that restarts at zero in every fresh
+    process — so a league simulated in weekly batches replayed
+    SP1, SP2, SP3, SP4, SP5, SP1, SP2 on every run and handed the top two slots
+    twice the starts of the other three (7.41.0).
+    """
+
     if not pitchers:
         return []
     roles_by_id = roles_by_id or {}
@@ -372,6 +384,27 @@ def _order_pitchers_for_game(
     if game_day is not None:
         start_index = game_day % len(rotation)
     chosen_index = start_index
+
+    if forced_starter_id:
+        forced_index = next(
+            (
+                idx
+                for idx, pitcher in enumerate(rotation)
+                if pitcher.player_id == forced_starter_id
+            ),
+            None,
+        )
+        if forced_index is not None:
+            rotation = rotation[forced_index:] + rotation[:forced_index]
+            return [rotation[0]] + bullpen + long_relief + rotation[1:]
+        # The assigned starter is not one of the five (a spot start out of the
+        # bullpen, say). Lead with him where he is rather than silently
+        # substituting a different pitcher.
+        forced = next(
+            (p for p in pitchers if p.player_id == forced_starter_id), None
+        )
+        if forced is not None:
+            return [forced] + [p for p in pitchers if p is not forced]
 
     def _has_available_pitches(pitcher: PitcherRatings, role: str) -> bool:
         if usage_state is None or game_day is None:
@@ -3415,6 +3448,8 @@ def simulate_game(
     tuning_overrides: Dict[str, Any] | None = None,
     usage_state: UsageState | None = None,
     game_day: int | None = None,
+    away_starter_id: str | None = None,
+    home_starter_id: str | None = None,
     postseason: bool = False,
 ) -> GameResult:
     """Very early stub of the physics-based game simulation.
@@ -3579,6 +3614,7 @@ def simulate_game(
         usage_state=usage_state,
         game_day=game_day,
         tuning=tuning,
+        forced_starter_id=away_starter_id,
     )
     home_pitchers = _order_pitchers_for_game(
         list(home_pitchers),
@@ -3586,6 +3622,7 @@ def simulate_game(
         usage_state=usage_state,
         game_day=game_day,
         tuning=tuning,
+        forced_starter_id=home_starter_id,
     )
 
     away_state = LineupState(
