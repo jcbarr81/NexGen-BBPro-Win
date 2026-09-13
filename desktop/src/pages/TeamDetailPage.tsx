@@ -412,8 +412,9 @@ function TeamStatsPanel({ teamId }: { teamId: string }) {
               <BarChart3 className="h-4 w-4 text-amber" /> Team stats
             </CardTitle>
             <CardDescription>
-              Season batting, pitching, and team totals for players currently
-              on this roster.
+              Season batting and pitching for the players currently on this
+              roster. Stats follow the player, so anyone acquired mid-season
+              brings his earlier games with him.
             </CardDescription>
           </div>
         </div>
@@ -455,10 +456,26 @@ function TeamStatsPanel({ teamId }: { teamId: string }) {
               />
             </TabsContent>
             <TabsContent value="team">
-              <TeamTotalsTable
-                columns={stats.data.columns.team}
-                totals={stats.data.team_totals}
-              />
+              <div className="space-y-4">
+                <TeamTotalsTable
+                  label="Club record"
+                  hint="The franchise's own season — unaffected by trades."
+                  columns={stats.data.columns.team}
+                  totals={stats.data.team_totals}
+                />
+                <TeamTotalsTable
+                  label="Batting"
+                  hint="Totals for the players on this roster right now."
+                  columns={stats.data.columns.roster_batting}
+                  totals={stats.data.roster_totals.batting}
+                />
+                <TeamTotalsTable
+                  label="Pitching"
+                  hint="Season stats follow the player, so a trade brings his earlier games with him — these need not match the club's game count."
+                  columns={stats.data.columns.roster_pitching}
+                  totals={stats.data.roster_totals.pitching}
+                />
+              </div>
             </TabsContent>
           </Tabs>
         )}
@@ -639,27 +656,35 @@ function SortHeader({
 }
 
 function TeamTotalsTable({
+  label,
+  hint,
   columns,
   totals,
 }: {
+  label: string;
+  hint: string;
   columns: string[];
   totals: Record<string, number | string | null>;
 }) {
   return (
-    <div className="mt-2 grid grid-cols-3 gap-2 md:grid-cols-6">
-      {columns.map((c) => (
-        <div
-          key={c}
-          className="rounded-md border border-border bg-surface p-2 text-center"
-        >
-          <div className="text-[10px] uppercase tracking-wide text-muted">
-            {c}
+    <div>
+      <div className="text-sm font-medium">{label}</div>
+      <div className="text-xs text-muted">{hint}</div>
+      <div className="mt-2 grid grid-cols-3 gap-2 md:grid-cols-6">
+        {columns.map((c) => (
+          <div
+            key={c}
+            className="rounded-md border border-border bg-surface p-2 text-center"
+          >
+            <div className="text-[10px] uppercase tracking-wide text-muted">
+              {c}
+            </div>
+            <div className="mt-0.5 font-display text-lg tabular-nums">
+              {formatStat(totals[c], c)}
+            </div>
           </div>
-          <div className="mt-0.5 font-display text-lg tabular-nums">
-            {formatStat(totals[c], c)}
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -667,7 +692,7 @@ function TeamTotalsTable({
 function formatStat(v: number | string | null | undefined, col: string): string {
   if (v === null || v === undefined || v === "") return "—";
   if (typeof v === "number") {
-    if (["avg", "obp", "slg"].includes(col)) return v.toFixed(3);
+    if (["avg", "obp", "slg", "ops"].includes(col)) return v.toFixed(3);
     if (["era", "whip", "ip"].includes(col)) return v.toFixed(2);
     if (Number.isInteger(v)) return String(v);
     return v.toFixed(2);

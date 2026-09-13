@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, status
 from utils.path_utils import get_data_dir
 # Cached read-only variant (S1-05) — this router never mutates the payload.
 from utils.stats_persistence import load_stats_cached as _load_season_stats
+from services.team_totals import BATTING_TOTALS, PITCHING_TOTALS, roster_totals
 
 from ..security import CurrentIdentity
 
@@ -28,7 +29,13 @@ BATTING_COLUMNS: List[str] = [
 PITCHING_COLUMNS: List[str] = [
     "w", "l", "era", "g", "gs", "sv", "ip", "h", "er", "bb", "so", "whip",
 ]
+# The club's own record. Distinct from the roster totals below: this belongs
+# to the franchise, while season stats travel with the player.
 TEAM_COLUMNS: List[str] = ["g", "w", "l", "r", "ra"]
+
+
+def _is_pitcher(info: Dict[str, Any] | None) -> bool:
+    return str((info or {}).get("is_pitcher", "")).strip().lower() in {"1", "true", "yes"}
 
 
 def _normalize_player(stats: Dict[str, Any] | None) -> Dict[str, Any]:
@@ -81,7 +88,7 @@ def league_stats() -> Dict[str, Any]:
     batters: List[Dict[str, Any]] = []
     pitchers: List[Dict[str, Any]] = []
     for pid, info in meta.items():
-        is_pitcher = str(info.get("is_pitcher", "")).strip().lower() in {"1", "true", "yes"}
+        is_pitcher = _is_pitcher(info)
         block = _normalize_player(player_stats.get(pid))
         # Skip players with no stat sample at all to keep the table compact.
         if not block:
@@ -166,7 +173,7 @@ def team_stats(team_id: str) -> Dict[str, Any]:
         info = all_meta.get(pid)
         if not info:
             continue
-        is_pitcher = str(info.get("is_pitcher", "")).strip().lower() in {"1", "true", "yes"}
+        is_pitcher = _is_pitcher(info)
         block = _normalize_player(player_stats.get(pid))
         if not block:
             continue
@@ -183,14 +190,29 @@ def team_stats(team_id: str) -> Dict[str, Any]:
     team_block = team_stats_map.get(team_id) or {}
     team_totals = _row(dict(team_block), TEAM_COLUMNS)
 
+    # Totals for whoever is on the roster right now. Season stats belong to the
+    # player and travel with him on a trade, so these deliberately do not tie
+    # out to the club's game log -- a team that traded for a starter with ten
+    # starts shows more starts than games played. That is the answer to "what
+    # have my current players done", which is the question this page is for.
+    totals = roster_totals(
+        (_normalize_player(player_stats.get(pid)) for pid in roster_ids
+         if not _is_pitcher(all_meta.get(pid))),
+        (_normalize_player(player_stats.get(pid)) for pid in roster_ids
+         if _is_pitcher(all_meta.get(pid))),
+    )
+
     return {
         "team_id": team_id,
         "columns": {
             "batters": BATTING_COLUMNS,
             "pitchers": PITCHING_COLUMNS,
             "team": TEAM_COLUMNS,
+            "roster_batting": BATTING_TOTALS,
+            "roster_pitching": PITCHING_TOTALS,
         },
         "batters": batters,
         "pitchers": pitchers,
         "team_totals": team_totals,
+        "roster_totals": totals,
     }

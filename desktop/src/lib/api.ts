@@ -2993,7 +2993,13 @@ export const api = {
   teamStats: (teamId: string) =>
     apiRequest<{
       team_id: string;
-      columns: { batters: string[]; pitchers: string[]; team: string[] };
+      columns: {
+        batters: string[];
+        pitchers: string[];
+        team: string[];
+        roster_batting: string[];
+        roster_pitching: string[];
+      };
       batters: Array<{
         player_id: string;
         first_name: string;
@@ -3011,6 +3017,10 @@ export const api = {
         stats: Record<string, number | string | null>;
       }>;
       team_totals: Record<string, number | string | null>;
+      roster_totals: {
+        batting: Record<string, number | string | null>;
+        pitching: Record<string, number | string | null>;
+      };
     }>(`/teams/${encodeURIComponent(teamId)}/stats`),
   adminLeagueScheduleTemplates: () =>
     apiRequest<{
