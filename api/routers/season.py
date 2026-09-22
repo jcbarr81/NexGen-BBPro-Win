@@ -2487,6 +2487,14 @@ def _advance_draft_for_league(league: str) -> Optional[Dict[str, Any]]:
     human_ids = human_owned_team_ids()
     is_human = str(on_clock).strip().upper() in human_ids
 
+    # With no pick clock set, the draft does not run itself at all: the
+    # commissioner advances it with "Advance to next owner" when he is ready.
+    # Turning the clock on is what opts a league into hands-off operation, and
+    # it is the same switch that lets the CPU pick for a late owner — so a
+    # league cannot start auto-drafting merely because this shipped.
+    if int(settings.pick_clock_hours or 0) <= 0:
+        return _announce_draft_clock(league, year, state, settings, human_ids)
+
     acted = ""
     if not is_human:
         acted = "advanced_cpu_picks"
