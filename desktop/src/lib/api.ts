@@ -828,6 +828,14 @@ export interface DraftState {
   draft_complete?: boolean;
   total_picks?: number;
   has_compensation?: boolean;
+  /** Teams with a real person behind them (from users.txt, not teams.csv --
+   *  the owner_id column is empty for every team in a cloud league). */
+  human_teams?: string[];
+  on_clock_is_human?: boolean;
+  /** Hours each owner gets once on the clock; 0 means the draft waits. */
+  pick_clock_hours?: number;
+  pick_deadline?: string | null;
+  seconds_remaining?: number | null;
 }
 
 export interface DraftResults {
@@ -3054,16 +3062,22 @@ export const api = {
     apiRequest<{
       rounds: number;
       pool_size: number;
+      pick_clock_hours: number;
       limits: {
         rounds: { min: number; max: number; default: number };
         pool_size: { min: number; max: number; default: number };
+        pick_clock_hours: { min: number; max: number; default: number };
       };
     }>("/draft/settings"),
-  saveDraftSettings: (rounds: number, pool_size: number) =>
-    apiRequest<{ rounds: number; pool_size: number }>("/draft/settings", {
-      method: "PUT",
-      body: { rounds, pool_size },
-    }),
+  saveDraftSettings: (
+    rounds: number,
+    pool_size: number,
+    pick_clock_hours?: number,
+  ) =>
+    apiRequest<{ rounds: number; pool_size: number; pick_clock_hours: number }>(
+      "/draft/settings",
+      { method: "PUT", body: { rounds, pool_size, pick_clock_hours } },
+    ),
   adminDraftInitialize: (year?: number, seed?: number) =>
     apiRequest<{ year: number; order: string[]; seed: number | null }>(
       "/draft/admin/initialize",
@@ -3110,12 +3124,17 @@ export const api = {
       body: { year },
     }),
   draftAutoAdvance: (
-    stop: "my_pick" | "end_of_round" | "end_of_draft",
-    opts?: { year?: number; team_id?: string },
+    stop: "my_pick" | "next_human" | "end_of_round" | "end_of_draft",
+    opts?: { year?: number; team_id?: string; include_human_teams?: boolean },
   ) =>
     apiRequest<DraftAutoAdvanceResult>("/draft/auto-advance", {
       method: "POST",
-      body: { stop, year: opts?.year, team_id: opts?.team_id },
+      body: {
+        stop,
+        year: opts?.year,
+        team_id: opts?.team_id,
+        include_human_teams: opts?.include_human_teams,
+      },
     }),
   adminRepairLineups: () =>
     apiRequest<{ fixed: string[]; failed: string[] }>(

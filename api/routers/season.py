@@ -2452,6 +2452,145 @@ def _iter_league_ids() -> List[str]:
 _FA_MAX_ADVANCES_PER_TICK = 3
 
 
+def _advance_draft_for_league(league: str) -> Optional[Dict[str, Any]]:
+    """Move one league's amateur draft along. Returns a row when it acted.
+
+    Two jobs, both only meaningful once a league has human owners in it:
+
+    * A CPU team on the clock is advanced immediately — nobody is waiting on a
+      bot, so the draft should not sit there between ticks.
+    * A human team whose pick clock has run out has its pick made for it, and
+      then the draft runs on to the next human. That is the whole point of the
+      clock: one unavailable owner must not stall everyone else.
+
+    Never raises. A draft that cannot be advanced is not a reason to abandon
+    the rest of the tick, which also runs season sims.
+    """
+
+    from api.routers import draft as draft_router
+    from services import draft_clock, draft_state
+    from services.draft_settings import load_draft_settings
+    from services.team_ownership import human_owned_team_ids
+    from services.trade_settings import current_league_year
+
+    year = int(current_league_year())
+    state = draft_state.load_state(year)
+    if not state or not list(state.get("order") or []):
+        return None
+    settings = load_draft_settings()
+    if draft_router._draft_complete(state, settings.rounds):
+        return None
+
+    on_clock = draft_router._team_on_clock(state)
+    if not on_clock:
+        return None
+    human_ids = human_owned_team_ids()
+    is_human = str(on_clock).strip().upper() in human_ids
+
+    acted = ""
+    if not is_human:
+        acted = "advanced_cpu_picks"
+    elif draft_clock.is_expired(state, on_clock, settings.pick_clock_hours):
+        # Their time is up. Make the pick for them, then carry on to the next
+        # human so the draft does not stop again on the CPU teams behind them.
+        best = draft_router._best_available(year, state)
+        if not best:
+            return None
+        draft_router._do_pick(year, state, player_id=str(best.get("player_id", "")))
+        acted = "clock_expired"
+    else:
+        # A human is on the clock with time left. Nothing to do but make sure
+        # they have been told it is their turn.
+        return _announce_draft_clock(league, year, state, settings, human_ids)
+
+    result = draft_router.auto_advance(
+        {"year": year, "stop": "next_human"}, identity=_SCHEDULER_IDENTITY
+    )
+    state = draft_state.load_state(year) or state
+    row = {
+        "league": league,
+        "action": acted,
+        "picks_made": int(result.get("picks_made", 0) or 0),
+        "team_on_clock": result.get("team_on_clock"),
+        "draft_complete": bool(result.get("draft_complete")),
+    }
+    announced = _announce_draft_clock(league, year, state, settings, human_ids)
+    if announced:
+        row["announced"] = announced.get("announced")
+    return row
+
+
+def _announce_draft_clock(
+    league: str,
+    year: int,
+    state: Dict[str, Any],
+    settings: Any,
+    human_ids: set,
+) -> Optional[Dict[str, Any]]:
+    """Tell Discord a human team is on the clock, once per pick.
+
+    The team that was last announced is recorded in the draft state, so a tick
+    every ten minutes does not post the same message over and over.
+    """
+
+    from api.routers import draft as draft_router
+    from services import draft_clock, draft_state
+
+    on_clock = draft_router._team_on_clock(state)
+    if not on_clock or str(on_clock).strip().upper() not in human_ids:
+        return None
+    if str(state.get("announced_on_clock") or "").strip().upper() == str(on_clock).strip().upper():
+        return None
+
+    state["announced_on_clock"] = str(on_clock).strip().upper()
+    draft_state.save_state(year, state)
+    try:
+        from services import discord_notify
+        from services.draft_announcement import build_on_the_clock_message
+
+        text = build_on_the_clock_message(
+            league_id=league,
+            team_id=on_clock,
+            round_no=int(state.get("round", 1) or 1),
+            overall_pick=int(state.get("overall_pick", 1) or 1),
+            deadline=draft_clock.deadline(state, on_clock, settings.pick_clock_hours),
+        )
+        if text:
+            discord_notify.post(text)
+    except Exception:  # pragma: no cover - a post must never break the tick
+        pass
+    return {"league": league, "announced": str(on_clock)}
+
+
+def _tick_draft_clocks() -> List[Dict[str, Any]]:
+    """Advance the amateur draft in every league that is sitting in one."""
+
+    from utils import path_utils
+
+    rows: List[Dict[str, Any]] = []
+    for league in _iter_league_ids():
+        token = path_utils.set_request_league(league)
+        try:
+            if SeasonManager().phase != SeasonPhase.AMATEUR_DRAFT:
+                continue
+            row = _advance_draft_for_league(league)
+            if not row:
+                continue
+            rows.append(row)
+            try:
+                from api import working_copy
+
+                if working_copy.is_enabled():
+                    working_copy.push_changes(league)
+            except Exception:  # pragma: no cover - defensive
+                pass
+        except Exception as exc:  # pragma: no cover - never break the tick
+            rows.append({"league": league, "error": f"{type(exc).__name__}: {exc}"})
+        finally:
+            path_utils.reset_request_league(token)
+    return rows
+
+
 def _tick_fa_windows() -> List[Dict[str, Any]]:
     """Advance every league whose FA deadline has passed with auto-advance on."""
     from utils import path_utils
@@ -2546,11 +2685,16 @@ def tick_season_schedule(
             "fired": fired,
             "considered": considered,
             "fa_advanced": [],
+            "drafts_advanced": [],
         }
 
     # Free-agency day deadlines run first: they're quick, and a season run below
     # may take the global sim lock for the rest of the tick.
     fa_advanced = _tick_fa_windows()
+
+    # The amateur draft pauses the season, so a league sitting in one will
+    # never become sim-eligible below. Keep its pick clock running here.
+    drafts_advanced = _tick_draft_clocks()
 
     for league in _iter_league_ids():
         token = path_utils.set_request_league(league)
@@ -2597,6 +2741,7 @@ def tick_season_schedule(
         "fired": fired,
         "considered": considered,
         "fa_advanced": fa_advanced,
+        "drafts_advanced": drafts_advanced,
     }
 
 

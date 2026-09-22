@@ -185,6 +185,13 @@ function LiveDraftView({
     return state.order[idx] ?? null;
   }, [state, draftComplete]);
 
+  // A live countdown for the owner on the clock. Re-renders once a second
+  // rather than refetching, so the deadline reads down without hammering the
+  // API; the value itself only changes when a pick is actually made.
+  const clockLabel = useCountdown(
+    draftComplete ? null : (state.pick_deadline ?? null),
+  );
+
   const remaining = useMemo(() => {
     if (!state.exists || draftComplete) return [] as string[];
     const start = Math.max(0, (state.overall_pick - 1) % state.order.length);
@@ -248,7 +255,9 @@ function LiveDraftView({
               ? "Draft complete"
               : onClock === myTeamId
                 ? "You're up"
-                : undefined
+                : state.on_clock_is_human
+                  ? `Owner pick${clockLabel ? ` · ${clockLabel}` : ""}`
+                  : "CPU team"
           }
           Icon={Timer}
           tone={onClock === myTeamId && !draftComplete ? "success" : "neutral"}
@@ -265,6 +274,8 @@ function LiveDraftView({
         year={state.year}
         myTeamId={myTeamId}
         onClockTeamId={onClock}
+        onClockIsHuman={!!state.on_clock_is_human && !draftComplete}
+        pickDeadline={draftComplete ? null : (state.pick_deadline ?? null)}
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -388,17 +399,52 @@ const DRAFT_PITCHER_COLS: Array<{ key: string; label: string }> = [
   { key: "si", label: "SI" },
 ];
 
+/** "4h 12m left" for an ISO deadline, or null when no clock applies. */
+function useCountdown(deadlineIso: string | null): string | null {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!deadlineIso) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [deadlineIso]);
+
+  if (!deadlineIso) return null;
+  const due = Date.parse(deadlineIso);
+  if (Number.isNaN(due)) return null;
+  const secs = Math.max(0, Math.floor((due - now) / 1000));
+  if (secs === 0) return "time expired";
+  const hours = Math.floor(secs / 3600);
+  const mins = Math.floor((secs % 3600) / 60);
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    return `${days}d ${hours % 24}h left`;
+  }
+  if (hours > 0) return `${hours}h ${mins}m left`;
+  return `${mins}m ${secs % 60}s left`;
+}
+
 function DraftControlsPanel({
   year,
   myTeamId,
   onClockTeamId,
+  onClockIsHuman,
+  pickDeadline,
 }: {
   year: number;
   myTeamId: string | null;
   onClockTeamId: string | null;
+  onClockIsHuman: boolean;
+  pickDeadline: string | null;
 }) {
   const queryClient = useQueryClient();
   const isMyTurn = !!myTeamId && myTeamId === onClockTeamId;
+  const countdown = useCountdown(pickDeadline);
+  const deadlineLabel =
+    onClockIsHuman && countdown
+      ? isMyTurn
+        ? `Your pick: ${countdown}`
+        : `Pick clock: ${countdown}`
+      : null;
   const [selectedPid, setSelectedPid] = useState<string>("");
   const [filter, setFilter] = usePersistedState("draft:pool:filter", "");
   const [kind, setKind] = usePersistedState<DraftKind>(
@@ -447,6 +493,10 @@ function DraftControlsPanel({
       api.draftAutoAdvance("my_pick", { year, team_id: myTeamId ?? undefined }),
     onSuccess: refreshAll,
   });
+  const advanceToHumanMut = useMutation({
+    mutationFn: () => api.draftAutoAdvance("next_human", { year }),
+    onSuccess: refreshAll,
+  });
   const advanceRoundMut = useMutation({
     mutationFn: () => api.draftAutoAdvance("end_of_round", { year }),
     onSuccess: refreshAll,
@@ -460,6 +510,7 @@ function DraftControlsPanel({
     pickMut.isPending ||
     autoPickMut.isPending ||
     advanceToMyMut.isPending ||
+    advanceToHumanMut.isPending ||
     advanceRoundMut.isPending ||
     advanceDraftMut.isPending;
 
@@ -525,12 +576,19 @@ function DraftControlsPanel({
           <CardDescription>
             {isMyTurn
               ? "Your pick — click a prospect below and choose a column to sort by, then Make pick."
-              : onClockTeamId
-                ? `${onClockTeamId} is on the clock. Auto-advance through CPU picks until your turn or the round ends.`
-                : "Draft idle."}
+              : onClockIsHuman && onClockTeamId
+                ? `${onClockTeamId} is on the clock — an owner picks here. Advancing stops rather than picking for them.`
+                : onClockTeamId
+                  ? `${onClockTeamId} is on the clock. Auto-advance through CPU picks until the next owner is up.`
+                  : "Draft idle."}
           </CardDescription>
         </div>
-        {isMyTurn && <Badge tone="success">Your turn</Badge>}
+        <div className="flex items-center gap-2">
+          {deadlineLabel && (
+            <Badge tone={isMyTurn ? "warning" : "neutral"}>{deadlineLabel}</Badge>
+          )}
+          {isMyTurn && <Badge tone="success">Your turn</Badge>}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Action row */}
@@ -595,9 +653,27 @@ function DraftControlsPanel({
           <Button
             size="sm"
             variant="outline"
+            onClick={() => advanceToHumanMut.mutate()}
+            disabled={anyPending || onClockIsHuman}
+            title={
+              onClockIsHuman
+                ? "An owner is already on the clock — their pick is theirs to make."
+                : "Run CPU picks until the next owner-controlled team is on the clock"
+            }
+          >
+            {advanceToHumanMut.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FastForward className="h-4 w-4" />
+            )}
+            Advance to next owner
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
             onClick={() => advanceRoundMut.mutate()}
             disabled={anyPending}
-            title="Run CPU picks to the end of the current round"
+            title="Run CPU picks to the end of the current round — stops if an owner comes up"
           >
             {advanceRoundMut.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -611,7 +687,7 @@ function DraftControlsPanel({
             variant="ghost"
             onClick={() => advanceDraftMut.mutate()}
             disabled={anyPending}
-            title="Auto-pick the rest of the entire draft (CPU picks for everyone)"
+            title="Run CPU picks to the end of the draft — stops if an owner comes up"
           >
             {advanceDraftMut.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -1085,11 +1161,13 @@ function DraftSettingsCard() {
   });
   const [rounds, setRounds] = useState<string>("");
   const [pool, setPool] = useState<string>("");
+  const [clock, setClock] = useState<string>("");
 
   useEffect(() => {
     if (settings.data) {
       setRounds(String(settings.data.rounds));
       setPool(String(settings.data.pool_size));
+      setClock(String(settings.data.pick_clock_hours ?? 0));
     }
   }, [settings.data]);
 
@@ -1098,6 +1176,7 @@ function DraftSettingsCard() {
       api.saveDraftSettings(
         Number(rounds) || 10,
         Number(pool) || 200,
+        Number(clock) || 0,
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["draft-settings"] });
@@ -1109,18 +1188,20 @@ function DraftSettingsCard() {
   const dirty =
     settings.data &&
     (Number(rounds) !== settings.data.rounds ||
-      Number(pool) !== settings.data.pool_size);
+      Number(pool) !== settings.data.pool_size ||
+      Number(clock) !== (settings.data.pick_clock_hours ?? 0));
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Draft configuration</CardTitle>
         <CardDescription>
-          How many rounds the amateur draft runs and how many prospects to
-          generate for the pool. Saved per league, re-usable every season.
+          How many rounds the amateur draft runs, how many prospects to
+          generate for the pool, and how long an owner has to pick. Saved per
+          league, re-usable every season.
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-[auto_auto_1fr]">
+      <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-[auto_auto_auto_1fr]">
         <div>
           <Label htmlFor="draft-rounds">Rounds</Label>
           <Input
@@ -1146,7 +1227,24 @@ function DraftSettingsCard() {
             className="w-32"
           />
         </div>
-        <div className="flex items-end gap-2">
+        <div>
+          <Label htmlFor="draft-clock">Pick clock (hours)</Label>
+          <Input
+            id="draft-clock"
+            type="number"
+            min={limits?.pick_clock_hours?.min ?? 0}
+            max={limits?.pick_clock_hours?.max ?? 336}
+            value={clock}
+            onChange={(e) => setClock(e.target.value)}
+            className="w-32"
+          />
+          <p className="mt-1 max-w-[16rem] text-[11px] text-muted">
+            {Number(clock) > 0
+              ? `Each owner gets ${clock}h once on the clock; after that the CPU picks for them and the draft moves on.`
+              : "0 — no deadline. The draft waits indefinitely for each owner."}
+          </p>
+        </div>
+        <div className="flex items-start gap-2 pt-5">
           <Button
             size="sm"
             onClick={() => save.mutate()}

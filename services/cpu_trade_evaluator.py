@@ -73,17 +73,36 @@ def is_cpu_owned_team(
     teams_by_id: Mapping[str, object] | None = None,
     data_dir: Path | str | None = None,
 ) -> bool:
-    """Return ``True`` when ``team_id`` is controlled by CPU/AI."""
+    """Return ``True`` when ``team_id`` is controlled by CPU/AI.
+
+    Ownership is asked of ``services.team_ownership``, not of ``teams.csv``
+    directly. In the cloud the memberships bridge writes owners to
+    ``users.txt`` and leaves the ``teams.csv`` ``owner_id`` column empty, so
+    reading that column alone reports every human-owned team as CPU — which
+    let the CPU evaluator answer trade offers addressed to real owners.
+    """
 
     token = str(team_id or "").strip().upper()
     if not token:
         return False
+
     teams = teams_by_id or _load_teams_by_id(data_dir=data_dir)
     team = teams.get(token)
     if team is None:
+        # Unknown team: not something to act on behalf of.
         return False
     owner = str(getattr(team, "owner_id", "") or "").strip().lower()
-    return owner in CPU_OWNER_IDS
+    if owner and owner not in CPU_OWNER_IDS:
+        # A named owner is a person, whatever users.txt says.
+        return False
+
+    # An empty owner_id proves nothing. In the cloud the memberships bridge
+    # writes owners to users.txt and leaves this column blank for EVERY team,
+    # so trusting it alone reported all 7 of alpha-test's human owners as CPU
+    # and let the evaluator answer trade offers addressed to real people.
+    from services.team_ownership import is_human_owned
+
+    return not is_human_owned(token, data_dir=data_dir)
 
 
 def evaluate_cpu_trade_offer(

@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query, status
 
-from services import draft_state
+from services import draft_clock, draft_state
 from services.trade_settings import current_league_year
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
@@ -191,6 +191,26 @@ def draft_state_view(
         selected.append(row)
 
     settings = load_draft_settings()
+    from services.team_ownership import human_owned_team_ids
+
+    human_ids = human_owned_team_ids()
+    on_clock = _team_on_clock(state) if state else None
+    complete = _draft_complete(state, settings.rounds) if state else False
+
+    # Start the clock lazily as well as on each pick, so a draft that was
+    # already mid-pick when the clock shipped gets one rather than waiting
+    # forever. Only persist when this actually starts it.
+    due = None
+    remaining = None
+    if state and on_clock and not complete:
+        if draft_clock.started_at(state, on_clock) is None:
+            draft_clock.ensure_started(state, on_clock)
+            draft_state.save_state(y, state)
+        due = draft_clock.deadline(state, on_clock, settings.pick_clock_hours)
+        remaining = draft_clock.seconds_remaining(
+            state, on_clock, settings.pick_clock_hours
+        )
+
     seq = state.get("pick_sequence")
     total_picks = (
         len(seq)
@@ -209,10 +229,17 @@ def draft_state_view(
         "configured_pool_size": settings.pool_size,
         # Backend is authoritative for these (compensation picks make a flat
         # modulo over ``order`` wrong). The UI should prefer them.
-        "team_on_clock": _team_on_clock(state) if state else None,
-        "draft_complete": _draft_complete(state, settings.rounds) if state else False,
+        "team_on_clock": on_clock,
+        "draft_complete": complete,
         "total_picks": total_picks,
         "has_compensation": bool(isinstance(seq, list) and seq),
+        # Who is a real person, so the UI can mark owner picks and show a
+        # countdown only where one applies.
+        "human_teams": sorted(human_ids),
+        "on_clock_is_human": bool(on_clock and on_clock.strip().upper() in human_ids),
+        "pick_clock_hours": settings.pick_clock_hours,
+        "pick_deadline": due.isoformat() if due is not None else None,
+        "seconds_remaining": remaining,
     }
 
 
@@ -349,10 +376,13 @@ def draft_settings_view() -> Dict[str, Any]:
     user so the league-create wizard can pre-populate defaults."""
 
     from services.draft_settings import (
+        DEFAULT_PICK_CLOCK_HOURS,
         DEFAULT_POOL_SIZE,
         DEFAULT_ROUNDS,
+        MAX_PICK_CLOCK_HOURS,
         MAX_POOL_SIZE,
         MAX_ROUNDS,
+        MIN_PICK_CLOCK_HOURS,
         MIN_POOL_SIZE,
         MIN_ROUNDS,
         load_draft_settings,
@@ -362,12 +392,18 @@ def draft_settings_view() -> Dict[str, Any]:
     return {
         "rounds": settings.rounds,
         "pool_size": settings.pool_size,
+        "pick_clock_hours": settings.pick_clock_hours,
         "limits": {
             "rounds": {"min": MIN_ROUNDS, "max": MAX_ROUNDS, "default": DEFAULT_ROUNDS},
             "pool_size": {
                 "min": MIN_POOL_SIZE,
                 "max": MAX_POOL_SIZE,
                 "default": DEFAULT_POOL_SIZE,
+            },
+            "pick_clock_hours": {
+                "min": MIN_PICK_CLOCK_HOURS,
+                "max": MAX_PICK_CLOCK_HOURS,
+                "default": DEFAULT_PICK_CLOCK_HOURS,
             },
         },
     }
@@ -380,14 +416,29 @@ def draft_settings_save(
 ) -> Dict[str, Any]:
     """Admin save of draft config."""
 
-    from services.draft_settings import DraftSettings, save_draft_settings
+    from services.draft_settings import (
+        DraftSettings,
+        load_draft_settings,
+        save_draft_settings,
+    )
 
+    current = load_draft_settings()
+    # Absent means "leave it alone", so an older client that does not know
+    # about the pick clock cannot silently switch it off on save.
+    clock = payload.get("pick_clock_hours", None)
     incoming = DraftSettings(
         rounds=int(payload.get("rounds", 0) or 0),
         pool_size=int(payload.get("pool_size", 0) or 0),
+        pick_clock_hours=(
+            current.pick_clock_hours if clock is None else int(clock or 0)
+        ),
     )
     saved = save_draft_settings(incoming)
-    return {"rounds": saved.rounds, "pool_size": saved.pool_size}
+    return {
+        "rounds": saved.rounds,
+        "pool_size": saved.pool_size,
+        "pick_clock_hours": saved.pick_clock_hours,
+    }
 
 
 @router.post("/admin/initialize")
@@ -631,6 +682,10 @@ def _do_pick(
         state["round"] = int(nxt.get("round", rnd)) if isinstance(nxt, dict) else rnd
     elif order and (overall % len(order)) == 0:
         state["round"] = rnd + 1
+    # Whoever is up next goes on the clock as of now. Reset here rather than
+    # only on read, so the deadline an owner is shown starts when the previous
+    # pick was actually made.
+    draft_clock.start(state, _team_on_clock(state))
     draft_state.save_state(year, state)
     draft_state.append_result(
         year, team_id=team_id, player_id=player_id, rnd=rnd, overall=overall
@@ -859,8 +914,17 @@ def auto_advance(
     ``stop`` (default ``"my_pick"``) controls when the loop halts:
 
     - ``"my_pick"`` — stop as soon as the caller's team is on the clock
+    - ``"next_human"` — stop as soon as ANY human-owned team is on the clock
     - ``"end_of_round"`` — stop when the active round changes
     - ``"end_of_draft"`` — pick to the end of the draft
+
+    In every mode the loop also stops when a human-owned team reaches the
+    clock, so a commissioner advancing the draft cannot spend an owner's pick
+    for him. That is what ``next_human`` asks for directly, and what the other
+    modes previously got wrong: with seven owners drafting 11th through 20th,
+    "advance to the end of the round" used to draft for all of them. Pass
+    ``include_human_teams: true`` to override it and pick for everyone — the
+    way to force a draft to completion when owners have gone quiet.
 
     Admins running ``"my_pick"`` may pass ``team_id`` to specify which
     team's turn to wait for; otherwise we use the caller's identity team.
@@ -869,7 +933,8 @@ def auto_advance(
 
     year = int(payload.get("year") or _resolve_year(None))
     stop_mode = str(payload.get("stop", "my_pick")).strip().lower() or "my_pick"
-    if stop_mode not in {"my_pick", "end_of_round", "end_of_draft"}:
+    include_humans = bool(payload.get("include_human_teams", False))
+    if stop_mode not in {"my_pick", "next_human", "end_of_round", "end_of_draft"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid stop mode: {stop_mode!r}",
@@ -897,6 +962,10 @@ def auto_advance(
 
     rounds_total = _load_settings_rounds()
     role = str(identity.get("r", "")).lower()
+    from services.team_ownership import human_owned_team_ids
+
+    human_ids = set() if include_humans else human_owned_team_ids()
+
     target_team: Optional[str] = None
     if stop_mode == "my_pick":
         target_team = (
@@ -936,6 +1005,10 @@ def auto_advance(
         if stop_mode == "my_pick" and target_team and on_clock == target_team:
             stopped_reason = "reached_target"
             break
+        if str(on_clock).strip().upper() in human_ids:
+            # A real person is on the clock. Their pick is theirs to make.
+            stopped_reason = "human_on_clock"
+            break
         if stop_mode == "end_of_round" and int(state.get("round", 1) or 1) != starting_round:
             stopped_reason = "end_of_round"
             break
@@ -955,6 +1028,7 @@ def auto_advance(
         "year": year,
         "stop": stop_mode,
         "target_team": target_team,
+        "include_human_teams": include_humans,
         "picks": picks_made,
         "picks_made": len(picks_made),
         "stopped_reason": stopped_reason,
