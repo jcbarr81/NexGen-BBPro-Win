@@ -131,3 +131,31 @@ def test_next_human_needs_no_team_id(draft):
     """Unlike my_pick -- the commissioner has no team of his own."""
     result = D.auto_advance({"year": 2026, "stop": "next_human"}, identity=ADMIN)
     assert result["target_team"] is None
+
+
+# --- the commissioner is never locked out -----------------------------------
+
+
+def test_the_commissioner_can_pick_for_the_owner_on_the_clock(draft):
+    """Stopping at owners left a hole: an owner who never responds would block
+    the draft for the whole pick clock with nothing anyone could do. The
+    commissioner can always take the pick, which is what the draft page's
+    Auto-pick offers when someone else is up."""
+    state, made = draft
+    state["overall_pick"] = 4  # BAL, a human, is on the clock
+    result = D.auto_pick({"year": 2026}, identity=ADMIN)
+    assert result["team_id"] == "BAL"
+    assert made == ["BAL"]
+
+
+def test_an_owner_still_cannot_pick_for_another_team(draft):
+    """The commissioner override must not become a general free-for-all."""
+    from fastapi import HTTPException
+
+    state, made = draft
+    state["overall_pick"] = 4  # BAL is up
+    intruder = {"u": "someone", "r": "owner", "mr": "owner", "t": "MIL"}
+    with pytest.raises(HTTPException) as exc:
+        D.auto_pick({"year": 2026}, identity=intruder)
+    assert exc.value.status_code == 403
+    assert made == []

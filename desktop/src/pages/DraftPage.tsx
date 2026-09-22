@@ -124,6 +124,7 @@ export function DraftPage() {
               state={state.data!}
               myTeamId={myTeamId}
               teamById={teamById}
+              isAdmin={isAdmin}
             />
           </TabsContent>
 
@@ -154,10 +155,12 @@ function LiveDraftView({
   state,
   myTeamId,
   teamById,
+  isAdmin,
 }: {
   state: DraftState;
   myTeamId: string | null;
   teamById: Map<string, Team>;
+  isAdmin: boolean;
 }) {
   // The state ``round`` auto-increments past the final pick, so once
   // it exceeds the configured rounds the draft has produced its last
@@ -276,6 +279,7 @@ function LiveDraftView({
         onClockTeamId={onClock}
         onClockIsHuman={!!state.on_clock_is_human && !draftComplete}
         pickDeadline={draftComplete ? null : (state.pick_deadline ?? null)}
+        isAdmin={isAdmin}
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -429,16 +433,24 @@ function DraftControlsPanel({
   onClockTeamId,
   onClockIsHuman,
   pickDeadline,
+  isAdmin,
 }: {
   year: number;
   myTeamId: string | null;
   onClockTeamId: string | null;
   onClockIsHuman: boolean;
   pickDeadline: string | null;
+  isAdmin: boolean;
 }) {
   const queryClient = useQueryClient();
   const isMyTurn = !!myTeamId && myTeamId === onClockTeamId;
   const countdown = useCountdown(pickDeadline);
+  // The commissioner can submit for whichever team is on the clock -- the API
+  // has always allowed it. Without this there is no way past an owner who is
+  // not responding except waiting out the pick clock, which is exactly the
+  // hole "advancing stops at owners" opened up.
+  const canActForClock = isMyTurn || (isAdmin && !!onClockTeamId);
+  const actingForSomeoneElse = canActForClock && !isMyTurn;
   const deadlineLabel =
     onClockIsHuman && countdown
       ? isMyTurn
@@ -596,19 +608,21 @@ function DraftControlsPanel({
           <Button
             size="sm"
             onClick={() => selectedPid && pickMut.mutate(selectedPid)}
-            disabled={!isMyTurn || !selectedPid || anyPending}
+            disabled={!canActForClock || !selectedPid || anyPending}
             title={
-              !isMyTurn
+              !canActForClock
                 ? "You can only submit a pick when your team is on the clock."
                 : !selectedPid
                   ? "Click a prospect row first."
-                  : ""
+                  : actingForSomeoneElse
+                    ? `Submit this pick on behalf of ${onClockTeamId}.`
+                    : ""
             }
           >
             {pickMut.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : null}
-            Make pick
+            {actingForSomeoneElse ? `Pick for ${onClockTeamId}` : "Make pick"}
             {selectedProspect ? (
               <span className="ml-1 text-[11px] text-muted">
                 {selectedProspect.last_name}, {selectedProspect.first_name}
@@ -619,8 +633,12 @@ function DraftControlsPanel({
             size="sm"
             variant="outline"
             onClick={() => autoPickMut.mutate()}
-            disabled={!isMyTurn || anyPending}
-            title="Auto-pick best available for the team on the clock"
+            disabled={!canActForClock || anyPending}
+            title={
+              actingForSomeoneElse
+                ? `Take the best available player for ${onClockTeamId} — use this to move past an owner who isn't responding.`
+                : "Auto-pick best available for the team on the clock"
+            }
           >
             {autoPickMut.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -657,7 +675,7 @@ function DraftControlsPanel({
             disabled={anyPending || onClockIsHuman}
             title={
               onClockIsHuman
-                ? "An owner is already on the clock — their pick is theirs to make."
+                ? `${onClockTeamId} is an owner team and is already on the clock. Wait for their pick, or use Auto-pick to take it for them.`
                 : "Run CPU picks until the next owner-controlled team is on the clock"
             }
           >
