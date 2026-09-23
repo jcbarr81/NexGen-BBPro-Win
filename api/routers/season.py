@@ -1686,11 +1686,19 @@ def _auto_run_training_camp_if_needed() -> Dict[str, Any]:
 
 
 def _draft_completed_for_current_year() -> bool:
-    """True when a draft results CSV exists for the current league year.
+    """True when this year's draft has run to its LAST pick.
 
-    Keeps the check simple and filesystem-based so it works whether the
-    commit came from the live draft, a manual admin override, or an
-    import — any of those leave the ``draft_results_<year>.csv`` behind.
+    This gates resuming the regular season, so "finished" has to mean finished.
+    It used to mean "the results CSV has at least one row", which is true from
+    the very first pick onward — so the moment a league made pick #1, the next
+    auto-run flipped it out of AMATEUR_DRAFT and simulated a week of games with
+    68 of 80 picks still to make. That is exactly what happened to alpha-test on
+    2026-09-23.
+
+    The draft state is the authority: it knows the order, the round count and
+    any compensation picks. The results CSV is only consulted when there is no
+    state to read — an imported or hand-committed draft, which is the case the
+    file-based check was written for in the first place.
     """
 
     try:
@@ -1701,6 +1709,19 @@ def _draft_completed_for_current_year() -> bool:
         from datetime import date as _date
 
         year = _date.today().year
+
+    try:
+        from api.routers.draft import _draft_complete, _load_settings_rounds
+        from services import draft_state
+
+        state = draft_state.load_state(year)
+        if state and list(state.get("order") or []):
+            return bool(_draft_complete(state, _load_settings_rounds()))
+    except Exception:  # pragma: no cover - fall through to the file check
+        pass
+
+    # No live draft state: an import or a manual commit. A results file is the
+    # only evidence those leave behind, so treat its existence as done.
     results = get_data_dir() / f"draft_results_{year}.csv"
     if not results.exists():
         return False
