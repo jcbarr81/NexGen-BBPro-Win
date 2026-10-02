@@ -273,6 +273,14 @@ function LiveDraftView({
         />
       </section>
 
+      <TeamPicksCard
+        picks={state.selected}
+        teamIds={state.order}
+        defaultTeamId={myTeamId ?? onClock ?? state.order[0] ?? null}
+        myTeamId={myTeamId}
+        teamById={teamById}
+      />
+
       <DraftControlsPanel
         year={state.year}
         myTeamId={myTeamId}
@@ -1023,9 +1031,21 @@ function HistoryView({
     byRound.set(p.round, arr);
   }
   const rounds = [...byRound.entries()].sort((a, b) => a[0] - b[0]);
+  // Draft order of the first round, so the team picker reads like the draft.
+  const historyTeams = [...picks]
+    .sort((a, b) => a.overall - b.overall)
+    .map((pk) => pk.team_id)
+    .filter((t, i, arr) => arr.indexOf(t) === i);
 
   return (
     <div className="space-y-6">
+      <TeamPicksCard
+        picks={picks}
+        teamIds={historyTeams}
+        defaultTeamId={myTeamId ?? historyTeams[0] ?? null}
+        myTeamId={myTeamId}
+        teamById={teamById}
+      />
       {rounds.map(([round, roundPicks]) => (
         <Card key={round}>
           <CardHeader>
@@ -1046,6 +1066,111 @@ function HistoryView({
         </Card>
       ))}
     </div>
+  );
+}
+
+// Positions the draft pool actually uses, in diamond order then pitchers.
+const DRAFT_POSITIONS = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "P"];
+
+/** One team's picks, with a position tally so an owner can see at a glance
+ *  what he has drafted and what he has not -- without reading every round.
+ *  The team is selectable so a commissioner (who has no team of his own) can
+ *  look at anyone. */
+function TeamPicksCard({
+  picks,
+  teamIds,
+  defaultTeamId,
+  myTeamId,
+  teamById,
+}: {
+  picks: DraftSelection[];
+  teamIds: string[];
+  defaultTeamId: string | null;
+  myTeamId: string | null;
+  teamById: Map<string, Team>;
+}) {
+  const [teamId, setTeamId] = useState<string>(defaultTeamId ?? teamIds[0] ?? "");
+  useEffect(() => {
+    // Follow the default until the viewer picks something else, so a
+    // commissioner who has not chosen a team is not stuck on a stale one.
+    if (!teamId && defaultTeamId) setTeamId(defaultTeamId);
+  }, [defaultTeamId, teamId]);
+
+  const teamPicks = useMemo(
+    () =>
+      picks
+        .filter((pk) => pk.team_id === teamId)
+        .sort((a, b) => a.overall - b.overall),
+    [picks, teamId],
+  );
+
+  const counts = useMemo(() => {
+    const c = new Map<string, number>();
+    for (const pk of teamPicks) {
+      const pos = (pk.primary_position || (pk.is_pitcher ? "P" : "")).toUpperCase();
+      // Drafted pitchers can carry SP/RP; for "what do I need" they are arms.
+      const key = pos === "SP" || pos === "RP" ? "P" : pos;
+      if (key) c.set(key, (c.get(key) ?? 0) + 1);
+    }
+    return c;
+  }, [teamPicks]);
+
+  const isMine = !!myTeamId && teamId === myTeamId;
+  const covered = DRAFT_POSITIONS.filter((pos) => (counts.get(pos) ?? 0) > 0).length;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>{isMine ? "My picks" : `${teamId || "Team"} picks`}</CardTitle>
+          <CardDescription>
+            {teamPicks.length === 0
+              ? "No picks yet."
+              : `${teamPicks.length} pick${teamPicks.length === 1 ? "" : "s"} · ${covered} of ${DRAFT_POSITIONS.length} positions covered`}
+          </CardDescription>
+        </div>
+        {teamIds.length > 1 && (
+          <select
+            aria-label="Team"
+            value={teamId}
+            onChange={(e) => setTeamId(e.target.value)}
+            className="rounded-md border border-border bg-surface px-2 py-1 text-sm"
+          >
+            {teamIds.map((t) => (
+              <option key={t} value={t}>
+                {t}
+                {t === myTeamId ? " (you)" : ""}
+              </option>
+            ))}
+          </select>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-3 p-0">
+        <div className="flex flex-wrap gap-1.5 px-6 pt-1">
+          {DRAFT_POSITIONS.map((pos) => {
+            const n = counts.get(pos) ?? 0;
+            return (
+              <span
+                key={pos}
+                title={n === 0 ? `No ${pos} drafted yet` : `${n} ${pos} drafted`}
+                className={cn(
+                  "inline-flex min-w-[3rem] items-center justify-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold tabular-nums",
+                  n > 0
+                    ? "border-amber/40 bg-amber/10"
+                    : "border-border/60 text-subtle",
+                )}
+              >
+                {pos}
+                <span className={n > 0 ? "text-amber" : ""}>{n}</span>
+              </span>
+            );
+          })}
+        </div>
+        {teamPicks.length > 0 && (
+          <PicksTable picks={teamPicks} myTeamId={myTeamId} teamById={teamById} />
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

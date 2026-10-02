@@ -313,7 +313,7 @@ TUTORIALS: List[Tutorial] = [
     Tutorial(
         tutorial_id="draft",
         title="Amateur Draft",
-        summary="Live board, results history, and commissioner draft controls.",
+        summary="Live board, your picks by position, the pick clock, and commissioner controls.",
         route="/draft",
         steps=[
             TutorialStep(
@@ -322,7 +322,16 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Live board",
-                "<p>Open <b>Transactions → Draft</b>. The Now tab shows the current round, overall pick, the team on the clock, draft order, and recent picks. The History tab archives completed picks by year.</p>",
+                "<p>Open <b>Transactions → Draft</b>. The Now tab shows the current round, overall pick, the team on the clock (and whether an owner or the CPU controls it), draft order, and recent picks. The History tab archives completed picks by year.</p>",
+            ),
+            TutorialStep(
+                "Your picks",
+                "<p>The <b>My picks</b> card lists every player your team has taken, with a position strip — C, 1B, 2B, 3B, SS, LF, CF, RF and P — counting how many of each you have drafted. Empty positions are greyed out, so you can see what you still need before you make your next pick. Use the team picker on the card to look at any other team's haul; it appears on the History tab too.</p>",
+            ),
+            TutorialStep(
+                "The pick clock",
+                "<p>When it's your team's turn you'll get a post in the league's Discord channel naming the round, the pick and your deadline (shown in your own local time), and the draft page shows a live countdown. If the deadline passes without a pick, the CPU takes the best available player for you and the draft moves on to the next owner.</p>"
+                "<p>The commissioner sets the clock length under <b>Admin → Draft configuration</b>. At <b>0</b> there is no deadline: the draft waits for each owner and never advances on its own.</p>",
             ),
             TutorialStep(
                 "Signing bonuses & compensation picks",
@@ -330,8 +339,10 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Admin controls",
-                "<p>Admins see a third <b>Admin</b> tab with four commissioner tools:</p>"
+                "<p><b>Advance to next owner</b> runs the CPU teams' picks and stops the moment an owner-controlled team is on the clock. Every advance button stops at owners, so the commissioner can never spend an owner's pick by accident. If an owner isn't responding, the commissioner can still take the pick deliberately — <b>Auto-pick</b> and <b>Make pick</b> relabel to <b>Pick for TEAM</b> when it isn't your own team.</p>"
+                "<p>Admins also see a third <b>Admin</b> tab with the commissioner tools:</p>"
                 "<ul>"
+                "<li><b>Draft configuration</b> — rounds, pool size and the pick clock.</li>"
                 "<li><b>Initialize</b> — seed draft state with worst-first order from season stats.</li>"
                 "<li><b>Generate pool</b> — write a fresh amateur draft pool for the year.</li>"
                 "<li><b>Manual pick</b> — commissioner override to enter a pick by hand.</li>"
