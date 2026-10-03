@@ -325,9 +325,32 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "contact_quality_scale": 1.075,
     "foul_rate": 0.41,
     "two_strike_foul_scale": 1.02,
-    "bat_speed_base": 69.3,
-    "bat_speed_power_scale": 0.09,
-    "bat_speed_contact_scale": 0.15,
+    "bat_speed_base": 68.8,
+    "bat_speed_power_scale": 0.15,
+    "bat_speed_contact_scale": 0.0,
+    # S3 power calibration (7.45.0) -- make Power produce home runs.
+    #
+    # Before: HR rate vs Power r = 0.08, vs Contact r = 0.80 on the fixture
+    # (alpha-test: -0.06 / +0.77). Contact reached exit velocity through bat
+    # speed, the quality multiplier and barrel accuracy; power through a 0.09
+    # bat-speed slope S2-08 had flattened to keep 30-HR seasons down.
+    #
+    # Now contact decides whether and how squarely the ball is met; power decides
+    # how hard. Contact is out of bat speed and the EV quality term, barrel
+    # accuracy draws on Power, and power's bat speed bends upward above 52 so
+    # average hitters stay average and sluggers separate. After: HR vs Power
+    # 0.58-0.60 and vs Contact 0.19-0.29 across seeds 1-4; strict gates green on
+    # seeds 1, 2 and 4 (the shipped config was green on 1 and 2 only). Platoon
+    # bonuses rose because handedness had acted partly through contact's EV
+    # effect. See docs/specs/S3-power-calibration.md.
+    #
+    # NOTE: TuningConfig.from_overrides silently drops any override key that is
+    # not already in DEFAULT_TUNING, so new knobs must be registered here.
+    "bat_speed_power_knee": 52.0,
+    "bat_speed_power_knee_scale": 0.8,
+    "ev_contact_quality_weight": 0.0,
+    "skill_contact_scale": 0.6,
+    "barrel_power_weight": 1.0,
     "ev_pitch_weight": 0.48,
     "ev_bat_weight": 0.7,
     "exit_velo_sd": 5.0,
@@ -465,8 +488,8 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "injury_error_scale": 2.0,
     # S2-01: sized so the league platoon-split KPI lands in its 20-32 wOBA-point
     # band (2.0 produced ~46 pts). Tune these three together.
-    "handedness_contact_bonus": 1.2,
-    "handedness_power_bonus": 1.2,
+    "handedness_contact_bonus": 1.8,
+    "handedness_power_bonus": 2.0,
     "handedness_eye_bonus": 1.2,
     "handedness_switch_bonus": 0.5,
     # S2-07: batter familiarity bonus per times-through-order pass beyond the

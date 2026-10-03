@@ -39,6 +39,27 @@ BREAKING_PITCHES = {"sl", "cb", "kn", "scb"}
 OFFSPEED_PITCHES = {"cu"}
 
 
+
+def _power_bat_speed(power: float, tuning: TuningConfig) -> float:
+    """Bat speed added by the Power rating, relative to an average hitter.
+
+    Linear below the knee; above it each point adds ``bat_speed_power_knee_scale``
+    more. Home runs are a distance-vs-fence threshold, so a steep LINEAR slope
+    turned an ordinary power spread into dozens of 30-homer seasons -- which is
+    why S2-08 flattened power to 0.09 and handed home runs to the Contact rating.
+    A knee lets average hitters stay average while genuine sluggers separate.
+
+    The defaults (knee 100, no extra slope) reproduce the old linear formula.
+    """
+
+    scale = tuning.get("bat_speed_power_scale", 0.55)
+    knee = tuning.get("bat_speed_power_knee", 100.0)
+    knee_scale = tuning.get("bat_speed_power_knee_scale", 0.0)
+    delta = (float(power) - 50.0) * scale
+    if power > knee:
+        delta += (float(power) - knee) * knee_scale
+    return delta
+
 def _weighted_choice(weights: Dict[str, float]) -> str:
     total = sum(max(0.0, w) for w in weights.values())
     if total <= 0.0:
@@ -786,13 +807,25 @@ def simulate_pitch(
             difficulty += max(0.0, (pitch_quality - 50.0) / 100.0)
             difficulty += max(0.0, (velocity - 90.0) / 20.0)
             difficulty += min(1.0, break_mag / 0.4) * 0.5
-            skill_factor = 0.8 + (1.0 - batter_contact / 100.0) * 0.6
+            # Timing (when the bat arrives) is a contact skill. Barrelling the
+            # ball -- the sweet spot, which is what makes it go far -- is much
+            # more what separates power hitters, so barrel accuracy can draw on
+            # Power via barrel_power_weight. At 0.0 both use contact alone, the
+            # original single skill_factor.
+            skill_scale = tuning.get("skill_contact_scale", 0.6)
+            timing_skill = 0.8 + (1.0 - batter_contact / 100.0) * skill_scale
+            barrel_power_weight = tuning.get("barrel_power_weight", 0.0)
+            barrel_rating = (
+                batter_contact * (1.0 - barrel_power_weight)
+                + batter.get("power", 50.0) * barrel_power_weight
+            )
+            barrel_skill = 0.8 + (1.0 - barrel_rating / 100.0) * skill_scale
             timing_sd = tuning.get("timing_error_base", 0.22)
             timing_sd *= 1.0 + difficulty * tuning.get("timing_error_scale", 0.6)
-            timing_sd *= skill_factor
+            timing_sd *= timing_skill
             barrel_sd = tuning.get("barrel_error_base", 0.24)
             barrel_sd *= 1.0 + difficulty * tuning.get("barrel_error_scale", 0.6)
-            barrel_sd *= skill_factor
+            barrel_sd *= barrel_skill
             timing_error = random.gauss(0.0, timing_sd)
             barrel_error = random.gauss(0.0, barrel_sd)
             timing_quality = max(0.0, 1.0 - abs(timing_error))
@@ -806,9 +839,7 @@ def simulate_pitch(
                 timing_quality * timing_weight + barrel_quality * barrel_weight
             ) / weight_sum
             bat_speed = tuning.get("bat_speed_base", 62.0)
-            bat_speed += (batter.get("power", 50.0) - 50.0) * tuning.get(
-                "bat_speed_power_scale", 0.55
-            )
+            bat_speed += _power_bat_speed(batter.get("power", 50.0), tuning)
             bat_speed += (batter.get("contact", 50.0) - 50.0) * tuning.get(
                 "bat_speed_contact_scale", 0.2
             )
@@ -818,7 +849,16 @@ def simulate_pitch(
                 + bat_speed * tuning.get("ev_bat_weight", 0.7)
             )
             ev_base += random.gauss(0.0, tuning.get("exit_velo_sd", 5.0))
-            quality = 0.85 + (contact_base - 50.0) / 250.0
+            # Contact's share of how HARD the ball is hit. contact_base mixes the
+            # hitter's contact with the pitch's quality; this weight scales only
+            # the hitter's part, so the pitcher's effect is untouched. At 1.0 it
+            # is the original formula. Contact still decides whether and how
+            # squarely the ball is met (contact_prob, timing and barrel error);
+            # this is the term that also let it decide how far the ball goes.
+            contact_ev_weight = tuning.get("ev_contact_quality_weight", 1.0)
+            quality = 0.85 + (
+                contact_base - 50.0 + (batter_contact - 50.0) * (contact_ev_weight - 1.0)
+            ) / 250.0
             quality *= max(0.75, 1.0 - (pitch_quality - 50.0) / 250.0)
             quality *= 0.7 + 0.6 * contact_quality
             quality *= max(

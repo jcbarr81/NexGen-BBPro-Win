@@ -87,6 +87,16 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     # supplied via evaluate_tolerances targets= in main (0.026, pass band
     # 0.020-0.032) — no benchmark CSV row.
     "platoon_gap_woba": 0.006,
+    # S3: the ratings must drive the outcomes they name. League aggregates sat
+    # on target for months while Contact, not Power, produced the home runs
+    # (HR vs PH r = 0.08). Targets live in RATING_OUTCOME_TARGETS below. The
+    # gate is symmetric, so the positive bands are centred to put their upper
+    # edge at 1.0 -- a correlation can't be "too strong", only too weak. They
+    # exist to catch the relationship inverting, not to pin it to two decimals.
+    "corr_hr_power": 0.25,     # 0.50 to 1.00
+    "corr_iso_power": 0.25,    # 0.50 to 1.00
+    "corr_hr_contact": 0.30,   # -0.20 to 0.40
+    "corr_avg_contact": 0.30,  # 0.40 to 1.00
     # NOTE (S2-08): qualified_hr30_count and qualified_sub220_count are
     # computed and reported in every KPI run but deliberately NOT gated here.
     # Both encode MLB *survivorship* — weak regulars get benched/demoted (never
@@ -619,6 +629,83 @@ def evaluate_tolerances(
     return failures
 
 
+# Targets for the S3 rating->outcome gates (bands in DEFAULT_TOLERANCES).
+RATING_OUTCOME_TARGETS: dict[str, float] = {
+    "corr_hr_power": 0.75,
+    "corr_iso_power": 0.75,
+    "corr_hr_contact": 0.10,
+    "corr_avg_contact": 0.70,
+}
+
+
+def _load_hitter_ratings(path: Path) -> dict[str, tuple[float, float]]:
+    """Return {player_id: (contact, power)} for hitters (S3 power calibration)."""
+    ratings: dict[str, tuple[float, float]] = {}
+    with path.open() as handle:
+        for row in csv.DictReader(handle):
+            player_id = row.get("player_id")
+            if not player_id:
+                continue
+            try:
+                ratings[player_id] = (float(row.get("ch") or 0), float(row.get("ph") or 0))
+            except (TypeError, ValueError):
+                continue
+    return ratings
+
+
+def _pearson(xs: list[float], ys: list[float]) -> float | None:
+    if len(xs) < 3:
+        return None
+    mx, my = statistics.fmean(xs), statistics.fmean(ys)
+    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    sx = sum((x - mx) ** 2 for x in xs) ** 0.5
+    sy = sum((y - my) ** 2 for y in ys) ** 0.5
+    if not sx or not sy:
+        return None
+    return sxy / (sx * sy)
+
+
+def _rating_outcome_metrics(
+    batter_totals: dict[str, Counter],
+    ratings: dict[str, tuple[float, float]],
+    games_per_team: int,
+) -> dict[str, float | None]:
+    """Do the ratings drive the outcomes they name? (S3 power calibration)
+
+    League aggregates can sit on target while the wrong rating produces them:
+    alpha-test passed every gate with HR rate vs Power at r = -0.06 and vs
+    Contact at r = +0.77. These correlations, over the same qualified hitters as
+    the dispersion gates, are what would have caught it.
+    """
+    min_pa_q = max(1, round(games_per_team * 3.1))
+    rows = []
+    for pid, s in batter_totals.items():
+        pa, ab = s.get("pa", 0), s.get("ab", 0)
+        if pa < min_pa_q or ab <= 0 or pid not in ratings:
+            continue
+        ch, ph = ratings[pid]
+        hits, hr = s.get("h", 0), s.get("hr", 0)
+        doubles, triples = s.get("b2", 0), s.get("b3", 0)
+        singles = hits - doubles - triples - hr
+        slg = (singles + 2 * doubles + 3 * triples + 4 * hr) / ab
+        avg = hits / ab
+        rows.append((ch, ph, hr / pa, avg, slg - avg))
+    keys = ("corr_hr_power", "corr_hr_contact", "corr_avg_contact", "corr_iso_power")
+    if len(rows) < 10:
+        return {key: None for key in keys}
+    ch = [r[0] for r in rows]
+    ph = [r[1] for r in rows]
+    hr = [r[2] for r in rows]
+    avg = [r[3] for r in rows]
+    iso = [r[4] for r in rows]
+    return {
+        "corr_hr_power": _pearson(ph, hr),
+        "corr_hr_contact": _pearson(ch, hr),
+        "corr_avg_contact": _pearson(ch, avg),
+        "corr_iso_power": _pearson(ph, iso),
+    }
+
+
 def _dispersion_metrics(
     batter_totals: dict[str, Counter],
     pitcher_totals: dict[str, Counter],
@@ -1080,6 +1167,14 @@ def run_sim(
             teams=len(teams),
         )
     )
+    # Rating -> outcome relationships (S3), gated via RATING_OUTCOME_TARGETS.
+    summary["metrics"].update(
+        _rating_outcome_metrics(
+            batter_totals=batter_totals,
+            ratings=_load_hitter_ratings(players_path),
+            games_per_team=games_per_team,
+        )
+    )
 
     # Pitching-usage gates (S2-12).
     summary["metrics"].update(
@@ -1235,7 +1330,10 @@ def main() -> None:
         metrics=summary.get("metrics", {}),
         benchmarks=benchmarks,
         tolerances=tolerances,
-        targets={"platoon_gap_woba": 0.026},  # S2-01 pass band 0.020-0.032
+        targets={
+            "platoon_gap_woba": 0.026,  # S2-01 pass band 0.020-0.032
+            **RATING_OUTCOME_TARGETS,  # S3
+        },
     )
     summary["tolerances"] = tolerances
     summary["tolerance_failures"] = failures

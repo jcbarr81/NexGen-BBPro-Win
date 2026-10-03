@@ -1,6 +1,59 @@
 # S3 — Make power hit for power
 
-Status: **proposed** (2026-10-02). Not started.
+Status: **shipped in 7.45.0** (2026-10-03), rolled out mid-season on
+alpha-test at the commissioner's request — it is the test league. Phases 0, 1, 2
+and 4 are done; Phase 3 is deferred (see below).
+
+## Outcome
+
+| | before | after (7.45.0) |
+|---|---|---|
+| Fixture, HR vs Power (seeds 1 / 2) | 0.08 / 0.01 | **0.59 / 0.60** |
+| Fixture, HR vs Contact | 0.80 / 0.80 | **0.19 / 0.22** |
+| Fixture, ISO vs Power | 0.05 / 0.02 | **0.62 / 0.62** |
+| Fixture, qualified 30-HR hitters (MLB ≈ 5.5) | 29 / 31 | 15 / 20 |
+| alpha-test copy, 30 days: HR vs Power | +0.01 | **+0.45** |
+| alpha-test copy, 30 days: HR vs Contact | +0.70 | **+0.06** |
+| alpha-test copy: league HR per PA | .0295 | .0298 |
+| Leroy Harris (CH 73 / PH 52), same 30 days | 9 HR in 114 PA | 3 HR in 105 PA, .310 |
+| Strict gates green | seeds 1, 2 | seeds 1, 2, 4 |
+
+The shipped config was green only on the two seeds it was calibrated on (it
+fails seed 3 on the .300-hitter count and seed 4 on OPS spread); the new one
+also passes seed 4 and misses seed 3 by a hair on OPS (.730) and the platoon
+gap. AVG vs Contact fell from ~0.75 to ~0.48 — contact still drives batting
+average, it just no longer drives how hard the ball is hit.
+
+### What changed (`physics_sim/config.py`, `physics_sim/physics.py`)
+
+- `bat_speed_contact_scale` 0.15 → **0.0**; new `ev_contact_quality_weight`
+  **0.0** — contact is out of bat speed and the exit-velocity quality term.
+- New `barrel_power_weight` **1.0** — timing accuracy stays a contact skill;
+  barrel accuracy (squaring the ball up) now draws on Power.
+- `bat_speed_power_scale` 0.09 → **0.15**, with a new knee: above
+  `bat_speed_power_knee` **52** each point adds `bat_speed_power_knee_scale`
+  **0.8** more.
+- `bat_speed_base` 69.3 → **68.8** to hold league offense level;
+  `handedness_contact_bonus` / `handedness_power_bonus` 1.2 → **1.8 / 2.0**
+  because handedness had acted partly through contact's old EV effect.
+- Harness: `corr_hr_power`, `corr_iso_power`, `corr_hr_contact`,
+  `corr_avg_contact`, now **gated** (`RATING_OUTCOME_TARGETS`).
+
+### Trap found on the way
+
+`TuningConfig.from_overrides` silently drops any override key that is not
+already in `DEFAULT_TUNING`. The first two calibration rounds tried the new
+knobs as overrides and every one was ignored — configurations differing only in
+those knobs produced identical numbers to the last digit. New knobs must be
+registered in `DEFAULT_TUNING` before they can be tuned.
+
+### Deferred: Phase 3 (restore the power spread for new leagues)
+
+Not done. Widening generated power means changes the calibration fixture, which
+means regenerating it and recalibrating against a different rating population —
+a separate loop. The curve already works on today's compressed ratings
+(alpha-test power p10 48 / p90 59), so existing leagues get the full benefit
+without it.
 
 ## The problem
 

@@ -947,6 +947,9 @@ land before channel-specific features.
 ## 46. Make power hit for power (engine calibration)
 _Added 2026-10-02 from owner feedback (El_Jayel). Full plan: `docs/specs/S3-power-calibration.md`._
 
+> **Shipped in 7.45.0 (2026-10-03)** except Phase 3 (widen the generated power spread for new leagues) and the
+> stolen-base recalibration, both still open. HR vs Power is now ~0.6 on the fixture (was 0.08).
+
 The Power rating has almost no effect on home runs (HR rate vs PH r = -0.06 on
 alpha-test) while Contact drives them (r = +0.77), so high-contact,
 average-power hitters post sluggers' numbers (Leroy Harris, SAN1: contact 73 /
