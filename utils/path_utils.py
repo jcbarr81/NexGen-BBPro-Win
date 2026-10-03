@@ -114,11 +114,35 @@ def _can_write_dir(path: Path) -> bool:
         return False
 
 
-def _clear_readonly(path: Path) -> None:
+def ensure_writable(path: Path | str) -> None:
+    """Give the owner write access to *path*, leaving every other bit alone.
+
+    The old ``os.chmod(path, stat.S_IWRITE)`` was a Windows idiom: there it
+    simply clears the read-only flag. On Linux it REPLACES the whole mode with
+    0o200 -- write-only, no read, no execute -- and a directory without execute
+    cannot be entered. Run over a league's data tree, it made every directory
+    untraversable. Cloud Run never noticed because the container runs as root,
+    which ignores permission bits; GitHub's runner is an ordinary user, and the
+    KPI harness died on import with "Permission denied" -- one reason that CI
+    check had never once completed.
+
+    Only touches the file when the owner-write bit is actually missing.
+    """
+
     try:
-        os.chmod(path, stat.S_IWRITE)
+        mode = os.stat(path).st_mode
+    except OSError:
+        return
+    if mode & stat.S_IWRITE:
+        return
+    try:
+        os.chmod(path, stat.S_IMODE(mode) | stat.S_IWRITE)
     except OSError:
         pass
+
+
+def _clear_readonly(path: Path) -> None:
+    ensure_writable(path)
 
 
 def _clear_readonly_tree(path: Path) -> None:

@@ -137,3 +137,7 @@ scripts/.discord_webhook
 # Scratch output from tuning and long-term sim runs. Never commit: it once
 # carried 31,640 files and symlinks that broke CI checkout on Linux.
 tmp/
+
+# Editor worktrees. Committing one records a submodule pointer with no
+# .gitmodules entry, which makes CI checkout log git exit 128.
+.claude/worktrees/

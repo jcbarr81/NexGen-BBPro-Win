@@ -2,13 +2,13 @@ import colorsys
 import csv
 import json
 import os
-import stat
 import random
 import shutil
 from datetime import date
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Set, Tuple
 
+from utils.path_utils import ensure_writable
 from models.player import Player
 from models.pitcher import Pitcher
 from models.roster import Roster
@@ -139,7 +139,7 @@ def _purge_old_league(base_dir: Path) -> None:
 
     def _on_rm_error(func, path, _exc_info):
         try:
-            os.chmod(path, stat.S_IWRITE)
+            ensure_writable(path)
             func(path)
         except Exception:
             pass
@@ -154,7 +154,7 @@ def _purge_old_league(base_dir: Path) -> None:
                 item.unlink()
             except OSError:
                 try:
-                    os.chmod(item, stat.S_IWRITE)
+                    ensure_writable(item)
                     item.unlink()
                 except OSError:
                     if item.exists():
@@ -163,7 +163,7 @@ def _purge_old_league(base_dir: Path) -> None:
     lock_file = base_dir / "season_stats.json.lock"
     if lock_file.exists():
         try:
-            os.chmod(lock_file, stat.S_IWRITE)
+            ensure_writable(lock_file)
             lock_file.unlink()
         except OSError:
             pass

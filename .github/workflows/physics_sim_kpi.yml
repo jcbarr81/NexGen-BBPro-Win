@@ -4,7 +4,12 @@ on:
   pull_request:
     paths:
       - "physics_sim/**"
-      - "playbalance/schedule_generator.py"
+      # The harness imports all of these. A permissions bug in utils/ reached
+      # through playbalance/ crashed it on import, and a change confined to
+      # either would never have triggered this check.
+      - "playbalance/**"
+      - "utils/**"
+      - "models/**"
       - "scripts/physics_sim_season_kpis.py"
       - "scripts/generate_calibration_roster.py"
       - "data/calibration/**"
@@ -14,7 +19,12 @@ on:
     branches: [main]
     paths:
       - "physics_sim/**"
-      - "playbalance/schedule_generator.py"
+      # The harness imports all of these. A permissions bug in utils/ reached
+      # through playbalance/ crashed it on import, and a change confined to
+      # either would never have triggered this check.
+      - "playbalance/**"
+      - "utils/**"
+      - "models/**"
       - "scripts/physics_sim_season_kpis.py"
       - "scripts/generate_calibration_roster.py"
       - "data/calibration/**"
