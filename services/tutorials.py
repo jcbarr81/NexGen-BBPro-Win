@@ -339,7 +339,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Admin controls",
-                "<p><b>Advance to next owner</b> runs the CPU teams' picks and stops the moment an owner-controlled team is on the clock. Every advance button stops at owners, so the commissioner can never spend an owner's pick by accident. If an owner isn't responding, the commissioner can still take the pick deliberately — <b>Auto-pick</b> and <b>Make pick</b> relabel to <b>Pick for TEAM</b> when it isn't your own team.</p>"
+                "<p><b>Advance to next owner</b> runs the CPU teams' picks and stops the moment an owner-controlled team is on the clock. Advancing stops at owners, so nobody spends an owner's pick by accident. The one exception is the commissioner's <b>Auto-finish draft</b>, which makes every remaining pick, owners included, after a confirmation that lists whose picks will be made. If an owner isn't responding, the commissioner can still take the pick deliberately — <b>Auto-pick</b> and <b>Make pick</b> relabel to <b>Pick for TEAM</b> when it isn't your own team.</p>"
                 "<p>Admins also see a third <b>Admin</b> tab with the commissioner tools:</p>"
                 "<ul>"
                 "<li><b>Draft configuration</b> — rounds, pool size and the pick clock.</li>"

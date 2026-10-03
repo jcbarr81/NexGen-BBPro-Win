@@ -934,6 +934,14 @@ def auto_advance(
     year = int(payload.get("year") or _resolve_year(None))
     stop_mode = str(payload.get("stop", "my_pick")).strip().lower() or "my_pick"
     include_humans = bool(payload.get("include_human_teams", False))
+    if include_humans and str(identity.get("r", "")).lower() != "admin":
+        # Picking for every team on the board, owners included, is the
+        # commissioner's call alone. Without this any signed-in owner could
+        # have the CPU spend every other owner's picks.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the commissioner can auto-pick for owner-controlled teams.",
+        )
     if stop_mode not in {"my_pick", "next_human", "end_of_round", "end_of_draft"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

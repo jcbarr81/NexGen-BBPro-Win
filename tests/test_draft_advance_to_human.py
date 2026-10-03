@@ -159,3 +159,32 @@ def test_an_owner_still_cannot_pick_for_another_team(draft):
         D.auto_pick({"year": 2026}, identity=intruder)
     assert exc.value.status_code == 403
     assert made == []
+
+
+# --- the force-finish override belongs to the commissioner -----------------
+
+
+def test_an_owner_cannot_force_picks_for_other_owners(draft):
+    """include_human_teams spends every owner's pick; an owner asking for it
+    must be refused before a single pick is made."""
+    from fastapi import HTTPException
+
+    state, made = draft
+    owner = {"u": "o", "r": "owner", "mr": "owner", "t": "BAL"}
+    with pytest.raises(HTTPException) as exc:
+        D.auto_advance(
+            {"year": 2026, "stop": "end_of_draft", "include_human_teams": True},
+            identity=owner,
+        )
+    assert exc.value.status_code == 403
+    assert made == []
+
+
+def test_an_owner_can_still_advance_cpu_teams(draft):
+    """The gate is on the override, not on advancing: CPU-only advancing
+    spends nobody's pick."""
+    state, made = draft
+    owner = {"u": "o", "r": "owner", "mr": "owner", "t": "BAL"}
+    result = D.auto_advance({"year": 2026, "stop": "next_human"}, identity=owner)
+    assert made == ["CHA", "ELP", "DAL"]
+    assert result["stopped_reason"] == "human_on_clock"

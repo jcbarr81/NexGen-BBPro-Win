@@ -207,6 +207,28 @@ function LiveDraftView({
     return rotated;
   }, [state, draftComplete]);
 
+  // Remaining picks that belong to owner-controlled teams, so finishing the
+  // draft can say exactly whose picks the CPU is about to make. Uses the
+  // round-robin order; with compensation picks the order is uneven, so the
+  // count is only an estimate and the dialog says so.
+  const ownerPicksLeft = useMemo(() => {
+    const humans = new Set((state.human_teams ?? []).map((t) => t.toUpperCase()));
+    const total = state.total_picks ?? 0;
+    const teams = new Map<string, number>();
+    if (!state.exists || draftComplete || !state.order.length || !humans.size) {
+      return { count: 0, teams, estimate: !!state.has_compensation };
+    }
+    let count = 0;
+    for (let overall = state.overall_pick; overall <= total; overall++) {
+      const team = state.order[(overall - 1) % state.order.length];
+      if (team && humans.has(team.toUpperCase())) {
+        count += 1;
+        teams.set(team, (teams.get(team) ?? 0) + 1);
+      }
+    }
+    return { count, teams, estimate: !!state.has_compensation };
+  }, [state, draftComplete]);
+
   const recentPicks = useMemo(() => {
     if (!state.selected.length) return [];
     const copy = [...state.selected];
@@ -288,6 +310,7 @@ function LiveDraftView({
         onClockIsHuman={!!state.on_clock_is_human && !draftComplete}
         pickDeadline={draftComplete ? null : (state.pick_deadline ?? null)}
         isAdmin={isAdmin}
+        ownerPicksLeft={ownerPicksLeft}
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -442,6 +465,7 @@ function DraftControlsPanel({
   onClockIsHuman,
   pickDeadline,
   isAdmin,
+  ownerPicksLeft,
 }: {
   year: number;
   myTeamId: string | null;
@@ -449,6 +473,7 @@ function DraftControlsPanel({
   onClockIsHuman: boolean;
   pickDeadline: string | null;
   isAdmin: boolean;
+  ownerPicksLeft: { count: number; teams: Map<string, number>; estimate: boolean };
 }) {
   const queryClient = useQueryClient();
   const isMyTurn = !!myTeamId && myTeamId === onClockTeamId;
@@ -521,10 +546,30 @@ function DraftControlsPanel({
     mutationFn: () => api.draftAutoAdvance("end_of_round", { year }),
     onSuccess: refreshAll,
   });
+  // "Auto-finish" means finish: every remaining pick, owners included. That
+  // is the commissioner's call, so it is admin-only and confirmed first.
   const advanceDraftMut = useMutation({
-    mutationFn: () => api.draftAutoAdvance("end_of_draft", { year }),
+    mutationFn: () =>
+      api.draftAutoAdvance("end_of_draft", { year, include_human_teams: true }),
     onSuccess: refreshAll,
   });
+  const { confirm, dialog: finishConfirmDialog } = useConfirmDialog();
+
+  async function finishDraft() {
+    const owners = [...ownerPicksLeft.teams.entries()]
+      .map(([team, n]) => `${team} (${n})`)
+      .join(", ");
+    const ok = await confirm({
+      title: "Auto-finish the draft?",
+      description:
+        ownerPicksLeft.count > 0
+          ? `The CPU will make every remaining pick, including ${ownerPicksLeft.estimate ? "about " : ""}${ownerPicksLeft.count} owner pick${ownerPicksLeft.count === 1 ? "" : "s"}: ${owners}. Owners won't get to choose these players, and this can't be undone from the draft page.`
+          : "The CPU will make every remaining pick. No owner picks remain.",
+      confirmLabel: "Finish draft",
+      danger: ownerPicksLeft.count > 0,
+    });
+    if (ok) advanceDraftMut.mutate();
+  }
 
   const anyPending =
     pickMut.isPending ||
@@ -708,20 +753,23 @@ function DraftControlsPanel({
             )}
             Finish round
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => advanceDraftMut.mutate()}
-            disabled={anyPending}
-            title="Run CPU picks to the end of the draft — stops if an owner comes up"
-          >
-            {advanceDraftMut.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <FastForward className="h-4 w-4" />
-            )}
-            Auto-finish draft
-          </Button>
+          {isAdmin && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void finishDraft()}
+              disabled={anyPending}
+              title="Commissioner: the CPU makes every remaining pick, owners included"
+            >
+              {advanceDraftMut.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FastForward className="h-4 w-4" />
+              )}
+              Auto-finish draft
+            </Button>
+          )}
+          {finishConfirmDialog}
         </div>
 
         {/* Filter row */}
