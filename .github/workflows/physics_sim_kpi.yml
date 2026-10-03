@@ -34,7 +34,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        # The engine's production dependencies, matching the Cloud Run image.
+        # requirements.txt was renamed to requirements-dev.txt in August 2025
+        # and that one carries torch/diffusers/transformers the harness never
+        # touches. Nobody noticed the stale name because checkout failed first.
+        run: python -m pip install -r requirements-server.txt
       - name: Run KPI harness (strict, calibration fixture)
         env:
           PYTHONHASHSEED: "0"
