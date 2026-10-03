@@ -943,3 +943,20 @@ land before channel-specific features.
 - **Verify with:** `python scripts/sim_seasons_with_automations.py --seasons 3`
   (target: volume up, win% stddev still not growing, rosters legal after revert).
 - **Status:** Open (optional).
+
+## 46. Make power hit for power (engine calibration)
+_Added 2026-10-02 from owner feedback (El_Jayel). Full plan: `docs/specs/S3-power-calibration.md`._
+
+The Power rating has almost no effect on home runs (HR rate vs PH r = -0.06 on
+alpha-test) while Contact drives them (r = +0.77), so high-contact,
+average-power hitters post sluggers' numbers (Leroy Harris, SAN1: contact 73 /
+power 52, .394 with 20 HR in 198 AB). S2-08 cut `bat_speed_power_scale` to 0.09
+and compressed the power spread to keep league HR totals on target; its own
+open follow-up, a nonlinear power-to-exit-velocity curve, was never built.
+The plan gates the rating-to-outcome relationship first, then adds the curve,
+takes contact out of the exit-velocity ceiling, restores the power spread for
+new leagues, and re-gates. Rollout timing is the commissioner's call.
+
+Same investigation: stolen-base volume runs at ~3x MLB (2.31 SB per team-game),
+and the harness's `sba_per_pa` benchmark of 0.050 looks about double the real
+rate -- verify and recalibrate alongside the power work.

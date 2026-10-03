@@ -2645,6 +2645,25 @@ def _select_pinch_hitter(
     return best
 
 
+def _runner_is_tying_or_go_ahead(*, score_diff: int, runners_ahead: int) -> bool:
+    """Would this runner scoring tie the game or put his team in front?
+
+    ``score_diff`` is the batting team's score minus the fielding team's.
+    Runners on bases ahead of him score first, so his run is run number
+    ``runners_ahead + 1`` for his side.
+
+    This is the situation a manager spends a bench player on. Trailing by one,
+    the lead runner is the tying run and the next is the go-ahead run; tied,
+    only the lead runner matters; ahead, nobody is the tying or go-ahead run.
+    """
+
+    deficit = -int(score_diff)
+    if deficit < 0:
+        return False
+    his_run = int(runners_ahead) + 1
+    return his_run in (deficit, deficit + 1)
+
+
 def _select_pinch_runner(
     *,
     lineup_state: LineupState,
@@ -2652,11 +2671,18 @@ def _select_pinch_runner(
     inning: int,
     score_diff: int,
     tuning: TuningConfig,
+    runners_ahead: int = 0,
 ) -> BatterRatings | None:
     if inning < int(tuning.get("pinch_run_inning", 7.0)):
         return None
-    close_diff = tuning.get("pinch_run_close_run_diff", 2.0)
-    if score_diff > close_diff:
+    # Only for the run that decides the game. This used to be "within two
+    # runs", checked one-sidedly -- ``score_diff > close_diff`` only bails out
+    # when the batting team LEADS, so a team trailing 9-1 in the 7th still
+    # pinch-ran every slow runner. Owners saw bench speedsters used in
+    # three-quarters of all games: 49 G, 25 AB, 16 SB.
+    if not _runner_is_tying_or_go_ahead(
+        score_diff=score_diff, runners_ahead=runners_ahead
+    ):
         return None
     if runner.speed >= tuning.get("pinch_run_speed_min", 55.0):
         return None
@@ -2683,6 +2709,7 @@ def _maybe_pinch_run(
     tuning: TuningConfig,
 ) -> str | None:
     base_codes = {"third": "pr3", "second": "pr2", "first": "pr1"}
+    runners_ahead = 0
     for base_attr in ("third", "second", "first"):
         runner = getattr(bases, base_attr)
         if runner is None:
@@ -2693,7 +2720,9 @@ def _maybe_pinch_run(
             inning=inning,
             score_diff=score_diff,
             tuning=tuning,
+            runners_ahead=runners_ahead,
         )
+        runners_ahead += 1
         if replacement is None:
             continue
         if _apply_substitution(

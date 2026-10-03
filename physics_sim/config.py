@@ -8,7 +8,13 @@ import json
 
 DEFAULT_TUNING: Dict[str, Any] = {
     # Global run environment
-    "offense_scale": 1.015,
+    # 1.015 -> 1.0175 (7.44.6): pinch runners now enter only for the tying or
+    # go-ahead run. The old rule sent bench speedsters in almost every game,
+    # and that worth ~0.08 runs per team-game was quietly holding the run
+    # environment up. This restores it: strict KPI gates green on seeds 1
+    # and 2 (runs 4.31 / 4.35). Note how steep this knob is -- +0.01 is about
+    # +0.39 runs -- and see docs/specs/S3-power-calibration.md.
+    "offense_scale": 1.0175,
     "pitching_dom_scale": 1.0,
     # Plate discipline / swing behaviour
     "zone_swing_scale": 0.91,
