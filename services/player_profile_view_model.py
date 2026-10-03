@@ -50,6 +50,11 @@ _BATTING_STATS: List[str] = [
     "ops",
 ]
 
+# Rate stats: recomputed for a career row from its components, never summed.
+_RATE_KEYS = frozenset(
+    {"avg", "obp", "slg", "ops", "era", "whip", "pct", "oba", "dera", "fip"}
+)
+
 _PITCHING_STATS: List[str] = [
     "age",
     "team",
@@ -73,7 +78,11 @@ _PITCHING_STATS: List[str] = [
     "sho",
     "sv",
     "bs",
-    "dera",
+    # FIP, not DERA: DERA is a Baseball Prospectus metric with no published
+    # formula and nothing in the engine produces it, so that column was blank
+    # for every pitcher. FIP is the standard defense-independent ERA and the
+    # simulation already records it.
+    "fip",
 ]
 
 _HITTER_RATINGS: Tuple[Tuple[str, str], ...] = (
@@ -113,7 +122,7 @@ _STAT_ROUNDING: Dict[str, int] = {
     "era": 2,
     "whip": 2,
     "ip": 2,
-    "dera": 2,
+    "fip": 2,
 }
 
 
@@ -777,8 +786,39 @@ def _stats_to_dict(stats: Any, is_pitcher: bool) -> Dict[str, Any]:
             data["2b"] = data.get("b2", 0)
         if "b3" in data and "3b" not in data:
             data["3b"] = data.get("b3", 0)
+    _alias_strikeouts(data)
     _round_stat_values(data)
     return data
+
+
+def _alias_strikeouts(data: Dict[str, Any]) -> None:
+    """The profile's K column reads ``k``; the simulation records ``so``.
+
+    Without this the strikeout column was blank on every profile, hitters and
+    pitchers alike, which an owner reasonably read as "nobody strikes out".
+    """
+
+    if "k" not in data and "so" in data:
+        data["k"] = data["so"]
+
+
+def _opponent_at_bats(data: Mapping[str, Any]) -> float:
+    """Batters faced, less the plate appearances that are not at-bats."""
+
+    bf = _safe_float(data.get("bf"))
+    if not bf:
+        return 0.0
+    not_at_bats = sum(
+        _safe_float(data.get(key)) for key in ("bb", "hbp", "sf", "sh", "ci")
+    )
+    return max(0.0, bf - not_at_bats)
+
+
+def _win_pct(data: Mapping[str, Any]) -> float | None:
+    wins = _safe_float(data.get("w"))
+    losses = _safe_float(data.get("l"))
+    decisions = wins + losses
+    return wins / decisions if decisions else None
 
 
 def _normalize_pitching_stats(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -796,6 +836,15 @@ def _normalize_pitching_stats(data: Dict[str, Any]) -> Dict[str, Any]:
         result.setdefault("era", (er * 9.0) / ip_value if ip_value else 0.0)
     result.setdefault("w", result.get("wins", result.get("w", 0)))
     result.setdefault("l", result.get("losses", result.get("l", 0)))
+    # Rate columns the profile shows but the simulation never stores.
+    if "pct" not in result:
+        pct = _win_pct(result)
+        if pct is not None:
+            result["pct"] = pct
+    if "oba" not in result:
+        opp_ab = _opponent_at_bats(result)
+        if opp_ab:
+            result["oba"] = _safe_float(result.get("h")) / opp_ab
     return result
 
 
@@ -869,11 +918,13 @@ def _sum_stat_rows(
     is_pitcher: bool,
 ) -> Dict[str, Any]:
     totals: Dict[str, Any] = {}
+    rows_seen: List[Mapping[str, Any]] = []
     for row in rows:
         if not isinstance(row, Mapping):
             continue
+        rows_seen.append(row)
         for key, value in row.items():
-            if key in {"avg", "obp", "slg", "ops", "era", "whip", "pct", "oba", "dera"}:
+            if key in _RATE_KEYS:
                 continue
             if isinstance(value, bool):
                 continue
@@ -889,6 +940,24 @@ def _sum_stat_rows(
         if ip:
             er = _safe_float(totals.get("er"))
             totals["era"] = (er * 9.0) / ip
+        pct = _win_pct(totals)
+        if pct is not None:
+            totals["pct"] = pct
+        opp_ab = _opponent_at_bats(totals)
+        if opp_ab:
+            totals["oba"] = _safe_float(totals.get("h")) / opp_ab
+        # Career FIP as the innings-weighted mean of season FIPs. Each season's
+        # FIP is (13HR + 3(BB+HBP) - 2K)/IP + C, so weighting by IP recovers the
+        # career figure exactly whenever the league constant C is unchanged.
+        weighted = innings = 0.0
+        for row in rows_seen:
+            fip = row.get("fip")
+            row_ip = _safe_float(row.get("ip")) or _safe_float(row.get("outs")) / 3.0
+            if isinstance(fip, (int, float)) and not isinstance(fip, bool) and row_ip:
+                weighted += float(fip) * row_ip
+                innings += row_ip
+        if innings:
+            totals["fip"] = weighted / innings
     else:
         ab = _safe_float(totals.get("ab"))
         hits = _safe_float(totals.get("h"))

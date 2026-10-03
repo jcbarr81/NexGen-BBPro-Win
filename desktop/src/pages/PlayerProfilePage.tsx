@@ -806,7 +806,7 @@ function StatsCard({ profile }: { profile: PlayerProfile }) {
                     key={col}
                     className="px-2 py-2 text-right tabular-nums"
                   >
-                    {formatStat(row[col])}
+                    {formatStat(row[col], col)}
                   </td>
                 ))}
               </tr>
@@ -818,9 +818,18 @@ function StatsCard({ profile }: { profile: PlayerProfile }) {
   );
 }
 
-function formatStat(value: unknown): string {
+// ERA-style rates read to two places, not three.
+const TWO_PLACE_STATS = new Set(["era", "fip", "whip"]);
+
+function formatStat(value: unknown, col?: string): string {
   if (value == null || value === "") return "—";
   if (typeof value === "number") {
+    if (col === "ip") {
+      // Baseball notation: 70 and two outs is "70.2", not "70.67".
+      const outs = Math.round(value * 3);
+      return `${Math.floor(outs / 3)}.${outs % 3}`;
+    }
+    if (col && TWO_PLACE_STATS.has(col)) return value.toFixed(2);
     if (Number.isInteger(value)) return String(value);
     return value.toFixed(3).replace(/^0/, "");
   }
