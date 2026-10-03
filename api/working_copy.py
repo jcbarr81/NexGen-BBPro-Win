@@ -20,8 +20,11 @@ Activated only when ``NEXGEN_WORKING_COPY=1`` (set on Cloud Run). Local desktop
 
 Durability model (single-instance, ``max-instances=1``): writes are flushed to
 the durable mount before the mutating request returns, so a client that sees
-``200`` knows its change persisted. A crash mid-sim loses only the in-flight
-sim, never the prior committed state.
+``200`` knows its change persisted. Background jobs push when they finish, and
+a graceful shutdown (a deploy, an instance recycle) flushes whatever is left --
+unless a background job is still mid-write, in which case it stands down rather
+than push a half-written league. A crash mid-sim loses only the in-flight sim,
+never the prior committed state.
 """
 
 from __future__ import annotations
@@ -32,12 +35,13 @@ import shutil
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 # Remote top-level entries we never need on the active node — skipping them keeps
 # the startup pull small (bounded to the live footprint, not archives/backups).
-# These are also never pulled into ``_known``, so the delete pass can never touch
+# These are also never pulled into ``_synced``, so the delete pass can never touch
 # them on the remote.
 _SKIP_TOP_NAMES = {"system"}
 _SKIP_LEAGUE_PREFIX = "legacy"
@@ -46,23 +50,27 @@ _SKIP_LEAGUE_PREFIX = "legacy"
 # the GCS round-trips effectively.
 _WORKERS = 32
 
-# Timestamp of the last successful pull/push. Files modified after this are the
-# ones a push needs to flush.
-_last_sync: float = 0.0
+# Signature (mtime_ns, size) of every file as of its last successful sync --
+# pulled down at startup or pushed up since -- keyed by posix path relative to
+# the data root. A push copies every file whose current signature differs from
+# (or is missing in) this map, and deletes on the remote anything recorded here
+# that is gone locally.
+#
+# This used to be one "saved up to here" time cutoff: push whatever has an
+# mtime after it. But a copy keeps its SOURCE's mtime (shutil.copy2/copytree),
+# so a file copied to a new path -- the season-end archive, a cloned league, a
+# roster-lock snapshot, a backup restored over a live file -- sat below the
+# cutoff, was never pushed, and vanished at the next restart. Comparing per
+# file catches any change, new path or not; a file whose copy fails keeps its
+# old signature and is simply retried by the next push.
+_synced: Dict[str, Tuple[int, int]] = {}
 
-# Relative posix paths we have synced (present in the working copy as of the last
-# pull/push). A push diffs the current local tree against this to find deletions.
-_known: Set[str] = set()
+# Background jobs (sims, CPU free agency, avatar generation) writing to the
+# working copy right now: name -> count. See ``background_writer``.
+_busy: Dict[str, int] = {}
+_busy_lock = threading.Lock()
 
-# Per-segment flush times for SCOPED pushes. Keys: "" for root-level files
-# (direct children of the data root), otherwise a league id. A scoped push
-# advances only its own segments — never the global ``_last_sync`` — so a
-# pending change in league B can't be hidden behind a cutoff advanced by a
-# push scoped to league A. Segments without an entry fall back to
-# ``_last_sync`` (the last full pull/push, which covered everything).
-_scope_sync: Dict[str, float] = {}
-
-# Serialize pushes so concurrent mutating requests don't race on _known / the
+# Serialize pushes so concurrent mutating requests don't race on _synced / the
 # remote. Pushes are quick, so this is cheap insurance on a single instance.
 _push_lock = threading.Lock()
 
@@ -109,9 +117,9 @@ def delete_league_remote(league_id: str) -> bool:
             shutil.rmtree(target, ignore_errors=True)
             removed = True
     # Forget any cached knowledge of this league so a later push won't trip over it.
-    global _known
-    _known = {rel for rel in _known if not rel.startswith(f"leagues/{league_id}/")}
-    _scope_sync.pop(league_id, None)
+    global _synced
+    prefix = f"leagues/{league_id}/"
+    _synced = {rel: sig for rel, sig in _synced.items() if not rel.startswith(prefix)}
     # (was `_log`, an undefined name — NameError on every super-admin delete)
     _emit(f"deleted league {league_id!r} from remote+local")
     return removed
@@ -193,6 +201,23 @@ def _parallel_copy(pairs: Iterable[Tuple[Path, Path]]) -> int:
     return copied
 
 
+def _copy_each(pairs: List[Tuple[Path, Path]]) -> List[bool]:
+    """Copy each pair concurrently; report, per pair, whether it landed."""
+    if not pairs:
+        return []
+    with ThreadPoolExecutor(max_workers=_WORKERS) as ex:
+        return [bool(result) for result in ex.map(_copy_one, pairs)]
+
+
+def _signature(path: Path) -> Optional[Tuple[int, int]]:
+    """(mtime_ns, size) of ``path``, or None if it can't be stat'ed."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
 def _delete_one(path: Path) -> int:
     try:
         path.unlink()
@@ -241,7 +266,7 @@ def bulk_pull() -> None:
     Selective: root-level seed files + non-legacy leagues, skipping
     archive/backup trees so cold-start stays quick.
     """
-    global _last_sync, _known
+    global _synced
     remote, local = _remote(), _local()
     if not remote.exists():
         _emit(f"remote {remote} not present; skipping pull")
@@ -252,15 +277,16 @@ def bulk_pull() -> None:
     rels = list(_iter_pull_files(remote))
     walk_s = time.time() - t0
     copied = _parallel_copy((remote / rel, local / rel) for rel in rels)
-    # Seed _known from what's ACTUALLY in the local copy (not the intended pull
-    # set): a file that failed to copy down must not later be seen as "deleted
+    # Record what is ACTUALLY in the local copy (not the intended pull set): a
+    # file that failed to copy down must not later be seen as "deleted
     # locally" and wrongly removed from the durable remote.
-    _known = {
-        p.relative_to(local).as_posix() for p in local.rglob("*") if p.is_file()
-    }
-    _last_sync = time.time()
-    # A pull refreshes every segment; scoped cutoffs restart from _last_sync.
-    _scope_sync.clear()
+    synced: Dict[str, Tuple[int, int]] = {}
+    for p in local.rglob("*"):
+        if p.is_file():
+            sig = _signature(p)
+            if sig is not None:
+                synced[p.relative_to(local).as_posix()] = sig
+    _synced = synced
 
     # The working copy is now populated (active-league pointer, registry, league
     # dirs). Invalidate path_utils' cached active-league data dir: it may have
@@ -300,32 +326,34 @@ def _request_league_id() -> Optional[str]:
         return None
 
 
-def push_changes(league_id: Optional[str] = None) -> int:
+def push_changes(league_id: Optional[str] = None, *, full: bool = False) -> int:
     """Flush local changes back to the remote: copy new/modified files, and
     delete remote files that were removed locally.
 
     Walks only the *local* tree (fast disk); the changed/deleted sets are then
     the only things that cross the slow FUSE boundary, and they cross in parallel.
+    A file is "changed" when its (mtime, size) differs from the one recorded at
+    its last sync, or it has never been synced -- see ``_synced``.
 
     When the triggering request is bound to a league (cloud multi-tenant
-    ``X-League-Id`` — passed in by the middleware, or read from the same
+    ``X-League-Id`` -- passed in by the middleware, or read from the same
     ContextVar ``utils.path_utils`` uses), the walk is SCOPED to that league's
     dir plus root-level files (direct children of the data root) plus any
     league dir never synced before (e.g. a league this request just created),
-    instead of rglob-ing the entire multi-league root. Deletion sync and the
-    ``_known`` bookkeeping are narrowed to the same scope so out-of-scope
-    leagues are never touched. No league context → the original full walk.
+    instead of rglob-ing the entire multi-league root. Deletion sync is
+    narrowed to the same scope so out-of-scope leagues are never touched; their
+    pending changes stay pending until a push walks them. No league context, or
+    ``full=True``, walks everything.
     """
-    global _last_sync, _known
     remote, local = _remote(), _local()
     if not local.exists():
         return 0
 
-    league_id = _safe_league_id(league_id) or _request_league_id()
+    league_id = None if full else (_safe_league_id(league_id) or _request_league_id())
 
     with _push_lock:
         t0 = time.time()
-        # Scope of this push: None → full walk; otherwise the set of league
+        # Scope of this push: None -> full walk; otherwise the set of league
         # ids whose trees we walk (plus root-level files, always in scope).
         scope_league_ids: Optional[Set[str]] = None
         if league_id and (local / "leagues" / league_id).is_dir():
@@ -333,9 +361,9 @@ def push_changes(league_id: Optional[str] = None) -> int:
             # Also walk league dirs with NO synced files yet: a brand-new
             # league (possibly created by this very request while bound to
             # another league's context) exists only locally, and skipping it
-            # would leave it un-persisted — losing it on restart.
+            # would leave it un-persisted -- losing it on restart.
             known_league_ids = {
-                rel.split("/", 2)[1] for rel in _known if rel.startswith("leagues/")
+                rel.split("/", 2)[1] for rel in _synced if rel.startswith("leagues/")
             }
             try:
                 leagues_root = local / "leagues"
@@ -348,66 +376,66 @@ def push_changes(league_id: Optional[str] = None) -> int:
 
         current: Set[str] = set()
         changed: List[Tuple[Path, Path]] = []
+        changed_sigs: List[Tuple[str, Tuple[int, int]]] = []
 
-        def _scan(src: Path, cutoff: float) -> None:
+        def _scan(src: Path) -> None:
             if not src.is_file():
                 return
-            rel = src.relative_to(local)
-            current.add(rel.as_posix())
-            try:
-                if src.stat().st_mtime > cutoff:
-                    changed.append((src, remote / rel))
-            except OSError:
+            rel = src.relative_to(local).as_posix()
+            current.add(rel)
+            sig = _signature(src)
+            if sig is None or _synced.get(rel) == sig:
                 return
+            changed.append((src, remote / rel))
+            changed_sigs.append((rel, sig))
 
         if scope_league_ids is None:
-            cutoff = _last_sync
             for src in local.rglob("*"):
-                _scan(src, cutoff)
+                _scan(src)
         else:
-            root_cutoff = _scope_sync.get("", _last_sync)
             try:
                 for entry in local.iterdir():
-                    _scan(entry, root_cutoff)
+                    _scan(entry)
             except OSError:
                 pass
             for lid in scope_league_ids:
-                league_cutoff = _scope_sync.get(lid, _last_sync)
                 for src in (local / "leagues" / lid).rglob("*"):
-                    _scan(src, league_cutoff)
+                    _scan(src)
 
-        pushed = _parallel_copy(changed)
-        # Did every file we meant to copy actually land? If any copy FAILED
-        # (e.g. the remote/FUSE was briefly unavailable — exactly what happened
-        # under the 503 that stranded a 2-hour avatar run), we must NOT advance
-        # the cutoff past those files, or they'd be hidden below the "saved up
-        # to here" line forever and never retried. Leaving the cutoff put makes
-        # the next push re-scan and re-attempt them (re-copying a few already-
-        # saved files is harmless).
-        all_copied = pushed >= len(changed)
-        # Anything we previously synced but is gone locally → delete on remote,
+        # Record the signature seen at SCAN time, and only for copies that
+        # landed. A file rewritten while the copy ran then differs next push
+        # and is copied again (this is what once dropped the playoff bracket);
+        # one whose copy failed -- the remote/FUSE briefly unavailable, the 503
+        # that stranded a 2-hour avatar run -- is retried.
+        landed = _copy_each(changed)
+        pushed = sum(landed)
+        for (rel, sig), ok in zip(changed_sigs, landed):
+            if ok:
+                _synced[rel] = sig
+
+        # Anything we previously synced but is gone locally -> delete on remote,
         # EXCEPT files of a league no longer present locally AT ALL. That means
         # the league simply wasn't pulled this run (selective/partial pull), not
-        # that it was deleted — wiping it from the durable bucket is catastrophic
+        # that it was deleted -- wiping it from the durable bucket is catastrophic
         # data loss (this is exactly how cbl/usabl were lost). Within-league file
         # deletions (the league dir is still present) are still propagated.
         if scope_league_ids is None:
-            known_in_scope = _known
+            known_in_scope = set(_synced)
         else:
             # Only diff what this push actually walked: root-level files and
-            # the in-scope league trees. Everything else in _known is out of
-            # scope — absent from ``current`` merely because we didn't walk it.
+            # the in-scope league trees. Everything else is out of scope --
+            # absent from ``current`` merely because we didn't walk it.
             known_in_scope = {
                 rel
-                for rel in _known
+                for rel in _synced
                 if "/" not in rel
                 or (
                     rel.startswith("leagues/")
                     and rel.split("/", 2)[1] in scope_league_ids
                 )
             }
-        deleted = []
-        for rel in (known_in_scope - current):
+        gone: List[str] = []
+        for rel in known_in_scope - current:
             parts = rel.split("/")
             if (
                 len(parts) >= 2
@@ -415,28 +443,11 @@ def push_changes(league_id: Optional[str] = None) -> int:
                 and not (local / "leagues" / parts[1]).is_dir()
             ):
                 continue
-            deleted.append(remote / Path(rel))
-        removed = _parallel_delete(deleted)
+            gone.append(rel)
+        removed = _parallel_delete(remote / Path(rel) for rel in gone)
+        for rel in gone:
+            _synced.pop(rel, None)
 
-        # Advance the cutoff to the time captured BEFORE the scan (t0), never to
-        # "now" after the copy. A file written concurrently DURING this push
-        # (mtime between t0 and now) may be missed by the scan; using t0 as the
-        # next cutoff guarantees the next push re-evaluates it (mtime > t0)
-        # instead of hiding it below a "now" cutoff forever. Worst case a file is
-        # copied twice — harmless. This is what silently dropped background-sim
-        # writes (e.g. the playoff bracket).
-        if scope_league_ids is None:
-            _known = current
-            if all_copied:
-                _last_sync = t0
-                # A full push refreshed every segment.
-                _scope_sync.clear()
-        else:
-            _known = (_known - known_in_scope) | current
-            if all_copied:
-                _scope_sync[""] = t0
-                for lid in scope_league_ids:
-                    _scope_sync[lid] = t0
         if pushed or removed:
             scope_note = "" if scope_league_ids is None else f" (scope={league_id})"
             _emit(
@@ -444,3 +455,62 @@ def push_changes(league_id: Optional[str] = None) -> int:
                 f"in {time.time() - t0:.1f}s{scope_note}"
             )
         return pushed
+
+
+@contextmanager
+def background_writer(name: str) -> Iterator[None]:
+    """Mark a background job as writing to the working copy while it runs.
+
+    Wrap the body of any thread that writes league data after its request has
+    returned (the job still pushes its own writes when it finishes). While one
+    is active, ``flush_on_shutdown`` stands down instead of pushing the job's
+    half-written state.
+    """
+    with _busy_lock:
+        _busy[name] = _busy.get(name, 0) + 1
+    try:
+        yield
+    finally:
+        with _busy_lock:
+            left = _busy.get(name, 0) - 1
+            if left > 0:
+                _busy[name] = left
+            else:
+                _busy.pop(name, None)
+
+
+def as_background_writer(name: str, fn):
+    """``fn`` wrapped in ``background_writer(name)``, for use as a thread target."""
+
+    def _run() -> None:
+        with background_writer(name):
+            fn()
+
+    return _run
+
+
+def flush_on_shutdown() -> int:
+    """Push everything still unsaved before the instance goes away.
+
+    Saves happen after mutating requests and at the end of background jobs, so
+    a write made during a read request, or by a job after its last push, used
+    to exist only on the dying instance's disk. A deploy or an instance recycle
+    sends SIGTERM first; uvicorn runs the app's shutdown handlers, which call
+    this. Cloud Run allows ~10s before SIGKILL; a full walk is a local stat
+    pass plus whatever is actually pending.
+
+    If a background job is mid-write (a sim halfway through a day), pushing
+    would leave a half-written league in durable storage -- schedule results
+    without their stats -- so it stands down and that job's work is lost,
+    exactly as before this existed.
+    """
+    if not is_enabled():
+        return 0
+    with _busy_lock:
+        busy = sorted(_busy)
+    if busy:
+        _emit(f"shutdown: not flushing, background work in progress ({', '.join(busy)})")
+        return 0
+    pushed = push_changes(full=True)
+    _emit(f"shutdown: flushed {pushed} files")
+    return pushed

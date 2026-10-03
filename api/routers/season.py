@@ -375,7 +375,13 @@ def _launch_sim_background(
             if token is not None:
                 path_utils.reset_request_league(token)
 
-    threading.Thread(target=_run, name=f"sim-{kind}", daemon=True).start()
+    from api import working_copy
+
+    threading.Thread(
+        target=working_copy.as_background_writer(f"sim-{kind}", _run),
+        name=f"sim-{kind}",
+        daemon=True,
+    ).start()
     return run_id
 
 
@@ -1773,7 +1779,13 @@ def _run_cpu_free_agency_async() -> None:
             if token is not None:
                 path_utils.reset_request_league(token)
 
-    threading.Thread(target=_run, name="cpu-free-agency", daemon=True).start()
+    from api import working_copy
+
+    threading.Thread(
+        target=working_copy.as_background_writer("cpu-free-agency", _run),
+        name="cpu-free-agency",
+        daemon=True,
+    ).start()
 
 
 @router.post("/preseason/list-unsigned")

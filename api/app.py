@@ -243,6 +243,17 @@ def create_app() -> FastAPI:
                     "working-copy startup pull failed"
                 )
 
+    @app.on_event("shutdown")
+    def _working_copy_flush() -> None:
+        # A deploy or instance recycle SIGTERMs us first; anything written
+        # since the last push (read-request writes, a job's late writes) would
+        # otherwise die with this instance's disk.
+        if working_copy.is_enabled():
+            try:
+                working_copy.flush_on_shutdown()
+            except Exception as exc:
+                print(f"[working-copy] shutdown flush failed: {exc}", flush=True)
+
     @app.middleware("http")
     async def _working_copy_persist(request: Request, call_next):
         response = await call_next(request)

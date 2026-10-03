@@ -788,7 +788,13 @@ def _generate_draft_avatars_async(player_ids: set[str]) -> None:
             if token is not None:
                 path_utils.reset_request_league(token)
 
-    threading.Thread(target=_run, name="draft-avatars", daemon=True).start()
+    from api import working_copy
+
+    threading.Thread(
+        target=working_copy.as_background_writer("draft-avatars", _run),
+        name="draft-avatars",
+        daemon=True,
+    ).start()
 
 
 def _ensure_pick_authorized(
