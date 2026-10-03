@@ -693,6 +693,73 @@ def _gaps_assignment(
     return act, aaa, low, dl, overflow
 
 
+_DRAFT_ID_RE = __import__("re").compile(r"^D(\d{4})\d+$")
+
+
+def _current_draft_class_year() -> int | None:
+    try:
+        from services.trade_settings import current_league_year
+
+        return int(current_league_year())
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+
+def _is_current_draft_pick(player_id: str, year: int | None) -> bool:
+    """True for a player drafted in *year*'s amateur draft (ids are D{year}{n})."""
+
+    if year is None:
+        return False
+    match = _DRAFT_ID_RE.match(str(player_id or ""))
+    return bool(match) and int(match.group(1)) == int(year)
+
+
+def _protect_draft_picks(
+    roster: object,
+    released: List[str],
+    players: Dict[str, object],
+    *,
+    year: int | None,
+) -> List[str]:
+    """Never release a player from this year's draft class just for room.
+
+    A fresh draft pick has a low CURRENT rating, so ranking the organisation
+    and releasing whoever didn't fit cut the newest picks first -- BAL lost a
+    pick that way the night after the draft. The commissioner's rule: a draft
+    pick is not released because the team has no room. Each such pick takes
+    the slot of the weakest non-draftee in LOW or AAA, and that player is
+    released instead. If there is nobody to swap, the pick is parked in AAA
+    (which has no age cap) and the team is simply over the limit.
+
+    Returns the corrected release list; mutates *roster* in place.
+    """
+
+    protected = [pid for pid in released if _is_current_draft_pick(pid, year)]
+    if not protected:
+        return released
+    released = [pid for pid in released if pid not in protected]
+
+    def _score(pid: str) -> float:
+        player = players.get(pid)
+        return _overall_score(player) if player is not None else 0.0
+
+    for pick in protected:
+        swappable = [
+            (level, pid)
+            for level in ("low", "aaa")
+            for pid in getattr(roster, level)
+            if not _is_current_draft_pick(pid, year)
+        ]
+        if swappable:
+            level, victim = min(swappable, key=lambda item: _score(item[1]))
+            slots = getattr(roster, level)
+            slots[slots.index(victim)] = pick
+            released.append(victim)
+        else:
+            roster.aaa.append(pick)
+    return released
+
+
 def auto_assign_team(
     team_id: str,
     *,
@@ -829,6 +896,10 @@ def auto_assign_team(
                 released.remove(rescue_id)
                 roster.low.append(rescue_id)
                 assigned.add(rescue_id)
+
+        released = _protect_draft_picks(
+            roster, released, players, year=_current_draft_class_year()
+        )
 
         # Only RELEASE on genuine over-capacity (the org has more players than
         # ACT+AAA+LOW can hold). A would-be release UNDER that limit only happens

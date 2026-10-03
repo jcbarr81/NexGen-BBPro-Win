@@ -2241,7 +2241,11 @@ def _cpu_fill_team(tid: str) -> None:
     from utils.lineup_autofill import auto_fill_lineup_for_team
 
     try:
-        auto_assign_team(tid)
+        # "Fill gaps" only: fix what is illegal, never release anyone. This runs
+        # on an OWNER's team when a deadline passes; cuts are the owner's call
+        # unless they run Auto-reassign themselves. Full mode here released a
+        # BAL draft pick at the deadline after the 2026 draft.
+        auto_assign_team(tid, mode="gaps")
     except Exception:  # pragma: no cover - defensive
         pass
     for vs in ("lhp", "rhp"):
