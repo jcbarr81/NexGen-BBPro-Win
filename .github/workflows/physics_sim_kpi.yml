@@ -44,13 +44,28 @@ jobs:
           PYTHONHASHSEED: "0"
         run: |
           mkdir -p tmp
-          python scripts/physics_sim_season_kpis.py \
-            --games 162 \
-            --seed 1 \
-            --base-dir data/calibration \
-            --players data/calibration/players.csv \
-            --output tmp/physics_kpis.json \
-            --strict
+          set -o pipefail
+          if ! python scripts/physics_sim_season_kpis.py \
+              --games 162 \
+              --seed 1 \
+              --base-dir data/calibration \
+              --players data/calibration/players.csv \
+              --output tmp/physics_kpis.json \
+              --strict 2>&1 | tee tmp/kpi_run.log; then
+            # Say WHY in an annotation. Annotations appear in the run summary
+            # and the failure email; the raw log needs a login. Which gates
+            # failed (from the report, if one was written), then the log tail.
+            {
+              if [ -f tmp/physics_kpis.json ]; then
+                python -c "import json; d=json.load(open('tmp/physics_kpis.json')); [print(f\"{f['metric']}: {f['value']:.4f} (target {f['target']} +/- {f['tolerance']})\") for f in d.get('tolerance_failures', [])]"
+              fi
+              echo "--- last lines of output ---"
+              tail -n 40 tmp/kpi_run.log
+            } > tmp/kpi_failure.txt
+            msg=$(sed -e 's/%/%25/g' -e 's/\r//g' tmp/kpi_failure.txt | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=KPI harness failed::${msg}"
+            exit 1
+          fi
       - name: Upload KPI report
         if: always()
         uses: actions/upload-artifact@v4
