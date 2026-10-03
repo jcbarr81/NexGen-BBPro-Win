@@ -133,3 +133,7 @@ data/special_events.json
 
 # Discord release-announcement webhook (secret, do not commit)
 scripts/.discord_webhook
+
+# Scratch output from tuning and long-term sim runs. Never commit: it once
+# carried 31,640 files and symlinks that broke CI checkout on Linux.
+tmp/
