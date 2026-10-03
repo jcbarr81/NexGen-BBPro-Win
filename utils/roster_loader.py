@@ -137,8 +137,13 @@ class _PlaceholderPool:
         if not roster_dir.exists():
             return
         updated = False
+        listed_on: Dict[str, List[str]] = {}
+        teams: set[str] = set()
         for path in sorted(roster_dir.glob("*.csv")):
             team_id = path.stem
+            if team_id.startswith("_") or "_" in team_id:
+                continue  # _placeholder_registry, {team}_pitching, ...
+            teams.add(team_id)
             try:
                 with path.open("r", encoding="utf-8", newline="") as fh:
                     reader = csv.reader(fh)
@@ -146,15 +151,36 @@ class _PlaceholderPool:
                         if len(row) < 2:
                             continue
                         pid = row[0].strip()
-                        if not pid:
-                            continue
-                        owner = self._assigned.get(pid)
-                        if owner in (None, team_id):
-                            if owner != team_id:
-                                updated = True
-                            self._assigned[pid] = team_id
+                        if pid:
+                            listed_on.setdefault(pid, []).append(team_id)
             except OSError:
                 continue
+
+        # A registry entry naming a team that is not in this league is debris
+        # from another league's draft; it can only ever cause a wrong drop.
+        for pid, owner in list(self._assigned.items()):
+            if owner not in teams:
+                del self._assigned[pid]
+                updated = True
+
+        # The roster files say who a player plays for. When exactly one team
+        # lists him, that team owns him -- even if the registry disagrees.
+        # Previously a wrong owner, once recorded, could never be corrected,
+        # so reconcile_roster dropped the player from his real team on every
+        # load and the next save made it permanent. Only a player listed by
+        # SEVERAL teams keeps the registry's verdict: that is the genuine
+        # duplicate the dedupe exists for.
+        for pid, owners in listed_on.items():
+            current = self._assigned.get(pid)
+            if len(set(owners)) == 1:
+                target = owners[0]
+            elif current in owners:
+                continue
+            else:
+                target = owners[0]
+            if current != target:
+                self._assigned[pid] = target
+                updated = True
         if updated:
             self._save_registry()
 
@@ -312,19 +338,34 @@ class _PlaceholderPool:
         return ids
 
 
-_PLACEHOLDER_POOL: _PlaceholderPool | None = None
+# One pool per league data directory. This used to be a single process-wide
+# pool: it loaded its ownership registry from whichever league was active
+# first, served every league in the process from that map, and wrote it back
+# into whichever league was active when it saved. Draft prospect ids are
+# D{year}{n} in every league, so one league's 2026 draft decided who "owned"
+# D20260013 in all of them -- alpha-test's registry ended up with teams like
+# DET, PHO and LOU, and 35 of its 80 picks were silently dropped from rosters.
+_PLACEHOLDER_POOLS: Dict[str, "_PlaceholderPool"] = {}
+
+
+def _placeholder_pool_key() -> str:
+    try:
+        return str(Path(get_data_dir()).resolve(strict=False))
+    except Exception:  # pragma: no cover - defensive
+        return ""
 
 
 def _get_placeholder_pool() -> _PlaceholderPool:
-    global _PLACEHOLDER_POOL
-    if _PLACEHOLDER_POOL is None:
-        _PLACEHOLDER_POOL = _PlaceholderPool()
-    return _PLACEHOLDER_POOL
+    key = _placeholder_pool_key()
+    pool = _PLACEHOLDER_POOLS.get(key)
+    if pool is None:
+        pool = _PlaceholderPool()
+        _PLACEHOLDER_POOLS[key] = pool
+    return pool
 
 
 def _reset_placeholder_pool() -> None:
-    global _PLACEHOLDER_POOL
-    _PLACEHOLDER_POOL = None
+    _PLACEHOLDER_POOLS.clear()
 
 
 def _stable_seed(team_id: str, salt: str) -> int:
