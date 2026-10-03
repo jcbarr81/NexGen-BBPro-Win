@@ -963,3 +963,15 @@ new leagues, and re-gates. Rollout timing is the commissioner's call.
 Same investigation: stolen-base volume runs at ~3x MLB (2.31 SB per team-game),
 and the harness's `sba_per_pa` benchmark of 0.050 looks about double the real
 rate -- verify and recalibrate alongside the power work.
+
+## 47. Trades leave the old team's pitching staff file stale
+
+Found with the 7.45.4 minor-leaguer trade fix: `commit_trade` moves players
+between roster files but never touches `{team}_pitching.csv`, so a traded
+pitcher stays in his old team's staff assignments (HOU still listed Erich Zenk
+as closer after trading him). Harmless in games -- the lineup loader and the
+rotation only honour staff entries for pitchers on the roster -- but the old
+team's role slot (closer, SP1...) silently points at a departed player until
+the owner or the CPU re-sets the staff. Drop traded players from the old
+team's staff file in the trade commit, and consider surfacing "your closer was
+traded" to an owner.

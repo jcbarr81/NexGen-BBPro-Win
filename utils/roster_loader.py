@@ -257,6 +257,24 @@ class _PlaceholderPool:
         if changed:
             self._save_registry()
 
+    def claim(self, team_id: str, player_ids) -> None:
+        """Record ``team_id`` as the owner of ``player_ids``, overriding.
+
+        ``record_roster`` never overrides an existing owner, which is right for
+        loads (first owner wins a genuine duplicate) but wrong for a trade: the
+        old owner would stay on record and a reload of the new team's roster
+        would drop a traded draft pick.
+        """
+
+        self._ensure_loaded()
+        changed = False
+        for pid in player_ids or []:
+            if pid and self._assigned.get(pid) != team_id:
+                self._assigned[pid] = team_id
+                changed = True
+        if changed:
+            self._save_registry()
+
     @property
     def all_hitters(self) -> List:
         self._ensure_loaded()
@@ -569,6 +587,13 @@ def load_roster(team_id, roster_dir: str | Path = "data/rosters"):
 
     service = get_unified_data_service()
     return service.get_roster(team_id, raw_dir, _loader)
+
+
+def claim_players(team_id: str, player_ids) -> None:
+    """Make ``team_id`` the recorded owner of ``player_ids`` (after a trade)."""
+
+    if player_ids:
+        _get_placeholder_pool().claim(str(team_id), list(player_ids))
 
 
 def save_roster(team_id, roster: Roster, roster_dir: str | Path = "data/rosters"):

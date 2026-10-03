@@ -12,7 +12,7 @@ from pathlib import Path
 from models.trade import Trade
 from services.draft_pick_ledger import format_pick_label, transfer_pick
 from services.transaction_log import record_transaction
-from utils.roster_loader import load_roster, save_roster
+from utils.roster_loader import claim_players, load_roster, save_roster
 
 __all__ = ["commit_trade", "announce_trade"]
 
@@ -23,42 +23,76 @@ def _roster_dir(data_dir) -> str | Path:
     return Path(data_dir) / "rosters"
 
 
+_LEVELS = ("act", "aaa", "low", "dl", "ir")
+
+
+def _take(roster, pid: str) -> str | None:
+    """Remove ``pid`` from every level of ``roster``; return the level he left.
+
+    A traded player can be on any level -- the trade screen offers AAA, Low-A
+    and injured players too. Removing him only from ACT left a minor leaguer
+    on BOTH teams: a draft pick then reverted to his old team on the next
+    roster reload (the placeholder pool keeps the first owner), and anyone
+    else stayed listed by two clubs.
+    """
+
+    left = None
+    for level in _LEVELS:
+        group = getattr(roster, level, None)
+        if group and pid in group:
+            group[:] = [other for other in group if other != pid]
+            left = left or level
+    tiers = getattr(roster, "dl_tiers", None)
+    if tiers:
+        tiers.pop(pid, None)
+    return left
+
+
+def _move(pid: str, source, dest) -> str:
+    """Move ``pid`` from ``source`` to ``dest``'s active roster.
+
+    Arrivals land on ACT, as ``validate_trade`` assumes when it checks the
+    post-trade roster; the new owner places him from there. Returns the level
+    he came from, for the transaction log.
+    """
+
+    left = _take(source, pid)
+    _take(dest, pid)
+    dest.act.append(pid)
+    return (left or "act").upper()
+
+
 def commit_trade(trade: Trade, *, data_dir=None) -> None:
     """Apply a trade's roster + pick swap and log the transactions.
 
-    Verbatim logic of the former ``api/routers/trades.py::_commit_trade`` with
-    ``HTTPException`` replaced by ``ValueError``. Roster moves are ACT<->ACT.
-    Raises ``ValueError`` on pick-ownership failure.
+    Former ``api/routers/trades.py::_commit_trade`` with ``HTTPException``
+    replaced by ``ValueError``. Traded players leave whatever level they were
+    on and arrive on ACT. Raises ``ValueError`` on pick-ownership failure.
     """
 
     roster_dir = _roster_dir(data_dir)
-    from_roster = load_roster(trade.from_team, roster_dir=roster_dir)
-    to_roster = load_roster(trade.to_team, roster_dir=roster_dir)
 
-    # Move "give" players from from_team's act roster onto to_team's act roster.
-    for pid in trade.give_player_ids:
-        if pid in from_roster.act:
-            from_roster.act.remove(pid)
-        if pid in to_roster.act:
-            to_roster.act.remove(pid)
-        to_roster.act.append(pid)
-
-    # Move "receive" players the other direction.
-    for pid in trade.receive_player_ids:
-        if pid in to_roster.act:
-            to_roster.act.remove(pid)
-        if pid in from_roster.act:
-            from_roster.act.remove(pid)
-        from_roster.act.append(pid)
-
-    # Transfer draft picks (raises ValueError on bad ownership).
+    # Transfer draft picks first (raises ValueError on bad ownership). The
+    # rosters below are the roster cache's own objects: editing them before a
+    # failure here would leave a half-applied trade for the next save to write.
     for pick_id in trade.give_pick_ids or []:
         transfer_pick(pick_id, trade.from_team, trade.to_team)
     for pick_id in trade.receive_pick_ids or []:
         transfer_pick(pick_id, trade.to_team, trade.from_team)
 
+    from_roster = load_roster(trade.from_team, roster_dir=roster_dir)
+    to_roster = load_roster(trade.to_team, roster_dir=roster_dir)
+
+    came_from: dict[str, str] = {}
+    for pid in trade.give_player_ids:
+        came_from[pid] = _move(pid, from_roster, to_roster)
+    for pid in trade.receive_player_ids:
+        came_from[pid] = _move(pid, to_roster, from_roster)
+
     save_roster(trade.from_team, from_roster, roster_dir=roster_dir)
     save_roster(trade.to_team, to_roster, roster_dir=roster_dir)
+    claim_players(trade.to_team, trade.give_player_ids)
+    claim_players(trade.from_team, trade.receive_player_ids)
 
     # Best-effort transaction log entries.
     for pid in trade.give_player_ids:
@@ -67,7 +101,7 @@ def commit_trade(trade: Trade, *, data_dir=None) -> None:
                 action="trade_out",
                 team_id=trade.from_team,
                 player_id=pid,
-                from_level="ACT",
+                from_level=came_from.get(pid, "ACT"),
                 to_level="ACT",
                 counterparty=trade.to_team,
                 details=f"Trade {trade.trade_id} sent to {trade.to_team}",
@@ -89,7 +123,7 @@ def commit_trade(trade: Trade, *, data_dir=None) -> None:
                 action="trade_out",
                 team_id=trade.to_team,
                 player_id=pid,
-                from_level="ACT",
+                from_level=came_from.get(pid, "ACT"),
                 to_level="ACT",
                 counterparty=trade.from_team,
                 details=f"Trade {trade.trade_id} sent to {trade.from_team}",
