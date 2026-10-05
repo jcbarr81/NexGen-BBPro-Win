@@ -361,10 +361,16 @@ def _compute_bullpen_readiness(
         entry = tracker.data.get("teams", {}).get(team_id, {})
         statuses = entry.get("pitchers", {}) or {}
 
+        # The team's staff assignments decide who is in the bullpen; without
+        # them (unreadable file) fall back to each pitcher's derived role.
+        try:
+            staff_roles = tracker._load_staff_roles(team_id, roster_dir) or {}
+        except Exception:
+            staff_roles = {}
         bullpen_ids = [
             pid
             for pid in getattr(roster, "act", []) or []
-            if _is_bullpen_pitcher(players.get(pid))
+            if _is_bullpen_pitcher(players.get(pid), staff_roles.get(pid))
         ]
         result["total"] = len(bullpen_ids)
         available_pcts: list[float] = []
@@ -430,10 +436,19 @@ def _compute_bullpen_readiness(
     return result
 
 
-def _is_bullpen_pitcher(player: Any | None) -> bool:
+def _is_bullpen_pitcher(player: Any | None, staff_role: str | None = None) -> bool:
+    """Whether ``player`` belongs in the bullpen card.
+
+    The team's staff assignment decides first (SP1-SP5 are the rotation).
+    Otherwise derive SP/RP; the stored ``role`` column used to come first,
+    and it reads "RP" for every pitcher in an older league, so the card
+    counted the whole rotation as bullpen arms.
+    """
     if player is None:
         return False
-    role = getattr(player, "role", None) or get_role(player)
+    if staff_role:
+        return not str(staff_role).upper().startswith("SP")
+    role = get_role(player)
     if role == "SP":
         return False
     is_pitcher = bool(getattr(player, "is_pitcher", False))

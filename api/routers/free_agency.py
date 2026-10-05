@@ -38,6 +38,7 @@ from services.contracts_service import (
 from services.free_agency import list_unsigned_players_from_files
 from services.payroll_policy import evaluate_free_agent_signing
 from services.transaction_log import record_transaction
+from utils.pitcher_role import get_role
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster, save_roster
 
@@ -87,7 +88,11 @@ def _summarize(player: Any) -> Dict[str, Any]:
         "other_positions": getattr(player, "other_positions", "") or "",
         "bats": getattr(player, "bats", "") or "",
         "is_pitcher": is_pitcher,
-        "role": getattr(player, "role", "") or "",
+        # The stored ``role`` column is stale (every pitcher in an older
+        # league reads "RP"); derive it the way the roster page does.
+        "role": (get_role(player) if is_pitcher else "")
+        or getattr(player, "role", "")
+        or "",
         "ratings": ratings,
         "ratings_context": ratings_context,
         "overall_raw": overall["overall_raw"],

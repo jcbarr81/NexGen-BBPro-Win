@@ -22,6 +22,7 @@ from services.training_history import load_player_training_history
 from services.training_settings import HITTER_TRACKS, PITCHER_TRACKS, load_training_settings
 from utils.star_rating import star_text
 from utils.path_utils import get_data_dir
+from utils.pitcher_role import get_role
 from utils.rating_display import rating_display_value
 from utils.stats_persistence import load_stats
 
@@ -245,7 +246,7 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
         weight_text=_stringify_value(getattr(player, "weight", None), suffix=" lb"),
         bats_text=str(getattr(player, "bats", "?") or "?"),
         throws_text=str(getattr(player, "throws", "?") or "?"),
-        role_text=str(getattr(player, "role", "") or ""),
+        role_text=_role_text(player, is_pitcher),
         overall_display=overall_display,
         overall_stars_text=stars_text,
         scouting_summary=str(getattr(player, "summary", "") or "No scouting report available."),
@@ -515,10 +516,19 @@ def _header_metrics(player: Any, *, team_id: str) -> List[Tuple[str, str]]:
         ("Team", team_id or "--"),
         ("Pos", _positions_text(player)),
     ]
-    role = str(getattr(player, "role", "") or "").strip()
+    role = _role_text(player, bool(getattr(player, "is_pitcher", False)))
     if role:
         metrics.append(("Role", role))
     return metrics
+
+
+def _role_text(player: Any, is_pitcher: bool) -> str:
+    """A pitcher's SP/RP, derived; the stored ``role`` column is stale."""
+    if is_pitcher:
+        derived = get_role(player)
+        if derived:
+            return derived
+    return str(getattr(player, "role", "") or "").strip()
 
 
 def _defense_ratings(player: Any) -> List[Tuple[str, str]]:

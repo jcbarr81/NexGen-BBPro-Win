@@ -343,11 +343,9 @@ class PitcherRecoveryTracker:
         role = str(getattr(pitcher, "assigned_pitching_role", "") or "").upper()
         if role:
             return role
-        role = str(getattr(pitcher, "role", "") or "").upper()
-        if role:
-            return role
-        derived = get_role(pitcher)
-        return str(derived or "").upper()
+        # Derived before stored: the stored ``role`` column reads "RP" for
+        # every pitcher in an older league (get_role still falls back to it).
+        return str(get_role(pitcher) or "").upper()
 
     @staticmethod
     def _trim_recent(status: _PitcherStatus, *, keep_days: int = 14, ref: date | None = None) -> None:

@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 
 from utils.path_utils import get_base_dir, get_data_dir
+from utils.pitcher_role import get_role
 from utils.player_loader import load_players_from_csv
 
 from ..schemas import PlayerSummary
@@ -72,7 +73,8 @@ def _row_to_summary(row: dict) -> PlayerSummary:
         primary_position=row.get("primary_position", ""),
         is_pitcher=is_pitcher,
         bats=row.get("bats", "") or "",
-        role=row.get("role", "") or "",
+        # Stale ``role`` column: derive SP/RP as the roster page does.
+        role=(get_role(row) if is_pitcher else "") or row.get("role", "") or "",
         ratings=ratings,
     )
     return summary
