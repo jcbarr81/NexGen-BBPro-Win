@@ -101,20 +101,35 @@ def _build_default_lists(
     all_players = {p.player_id: p for p in load_players_from_csv(players_file)}
     roster = load_roster(team_id, roster_dir)
 
-    candidate_ids = []
-    for group in (roster.act, roster.aaa, roster.low, roster.dl, roster.ir):
-        candidate_ids.extend(group)
-    seen_ids: set[str] = set()
-    candidates: List[Player] = []
-    for pid in candidate_ids:
-        if pid in seen_ids:
-            continue
-        seen_ids.add(pid)
-        player = all_players.get(pid)
-        if player is not None:
-            candidates.append(player)
+    def _resolve(ids: Iterable[str], seen: set[str]) -> List[Player]:
+        found: List[Player] = []
+        for pid in ids:
+            if pid in seen:
+                continue
+            seen.add(pid)
+            player = all_players.get(pid)
+            if player is not None:
+                found.append(player)
+        return found
 
-    hitters, pitchers = _separate_players(candidates)
+    # A big-league game uses the ACTIVE roster. 3.2.12 widened this pool to
+    # every level, and for the whole 2026 alpha-test season AAA and Low-A
+    # players -- and players on the DL -- started in MLB lineups and pitched
+    # out of MLB bullpens: the best nine hitters in the organisation made the
+    # default lineup, and half the CPU clubs fielded 3-5 minor leaguers every
+    # game. Injured players are never eligible; healthy minor leaguers only
+    # fill in when the active roster cannot field a team.
+    seen_ids: set[str] = set()
+    hitters, pitchers = _separate_players(_resolve(roster.act, seen_ids))
+    if len(hitters) < 9 or not pitchers:
+        minor_hitters, minor_pitchers = _separate_players(
+            _resolve(list(roster.aaa) + list(roster.low), seen_ids)
+        )
+        minor_hitters.sort(key=lambda p: getattr(p, "ph", 0), reverse=True)
+        hitters.extend(minor_hitters[: max(0, 9 - len(hitters))])
+        if not pitchers:
+            minor_pitchers.sort(key=lambda p: getattr(p, "endurance", 0), reverse=True)
+            pitchers.extend(minor_pitchers[:10])
     if len(hitters) < 9 or not pitchers:
         all_hitters, all_pitchers = _separate_players(all_players.values())
         used_ids = {p.player_id for p in hitters + pitchers}

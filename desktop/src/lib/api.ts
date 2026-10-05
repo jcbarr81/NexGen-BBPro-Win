@@ -1292,10 +1292,19 @@ export interface PitchingStaffEntry {
   role: string;
 }
 
+export interface InactiveStaffEntry extends PitchingStaffEntry {
+  name: string;
+  /** e.g. "no longer with the team", "in AAA", "on the injured list" */
+  reason: string;
+}
+
 export interface PitchingStaff {
   team_id: string;
   exists: boolean;
+  /** Roles held by pitchers on the active roster. */
   staff: PitchingStaffEntry[];
+  /** Roles in the staff file whose pitcher can't pitch for the club today. */
+  inactive?: InactiveStaffEntry[];
 }
 
 // --- League leaders ---

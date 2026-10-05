@@ -846,6 +846,7 @@ function PitchingTab({
   });
   const [rows, setRows] = useState<PitchingStaffEntry[]>([]);
   const [dirty, setDirty] = useState(false);
+  const inactiveStaff = staff.data?.inactive ?? [];
 
   useEffect(() => {
     if (staff.data) {
@@ -958,6 +959,27 @@ function PitchingTab({
         </div>
       </CardHeader>
       <CardContent className="p-0">
+        {inactiveStaff.length > 0 && (
+          <div className="mx-4 mt-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-xs text-ink">
+            <div className="flex items-center gap-1 font-semibold">
+              <AlertTriangle className="h-3 w-3" />
+              {inactiveStaff.length === 1
+                ? "1 role is vacant"
+                : `${inactiveStaff.length} roles are vacant`}
+            </div>
+            <ul className="mt-1 list-disc pl-5 text-muted">
+              {inactiveStaff.map((entry) => (
+                <li key={`${entry.role}-${entry.player_id}`}>
+                  {entry.role}: {entry.name} is {entry.reason}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 text-muted">
+              Only active pitchers pitch, so the sim fills these roles itself
+              until you assign someone. Saving keeps your active staff only.
+            </p>
+          </div>
+        )}
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">

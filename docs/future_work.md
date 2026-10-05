@@ -966,6 +966,8 @@ rate -- verify and recalibrate alongside the power work.
 
 ## 47. Trades leave the old team's pitching staff file stale
 
+> **Shipped in 7.45.6 (2026-10-05)** as a read-side fix: the staff endpoint returns only active pitchers and lists the rest as vacancies with a reason; the file is left alone until the owner saves. Investigating it found the bigger bug that games used the whole organisation (fixed in the same release).
+
 Found with the 7.45.4 minor-leaguer trade fix: `commit_trade` moves players
 between roster files but never touches `{team}_pitching.csv`, so a traded
 pitcher stays in his old team's staff assignments (HOU still listed Erich Zenk

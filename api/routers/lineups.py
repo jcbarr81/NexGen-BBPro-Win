@@ -161,20 +161,72 @@ def autofill_lineup(
 # Pitching staff
 
 
+_LEVEL_REASONS = {
+    "aaa": "in AAA",
+    "low": "in Low-A",
+    "dl": "on the injured list",
+    "ir": "on the injured list",
+}
+
+
+def _staff_absence_reasons(team_id: str) -> Dict[str, str] | None:
+    """pid -> why a staffed pitcher can't pitch for ``team_id`` today, for
+    everyone on the roster but not active. None if the roster can't be read."""
+    try:
+        roster = load_roster(team_id)
+    except Exception:
+        return None
+    reasons: Dict[str, str] = {pid: "" for pid in roster.act}
+    for level, reason in _LEVEL_REASONS.items():
+        for pid in getattr(roster, level, []) or []:
+            reasons.setdefault(pid, reason)
+    return reasons
+
+
 @router.get("/pitching")
 def get_pitching_staff(team_id: str) -> Dict[str, Any]:
+    """The staff file's roles, limited to pitchers on the active roster.
+
+    Games only use active pitchers, so a role held by anyone else is already
+    a vacant slot: a pitcher traded or released (the trade never touched the
+    old team's staff file), or one sent down or hurt. Showing him in the slot
+    hid the vacancy and made the save fail validation until the owner found
+    and removed him. Those entries come back in ``inactive`` with the reason.
+    Reading leaves the file alone (a pitcher recalled before the next save
+    gets his role back); the owner's next save writes the active staff only.
+    """
     path = _pitching_path(team_id)
-    entries: List[Dict[str, str]] = []
+    rows: List[Dict[str, str]] = []
     if path.exists():
         with path.open("r", encoding="utf-8", newline="") as handle:
             reader = csv.reader(handle)
             for row in reader:
                 if len(row) < 2:
                     continue
-                entries.append(
+                rows.append(
                     {"player_id": row[0].strip(), "role": row[1].strip().upper()},
                 )
-    return {"team_id": team_id, "exists": path.exists(), "staff": entries}
+    reasons = _staff_absence_reasons(team_id)
+    if reasons is None:
+        return {"team_id": team_id, "exists": path.exists(), "staff": rows, "inactive": []}
+    staff: List[Dict[str, str]] = []
+    inactive: List[Dict[str, str]] = []
+    for entry in rows:
+        reason = reasons.get(entry["player_id"], "no longer with the team")
+        if reason:
+            inactive.append({**entry, "reason": reason})
+        else:
+            staff.append(entry)
+    if inactive:
+        # Departed players aren't in the page's roster, so name them here.
+        from .validation import load_players_map
+
+        players = load_players_map()
+        for entry in inactive:
+            info = players.get(entry["player_id"]) or {}
+            name = f"{info.get('first_name', '')} {info.get('last_name', '')}".strip()
+            entry["name"] = name or entry["player_id"]
+    return {"team_id": team_id, "exists": path.exists(), "staff": staff, "inactive": inactive}
 
 
 @router.post("/pitching/autofill")
