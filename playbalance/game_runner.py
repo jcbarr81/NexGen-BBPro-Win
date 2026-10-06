@@ -874,6 +874,11 @@ def _persist_physics_stats(
             _, season = payload
             for key, season_key in pitching_field_map.items():
                 season[season_key] = season.get(season_key, 0) + _int(line.get(key, 0))
+            # Audit L10: SVO is SV + BS. Re-deriving it from the season totals
+            # (rather than trusting the sum of per-game values) also repairs
+            # the inflated SVO older engine builds stored for every
+            # save-situation entry, the next time the pitcher appears.
+            season["svo"] = _int(season.get("sv", 0)) + _int(season.get("bs", 0))
             state = SimpleNamespace(
                 outs=_int(season.get("outs", 0)),
                 gs=_int(season.get("gs", 0)),
