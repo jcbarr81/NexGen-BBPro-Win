@@ -1,6 +1,8 @@
 import shutil
 from pathlib import Path
 
+from utils.path_utils import get_data_dir
+
 from tests.test_simulation import make_player, make_pitcher, MockRandom
 from playbalance.simulation import BatterState
 from tests.util.pbini_factory import load_config
@@ -47,8 +49,14 @@ def test_boxscore_html_written():
     # save_boxscore_html writes under get_data_dir()/boxscores; clean up the
     # exact files we create (the old repo-root "data/boxscores" rmtree targeted
     # the wrong path and crashed once boxscores moved into the league data dir).
-    path_ex = save_boxscore_html("exhibition", html, "game_ex")
-    path_se = save_boxscore_html("season", html, "game_se")
+    rel_ex = save_boxscore_html("exhibition", html, "game_ex")
+    rel_se = save_boxscore_html("season", html, "game_se")
+    # Stored values are relative to the league data dir (7.45.8), never a
+    # machine path like /work/data/... or C:\...
+    assert rel_ex == "boxscores/exhibition/game_ex.html"
+    assert rel_se == "boxscores/season/game_se.html"
+    path_ex = get_data_dir() / rel_ex
+    path_se = get_data_dir() / rel_se
     try:
         assert Path(path_ex).is_file()
         assert Path(path_se).is_file()

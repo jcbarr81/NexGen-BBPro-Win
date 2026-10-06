@@ -4222,16 +4222,22 @@ def save_boxscore_html(game_type: str, html: str, game_id: str | None = None) ->
     Returns
     -------
     str
-        Full path of the written file.
+        The file's path relative to the league data dir, e.g.
+        ``boxscores/season/<game_id>.html`` -- the value callers store in
+        schedule.csv and the playoff bracket. It used to be absolute, which
+        baked the machine's layout (``/work/data/leagues/...`` on Cloud Run, a
+        ``C:/Users/...`` path locally) into portable league data, so a cloned,
+        restored or moved league's links pointed at the old location.
     """
 
-    base = get_data_dir() / "boxscores" / game_type
+    data_dir = get_data_dir()
+    base = data_dir / "boxscores" / game_type
     base.mkdir(parents=True, exist_ok=True)
     if game_id is None:
         game_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = base / f"{game_id}.html"
     path.write_text(html, encoding="utf-8")
-    return str(path)
+    return path.relative_to(data_dir).as_posix()
 
 
 __all__ = [

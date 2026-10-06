@@ -25,13 +25,38 @@ router = APIRouter(prefix="/boxscore", tags=["boxscore"], dependencies=[CurrentI
 
 
 def _safe_resolve(raw: str) -> Path:
-    """Resolve *raw* against the active boxscores root and refuse escapes."""
+    """Resolve *raw* against the active boxscores root and refuse escapes.
+
+    Accepts every form league data has stored:
+
+    * ``boxscores/season/x.html`` -- relative to the league data dir (current);
+    * ``season/x.html`` -- relative to the boxscores tree;
+    * an absolute path from ANY machine or league -- a Cloud Run
+      ``/work/data/leagues/<id>/data/boxscores/season/x.html`` or a Windows
+      ``C:/Users/.../boxscores/season/x.html`` -- re-rooted on its last
+      ``boxscores`` segment, so a league that was restored locally, cloned or
+      moved to a new mount still opens its own files.
+    """
 
     boxscores_root = (get_data_dir() / "boxscores").resolve()
-    candidate = Path(raw)
-    if not candidate.is_absolute():
-        candidate = boxscores_root / candidate
-    resolved = candidate.resolve()
+    segments = [s for s in str(raw).replace("\\", "/").split("/") if s]
+    if "boxscores" in segments:
+        last = len(segments) - 1 - segments[::-1].index("boxscores")
+        segments = segments[last + 1:]
+    elif str(raw).startswith(("/", "\\")) or (
+        segments and segments[0].endswith(":")
+    ):
+        # Absolute on any platform (a POSIX path is not "absolute" to Windows).
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Boxscore path must live under the data/boxscores tree.",
+        )
+    if not segments:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Boxscore path must name a file.",
+        )
+    resolved = boxscores_root.joinpath(*segments).resolve()
     try:
         resolved.relative_to(boxscores_root)
     except ValueError as exc:
@@ -44,7 +69,13 @@ def _safe_resolve(raw: str) -> Path:
 
 @router.get("")
 def get_boxscore(
-    path: str = Query(..., description="Absolute or boxscores-relative path"),
+    path: str = Query(
+        ...,
+        description=(
+            "Stored box score path: league-relative, boxscores-relative "
+            "or legacy absolute"
+        ),
+    ),
 ) -> dict:
     resolved = _safe_resolve(path)
     if not resolved.exists():
