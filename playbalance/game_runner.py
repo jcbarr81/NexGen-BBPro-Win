@@ -704,6 +704,7 @@ def _persist_physics_stats(
         compute_pitching_derived,
         compute_pitching_rates,
         compute_team_rates,
+        fielding_season_key,
     )
     from utils.stats_persistence import save_stats
 
@@ -927,22 +928,25 @@ def _persist_physics_stats(
             if payload is None:
                 continue
             player, season = payload
+            # Audit H5: po/cs/ci/pk are stored as f_po/f_cs/f_ci/f_pk so they
+            # no longer add into the batting (and pitcher pk) counters.
             for key in fielding_fields:
                 if key in {"g", "gs"}:
                     continue
-                season[key] = season.get(key, 0) + _int(line.get(key, 0))
+                season_key = fielding_season_key(key)
+                season[season_key] = season.get(season_key, 0) + _int(line.get(key, 0))
             state = SimpleNamespace(
                 player=player,
                 g=_int(season.get("g", 0)),
-                po=_int(season.get("po", 0)),
+                po=_int(season.get("f_po", 0)),
                 a=_int(season.get("a", 0)),
                 e=_int(season.get("e", 0)),
                 dp=_int(season.get("dp", 0)),
                 tp=_int(season.get("tp", 0)),
-                pk=_int(season.get("pk", 0)),
+                pk=_int(season.get("f_pk", 0)),
                 pb=_int(season.get("pb", 0)),
-                ci=_int(season.get("ci", 0)),
-                cs=_int(season.get("cs", 0)),
+                ci=_int(season.get("f_ci", 0)),
+                cs=_int(season.get("f_cs", 0)),
                 sba=_int(season.get("sba", 0)),
             )
             season.update(compute_fielding_derived(state))
