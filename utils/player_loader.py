@@ -249,7 +249,7 @@ def _read_players_from_csv(csv_path: Path):
                     or ("R" if row.get("bats") == "S" else (row.get("bats") or "R"))
                 ),
                 "primary_position": row["primary_position"],
-                "other_positions": row.get("other_positions", "").split("|") if row.get("other_positions") else [],
+                "other_positions": _parse_other_positions(row.get("other_positions")),
                 "gf": gf,
                 "injured": (row.get("injured") or "false").strip().lower() == "true",
                 "injury_description": row.get("injury_description") or None,
@@ -357,6 +357,22 @@ def _read_players_from_csv(csv_path: Path):
 
             players.append(player)
     return players
+
+
+def _parse_other_positions(raw: object) -> list:
+    """``other_positions`` as a list of position codes.
+
+    Stored as ``3B|SS`` by the writer, but older rows hold a Python list literal
+    (``['RF']``) or ``[]``, which a plain ``|`` split turned into one bogus
+    entry -- so those players could not cover their secondary positions.
+    """
+
+    text = str(raw or "").strip()
+    if not text or text == "[]":
+        return []
+    if text.startswith("["):
+        text = text.strip("[]").replace("'", "").replace('"', "")
+    return [p.strip().upper() for p in text.replace("|", ",").split(",") if p.strip()]
 
 
 def load_players_from_csv(file_path):

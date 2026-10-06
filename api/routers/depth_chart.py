@@ -15,6 +15,8 @@ from utils.depth_chart import (
     MAX_DEPTH,
     load_depth_chart,
     save_depth_chart,
+    mark_depth_chart_auto,
+    mark_depth_chart_manual,
 )
 from utils.depth_chart_autofill import auto_generate_depth_chart
 
@@ -80,6 +82,8 @@ def save(
         )
 
     save_depth_chart(team_id, cleaned)
+    # Saved by a person: the sim's automatic refresh never overwrites it.
+    mark_depth_chart_manual(team_id)
     return get_depth_chart(team_id)
 
 
@@ -103,6 +107,8 @@ def auto_fill(
 
     try:
         auto_generate_depth_chart(team_id)
+        # Generated, not hand-made: automation may keep it current.
+        mark_depth_chart_auto(team_id)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

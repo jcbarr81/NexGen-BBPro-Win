@@ -136,6 +136,11 @@ TUTORIALS: List[Tutorial] = [
                 "<p>Open <b>My Team → Depth Chart</b> to set up to three players per position (C/SS/CF/3B/2B/1B/LF/RF/DH). The top entry is the primary starter; the rest feed injury replacement + lineup autofill. Errors and warnings appear inline as you edit.</p>",
             ),
             TutorialStep(
+                "When a player gets hurt",
+                "<p>Injuries use your depth chart first. When a player goes on the injured list, the next healthy player behind him at that position who is already on your active roster takes his lineup spot -- only that spot changes, the rest of your batting order stays as you set it. No roster move is made for you: the open active-roster spot is yours to fill. A minor leaguer is called up for you only if nobody active can play the position (players your chart lists first, then others who play it), or in an emergency when your club cannot field nine position players. CPU clubs fill their open spot with a like-for-like call-up. Every automatic move is in the Transactions log.</p>"
+                "<p>Clubs that never saved a chart get one generated at the next sim so injuries can be covered. A chart you save is never changed by the sim; a generated one only guides injury coverage, it does not decide your starters.</p>",
+            ),
+            TutorialStep(
                 "Auto-generate depth chart",
                 "<p>Click <b>Auto-generate</b> to seed every position with the best three available players from your roster — primary fits first, sorted by level (ACT before AAA / LOW) and overall rating. The button overwrites the current chart and saves immediately, so use it as a starting point or after a roster shake-up. Tweak from there with the move buttons.</p>",
             ),

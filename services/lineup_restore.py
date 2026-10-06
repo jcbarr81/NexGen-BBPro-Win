@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from utils.depth_chart import depth_order_for_position, load_depth_chart
 from utils.path_utils import resolve_app_path
@@ -74,6 +74,185 @@ def positions_led_by(team_id: str, player_id: str) -> List[str]:
         if order and order[0] == player_id:
             led.append(position)
     return led
+
+
+def _plan_substitution(
+    rows: List[Tuple[str, str, str]],
+    injured_id: str,
+    active: Sequence[str],
+    players_by_id: Mapping[str, object],
+    ranked: Sequence[str],
+) -> Optional[List[Tuple[str, str, str]]]:
+    """New lineup rows covering *injured_id*'s slot, or None if impossible.
+
+    1. A free (bench) active player who can play the position, preferring the
+       ``ranked`` order (chosen backup, then depth chart), then the best fit.
+    2. Else a player already in the lineup who can play it moves over, and a
+       free player who can play HIS old position (DH: any bat) fills in --
+       the backup catcher batting DH goes behind the plate.
+    3. Else None: the slot is left for the game-time rebuild rather than
+       filled by someone who cannot play it (a centre fielder catching).
+    """
+
+    from services.roster_fill import can_play, player_score
+
+    slot = next((i for i, (_o, pid, _p) in enumerate(rows) if pid == injured_id), None)
+    if slot is None:
+        return list(rows)
+    position = rows[slot][2].strip().upper()
+    in_lineup = {pid for _o, pid, _p in rows}
+    free = [pid for pid in active if pid not in in_lineup]
+
+    def _pick(pool: Sequence[str], pos: str) -> Optional[str]:
+        fits = [
+            pid for pid in pool
+            if can_play(players_by_id.get(pid), pos)
+            and not getattr(players_by_id.get(pid), "injured", False)
+        ]
+        if not fits:
+            return None
+        for pid in ranked:
+            if pid in fits:
+                return pid
+        return max(fits, key=lambda pid: player_score(players_by_id.get(pid)))
+
+    choice = _pick(free, position)
+    new_rows = list(rows)
+    active_set = set(active)
+    if choice is not None:
+        new_rows[slot] = (rows[slot][0], choice, rows[slot][2])
+        return new_rows
+
+    movers = [
+        (i, pid, pos) for i, (_o, pid, pos) in enumerate(rows)
+        if i != slot and pid in active_set
+        and not getattr(players_by_id.get(pid), "injured", False)
+        and can_play(players_by_id.get(pid), position)
+    ]
+    rank = {pid: n for n, pid in enumerate(ranked)}
+    movers.sort(key=lambda m: (rank.get(m[1], len(rank)), -player_score(players_by_id.get(m[1]))))
+    for idx, mover, old_pos in movers:
+        filler = _pick(free, old_pos.strip().upper())
+        if filler is None:
+            continue
+        new_rows[slot] = (rows[slot][0], mover, rows[slot][2])
+        new_rows[idx] = (rows[idx][0], filler, rows[idx][2])
+        return new_rows
+    return None
+
+
+def uncovered_positions(
+    team_id: str,
+    injured_id: str,
+    *,
+    active_ids: Iterable[str],
+    players_by_id: Mapping[str, object],
+    preferred_id: Optional[str] = None,
+    lineup_dir: str | Path = "data/lineups",
+) -> List[str]:
+    """Lineup positions he held that the active roster cannot cover.
+
+    Empty when every slot can be covered -- or when he is in no saved lineup
+    (a bench player leaves no hole). A call-up for an owner's club targets
+    THESE positions: the hole may be at 1B even though he is a shortstop.
+    """
+
+    injured_id = str(injured_id or "").strip()
+    active = [str(p) for p in active_ids if str(p) != injured_id]
+    lineup_root = resolve_app_path(lineup_dir)
+    ranked = _ranked_backups(team_id, injured_id, preferred_id, lineup_root)
+    missing: List[str] = []
+    for hand in LINEUP_HANDS:
+        rows = _read_lineup(_lineup_path(team_id, hand, lineup_root))
+        slot = next((r for r in rows if r[1] == injured_id), None)
+        if slot is None:
+            continue
+        if _plan_substitution(rows, injured_id, active, players_by_id, ranked.get(hand, [])) is None:
+            pos = slot[2].strip().upper()
+            if pos not in missing:
+                missing.append(pos)
+    return missing
+
+
+def can_cover_injury(
+    team_id: str,
+    injured_id: str,
+    *,
+    active_ids: Iterable[str],
+    players_by_id: Mapping[str, object],
+    preferred_id: Optional[str] = None,
+    lineup_dir: str | Path = "data/lineups",
+) -> bool:
+    """Whether the active roster can cover every lineup slot he held.
+
+    True when he is in no saved lineup (a bench player leaves no hole).
+    """
+
+    injured_id = str(injured_id or "").strip()
+    active = [str(p) for p in active_ids if str(p) != injured_id]
+    lineup_root = resolve_app_path(lineup_dir)
+    ranked = _ranked_backups(team_id, injured_id, preferred_id, lineup_root)
+    for hand in LINEUP_HANDS:
+        rows = _read_lineup(_lineup_path(team_id, hand, lineup_root))
+        if not rows or not any(pid == injured_id for _o, pid, _p in rows):
+            continue
+        if _plan_substitution(rows, injured_id, active, players_by_id, ranked.get(hand, [])) is None:
+            return False
+    return True
+
+
+def _ranked_backups(team_id, injured_id, preferred_id, lineup_root) -> Dict[str, List[str]]:
+    try:
+        chart = load_depth_chart(team_id)
+    except Exception:  # pragma: no cover - defensive
+        chart = {}
+    ranked: Dict[str, List[str]] = {}
+    for hand in LINEUP_HANDS:
+        rows = _read_lineup(_lineup_path(team_id, hand, lineup_root))
+        slot = next((r for r in rows if r[1] == injured_id), None)
+        order = list(depth_order_for_position(chart, slot[2]) or []) if slot else []
+        ranked[hand] = ([preferred_id] if preferred_id else []) + order
+    return ranked
+
+
+def substitute_injured_player(
+    team_id: str,
+    injured_id: str,
+    *,
+    active_ids: Iterable[str],
+    players_by_id: Mapping[str, object],
+    preferred_id: Optional[str] = None,
+    lineup_dir: str | Path = "data/lineups",
+) -> Dict[str, str]:
+    """Cover each lineup slot *injured_id* held, changing as little as possible.
+
+    The other half of :func:`restore_depth_chart_starter`, and just as
+    surgical: only his slot changes (or, when an eligible starter has to move
+    over, that starter's old slot too), so an owner's batting order survives.
+    See :func:`_plan_substitution` for the order of preference. Returns
+    ``{vs_hand: player_id}`` for the player now in his slot; a lineup nobody
+    can cover properly is left for the game-time rebuild.
+    """
+
+    injured_id = str(injured_id or "").strip()
+    if not injured_id:
+        return {}
+    active = [str(p) for p in active_ids if str(p) != injured_id]
+    lineup_root = resolve_app_path(lineup_dir)
+    ranked = _ranked_backups(team_id, injured_id, preferred_id, lineup_root)
+    changed: Dict[str, str] = {}
+    for hand in LINEUP_HANDS:
+        path = _lineup_path(team_id, hand, lineup_root)
+        rows = _read_lineup(path)
+        slot = next((i for i, (_o, pid, _p) in enumerate(rows) if pid == injured_id), None)
+        if slot is None:
+            continue
+        plan = _plan_substitution(rows, injured_id, active, players_by_id, ranked.get(hand, []))
+        if plan is None:
+            continue
+        _write_lineup(path, plan)
+        changed[hand] = plan[slot][1]
+    return changed
 
 
 def restore_depth_chart_starter(

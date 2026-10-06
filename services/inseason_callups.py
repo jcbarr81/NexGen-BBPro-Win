@@ -53,6 +53,11 @@ CALLUP_STATE_FILENAME = "callup_state.json"
 VERSION = 1
 _HITTER_POSITIONS = ("C", "1B", "2B", "3B", "SS", "LF", "CF", "RF")
 _PITCHER_COMFORT = 11  # one under the evaluator's 12-pitcher comfort line
+# Never leave fewer active position players than this after a swap: one above
+# the season gate's minimum (roster_validation.MIN_POSITION_PLAYERS_ACT) so an
+# injury can still be covered. Pitcher call-ups with no floor here were one of
+# the paths that drifted CPU active rosters to 8 hitters (audit H9).
+from services.roster_fill import HITTER_FLOOR as _POSITION_PLAYER_FLOOR  # noqa: E402
 _HOLE_PERCENTILE = 0.25
 
 
@@ -258,6 +263,7 @@ def _select_demotion_candidate(
     *,
     data_dir: Path,
     incoming_is_catcher: bool = False,
+    incoming_is_hitter: bool = False,
     force: bool = False,
 ) -> str | None:
     """Pick the worst-score demotable ACT player (D7). ``force`` skips the
@@ -265,6 +271,10 @@ def _select_demotion_candidate(
 
     act = list(getattr(roster, "act", []) or [])
     pitcher_count = sum(1 for pid in act if _is_pitcher(players_by_id.get(pid)))
+    hitter_count = sum(
+        1 for pid in act if players_by_id.get(pid) is not None
+        and not _is_pitcher(players_by_id.get(pid))
+    )
     catcher_count = sum(
         1
         for pid in act
@@ -281,6 +291,11 @@ def _select_demotion_candidate(
         if getattr(player, "injured", False):
             continue
         if _is_pitcher(player) and pitcher_count <= MIN_ACTIVE_PITCHERS:
+            continue
+        if (
+            not _is_pitcher(player)
+            and hitter_count - 1 + (1 if incoming_is_hitter else 0) < _POSITION_PLAYER_FLOOR
+        ):
             continue
         if _primary_pos(player) == "C" and not _is_pitcher(player):
             # Keep at least one catcher post-move (the incoming callup counts).
@@ -528,6 +543,7 @@ def run_monthly_callups(
                     players_by_id,
                     data_dir=resolved,
                     incoming_is_catcher=(_primary_pos(player) == "C"),
+                    incoming_is_hitter=not _is_pitcher(player),
                 )
                 if victim is None:
                     filtered["no_roster_space"] += 1

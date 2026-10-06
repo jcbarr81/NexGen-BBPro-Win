@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, Iterable, List
+from typing import Callable, Dict, Iterable, List, Optional
 import inspect
 import random
 
@@ -171,8 +171,12 @@ class SeasonSimulator:
             kwargs[self._date_param_name] = date_str
         return self.simulate_game(*args, **kwargs)
 
-    def simulate_next_day(self) -> None:
-        """Simulate games for the next scheduled day."""
+    def simulate_next_day(self) -> Optional[int]:
+        """Simulate games for the next scheduled day.
+
+        Returns the number of games played (0 when the date had none left),
+        or None when the season is already over.
+        """
 
         if self._index == self._mid and not self._all_star_played:
             if self.on_all_star_break is not None:
@@ -203,10 +207,15 @@ class SeasonSimulator:
                     self._draft_triggered = True
             else:
                 self._draft_triggered = True
-        games = [g for g in self.schedule if g["date"] == current_date]
+        # Only games still without a result: a day that failed partway through
+        # resumes with its missing games instead of replaying finished ones.
+        games = [
+            g for g in self.schedule
+            if g["date"] == current_date and not str(g.get("result", "") or "").strip()
+        ]
         if not games:
             self._index += 1
-            return
+            return 0
 
         self._tracker.start_day(current_date)
         # S1-10 D6: draw per-day seeds from a private generator decoupled from
@@ -329,6 +338,7 @@ class SeasonSimulator:
             except Exception:
                 pass
         self._index += 1
+        return len(games)
 
     # ------------------------------------------------------------------
     def _parallel_eligible(self) -> bool:

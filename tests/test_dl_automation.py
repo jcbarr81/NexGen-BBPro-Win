@@ -82,7 +82,11 @@ def test_process_disabled_lists_activates_players(tmp_path, monkeypatch):
 
 
 def test_process_disabled_lists_skips_ir_auto_activation(tmp_path, monkeypatch):
+    """An owner's 60-day list is managed by hand."""
     data = _prepare_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: {"TST"}
+    )
     start = date(2025, 4, 1)
     player = _make_player("PREH", injury_list="ir", start=start, minimum=10)
     save_players_to_csv([player], str(data / "players.csv"))
@@ -106,3 +110,21 @@ def test_process_disabled_lists_skips_ir_auto_activation(tmp_path, monkeypatch):
     players = load_players_from_csv("data/players.csv")
     ir_player = next(p for p in players if p.player_id == "PREH")
     assert ir_player.injured is True
+
+
+def test_cpu_club_activates_its_60_day_list(tmp_path, monkeypatch):
+    """Nobody runs a CPU club's injured list, so its IL60 players come back
+    on their own (audit H9 review: they never did)."""
+    data = _prepare_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: set()
+    )
+    start = date(2025, 4, 1)
+    player = _make_player("PREH", injury_list="ir", start=start, minimum=10)
+    save_players_to_csv([player], str(data / "players.csv"))
+    (data / "rosters" / "TST.csv").write_text(
+        "PACT1,ACT\nPAAA1,AAA\nPREH,IR\n", encoding="utf-8"
+    )
+    summary = process_disabled_lists(today="2025-04-20", days_elapsed=2, auto_activate=True)
+    assert summary.activated
+    assert "PREH" not in load_roster("TST").ir

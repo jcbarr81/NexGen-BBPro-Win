@@ -567,7 +567,11 @@ def _load_roster_from_storage(team_id: str, roster_dir: Path) -> Roster:
     roster = Roster(team_id=team_id, act=act, aaa=aaa, low=low, dl=dl, ir=ir, dl_tiers=dl_tiers)
     pool = _get_placeholder_pool()
     pool.reconcile_roster(team_id, roster)
-    roster.promote_replacements(target_size=ACTIVE_ROSTER_SIZE)
+    # No silent refill here. Loading used to top a short active roster up from
+    # AAA[0] -- no position check, no transaction -- so an owner's deliberately
+    # open spot refilled the next time anything read the file, and an injured
+    # hitter's spot often went to a pitcher (audit H9 / decision 14). A short
+    # active roster is legal; fills are explicit, recorded moves now.
     if _ensure_pitcher_depth(roster):
         pool.reconcile_roster(team_id, roster)
     pool.record_roster(team_id, roster)

@@ -3,7 +3,11 @@ import csv
 from utils.roster_loader import load_roster
 
 
-def test_load_roster_promotes_replacements(tmp_path):
+def test_load_roster_reads_levels_without_promoting(tmp_path):
+    """Loading reads the levels as saved; it no longer tops up the active
+    roster from AAA[0]. That silent, unrecorded refill undid an owner's open
+    spot and replaced injured hitters with pitchers (audit H9, decision 14)."""
+
     roster_file = tmp_path / "T.csv"
     rows = [
         ["p1", "ACT"],
@@ -22,7 +26,6 @@ def test_load_roster_promotes_replacements(tmp_path):
     assert roster.dl == ["p3"]
     assert roster.dl_tiers["p3"] == "dl15"
     assert roster.ir == ["p4", "p5"]
-    assert "p2" in roster.act
-    assert "p6" in roster.act
-    assert roster.aaa == []
-    assert roster.low == []
+    assert roster.aaa == ["p2"]
+    assert roster.low == ["p6"]
+    assert "p2" not in roster.act and "p6" not in roster.act

@@ -456,10 +456,10 @@ def reset_to_opening_day(
                             changed = True
                         roster.dl_tiers.pop(pid, None)
                 if changed:
-                    try:
-                        roster.promote_replacements()
-                    except Exception:
-                        pass
+                    # No blind refill (it popped AAA[0], often a pitcher, and
+                    # filled owners' open spots unrecorded). CPU clubs are
+                    # topped up like for like before the next sim day
+                    # (season._prepare_rosters_for_date); owners decide.
                     save_roster(team_id, roster)
     except Exception as exc:
         notes.append(f"Failed clearing injuries: {exc}")

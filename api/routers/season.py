@@ -533,14 +533,21 @@ def _build_manager_and_simulator() -> tuple[SeasonManager, SeasonSimulator, Opti
         draft_date=draft_date,
         on_all_star_break=_fire_all_star,
     )
-    # Skip past any dates whose games are fully played so simulate_next_day
-    # truly advances the sim instead of replaying finished dates.
-    played: set[str] = set()
+    # Skip past any dates whose games are FULLY played so simulate_next_day
+    # truly advances the sim instead of replaying finished dates. A date counts
+    # only when every game on it has a result: this used to count a date as
+    # soon as ANY game did, so a day that failed partway through never played
+    # its remaining games (audit H9). simulate_next_day now plays only the
+    # games on a date that still lack a result.
+    def _row_done(row: Dict[str, Any]) -> bool:
+        return str(row.get("played", "")).strip().lower() in {
+            "1", "true", "yes"
+        } or bool(str(row.get("result", "")).strip())
+
+    by_date: Dict[str, List[bool]] = {}
     for row in schedule:
-        if str(row.get("played", "")).strip().lower() in {"1", "true", "yes"} or str(
-            row.get("result", "")
-        ).strip():
-            played.add(str(row.get("date", "")).strip())
+        by_date.setdefault(str(row.get("date", "")).strip(), []).append(_row_done(row))
+    played: set[str] = {d for d, done in by_date.items() if done and all(done)}
     while (
         simulator._index < len(simulator.dates)
         and simulator.dates[simulator._index] in played
@@ -754,6 +761,7 @@ def _simulate_n(
 
     n = max(1, min(int(n), _MAX_DAYS_PER_CALL))
     played_dates: List[str] = []
+    partial_dates: List[str] = []
     errors: List[str] = []
     draft_blocked = False
     notification_events: List[NotificationEvent] = []
@@ -783,6 +791,10 @@ def _simulate_n(
             "draft_blocked": draft_blocked,
             "sim_stopped_reason": "phase_blocked",
         }
+
+    # Every club needs a depth chart: injury coverage reads it first (audit
+    # decision 14). Creates one only where none exists; never overwrites.
+    _ensure_depth_charts()
 
     # Roster-compliance gate. Refuse to advance the calendar while the
     # owner's team isn't carrying a legal roster — most often this
@@ -832,7 +844,13 @@ def _simulate_n(
     playable = max(0, min(n, len(simulator.dates) - simulator._index))
     _begin_sim_progress(playable)
 
-    for _ in range(n):
+    # Count only days that actually played games: a date whose games were all
+    # finished earlier (a resumed partial day from an older build) advances the
+    # cursor without spending one of the ``n`` days the caller asked for.
+    days_done = 0
+    guard = 0
+    while days_done < n and guard < n + len(simulator.dates) + 1:
+        guard += 1
         # Cooperative cancellation: stop after the current day on request. The
         # days already played are persisted below, so cancelling is safe.
         if _sim_cancel_requested():
@@ -883,11 +901,23 @@ def _simulate_n(
             except Exception:
                 pre_state = None
 
+        # Rosters first, in this process (not inside parallel game workers):
+        # every club playing today can field nine, and CPU clubs are full,
+        # balanced and under the cap (audit H9 / decision 14).
+        _prepare_rosters_for_date(simulator, target_date)
         try:
-            simulator.simulate_next_day()
+            games_played = simulator.simulate_next_day()
         except Exception as exc:  # pragma: no cover - defensive
             errors.append(f"{target_date}: {exc}")
+            # Games finished before the failure keep their results (their
+            # player stats are already written); persist them as played so a
+            # retry finishes only the missing games instead of losing them or
+            # replaying -- and double-counting -- the finished ones.
+            partial_dates.append(target_date)
             break
+        if games_played == 0:
+            continue
+        days_done += 1
         played_dates.append(target_date)
         _bump_sim_progress()
 
@@ -922,8 +952,8 @@ def _simulate_n(
     # next request would rebuild the simulator from a "no games
     # played" schedule and we'd silently re-sim day 1 forever — and
     # the standings page would keep showing 0-0 records.
-    if played_dates:
-        _persist_post_sim_state(simulator, played_dates)
+    if played_dates or partial_dates:
+        _persist_post_sim_state(simulator, played_dates, partial_dates=partial_dates)
 
     # Post-day automations. Only run these if we actually played days —
     # a no-op sim (draft pause, empty schedule, etc.) shouldn't trigger
@@ -947,8 +977,111 @@ def _simulate_n(
     return result
 
 
+def _ensure_depth_charts() -> None:
+    """Give every team without a saved depth chart a default one."""
+
+    try:
+        from utils.depth_chart_autofill import ensure_default_depth_chart
+        from utils.team_loader import load_teams
+
+        teams = load_teams()
+    except Exception:  # pragma: no cover - defensive
+        return
+    try:
+        from services.team_ownership import human_owned_team_ids_strict
+
+        human_ids = human_owned_team_ids_strict()
+    except Exception:  # pragma: no cover - defensive
+        human_ids = None
+    for team in teams:
+        team_id = str(getattr(team, "team_id", "") or "").strip()
+        if not team_id:
+            continue
+        # A CPU club's chart is rebuilt every sim so trades and call-ups reach
+        # the lineup; a chart someone saved by hand is never touched.
+        cpu = human_ids is not None and team_id.upper() not in human_ids
+        try:
+            ensure_default_depth_chart(team_id, refresh=cpu)
+        except Exception:
+            continue
+
+
+def _prepare_rosters_for_date(simulator: SeasonSimulator, date: str) -> None:
+    """Make every club playing on ``date`` fieldable; keep CPU rosters sound.
+
+    Runs in the request process before the day's games are dispatched, so
+    parallel game workers never write rosters (S1-10) and the roster cache
+    sees the moves. Emergency call-ups apply to every club (decision 14 rule
+    4); the fill / repair / trim of ``maintain_cpu_active_roster`` to CPU
+    clubs only. Every move is recorded.
+    """
+
+    try:
+        from services.injury_manager import _promotion_allowed
+        from services.roster_fill import (
+            apply_prospect_bookkeeping,
+            ensure_fieldable_roster,
+            maintain_cpu_active_roster,
+            record_emergency_moves,
+            record_roster_moves,
+        )
+        from services.team_ownership import human_owned_team_ids_strict
+        from utils.player_loader import load_players_from_csv
+        from utils.roster_loader import (
+            ACTIVE_ROSTER_SIZE,
+            active_roster_cap,
+            load_roster,
+            save_roster,
+        )
+    except Exception:  # pragma: no cover - defensive
+        return
+    teams = set()
+    for game in simulator.schedule:
+        if str(game.get("date", "")) != str(date) or str(game.get("result", "") or "").strip():
+            continue
+        teams.update({str(game.get("home", "")), str(game.get("away", ""))})
+    teams.discard("")
+    if not teams:
+        return
+    try:
+        players = {p.player_id: p for p in load_players_from_csv("data/players.csv")}
+        # None = ownership unreadable: emergency call-ups only, no CPU upkeep
+        # (which must never touch an owner's roster on a guess).
+        human_ids = human_owned_team_ids_strict()
+    except Exception:
+        return
+    cap = active_roster_cap(str(date))
+    for team_id in sorted(teams):
+        try:
+            roster = load_roster(team_id)
+            cpu = human_ids is not None and team_id.upper() not in human_ids
+            allowed = _promotion_allowed(team_id)
+            emergency = ensure_fieldable_roster(
+                team_id, roster, players, allowed=allowed, cpu_owned=cpu, cap=cap
+            )
+            upkeep = (
+                maintain_cpu_active_roster(
+                    team_id, roster, players,
+                    target_size=ACTIVE_ROSTER_SIZE, cap=cap, allowed=allowed,
+                )
+                if cpu
+                else []
+            )
+            if not (emergency or upkeep):
+                continue
+            save_roster(team_id, roster)
+            record_emergency_moves(team_id, emergency, players)
+            record_roster_moves(team_id, upkeep, players, details="CPU roster upkeep")
+            apply_prospect_bookkeeping(team_id, list(emergency) + list(upkeep))
+        except Exception:
+            continue
+
+
 def _persist_post_sim_state(
-    simulator: SeasonSimulator, played_dates: List[str]
+    simulator: SeasonSimulator,
+    played_dates: List[str],
+    *,
+    partial_dates: Optional[List[str]] = None,
 ) -> None:
     """Write everything the sim mutated in-memory back to disk.
 
@@ -966,22 +1099,29 @@ def _persist_post_sim_state(
     games we already simulated.
     """
 
-    if not played_dates:
+    if not played_dates and not partial_dates:
         return
 
     # 1. Persist the schedule with the now-populated result + played columns.
+    # ``partial_dates`` are days that failed partway: only their games WITH a
+    # result are marked played; the rest stay open for the retry.
     try:
         from playbalance.schedule_generator import save_schedule
         from playbalance.simulation import save_boxscore_html
         from services import boxscore_diagnostics
 
-        played_set = {str(d) for d in played_dates}
+        played_set = {str(d) for d in played_dates} | {
+            str(d) for d in (partial_dates or [])
+        }
         for game in simulator.schedule:
             if str(game.get("date", "")) in played_set:
+                # A game with no result was not played (a partial day's
+                # remainder): leave it open for the retry, no box score yet.
+                if not str(game.get("result", "")).strip():
+                    continue
                 # `_apply_result_to_game` already set ``result``; mark
                 # the row played so subsequent requests skip it.
-                if str(game.get("result", "")).strip():
-                    game["played"] = "1"
+                game["played"] = "1"
                 # The simulator hands back the rendered boxscore HTML under
                 # ``boxscore_html``. Write it to data/boxscores/season/ and
                 # store the PATH in the schedule's ``boxscore`` column (S1-04)

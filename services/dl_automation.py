@@ -75,7 +75,13 @@ def _player_name(player) -> str:
     return f"{getattr(player, 'first_name', '')} {getattr(player, 'last_name', '')}".strip() or getattr(player, "player_id", "")
 
 
-def _resolve_destination(roster) -> Optional[str]:
+def _resolve_destination(roster, *, cpu_owned: bool = False) -> Optional[str]:
+    # A CPU club always brings a healthy player back to the active roster;
+    # recover_from_injury sends his like-for-like replacement down if the
+    # roster is full. Sending the returner to AAA instead is how CPU active
+    # rosters lost a hitter for good every time one got hurt (audit H9).
+    if cpu_owned:
+        return "act"
     if len(getattr(roster, "act", []) or []) < active_roster_cap():
         return "act"
     if len(getattr(roster, "aaa", []) or []) < AAA_MAX:
@@ -140,6 +146,13 @@ def process_disabled_lists(
 
     rosters: Dict[str, object] = {}
     mutated_rosters: set[str] = set()
+    try:
+        from services.team_ownership import human_owned_team_ids_strict
+
+        # None when ownership can't be read: treat every club as an owner's.
+        human_ids = human_owned_team_ids_strict()
+    except Exception:  # pragma: no cover - defensive
+        human_ids = None
     mutated_players: set[str] = set()
 
     for team in teams:
@@ -151,7 +164,13 @@ def process_disabled_lists(
         except Exception:
             continue
         rosters[team_id] = roster
+        # The 60-day list (roster.ir) is managed by hand -- except at a CPU
+        # club, where nobody would ever activate him and his like-for-like
+        # call-up would be permanent (audit H9 review).
+        cpu_club = human_ids is not None and str(team_id).upper() not in human_ids
         dl_entries = list(getattr(roster, "dl", []) or [])
+        if cpu_club:
+            dl_entries += list(getattr(roster, "ir", []) or [])
         if not dl_entries:
             continue
         for pid in dl_entries:
@@ -182,13 +201,18 @@ def process_disabled_lists(
                 continue
 
             if auto_activate:
-                destination = _resolve_destination(roster)
+                destination = _resolve_destination(
+                    roster,
+                    cpu_owned=human_ids is not None and str(team_id).upper() not in human_ids,
+                )
                 if destination is None:
                     summary.blocked.append(f"{base_msg} but no roster room is available.")
                     log_news_event(f"{base_msg} but no roster space available.", category="injury")
                     continue
                 try:
-                    recover_from_injury(player, roster, destination=destination)
+                    recover_from_injury(
+                        player, roster, destination=destination, players_by_id=player_map
+                    )
                 except ValueError:
                     summary.alerts.append(base_msg)
                     log_news_event(base_msg, category="injury")

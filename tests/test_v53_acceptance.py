@@ -314,11 +314,16 @@ def test_acceptance_injury_replacement_regression(monkeypatch, tmp_path):
     _reset_data_root(tmp_path, monkeypatch)
     update_prospect_rules(enabled=True, auto_protect_on_promotion=False)
     roster_blocked = Roster(team_id="T1", act=["P1"], aaa=["P2"], low=[])
+    # Players and ownership passed explicitly: like-for-like call-ups need to
+    # know who is a pitcher, and only CPU clubs get an automatic call-up
+    # (audit decision 14).
     place_on_injury_list(
         _pitcher("P1"),
         roster_blocked,
         list_name="dl15",
         today=date(2026, 4, 1),
+        players_by_id={"P1": _pitcher("P1"), "P2": _pitcher("P2")},
+        cpu_owned=True,
     )
     assert "P2" in roster_blocked.aaa
     assert "P2" not in roster_blocked.act
@@ -330,6 +335,8 @@ def test_acceptance_injury_replacement_regression(monkeypatch, tmp_path):
         roster_auto,
         list_name="dl15",
         today=date(2026, 4, 1),
+        players_by_id={"P3": _pitcher("P3"), "P4": _pitcher("P4")},
+        cpu_owned=True,
     )
     assert "P4" in roster_auto.act
     assert is_player_protected("T2", "P4") is True

@@ -979,6 +979,7 @@ def simulate_series(matchup: Matchup, *, year: int, round_name: str, series_inde
         matchup.winner = high_id if existing_high >= wins_needed else low_id
         return matchup
 
+    real_games = simulate_game is None
     if simulate_game is None:
         from playbalance.game_runner import simulate_game_scores as _sim
         simulate_game = _sim
@@ -993,6 +994,10 @@ def simulate_series(matchup: Matchup, *, year: int, round_name: str, series_inde
             break
         away = low_id if home == high_id else high_id
         seed = _deterministic_seed(str(year), round_name, str(series_index), str(game_no), home, away)
+        if real_games:
+            from services.roster_fill import prepare_teams_for_game
+
+            prepare_teams_for_game((home, away))
         # Call simulate_game with keyword seed if accepted; otherwise rely on RNG state
         try:
             result = simulate_game(home, away, seed=seed)
@@ -1090,6 +1095,7 @@ def _simulate_next_series_game(
         matchup.winner = high_id if existing_high >= wins_needed else low_id
         return False
 
+    real_games = simulate_game is None
     if simulate_game is None:
         from playbalance.game_runner import simulate_game_scores as _sim
         simulate_game = _sim
@@ -1107,6 +1113,10 @@ def _simulate_next_series_game(
     home = homes[played_games]
     away = low_id if home == high_id else high_id
     seed = _deterministic_seed(str(year), round_name, str(series_index), str(played_games), home, away)
+    if real_games:
+        from services.roster_fill import prepare_teams_for_game
+
+        prepare_teams_for_game((home, away))
     try:
         result = simulate_game(home, away, seed=seed)
     except TypeError:

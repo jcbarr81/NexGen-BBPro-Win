@@ -274,6 +274,10 @@ class PitcherRecoveryTracker:
     """Track pitcher rest and rotation assignments across the season."""
 
     _instance: "PitcherRecoveryTracker" | None = None
+    # One tracker per league data dir. A single process-wide tracker bound to
+    # whichever league loaded first made every other league in the process
+    # read and write that league's pitcher rest and rotations (audit H9 review).
+    _instances: Dict[str, "PitcherRecoveryTracker"] = {}
 
     def __init__(self, path: str | Path | None = None) -> None:
         self.path = _resolve_path(path or "data/pitcher_recovery.json")
@@ -367,9 +371,20 @@ class PitcherRecoveryTracker:
     # ------------------------------------------------------------------
     @classmethod
     def instance(cls) -> "PitcherRecoveryTracker":
+        # ``_instance = None`` is the reset hook (parallel_day workers, tests):
+        # drop every cached league tracker. An injected non-cached instance
+        # (tests) is returned as-is.
         if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+            cls._instances.clear()
+        elif cls._instance not in cls._instances.values():
+            return cls._instance
+        key = str(_resolve_path("data/pitcher_recovery.json"))
+        tracker = cls._instances.get(key)
+        if tracker is None:
+            tracker = cls()
+            cls._instances[key] = tracker
+        cls._instance = tracker
+        return tracker
 
     # ------------------------------------------------------------------
     def _config(self):
@@ -477,6 +492,8 @@ class PitcherRecoveryTracker:
             self.data["teams"] = teams
         else:
             self.data["teams"] = {}
+        if isinstance(loaded, dict) and loaded.get("last_recovery_date"):
+            self.data["last_recovery_date"] = str(loaded["last_recovery_date"])
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -489,6 +506,11 @@ class PitcherRecoveryTracker:
             except Exception:
                 new_entry["rotation"] = []
             new_entry["next_index"] = int(entry.get("next_index", 0) or 0)
+            # Idempotency markers survive a restart: a retried day served by
+            # a fresh process must not re-advance the rotation.
+            if entry.get("assigned_date"):
+                new_entry["assigned_date"] = str(entry["assigned_date"])
+                new_entry["assigned_pid"] = str(entry.get("assigned_pid") or "")
             pitchers = entry.get("pitchers", {}) or {}
             clean_pitchers: Dict[str, dict] = {}
             for pid, pdata in pitchers.items():
@@ -497,6 +519,8 @@ class PitcherRecoveryTracker:
             new_entry["pitchers"] = clean_pitchers
             teams[team_id] = new_entry
         payload = {"teams": teams}
+        if self.data.get("last_recovery_date"):
+            payload["last_recovery_date"] = str(self.data["last_recovery_date"])
         try:
             with self.path.open("w", encoding="utf-8") as handle:
                 json.dump(payload, handle, indent=2, check_circular=False)
@@ -526,6 +550,11 @@ class PitcherRecoveryTracker:
 
         self._assignments.clear()
         self._ensured.clear()  # rosters may have changed overnight (injuries)
+        # One overnight recovery per date: a retried day must not rest the
+        # whole league twice.
+        if self.data.get("last_recovery_date") == date_str:
+            self._current_date = date_str
+            return
         teams = self.data.get("teams", {}) or {}
         updated = False
         for entry in teams.values():
@@ -537,6 +566,7 @@ class PitcherRecoveryTracker:
                 status.available_pitches = min(status.available_pitches, status.max_pitches)
                 pitchers[pid] = status.to_dict()
                 updated = True
+        self.data["last_recovery_date"] = date_str
         if updated:
             self.save()
         self._current_date = date_str
@@ -787,6 +817,13 @@ class PitcherRecoveryTracker:
         rotation: list[str] = entry.get("rotation", []) or []
         if not rotation:
             return None
+        # Idempotent per (team, date): a sim day that failed partway and is
+        # retried must not advance the rotation a second time -- the starter
+        # who never got to pitch would lose his turn (audit H9 review).
+        if entry.get("assigned_date") == date_str and entry.get("assigned_pid") in rotation:
+            pid = str(entry["assigned_pid"])
+            self._assignments[team_id] = pid
+            return pid
         next_index = int(entry.get("next_index", 0) or 0)
         pitchers = entry.get("pitchers", {})
         date_obj = _parse_date(date_str)
@@ -824,6 +861,8 @@ class PitcherRecoveryTracker:
             used_fallback=used_fallback,
         )
         entry["next_index"] = next_index_out
+        entry["assigned_date"] = date_str
+        entry["assigned_pid"] = pid
         self._assignments[team_id] = pid
         self._mark_dirty()
         return pid

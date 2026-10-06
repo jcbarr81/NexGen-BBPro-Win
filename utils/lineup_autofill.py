@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 from datetime import date
-import random
 from pathlib import Path
 from typing import Dict
 
@@ -17,6 +16,25 @@ from services.decision_explanations import (
     reason,
     should_persist_decision_logs,
 )
+
+
+def lineup_depth_chart(team_id: str) -> dict:
+    """The depth chart that may pin lineup starters, or ``{}``.
+
+    A chart the sim generated (every chartless club gets one for injury
+    coverage) is advisory: letting it pin starters would erase the
+    handedness-aware vs-LHP / vs-RHP passes (S2-01) and pick by overall rating
+    instead of matchup. Only a chart a person saved decides who starts.
+    """
+
+    try:
+        from utils.depth_chart import is_depth_chart_auto
+
+        if is_depth_chart_auto(team_id):
+            return {}
+        return load_depth_chart(team_id)
+    except Exception:
+        return {}
 
 
 def auto_fill_lineup_for_team(
@@ -57,10 +75,7 @@ def auto_fill_lineup_for_team(
         explicit=strategy_profile,
         data_dir_hint=data_dir_hint,
     )
-    try:
-        depth_chart = load_depth_chart(team_id)
-    except Exception:
-        depth_chart = {}
+    depth_chart = lineup_depth_chart(team_id)
 
     # Collect non-pitchers first
     def is_pitcher(p: object) -> bool:
@@ -170,19 +185,16 @@ def auto_fill_lineup_for_team(
                 counters["emergency"] += 1
 
         if len(lineup) < 9:
-            fallback_ids = [
-                pid
-                for pid, player in players.items()
-                if pid not in used and player and not is_pitcher(player)
-            ]
-            rng = random.Random(f"{team_id}-lineup-fallback")
-            rng.shuffle(fallback_ids)
-            for pid in fallback_ids:
-                if len(lineup) >= 9:
-                    break
-                lineup.append((pid, "DH"))
-                used.add(pid)
-                counters["emergency"] += 1
+            # This used to fill the gap from EVERY player in players.csv --
+            # other clubs' minor leaguers, shuffled with a fixed seed -- which
+            # the game then rejected, aborting the sim day on every retry
+            # (audit H9). Emergency call-ups from the club's own minors happen
+            # before each sim day (api.routers.season._prepare_rosters_for_date);
+            # a lineup action never makes roster moves.
+            raise ValueError(
+                f"{team_id} cannot field nine position players: "
+                f"{len(lineup)} healthy across the active roster and minors"
+            )
 
         # Slot-weighted batting order (S2-02): leadoff OBP/speed, 2 best overall,
         # 3-4 power, 9 second-leadoff speed tilt. Consumes the platoon-adjusted

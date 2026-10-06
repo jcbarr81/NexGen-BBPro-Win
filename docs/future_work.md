@@ -977,3 +977,33 @@ team's role slot (closer, SP1...) silently points at a departed player until
 the owner or the CPU re-sets the staff. Drop traded players from the old
 team's staff file in the trade commit, and consider surfacing "your closer was
 traded" to an owner.
+
+## 48. Data-root fallback can write into the repo's data/ folder
+
+Found during the H9 hotfix verification (2026-10-06): when `NEXGEN_DATA_ROOT`
+points somewhere that can't be resolved (a typo, a missing folder),
+`utils/path_utils._resolve_data_root` silently falls back to the repository's
+own `data/`, and `get_data_dir()` -> `_seed_data_dir()` then copies the repo's
+top-level data files into `data/leagues/<league>/data/` (146 files in one
+incident, plus recursive `data/leagues/<x>/data/leagues/...` trees from earlier
+runs, some created read-only). In the cloud the root always resolves, but a
+misconfigured deploy would read and write the wrong data without a word. Make
+an unresolvable configured root an error, not a fallback, and stop
+`_seed_data_dir` from copying a tree into itself.
+
+## 49. Day-to-day injuries never clear
+
+Seen in every H9 stress season (pre- and post-fix): 66-91 players end a season
+flagged `injured=True` with no injury list and no return date, and 35-44 of the
+50 such flags present at the start are still set 91 days later. They stay on
+active rosters and in lineups (the engine plays them), but every tool that
+filters on `injured` -- injury coverage, call-up candidates, the depth chart
+coverage check -- treats them as unavailable. Day-to-day injuries need an
+expiry.
+
+## 50. Tell owners when a roster spot is left open
+
+Decision 14 leaves an owner's active-roster spot open after an injury the depth
+chart covers. Owners currently learn about it only from the injury news line.
+Consider a notification ("CHI: active roster at 24 -- a spot is open") and a
+roster-page badge.

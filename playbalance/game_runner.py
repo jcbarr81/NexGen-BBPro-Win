@@ -1313,20 +1313,26 @@ def _run_physics_game(
         if isinstance(pitcher_lines, dict):
             home_lines = pitcher_lines.get("home", []) if isinstance(pitcher_lines.get("home"), list) else []
             away_lines = pitcher_lines.get("away", []) if isinstance(pitcher_lines.get("away"), list) else []
-            tracker.record_game(
-                home_id,
-                date_token,
-                _states_from_lines(home_lines),
-                players_file,
-                str(roster_dir),
-            )
-            tracker.record_game(
-                away_id,
-                date_token,
-                _states_from_lines(away_lines),
-                players_file,
-                str(roster_dir),
-            )
+            # Best effort: the game's stats are already written, so a failure
+            # here must not abort it (the retry would replay it and count its
+            # stats twice).
+            try:
+                tracker.record_game(
+                    home_id,
+                    date_token,
+                    _states_from_lines(home_lines),
+                    players_file,
+                    str(roster_dir),
+                )
+                tracker.record_game(
+                    away_id,
+                    date_token,
+                    _states_from_lines(away_lines),
+                    players_file,
+                    str(roster_dir),
+                )
+            except Exception:  # pragma: no cover - defensive
+                pass
 
     return home_state, away_state, box, html, meta
 
@@ -1696,7 +1702,13 @@ def _apply_injury_events(
             # over the sim dates set just above, so an injured list ran on the
             # wall clock: a stint expired 15 days after you happened to press
             # the button, however much baseball had been played in between.
-            place_on_injury_list(player, roster, list_name=dl_tier, today=injury_date)
+            place_on_injury_list(
+                player,
+                roster,
+                list_name=dl_tier,
+                today=injury_date,
+                players_by_id=player_map,
+            )
         # Name the list in the news line. The notification engine classifies
         # injuries by matching this text, and "Wrist strain" carries no tier —
         # so every injured-list placement was landing in the day-to-day bucket

@@ -18,11 +18,11 @@ Two rules from MLB drive everything here:
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Mapping, Optional
+from typing import Dict, Mapping, Optional
 
 from models.player import Player
 from models.roster import Roster
-from services.depth_chart_manager import promote_depth_chart_replacement
+from services.depth_chart_manager import InjuryCoverage, handle_injury_replacement
 from services.prospect_event_log import (
     record_roster_level_movements,
     roster_level_map,
@@ -197,8 +197,19 @@ def place_on_injury_list(
     list_name: str = "dl15",
     *,
     today: Optional[date] = None,
-) -> None:
-    """Move *player* to an injury list and promote a replacement."""
+    players_by_id: Optional[Mapping[str, Player]] = None,
+    cpu_owned: Optional[bool] = None,
+) -> Optional[InjuryCoverage]:
+    """Move *player* to an injury list and cover for him (audit decision 14).
+
+    The depth chart decides who covers: an active backup takes his place with
+    no roster move. An owner's team then keeps the open spot; a CPU team calls
+    up a like-for-like replacement from its own minors. See
+    :func:`services.depth_chart_manager.handle_injury_replacement`.
+
+    ``players_by_id`` / ``cpu_owned`` default to loading the league's players
+    and ``services.team_ownership``; the sim passes what it already holds.
+    """
 
     normalized = _normalize_list_name(list_name, player)
     today = today or _today()
@@ -254,18 +265,65 @@ def place_on_injury_list(
     player.injury_rehab_days = 0
     player.ready = False
 
-    promoted = False
+    team_id = str(getattr(roster, "team_id", "") or "").strip()
+    players = _players_map(players_by_id, player)
+    if cpu_owned is None:
+        cpu_owned = _team_is_cpu(team_id)
+    coverage: Optional[InjuryCoverage] = None
+
+    def _covered(backup_id: Optional[str]):
+        from services.lineup_restore import uncovered_positions
+
+        return uncovered_positions(
+            team_id,
+            player.player_id,
+            active_ids=list(roster.act),
+            players_by_id=players,
+            preferred_id=backup_id,
+        )
+
     try:
-        promoted = promote_depth_chart_replacement(
+        coverage = handle_injury_replacement(
             roster,
-            getattr(player, "primary_position", None),
-            exclude={player.player_id},
+            player,
+            players_by_id=players,
+            cpu_owned=cpu_owned,
+            allowed=_promotion_allowed(team_id),
+            covered_check=_covered if team_id else None,
         )
     except Exception:
-        promoted = False
-    if not promoted:
-        roster.promote_replacements()
-    _enforce_injury_replacement_eligibility(roster, before_levels)
+        coverage = None
+    _enforce_injury_replacement_eligibility(roster, before_levels, players)
+    if coverage is not None and coverage.promoted_id and team_id:
+        try:
+            from services.injury_replacements import record_replacement
+            from services.roster_fill import record_roster_moves
+
+            record_replacement(
+                team_id, player.player_id, coverage.promoted_id,
+                coverage.promoted_from or "aaa",
+            )
+            record_roster_moves(
+                team_id,
+                [(coverage.promoted_id, coverage.promoted_from or "aaa", "act")],
+                players,
+                details=f"Called up to cover the injured {_name(player)}",
+            )
+        except Exception:
+            pass
+    if coverage is not None and team_id:
+        try:
+            from services.lineup_restore import substitute_injured_player
+
+            substitute_injured_player(
+                team_id,
+                player.player_id,
+                active_ids=list(roster.act),
+                players_by_id=players,
+                preferred_id=coverage.backup_id,
+            )
+        except Exception:
+            pass
     after_levels = roster_level_map(roster)
     try:
         record_roster_level_movements(
@@ -284,17 +342,94 @@ def place_on_injury_list(
         )
     except Exception:
         pass
+    return coverage
+
+
+def _players_map(
+    players_by_id: Optional[Mapping[str, Player]], player: Player
+) -> Mapping[str, Player]:
+    if players_by_id is not None:
+        return players_by_id
+    try:
+        from utils.player_loader import load_players_from_csv
+
+        loaded: Dict[str, Player] = {
+            p.player_id: p for p in load_players_from_csv("data/players.csv")
+        }
+    except Exception:
+        loaded = {}
+    loaded.setdefault(player.player_id, player)
+    return loaded
+
+
+def _name(player: object) -> str:
+    return (
+        f"{getattr(player, 'first_name', '')} {getattr(player, 'last_name', '')}".strip()
+        or str(getattr(player, "player_id", ""))
+    )
+
+
+def _team_is_cpu(team_id: str) -> bool:
+    """Fail closed: when ownership can't be determined, treat the club as an
+    owner's and make no automatic moves."""
+
+    if not team_id:
+        return False
+    try:
+        from services.team_ownership import human_owned_team_ids_strict
+
+        human = human_owned_team_ids_strict()
+    except Exception:
+        return False
+    return human is not None and team_id.upper() not in human
+
+
+def _option_allowed(team_id: str):
+    """Veto send-downs the prospect option rules forbid."""
+
+    def _allowed(player_id: str) -> bool:
+        if not team_id:
+            return True
+        try:
+            return bool(
+                evaluate_roster_move(
+                    team_id, player_id, from_level="act", to_level="aaa"
+                ).allowed
+            )
+        except Exception:
+            return True
+
+    return _allowed
+
+
+def _promotion_allowed(team_id: str):
+    """Veto call-ups the prospect service-time rules forbid."""
+
+    def _allowed(player_id: str, from_level: str) -> bool:
+        if not team_id:
+            return True
+        try:
+            return bool(
+                evaluate_roster_move(
+                    team_id, player_id, from_level=from_level, to_level="act"
+                ).allowed
+            )
+        except Exception:
+            return True
+
+    return _allowed
 
 
 def _enforce_injury_replacement_eligibility(
     roster: Roster,
     before_levels: Mapping[str, str],
+    players_by_id: Optional[Mapping[str, Player]] = None,
 ) -> None:
     team_id = str(getattr(roster, "team_id", "") or "").strip()
     if not team_id:
         return
     current_levels = roster_level_map(roster)
-    blocked_promotions = 0
+    blocked: list = []
     for player_id, from_level in before_levels.items():
         if from_level not in {"aaa", "low"}:
             continue
@@ -321,7 +456,7 @@ def _enforce_injury_replacement_eligibility(
                 pass
             continue
 
-        blocked_promotions += 1
+        blocked.append(player_id)
         if player_id in roster.act:
             roster.act.remove(player_id)
         if from_level == "aaa":
@@ -330,36 +465,43 @@ def _enforce_injury_replacement_eligibility(
         elif from_level == "low" and player_id not in roster.low:
             roster.low.append(player_id)
 
-    if blocked_promotions <= 0:
+    if not blocked:
         return
-    for source_level in ("aaa", "low"):
-        source = getattr(roster, source_level)
-        for player_id in list(source):
-            if blocked_promotions <= 0:
-                return
-            decision = evaluate_roster_move(
+    # Refill like for like: a blocked hitter is replaced by a hitter, a
+    # blocked pitcher by a pitcher. This loop used to take whoever came first
+    # in AAA, which is how pitchers replaced injured hitters (audit H9).
+    from services.roster_fill import callup_candidates, is_pitcher
+
+    players = players_by_id or {}
+    allowed = _promotion_allowed(team_id)
+    for blocked_id in blocked:
+        want_pitcher = is_pitcher(players.get(blocked_id))
+        candidates = callup_candidates(
+            roster,
+            players,
+            want_pitcher=want_pitcher,
+            exclude=set(blocked),
+            allowed=allowed,
+        )
+        if not candidates:
+            continue
+        player_id, source_level = candidates[0]
+        getattr(roster, source_level).remove(player_id)
+        roster.act.append(player_id)
+        try:
+            apply_roster_move(
                 team_id,
                 player_id,
                 from_level=source_level,
                 to_level="act",
+                decision=evaluate_roster_move(
+                    team_id, player_id, from_level=source_level, to_level="act"
+                ),
+                actor="system",
+                trigger="injury_replacement_promotion",
             )
-            if not decision.allowed:
-                continue
-            source.remove(player_id)
-            roster.act.append(player_id)
-            try:
-                apply_roster_move(
-                    team_id,
-                    player_id,
-                    from_level=source_level,
-                    to_level="act",
-                    decision=decision,
-                    actor="system",
-                    trigger="injury_replacement_promotion",
-                )
-            except Exception:
-                pass
-            blocked_promotions -= 1
+        except Exception:
+            pass
 
 
 def recover_from_injury(
@@ -369,8 +511,14 @@ def recover_from_injury(
     *,
     force: bool = False,
     today: Optional[date] = None,
+    players_by_id: Optional[Mapping[str, Player]] = None,
 ) -> None:
-    """Return *player* from an injury list to the roster."""
+    """Return *player* from an injury list to the roster.
+
+    Activating to a full active roster sends down the player recorded as his
+    injury replacement (back to the level he came from), else the weakest
+    player by roster composition -- never the last healthy catcher.
+    """
 
     if destination not in {"act", "aaa", "low"}:
         raise ValueError("destination must be one of act, aaa or low")
@@ -414,12 +562,59 @@ def recover_from_injury(
 
     getattr(roster, destination).append(player.player_id)
 
+    team_id = str(getattr(roster, "team_id", "") or "").strip()
+    try:
+        from services.injury_replacements import pop_replacement
+
+        replacement = pop_replacement(team_id, player.player_id)
+    except Exception:
+        replacement = None
+
     if destination == "act":
-        for idx in range(len(roster.act) - 1, -1, -1):
-            pid = roster.act[idx]
-            if pid != player.player_id:
-                roster.aaa.append(roster.act.pop(idx))
+        # Make room only if there is none. This used to send the most recent
+        # active player to AAA on EVERY activation -- even when the caller had
+        # chosen the active roster because it had a free spot, so a short roster
+        # never refilled -- and without regard to position, so a returning
+        # pitcher could knock a hitter off the roster. Now, only while over the
+        # cap: first the player who was called up to cover for him (back to the
+        # level he came from), then the weakest active player of his type.
+        from services.roster_fill import (
+            apply_prospect_bookkeeping,
+            choose_send_down,
+            record_roster_moves,
+        )
+        from utils.roster_loader import active_roster_cap
+
+        players = _players_map(players_by_id, player)
+        cap = active_roster_cap()
+        option_ok = _option_allowed(team_id)
+        moves = []
+        rep = (replacement or {}).get("replacement_id")
+        if len(roster.act) > cap and rep in roster.act and rep != player.player_id:
+            # The man who covered for him goes back -- unless that would take
+            # away the club's last healthy catcher or break an option rule.
+            from services.roster_fill import _healthy_catchers
+
+            catchers = _healthy_catchers(list(roster.act), players)
+            last_catcher = rep in catchers and len(catchers) <= 1
+            if not last_catcher and option_ok(rep) and players.get(rep) is not None:
+                level = replacement.get("from_level") if replacement.get("from_level") in ("aaa", "low") else "aaa"
+                roster.act.remove(rep)
+                getattr(roster, level).append(rep)
+                moves.append((rep, "act", level))
+        while len(roster.act) > cap:
+            down = choose_send_down(roster, players, exclude={player.player_id}, allowed=option_ok)
+            if down is None:
                 break
+            roster.act.remove(down)
+            roster.aaa.append(down)
+            moves.append((down, "act", "aaa"))
+        if moves and team_id:
+            record_roster_moves(
+                team_id, moves, players,
+                details=f"Optioned to make room for {_name(player)} back from the injured list",
+            )
+            apply_prospect_bookkeeping(team_id, moves)
     after_levels = roster_level_map(roster)
     try:
         record_roster_level_movements(

@@ -16,15 +16,25 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List, Mapping
 
-from utils.depth_chart import DEPTH_CHART_POSITIONS, MAX_DEPTH, save_depth_chart
+from utils.depth_chart import (
+    DEPTH_CHART_POSITIONS,
+    MAX_DEPTH,
+    has_depth_chart,
+    is_depth_chart_auto,
+    mark_depth_chart_auto,
+    save_depth_chart,
+)
 from utils.player_loader import load_players_from_csv
 from utils.rating_display import overall_rating
 from utils.roster_loader import load_roster
 
-__all__ = ["auto_generate_depth_chart"]
+__all__ = ["auto_generate_depth_chart", "ensure_default_depth_chart"]
 
 
-_LEVEL_PRIORITY = {"act": 0, "aaa": 1, "low": 2, "dl": 3, "ir": 4}
+# Injured players rank as if active: a chart says who OWNS a position, and a
+# regular who happens to be hurt when the chart is built must stay its #1 so he
+# gets the job back on his return. Coverage code skips anyone injured.
+_LEVEL_PRIORITY = {"act": 0, "dl": 0, "ir": 0, "aaa": 1, "low": 2}
 
 
 def _level_for(pid: str, levels: Mapping[str, Iterable[str]]) -> str:
@@ -41,20 +51,11 @@ def _is_pitcher(player: object) -> bool:
 
 
 def _can_play(player: object, position: str) -> bool:
-    if _is_pitcher(player):
-        return False
-    if position == "DH":
-        return True
-    primary = str(getattr(player, "primary_position", "")).strip().upper()
-    if primary == position:
-        return True
-    others = getattr(player, "other_positions", None) or []
-    if isinstance(others, str):
-        others = [others]
-    for other in others:
-        if str(other).strip().upper() == position:
-            return True
-    return False
+    # Shared with injury replacement so both agree on who can play where, and
+    # both read every stored form of ``other_positions`` ("3B", "['RF']", "[]").
+    from services.roster_fill import can_play
+
+    return can_play(player, position)
 
 
 def auto_generate_depth_chart(
@@ -149,3 +150,21 @@ def auto_generate_depth_chart(
     if persist:
         save_depth_chart(team_id, chart)
     return chart
+
+
+def ensure_default_depth_chart(team_id: str, *, refresh: bool = False) -> bool:
+    """Generate and save a depth chart for *team_id* when automation owns it.
+
+    Injury coverage reads the depth chart first (audit decision 14); 17 of
+    alpha-test's 20 clubs had never saved one. A missing chart is always
+    created (and marked as automation's). ``refresh=True`` (CPU clubs) also
+    rebuilds a chart automation generated, so trades and call-ups reach it;
+    a chart a person saved -- or any chart that predates the marker -- is
+    never overwritten. Returns True when a chart was written.
+    """
+
+    if has_depth_chart(team_id) and (not refresh or not is_depth_chart_auto(team_id)):
+        return False
+    auto_generate_depth_chart(team_id, persist=True)
+    mark_depth_chart_auto(team_id)
+    return True

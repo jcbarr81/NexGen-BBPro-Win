@@ -162,7 +162,9 @@ def test_seed_rng_decoupled_from_global():
             return (1, 0, "", {})
 
         random.seed(1234)
-        sim = SeasonSimulator(schedule, simulate_game=stub)
+        # Fresh rows per run: the simulator writes results into the rows and
+        # (since the H9 resume fix) skips games that already have one.
+        sim = SeasonSimulator([dict(g) for g in schedule], simulate_game=stub)
         sim.simulate_next_day()
         sim.simulate_next_day()
         return seen

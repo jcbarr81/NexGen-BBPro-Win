@@ -43,9 +43,15 @@ class BatterRatings:
             except (TypeError, ValueError):
                 return None
 
+        # The writer joins with "|", older rows hold "['RF']" or "[]": split on
+        # ',' alone left "SS|P" and "['CF']" as single bogus positions, so the
+        # engine played these players out of position at spots the roster
+        # tools (and injury coverage) say they can field.
+        raw_positions = str(row.get("other_positions") or "").strip()
+        raw_positions = raw_positions.strip("[]").replace("'", "").replace('"', "")
         other_positions = [
-            p.strip()
-            for p in (row.get("other_positions") or "").split(",")
+            p.strip().upper()
+            for p in raw_positions.replace("|", ",").split(",")
             if p.strip()
         ]
         contact = f("ch")

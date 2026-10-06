@@ -69,6 +69,66 @@ def _sanitize_chart(data: object) -> Dict[str, List[str]]:
     return chart
 
 
+# Charts the sim generated itself. Only these are rebuilt automatically and
+# only these are "advisory" for lineups; every other chart -- including any
+# that existed before this marker did -- belongs to a person and is never
+# overwritten (audit H9 review). Saving a chart by hand removes the mark;
+# the Auto-fill button puts it back.
+_AUTO_FILE = "_auto.json"
+
+
+def _auto_path() -> Path:
+    return _chart_dir() / _AUTO_FILE
+
+
+def _auto_set() -> set:
+    try:
+        data = json.loads(_auto_path().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    return {str(t) for t in data} if isinstance(data, list) else set()
+
+
+def _write_auto_set(teams: set) -> None:
+    path = _auto_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(sorted(teams), indent=2), encoding="utf-8")
+
+
+def mark_depth_chart_auto(team_id: str) -> None:
+    """Record that automation generated *team_id*'s chart (refreshable)."""
+
+    teams = _auto_set()
+    if str(team_id) not in teams:
+        teams.add(str(team_id))
+        _write_auto_set(teams)
+
+
+def mark_depth_chart_manual(team_id: str) -> None:
+    """A person saved *team_id*'s chart: automation never rebuilds it."""
+
+    teams = _auto_set()
+    if str(team_id) in teams:
+        teams.discard(str(team_id))
+        _write_auto_set(teams)
+
+
+def is_depth_chart_auto(team_id: str) -> bool:
+    return str(team_id) in _auto_set()
+
+
+def is_depth_chart_manual(team_id: str) -> bool:
+    """A saved chart automation did not generate (or a person since edited)."""
+
+    return has_depth_chart(team_id) and not is_depth_chart_auto(team_id)
+
+
+def has_depth_chart(team_id: str) -> bool:
+    """Whether *team_id* has a saved depth chart (even an empty one)."""
+
+    return _chart_path(team_id).exists()
+
+
 def load_depth_chart(team_id: str) -> Dict[str, List[str]]:
     path = _chart_path(team_id)
     if not path.exists():

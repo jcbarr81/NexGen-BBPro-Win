@@ -66,6 +66,40 @@ def human_owned_team_ids(data_dir: Path | str | None = None) -> Set[str]:
     return _owner_ids_from_teams_csv(root)
 
 
+def human_owned_team_ids_strict(data_dir: Path | str | None = None) -> Optional[Set[str]]:
+    """Like :func:`human_owned_team_ids`, but ``None`` when ownership is unknown.
+
+    ``human_owned_team_ids`` swallows a failed read of ``users.txt`` and falls
+    back to teams.csv, whose owner_id is empty on every cloud club -- so a
+    transient read error makes every club look CPU-run. Automation that moves
+    players on CPU clubs only must not act on that guess: this returns None
+    when ``users.txt`` exists but cannot be read, so callers can stand down.
+    A league with no ``users.txt`` at all (local single-tenant) still falls
+    back to teams.csv, which there is the only record.
+    """
+
+    root = _data_dir(data_dir)
+    path = root / "users.txt"
+    if not path.exists():
+        return _owner_ids_from_teams_csv(root)
+    try:
+        from utils.user_manager import load_users
+
+        users = load_users(str(path))
+    except Exception:
+        return None
+    ids: Set[str] = set()
+    for user in users or []:
+        try:
+            role = str(user.get("role", "") or "").strip().lower()
+            team_id = str(user.get("team_id", "") or "").strip().upper()
+        except AttributeError:
+            continue
+        if team_id and role not in _NON_OWNER_ROLES:
+            ids.add(team_id)
+    return ids
+
+
 def _owner_ids_from_teams_csv(root: Path) -> Set[str]:
     import csv
 

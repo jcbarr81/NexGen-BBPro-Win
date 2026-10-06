@@ -6,7 +6,6 @@ from models.player import Player
 from models.roster import Roster
 from services.injury_manager import place_on_injury_list, recover_from_injury
 from services.prospect_event_log import (
-    EVENT_TYPE_DEMOTION,
     EVENT_TYPE_PROMOTION,
     load_prospect_events,
 )
@@ -42,7 +41,12 @@ def test_injury_and_recovery_flow(tmp_path, monkeypatch):
     roster = Roster(team_id="T", act=["p1"], aaa=["p2"], low=[])
 
     start_day = date(2025, 4, 1)
-    place_on_injury_list(p1, roster, list_name="dl15", today=start_day)
+    players = {"p1": p1, "p2": p2}
+    # A CPU club calls up a like-for-like replacement (audit decision 14).
+    place_on_injury_list(
+        p1, roster, list_name="dl15", today=start_day,
+        players_by_id=players, cpu_owned=True,
+    )
 
     assert p1.injured is True
     # A legacy "dl15" resolves by role: this player is a P, so the 15-day list.
@@ -56,12 +60,16 @@ def test_injury_and_recovery_flow(tmp_path, monkeypatch):
     with pytest.raises(ValueError):
         recover_from_injury(p1, roster, today=start_day + timedelta(days=5))
 
-    recover_from_injury(p1, roster, today=start_day + timedelta(days=20))
+    recover_from_injury(
+        p1, roster, today=start_day + timedelta(days=20), players_by_id=players
+    )
 
     assert p1.injured is False
     assert p1.ready is True
     assert "p1" in roster.act
-    assert "p2" in roster.aaa  # replacement returned to AAA
+    # The active roster had room, so nobody is sent down (it used to send the
+    # last-added player down on every activation, full roster or not).
+    assert "p2" in roster.act
     assert "p1" not in roster.dl
     assert roster.dl_tiers == {}
 
@@ -71,7 +79,6 @@ def test_injury_and_recovery_flow(tmp_path, monkeypatch):
     )
     event_types = [str(event.get("event_type")) for event in events]
     assert EVENT_TYPE_PROMOTION in event_types
-    assert EVENT_TYPE_DEMOTION in event_types
 
 
 def test_injury_replacement_respects_protection_rules(tmp_path, monkeypatch):
@@ -113,7 +120,10 @@ def test_injury_replacement_auto_protects_when_enabled(tmp_path, monkeypatch):
     p2 = _make_player("p2")
     roster = Roster(team_id="T", act=["p1"], aaa=["p2"], low=[])
 
-    place_on_injury_list(p1, roster, list_name="dl15", today=date(2025, 4, 1))
+    place_on_injury_list(
+        p1, roster, list_name="dl15", today=date(2025, 4, 1),
+        players_by_id={"p1": p1, "p2": p2}, cpu_owned=True,
+    )
 
     assert "p2" in roster.act
     assert is_player_protected("T", "p2") is True
