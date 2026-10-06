@@ -124,8 +124,11 @@ def test_prospect_sorting_changes_by_strategy_profile():
         is_pitcher=False,
         primary_position="LF",
         birthdate="1994-05-01",
-        ch=78,
-        ph=80,
+        # A modestly better bat than YNG under the shared production-weighted
+        # overall (audit H8); the old flat average rated a 78/80 bat below
+        # YNG, so this fixture used to need one that extreme.
+        ch=62,
+        ph=62,
         sp=45,
         pl=55,
         vl=55,

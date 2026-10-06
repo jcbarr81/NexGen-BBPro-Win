@@ -28,6 +28,7 @@ from utils.user_manager import load_users
 from utils.lineup_autofill import auto_fill_lineup_for_team
 from utils.roster_loader import load_roster, save_roster
 from utils.pitcher_role import get_role
+from utils.player_overall import player_overall_score
 
 
 ACTIVE_MAX = 25
@@ -66,52 +67,15 @@ def _split_players(players: Iterable[object]) -> _Buckets:
 
 
 def _overall_score(p) -> float:
-    """Estimate an overall rating in line with the UI.
+    """The shared production-weighted overall the UI displays (H8/M14).
 
-    Mirrors the logic used by ``ui.player_profile_dialog._estimate_overall_rating``
-    so that auto-assignment aligns with what users see as a player's overall.
+    This used to average 13 pitcher keys with every unthrown pitch as a 0, so
+    staffs were picked by pitch count (r 0.985) rather than results, and the
+    hitter average leaned on sc/pl/vl/gf, which the engine does not reward.
     """
-    is_pitcher = bool(getattr(p, "is_pitcher", False) or str(getattr(p, "primary_position", "")).upper() == "P")
-    if is_pitcher:
-        keys = [
-            "endurance",
-            "control",
-            "movement",
-            "hold_runner",
-            "arm",
-            "fa",
-            "fb",
-            "cu",
-            "cb",
-            "sl",
-            "si",
-            "scb",
-            "kn",
-        ]
-    else:
-        keys = [
-            "ch",
-            "ph",
-            "sp",
-            "pl",
-            "vl",
-            "sc",
-            "fa",
-            "arm",
-            "gf",
-        ]
-    vals = []
-    for k in keys:
-        v = getattr(p, k, 0)
-        try:
-            vals.append(float(v))
-        except (TypeError, ValueError):
-            vals.append(0.0)
-    if not vals:
-        return 0.0
-    avg = sum(vals) / len(vals)
-    # Clamp to 0-99 range for consistency with ratings
-    return max(0.0, min(99.0, float(avg)))
+
+    score = player_overall_score(p)
+    return 0.0 if score is None else float(score)
 
 
 def _age_on_date(birthdate: str, as_of_date: date) -> int | None:
