@@ -1215,6 +1215,43 @@ def _base_runner_ids(bases: BaseState) -> set[str]:
     }
 
 
+def _bases_mask(bases: BaseState) -> int:
+    """Occupied bases as a bitmask: 1 = first, 2 = second, 4 = third."""
+    return (
+        (1 if bases.first is not None else 0)
+        | (2 if bases.second is not None else 0)
+        | (4 if bases.third is not None else 0)
+    )
+
+
+def _pa_start_context(
+    *,
+    inning: int,
+    batting_team: str,
+    outs: int,
+    bases: BaseState,
+    bat_score: int,
+    fld_score: int,
+) -> dict[str, Any]:
+    """Base-out state logged on the first pitch_log entry of each PA.
+
+    Audit L18 (2026-10-06): situational KPIs (RE24, late & close, runs on
+    inning-ending plays) need the state each plate appearance started in,
+    and the pitch log recorded none of it. Logging only: nothing reads
+    these keys inside the engine, so game outcomes are unchanged. Readers
+    must treat missing keys as "not logged" (older results, other engines).
+    """
+    return {
+        "pa_start": True,
+        "inning": int(inning),
+        "half": "top" if batting_team == "away" else "bottom",
+        "outs_before": int(outs),
+        "bases_before": _bases_mask(bases),
+        "bat_score_before": int(bat_score),
+        "fld_score_before": int(fld_score),
+    }
+
+
 def _reconcile_runner_pitchers(
     runner_pitchers: dict[str, PitcherLine],
     *,
@@ -4233,6 +4270,17 @@ def simulate_game(
             pa_tto_bucket = str(min(_pa_tto, 3))
             _flush_tto()
             _pending_tto[:] = [_tto_snap, pa_tto_bucket, batter_line]
+            # Audit L18: snapshot the base-out state and score this PA starts
+            # in; merged into whichever pitch_log entry the PA writes first
+            # (IBB, bunt, or the first pitch) and then cleared.
+            pa_start_info: dict[str, Any] | None = _pa_start_context(
+                inning=inning,
+                batting_team=batting_team,
+                outs=outs,
+                bases=bases,
+                bat_score=offense_score,
+                fld_score=defense_score,
+            )
             at_bat_over = False
             if _should_intentional_walk(
                 bases=bases,
@@ -4269,6 +4317,7 @@ def simulate_game(
                         "outcome": "ibb",
                         "pitcher_id": pitcher_state.pitcher.player_id,
                         "batter_id": batter.player_id,
+                        **pa_start_info,
                     }
                 )
                 post_at_bat(pitcher_state)
@@ -4303,6 +4352,7 @@ def simulate_game(
                     "outcome": "bunt",
                     "pitcher_id": pitcher_state.pitcher.player_id,
                     "batter_id": batter.player_id,
+                    **pa_start_info,
                 }
                 _reconcile_runner_pitchers(
                     runner_pitchers,
@@ -4470,6 +4520,10 @@ def simulate_game(
                 entry["pitcher_id"] = pitcher.player_id
                 entry["batter_id"] = batter.player_id
                 entry["tto"] = _pa_tto
+                if pa_start_info is not None:
+                    # Audit L18: only the PA's first pitch carries the state.
+                    entry.update(pa_start_info)
+                    pa_start_info = None
                 pitch_log.append(entry)
                 batter_line.pitches += 1
                 is_strike = res.outcome in _STRIKE_OUTCOMES
