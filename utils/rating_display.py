@@ -11,6 +11,12 @@ from typing import Dict, List, Optional, Tuple
 from models.pitcher import Pitcher
 from models.player import Player
 from utils.path_utils import get_data_dir
+from utils.pitcher_role import get_role
+from utils.player_overall import (
+    hitter_overall_score,
+    pitcher_overall_score,
+    player_overall_score,
+)
 
 DISPLAY_ENV = "PB_RATING_DISPLAY"
 RAW_BLEND_ENV = "PB_RATING_DISPLAY_RAW_BLEND"
@@ -27,6 +33,10 @@ RAW_BLEND_ENV = "PB_RATING_DISPLAY_RAW_BLEND"
 # raw player attrs directly, so changes here have zero impact on stat
 # output, BABIP, ERA, or anything the engine produces.
 _DEFAULT_RAW_BLEND = 0.5
+
+# Below this league SD the overall is shown raw instead of percentile-scaled
+# (audit H8): stretching a ~1-point spread manufactures 30-point gaps.
+OVERALL_MIN_SPREAD = 3.0
 
 
 def _get_raw_blend() -> float:
@@ -54,6 +64,8 @@ _PITCHER_KEYS = {key for key in Pitcher._rating_fields if not key.startswith("po
 _EXTRA_KEYS = {"overall"}
 _ALL_KEYS = _HITTER_KEYS | _PITCHER_KEYS | _EXTRA_KEYS
 
+# These lists now only select the hitter vs pitcher formula in
+# ``_overall_from_row``; the weights live in ``utils.player_overall``.
 _HITTER_OVERALL_KEYS = (
     "ch",
     "ph",
@@ -112,46 +124,35 @@ def _distribution_source_key() -> tuple[str, int | None, int | None]:
 
 
 def overall_rating(player: object) -> int:
-    is_pitcher = bool(
-        getattr(player, "is_pitcher", False)
-        or str(getattr(player, "primary_position", "")).upper() == "P"
-    )
-    keys = _PITCHER_OVERALL_KEYS if is_pitcher else _HITTER_OVERALL_KEYS
-    values: List[float] = []
-    for key in keys:
-        raw = getattr(player, key, 0)
-        try:
-            values.append(float(raw or 0))
-        except (TypeError, ValueError):
-            values.append(0.0)
-    if not values:
+    """The shared production-weighted overall, rounded (audit H8/M14).
+
+    Feeds the depth-chart autofill sort and roster-fill comparisons, so it
+    must rank players the same way the displayed OVR and CPU logic do.
+    """
+
+    score = player_overall_score(player)
+    if score is None:
         return 0
-    avg = sum(values) / len(values)
-    return max(0, min(99, int(round(avg))))
+    return max(0, min(99, int(round(score))))
 
 
-def _overall_from_row(row: Dict[str, object], keys: Tuple[str, ...]) -> Optional[int]:
-    values: List[float] = []
-    for key in keys:
-        raw = row.get(key)
-        try:
-            numeric = float(raw or 0)
-        except (TypeError, ValueError):
-            continue
-        # Skip unused pitch-type ratings so a pitcher who throws four
-        # pitches isn't averaged down by five 0s for the pitches he
-        # doesn't use. This matches ui.player_profile_v2_viewmodel's
-        # ``_estimate_overall_rating`` and api.routers._rating_presentation
-        # ``compute_overall`` so the league-wide distribution agrees with
-        # per-player overalls — otherwise every pitcher percentiles to
-        # 100 and the UI shows 99 OVR across the board.
-        if key in _PITCH_KEYS and numeric <= 0:
-            continue
-        values.append(numeric)
-    if not values:
+def _overall_from_row(row: Dict[str, object], keys: Tuple[str, ...]) -> Optional[float]:
+    """Shared overall for one players.csv row, for the league distribution.
+
+    ``keys`` picks the hitter or pitcher formula (callers pass
+    ``_PITCHER_OVERALL_KEYS`` or ``_HITTER_OVERALL_KEYS``). The score stays
+    continuous so the percentile scale is built from the same numbers the
+    per-player display looks up -- percentile-stretching a rounded integer
+    put pitchers one raw point apart 10-15 display points apart (H8).
+    """
+
+    if keys == _PITCHER_OVERALL_KEYS:
+        score = pitcher_overall_score(row.get, get_role(row))
+    else:
+        score = hitter_overall_score(row.get, row.get("primary_position"))
+    if score is None:
         return None
-    avg = sum(values) / len(values)
-    return max(0, min(99, int(round(avg))))
+    return round(score, 2)
 
 
 @lru_cache(maxsize=8)
@@ -270,6 +271,15 @@ def _average(values: List[int]) -> Optional[float]:
     return sum(values) / len(values)
 
 
+def _spread(values: List[float]) -> float:
+    """Population SD (plain arithmetic: ``statistics`` is slow per row)."""
+
+    if len(values) < 2:
+        return 0.0
+    mean = sum(values) / len(values)
+    return math.sqrt(sum((v - mean) ** 2 for v in values) / len(values))
+
+
 def _logistic_curve(pct: float, k: float) -> float:
     pct = max(0.0, min(1.0, pct))
     raw = 1.0 / (1.0 + math.exp(-k * (pct - 0.5)))
@@ -382,6 +392,14 @@ def rating_display_details(
         top_pct = int(round((1.0 - pct) * 100))
         top_pct = max(1, min(99, top_pct))
         return "*" * stars, top_pct, avg, bucket
+
+    if normalized_key == "overall" and _spread(values) < OVERALL_MIN_SPREAD:
+        # A league whose overalls barely differ (alpha's compressed pitchers:
+        # raw 52-56 shown as 44-77, H8) is shown raw rather than stretched,
+        # so players who perform alike are displayed alike.
+        top_pct = max(1, min(99, int(round((1.0 - pct) * 100))))
+        shown = max(display_min, min(display_max, int(round(numeric))))
+        return shown, top_pct, avg, bucket
 
     scale_span = max(1, display_max - display_min)
     scaled_pct = display_min + adj_pct * scale_span

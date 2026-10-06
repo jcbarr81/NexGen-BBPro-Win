@@ -22,7 +22,7 @@
   induction controls, and a league-history integration surface.
 - Pitcher roster UIs (full roster/pitchers dialogs) display `preferred_pitching_role` instead of the `role` field.
 - Ratings remain normalized for simulation; UI display maps ratings to a 0-99 percentile scale by default using `data/players_normalized.csv` (fallback `data/players.csv`).
-- Roster OVR is the simple average of core ratings (hitters: CH/PH/SP/PL/VL/SC/FA/ARM/GF; pitchers: EN/CO/MO/HOLD/ARM/FA plus pitch ratings); display values are percentile-based with a logistic curve (k=6) in `utils/rating_display.py`.
+- OVR is one production-weighted score in `utils/player_overall.py`, shared by the display, depth-chart autofill, CPU auto-assign, CPU trades and prospect promotion (hitters: 0.45 CH + 0.45 PH + 0.07 EYE + 0.03 SP plus a provisional position-weighted FA/ARM term; pitchers: 0.47 CO + 0.38 MO + 0.15 mean grade of the pitches thrown, endurance only nudging starters). The displayed OVR percentile-scales that score in `utils/rating_display.py` (logistic k=6), or shows it raw when the league SD is under 3.
 - Player profile Overall and OVR columns (rosters + draft console) render star icons (1-5 in 0.5 increments) using `assets/full_star.png` and `assets/half_star.png`.
 - Player profile Overall rating displays a 1-5 star scale.
 - Full roster tables include an OVR column after player name.

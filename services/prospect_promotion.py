@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional
 from playbalance.aging import calculate_age
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.player_overall import player_overall_score
 from utils.roster_loader import load_roster, save_roster
 
 # LOW → AAA thresholds
@@ -45,24 +46,17 @@ AAA_TO_ACT_BLUECHIP_OVR = 72
 
 
 def _player_overall(player: object) -> int:
-    is_pitcher = bool(getattr(player, "is_pitcher", False))
-    keys = (
-        ("arm", "control", "movement", "endurance")
-        if is_pitcher
-        else ("ch", "ph", "sp", "eye", "fa", "arm")
-    )
-    values: list[float] = []
-    for key in keys:
-        raw = getattr(player, key, None)
-        if raw is None:
-            continue
-        try:
-            values.append(float(raw))
-        except (TypeError, ValueError):
-            continue
-    if not values:
+    """The shared production-weighted overall (audit H8/M14), rounded.
+
+    Promotion used its own flat average (pitchers counted arm, which the
+    engine rewards backwards, and endurance); it now uses the score owners
+    see as OVR, so "OVR 68" in a call-up note matches the roster page.
+    """
+
+    score = player_overall_score(player)
+    if score is None:
         return 50
-    return int(round(sum(values) / len(values)))
+    return int(round(score))
 
 
 def evaluate_promotion(

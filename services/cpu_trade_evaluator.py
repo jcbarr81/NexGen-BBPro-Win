@@ -14,26 +14,11 @@ from services.team_strategy_profiles import resolve_team_strategy_profile
 from services.trade_settings import current_league_year
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.player_overall import player_overall_score
 from utils.roster_loader import load_roster
 from utils.team_loader import load_teams
 
 CPU_OWNER_IDS = {"", "cpu", "ai", "none", "computer", "bot"}
-_HITTER_KEYS = ("ch", "ph", "sp", "pl", "vl", "sc", "fa", "arm", "gf")
-_PITCHER_KEYS = (
-    "endurance",
-    "control",
-    "movement",
-    "hold_runner",
-    "arm",
-    "fa",
-    "fb",
-    "cu",
-    "cb",
-    "sl",
-    "si",
-    "scb",
-    "kn",
-)
 _ROUND_PICK_BASE = {
     1: 8.8,
     2: 6.8,
@@ -954,18 +939,23 @@ def _build_reasons(
 
 
 def _overall_score(player: object, *, potential: bool) -> float:
-    is_pitcher = _is_pitcher(player)
-    keys = _PITCHER_KEYS if is_pitcher else _HITTER_KEYS
-    values: list[float] = []
-    for key in keys:
-        rating = _rating_value(player, key, potential=potential)
-        if rating is None:
-            continue
-        values.append(rating)
-    if not values:
-        return 50.0
-    avg = sum(values) / float(len(values))
-    return max(0.0, min(99.0, avg))
+    """Shared production-weighted overall (H8/M14), current or potential.
+
+    Replaces a flat 13-key pitcher average that counted unthrown pitches as
+    0 (so trade value tracked pitch count, not FIP) and sat ~12 points below
+    the hitter average, undervaluing pitchers against hitters.
+    """
+
+    def _get(key: str) -> float | None:
+        value = _rating_value(player, key, potential=potential)
+        # An unset potential (0) falls back to the current rating rather
+        # than reading as a missing skill.
+        if potential and not value:
+            value = _rating_value(player, key, potential=False)
+        return value
+
+    score = player_overall_score(player, get_raw=_get)
+    return 50.0 if score is None else score
 
 
 def _rating_value(player: object, key: str, *, potential: bool) -> float | None:

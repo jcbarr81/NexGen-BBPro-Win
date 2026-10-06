@@ -23,6 +23,7 @@ from services.training_settings import HITTER_TRACKS, PITCHER_TRACKS, load_train
 from utils.star_rating import star_text
 from utils.path_utils import get_data_dir
 from utils.pitcher_role import get_role
+from utils.player_overall import overall_score
 from utils.rating_display import rating_display_value
 from utils.stats_persistence import load_stats
 
@@ -189,8 +190,8 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
     is_pitcher = _is_pitcher(player)
     # Route through ``api.routers._rating_presentation.compute_overall``
     # so the profile's headline OVR matches what the list views show
-    # (top-N + position-weighted blend of the *displayed* ratings).
-    # Fall back to the legacy raw average if compute_overall isn't
+    # (the shared production-weighted overall, percentile-scaled).
+    # Fall back to the same score unscaled if compute_overall isn't
     # importable (keeps the PyQt-only path working in isolation).
     overall_raw: Optional[int] = None
     displayed_overall: Optional[float] = None
@@ -1044,24 +1045,16 @@ def _clamp_games_to_team_max(season: Dict[str, Any]) -> None:
 
 
 def _estimate_overall_rating(player: Any, *, is_pitcher: bool) -> Optional[int]:
-    keys = (
-        ("endurance", "control", "movement", "hold_runner", "arm", "fa", "fb", "cu", "cb", "sl", "si", "scb", "kn")
-        if is_pitcher
-        else ("ch", "ph", "sp", "pl", "vl", "sc", "fa", "arm", "gf")
+    # Same shared overall as compute_overall (audit H8), unscaled.
+    score = overall_score(
+        lambda key: getattr(player, key, None),
+        is_pitcher=is_pitcher,
+        position=getattr(player, "primary_position", None),
+        role=get_role(player) if is_pitcher else None,
     )
-    values: List[float] = []
-    for key in keys:
-        raw = getattr(player, key, None)
-        try:
-            numeric = float(raw)
-        except (TypeError, ValueError):
-            continue
-        if key in {"fb", "cu", "cb", "sl", "si", "scb", "kn"} and numeric <= 0:
-            continue
-        values.append(numeric)
-    if not values:
+    if score is None:
         return None
-    return max(35, min(99, int(round(sum(values) / len(values)))))
+    return max(35, min(99, int(round(score))))
 
 
 def _safe_float(value: Any) -> float:
