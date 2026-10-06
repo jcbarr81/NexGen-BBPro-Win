@@ -22,6 +22,7 @@ from playbalance.schedule_generator import generate_mlb_schedule
 from physics_sim.engine import simulate_matchup_from_files
 from physics_sim.usage import UsageState
 from utils.team_loader import load_teams
+from utils.park_utils import park_lookup_name_for_team
 from utils.lineup_autofill import auto_fill_lineup_for_team
 
 
@@ -335,7 +336,8 @@ def _team_parks(teams_csv: Path | None = None) -> dict[str, str]:
     loaded = load_teams(teams_csv) if teams_csv is not None else load_teams()
     for team in loaded:
         team_id = _normalize_team_id(team.team_id)
-        park_name = (team.stadium or "").strip()
+        # Audit L13: same park resolution as the live sim (game_runner).
+        park_name = park_lookup_name_for_team(team) or ""
         if team_id and park_name:
             parks[team_id] = park_name
     return parks

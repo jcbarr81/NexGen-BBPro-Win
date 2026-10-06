@@ -62,6 +62,10 @@ def load_teams(file_path: str | Path = "data/teams.csv"):
     teams = []
     with file_path.open(mode="r", newline="") as csvfile:
         reader = csv.DictReader(csvfile)
+        # Audit L13: leagues created since the fix carry a park_id column
+        # (empty unless a park was explicitly chosen). Older files have none;
+        # their teams keep park_id=None and the legacy name lookup.
+        has_park_id = "park_id" in (reader.fieldnames or [])
         for row in reader:
             team = Team(
                 team_id=row["team_id"],
@@ -73,6 +77,9 @@ def load_teams(file_path: str | Path = "data/teams.csv"):
                 primary_color=row["primary_color"],
                 secondary_color=row["secondary_color"],
                 owner_id=row["owner_id"],
+                park_id=(
+                    (row.get("park_id") or "").strip() if has_park_id else None
+                ),
             )
             teams.append(team)
     stats = load_stats()
@@ -96,11 +103,14 @@ def load_teams(file_path: str | Path = "data/teams.csv"):
 
 
 def save_team_settings(team: Team, file_path: str | Path = "data/teams.csv") -> None:
-    """Persist updates to a single team's stadium or colors.
+    """Persist updates to a single team's stadium, park pick or colors.
 
     Reads the entire teams file, updates the matching team's fields and
-    overwrites the CSV. Only the ``stadium`` and color fields are modified so
-    other information remains unchanged.
+    overwrites the CSV. Only the ``stadium``, ``park_id`` and color fields are
+    modified so other information remains unchanged. ``park_id`` is written
+    only when the file already has that column: a legacy league stays on the
+    name lookup rather than gaining a column whose blanks would mean
+    "generic park" for every other club (audit L13).
     """
 
     def _sanitize_color(value: str, field: str) -> str:
@@ -122,9 +132,12 @@ def save_team_settings(team: Team, file_path: str | Path = "data/teams.csv") -> 
     teams = []
     with file_path.open(mode="r", newline="") as csvfile:
         reader = csv.DictReader(csvfile)
+        file_fields = list(reader.fieldnames or [])
         for row in reader:
             if row["team_id"] == team.team_id:
                 row["stadium"] = team.stadium
+                if "park_id" in file_fields and team.park_id is not None:
+                    row["park_id"] = team.park_id
                 row["primary_color"] = _sanitize_color(team.primary_color, "primary_color")
                 row["secondary_color"] = _sanitize_color(team.secondary_color, "secondary_color")
             teams.append(row)
@@ -140,6 +153,9 @@ def save_team_settings(team: Team, file_path: str | Path = "data/teams.csv") -> 
         "secondary_color",
         "owner_id",
     ]
+    # Keep any extra columns (park_id) the file carries; DictWriter would
+    # otherwise reject them.
+    fieldnames += [name for name in file_fields if name not in fieldnames]
     with file_path.open(mode="w", newline="") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()

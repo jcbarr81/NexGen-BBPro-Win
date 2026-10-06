@@ -3,7 +3,8 @@
  *
  * Edit the per-team configuration owners care about:
  * - Primary + secondary jersey colors (hex, with a swatch preview)
- * - Stadium (free-text or pick from the ballpark catalog)
+ * - Stadium (free-text or pick from the ballpark catalog). Only a park
+ *   picked from the catalog plays with real dimensions (audit L13).
  * - Team strategy profile (or inherit league default)
  * - Auto-reassign override (enabled / disabled / inherit)
  *
@@ -97,6 +98,9 @@ function SettingsEditor({ teamId }: { teamId: string }) {
     primary_color: string;
     secondary_color: string;
     stadium: string;
+    // Catalog park picked in the browser during this edit; null = not
+    // picked (the server then decides from the stadium name). Audit L13.
+    park_id: string | null;
     strategy: string;
     auto_reassign: "default" | "enabled" | "disabled";
   } | null>(null);
@@ -108,6 +112,7 @@ function SettingsEditor({ teamId }: { teamId: string }) {
         primary_color: s.primary_color || "#000000",
         secondary_color: s.secondary_color || "#FFFFFF",
         stadium: s.stadium || "",
+        park_id: null,
         strategy:
           s.strategy.source === "team_override" ? s.strategy.profile : "",
         auto_reassign:
@@ -147,22 +152,30 @@ function SettingsEditor({ teamId }: { teamId: string }) {
       draft.primary_color !== (s.primary_color || "#000000") ||
       draft.secondary_color !== (s.secondary_color || "#FFFFFF") ||
       draft.stadium !== (s.stadium || "") ||
+      (draft.park_id !== null && draft.park_id !== (s.park_id ?? "")) ||
       draft.strategy !== initialStrategy ||
       draft.auto_reassign !== initialAuto
     );
   }, [draft, settings.data]);
 
+  const payloadFromDraft = (
+    d: NonNullable<typeof draft>,
+  ): TeamSettingsPatch => ({
+    primary_color: d.primary_color,
+    secondary_color: d.secondary_color,
+    stadium: d.stadium,
+    // Send park_id only for a browser pick, so a plain rename lets the
+    // server match the name against the catalog itself.
+    ...(d.park_id !== null ? { park_id: d.park_id } : {}),
+    strategy: d.strategy,
+    auto_reassign: d.auto_reassign,
+  });
+
   useHotkey(
     "mod+s",
     () => {
       if (dirty && !save.isPending && draft) {
-        save.mutate({
-          primary_color: draft.primary_color,
-          secondary_color: draft.secondary_color,
-          stadium: draft.stadium,
-          strategy: draft.strategy,
-          auto_reassign: draft.auto_reassign,
-        });
+        save.mutate(payloadFromDraft(draft));
       }
     },
     { enabled: !!draft && dirty && !save.isPending },
@@ -221,7 +234,11 @@ function SettingsEditor({ teamId }: { teamId: string }) {
                   list="ballpark-list"
                   value={draft.stadium}
                   onChange={(e) =>
-                    setDraft({ ...draft, stadium: e.target.value })
+                    setDraft({
+                      ...draft,
+                      stadium: e.target.value,
+                      park_id: null,
+                    })
                   }
                   placeholder="Park name"
                 />
@@ -242,6 +259,13 @@ function SettingsEditor({ teamId }: { teamId: string }) {
                   ))}
                 </datalist>
               )}
+              {data.park_id !== null && (
+                <p className="text-xs text-muted">
+                  {data.park
+                    ? `Plays with the real dimensions of ${data.park.name} (${data.park.year}).`
+                    : "Generic park dimensions. Pick a park from the catalog to play in its real dimensions."}
+                </p>
+              )}
             </div>
 
             <ParkBrowser
@@ -249,7 +273,11 @@ function SettingsEditor({ teamId }: { teamId: string }) {
               onOpenChange={setParkBrowserOpen}
               currentStadium={draft.stadium}
               onSelect={(park) =>
-                setDraft({ ...draft, stadium: park.name })
+                setDraft({
+                  ...draft,
+                  stadium: park.name,
+                  park_id: park.park_id || null,
+                })
               }
             />
 
@@ -350,13 +378,7 @@ function SettingsEditor({ teamId }: { teamId: string }) {
         </Button>
         <Button
           onClick={() =>
-            save.mutate({
-              primary_color: draft.primary_color,
-              secondary_color: draft.secondary_color,
-              stadium: draft.stadium,
-              strategy: draft.strategy,
-              auto_reassign: draft.auto_reassign,
-            })
+            save.mutate(payloadFromDraft(draft))
           }
           disabled={!dirty || save.isPending}
         >

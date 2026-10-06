@@ -240,6 +240,79 @@ def _park_info_for_name(name: str) -> ParkInfo | None:
     return info
 
 
+def park_info_for_exact_name(name: str) -> ParkInfo | None:
+    """Return the catalog park whose display name equals ``name``.
+
+    Exact (normalized) match only -- no substring fallback -- so it is safe for
+    deciding what a commissioner deliberately picked (audit L13).
+    """
+
+    if not name or not name.strip():
+        return None
+    return _load_latest_parks().get(_norm(name))
+
+
+def park_info_for_id(park_id: str, prefer_name: str = "") -> ParkInfo | None:
+    """Return the catalog entry for an explicitly chosen ``park_id``.
+
+    One park ID can carry several names over the years (KAN06 is both "Royals
+    Stadium" and "Kauffman Stadium"), so the entry whose name matches
+    ``prefer_name`` wins; otherwise the most recent configuration is used.
+    """
+
+    pid = (park_id or "").strip().upper()
+    if not pid:
+        return None
+    candidates = [
+        info
+        for info in _load_latest_parks().values()
+        if (info.park_id or "").strip().upper() == pid
+    ]
+    if not candidates:
+        return None
+    wanted = _norm(prefer_name) if prefer_name else ""
+    for info in candidates:
+        if wanted and _norm(info.name) == wanted:
+            return info
+    return max(candidates, key=lambda info: info.year)
+
+
+def park_lookup_name(stadium: str, park_id: str | None) -> str | None:
+    """Return the name to look real-park data up by, or None for a generic park.
+
+    Audit L13: generated stadium names ("{mascot} Stadium") collide with real
+    parks -- a club named the Royals got "Royals Stadium" and with it Kauffman's
+    1973-93 dimensions. Real-park data is therefore applied only for a park the
+    commissioner explicitly chose, recorded as the team's ``park_id``:
+
+    * ``park_id`` is None -- the league's teams.csv predates the ``park_id``
+      column. There is no record of which names were picked and which were
+      generated, so the original name lookup is kept unchanged for those
+      leagues (and for the calibration fixture, whose real park names are
+      deliberate).
+    * ``park_id`` is "" -- nothing was chosen: the generic park, whatever the
+      stadium happens to be called.
+    * otherwise -- that catalog park's name, which resolves exactly. An ID no
+      longer in the catalog falls back to the generic park.
+    """
+
+    if park_id is None:
+        name = (stadium or "").strip()
+        return name or None
+    info = park_info_for_id(park_id, prefer_name=stadium or "")
+    return info.name if info is not None else None
+
+
+def park_lookup_name_for_team(team: object) -> str | None:
+    """:func:`park_lookup_name` for a :class:`models.team.Team`-like object."""
+
+    if team is None:
+        return None
+    stadium = str(getattr(team, "stadium", "") or "")
+    park_id = getattr(team, "park_id", None)
+    return park_lookup_name(stadium, None if park_id is None else str(park_id))
+
+
 def park_altitude_for_name(name: str) -> float:
     if not name:
         return 0.0
@@ -327,5 +400,9 @@ __all__ = [
     "park_altitude_for_name",
     "park_foul_territory_for_name",
     "list_ballpark_names",
+    "park_info_for_exact_name",
+    "park_info_for_id",
+    "park_lookup_name",
+    "park_lookup_name_for_team",
     "ParkInfo",
 ]

@@ -1453,6 +1453,13 @@ export interface TeamSettings {
   abbreviation: string;
   division: string;
   stadium: string;
+  /**
+   * Explicitly chosen catalog park (audit L13). null = older league that
+   * still resolves parks by name; "" = generic park dimensions.
+   */
+  park_id: string | null;
+  /** The real park whose dimensions the team plays in, when one is chosen. */
+  park: { park_id: string; name: string; year: number } | null;
   primary_color: string;
   secondary_color: string;
   strategy: {
@@ -1473,6 +1480,8 @@ export interface TeamSettingsPatch {
   primary_color?: string;
   secondary_color?: string;
   stadium?: string;
+  /** Catalog park picked in the park browser ("" clears it). */
+  park_id?: string;
   strategy?: string;
   auto_reassign?: "enabled" | "disabled" | "default" | null;
 }

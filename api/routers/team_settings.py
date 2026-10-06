@@ -42,6 +42,8 @@ except Exception:  # pragma: no cover
     def _ballpark_names() -> List[str]:
         return []
 
+from utils.park_utils import park_info_for_exact_name, park_info_for_id
+
 from ..security import CurrentIdentity, require_bearer, require_team_owner
 
 router = APIRouter(
@@ -59,6 +61,51 @@ def _team(team_id: str) -> Team:
         status_code=status.HTTP_404_NOT_FOUND,
         detail=f"Team {team_id} not found.",
     )
+
+
+def _park_summary(team: Team) -> Optional[Dict[str, Any]]:
+    """The catalog park whose real dimensions this team plays in, if explicit."""
+    if not team.park_id:
+        return None
+    try:
+        info = park_info_for_id(team.park_id, prefer_name=team.stadium)
+    except Exception:
+        return None
+    if info is None:
+        return None
+    return {"park_id": info.park_id, "name": info.name, "year": info.year}
+
+
+def _resolve_park_id(
+    team: Team, new_stadium: str, payload: Dict[str, Any]
+) -> Optional[str]:
+    """Return the team's park_id after this save (audit L13).
+
+    Saving here is a deliberate choice, so it is what makes a park explicit:
+    an explicit ``park_id`` (from the catalog browser) wins; otherwise a
+    stadium the owner CHANGED to an exact catalog name picks that park, and
+    any other new name is the generic park. An unchanged stadium keeps its
+    current park_id, so a colors-only save never turns a generated name like
+    "Royals Stadium" into Kauffman's geometry. Legacy leagues (park_id None)
+    stay on the name lookup and are left alone.
+    """
+    if team.park_id is None:
+        return None
+    if "park_id" in payload:
+        requested = str(payload.get("park_id") or "").strip()
+        if not requested:
+            return ""
+        info = park_info_for_id(requested, prefer_name=new_stadium)
+        if info is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown ballpark id: {requested}",
+            )
+        return info.park_id
+    if new_stadium.strip() == (team.stadium or "").strip():
+        return team.park_id
+    info = park_info_for_exact_name(new_stadium)
+    return info.park_id if info is not None and info.park_id else ""
 
 
 def _serialize(team_id: str) -> Dict[str, Any]:
@@ -80,6 +127,10 @@ def _serialize(team_id: str) -> Dict[str, Any]:
         "abbreviation": team.abbreviation,
         "division": team.division,
         "stadium": team.stadium,
+        # Audit L13: null = legacy league (park resolved by name, as before);
+        # "" = generic park; otherwise the explicitly chosen catalog park.
+        "park_id": team.park_id,
+        "park": _park_summary(team),
         "primary_color": team.primary_color,
         "secondary_color": team.secondary_color,
         "strategy": {
@@ -130,6 +181,7 @@ def save_settings(
         str(secondary) if secondary is not None else team.secondary_color
     )
     new_stadium = str(stadium) if stadium is not None else team.stadium
+    new_park_id = _resolve_park_id(team, new_stadium, payload)
 
     try:
         save_team_settings(
@@ -143,6 +195,7 @@ def save_settings(
                 primary_color=new_primary,
                 secondary_color=new_secondary,
                 owner_id=team.owner_id,
+                park_id=new_park_id,
             )
         )
     except ValueError as exc:

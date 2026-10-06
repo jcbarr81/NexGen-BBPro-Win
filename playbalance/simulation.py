@@ -31,7 +31,11 @@ from playbalance.pitch_resolution import resolve_pitch
 from playbalance.bullpen import WarmupTracker
 from playbalance.fielding_ai import FieldingAI
 from playbalance.field_geometry import DEFAULT_POSITIONS, Stadium, FIRST_BASE, SECOND_BASE
-from utils.park_utils import stadium_from_name, park_factor_for_name
+from utils.park_utils import (
+    park_factor_for_name,
+    park_lookup_name_for_team,
+    stadium_from_name,
+)
 from playbalance.state import PitcherState
 from utils.path_utils import get_base_dir, get_data_dir
 from utils.putout_probabilities import load_putout_probabilities
@@ -246,8 +250,9 @@ class GameSimulation:
             derived: Stadium | None = None
             pf = 1.0
             if self.home and getattr(self.home, "team", None) is not None:
+                # Audit L13: only an explicitly chosen park gets real data.
                 try:
-                    park_name = getattr(self.home.team, "stadium", "")
+                    park_name = park_lookup_name_for_team(self.home.team) or ""
                 except Exception:
                     park_name = ""
                 if park_name:
