@@ -104,7 +104,7 @@ def test_dispersion_small_batter_pool_is_none():
         "qualified_ops_sd",
         "qualified_hr40_count",
         "qualified_sub220_count",
-        "qualified_k_pct_sd",
+        "qualified_hitter_k_pct_sd",
     ):
         assert metrics[key] is None
 

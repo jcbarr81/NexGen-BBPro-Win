@@ -38,7 +38,8 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     "hr_per_fb_pct": 0.02,
     "babip": 0.015,
     "sb_pct": 0.05,
-    "sba_per_pa": 0.01,
+    # sba_per_pa moved to REPORT_ONLY_TOLERANCES (audit H2): its old 0.050
+    # target was ~2x real MLB, so the gate passed a steal volume ~2-3x too high.
     "bip_double_play_pct": 0.01,
     # QW-12 (deep_review_plan.md): gate the slash line, contact-quality, and
     # batted-ball metrics that were previously computed but never enforced —
@@ -76,14 +77,19 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     "triples_per_team_game": 0.08,
     "qualified_avg_sd": 0.008,
     "qualified_ops_sd": 0.025,
-    # hr40 tol widened to 5.0: at a fixed ~1.08 HR/team-game the count of 40-HR
-    # hitters in a 30-team league is a rare-event tail that swings 5-7 across
-    # seeds at an identical HR *level*, so the gate bounds the presence of an
-    # elite-power tail rather than a precise count (catches gross regressions).
-    "qualified_hr40_count": 5.0,
+    # Audit M3: the benchmark was 5.5, read as "the engine overshoots" when
+    # the engine's 15-20 is MLB-like (~20-25 in 2021-24). Corrected to 20 +/- 8,
+    # which the calibration fixture passes (15 and 20 on seeds 1 and 2). It is
+    # a tail count (Poisson-like sd ~4), so it bounds the 30-HR tier's size.
+    "qualified_hr30_count": 8.0,
+    # qualified_hr40_count moved to REPORT_ONLY_TOLERANCES (audit M3).
     "qualified_avg300_count": 9.0,
     "qualified_era_sd": 0.30,
-    "qualified_k_pct_sd": 0.015,
+    # Audit H6: this is the spread of HITTER K% (qualified batters), not
+    # pitcher K%; renamed from qualified_k_pct_sd so nobody reads it as a
+    # pitcher-dispersion gate. No pitcher K% gate exists yet (Release 2 KPI
+    # list, report-only first).
+    "qualified_hitter_k_pct_sd": 0.015,
     # S2-01: league platoon split (opposite-hand minus same-hand wOBA). Target
     # supplied via evaluate_tolerances targets= in main (0.026, pass band
     # 0.020-0.032) — no benchmark CSV row.
@@ -98,15 +104,13 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     "corr_iso_power": 0.25,    # 0.50 to 1.00
     "corr_hr_contact": 0.30,   # -0.20 to 0.40
     "corr_avg_contact": 0.30,  # 0.40 to 1.00
-    # NOTE (S2-08): qualified_hr30_count and qualified_sub220_count are
-    # computed and reported in every KPI run but deliberately NOT gated here.
-    # Both encode MLB *survivorship* — weak regulars get benched/demoted (never
-    # reaching the 502-PA bar) and elite power is right-skewed — which this
-    # no-benching, normal-rating calibration sim cannot reproduce without the
-    # in-season roster dynamics of S2-05/S2-11 and a nonlinear power curve the
-    # engine lacks. The strict dispersion contract is the four SD gates
-    # (avg_sd/ops_sd/era_sd/k_pct_sd) plus hr40_count and avg300_count, which
-    # ARE calibratable and green. See docs/deep_review_plan.md change log.
+    # NOTE (S2-08): qualified_sub220_count is computed and reported in every
+    # KPI run but deliberately NOT gated here. It encodes MLB *survivorship* —
+    # weak regulars get benched/demoted (never reaching the 502-PA bar) — which
+    # this no-benching, normal-rating calibration sim cannot reproduce without
+    # the in-season roster dynamics of S2-05/S2-11. (qualified_hr30_count was
+    # left ungated for a similar reason until audit M3 showed its 5.5 benchmark
+    # was simply wrong; it is gated above.) See docs/deep_review_plan.md.
     # qualified_avg300_count widened 5.0 -> 9.0 for the same population-shape
     # reason (upper AVG tail inflated without low-end survivorship).
     # S2-12 pitching-usage gates (default-strict now that S2-03/S2-04 have landed
@@ -123,6 +127,43 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     "reliever_b2b_share": 0.06,
     # S2-07: pass-3 minus pass-1 league OPS gap (times-through-order penalty).
     "tto_ops_gap": 0.025,
+}
+
+
+# Audit 2026-10-06 Release 2 (REPORT H2, M2, M3, M7): corrected benchmarks and
+# newly computed metrics that the current engine fails or only grazes. They are
+# evaluated on every run and written to the JSON under "report_only", but they
+# never fail --strict, so the CI calibration check keeps passing while the
+# engine is wrong in these places. Move a key into DEFAULT_TOLERANCES when
+# the engine work that fixes it lands (steals and extra bases: Release 4;
+# batted-ball shape: Release 6). Targets are rows of the benchmark CSV.
+REPORT_ONLY_TOLERANCES: dict[str, float] = {
+    # H2: MLB 2023-24 (pitch-clock rules) from data/MLB_avg/Teams_last5years.csv
+    # team totals: SBA/PA .0238/.0252 -> 0.025 and SB per team-game .721/.745
+    # -> 0.73. Tolerances are about 20% / 3x the replicate sd of ~0.04 SB/game.
+    # Calibration engine: ~0.050 and ~1.42.
+    "sba_per_pa": 0.005,
+    "sb_per_team_game": 0.12,
+    # M3: MLB 2021-24 had 3-5 qualified 40-HR hitters (~5 per the audit); the
+    # old 2.5 +/- 5.0 gate could never fail low. 5 +/- 3 can (0 or 1 fails).
+    # The fixture produces 2 on seeds 1 and 2: on the edge, and as a Poisson(2)
+    # tail it is 0-1 on ~40% of seeds, so a strict gate would flake.
+    "qualified_hr40_count": 3.0,
+    # M2/M3: Statcast contact quality, computed from the pitch log's exit velocity
+    # and launch angle on balls in play (see _contact_quality_metrics).
+    "hard_hit_pct": 0.03,
+    "barrel_pct": 0.015,
+    "sweet_spot_pct": 0.03,
+    # M7: XBT% (Baseball-Reference definition, counted by the engine; see
+    # physics_sim.engine._tally_extra_bases_taken). Calibration ~0.67-0.69.
+    "extra_base_advance_rate": 0.05,
+}
+
+# Metric keys that were renamed; a --tolerances override using the old name
+# still applies to the new one instead of being silently dropped.
+LEGACY_METRIC_ALIASES: dict[str, str] = {
+    # Audit H6: it always measured hitter K% spread.
+    "qualified_k_pct_sd": "qualified_hitter_k_pct_sd",
 }
 
 
@@ -148,17 +189,25 @@ def _load_benchmarks(path: Path) -> dict[str, float]:
     return benchmarks
 
 
-def _load_tolerances(path: Path | None) -> dict[str, float]:
+def _load_tolerances(
+    path: Path | None,
+    defaults: dict[str, float] | None = None,
+) -> dict[str, float]:
+    """Return ``defaults`` (the strict group unless given) with any override
+    from the JSON at ``path`` applied. Unknown keys are ignored, so one
+    override file serves both the strict and the report-only group."""
+    base = DEFAULT_TOLERANCES if defaults is None else defaults
     if path is None:
-        return dict(DEFAULT_TOLERANCES)
+        return dict(base)
     if not path.exists():
-        return dict(DEFAULT_TOLERANCES)
+        return dict(base)
     try:
         data = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
-        return dict(DEFAULT_TOLERANCES)
-    merged = dict(DEFAULT_TOLERANCES)
+        return dict(base)
+    merged = dict(base)
     for key, value in data.items():
+        key = LEGACY_METRIC_ALIASES.get(key, key)
         if key in merged:
             try:
                 merged[key] = float(value)
@@ -714,8 +763,8 @@ def _dispersion_metrics(
     games_per_team: int,
     teams: int,
 ) -> dict[str, float | None]:
-    """Player-dispersion gates (S2-08): SD of qualified AVG/OPS/ERA/K%, plus
-    HR-leader and outlier-hitter counts normalized to a 30-team league.
+    """Player-dispersion gates (S2-08): SD of qualified AVG/OPS/ERA and hitter
+    K%, plus HR-leader and outlier-hitter counts normalized to a 30-team league.
 
     Qualification mirrors ``api/routers/leaders.py`` exactly. Pools with fewer
     than 10 qualified players emit ``None`` (evaluate_tolerances skips None) —
@@ -743,7 +792,7 @@ def _dispersion_metrics(
             "qualified_hr30_count",
             "qualified_sub220_count",
             "qualified_avg300_count",
-            "qualified_k_pct_sd",
+            "qualified_hitter_k_pct_sd",
         ):
             metrics[key] = None
     else:
@@ -755,7 +804,7 @@ def _dispersion_metrics(
         hrs = [s.get("hr", 0) for s in qb]
         metrics["qualified_avg_sd"] = statistics.pstdev(avgs)
         metrics["qualified_ops_sd"] = statistics.pstdev(ops)
-        metrics["qualified_k_pct_sd"] = statistics.pstdev(kpcts)
+        metrics["qualified_hitter_k_pct_sd"] = statistics.pstdev(kpcts)
         metrics["qualified_hr40_count"] = (
             sum(1 for hr in hrs if hr >= hr_thresh_40) * scale_t
         )
@@ -818,6 +867,118 @@ def _usage_metrics(
     }
 
 
+def _is_barrel(exit_velo: float, launch_angle: float) -> bool:
+    """Statcast barrel (Baseball Savant's published rule): at least 98 mph with
+    a launch-angle window of 26-30 degrees at 98 that widens with speed, to
+    8-50 degrees at 116 mph and above."""
+    return (
+        exit_velo >= 98.0
+        and 4.0 <= launch_angle <= 50.0
+        and exit_velo * 1.5 - launch_angle >= 117.0
+        and exit_velo + launch_angle >= 124.0
+    )
+
+
+def _record_contact_quality(
+    counts: Counter, exit_velo: float | None, launch_angle: float | None
+) -> None:
+    """Tally one ball in play for _contact_quality_metrics (audit M2/M3)."""
+    if exit_velo is None:
+        return
+    ev = float(exit_velo)
+    counts["bbe"] += 1
+    if ev >= 95.0:
+        counts["hard_hit"] += 1
+    if launch_angle is None:
+        return
+    la = float(launch_angle)
+    counts["bbe_la"] += 1
+    if 8.0 <= la <= 32.0:
+        counts["sweet_spot"] += 1
+    if _is_barrel(ev, la):
+        counts["barrel"] += 1
+
+
+def _contact_quality_metrics(counts: Counter) -> dict[str, float | None]:
+    """Statcast contact-quality rates per batted-ball event (audit M2/M3).
+
+    The benchmark CSV listed these for months but nothing computed them. Uses
+    the exit velocity and launch angle the engine logs on every ball in play
+    (home runs included, bunts excluded): hard hit = 95+ mph, sweet spot =
+    8-32 degrees, barrel per _is_barrel. None when there were no balls in play.
+    """
+    bbe = counts.get("bbe", 0)
+    bbe_la = counts.get("bbe_la", 0)
+    return {
+        "hard_hit_pct": (counts.get("hard_hit", 0) / bbe) if bbe else None,
+        "barrel_pct": (counts.get("barrel", 0) / bbe_la) if bbe_la else None,
+        "sweet_spot_pct": (counts.get("sweet_spot", 0) / bbe_la) if bbe_la else None,
+    }
+
+
+def _extra_base_metrics(totals: Counter) -> dict[str, float | None]:
+    """XBT% and the thrown-out share of XBT chances (audit M7).
+
+    The engine counts the chances (``xbt_opp``/``xbt_taken``/``xbt_out`` in
+    each game's totals; definition in
+    physics_sim.engine._tally_extra_bases_taken). MLB XBT% is about .40 and
+    runners are thrown out on roughly 2-3% of chances (approx.). None when
+    the engine logged no chances (an engine without the counters).
+    """
+    opp = totals.get("xbt_opp", 0)
+    if not opp:
+        return {"extra_base_advance_rate": None, "extra_base_out_rate": None}
+    return {
+        "extra_base_advance_rate": totals.get("xbt_taken", 0) / opp,
+        "extra_base_out_rate": totals.get("xbt_out", 0) / opp,
+    }
+
+
+def evaluate_report_only(
+    *,
+    metrics: dict[str, float],
+    benchmarks: dict[str, float],
+    tolerances: dict[str, float],
+) -> list[dict[str, object]]:
+    """One row per report-only gate, passing or not (audit Release 2).
+
+    Unlike evaluate_tolerances this lists every gate, so the JSON shows how
+    far the engine sits from each corrected target. ``ok`` is None when the
+    metric could not be computed (too few qualified players, say).
+    """
+    rows: list[dict[str, object]] = []
+    for key, tolerance in tolerances.items():
+        target = benchmarks.get(key)
+        if target is None:
+            continue
+        value = metrics.get(key)
+        delta = None if value is None else value - target
+        rows.append(
+            {
+                "metric": key,
+                "value": value,
+                "target": target,
+                "delta": delta,
+                "tolerance": tolerance,
+                "ok": None if delta is None else abs(delta) <= tolerance,
+            }
+        )
+    return rows
+
+
+def _format_report_only(rows: list[dict[str, object]]) -> str:
+    lines = ["Report-only KPI gates (never fail --strict):"]
+    for row in rows:
+        value = row["value"]
+        status = {True: "ok", False: "FAIL", None: "n/a"}[row["ok"]]
+        shown = "n/a" if value is None else f"{value:.4f}"
+        lines.append(
+            f"  {row['metric']:<26} {shown:>9}  target {row['target']}"
+            f" +/- {row['tolerance']}  {status}"
+        )
+    return "\n".join(lines)
+
+
 def run_sim(
     games_per_team: int,
     seed: int,
@@ -834,6 +995,7 @@ def run_sim(
     totals = Counter()
     pitch_counts = Counter()
     bip_counts = Counter()
+    contact_quality = Counter()  # audit M2/M3: hard-hit / barrel / sweet spot
     ev_sum = 0.0
     la_sum = 0.0
     ev_count = 0
@@ -1026,6 +1188,7 @@ def run_sim(
                 if la is not None:
                     la_sum += float(la)
                     la_count += 1
+                _record_contact_quality(contact_quality, ev, la)
         pitch_counts["o_zone_pitches"] = (
             pitch_counts.get("pitches", 0) - pitch_counts.get("zone_pitches", 0)
         )
@@ -1045,6 +1208,9 @@ def run_sim(
         games=len(schedule),
         benchmarks=benchmarks,
     )
+    # Audit Release 2: metrics the benchmark CSV listed but nothing computed.
+    summary["metrics"].update(_contact_quality_metrics(contact_quality))
+    summary["metrics"].update(_extra_base_metrics(totals))
     summary["meta"] = {
         "games_per_team": games_per_team,
         "teams": len(teams),
@@ -1340,11 +1506,23 @@ def main() -> None:
     summary["tolerances"] = tolerances
     summary["tolerance_failures"] = failures
     summary["tolerance_ok"] = not failures
+    # Audit Release 2: corrected/new gates the engine is known to miss. Written
+    # to the JSON and printed (stderr, so stdout stays pure JSON), never strict.
+    report_only = evaluate_report_only(
+        metrics=summary.get("metrics", {}),
+        benchmarks=benchmarks,
+        tolerances=_load_tolerances(args.tolerances, REPORT_ONLY_TOLERANCES),
+    )
+    summary["report_only"] = {
+        "results": report_only,
+        "failures": [row["metric"] for row in report_only if row["ok"] is False],
+    }
     payload = json.dumps(summary, indent=2, sort_keys=True)
     if args.output:
         args.output.write_text(payload, encoding="utf-8")
     else:
         print(payload)
+    print(_format_report_only(report_only), file=sys.stderr)
     if args.strict and failures:
         raise SystemExit(2)
 

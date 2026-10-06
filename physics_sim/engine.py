@@ -1229,6 +1229,68 @@ def _reconcile_runner_pitchers(
         runner_pitchers.pop(runner_id, None)
 
 
+def _tally_extra_bases_taken(
+    totals: Dict[str, int],
+    *,
+    hit_type: str,
+    runner_first: BatterRatings | None,
+    runner_second: BatterRatings | None,
+    bases: BaseState,
+    scored: list[BatterRatings],
+    error_advances: list[BatterRatings],
+) -> None:
+    """Count extra-base-taken (XBT%) chances on a batted-ball hit.
+
+    Audit 2026-10-06 M7 / Release 2: the KPI harness benchmarks
+    ``extra_base_advance_rate`` (MLB ~0.40) but nothing measured it, and the
+    harness cannot rebuild runner movement from the pitch log. Read-only
+    bookkeeping: it never draws a random number or touches ``bases``, so game
+    outcomes are unchanged. Call it with the runners on 1st/2nd as they stood
+    before ``_advance_on_hit`` and the state it left behind.
+
+    Baseball-Reference definition. Opportunities:
+      * single, runner on 2nd -> taken if he scores;
+      * single, runner on 1st, when 3rd was open for him -> taken if he
+        reaches 3rd or scores (blocked when the lead runner held at 3rd);
+      * double, runner on 1st -> taken if he scores.
+    A runner thrown out counts as an opportunity not taken (``xbt_out``). A
+    runner saved by a throwing error is not credited with the extra base.
+    """
+
+    def _in(runner: BatterRatings, group: list[BatterRatings]) -> bool:
+        return any(other is runner for other in group)
+
+    def _record(runner: BatterRatings, taken: bool, held: bool) -> None:
+        totals["xbt_opp"] += 1
+        if _in(runner, error_advances):
+            return
+        if taken:
+            totals["xbt_taken"] += 1
+        elif not held:
+            totals["xbt_out"] += 1
+
+    if hit_type == "single":
+        if runner_second is not None:
+            _record(
+                runner_second,
+                taken=_in(runner_second, scored),
+                held=bases.third is runner_second,
+            )
+        blocked = runner_second is not None and bases.third is runner_second
+        if runner_first is not None and not blocked:
+            _record(
+                runner_first,
+                taken=bases.third is runner_first or _in(runner_first, scored),
+                held=bases.second is runner_first,
+            )
+    elif hit_type == "double" and runner_first is not None:
+        _record(
+            runner_first,
+            taken=_in(runner_first, scored),
+            held=bases.third is runner_first,
+        )
+
+
 def _lead_level(
     *,
     speed: float,
@@ -3660,6 +3722,11 @@ def simulate_game(
         "lob_away": 0,
         "lob_home": 0,
         "pitches": 0,
+        # Audit M7 / Release 2: extra-base-taken chances on hits, for the KPI
+        # harness's extra_base_advance_rate (see _tally_extra_bases_taken).
+        "xbt_opp": 0,
+        "xbt_taken": 0,
+        "xbt_out": 0,
     }
     pitch_log: List[Dict[str, Any]] = []
     score_away = 0
@@ -4868,6 +4935,7 @@ def simulate_game(
                                 line.b1 += 1
                                 totals["b1"] += 1
                             before_ids = _base_runner_ids(bases)
+                            xbt_first, xbt_second = bases.first, bases.second
                             (
                                 runs_scored,
                                 outs_added,
@@ -4880,6 +4948,15 @@ def simulate_game(
                                 hit_type=resolved_hit,
                                 defense_arm=advance_arm,
                                 tuning=tuning,
+                            )
+                            _tally_extra_bases_taken(
+                                totals,
+                                hit_type=resolved_hit,
+                                runner_first=xbt_first,
+                                runner_second=xbt_second,
+                                bases=bases,
+                                scored=scored,
+                                error_advances=error_advances,
                             )
                             _reconcile_runner_pitchers(
                                 runner_pitchers,
