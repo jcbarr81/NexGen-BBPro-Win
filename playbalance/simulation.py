@@ -3969,7 +3969,8 @@ def generate_boxscore(home: TeamState, away: TeamState) -> Dict[str, Dict[str, o
                 "sv": getattr(ps, "sv", 0),
                 "bs": getattr(ps, "bs", 0),
                 "hld": getattr(ps, "hld", 0),
-                "svo": getattr(ps, "svo", 0),
+                # Audit L10: SVO = SV + BS, as the physics engine publishes it.
+                "svo": getattr(ps, "sv", 0) + getattr(ps, "bs", 0),
                 "pitches": total_pitches,
                 "strikes": actual_strikes,
                 "balls": actual_balls,
@@ -4113,13 +4114,36 @@ def render_boxscore_html(
         repl[f"totals.{side}.h"] = h
         repl[f"totals.{side}.e"] = e
 
-    for i in range(9):
-        repl[f"linescore.home[{i}]"] = (
-            box["home"]["inning_runs"][i] if i < len(box["home"]["inning_runs"]) else ""
-        )
-        repl[f"linescore.away[{i}]"] = (
-            box["away"]["inning_runs"][i] if i < len(box["away"]["inning_runs"]) else ""
-        )
+    # Audit L11: the line score used to stop at a fixed 9 columns, so every
+    # extra-inning game (8.5% of a season) showed inning runs that did not add
+    # up to R. Render one column per inning actually played (never fewer than
+    # 9), and mark the bottom half the winning home side never needed with "X".
+    away_innings = list(box["away"].get("inning_runs") or [])
+    home_innings = list(box["home"].get("inning_runs") or [])
+    n_innings = max(9, len(away_innings), len(home_innings))
+
+    def inning_cell(runs: list, other: list, i: int) -> object:
+        if i < len(runs):
+            return runs[i]
+        if runs is home_innings and i < len(other):
+            return "X"
+        return ""
+
+    cells: dict[str, list[str]] = {"away": [], "home": []}
+    for i in range(n_innings):
+        for side, runs, other in (
+            ("away", away_innings, home_innings),
+            ("home", home_innings, away_innings),
+        ):
+            value = inning_cell(runs, other, i)
+            # Indexed keys stay for any template still written with fixed columns.
+            repl[f"linescore.{side}[{i}]"] = value
+            cells[side].append(f"<td>{value}</td>")
+    repl["linescore.header"] = "".join(
+        f"<th>{i}</th>" for i in range(1, n_innings + 1)
+    )
+    repl["linescore.away"] = "".join(cells["away"])
+    repl["linescore.home"] = "".join(cells["home"])
 
     import re
 

@@ -105,7 +105,6 @@ class PitcherLine:
     l: int = 0
     gf: int = 0
     sv: int = 0
-    svo: int = 0
     hld: int = 0
     bs: int = 0
     ir: int = 0
@@ -946,8 +945,6 @@ def _pitcher_enter_stats(
     save_opp = _save_opportunity(lead=lead, inning=inning, bases=bases, tuning=tuning)
     pitcher_state.entered_save_opp = save_opp
     pitcher_state.in_save_situation = save_opp
-    if save_opp:
-        line.svo += 1
     return line
 
 
@@ -1046,7 +1043,10 @@ def _pitcher_line_summary(line: PitcherLine) -> Dict[str, float | str]:
         "l": line.l,
         "gf": line.gf,
         "sv": line.sv,
-        "svo": line.svo,
+        # Audit L10: SVO used to count every entry into a save situation
+        # (setup men in the 7th included), so SV/SVO read .342. A save
+        # opportunity is published the way MLB keeps it: saves + blown saves.
+        "svo": line.sv + line.bs,
         "hld": line.hld,
         "bs": line.bs,
         "ir": line.ir,
