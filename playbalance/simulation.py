@@ -46,6 +46,7 @@ from .stats import (
     compute_fielding_rates,
     compute_team_derived,
     compute_team_rates,
+    fielding_season_key,
 )
 
 from .constants import PITCH_RATINGS
@@ -1291,18 +1292,21 @@ class GameSimulation:
 
                 for fs in team.fielding_stats.values():
                     season = getattr(fs.player, "season_stats", {})
+                    # Audit H5: po/cs/ci/pk are stored as f_po/f_cs/f_ci/f_pk
+                    # so they no longer add into the batting/pitching counters.
                     for f in fields(FieldingState):
                         if f.name == "player":
                             continue
                         # Do not accumulate fielding G/GS for pitchers; those come from PitcherState
                         if getattr(fs.player, "is_pitcher", False) and f.name in {"g", "gs"}:
                             continue
-                        season[f.name] = season.get(f.name, 0) + getattr(fs, f.name)
+                        key = fielding_season_key(f.name)
+                        season[key] = season.get(key, 0) + getattr(fs, f.name)
                     season_state = FieldingState(fs.player)
                     for f in fields(FieldingState):
                         if f.name == "player":
                             continue
-                        setattr(season_state, f.name, season.get(f.name, 0))
+                        setattr(season_state, f.name, season.get(fielding_season_key(f.name), 0))
                     season.update(compute_fielding_derived(season_state))
                     season.update(compute_fielding_rates(season_state))
                     fs.player.season_stats = season

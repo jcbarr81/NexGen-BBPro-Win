@@ -7,6 +7,29 @@ if TYPE_CHECKING:
     from playbalance.state import PitcherState
 
 
+# Audit H5: a player's batting, pitching and fielding lines all accumulate into
+# one ``season_stats`` dict. These fielding counters share a name with a
+# batting counter (cs = caught stealing as a runner, po = picked off,
+# ci = reached on interference) or a pitching one (pk = pitcher pickoffs), so
+# the two overwrote each other: every caught stealing was stored twice and a
+# first baseman's putouts showed up as "picked off". Fielding keeps them under
+# an ``f_`` prefix instead. The other fielding counters (a, e, dp, tp, pb, sba)
+# have no twin and keep their names. Rows written before the fix carry the
+# merged values and no ``f_`` keys; readers treat a missing key as 0.
+FIELDING_SEASON_KEYS: Dict[str, str] = {
+    "po": "f_po",
+    "cs": "f_cs",
+    "ci": "f_ci",
+    "pk": "f_pk",
+}
+
+
+def fielding_season_key(key: str) -> str:
+    """Return the ``season_stats`` key a fielding counter is stored under."""
+
+    return FIELDING_SEASON_KEYS.get(key, key)
+
+
 def compute_batting_derived(stats: 'BatterState') -> Dict[str, float]:
     """Return derived batting statistics from counting stats.
 
