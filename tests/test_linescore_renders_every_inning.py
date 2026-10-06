@@ -8,6 +8,8 @@ printed inning runs that did not add up to the R column.
 import re
 from pathlib import Path
 
+import pytest
+
 from physics_sim.engine import simulate_matchup_from_files
 from playbalance.simulation import render_boxscore_html
 
@@ -90,19 +92,27 @@ def test_unplayed_bottom_half_is_marked_x():
 
 
 def test_engine_extra_inning_game_renders_every_inning():
-    """End to end on the calibration fixture: seed 24 goes 12 innings."""
+    """End to end on the calibration fixture: the first seed (from 24) that
+    goes to extras. A search, not one pinned seed, so an engine change that
+    shifts the random stream doesn't break a line-score test."""
 
-    result = simulate_matchup_from_files(
-        away_team="CAL02",
-        home_team="CAL01",
-        players_path=CAL / "players.csv",
-        base_dir=CAL,
-        park_name="Fenway Park",
-        seed=24,
-    )
+    result = None
+    for seed in range(24, 124):
+        candidate = simulate_matchup_from_files(
+            away_team="CAL02",
+            home_team="CAL01",
+            players_path=CAL / "players.csv",
+            base_dir=CAL,
+            park_name="Fenway Park",
+            seed=seed,
+        )
+        if len(candidate.metadata["inning_runs"]["away"]) > 9:
+            result = candidate
+            break
+    if result is None:
+        pytest.skip("no extra-inning game in 100 fixture seeds")
     inning_runs = result.metadata["inning_runs"]
     score = result.metadata["score"]
-    assert len(inning_runs["away"]) > 9, "fixture seed no longer goes extras"
 
     box = _box(inning_runs["away"], inning_runs["home"])
     for side in ("away", "home"):

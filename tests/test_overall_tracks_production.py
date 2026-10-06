@@ -16,7 +16,6 @@ from types import SimpleNamespace
 import pytest
 
 import services.cpu_trade_evaluator as trade
-import services.prospect_promotion as promotion
 import services.roster_auto_assign as auto_assign
 import utils.rating_display as rating_display
 from api.routers._rating_presentation import compute_overall
@@ -185,7 +184,9 @@ def test_cpu_assign_trade_and_promotion_use_the_shared_overall():
         assert auto_assign._overall_score(player) == pytest.approx(shared)
         assert trade._overall_score(player, potential=False) == pytest.approx(shared)
         assert overall_rating(player) == int(round(shared))
-        assert promotion._player_overall(player) == int(round(shared))
+        # Prospect promotion keeps its own score: its fixed 55/65/72 bars were
+        # tuned for it and would promote several times as many players on
+        # the wider shared scale (see services/prospect_promotion.py).
 
 
 def test_inert_ratings_are_out_and_eye_is_in():

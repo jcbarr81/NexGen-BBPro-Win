@@ -1285,6 +1285,9 @@ class GameSimulation:
                         if attr in {"player", "in_save_situation"}:
                             continue
                         season[attr] = season.get(attr, 0) + value
+                    # SVO is saves plus blown saves (audit L10), as in the
+                    # physics path; the per-entry counter over-counts.
+                    season["svo"] = season.get("sv", 0) + season.get("bs", 0)
                     season_state = PitcherState()
                     season_state.player = ps.player
                     for attr, value in season.items():

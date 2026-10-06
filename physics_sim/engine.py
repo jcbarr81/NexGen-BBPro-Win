@@ -1682,7 +1682,16 @@ def _credit_bunt_out(
             cover_line = _fielding_line(defense_state, cover.player_id)
             cover_line.po += 1
             cover_line.dp += 1
-    elif bunt_pos == "1B" or oneb_fielder is None:
+    elif bunt_pos == "1B":
+        # The 1B charged the bunt, so first is covered by the 2B (3-4); an
+        # unassisted 3U only if no 2B is on the field.
+        cover = defense_map.get("2B")
+        if cover is not None:
+            fielder_line.a += 1
+            _fielding_line(defense_state, cover.player_id).po += 1
+        else:
+            fielder_line.po += 1
+    elif oneb_fielder is None:
         fielder_line.po += 1
     else:
         fielder_line.a += 1

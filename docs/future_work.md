@@ -794,11 +794,11 @@ land before channel-specific features.
   defensive/positional balancing, or UI explanation clarity.
 - **Scope:** Fix incorrect rating behavior if found, or improve star-rating
   transparency/tooltips/tests so the outcome is understandable and consistent.
-- **Status:** Fixed (reconciled 2026-07-13). Hitter overall/star now blends a
-  top-N leg (default 65%) with the position-weighted leg so elite specialists
-  earn credit — see `api/routers/_rating_presentation.py:_compute_hitter_overall`.
-  Note: a legacy plain-mean `overall_rating` still exists in
-  `utils/rating_display.py`; verify no surface still uses it as a star source.
+- **Status:** Superseded in 7.45.10 (audit H8/M14). The top-N blend is gone;
+  one production-weighted overall, `utils/player_overall.py`, now drives the
+  displayed OVR/stars and the plain-mean `overall_rating` alike (a 90/90 bat
+  shows ~92 and 4.5 stars). Its defense weights are provisional until
+  Release 6 (decision 12).
 
 ## 38. Contract Details on Player Profile + Team Contracts Page
 - **Goal:** Make contract status easier to manage by showing full contract
@@ -1007,3 +1007,57 @@ Decision 14 leaves an owner's active-roster spot open after an injury the depth
 chart covers. Owners currently learn about it only from the injury news line.
 Consider a notification ("CHI: active roster at 24 -- a spot is open") and a
 roster-page badge.
+
+## 51. Retune prospect promotion for the shared overall
+
+7.45.10 introduced one production-weighted overall (`utils/player_overall.py`)
+for display, CPU auto-assign and trades, but prospect promotion
+(`services/prospect_promotion._player_overall`, also used by in-season
+call-ups) deliberately kept its old flat average: the fixed 55 / 65 / 72 bars
+were tuned for it, and the shared score is ~1.3x wider (alpha-test LOW->AAA
+pass rate 2.4% -> 12.9%; yearly AAA->ACT promotion has no cap check, so
+owners' rosters would overflow at rollover). Re-derive the bars as
+percentile matches on representative leagues, add a cap check (or demotion)
+to yearly promotion, then switch to the shared score.
+
+## 52. Unify the remaining CPU and display scores with the shared overall
+
+Still on their own flat averages (which count arm -- wrong-signed today --
+and endurance, and leave out eye): `api/routers/draft._prospect_overall`
+(draft-board OVR column and CPU best-available autopick, so a prospect's OVR
+changes scale once drafted), `services/cpu_trade_proposals._player_trade_value`,
+`services/free_agency._quality_score` (CPU FA signing order),
+`services/player_retirement._player_overall`, and
+`services/inseason_callups._hitter_score/_pitcher_score`. Route them through
+`utils.player_overall.player_overall_score` (each needs its own check of what
+it ranks).
+
+## 53. 2026 fielding rate stats mix two periods
+
+7.45.10 split the fielding counters that collided with batting/pitching keys
+into `f_cs`, `f_po`, `f_ci`, `f_pk` (audit H5). 2026 rows keep their merged
+values and the f_ keys start at 0 mid-season, while their denominators (sba,
+a, e, g) are full-season -- so 2026 cs_pct, fpct and rf9 are biased low. No
+screen shows them yet; any future fielding display must hide 2026 rates or
+recompute them only for players whose f_ keys cover the whole season.
+
+## 54. Batting and pitching season keys collide if a pitcher bats
+
+Same class of bug as H5: batting and pitching lines share one season_stats
+dict, so g / h / r / hr / bb / so / pocs would mix for anyone who both bats
+and pitches. The engine plays a universal DH today, so it doesn't happen, but
+two-way players or position players pitching in a blowout would expose it.
+
+## 55. Migrate existing leagues' parks to explicit picks (audit L13 follow-up)
+
+7.45.10 applies real-park geometry only for an explicit `park_id`; leagues
+created before it have no such column and keep the old name lookup, so
+alpha-test's FOR ("Royals Stadium") still plays in Kauffman 1973-93. Needs an
+owner call: an opt-in migration that marks generated "{mascot} Stadium"
+names generic and keeps deliberate picks, or a commissioner review screen.
+
+## 56. Legacy engine fielding credit differs from the physics engine
+
+`playbalance.simulation.GameSimulation` (archived; physics_sim is live) still
+gives the pitcher an assist on every strikeout, which 7.45.10 removed from
+the physics engine (audit M9). Align it or retire the legacy engine.

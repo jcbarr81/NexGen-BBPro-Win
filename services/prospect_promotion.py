@@ -32,7 +32,6 @@ from typing import Any, Dict, List, Optional
 from playbalance.aging import calculate_age
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
-from utils.player_overall import player_overall_score
 from utils.roster_loader import load_roster, save_roster
 
 # LOW → AAA thresholds
@@ -46,17 +45,35 @@ AAA_TO_ACT_BLUECHIP_OVR = 72
 
 
 def _player_overall(player: object) -> int:
-    """The shared production-weighted overall (audit H8/M14), rounded.
+    """The promotion score the 55 / 65 / 72 bars were tuned for.
 
-    Promotion used its own flat average (pitchers counted arm, which the
-    engine rewards backwards, and endurance); it now uses the score owners
-    see as OVR, so "OVR 68" in a call-up note matches the roster page.
+    Deliberately NOT the shared display overall (utils.player_overall): that
+    score spreads players about 1.3x wider, so these fixed bars would promote
+    several times as many players (alpha-test LOW->AAA: 2.4% -> 12.9%), and
+    yearly promotion moves AAA->ACT with no cap check -- owners' active
+    rosters would land over the limit at rollover. This flat average never
+    had the pitch-count bias of audit M14. Retune the bars before switching
+    (docs/future_work.md).
     """
 
-    score = player_overall_score(player)
-    if score is None:
+    is_pitcher = bool(getattr(player, "is_pitcher", False))
+    keys = (
+        ("arm", "control", "movement", "endurance")
+        if is_pitcher
+        else ("ch", "ph", "sp", "eye", "fa", "arm")
+    )
+    values: list[float] = []
+    for key in keys:
+        raw = getattr(player, key, None)
+        if raw is None:
+            continue
+        try:
+            values.append(float(raw))
+        except (TypeError, ValueError):
+            continue
+    if not values:
         return 50
-    return int(round(score))
+    return int(round(sum(values) / len(values)))
 
 
 def evaluate_promotion(

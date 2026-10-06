@@ -180,7 +180,8 @@ def test_bunt_out_fielded_by_pitcher_credits_the_pitcher():
     assert _credit(state, "1b") == (1, 0, 0)
 
 
-def test_bunt_out_fielded_by_first_baseman_is_unassisted():
+def test_bunt_out_fielded_by_first_baseman_goes_3_4():
+    """The 1B charged it, so the 2B covers first: 1B assist, 2B putout."""
     state, defense_map = _defense()
     _credit_bunt_out(
         defense_state=state,
@@ -189,8 +190,8 @@ def test_bunt_out_fielded_by_first_baseman_is_unassisted():
         pitcher_id="pit",
         double_play=False,
     )
-    assert _credit(state, "1b") == (1, 0, 0)
-    assert len(state.fielding_lines) == 1
+    assert _credit(state, "1b") == (0, 1, 0)
+    assert _credit(state, "2b") == (1, 0, 0)
 
 
 def test_bunt_double_play_credits_pivot_and_cover():
