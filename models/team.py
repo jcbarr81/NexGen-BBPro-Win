@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 import re
 
 @dataclass
@@ -25,6 +25,11 @@ class Team:
     aaa_roster: List[str] = field(default_factory=list)
     low_roster: List[str] = field(default_factory=list)
     season_stats: Dict[str, float] = field(default_factory=dict)
+    # Explicitly chosen ballpark (a ParkConfig parkID). Audit L13: only an
+    # explicit pick gets real-park geometry, never a name that merely
+    # collides with one. None = the league's teams.csv has no park_id
+    # column (legacy name lookup); "" = no pick, generic park.
+    park_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Validate color fields after initialization."""

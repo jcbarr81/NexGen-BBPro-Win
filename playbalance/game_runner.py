@@ -39,6 +39,7 @@ from services.decision_explanations import (
 from utils.news_logger import log_news_event
 from utils.pitcher_role import get_role
 from utils.path_utils import get_data_dir, resolve_app_path
+from utils.park_utils import park_lookup_name_for_team
 from playbalance.parallel_day import active_journal
 
 LineupEntry = Tuple[str, str]
@@ -1126,9 +1127,9 @@ def _run_physics_game(
         )
         home_roles[pitcher.player_id] = role
 
-    park_name = None
-    if home_state.team is not None:
-        park_name = getattr(home_state.team, "stadium", None)
+    # Audit L13: real-park data only for an explicitly chosen park; a
+    # generated name that collides with a real one gets the generic park.
+    park_name = park_lookup_name_for_team(home_state.team)
 
     jr = active_journal()
     if jr is not None and jr.usage_in is not None:

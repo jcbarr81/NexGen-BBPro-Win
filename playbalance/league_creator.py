@@ -516,6 +516,11 @@ def create_league(
                     "primary_color": primary,
                     "secondary_color": secondary,
                     "owner_id": "",
+                    # Audit L13: no park chosen yet, so the generic park. A
+                    # generated "{mascot} Stadium" can collide with a real
+                    # park ("Royals Stadium" is Kauffman 1973-93); only an
+                    # explicit pick in Team Settings sets a park_id.
+                    "park_id": "",
                 }
             )
 
@@ -597,7 +602,8 @@ def create_league(
     _assert_rosters_compliant(generated_rosters, all_players)
     with open(teams_path, "w", newline="") as f:
         fieldnames = [
-            "team_id","name","city","abbreviation","division","stadium","primary_color","secondary_color","owner_id"
+            "team_id","name","city","abbreviation","division","stadium","primary_color","secondary_color","owner_id",
+            "park_id",
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()

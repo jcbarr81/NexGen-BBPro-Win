@@ -376,7 +376,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Stadium browser",
-                "<p>Click the building icon next to the stadium field to open the full park catalog as a modal. For a standalone browser without committing, use <b>League → Ballparks</b> — same catalog, same diagrams, no dialog.</p>",
+                "<p>Click the building icon next to the stadium field to open the full park catalog as a modal. For a standalone browser without committing, use <b>League → Ballparks</b> — same catalog, same diagrams, no dialog.</p><p>Only a park you choose from the catalog (the browser or the suggestion list) plays with that park's real dimensions. Any other stadium name, including the one a new league generates for each club, plays in a generic park. The note under the stadium field shows which your team has. Leagues created before this change keep the parks they already play in.</p>",
             ),
             TutorialStep(
                 "Strategy & auto-reassign",
