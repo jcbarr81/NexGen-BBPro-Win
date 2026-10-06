@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 import random
 import re
+import zlib
 
 from .config import load_tuning, TuningConfig
 from .data_loader import load_players_by_id
@@ -1607,6 +1608,87 @@ def _credit_outs_on_base(
             _fielding_line(defense_state, putout_fielder.player_id).po += 1
 
 
+def _credit_ground_double_play(
+    *,
+    defense_state: LineupState,
+    defense_map: Dict[str, BatterRatings],
+    primary_pos: str | None,
+    primary_fielder: BatterRatings | None,
+    oneb_fielder: BatterRatings | None,
+) -> None:
+    """Credit a ground-ball double play (M9).
+
+    On a 6-4-3 / 5-4-3 / 3-6-3 the fielder and the pivot man each get an
+    assist, and the pivot and first base each get a putout (2 PO for 2 outs).
+    The pivot used to get no assist, and a 1B who started it was credited a
+    second putout and a second DP instead of his assist.
+    """
+    if primary_fielder is not None:
+        primary_line = _fielding_line(defense_state, primary_fielder.player_id)
+        primary_line.a += 1
+        primary_line.dp += 1
+    pivot_pos = "2B" if primary_pos in {"SS", "3B"} else "SS"
+    _, pivot_fielder = _find_fielder(
+        defense_map, pivot_pos, fallback_positions=["2B", "SS"]
+    )
+    if pivot_fielder is not None:
+        pivot_line = _fielding_line(defense_state, pivot_fielder.player_id)
+        pivot_line.po += 1
+        pivot_line.a += 1
+        pivot_line.dp += 1
+    if oneb_fielder is not None:
+        oneb_line = _fielding_line(defense_state, oneb_fielder.player_id)
+        oneb_line.po += 1
+        if oneb_fielder is not primary_fielder:
+            oneb_line.dp += 1
+
+
+def _credit_bunt_out(
+    *,
+    defense_state: LineupState,
+    defense_map: Dict[str, BatterRatings],
+    bunt_pos: str,
+    pitcher_id: str,
+    double_play: bool,
+) -> None:
+    """Credit a bunt out to the fielder at ``bunt_pos`` (M9).
+
+    The pitcher is not in ``defense_map``, so "P" credits the pitcher on the
+    mound, who also stands in for a missing C/1B/3B.
+    """
+    bunt_fielder = defense_map.get(bunt_pos) if bunt_pos != "P" else None
+    if bunt_fielder is None:
+        bunt_pos = "P"
+    fielder_line = _fielding_line(
+        defense_state,
+        bunt_fielder.player_id if bunt_fielder is not None else pitcher_id,
+    )
+    oneb_fielder = defense_map.get("1B")
+    if double_play:
+        # Throw to the SS covering second (putout), who relays to first (his
+        # assist). The 1B covers first unless he fielded the bunt; then the 2B.
+        fielder_line.a += 1
+        fielder_line.dp += 1
+        _, pivot_fielder = _find_fielder(
+            defense_map, "SS", fallback_positions=["2B"]
+        )
+        if pivot_fielder is not None:
+            pivot_line = _fielding_line(defense_state, pivot_fielder.player_id)
+            pivot_line.po += 1
+            pivot_line.a += 1
+            pivot_line.dp += 1
+        cover = defense_map.get("2B") if bunt_pos == "1B" else oneb_fielder
+        if cover is not None and cover is not pivot_fielder:
+            cover_line = _fielding_line(defense_state, cover.player_id)
+            cover_line.po += 1
+            cover_line.dp += 1
+    elif bunt_pos == "1B" or oneb_fielder is None:
+        fielder_line.po += 1
+    else:
+        fielder_line.a += 1
+        _fielding_line(defense_state, oneb_fielder.player_id).po += 1
+
+
 def _append_entry_value(entry: dict[str, Any], key: str, value: str) -> None:
     existing = entry.get(key)
     if existing is None:
@@ -2893,6 +2975,35 @@ def _resolve_bunt(
     return runs, outs_added, False, False, events, scored, error_advances
 
 
+# M9: who fields a bunt. A sacrifice with a runner on second is pushed toward
+# third (make the 3B field it so he can't cover the bag); otherwise it goes
+# down the first-base line. The pitcher fields roughly a third either way and
+# the catcher takes the short ones in front of the plate (approx. MLB shares).
+_BUNT_FIELDER_WEIGHTS_3B_SIDE = (("P", 0.35), ("3B", 0.35), ("1B", 0.20), ("C", 0.10))
+_BUNT_FIELDER_WEIGHTS_1B_SIDE = (("P", 0.35), ("1B", 0.35), ("3B", 0.20), ("C", 0.10))
+
+
+def _bunt_fielder_position(*, runner_on_second: bool, key: str) -> str:
+    """Pick the fielder credited on a bunt out, by bunt direction.
+
+    Fielding credit only, so the draw must not consume the game RNG (that would
+    reshuffle every later pitch): it hashes ``key`` -- the batter and the
+    game-state at the bunt -- into a stable [0, 1) instead.
+    """
+    weights = (
+        _BUNT_FIELDER_WEIGHTS_3B_SIDE
+        if runner_on_second
+        else _BUNT_FIELDER_WEIGHTS_1B_SIDE
+    )
+    roll = zlib.crc32(key.encode("utf-8")) / 2**32
+    cumulative = 0.0
+    for pos, weight in weights:
+        cumulative += weight
+        if roll < cumulative:
+            return pos
+    return weights[-1][0]
+
+
 def _select_injury_replacement(
     *,
     lineup_state: LineupState,
@@ -4162,6 +4273,8 @@ def simulate_game(
                 tuning=tuning,
             ):
                 before_ids = _base_runner_ids(bases)
+                # M9: the pre-bunt base state sets the bunt's direction.
+                bunt_runner_on_second = bases.second is not None
                 (
                     runs_scored,
                     outs_added,
@@ -4227,70 +4340,23 @@ def simulate_game(
                 else:
                     line.consecutive_hits = 0
                     if outs_added:
-                        batter_side = _effective_batter_side(
-                            batter.bats, pitcher_state.pitcher.throws
+                        # M9: credit the bunt out by its direction (P, C, 1B
+                        # or 3B) instead of the spray-less ground-ball lookup,
+                        # which handed every bunt out to the SS.
+                        bunt_pos = _bunt_fielder_position(
+                            runner_on_second=bunt_runner_on_second,
+                            key=(
+                                f"{seed}|{inning}|{len(pitch_log)}"
+                                f"|{batter.player_id}"
+                            ),
                         )
-                        primary_guess = _fielder_position_for_ball(
-                            ball_type="gb",
-                            spray_angle=None,
-                            batter_side=batter_side,
-                            tuning=tuning,
-                            infield_play=True,
+                        _credit_bunt_out(
+                            defense_state=defense_state,
+                            defense_map=defense_map,
+                            bunt_pos=bunt_pos,
+                            pitcher_id=pitcher_state.pitcher.player_id,
+                            double_play="dp" in events,
                         )
-                        primary_pos, primary_fielder = _find_fielder(
-                            defense_map,
-                            primary_guess,
-                            fallback_positions=["P", "1B", "3B", "SS", "2B"],
-                        )
-                        oneb_pos, oneb_fielder = _find_fielder(
-                            defense_map, "1B", fallback_positions=["P"]
-                        )
-                        if "dp" in events:
-                            if primary_fielder is not None:
-                                _fielding_line(
-                                    defense_state, primary_fielder.player_id
-                                ).a += 1
-                                _fielding_line(
-                                    defense_state, primary_fielder.player_id
-                                ).dp += 1
-                            pivot_pos = (
-                                "2B" if primary_pos in {"SS", "3B"} else "SS"
-                            )
-                            _, pivot_fielder = _find_fielder(
-                                defense_map, pivot_pos, fallback_positions=["2B", "SS"]
-                            )
-                            if pivot_fielder is not None:
-                                _fielding_line(
-                                    defense_state, pivot_fielder.player_id
-                                ).po += 1
-                                _fielding_line(
-                                    defense_state, pivot_fielder.player_id
-                                ).dp += 1
-                            if oneb_fielder is not None:
-                                _fielding_line(
-                                    defense_state, oneb_fielder.player_id
-                                ).po += 1
-                                _fielding_line(
-                                    defense_state, oneb_fielder.player_id
-                                ).dp += 1
-                        else:
-                            if primary_fielder is not None:
-                                if primary_pos == "1B":
-                                    _fielding_line(
-                                        defense_state, primary_fielder.player_id
-                                    ).po += 1
-                                else:
-                                    _fielding_line(
-                                        defense_state, primary_fielder.player_id
-                                    ).a += 1
-                                    if oneb_fielder is not None:
-                                        _fielding_line(
-                                            defense_state, oneb_fielder.player_id
-                                        ).po += 1
-                                    else:
-                                        _fielding_line(
-                                            defense_state, primary_fielder.player_id
-                                        ).po += 1
                     if sac_hit:
                         totals["sh"] += 1
                         batter_line.sh += 1
@@ -4594,14 +4660,13 @@ def simulate_game(
                         outs += outs_added
                         line.outs += outs_added
                         if outs_added:
+                            # M9: a strikeout is the catcher's unassisted
+                            # putout; the pitcher gets no assist for it.
                             catcher = defense_map.get("C")
                             if catcher is not None:
                                 _fielding_line(
                                     defense_state, catcher.player_id
                                 ).po += outs_added
-                            _fielding_line(
-                                defense_state, pitcher_state.pitcher.player_id
-                            ).a += outs_added
                         at_bat_over = True
                 elif res.outcome == "swinging_strike":
                     totals["swinging_strikes"] += 1
@@ -4650,14 +4715,12 @@ def simulate_game(
                         outs += outs_added
                         line.outs += outs_added
                         if outs_added:
+                            # M9: catcher's unassisted putout, no pitcher assist.
                             catcher = defense_map.get("C")
                             if catcher is not None:
                                 _fielding_line(
                                     defense_state, catcher.player_id
                                 ).po += outs_added
-                            _fielding_line(
-                                defense_state, pitcher_state.pitcher.player_id
-                            ).a += outs_added
                         at_bat_over = True
                 elif res.outcome == "foul":
                     strikes = min(2, strikes + 1)
@@ -5095,38 +5158,13 @@ def simulate_game(
                                                 oneb_line.tp += 1
                                                 used_tp.add(oneb_id)
                                     elif "dp" in events:
-                                        if primary_fielder is not None:
-                                            if primary_pos == "1B":
-                                                _fielding_line(
-                                                    defense_state, primary_fielder.player_id
-                                                ).po += 1
-                                            else:
-                                                _fielding_line(
-                                                    defense_state, primary_fielder.player_id
-                                                ).a += 1
-                                            _fielding_line(
-                                                defense_state, primary_fielder.player_id
-                                            ).dp += 1
-                                        pivot_pos = (
-                                            "2B" if primary_pos in {"SS", "3B"} else "SS"
+                                        _credit_ground_double_play(
+                                            defense_state=defense_state,
+                                            defense_map=defense_map,
+                                            primary_pos=primary_pos,
+                                            primary_fielder=primary_fielder,
+                                            oneb_fielder=oneb_fielder,
                                         )
-                                        _, pivot_fielder = _find_fielder(
-                                            defense_map, pivot_pos, fallback_positions=["2B", "SS"]
-                                        )
-                                        if pivot_fielder is not None:
-                                            _fielding_line(
-                                                defense_state, pivot_fielder.player_id
-                                            ).po += 1
-                                            _fielding_line(
-                                                defense_state, pivot_fielder.player_id
-                                            ).dp += 1
-                                        if oneb_fielder is not None:
-                                            _fielding_line(
-                                                defense_state, oneb_fielder.player_id
-                                            ).po += 1
-                                            _fielding_line(
-                                                defense_state, oneb_fielder.player_id
-                                            ).dp += 1
                                     elif "fc" in events:
                                         if primary_fielder is not None:
                                             _fielding_line(
