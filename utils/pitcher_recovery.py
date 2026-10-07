@@ -896,6 +896,12 @@ class PitcherRecoveryTracker:
             rest_days = _rest_days(pitches, role)
             available_on = date_obj + timedelta(days=rest_days)
             stored_status = pitchers.get(pid, {})
+            if role == "SP" and bool(getattr(state, "relief_outing", False)):
+                # Release 3 (owner decision Q6): a rested starter who came out
+                # of the pen in an emergency keeps his turn. The outing counts
+                # as relief, so it does not restart his starter's rest clock.
+                stored_on = _parse_date(stored_status.get("available_on"))
+                available_on = max(stored_on, date_obj + timedelta(days=1))
             prior_recent: list[dict] = []
             for recent_entry in stored_status.get("recent", []):
                 if isinstance(recent_entry, dict):

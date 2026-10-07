@@ -2,8 +2,9 @@
 
 Moved out of :mod:`utils.pitcher_recovery` so the tracker, the default
 lineup builder and the physics harness can share a single rotation builder
-instead of each picking their own five. Pure functions only: nothing here
-reads or writes league files.
+instead of each picking their own five. :func:`game_staff_roles` turns a
+rotation plus the staff file into the role map one game is played with. Pure
+functions only: nothing here reads or writes league files.
 """
 
 from __future__ import annotations
@@ -96,9 +97,45 @@ def choose_rotation(
     return rotation
 
 
+def game_staff_roles(
+    staff_roles: Mapping[str, str],
+    active_pitcher_ids: Sequence[str],
+    rotation: Sequence[str],
+) -> dict[str, str]:
+    """The role each active arm pitches under in one game.
+
+    ``rotation`` members are SP1, SP2, ... in rotation order. Everyone else
+    keeps his staff-file relief label (``CL``, ``SU``, ``LR``, ``MR2``...), and
+    an arm the file lists as a starter but who is not in the rotation, or who
+    is not listed at all, is a middle reliever. The stored ``role`` column is
+    never consulted: it reads "RP" for every pitcher in an older league.
+
+    Returns a fresh mapping; no player object is touched.
+    """
+
+    active = [str(pid) for pid in active_pitcher_ids if pid]
+    allowed = set(active)
+    roles: dict[str, str] = {}
+    slot = 0
+    for pid in rotation:
+        if not pid or pid not in allowed or pid in roles:
+            continue
+        slot += 1
+        roles[pid] = f"SP{slot}"
+    for pid in active:
+        if pid in roles:
+            continue
+        label = str(staff_roles.get(pid) or "").strip().upper()
+        if not label or label.startswith("SP"):
+            label = "MR"
+        roles[pid] = label
+    return roles
+
+
 __all__ = [
     "ROTATION_SLOTS",
     "choose_rotation",
+    "game_staff_roles",
     "_is_relief_role",
     "_spot_start_rank",
 ]

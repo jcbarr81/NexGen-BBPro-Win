@@ -19,11 +19,18 @@ def _pitcher(pid: str, role: str = "MR") -> PitcherRatings:
     )
 
 
+def _rest_tuning():
+    # These tests pin the rest rules. Release 3's non-closer appearance cap
+    # (0.50 of team games) would also bite this early in a season, so it is
+    # switched off here; tests/test_bullpen_usage_r3.py covers it.
+    return load_tuning({"reliever_max_appearances_ratio": 0.0})
+
+
 def _available(pid, role, *, game_day, last_used_day, last_pitches,
                consecutive=1, appearances=1):
-    tuning = load_tuning()
-    # Every day is a game day here, so the count of game dates (game_index,
-    # which the closer appearance cap reads since Release 3) equals the day.
+    tuning = _rest_tuning()
+    # Release 3: the appearance caps read the game-date index, which equals
+    # the day on this every-day clock.
     usage = UsageState(current_day=game_day, game_index=game_day)
     wl = usage.workload_for(pid)
     wl.last_used_day = last_used_day
@@ -65,7 +72,7 @@ def test_three_off_days_after_forty_plus_pitches():
 
 
 def test_third_consecutive_day_blocked_for_all_relievers():
-    tuning = load_tuning()
+    tuning = _rest_tuning()
     usage = UsageState(current_day=0)
     pitchers = [_pitcher("p", "MR")]
     usage.advance_day(day=0, pitchers=pitchers, tuning=tuning)

@@ -399,14 +399,26 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "setup_max_outs": 3.0,
     "middle_reliever_max_outs": 4.0,
     "long_reliever_max_outs": 6.0,
-    # Release 3 bullpen usage (item B) -- registered in R3-0 at neutral values
-    # (0 = off) and read by nothing yet. reliever_max_appearances_ratio mirrors
-    # closer_max_appearances_ratio for non-closers (owner decision Q3: 0.50).
-    "inning_start_hook": 0.0,
-    "bullpen_fallback": 0.0,
-    "mop_up": 0.0,
+    # Release 3 bullpen usage (item B, audit H1). The pieces only work as a
+    # set (each one alone breaks a different usage target):
+    # - inning_start_hook: between innings, a pitcher at his outs/pitch cap or
+    #   the hard fatigue penalty comes out (the PA-loop hook never ran there).
+    # - bullpen_fallback: a forced change with no rested arm takes the freshest
+    #   rest-flagged reliever -- never the closer, never a hard-blocked arm --
+    #   instead of leaving the spent pitcher in.
+    # - mop_up: with every reliever used, the outs cap is suspended and a
+    #   forced change may bring in a starter rested emergency_starter_min_days
+    #   or more (owner decision Q6); the outing does not move his next start.
+    # - reliever_max_appearances_ratio mirrors closer_max_appearances_ratio for
+    #   every other reliever (owner decision Q3: 0.50, about 81 per 162).
+    "inning_start_hook": 1.0,
+    "bullpen_fallback": 1.0,
+    "mop_up": 1.0,
     "emergency_starter_min_days": 2.0,
-    "reliever_max_appearances_ratio": 0.0,
+    "reliever_max_appearances_ratio": 0.50,
+    # Both appearance caps (closer and reliever) never fall below this many
+    # appearances, so they cannot bind in the first days of a season.
+    "appearance_cap_min_apps": 3.0,
     "batter_daily_recovery_base": 6.0,
     "batter_daily_recovery_durability_scale": 0.05,
     "batter_fatigue_game_cost": 6.0,

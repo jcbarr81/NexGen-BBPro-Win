@@ -17,12 +17,12 @@ from physics_sim.usage import UsageState
 
 # Every knob R3-0 registered, with its neutral/current value.
 R3_KNOBS = {
-    # item B (bullpen): off
-    "inning_start_hook": 0.0,
-    "bullpen_fallback": 0.0,
-    "mop_up": 0.0,
+    # item B (bullpen): on, as tuned in R3-B
+    "inning_start_hook": 1.0,
+    "bullpen_fallback": 1.0,
+    "mop_up": 1.0,
     "emergency_starter_min_days": 2.0,
-    "reliever_max_appearances_ratio": 0.0,
+    "reliever_max_appearances_ratio": 0.50,
     # item D (extra innings)
     "max_innings_hard_stop": 60.0,
     # item E (pitcher arm hazard): off
