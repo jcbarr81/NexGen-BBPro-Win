@@ -324,16 +324,17 @@ def _ensure_active_rosters(
     load_teams,
     min_hitters: int = 9,
     min_pitchers: int = 1,
-    active_max: int = 25,
+    active_max: int | None = None,
 ) -> dict[str, int]:
     from utils.roster_backfill import ensure_active_rosters
+    from utils.roster_rules import ACTIVE_ROSTER_SIZE
 
     return ensure_active_rosters(
         players=players,
         roster_dir=roster_dir,
         min_hitters=min_hitters,
         min_pitchers=min_pitchers,
-        active_max=active_max,
+        active_max=ACTIVE_ROSTER_SIZE if active_max is None else active_max,
     )
 
 

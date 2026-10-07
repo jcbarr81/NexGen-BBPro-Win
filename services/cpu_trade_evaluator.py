@@ -16,7 +16,14 @@ from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.player_overall import player_overall_score
 from utils.roster_loader import load_roster
+from utils.roster_rules import MAX_ACTIVE_PITCHERS, counts_as_pitcher
 from utils.team_loader import load_teams
+
+# Active pitchers below this is a need (one under the 13-pitcher limit); at
+# the limit another arm is a liability: a 14th can't be activated.
+_PITCHER_NEED_BELOW = MAX_ACTIVE_PITCHERS - 1
+_PITCHER_FULL_AT = MAX_ACTIVE_PITCHERS
+_FULL_STAFF_PENALTY = 1.0
 
 CPU_OWNER_IDS = {"", "cpu", "ai", "none", "computer", "bot"}
 _ROUND_PICK_BASE = {
@@ -400,7 +407,7 @@ def _build_roster_fit_context(
             continue
         pos_counts[primary] = int(pos_counts.get(primary, 0)) + 1
     needs: set[str] = set()
-    if len(pitchers) < 12:
+    if len(pitchers) < _PITCHER_NEED_BELOW:
         needs.add("P")
     for pos in ("C", "SS", "CF", "2B", "3B", "1B", "LF", "RF"):
         if int(pos_counts.get(pos, 0)) <= 0:
@@ -416,9 +423,7 @@ def _build_roster_fit_context(
 
 
 def _is_pitcher(player: object) -> bool:
-    if bool(getattr(player, "is_pitcher", False)):
-        return True
-    return str(getattr(player, "primary_position", "") or "").strip().upper() == "P"
+    return counts_as_pitcher(player)
 
 
 def _player_current_value(player: object) -> float:
@@ -450,9 +455,9 @@ def _fit_value(
         fit = 0.4
         if "P" in needs:
             fit += 1.8
-        pitcher_count = _safe_int(roster_fit.get("pitchers"), fallback=13)
-        if pitcher_count >= 14:
-            fit -= 0.5
+        pitcher_count = _safe_int(roster_fit.get("pitchers"), fallback=_PITCHER_NEED_BELOW)
+        if pitcher_count >= _PITCHER_FULL_AT:
+            fit -= _FULL_STAFF_PENALTY
         if profile in {"win_now", "defense_first"}:
             fit += _norm(getattr(player, "control", 0)) * 0.8
             fit += _norm(getattr(player, "movement", 0)) * 0.7

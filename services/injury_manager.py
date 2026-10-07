@@ -517,7 +517,9 @@ def recover_from_injury(
 
     Activating to a full active roster sends down the player recorded as his
     injury replacement (back to the level he came from), else the weakest
-    player by roster composition -- never the last healthy catcher.
+    player by roster composition -- never the last healthy catcher. A CPU
+    club whose staff he takes past the pitcher limit (13; 14 in September)
+    also options its weakest other pitcher, even with a spot to spare.
     """
 
     if destination not in {"act", "aaa", "low"}:
@@ -579,18 +581,31 @@ def recover_from_injury(
         # cap: first the player who was called up to cover for him (back to the
         # level he came from), then the weakest active player of his type.
         from services.roster_fill import (
+            _option_surplus_pitcher,
             apply_prospect_bookkeeping,
             choose_send_down,
+            is_pitcher,
             record_roster_moves,
         )
-        from utils.roster_loader import active_roster_cap
+        from utils.roster_loader import active_pitcher_cap, active_roster_cap
 
         players = _players_map(players_by_id, player)
         cap = active_roster_cap()
+        arm_cap = active_pitcher_cap()
+        cpu = _team_is_cpu(team_id)
         option_ok = _option_allowed(team_id)
         moves = []
+
+        def _arms_over() -> bool:
+            return sum(1 for pid in roster.act if is_pitcher(players.get(pid))) > arm_cap
+
         rep = (replacement or {}).get("replacement_id")
-        if len(roster.act) > cap and rep in roster.act and rep != player.player_id:
+        rep_frees_an_arm = cpu and is_pitcher(players.get(rep)) and _arms_over()
+        if (
+            (len(roster.act) > cap or rep_frees_an_arm)
+            and rep in roster.act
+            and rep != player.player_id
+        ):
             # The man who covered for him goes back -- unless that would take
             # away the club's last healthy catcher or break an option rule.
             from services.roster_fill import _healthy_catchers
@@ -603,12 +618,24 @@ def recover_from_injury(
                 getattr(roster, level).append(rep)
                 moves.append((rep, "act", level))
         while len(roster.act) > cap:
-            down = choose_send_down(roster, players, exclude={player.player_id}, allowed=option_ok)
+            down = choose_send_down(
+                roster, players, exclude={player.player_id}, allowed=option_ok,
+                pitcher_cap=arm_cap,
+            )
             if down is None:
                 break
             roster.act.remove(down)
             roster.aaa.append(down)
             moves.append((down, "act", "aaa"))
+        # Under the size cap but over the pitcher limit (12 hitters + 13
+        # pitchers + a returning pitcher). An owner's club is the owner's:
+        # automatic activation sends his pitcher to AAA instead when the
+        # staff is full (dl_automation._resolve_destination).
+        while cpu and _arms_over():
+            if not _option_surplus_pitcher(
+                roster, players, moves, exclude={player.player_id}, option_allowed=option_ok
+            ):
+                break
         if moves and team_id:
             record_roster_moves(
                 team_id, moves, players,

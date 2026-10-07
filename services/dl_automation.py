@@ -17,8 +17,9 @@ from services.players_repository import save_players
 from utils.news_logger import log_news_event
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
-from utils.roster_loader import active_roster_cap, load_roster
+from utils.roster_loader import active_pitcher_cap, active_roster_cap, load_roster
 from utils.roster_loader import save_roster
+from utils.roster_rules import counts_as_pitcher
 from utils.team_loader import load_teams
 
 DateLike = Union[None, str, date]
@@ -75,14 +76,30 @@ def _player_name(player) -> str:
     return f"{getattr(player, 'first_name', '')} {getattr(player, 'last_name', '')}".strip() or getattr(player, "player_id", "")
 
 
-def _resolve_destination(roster, *, cpu_owned: bool = False) -> Optional[str]:
+def _resolve_destination(
+    roster,
+    *,
+    cpu_owned: bool = False,
+    player=None,
+    players_by_id: Optional[Dict[str, object]] = None,
+) -> Optional[str]:
     # A CPU club always brings a healthy player back to the active roster;
     # recover_from_injury sends his like-for-like replacement down if the
-    # roster is full. Sending the returner to AAA instead is how CPU active
-    # rosters lost a hitter for good every time one got hurt (audit H9).
+    # roster is full (or a pitcher if the staff is). Sending the returner to
+    # AAA instead is how CPU active rosters lost a hitter for good every time
+    # one got hurt (audit H9).
     if cpu_owned:
         return "act"
-    if len(getattr(roster, "act", []) or []) < active_roster_cap():
+    act = list(getattr(roster, "act", []) or [])
+    room = len(act) < active_roster_cap()
+    if room and counts_as_pitcher(player):
+        # An owner's pitcher comes back to the active roster only if the
+        # staff is under the limit (13; 14 in September): activating a 14th
+        # would block the owner's next sim.
+        lookup = players_by_id or {}
+        arms = sum(1 for pid in act if counts_as_pitcher(lookup.get(pid)))
+        room = arms < active_pitcher_cap()
+    if room:
         return "act"
     if len(getattr(roster, "aaa", []) or []) < AAA_MAX:
         return "aaa"
@@ -204,6 +221,8 @@ def process_disabled_lists(
                 destination = _resolve_destination(
                     roster,
                     cpu_owned=human_ids is not None and str(team_id).upper() not in human_ids,
+                    player=player,
+                    players_by_id=player_map,
                 )
                 if destination is None:
                     summary.blocked.append(f"{base_msg} but no roster room is available.")

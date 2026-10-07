@@ -1077,6 +1077,75 @@ def _prepare_rosters_for_date(simulator: SeasonSimulator, date: str) -> None:
             continue
 
 
+def _cpu_opening_day_roster_upkeep() -> Dict[str, Any]:
+    """Bring every CPU club's active roster to 26 (13 P / 13 H) for Opening Day.
+
+    The daily upkeep in ``_prepare_rosters_for_date`` reaches a club only on
+    its next game day; this runs the same ``maintain_cpu_active_roster`` for
+    every CPU club at the PRESEASON → REGULAR_SEASON edge, so the season
+    opens on the new shape (decision 8). CPU clubs only, by the strict
+    ownership read: when ``users.txt`` can't be read nothing moves. Only the
+    club's own AAA / Low-A; option-rule vetoes are honoured except for a
+    surplus pitcher nobody may option (forced, labelled in the log). Every
+    move is a recorded transaction.
+    """
+
+    summary: Dict[str, Any] = {"teams": 0, "moves": 0}
+    try:
+        from services.injury_manager import _option_allowed, _promotion_allowed
+        from services.roster_fill import (
+            apply_prospect_bookkeeping,
+            maintain_cpu_active_roster,
+            record_roster_moves,
+        )
+        from services.team_ownership import human_owned_team_ids_strict
+        from utils.player_loader import load_players_from_csv
+        from utils.roster_loader import ACTIVE_ROSTER_SIZE, load_roster, save_roster
+        from utils.team_loader import load_teams
+    except Exception as exc:  # pragma: no cover - defensive
+        summary["error"] = str(exc)
+        return summary
+    data_dir = get_data_dir()
+    try:
+        human_ids = human_owned_team_ids_strict(data_dir)
+    except Exception:  # pragma: no cover - defensive
+        human_ids = None
+    if human_ids is None:
+        summary["skipped"] = "ownership_unknown"
+        return summary
+    try:
+        players = {p.player_id: p for p in load_players_from_csv("data/players.csv")}
+        teams = load_teams(data_dir / "teams.csv")
+    except Exception as exc:
+        summary["error"] = str(exc)
+        return summary
+    for team in teams:
+        team_id = str(getattr(team, "team_id", "") or "").strip()
+        if not team_id or team_id.upper() in human_ids:
+            continue
+        try:
+            roster = load_roster(team_id)
+            # Opening Day is never in the September window: the base caps.
+            moves = maintain_cpu_active_roster(
+                team_id, roster, players,
+                target_size=ACTIVE_ROSTER_SIZE, cap=ACTIVE_ROSTER_SIZE,
+                allowed=_promotion_allowed(team_id),
+                option_allowed=_option_allowed(team_id),
+            )
+            if not moves:
+                continue
+            save_roster(team_id, roster)
+            record_roster_moves(
+                team_id, moves, players, details="CPU Opening Day roster (26-man)"
+            )
+            apply_prospect_bookkeeping(team_id, moves)
+            summary["teams"] += 1
+            summary["moves"] += len(moves)
+        except Exception:
+            continue
+    return summary
+
+
 def _persist_post_sim_state(
     simulator: SeasonSimulator,
     played_dates: List[str],
@@ -1676,6 +1745,7 @@ def advance_phase(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=detail
             )
 
+    previous_phase = manager.phase
     try:
         new_phase: SeasonPhase = manager.advance_phase()
     except Exception as exc:
@@ -1685,6 +1755,15 @@ def advance_phase(
         ) from exc
 
     extra: Dict[str, Any] = {"new_phase": new_phase.value}
+
+    # PRESEASON → REGULAR_SEASON: CPU clubs open the season on a 26-man
+    # roster, 13 pitchers / 13 hitters (decision 8). Not on the return from
+    # the amateur draft, which also lands in REGULAR_SEASON.
+    if (
+        previous_phase == SeasonPhase.PRESEASON
+        and new_phase == SeasonPhase.REGULAR_SEASON
+    ):
+        extra["cpu_roster_upkeep"] = _cpu_opening_day_roster_upkeep()
 
     if new_phase == SeasonPhase.PLAYOFFS:
         if pending_bracket and not (

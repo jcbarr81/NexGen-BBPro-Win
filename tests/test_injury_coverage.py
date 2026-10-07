@@ -27,6 +27,7 @@ from services.roster_fill import (
     maintain_cpu_active_roster,
     positions_of,
 )
+from utils.roster_rules import ACTIVE_ROSTER_SIZE, MAX_ACTIVE_PITCHERS
 
 
 def _p(pid, pos, others=(), injured=False, ch=50):
@@ -237,14 +238,26 @@ def test_emergency_fill_prefers_players_the_prospect_rules_allow(team):
 
 
 def test_cpu_emergency_stays_under_the_cap_by_optioning_a_pitcher():
+    n_arms = ACTIVE_ROSTER_SIZE - 8                # 8 hitters + a full roster of arms
     players = {f"h{i}": _p(f"h{i}", "LF") for i in range(8)}
-    players.update({f"p{i}": _p(f"p{i}", "P") for i in range(17)})
+    players.update({f"p{i}": _p(f"p{i}", "P") for i in range(n_arms)})
     players["aaa_h"] = _p("aaa_h", "CF")
-    roster = Roster("CPU", act=[*(f"h{i}" for i in range(8)), *(f"p{i}" for i in range(17))], aaa=["aaa_h"])
-    moves = ensure_fieldable_roster("CPU", roster, players, cpu_owned=True, cap=25)
+    roster = Roster("CPU", act=[*(f"h{i}" for i in range(8)), *(f"p{i}" for i in range(n_arms))], aaa=["aaa_h"])
+    moves = ensure_fieldable_roster("CPU", roster, players, cpu_owned=True, cap=ACTIVE_ROSTER_SIZE)
     assert ("aaa_h", "aaa", "act") in moves
-    assert len(roster.act) == 25
-    assert sum(is_pitcher(players[p]) for p in roster.act) == 16
+    assert len(roster.act) <= ACTIVE_ROSTER_SIZE
+    # ... and within the pitcher limit, not just the size cap.
+    assert sum(is_pitcher(players[p]) for p in roster.act) == MAX_ACTIVE_PITCHERS
+
+
+def test_owner_emergency_fill_never_trims_pitchers():
+    n_arms = ACTIVE_ROSTER_SIZE - 8
+    players = {f"h{i}": _p(f"h{i}", "LF") for i in range(8)}
+    players.update({f"p{i}": _p(f"p{i}", "P") for i in range(n_arms)})
+    players["aaa_h"] = _p("aaa_h", "CF")
+    roster = Roster("HUM", act=[*(f"h{i}" for i in range(8)), *(f"p{i}" for i in range(n_arms))], aaa=["aaa_h"])
+    moves = ensure_fieldable_roster("HUM", roster, players, cpu_owned=False, cap=ACTIVE_ROSTER_SIZE)
+    assert moves == [("aaa_h", "aaa", "act")]
 
 
 def test_cpu_upkeep_repairs_a_pitcher_heavy_drift():
@@ -253,15 +266,57 @@ def test_cpu_upkeep_repairs_a_pitcher_heavy_drift():
     players.update({f"m{i}": _p(f"m{i}", "SS") for i in range(6)})
     roster = Roster("CPU", act=[*(f"h{i}" for i in range(8)), *(f"p{i}" for i in range(17))],
                     aaa=[f"m{i}" for i in range(6)])
-    maintain_cpu_active_roster("CPU", roster, players, target_size=25, cap=25)
+    maintain_cpu_active_roster(
+        "CPU", roster, players, target_size=ACTIVE_ROSTER_SIZE, cap=ACTIVE_ROSTER_SIZE
+    )
     hitters = [p for p in roster.act if not is_pitcher(players[p])]
-    assert len(hitters) >= HITTER_FLOOR and len(roster.act) == 25
+    assert len(hitters) >= HITTER_FLOOR and len(roster.act) == ACTIVE_ROSTER_SIZE
+    assert len(roster.act) - len(hitters) <= MAX_ACTIVE_PITCHERS
 
 
 def test_cpu_upkeep_refills_a_short_roster(team):
     roster, players = team                       # 11 active
-    maintain_cpu_active_roster("TST", roster, players, target_size=14, cap=25)
+    maintain_cpu_active_roster("TST", roster, players, target_size=14, cap=ACTIVE_ROSTER_SIZE)
     assert len(roster.act) == 14
+
+
+def _returning_arm_team(monkeypatch, human_ids):
+    """12 hitters + 13 pitchers + one pitcher back from the IL = 26 (the size
+    cap) but 14 pitchers. His replacement is long gone."""
+    monkeypatch.setattr("utils.roster_loader.active_roster_cap", lambda *a, **k: ACTIVE_ROSTER_SIZE)
+    monkeypatch.setattr("utils.roster_loader.active_pitcher_cap", lambda *a, **k: MAX_ACTIVE_PITCHERS)
+    monkeypatch.setattr(
+        "services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: human_ids
+    )
+    n_hitters = ACTIVE_ROSTER_SIZE - MAX_ACTIVE_PITCHERS - 1
+    players = {"c": _p("c", "C")}
+    players.update({f"h{i}": _p(f"h{i}", "LF") for i in range(n_hitters - 1)})
+    players.update({f"p{i}": _p(f"p{i}", "P", ch=40 + i) for i in range(MAX_ACTIVE_PITCHERS)})
+    players["back"] = _p("back", "P", ch=30)
+    for p in players.values():
+        p.birthdate = "1995-01-01"
+        p.injury_list = None
+    act = ["c", *(f"h{i}" for i in range(n_hitters - 1)), *(f"p{i}" for i in range(MAX_ACTIVE_PITCHERS))]
+    return players, Roster("CPU", act=act, dl=["back"])
+
+
+def test_a_pitcher_back_on_a_full_cpu_staff_sends_a_pitcher_down(league, monkeypatch):
+    from services import injury_manager as im
+
+    players, roster = _returning_arm_team(monkeypatch, set())
+    im.recover_from_injury(players["back"], roster, "act", force=True, players_by_id=players)
+    assert "back" in roster.act
+    assert sum(is_pitcher(players[p]) for p in roster.act) == MAX_ACTIVE_PITCHERS
+    assert "p0" in roster.aaa                    # the weakest other arm
+    assert "c" in roster.act
+
+
+def test_an_owners_staff_is_left_to_the_owner(league, monkeypatch):
+    from services import injury_manager as im
+
+    players, roster = _returning_arm_team(monkeypatch, {"CPU"})
+    im.recover_from_injury(players["back"], roster, "act", force=True, players_by_id=players)
+    assert roster.aaa == []
 
 
 # --- the replacement goes back down when the starter returns ----------------
