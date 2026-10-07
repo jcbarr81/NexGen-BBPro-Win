@@ -418,6 +418,7 @@ class ReportOnlyKpis:
         if pas and pas[0].state is not None:
             self.logged_games += 1
             self._add_base_out(pas, inning_runs, s_away, s_home)
+        self._add_bench(meta, teams)
 
     def _add_bullpen_usage(self, meta: dict[str, Any]) -> None:
         """Release 3 (H1) bullpen tallies from the engine's ``pitcher_usage``.
@@ -820,6 +821,7 @@ class ReportOnlyKpis:
                 else "partial" if self.logged_games else "absent"
             ),
         }
+        self._bench_metrics(metrics, tables, gpt)
         return {"metrics": metrics, "tables": tables, "coverage": coverage}
 
     def _situational(
@@ -942,6 +944,60 @@ class ReportOnlyKpis:
             starts = sorted(by_team.get(team, []), reverse=True)
             out[team] = (starts[1] if len(starts) > 1 else 0) * 162.0 / gpt
         return out
+
+
+    # -- Release 3 item F (audit M16): bench, rest days, batter fatigue.
+    # Reads the engine's per-side "bench_usage" metadata (pre-game rest
+    # tallies) plus the batting lines already accumulated above.
+    def _add_bench(self, meta: dict[str, Any], teams: dict[str, str]) -> None:
+        tally = getattr(self, "bench_tally", None)
+        if tally is None:
+            tally = self.bench_tally = Counter()
+            self.bench_logged_games = 0
+        usage = meta.get("bench_usage")
+        if not isinstance(usage, dict):
+            return
+        self.bench_logged_games += 1
+        for side in teams:
+            for key, value in (usage.get(side) or {}).items():
+                tally[key] += _int(value)
+
+    def _bench_metrics(
+        self, metrics: dict[str, Any], tables: dict[str, Any], gpt: int
+    ) -> None:
+        tally = getattr(self, "bench_tally", Counter())
+        logged = getattr(self, "bench_logged_games", 0)
+        teams = {t for t in self.batter_team.values() if t}
+        n_teams = len(teams)
+        per_team = (162.0 / gpt / n_teams) if (n_teams and gpt) else None
+
+        def season(key: str) -> float | None:
+            return tally[key] * per_team if (logged and per_team) else None
+
+        metrics["bench_rests_per_team_season"] = season("rests")
+        metrics["bench_chain_subs_per_team_season"] = season("chain")
+        metrics["bench_similar_subs_per_team_season"] = season("similar")
+        # League totals per 162-game season (the V4 targets: < 500 / < 50).
+        scale = 162.0 / gpt if gpt else 1.0
+        metrics["bench_rests_blocked_field_per_162"] = (
+            (tally["blocked"] - tally["blocked_c"]) * scale if logged else None
+        )
+        metrics["bench_rests_blocked_c_per_162"] = tally["blocked_c"] * scale if logged else None
+        metrics["fatigue_tired_starter_share"] = (
+            _ratio(tally["starters_tired"], tally["starters"]) if logged else None
+        )
+        everyday = sum(1 for c in self.batters.values() if c["gs"] >= gpt)
+        metrics["hitters_starting_every_game"] = everyday if self.games else None
+        c_starts: dict[str, list[int]] = defaultdict(list)
+        for pid, c in self.batters.items():
+            team = self.batter_team.get(pid)
+            if team and self.primary_pos.get(pid) == "C":
+                c_starts[team].append(c["gs"])
+        tops = [max(v) for v in c_starts.values() if v]
+        metrics["starting_c_max_starts_per_162"] = (
+            max(tops) * 162.0 / gpt if (tops and gpt) else None
+        )
+        tables["bench_usage_totals"] = dict(tally)
 
 
 def _diff(a: float | None, b: float | None) -> float | None:

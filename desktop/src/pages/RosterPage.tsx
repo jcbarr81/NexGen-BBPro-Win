@@ -325,6 +325,9 @@ export function RosterPage() {
           {compliance.data && !compliance.data.ok && (
             <ComplianceBanner data={compliance.data} />
           )}
+          {compliance.data && (compliance.data.warnings?.length ?? 0) > 0 && (
+            <RosterAdvisoryBanner warnings={compliance.data.warnings} />
+          )}
           {autoAssignMoves && (
             <AutoAssignMovesSummary
               moves={autoAssignMoves}
@@ -426,6 +429,26 @@ function OpenSpotBadge({ roster }: { roster: TeamRoster | undefined }) {
       ACT {roster.active_size}/{cap} ·{" "}
       {open === 1 ? "a spot is open" : `${open} spots are open`}
     </Badge>
+  );
+}
+
+/** Non-blocking roster advice (Release 3: fewer than two catchers). The sim
+ *  keeps running; this only tells the owner what the CPU clubs do. */
+function RosterAdvisoryBanner({ warnings }: { warnings: string[] }) {
+  return (
+    <div className="mb-4 rounded-md border border-amber/40 bg-amber/10 px-4 py-3 text-sm text-amber-text">
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="flex-1">
+          <div className="font-semibold">Roster advice (does not pause the sim)</div>
+          <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs">
+            {warnings.map((msg, idx) => (
+              <li key={idx}>{msg}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
   );
 }
 

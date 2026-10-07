@@ -31,9 +31,11 @@ from services.roster_validation import MIN_POSITION_PLAYERS_ACT
 from utils.roster_rules import (
     ACT_HITTER_TARGET,
     MAX_ACTIVE_PITCHERS,
+    MIN_ACTIVE_CATCHERS,
     SEPTEMBER_MAX_ACTIVE_PITCHERS,
     SEPTEMBER_ROSTER_SIZE,
     counts_as_pitcher,
+    is_catcher,
 )
 
 __all__ = [
@@ -262,11 +264,9 @@ def _weakest(ids: Sequence[str], players: Mapping[str, object]) -> Optional[str]
 
 
 def _is_catcher(player: object) -> bool:
-    return (
-        player is not None
-        and not is_pitcher(player)
-        and str(getattr(player, "primary_position", "") or "").strip().upper() == "C"
-    )
+    # The shared predicate (Release 3): primary C or C listed among the
+    # other positions, so a utility catcher protects the club too.
+    return is_catcher(player)
 
 
 def _healthy_catchers(ids: Sequence[str], players: Mapping[str, object]) -> List[str]:
@@ -281,6 +281,7 @@ def choose_send_down(
     allowed: Optional[Callable[[str], bool]] = None,
     pitcher_cap: Optional[int] = None,
     hitter_target: int = HITTER_TARGET,
+    keep_catchers: int = MIN_ACTIVE_CATCHERS,
 ) -> Optional[str]:
     """Who to option when the active roster is over the cap.
 
@@ -290,9 +291,10 @@ def choose_send_down(
     the floor; else a position player while there are more than
     ``hitter_target``; else one of the arriving player's type. Never the
     club's last healthy catcher (a pitcher-heavy CPU club once optioned its
-    only catcher this way). Players in ``exclude`` (the man just activated)
-    are counted but never chosen; those ``allowed`` vetoes (option limits)
-    are skipped.
+    only catcher this way), and one of its last ``keep_catchers`` (two,
+    Release 3) only when nobody else of the chosen type may go. Players in
+    ``exclude`` (the man just activated) are counted but never chosen; those
+    ``allowed`` vetoes (option limits) are skipped.
     """
 
     skip = {str(p) for p in exclude or ()}
@@ -304,8 +306,8 @@ def choose_send_down(
     catchers = _healthy_catchers(act_all, players)
     limit = MAX_ACTIVE_PITCHERS if pitcher_cap is None else int(pitcher_cap)
 
-    def _ok(pid: str) -> bool:
-        if pid in catchers and len(catchers) <= 1:
+    def _ok(pid: str, keep: int) -> bool:
+        if pid in catchers and len(catchers) <= max(1, keep):
             return False
         return allowed is None or allowed(pid)
 
@@ -320,10 +322,27 @@ def choose_send_down(
         else:
             order = (hitters, arms)
     for pool in order:
-        pool = [p for p in pool if _ok(p)]
-        if pool:
-            return _weakest(pool, players)
+        # The second catcher goes only when nobody else of this type may.
+        for keep in (keep_catchers, 1):
+            eligible = [p for p in pool if _ok(p, keep)]
+            if eligible:
+                return _weakest(eligible, players)
     return None
+
+
+def _weakest_non_catcher_hitter(
+    roster: object,
+    players: Mapping[str, object],
+    *,
+    option_allowed: Optional[Callable[[str], bool]] = None,
+) -> Optional[str]:
+    """The weakest active position player who is not a catcher and whom the
+    option rules allow to go down, or ``None``."""
+
+    pool = [p for p in _hitters(roster.act, players) if not _is_catcher(players.get(p))]
+    if option_allowed is not None:
+        pool = [p for p in pool if option_allowed(p)]
+    return _weakest(pool, players)
 
 
 def _option_surplus_pitcher(
@@ -448,25 +467,46 @@ def maintain_cpu_active_roster(
     option is optioned anyway (a :class:`ForcedMove`) -- nobody else ever is,
     so a club whose surplus is out of options stays over the size cap. CPU
     clubs only -- an owner's roster is the owner's. Mutates ``roster``.
+
+    Step 0 keeps ``MIN_ACTIVE_CATCHERS`` (two) healthy catchers active
+    (Release 3, owner decision 10). A club with none calls one up as
+    before. A club with one calls up a catcher from its own minors and, when
+    the roster is full, options its weakest non-catcher position player (one
+    the option rules allow), so the 13 / 13 shape holds. No catcher in the
+    organisation, or nobody who may go down, means no move.
     """
 
     moves: List[Move] = []
     players = players_by_id
     limit = pitcher_cap_for(cap) if pitcher_cap is None else int(pitcher_cap)
 
-    # 0. a catcher: a club with none healthy on the active roster calls one up
-    if not _healthy_catchers(list(roster.act), players):
+    # 0. catchers: none healthy on the active roster is an emergency (any
+    # send-down makes room); a lone catcher gets a partner from the minors.
+    for _attempt in range(MIN_ACTIVE_CATCHERS):
+        catchers = _healthy_catchers(list(roster.act), players)
+        if len(catchers) >= MIN_ACTIVE_CATCHERS:
+            break
         cands = callup_candidates(
             roster, players, want_pitcher=False, position="C",
             allowed=allowed, position_only=True,
         )
-        if cands:
+        if not cands:
+            break
+        if not catchers:
             if len(roster.act) >= cap:
                 victim = choose_send_down(roster, players, pitcher_cap=limit)
                 if victim is not None:
                     _option(roster, victim, moves)
-            if len(roster.act) < cap:
-                _promote(roster, cands[0][0], cands[0][1], moves)
+        elif len(roster.act) >= min(cap, target_size):
+            victim = _weakest_non_catcher_hitter(
+                roster, players, option_allowed=option_allowed
+            )
+            if victim is None:
+                break
+            _option(roster, victim, moves)
+        if len(roster.act) >= cap:
+            break
+        _promote(roster, cands[0][0], cands[0][1], moves)
 
     # 1. repair a pitcher-heavy drift
     while len(_hitters(roster.act, players)) < HITTER_FLOOR:
@@ -508,7 +548,7 @@ def maintain_cpu_active_roster(
         catchers = _healthy_catchers(list(roster.act), players)
         surplus = [
             p for p in _hitters(roster.act, players)
-            if not (p in catchers and len(catchers) <= 1)
+            if not (p in catchers and len(catchers) <= MIN_ACTIVE_CATCHERS)
         ]
         if option_allowed is not None:
             surplus = [p for p in surplus if option_allowed(p)]
