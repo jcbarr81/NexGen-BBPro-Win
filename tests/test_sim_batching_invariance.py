@@ -41,6 +41,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # reach past their floor and bind (plan V6).
 DAYS = 22
 WEEKLY = (7, 7, 7, 1)
+# One-day calls (a fresh process each) are the slow case: the first stretch
+# goes a day at a time -- crossing an off day and the cap floor -- and the
+# rest in one call, which still has to pick up the persisted state.
+DAILY = (1,) * 8 + (DAYS - 8,)
 SEED = 20261006
 DIVISIONS = {
     "East": [("CityA", "Cats"), ("CityB", "Dogs"), ("CityC", "Owls"), ("CityD", "Elks")]
@@ -284,7 +288,7 @@ def test_one_day_and_weekly_calls_match_one_multi_day_call(
     tmp_path, monkeypatch, _serial_env, off_days
 ):
     batched = _serial_run(tmp_path, monkeypatch, off_days=off_days)
-    daily = _run_league(tmp_path / "daily", monkeypatch, calls=(1,) * DAYS, off_days=off_days)
+    daily = _run_league(tmp_path / "daily", monkeypatch, calls=DAILY, off_days=off_days)
     weekly = _run_league(tmp_path / "weekly", monkeypatch, calls=WEEKLY, off_days=off_days)
 
     _assert_caps_live(batched)

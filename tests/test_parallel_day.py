@@ -216,6 +216,28 @@ def test_worker_job_reloads_rosters_the_parent_changed(tmp_path, monkeypatch):
     assert journal["news_events"] == []
 
 
+def test_worker_job_drops_its_players_cache(tmp_path, monkeypatch):
+    """players.csv is cached by path only, like the rosters: a persistent
+    worker must not keep the copy it loaded for an earlier job."""
+    from playbalance import game_runner
+    from utils import player_loader
+
+    cleared = []
+    monkeypatch.setattr(
+        player_loader.load_players_from_csv, "cache_clear",
+        lambda *a, **k: cleared.append(True), raising=False,
+    )
+    monkeypatch.setattr(game_runner, "_resolve_game_engine", lambda _=None: "physics")
+    monkeypatch.setattr(game_runner, "simulate_game_scores", lambda *a, **k: (1, 0, "", {}))
+    payload = parallel_day.build_payload(
+        home="AAA", away="BBB", seed=1, date="2026-04-02",
+        home_starter=None, away_starter=None, data_root=str(tmp_path),
+        league_id=None, usage_in={},
+    )
+    parallel_day.simulate_game_job(payload)
+    assert cleared
+
+
 def test_lineup_rewrite_news_is_journaled_inside_a_worker(monkeypatch):
     from playbalance import game_runner
 

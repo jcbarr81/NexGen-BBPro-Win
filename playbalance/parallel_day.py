@@ -289,6 +289,7 @@ def simulate_game_job(payload: Dict[str, Any]) -> Dict[str, Any]:
     try:
         from playbalance import game_runner
         from utils.pitcher_recovery import PitcherRecoveryTracker
+        from utils.player_loader import load_players_from_csv
         from utils.roster_loader import load_roster
 
         # D9: this process's singletons may be stale from an earlier job on the
@@ -297,13 +298,14 @@ def simulate_game_job(payload: Dict[str, Any]) -> Dict[str, Any]:
         # mtime-keyed: the unified data service keeps whatever this process
         # loaded first, so after the parent replayed an injury (IL placement,
         # call-up) a worker that had simmed the club before still dressed the
-        # injured arm and left the call-up out. players.csv is mtime-keyed and
-        # self-refreshes.
+        # injured arm and left the call-up out. players.csv is cached the same
+        # way (by path only), so it is dropped too.
         PitcherRecoveryTracker._instance = None
         tracker = PitcherRecoveryTracker.instance()
         tracker._current_date = payload["date"]  # enable the S1-02 per-day memo
         game_runner._teams_by_id.cache_clear()
         load_roster.cache_clear()
+        load_players_from_csv.cache_clear()
 
         if game_runner._resolve_game_engine(None) != "physics":
             raise RuntimeError("parallel_day requires the physics engine (D2)")
