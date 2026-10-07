@@ -7,6 +7,8 @@ import csv
 import re
 
 from utils.path_utils import get_data_dir
+from utils.rotation import choose_rotation, game_staff_roles
+from utils.staff_roles import canonical_relief_role
 from .models import BatterRatings, PitcherRatings
 
 
@@ -150,21 +152,22 @@ def _sp_sort_key(role: str) -> Tuple[int, str]:
 
 
 def _normalize_assignment_role(role: str) -> str:
+    """Return the staff-file label, tidied.
+
+    The engine canonicalises it later
+    (:func:`utils.staff_roles.canonical_relief_role`), so the raw slot (MR2,
+    MR4, ...) survives as the pitcher's ``staff_slot``.
+    """
+
     role = (role or "").strip().upper()
     if role in {"RP", "R"}:
         return "MR"
     return role
 
 
-def _normalize_extra_role(role: str) -> str:
-    role = _normalize_assignment_role(role)
-    if not role:
-        return "MR"
-    if role.startswith("SP"):
-        return "MR"
-    if role in {"CL", "SU", "MR", "LR"}:
-        return role
-    return "MR"
+def _is_starter_capable(pitcher: PitcherRatings) -> bool:
+    role = pitcher.preferred_role or pitcher.role or ""
+    return role.upper().startswith("SP")
 
 
 def build_staff(
@@ -173,11 +176,19 @@ def build_staff(
     active_ids: set[str] | None = None,
     game_day: int | None = None,
 ) -> Tuple[List[PitcherRatings], Dict[str, str], List[str]]:
-    starters: List[Tuple[str, PitcherRatings]] = []
-    bullpen: List[PitcherRatings] = []
-    roles_by_id: Dict[str, str] = {}
+    """Order a club's staff for one game and label every arm.
+
+    The rotation comes from the same builder the live tracker uses
+    (:func:`utils.rotation.choose_rotation`): the staff file's SP1-SP5 first,
+    then starter-capable arms the file left out. The closer is never moved
+    into the rotation. Every other active arm keeps its staff label, and an
+    active arm the file does not list pitches as a middle reliever -- the
+    staff file, not the player's preferred role, decides who closes.
+    """
+
     missing: List[str] = []
-    assigned_ids: set[str] = set()
+    staff_labels: Dict[str, str] = {}
+    eligible: List[str] = []
 
     for assignment in assignments:
         if active_ids is not None and assignment.player_id not in active_ids:
@@ -186,37 +197,54 @@ def build_staff(
         if pitcher is None:
             missing.append(assignment.player_id)
             continue
-        role = _normalize_assignment_role(assignment.role)
-        roles_by_id[pitcher.player_id] = role
-        assigned_ids.add(pitcher.player_id)
-        if role.startswith("SP"):
-            starters.append((role, pitcher))
-        else:
-            bullpen.append(pitcher)
+        if pitcher.player_id in staff_labels:
+            continue
+        staff_labels[pitcher.player_id] = _normalize_assignment_role(assignment.role)
+        eligible.append(pitcher.player_id)
 
     if active_ids is not None:
         for player_id in sorted(active_ids):
-            if player_id in assigned_ids:
+            if player_id in staff_labels or player_id not in pitchers_by_id:
                 continue
-            pitcher = pitchers_by_id.get(player_id)
-            if pitcher is None:
-                continue
-            role = _normalize_extra_role(
-                pitcher.preferred_role or pitcher.role or ""
-            )
-            roles_by_id[pitcher.player_id] = role
-            bullpen.append(pitcher)
+            eligible.append(player_id)
 
-    starters_sorted = sorted(starters, key=lambda item: _sp_sort_key(item[0]))
+    saved = sorted(
+        (
+            (label, pid)
+            for pid, label in staff_labels.items()
+            if re.fullmatch(r"SP[1-5]", label)
+        ),
+        key=lambda item: _sp_sort_key(item[0]),
+    )
+    rotation = choose_rotation(
+        saved_rotation=[pid for _, pid in saved],
+        existing_rotation=[],
+        starter_capable=[
+            (pid, int(pitchers_by_id[pid].endurance or 0))
+            for pid in eligible
+            if _is_starter_capable(pitchers_by_id[pid])
+        ],
+        staff_roles=staff_labels,
+        built=[],
+        eligible=[
+            pid
+            for pid in eligible
+            if canonical_relief_role(staff_labels.get(pid)) != "CL"
+        ],
+    )
+    roles_by_id = game_staff_roles(staff_labels, eligible, rotation)
+
+    starters = [pitchers_by_id[pid] for pid in rotation]
+    in_rotation = set(rotation)
+    bullpen = [pitchers_by_id[pid] for pid in eligible if pid not in in_rotation]
     ordered: List[PitcherRatings] = []
-    if starters_sorted:
+    if starters:
         index = 0
         if game_day is not None:
-            index = game_day % len(starters_sorted)
-        starter = starters_sorted[index][1]
-        ordered.append(starter)
+            index = game_day % len(starters)
+        ordered.append(starters[index])
         ordered.extend(
-            pitcher for idx, (_, pitcher) in enumerate(starters_sorted) if idx != index
+            pitcher for idx, pitcher in enumerate(starters) if idx != index
         )
     ordered.extend(bullpen)
     return ordered, roles_by_id, missing

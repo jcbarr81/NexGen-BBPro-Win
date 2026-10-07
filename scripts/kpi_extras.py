@@ -238,6 +238,8 @@ class ReportOnlyKpis:
         # usage
         self.usage: Counter = Counter()
         self.closer_outs_by_pid: Counter = Counter()
+        # Release 3 bullpen usage (H1): relief outs/apps by canonical role.
+        self.relief_by_role: dict[str, Counter] = defaultdict(Counter)
         # discipline
         self.count_pitches: Counter = Counter()
         self.count_swings: Counter = Counter()
@@ -371,6 +373,8 @@ class ReportOnlyKpis:
                 fc["po"] += _int(line.get("po"))
                 fc["a"] += _int(line.get("a"))
 
+        self._add_bullpen_usage(meta)
+
         score = meta.get("score") or {}
         s_away, s_home = _int(score.get("away")), _int(score.get("home"))
         if s_home != s_away and not meta.get("ended_in_tie"):
@@ -414,6 +418,33 @@ class ReportOnlyKpis:
         if pas and pas[0].state is not None:
             self.logged_games += 1
             self._add_base_out(pas, inning_runs, s_away, s_home)
+
+    def _add_bullpen_usage(self, meta: dict[str, Any]) -> None:
+        """Release 3 (H1) bullpen tallies from the engine's ``pitcher_usage``.
+
+        Relief outings only (same rule as the usage block: no start). The
+        role is the engine's canonical ``staff_role``; ``prior_streak`` is how
+        many days in a row the arm had pitched up to yesterday, so a closer
+        outing with ``prior_streak >= 2`` is a third straight day.
+        """
+        for side in ("away", "home"):
+            usage = {
+                str(u.get("player_id", "")): u
+                for u in (meta.get("pitcher_usage") or {}).get(side, []) or []
+            }
+            for line in (meta.get("pitcher_lines") or {}).get(side, []) or []:
+                pid = str(line.get("player_id", ""))
+                if not pid or _int(line.get("gs")) >= 1:
+                    continue
+                u = usage.get(pid) or {}
+                role = str(u.get("staff_role") or "").upper() or "?"
+                rc = self.relief_by_role[role]
+                rc["apps"] += 1
+                rc["outs"] += _int(line.get("outs"))
+                self.usage["relief_fallback"] += bool(u.get("fallback"))
+                self.usage["relief_emergency"] += bool(u.get("emergency"))
+                if role == "CL" and _int(u.get("prior_streak")) >= 2:
+                    self.usage["closer_third_straight_day"] += 1
 
     def _add_pitch_level(
         self, log: list[dict[str, Any]], starters: set[str], game_index: int
@@ -633,6 +664,19 @@ class ReportOnlyKpis:
             if self.closer_outs_by_pid
             else None
         )
+        # Release 3 bullpen usage (H1). closer_third_straight_day and
+        # emergency_starter_relief_apps are season totals (target 0 and about
+        # one per club); the fallback share is rest-flagged relief entries.
+        metrics["closer_third_straight_day"] = u["closer_third_straight_day"]
+        metrics["emergency_starter_relief_apps"] = u["relief_emergency"]
+        metrics["bullpen_fallback_share"] = _ratio(u["relief_fallback"], u["relief"])
+        tables["relief_outs_per_app_by_role"] = {
+            role: {"apps": c["apps"], "outs_per_app": _ratio(c["outs"], c["apps"])}
+            for role, c in sorted(self.relief_by_role.items())
+        }
+        for role in ("CL", "SU", "MR", "LR"):
+            c = self.relief_by_role.get(role) or Counter()
+            metrics[f"relief_outs_per_app_{role.lower()}"] = _ratio(c["outs"], c["apps"])
 
         # Plate discipline (M1).
         swing = {}

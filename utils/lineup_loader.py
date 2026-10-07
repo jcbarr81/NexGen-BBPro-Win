@@ -12,6 +12,8 @@ from utils.path_utils import resolve_app_path
 from .player_loader import load_players_from_csv
 from .roster_loader import load_roster
 from .pitcher_role import get_role
+from .rotation import choose_rotation, game_staff_roles
+from .staff_roles import canonical_relief_role
 from utils.team_loader import load_teams
 
 
@@ -148,8 +150,10 @@ def _default_pitchers(
 ) -> List[Pitcher]:
     """Return ``team_id``'s pitchers, the five-man rotation first.
 
-    Staff-file arms keep their listed roles; the rotation is labelled SP1-SP5
-    and followed by the remaining bullpen arms.
+    The rotation comes from :func:`utils.rotation.choose_rotation` and is
+    labelled SP1-SP5; it is followed by the bullpen in staff-file order, then
+    the unlisted arms by endurance. Each arm's ``assigned_pitching_role`` is
+    its :func:`utils.rotation.game_staff_roles` label.
     """
 
     # Active roster first; healthy minor leaguers only when it has no arms
@@ -171,78 +175,59 @@ def _default_pitchers(
 
     pitcher_lookup = {p.player_id: p for p in pitchers}
     staff_entries = _load_pitching_staff(team_id, roster_dir, set(pitcher_lookup))
-    ordered_pitchers: List[Pitcher] = []
-
+    staff_labels: dict[str, str] = {}
+    eligible: List[str] = []
     for pid, role in staff_entries:
-        pitcher = pitcher_lookup.pop(pid, None)
-        if pitcher is None:
-            continue
-        setattr(pitcher, "assigned_pitching_role", role)
-        ordered_pitchers.append(pitcher)
+        if pid in pitcher_lookup and pid not in staff_labels:
+            staff_labels[pid] = role.strip().upper()
+            eligible.append(pid)
+    # Arms the staff file leaves out, strongest arm first.
+    unlisted = sorted(
+        (p for pid, p in pitcher_lookup.items() if pid not in staff_labels),
+        key=lambda p: getattr(p, "endurance", 0),
+        reverse=True,
+    )
+    eligible.extend(p.player_id for p in unlisted)
 
-    remaining = list(pitcher_lookup.values())
-    for pitcher in remaining:
-        # Always derive the non-staff role fresh from the pitcher's static
-        # ratings. ``assigned_pitching_role`` is a mutable attribute on cached
-        # player objects, and later steps here relabel extra rotation arms to
-        # "MR" in place. Honoring a persisted value (the old ``if not assigned``
-        # guard) made staff ordering depend on whether the player had already
-        # appeared in this process — non-deterministic across parallel workers
-        # and inconsistent between a season's first day and the rest (S1-10).
-        derived = get_role(pitcher)
-        setattr(pitcher, "assigned_pitching_role", derived or "")
-    remaining.sort(key=lambda p: getattr(p, "endurance", 0), reverse=True)
-    ordered_pitchers.extend(remaining)
+    # One rotation builder for the whole game path (Release 3): the tracker
+    # picks from the same five. The closer is never promoted into it; a thin
+    # staff spot-starts its long man or the strongest other arm instead.
+    saved = sorted(
+        (
+            (role, pid)
+            for pid, role in staff_labels.items()
+            if role in {"SP1", "SP2", "SP3", "SP4", "SP5"}
+        ),
+    )
+    rotation = choose_rotation(
+        saved_rotation=[pid for _, pid in saved],
+        existing_rotation=[],
+        starter_capable=[
+            (pid, int(getattr(pitcher_lookup[pid], "endurance", 0) or 0))
+            for pid in eligible
+            if get_role(pitcher_lookup[pid]) == "SP"
+        ],
+        staff_roles=staff_labels,
+        built=[],
+        eligible=[
+            pid
+            for pid in eligible
+            if canonical_relief_role(staff_labels.get(pid)) != "CL"
+        ],
+    )
+    # The rotation is SP1-SP5, staff-file relief labels stand, and anyone else
+    # (an unlisted arm, a listed starter outside the five) is a middle
+    # reliever -- never the stale stored ``role`` column. The labels are set
+    # afresh for every arm on every call, so the result never depends on what
+    # an earlier game left on the cached player objects (S1-10).
+    roles = game_staff_roles(staff_labels, eligible, rotation)
+    for pid in eligible:
+        setattr(pitcher_lookup[pid], "assigned_pitching_role", roles[pid])
 
-    if not ordered_pitchers:
-        pitchers.sort(key=lambda p: getattr(p, "endurance", 0), reverse=True)
-        ordered_pitchers = pitchers
-        for pitcher in ordered_pitchers:
-            assigned = getattr(pitcher, "assigned_pitching_role", None)
-            if not assigned:
-                derived = get_role(pitcher)
-                setattr(pitcher, "assigned_pitching_role", derived or "")
-
-    # Ensure a five-man rotation exists and starters do not clutter the bullpen.
-    rotation: List[Pitcher] = []
-    bullpen: List[Pitcher] = []
-    for pitcher in ordered_pitchers:
-        role = str(getattr(pitcher, "assigned_pitching_role", "") or "").upper()
-        if role.startswith("SP"):
-            rotation.append(pitcher)
-        else:
-            bullpen.append(pitcher)
-
-    if len(rotation) < 5:
-        bullpen_sorted = sorted(
-            bullpen, key=lambda p: getattr(p, "endurance", 0), reverse=True
-        )
-        while len(rotation) < 5 and bullpen_sorted:
-            promote = bullpen_sorted.pop(0)
-            if promote in bullpen:
-                bullpen.remove(promote)
-            rotation.append(promote)
-
-    # Keep exactly five rotation slots, push any extras to the bullpen group.
-    extra_rotation = rotation[5:]
-    if extra_rotation:
-        for pitcher in extra_rotation:
-            setattr(pitcher, "assigned_pitching_role", "MR")
-        bullpen = extra_rotation + bullpen
-        rotation = rotation[:5]
-
-    # Label rotation spots consistently (SP1..SP5) for downstream consumers.
-    for idx, pitcher in enumerate(rotation, start=1):
-        setattr(pitcher, "assigned_pitching_role", f"SP{idx}")
-
-    for pitcher in bullpen:
-        role = str(getattr(pitcher, "assigned_pitching_role", "") or "").upper()
-        if role == "SP":
-            setattr(pitcher, "assigned_pitching_role", "MR")
-
-    ordered_pitchers = rotation + bullpen
-
-    return ordered_pitchers
+    in_rotation = set(rotation)
+    return [pitcher_lookup[pid] for pid in rotation] + [
+        pitcher_lookup[pid] for pid in eligible if pid not in in_rotation
+    ]
 
 
 def _build_default_lists(

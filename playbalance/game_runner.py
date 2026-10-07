@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import os
 import random
+import re
 from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -1045,6 +1046,37 @@ def _assigned_starter_id(state: TeamState) -> str | None:
     return None
 
 
+def _physics_pitcher_roles(state: TeamState) -> dict[str, str]:
+    """The role each of ``state``'s arms pitches under in the physics engine.
+
+    The staff labels are the ones the default game state set from the staff
+    file (``assigned_pitching_role``), and the rotation is the SP1-SP5 they
+    carry -- both built by :func:`utils.rotation.choose_rotation`, the builder
+    the tracker uses. :func:`utils.rotation.game_staff_roles` turns them into
+    the game's map, so an unlabelled arm is a middle reliever. The stored
+    ``role`` column ("RP" for every pitcher in an older league) is never read.
+    Nothing is written back to the player objects.
+    """
+
+    from utils.rotation import game_staff_roles
+
+    ids: list[str] = []
+    labels: dict[str, str] = {}
+    for pitcher in state.pitchers:
+        pid = getattr(pitcher, "player_id", None)
+        if not pid or pid in labels:
+            continue
+        ids.append(str(pid))
+        labels[str(pid)] = (
+            str(getattr(pitcher, "assigned_pitching_role", "") or "").strip().upper()
+        )
+    rotation = sorted(
+        (pid for pid in ids if re.fullmatch(r"SP\d+", labels[pid])),
+        key=lambda pid: int(labels[pid][2:]),
+    )
+    return game_staff_roles(labels, ids, rotation)
+
+
 def _run_physics_game(
     *,
     home_id: str,
@@ -1110,22 +1142,8 @@ def _run_physics_game(
     if not away_pitchers or not home_pitchers:
         raise ValueError("Physics sim requires pitching staffs for both teams")
 
-    away_roles: dict[str, str] = {}
-    for pitcher in away_state.pitchers:
-        role = str(
-            getattr(pitcher, "assigned_pitching_role", "")
-            or getattr(pitcher, "role", "")
-            or ""
-        )
-        away_roles[pitcher.player_id] = role
-    home_roles: dict[str, str] = {}
-    for pitcher in home_state.pitchers:
-        role = str(
-            getattr(pitcher, "assigned_pitching_role", "")
-            or getattr(pitcher, "role", "")
-            or ""
-        )
-        home_roles[pitcher.player_id] = role
+    away_roles = _physics_pitcher_roles(away_state)
+    home_roles = _physics_pitcher_roles(home_state)
 
     # Audit L13: real-park data only for an explicitly chosen park; a
     # generated name that collides with a real one gets the generic park.
@@ -1314,8 +1332,15 @@ def _run_physics_game(
                 if player is None:
                     continue
                 pitches = int(line.get("pitches", 0) or 0)
+                # A starter's relief outing (the Release 3 emergency arm) is
+                # recorded so his next start is not pushed back.
                 output.append(
-                    SimpleNamespace(player=player, pitches_thrown=pitches, simulated_pitches=0)
+                    SimpleNamespace(
+                        player=player,
+                        pitches_thrown=pitches,
+                        simulated_pitches=0,
+                        relief_outing=int(line.get("gs", 0) or 0) < 1,
+                    )
                 )
             return output
 
@@ -1946,7 +1971,12 @@ def replay_game_journal(
                         pass
                 pitches = int(line.get("pitches", 0) or 0)
                 output.append(
-                    SimpleNamespace(player=player, pitches_thrown=pitches, simulated_pitches=0)
+                    SimpleNamespace(
+                        player=player,
+                        pitches_thrown=pitches,
+                        simulated_pitches=0,
+                        relief_outing=int(line.get("gs", 0) or 0) < 1,
+                    )
                 )
             return output
 
