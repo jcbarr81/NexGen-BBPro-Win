@@ -217,16 +217,29 @@ def test_swap_that_fixes_an_over_limit_staff_passes():
     assert res.ok, res.errors
 
 
-def test_unrelated_swap_on_an_over_limit_staff_only_warns():
-    """Hitter for hitter leaves the staff no bigger: not blocked, but the
-    owner is told (the sim gate still errors until a pitcher goes down)."""
+def test_unrelated_swap_on_an_over_limit_staff_is_an_error():
+    """Owner decision 8: the swap check errors on the final state, like the
+    level caps. Hitter for hitter leaves 14 pitchers: blocked."""
     players, levels = _team(hitters=ACT_HITTER_TARGET - 1, pitchers=MAX_ACTIVE_PITCHERS + 1)
     players["AAA_H"] = _pp("1B")
     levels["aaa"].append("AAA_H")
     res = validate_roster_swap(
         current_levels=levels, player_a_id="AAA_H", player_b_id="ACT_H8", players=players
     )
-    assert res.ok, res.errors
+    assert not res.ok
+    assert _pitcher_msgs(res.errors)
+
+
+def test_a_swap_that_lowers_an_over_limit_staff_only_warns():
+    """A hitter up for a pitcher down moves toward a legal roster: allowed."""
+    players, levels = _team(hitters=ACT_HITTER_TARGET - 2, pitchers=MAX_ACTIVE_PITCHERS + 2)
+    players["AAA_H"] = _pp("1B")
+    levels["aaa"].append("AAA_H")
+    pitcher = next(pid for pid in levels["act"] if players[pid].get("is_pitcher"))
+    res = validate_roster_swap(
+        current_levels=levels, player_a_id="AAA_H", player_b_id=pitcher, players=players
+    )
+    assert not _pitcher_msgs(res.errors)
     assert _pitcher_msgs(res.warnings)
 
 

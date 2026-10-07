@@ -306,3 +306,31 @@ def test_signing_past_the_organisation_limit_warns(league):
     assert len(roster.act) + len(roster.aaa) + len(roster.low) == ORG_LIMIT
     warnings, _ = fa._signing_roster_warnings(roster, "AH0", "AAA")
     assert any(f"limit {ORG_LIMIT}" in w for w in warnings)
+
+
+def test_signing_keeps_errors_and_skips_active_composition_for_the_minors(league):
+    """A LOW signing past the age limit is reported (the sim gate would reject
+    it later), and an active roster already short of hitters is not blamed on
+    a minor-league signing."""
+    import api.routers.free_agency as fa
+    from services import roster_validation
+
+    roster = league(roster_validation.MIN_POSITION_PLAYERS_ACT - 1, MAX_ACTIVE_PITCHERS, aaa_hitters=1)
+    roster.aaa.remove("AH0")
+    real_move = roster_validation.validate_roster_move
+
+    def _with_age(**kw):
+        kw["players"] = dict(kw["players"])
+        kw["players"]["AH0"] = dict(kw["players"]["AH0"], age=31)
+        return real_move(**kw)
+
+    import pytest
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(roster_validation, "validate_roster_move", _with_age)
+    try:
+        warnings, _ = fa._signing_roster_warnings(roster, "AH0", "LOW")
+    finally:
+        mp.undo()
+    assert any("LOW" in w and "age" in w for w in warnings), warnings
+    assert not any("position player" in w for w in warnings), warnings

@@ -352,7 +352,17 @@ def _signing_roster_warnings(
             level_caps=level_caps_only(caps),
             pitcher_cap=caps["act_pitchers"],
         )
-        warnings = list(result.warnings)
+        # Errors stay non-blocking here (the owner's call) but are never
+        # dropped -- e.g. a LOW signing past the age limit, which the sim gate
+        # would reject later.
+        messages = list(result.errors) + list(result.warnings)
+        if level.lower() != "act":
+            # The active roster's own composition is not this signing's doing.
+            messages = [
+                m for m in messages
+                if "position player" not in m and "cover" not in m
+            ]
+        warnings = messages
         org_size = sum(len(levels[attr]) for attr in ("act", "aaa", "low")) + 1
         if org_size > ORG_LIMIT:
             warnings.append(

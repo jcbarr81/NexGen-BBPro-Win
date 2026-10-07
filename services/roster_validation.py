@@ -610,14 +610,14 @@ def validate_roster_swap(
                     f"(age limit: {LOW_LEVEL_MAX_AGE - 1})."
                 )
 
-    # Pitcher limit. An error when the swap brings a pitcher onto an active
-    # roster that ends up over the limit. A swap that leaves an already-over
-    # staff no bigger (e.g. hitter for hitter after a trade) only warns, so it
-    # never blocks unrelated moves; the sim gate still errors on the count.
+    # Pitcher limit (owner decision 8: an error at the swap). Like the level
+    # caps above, judged on the final state; only a swap that lowers an
+    # over-limit pitcher count is let through, so an owner can always swap
+    # toward a legal roster.
     pitchers_before = _active_pitcher_count(norm.get("act", []), players)
     pitchers_after = _active_pitcher_count(post.get("act", []), players)
     if pitchers_after > max_pitchers:
-        if pitchers_after > pitchers_before:
+        if pitchers_after >= pitchers_before:
             result.error(
                 f"Active roster would carry {pitchers_after} pitchers "
                 f"(maximum {max_pitchers})."
