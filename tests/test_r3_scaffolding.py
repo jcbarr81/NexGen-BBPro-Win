@@ -50,6 +50,9 @@ R3_KNOBS = {
     "batter_rest_day_recovery_bonus": 10.0,
     "batter_rest_hard_streak_extra": 3.0,
     "batter_rest_similar_max": 1.0,
+    # item F fix round: a rest the engine cannot give costs little
+    "batter_blocked_rest_penalty_cap": 0.06,
+    "batter_blocked_rest_relief": 6.0,
 }
 
 

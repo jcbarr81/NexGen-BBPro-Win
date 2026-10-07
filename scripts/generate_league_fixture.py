@@ -68,6 +68,7 @@ import tempfile
 from contextlib import ExitStack
 from datetime import date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -365,16 +366,26 @@ def _num(row: dict[str, str], key: str) -> float | None:
 def summarize(output_dir: Path) -> dict[str, object]:
     """Validate the fixture and return the numbers its README reports."""
 
+    from services.roster_fill import positions_of
     from utils.roster_rules import (
         ACTIVE_ROSTER_SIZE,
         MAX_ACTIVE_PITCHERS,
+        MIN_ACTIVE_CATCHERS,
         ORG_LIMIT,
         counts_as_pitcher,
+        is_catcher,
     )
+
+    def _row_positions(row: dict[str, str]) -> list[str]:
+        return positions_of(SimpleNamespace(
+            primary_position=row.get("primary_position", ""),
+            other_positions=row.get("other_positions", ""),
+        ))
 
     players = {r["player_id"]: r for r in _read_csv_rows(output_dir / "players.csv")}
     teams = _read_csv_rows(output_dir / "teams.csv")
     problems: list[str] = []
+    act_catchers: list[int] = []
     lineup_hitters: list[dict[str, str]] = []
     act_hitters: list[dict[str, str]] = []
     act_pitchers: list[dict[str, str]] = []
@@ -396,6 +407,16 @@ def summarize(output_dir: Path) -> dict[str, object]:
                 act_hitters.append(row)
         if len(act) > ACTIVE_ROSTER_SIZE:
             problems.append(f"{team_id}: ACT holds {len(act)} (max {ACTIVE_ROSTER_SIZE})")
+        # Release 3: two catchers and a spare SS and CF, so regulars can rest.
+        hitters_here = [players[pid] for pid in act if not counts_as_pitcher(players[pid])]
+        catchers = sum(1 for row in hitters_here if is_catcher(row))
+        act_catchers.append(catchers)
+        if catchers < MIN_ACTIVE_CATCHERS:
+            problems.append(f"{team_id}: ACT carries {catchers} catcher(s)")
+        for pos in ("SS", "CF"):
+            able = sum(1 for row in hitters_here if pos in _row_positions(row))
+            if able < 2:
+                problems.append(f"{team_id}: ACT has no spare {pos}")
         if team_pitchers > MAX_ACTIVE_PITCHERS:
             problems.append(
                 f"{team_id}: ACT carries {team_pitchers} pitchers "
@@ -438,6 +459,7 @@ def summarize(output_dir: Path) -> dict[str, object]:
         "act_sizes": sorted(set(act_sizes)),
         "act_hitters": len(act_hitters),
         "act_pitchers": len(act_pitchers),
+        "act_catchers_min": min(act_catchers) if act_catchers else 0,
         "lineup_means": {k: mean(lineup_hitters, k) for k in ("ch", "ph", "eye", "sp")},
         "act_pitcher_means": {
             k: mean(act_pitchers, k)

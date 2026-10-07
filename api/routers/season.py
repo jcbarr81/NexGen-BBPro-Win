@@ -1049,7 +1049,7 @@ def _prepare_rosters_for_date(simulator: SeasonSimulator, date: str) -> None:
     """
 
     try:
-        from services.injury_manager import _promotion_allowed
+        from services.injury_manager import _option_allowed, _promotion_allowed
         from services.roster_fill import (
             apply_prospect_bookkeeping,
             ensure_fieldable_roster,
@@ -1095,6 +1095,7 @@ def _prepare_rosters_for_date(simulator: SeasonSimulator, date: str) -> None:
                 maintain_cpu_active_roster(
                     team_id, roster, players,
                     target_size=ACTIVE_ROSTER_SIZE, cap=cap, allowed=allowed,
+                    option_allowed=_option_allowed(team_id),
                 )
                 if cpu
                 else []

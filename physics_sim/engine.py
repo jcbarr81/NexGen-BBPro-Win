@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Collection, Dict, List
+from typing import Any, Collection, Dict, Iterable, List, Set
 import random
 import re
 import zlib
@@ -3606,15 +3606,32 @@ def _apply_batter_fatigue(
     usage_state: UsageState | None,
     game_day: int | None,
     tuning: TuningConfig,
+    blocked_ids: Iterable[str] = (),
 ) -> List[BatterRatings]:
+    """Tired batters play worse: a copy of each with lowered ratings.
+
+    ``blocked_ids`` are regulars the pre-game rest could not sit (see
+    :func:`_apply_rest_days`, ``could_not_rest``): their penalty is capped at
+    ``batter_blocked_rest_penalty_cap``. The full penalty is for a club that
+    chose not to rest him. Each tired copy carries ``fatigue_penalty`` and
+    ``fatigue_level`` (the penalty over ``batter_fatigue_penalty_cap``, 0 to
+    1): the scale the post-game fatigue injury roll reads
+    (``physics_sim.arm_injury.batter_fatigue_level``), so the extra injury
+    risk follows the penalty he actually played with.
+    """
     if usage_state is None or game_day is None:
         return list(batters)
 
+    blocked = {str(pid) for pid in blocked_ids or ()}
+    blocked_cap = tuning.get("batter_blocked_rest_penalty_cap", 0.06)
+    full_cap = tuning.get("batter_fatigue_penalty_cap", 0.35)
     adjusted: List[BatterRatings] = []
     for batter in batters:
         penalty = _batter_fatigue_penalty(
             batter, usage_state=usage_state, game_day=game_day, tuning=tuning
         )
+        if batter.player_id in blocked:
+            penalty = min(penalty, max(0.0, blocked_cap))
         if penalty <= 0.0:
             adjusted.append(batter)
             continue
@@ -3636,6 +3653,8 @@ def _apply_batter_fatigue(
             arm=clamp(batter.arm * defense_scale),
         )
         setattr(updated, "fatigue_penalty", penalty)
+        level = penalty / full_cap if full_cap > 0.0 else 1.0
+        setattr(updated, "fatigue_level", min(1.0, max(0.0, level)))
         adjusted.append(updated)
     return adjusted
 
@@ -4094,6 +4113,7 @@ def _apply_rest_days(
     tuning: TuningConfig,
     allow_similar: bool = True,
     report: Dict[str, int] | None = None,
+    could_not_rest: Set[str] | None = None,
 ) -> tuple[List[BatterRatings], List[BatterRatings], Dict[str, str]]:
     """Bench fatigued / overworked starters before the game (S2-05). In-memory
     only; lineup files are never rewritten. Returns (lineup, bench, positions).
@@ -4101,10 +4121,11 @@ def _apply_rest_days(
     A starter is due a rest when his fatigue reaches the rest trigger
     (``batter_rest_fatigue_ratio`` of the penalty threshold) or his streak of
     consecutive games reaches the limit (a catcher rests on his 4th straight
-    game, Release 3). The rest is HARD when fatigue triggered it, or the
-    streak is ``batter_rest_hard_streak_extra`` games past the limit (a
-    scheduled rest that kept finding nobody). Substitutes, in tiers
-    (Release 3, audit M16 / owner decision 9):
+    game, Release 3). The rest is HARD when his debt reaches
+    ``batter_rest_hard_ratio`` of the threshold, or the streak is
+    ``batter_rest_hard_streak_extra`` games past the limit (a scheduled rest
+    that kept finding nobody). Substitutes, in tiers (Release 3, audit M16 /
+    owner decision 9):
 
     1. a rested bench player listed at the position (anyone at DH; at C only
        a catcher);
@@ -4116,12 +4137,32 @@ def _apply_rest_days(
        with the bench covering his spot -- at most
        ``batter_rest_similar_max`` (1) per team per game.
 
-    Never a non-catcher at C. Nobody found: he plays (a blocked rest). At
-    most ``batter_rest_max_swaps`` rests per team per game. ``report``, when
-    given, counts ``due``, ``rests``, ``chain``, ``similar``, ``blocked`` and
-    ``blocked_c``.
+    Never a non-catcher at C. Nobody found: he plays (a blocked rest); when
+    fatigue made the rest due he recovers ``batter_blocked_rest_relief`` of
+    debt. At most ``batter_rest_max_swaps`` rests per team per game.
+    ``report``, when given, counts ``due`` (every due rest), ``rests``,
+    ``chain``, ``similar``, ``blocked``, ``blocked_c`` and ``capped`` (due
+    past the swap cap).
+
+    ``could_not_rest``, when given, collects the starters who play although
+    the engine would have rested them -- blocked for lack of a legal
+    substitute, past the swap cap, or held by the min-gap guard -- so their
+    in-game penalty is capped low (:func:`_apply_batter_fatigue`). Not a
+    rest the owner's own setting blocked: with similar-position substitutes
+    switched off while one was on the bench, he plays with the full penalty.
     """
-    if usage_state is None or game_day is None or not bench:
+    kept = could_not_rest if could_not_rest is not None else set()
+    if usage_state is None or game_day is None:
+        return lineup, bench, positions
+    if not bench:
+        # Nobody to rest anyone with: every tired starter is a blocked rest.
+        ratio = tuning.get("batter_rest_fatigue_ratio", 0.85)
+        relief = max(0.0, tuning.get("batter_blocked_rest_relief", 6.0))
+        for starter in lineup:
+            wl = usage_state.batter_workload_for(starter.player_id)
+            if wl.fatigue_debt >= ratio * batter_fatigue_threshold(starter.durability, tuning):
+                kept.add(starter.player_id)
+                wl.fatigue_debt = max(0.0, wl.fatigue_debt - relief)
         return lineup, bench, positions
     lineup = list(lineup)
     bench = list(bench)
@@ -4148,29 +4189,41 @@ def _apply_rest_days(
         )
         limit = tuning.get(limit_key, 3.0 if pos == "C" else 9.0)
         fatigued = wl.fatigue_debt >= ratio * threshold
-        overworked = wl.consecutive_days_used >= limit
+        # His team's games in a row (a team off day doesn't end the run); the
+        # calendar count can only be shorter, so the longer of the two.
+        streak = max(wl.consecutive_days_used, getattr(wl, "games_in_a_row", 0))
+        overworked = streak >= limit
         if not (fatigued or overworked):
             continue
         recently_rested = (
             wl.last_rest_day is not None and (game_day - wl.last_rest_day) < min_gap
         )
         if recently_rested and wl.fatigue_debt < hard_ratio * threshold:
+            if fatigued:
+                kept.add(starter.player_id)  # the min-gap guard holds him
             continue
-        hard = fatigued or wl.consecutive_days_used >= limit + hard_extra
+        # Hard: real fatigue (the ratio that also overrides the min-gap
+        # guard), or a scheduled rest long overdue -- not any fatigue rest.
+        hard = (
+            wl.fatigue_debt >= hard_ratio * threshold
+            or streak >= limit + hard_extra
+        )
         urgency = wl.fatigue_debt / threshold if threshold > 0 else 0.0
-        key = (pos != "C", -urgency, -(wl.consecutive_days_used - limit), idx)
-        due.append((key, idx, starter, hard))
+        key = (pos != "C", -urgency, -(streak - limit), idx)
+        due.append((key, idx, starter, hard, fatigued))
+        tally["due"] = tally.get("due", 0) + 1
     due.sort(key=lambda item: item[0])
     swaps = 0
     similar_used = 0
-    for _key, idx, starter, hard in due:
-        if swaps >= max_swaps:
-            break
+    for _key, idx, starter, hard, fatigued in due:
         if lineup[idx].player_id != starter.player_id:
             continue  # already moved by an earlier swap
+        if swaps >= max_swaps:
+            tally["capped"] = tally.get("capped", 0) + 1
+            kept.add(starter.player_id)
+            continue
         wl = usage_state.batter_workload_for(starter.player_id)
         pos = (positions.get(starter.player_id) or starter.primary_position or "").upper()
-        tally["due"] = tally.get("due", 0) + 1
         search = dict(
             opposing_starter=opposing_starter, usage_state=usage_state,
             threshold_ratio=ratio, tuning=tuning,
@@ -4208,6 +4261,24 @@ def _apply_rest_days(
             tally["blocked"] = tally.get("blocked", 0) + 1
             if pos == "C":
                 tally["blocked_c"] = tally.get("blocked_c", 0) + 1
+            owner_choice = (
+                hard
+                and not allow_similar
+                and pos not in {"", "DH", "C"}
+                and (
+                    _similar_rest_replacement(bench, pos, **search) is not None
+                    or _rest_swap(
+                        lineup, bench, positions, idx, pos,
+                        can_move=lambda m: can_cover_similar(m, pos), **search,
+                    ) is not None
+                )
+            )
+            if owner_choice:
+                continue  # his owner switched the substitute off: full penalty
+            kept.add(starter.player_id)
+            if fatigued:
+                relief = tuning.get("batter_blocked_rest_relief", 6.0)
+                wl.fatigue_debt = max(0.0, wl.fatigue_debt - max(0.0, relief))
             continue
         bench.remove(replacement)
         lineup[idx] = replacement  # inherits the batting slot
@@ -4388,8 +4459,13 @@ def simulate_game(
         # debt is current) before the in-game fatigue penalty is computed.
         # Release 3: an owner may turn automatic rest days, or the
         # similar-position substitutes, off for his team.
+        # A regular the engine could not rest plays only a little tired; one
+        # his owner chose not to rest (Auto rest days off) carries the full
+        # penalty (owner decision 9 / Q14).
         away_policy = away_rest_policy or {}
         home_policy = home_rest_policy or {}
+        away_unrested: Set[str] = set()
+        home_unrested: Set[str] = set()
         if away_policy.get("auto_rest_days", True) is not False:
             away_lineup, away_bench, away_positions = _apply_rest_days(
                 list(away_lineup), list(away_bench), dict(away_positions),
@@ -4398,6 +4474,7 @@ def simulate_game(
                 allow_similar=away_policy.get("rest_subs_similar_positions", True)
                 is not False,
                 report=bench_usage["away"],
+                could_not_rest=away_unrested,
             )
         if home_policy.get("auto_rest_days", True) is not False:
             home_lineup, home_bench, home_positions = _apply_rest_days(
@@ -4407,6 +4484,7 @@ def simulate_game(
                 allow_similar=home_policy.get("rest_subs_similar_positions", True)
                 is not False,
                 report=bench_usage["home"],
+                could_not_rest=home_unrested,
             )
 
         away_lineup = _apply_batter_fatigue(
@@ -4414,12 +4492,14 @@ def simulate_game(
             usage_state=usage_state,
             game_day=game_day,
             tuning=tuning,
+            blocked_ids=away_unrested,
         )
         home_lineup = _apply_batter_fatigue(
             list(home_lineup),
             usage_state=usage_state,
             game_day=game_day,
             tuning=tuning,
+            blocked_ids=home_unrested,
         )
         away_bench = _apply_batter_fatigue(
             list(away_bench),

@@ -18,6 +18,12 @@ class PitcherWorkload:
     last_pitches: int = 0
 
 
+#: A break of more than this many calendar days between his team's games (the
+#: All-Star break, a stint off the roster) ends a batter's games-in-a-row
+#: streak; a single team off day does not.
+_BATTER_STREAK_BREAK_DAYS = 2
+
+
 @dataclass
 class BatterWorkload:
     fatigue_debt: float = 0.0
@@ -26,6 +32,11 @@ class BatterWorkload:
     last_update_day: int | None = None
     last_rest_day: int | None = None  # S2-05: game_day of most recent forced rest
     rests: int = 0  # S2-05: season count of forced rests
+    # Release 3 fix: his team's games he started in a row. Unlike the
+    # calendar-day ``consecutive_days_used``, a team off day does not break
+    # it (sitting a team game, or a longer break, does); the pre-game rest's
+    # streak limits read it. Older stored workloads load it as 0.
+    games_in_a_row: int = 0
 
 
 def batter_fatigue_threshold(durability: float, tuning: TuningConfig) -> float:
@@ -40,6 +51,25 @@ def batter_fatigue_threshold(durability: float, tuning: TuningConfig) -> float:
     threshold = tuning.get("batter_fatigue_threshold_base", 35.0)
     threshold += float(durability or 0.0) * tuning.get("batter_fatigue_threshold_scale", 0.45)
     return threshold
+
+
+def batter_fatigue_debt_ceiling(durability: float, tuning: TuningConfig) -> float:
+    """The most fatigue debt a position player can carry (Release 3).
+
+    The debt at which the in-game penalty reaches its cap:
+    threshold * (1 + ``batter_fatigue_penalty_cap`` /
+    ``batter_fatigue_penalty_scale``), about 98 at durability 50. Debt past it
+    changed nothing in the game but kept growing (to 669 for a catcher nobody
+    could rest), so a backup who finally arrived had to sit the regular for a
+    dozen straight games while it drained.
+    """
+
+    threshold = batter_fatigue_threshold(durability, tuning)
+    scale = tuning.get("batter_fatigue_penalty_scale", 0.5)
+    cap = tuning.get("batter_fatigue_penalty_cap", 0.35)
+    if scale <= 0.0:
+        return threshold
+    return threshold * (1.0 + max(0.0, cap) / scale)
 
 
 def batter_game_cost(
@@ -173,8 +203,15 @@ class UsageState:
             # ``batter_rest_day_recovery_bonus`` on top: a day off is what
             # clears it. A team off day is only a plain day: under the
             # calendar-day clock (Release 3 item A) off days slow the build-up
-            # without stopping it. Tuned on today's game-date clock; re-check
-            # after A's rebase (rests per regular, hitters starting every game).
+            # without stopping it.
+            #
+            # ``consecutive_days_used`` counts calendar days in a row, so a
+            # team off day ends it. ``games_in_a_row`` (Release 3 fix) counts
+            # his team's GAMES in a row: sitting a team game resets it, a team
+            # off day does not, a longer break (the All-Star break, a stint
+            # in the minors) does. The rest limits read it: on the calendar
+            # streak every weekly off day reset the count, so the backstop
+            # never fired and nearly every regular started all 162.
             bat_base = tuning.get("batter_daily_recovery_base", 6.0)
             bat_scale = tuning.get("batter_daily_recovery_durability_scale", 0.05)
             rest_bonus = tuning.get("batter_rest_day_recovery_bonus", 0.0)
@@ -188,12 +225,15 @@ class UsageState:
                 if days_passed <= 0:
                     continue
                 recovery = days_passed * (bat_base + batter.durability * bat_scale)
-                if workload.last_used_day != last_update:
+                sat_out = workload.last_used_day != last_update
+                if sat_out:
                     recovery += rest_bonus  # he sat out his team's game that day
                 workload.fatigue_debt = max(0.0, workload.fatigue_debt - recovery)
                 workload.last_update_day = day
                 if workload.last_used_day is not None and day - workload.last_used_day > 1:
                     workload.consecutive_days_used = 0
+                if sat_out or days_passed > _BATTER_STREAK_BREAK_DAYS:
+                    workload.games_in_a_row = 0
 
     def record_outing(
         self,
@@ -240,8 +280,18 @@ class UsageState:
         workload.fatigue_debt += batter_game_cost(
             durability, tuning, position=position, started=started
         )
+        # Never past the point where the in-game penalty caps.
+        workload.fatigue_debt = min(
+            workload.fatigue_debt, batter_fatigue_debt_ceiling(durability, tuning)
+        )
         if not started:
             return
+        # One more team game in a row (advance_day resets it when he sat a
+        # team game); the second game of a doubleheader is the same day.
+        if workload.last_used_day is None or workload.games_in_a_row <= 0:
+            workload.games_in_a_row = 1
+        elif day != workload.last_used_day:
+            workload.games_in_a_row += 1
         if workload.last_used_day is not None and day - workload.last_used_day == 1:
             workload.consecutive_days_used += 1
         else:
@@ -254,9 +304,14 @@ class UsageState:
         """How tired ``player_id`` is, as debt / :func:`batter_fatigue_threshold`.
 
         0 is fresh. At ``batter_rest_fatigue_ratio`` (0.85) the pre-game rest
-        triggers; above 1.0 he plays with an in-game penalty (and, from
-        Release 3 item E, a small extra injury risk). Read-only: never creates
-        a workload, so asking about an unknown player returns 0.
+        triggers; above 1.0 he plays with an in-game penalty. Read-only: never
+        creates a workload, so asking about an unknown player returns 0.
+
+        This is not the injury model's scale: the post-game fatigue injury
+        roll (``physics_sim.arm_injury.batter_fatigue_level``) reads the
+        ``fatigue_level`` the engine stamps on a tired batter -- the penalty
+        he actually played with over ``batter_fatigue_penalty_cap``, 0 to 1 --
+        so the extra risk follows the applied penalty.
         """
 
         workload = self.batter_workloads.get(player_id)

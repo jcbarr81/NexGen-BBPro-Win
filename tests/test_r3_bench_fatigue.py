@@ -163,6 +163,12 @@ def _tired(state: UsageState, pid: str) -> None:
     state.batter_workload_for(pid).fatigue_debt = 0.95 * batter_fatigue_threshold(50, TUNING)
 
 
+def _hard_tired(state: UsageState, pid: str) -> None:
+    # A hard rest: debt at batter_rest_hard_ratio of the threshold (fix round).
+    ratio = TUNING.get("batter_rest_hard_ratio") + 0.05
+    state.batter_workload_for(pid).fatigue_debt = ratio * batter_fatigue_threshold(50, TUNING)
+
+
 def test_listed_position_first():
     state = UsageState()
     _tired(state, "s")
@@ -181,9 +187,9 @@ def test_similar_position_only_on_a_hard_rest():
     report: dict = {}
     lu, _be, _po = _rest([_b("s", "2B")], bench, {"s": "2B"}, soft, report=report)
     assert lu[0].player_id == "s" and report["blocked"] == 1
-    # Tired: the shortstop covers second.
+    # Hard-tired: the shortstop covers second.
     hard = UsageState()
-    _tired(hard, "s")
+    _hard_tired(hard, "s")
     lu, _be, po = _rest([_b("s", "2B")], bench, {"s": "2B"}, hard)
     assert lu[0].player_id == "ss" and po["ss"] == "2B"
 
@@ -195,15 +201,15 @@ def test_similar_moves_follow_the_owner_list():
         ("1B", "3B", True), ("3B", "1B", False),
     ):
         state = UsageState()
-        _tired(state, "s")
+        _hard_tired(state, "s")
         lu, _be, _po = _rest([_b("s", pos)], [_b("b", bench_pos)], {"s": pos}, state)
         assert (lu[0].player_id == "b") is allowed, (pos, bench_pos)
 
 
 def test_at_most_one_similar_substitute_per_team_per_game():
     state = UsageState()
-    _tired(state, "s1")
-    _tired(state, "s2")
+    _hard_tired(state, "s1")
+    _hard_tired(state, "s2")
     lineup = [_b("s1", "LF"), _b("s2", "1B")]
     bench = [_b("rf", "RF"), _b("ss", "SS")]
     report: dict = {}
