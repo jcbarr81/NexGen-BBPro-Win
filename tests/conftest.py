@@ -19,24 +19,29 @@ _ENV_KEYS = (
 )
 
 
-def _remove_stray_usage_file() -> None:
-    """Delete a physics rest-state file left in the repo's data dir.
+def _remove_stray_usage_files(root: Path = _REPO_ROOT) -> None:
+    """Delete every physics rest-state file left under ``<root>/data``.
 
-    A dated sim against the base data dir (no active league) persists
-    ``data/physics_usage.json`` (Release 3). The file is untracked, so the
-    checkout below would leave it for the next run to load.
+    A dated sim persists ``physics_usage.json`` (Release 3) in the league it
+    ran against: the base data dir, or a tracked league folder such as
+    ``data/leagues/cbl/data``. The file is untracked, so ``git checkout``
+    leaves it, and the next run would continue that stale rest state.
     """
-    try:
-        (_REPO_ROOT / "data" / "physics_usage.json").unlink()
-    except OSError:
-        pass
+    data = root / "data"
+    if not data.is_dir():
+        return
+    for path in data.rglob("physics_usage.json"):
+        try:
+            path.unlink()
+        except OSError:
+            pass
 
 
 def pytest_sessionstart(session):
     """Ensure a non-deterministic RNG for tests depending on randomness."""
     random.seed()
     os.environ.setdefault("PB_DISABLE_ROLLOVER", "1")
-    _remove_stray_usage_file()
+    _remove_stray_usage_files()
 
 
 def _reset_shared_state() -> None:
@@ -137,4 +142,4 @@ def pytest_sessionfinish(session, exitstatus):
                        capture_output=True, timeout=60)
     except Exception:
         pass
-    _remove_stray_usage_file()
+    _remove_stray_usage_files()

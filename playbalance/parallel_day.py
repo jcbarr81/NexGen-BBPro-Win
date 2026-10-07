@@ -56,6 +56,10 @@ class GameJournal:
     usage_out: Optional[Dict[str, Any]] = None
     bullpen_status_logs: List[str] = field(default_factory=list)
     decision_logs: List[dict] = field(default_factory=list)
+    # News items written while the game's state was prepared (the owner's
+    # "auto-fill rebuilt your lineup" notice); the parent logs them in game
+    # order, so the feed reads exactly as a serial day.
+    news_events: List[dict] = field(default_factory=list)
 
 
 _ACTIVE_JOURNAL: Optional[GameJournal] = None
@@ -285,15 +289,21 @@ def simulate_game_job(payload: Dict[str, Any]) -> Dict[str, Any]:
     try:
         from playbalance import game_runner
         from utils.pitcher_recovery import PitcherRecoveryTracker
+        from utils.roster_loader import load_roster
 
         # D9: this process's singletons may be stale from an earlier job on the
-        # persistent pool. Reset the tracker and the Team lru_cache (which
-        # hydrates season_stats at load); players/rosters are mtime-keyed and
-        # self-refresh, so they need no reset.
+        # persistent pool. Reset the tracker, the Team lru_cache (which
+        # hydrates season_stats at load) and the roster cache. Rosters are NOT
+        # mtime-keyed: the unified data service keeps whatever this process
+        # loaded first, so after the parent replayed an injury (IL placement,
+        # call-up) a worker that had simmed the club before still dressed the
+        # injured arm and left the call-up out. players.csv is mtime-keyed and
+        # self-refreshes.
         PitcherRecoveryTracker._instance = None
         tracker = PitcherRecoveryTracker.instance()
         tracker._current_date = payload["date"]  # enable the S1-02 per-day memo
         game_runner._teams_by_id.cache_clear()
+        load_roster.cache_clear()
 
         if game_runner._resolve_game_engine(None) != "physics":
             raise RuntimeError("parallel_day requires the physics engine (D2)")
@@ -328,6 +338,7 @@ def simulate_game_job(payload: Dict[str, Any]) -> Dict[str, Any]:
             "usage": diff_usage_out(payload["usage_in"], journal.usage_out),
             "bullpen_status_logs": journal.bullpen_status_logs,
             "decision_logs": journal.decision_logs,
+            "news_events": journal.news_events,
         }
 
         # D13: the dumps doubles as a JSON-serializability invariant and a size

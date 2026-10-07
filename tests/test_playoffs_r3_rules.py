@@ -316,3 +316,46 @@ def test_a_series_seeded_early_waits_for_its_round(schedule):
     first_ds = min(g.date for m in ds.matchups for g in m.games)
     assert first_ds > last_wc
     assert first_ds == "2025-10-04"
+
+
+def test_later_rounds_use_the_configured_series_lengths(schedule, monkeypatch):
+    """A league that configures a five-game LCS gets one: the series is built
+    with that length and its calendar window is a five-game window, so the
+    World Series starts after an off day following game 5, not game 7."""
+    import playbalance.playoffs_config as pcfg
+
+    cfg = PlayoffsConfig(num_playoff_teams_per_league=6)
+    cfg.playoff_slots_by_league_size = {6: 6}
+    cfg.series_lengths = dict(cfg.series_lengths, cs=5)
+    monkeypatch.setattr(pcfg, "load_playoffs_config", lambda path=None: cfg)
+
+    divisions = ("East", "East", "Central", "Central", "West", "West")
+    al = [_team(f"A{i}", f"AL {d}") for i, d in enumerate(divisions, start=1)]
+    nl = [_team(f"N{i}", f"NL {d}") for i, d in enumerate(divisions, start=1)]
+    standings = {
+        t.team_id: {"wins": 100 - idx, "runs_for": 700, "runs_against": 650}
+        for idx, t in enumerate(al + nl)
+    }
+    bracket = generate_bracket(standings, al + nl, cfg)
+
+    # Before the LCS exists, its planned window is already five games long.
+    calendar = pf._PlayoffCalendar(bracket, schedule)
+    cs_start = calendar._start[pf._stage_key_from_round_name("AL CS")]
+    ws_start = calendar._start[pf._stage_key_from_round_name("WS")]
+    assert ws_start - cs_start == pf._series_span([2, 2, 1]) + 1
+
+    def home_wins(home, away, seed=None, game_date=None):
+        return (1, 0, "<html/>", {})
+
+    simulate_playoffs(bracket, simulate_game=home_wins, persist_cb=lambda b: None)
+
+    def round_dates(name):
+        rnd = next(r for r in bracket.rounds if r.name == name)
+        return sorted({g.date for m in rnd.matchups for g in m.games})
+
+    cs = next(r for r in bracket.rounds if r.name == "AL CS")
+    assert [m.config.length for m in cs.matchups] == [5]
+    assert round_dates("AL CS") == [
+        "2025-10-12", "2025-10-13", "2025-10-15", "2025-10-16", "2025-10-18",
+    ]
+    assert round_dates("WS")[0] == "2025-10-20"

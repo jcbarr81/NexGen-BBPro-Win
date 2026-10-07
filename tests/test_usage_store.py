@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -73,13 +74,53 @@ def test_deferred_saves_save_when_the_day_fails(tmp_path):
     assert path.exists()
 
 
-def test_a_new_year_starts_a_fresh_state(tmp_path):
+def test_a_new_season_starts_a_fresh_state_and_is_logged(tmp_path, caplog):
     state, _ = usage_store.context("2026-09-28", data_dir=tmp_path)
     _outing(state, "P1", 30, 0)
-    fresh, day = usage_store.context("2027-04-01", data_dir=tmp_path)
+    with caplog.at_level(logging.INFO, logger="playbalance.usage_store"):
+        fresh, day = usage_store.context("2027-04-01", data_dir=tmp_path)
     assert fresh is not state
     assert day == 0
     assert "P1" not in fresh.workloads
+    assert "new season" in caplog.text
+
+
+def test_a_season_that_crosses_new_year_keeps_its_rest_state(tmp_path):
+    """Old 20-team schedules end Dec 23 - Jan 12 and dated playoffs can run
+    into January: a date in the next calendar year is not a new season."""
+    state, _ = usage_store.context("2026-04-01", data_dir=tmp_path)
+    when = date(2026, 4, 1)
+    while when < date(2026, 12, 23):  # a long season, simmed weekly
+        when += timedelta(days=7)
+        assert usage_store.context(when.isoformat(), data_dir=tmp_path)[0] is state
+    late, day = usage_store.context("2026-12-30", data_dir=tmp_path)
+    assert late is state
+    _outing(state, "P1", 30, day)
+    usage_store.mark_dirty(data_dir=tmp_path)
+
+    january, jan_day = usage_store.context("2027-01-02", data_dir=tmp_path)
+    assert january is state
+    assert jan_day == day + 3
+    assert january.workloads["P1"].last_used_day == day
+
+    # ... and in a new process, from the saved file.
+    usage_store.mark_dirty(data_dir=tmp_path)
+    usage_store.clear_cache()
+    reloaded, reload_day = usage_store.context("2027-01-12", data_dir=tmp_path)
+    assert reload_day == day + 13
+    assert reloaded.workloads["P1"].last_used_day == day
+
+
+def test_a_continuous_sim_past_a_full_season_span_starts_fresh(tmp_path, caplog):
+    state, _ = usage_store.context("2026-03-01", data_dir=tmp_path)
+    _outing(state, "P1", 30, 0)
+    when = date(2026, 3, 1)
+    # Play every week for a year: no offseason gap, but well past any season.
+    for _ in range(50):
+        when += timedelta(days=7)
+        current, _day = usage_store.context(when.isoformat(), data_dir=tmp_path)
+    assert current is not state
+    assert "P1" not in current.workloads
 
 
 def test_a_backwards_date_resets_and_is_logged(tmp_path, caplog):
@@ -167,6 +208,33 @@ def test_bootstrap_replays_this_seasons_tracker_appearances(tmp_path):
     assert not _pitcher_is_rested(
         pitcher_id="P1", role="MR", usage_state=state, game_day=day, tuning=tuning
     )
+
+
+def test_bootstrap_replays_december_outings_into_a_january_date(tmp_path):
+    """A season crossing New Year bootstraps from last month's appearances."""
+    tracker = {
+        "teams": {
+            "AAA": {
+                "pitchers": {
+                    "P1": {
+                        "recent": [
+                            {"date": "2026-12-31", "pitches": 30, "appeared": True},
+                        ]
+                    },
+                    "OLD": {
+                        "recent": [
+                            {"date": "2026-09-28", "pitches": 30, "appeared": True},
+                        ]
+                    },
+                }
+            }
+        }
+    }
+    (tmp_path / "pitcher_recovery.json").write_text(json.dumps(tracker), encoding="utf-8")
+    state, day = usage_store.context("2027-01-02", data_dir=tmp_path)
+    assert set(state.workloads) == {"P1"}
+    assert day == 2
+    assert state.workloads["P1"].last_used_day == 0
 
 
 def test_no_bootstrap_after_an_explicit_reset(tmp_path):
