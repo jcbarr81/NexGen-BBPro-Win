@@ -13,6 +13,8 @@ on:
       - "scripts/physics_sim_season_kpis.py"
       - "scripts/generate_calibration_roster.py"
       - "data/calibration/**"
+      - "data/calibration_league/**"
+      - "scripts/generate_league_fixture.py"
       - "data/MLB_avg/**"
       - ".github/workflows/physics_sim_kpi.yml"
   push:
@@ -28,6 +30,8 @@ on:
       - "scripts/physics_sim_season_kpis.py"
       - "scripts/generate_calibration_roster.py"
       - "data/calibration/**"
+      - "data/calibration_league/**"
+      - "scripts/generate_league_fixture.py"
       - "data/MLB_avg/**"
       - ".github/workflows/physics_sim_kpi.yml"
   workflow_dispatch:
@@ -82,3 +86,31 @@ jobs:
         with:
           name: physics-kpis
           path: tmp/physics_kpis.json
+      - name: Run KPI harness (report-only, league-like fixture)
+        # Audit 2026-10-06 H3 / Release 2. data/calibration_league is built by
+        # scripts/generate_league_fixture.py from the product's own generator,
+        # auto-assign and auto-fill, in generic parks -- what a real league
+        # looks like. The current engine fails gates on it by design, so this
+        # step is REPORT-ONLY: no --strict, never fails the job, and runs even
+        # when the strict step above failed. Promote it to a gate once the
+        # engine releases bring it inside tolerance.
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          PYTHONHASHSEED: "0"
+        run: |
+          mkdir -p tmp
+          python scripts/physics_sim_season_kpis.py \
+              --games 162 \
+              --seed 1 \
+              --base-dir data/calibration_league \
+              --players data/calibration_league/players.csv \
+              --output tmp/physics_kpis_league_fixture.json
+          python -c "import json; d=json.load(open('tmp/physics_kpis_league_fixture.json')); m=d['metrics']; f=d.get('tolerance_failures', []); print(f\"::notice title=League-like fixture (report-only)::R/G {m['runs_per_team_game']:.2f}, AVG/OBP/SLG {m['avg']:.3f}/{m['obp']:.3f}/{m['slg']:.3f}; {len(f)} gates out of tolerance: {', '.join(x['metric'] for x in f) or 'none'}\")"
+      - name: Upload league-like fixture KPI report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: physics-kpis-league-fixture
+          path: tmp/physics_kpis_league_fixture.json
+          if-no-files-found: warn
