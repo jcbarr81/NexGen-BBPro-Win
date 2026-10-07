@@ -130,6 +130,10 @@ Iron8/data/
 data/news_feed.txt
 data/record_book_snapshot.json
 data/special_events.json
+# Persisted physics rest state (Release 3, playbalance/usage_store.py); league
+# runtime data, never committed.
+data/physics_usage.json
+data/**/physics_usage.json
 
 # Discord release-announcement webhook (secret, do not commit)
 scripts/.discord_webhook

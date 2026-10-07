@@ -10,8 +10,8 @@ behavior:
 
 - The league copy is rebuilt fresh every run (file growth from a previous
   run must not skew timings).
-- Digests cover the per-game score sequence, season_stats.json, and
-  pitcher_recovery.json (canonicalized). Same code + same seed must produce
+- Digests cover the per-game score sequence, season_stats.json,
+  pitcher_recovery.json and physics_usage.json (canonicalized). Same code + same seed must produce
   identical digests before AND after a pure-performance change.
 - CAVEAT: digests are only comparable SAME-DAY. Parts of the pipeline key
   off the wall-clock date (e.g. the recovery tracker's 14-day trim window),
@@ -123,6 +123,8 @@ def main() -> int:
         "scores": hashlib.sha256(scores.encode("utf-8")).hexdigest()[:16],
         "season_stats": _canonical_json_digest(sandbox / "season_stats.json"),
         "pitcher_recovery": _canonical_json_digest(sandbox / "pitcher_recovery.json"),
+        # Release 3 (M18): the persisted physics rest state.
+        "physics_usage": _canonical_json_digest(sandbox / "physics_usage.json"),
     }
 
     result = {

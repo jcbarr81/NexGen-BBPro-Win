@@ -550,6 +550,14 @@ class LeagueRolloverService:
                 pitcher_recovery_path.unlink()
             except OSError:
                 pass
+        # Release 3 (M18): the physics rest state is per season too. reset()
+        # also drops the in-memory copy so it is not saved back.
+        try:
+            from playbalance import usage_store
+
+            usage_store.reset(data_dir=Path(_DATA_DIR))
+        except Exception:
+            pass
 
         try:
             from services.special_events import reset_special_events

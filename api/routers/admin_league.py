@@ -485,6 +485,13 @@ def reset_to_opening_day(
         PitcherRecoveryTracker.instance().reset()
     except Exception as exc:
         notes.append(f"Pitcher recovery reset failed: {exc}")
+    # 11b. Reset the persisted physics rest state (Release 3, M18).
+    try:
+        from playbalance import usage_store
+
+        usage_store.reset()
+    except Exception as exc:
+        notes.append(f"Physics usage reset failed: {exc}")
 
     # 12. Log news event (only if not also purging news).
     if not clear_news:
