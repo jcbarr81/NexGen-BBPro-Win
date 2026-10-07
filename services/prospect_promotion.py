@@ -21,10 +21,12 @@ AAA this year and ACT the next (one rung at a time keeps the pipeline
 visible to the owner).
 
 Room (decision 8): AAA -> ACT is automatic for CPU clubs only, into an open
-spot on the 26-man roster and -- for a pitcher -- a staff under 13. An
-owner's ready prospect is a suggestion (a news line and the returned
-``suggestions``), never a move onto the active roster. LOW -> AAA runs for
-every club, but only into an open AAA spot (15). Best players first.
+spot on the 26-man roster and -- for a pitcher -- a staff under 13.
+LOW -> AAA is automatic for CPU clubs too, only into an open AAA spot (15).
+Best players first. An owner's ready prospect -- at either rung -- is a
+suggestion (a news line and the returned ``suggestions``), never a move:
+the CPU does not change an owner's roster. When ownership can't be read
+nothing moves at all (``reason: "ownership_unknown"``).
 """
 
 from __future__ import annotations
@@ -153,7 +155,7 @@ def run_yearly_promotions(
     """Promote eligible AAA / LOW prospects across every team.
 
     See the module docstring for who moves where. When ownership can't be
-    read no club is treated as CPU, so nobody goes up to the active roster.
+    read nothing moves: an owner's club must never be mistaken for a CPU one.
     """
 
     resolved = data_dir or get_data_dir()
@@ -173,6 +175,13 @@ def run_yearly_promotions(
         human_ids = human_owned_team_ids_strict(resolved)
     except Exception:  # pragma: no cover - defensive
         human_ids = None
+    if human_ids is None:
+        return {
+            "promotions": [],
+            "count": 0,
+            "suggestions": [],
+            "reason": "ownership_unknown",
+        }
 
     promotions: List[Dict[str, Any]] = []
     suggestions: List[Dict[str, Any]] = []
@@ -184,7 +193,7 @@ def run_yearly_promotions(
             roster = load_roster(team_id)
         except Exception:
             continue
-        cpu = human_ids is not None and str(team_id).upper() not in human_ids
+        cpu = str(team_id).upper() not in human_ids
         candidates: List[Dict[str, Any]] = []
         for pid, current_level in list(ids_with_levels.items()):
             player = players_by_id.get(pid)
@@ -219,10 +228,11 @@ def run_yearly_promotions(
         roster_changed = False
         for entry in candidates:
             pid = entry["player_id"]
+            if not cpu:
+                # An owner's club: every promotion is the owner's call.
+                suggestions.append(entry)
+                continue
             if entry["to_level"] == "ACT":
-                if not cpu:
-                    suggestions.append(entry)
-                    continue
                 if len(roster.act) >= ACTIVE_ROSTER_SIZE:
                     skipped["act_full"] += 1
                     continue
@@ -319,7 +329,7 @@ def run_yearly_promotions(
 
 
 def _announce_suggestions(suggestions: List[Dict[str, Any]], data_dir: Path) -> None:
-    """A news line per owner prospect who is ready for the majors."""
+    """A news line per owner prospect who is ready for the next level."""
 
     if not suggestions:
         return
@@ -330,11 +340,17 @@ def _announce_suggestions(suggestions: List[Dict[str, Any]], data_dir: Path) -> 
     for entry in suggestions:
         name = f"{entry['first_name']} {entry['last_name']}".strip() or entry["player_id"]
         label = f"{entry['primary_position']} {name}".strip()
+        if entry["to_level"] == "ACT":
+            advice = "is ready for the majors -- promote him from AAA when you have a spot."
+        else:
+            advice = (
+                f"is ready for {entry['to_level']} -- promote him from "
+                f"{entry['from_level']} when you have a spot."
+            )
         try:
             log_news_event(
                 f"{entry['team_id']}: {label} (age {entry['age']}, OVR "
-                f"{entry['overall']}) is ready for the majors -- promote him "
-                "from AAA when you have a spot.",
+                f"{entry['overall']}) {advice}",
                 category="promotion",
                 team_id=entry["team_id"],
                 file_path=data_dir / "news_feed.txt",

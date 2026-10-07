@@ -24,6 +24,7 @@ from services.payroll_policy import (
     evaluate_free_agent_signing,
     record_payroll_policy_result,
 )
+from services.roster_validation import LOW_LEVEL_MAX_AGE
 from services.transaction_log import record_transaction
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
@@ -157,6 +158,18 @@ def run_cpu_free_agency_round(
             "signings": [],
         }
 
+    human_ids = _strict_owner_ids(resolved_data_dir)
+    if human_ids is None:
+        # Ownership unreadable: an owner's club could pass for a CPU one.
+        return {
+            "applied": False,
+            "reason": "ownership_unknown",
+            "ai_level": ai_level,
+            "signed_players": 0,
+            "remaining_unsigned": len(list_unsigned_players_from_files(data_dir=resolved_data_dir)),
+            "signings": [],
+        }
+
     unsigned_players = list_unsigned_players_from_files(data_dir=resolved_data_dir)
     # Skip players in an active human-initiated negotiation window (#12) so the
     # instant CPU cycle can't snatch a free agent you're bidding on.
@@ -183,7 +196,7 @@ def run_cpu_free_agency_round(
         }
 
     teams = load_teams(resolved_data_dir / "teams.csv")
-    cpu_teams = [team for team in teams if _is_cpu_team(team)]
+    cpu_teams = _cpu_market_teams(teams, human_ids)
     if not cpu_teams:
         return {
             "applied": False,
@@ -207,7 +220,19 @@ def run_cpu_free_agency_round(
 
     signed = 0
     signings: list[Dict[str, object]] = []
-    roster_players: Dict[str, object] | None = None
+    try:
+        roster_players: Dict[str, object] = {
+            str(getattr(p, "player_id", "") or ""): p
+            for p in load_players_from_csv(resolved_data_dir / "players.csv")
+        }
+    except Exception:
+        roster_players = {}
+    # Each CPU club's roster, so the bid book skips a club with no room;
+    # refreshed after each of its signings.
+    cpu_rosters: Dict[str, Roster | None] = {}
+    for team in cpu_teams:
+        club = str(getattr(team, "team_id", "") or "").strip()
+        cpu_rosters[club] = _read_team_roster(resolved_data_dir, club)
     for player in candidates:
         if max_signings is not None and signed >= max(0, int(max_signings)):
             break
@@ -220,6 +245,8 @@ def run_cpu_free_agency_round(
             ai_level=ai_level,
             data_dir=resolved_data_dir,
             rng=randomizer,
+            rosters=cpu_rosters,
+            players_by_id=roster_players,
         )
         if not bids:
             continue
@@ -259,25 +286,17 @@ def run_cpu_free_agency_round(
         team_id = selected_team_id
         if not team_id:
             continue
-        if roster_players is None:
-            # Loaded once per pass, only when someone signs: the placement
-            # needs to know who on each active roster is a pitcher.
-            try:
-                roster_players = {
-                    str(getattr(p, "player_id", "") or ""): p
-                    for p in load_players_from_csv(resolved_data_dir / "players.csv")
-                }
-            except Exception:
-                roster_players = {}
         roster_level = _add_player_to_team_roster(
             team_id,
             player_id,
             data_dir=resolved_data_dir,
             player=player,
             players_by_id=roster_players,
+            cpu_only=True,
         )
         if roster_level is None:
             continue
+        cpu_rosters[team_id] = _read_team_roster(resolved_data_dir, team_id)
         sign_free_agent_contract(
             player_id,
             team_id,
@@ -374,8 +393,20 @@ def run_cpu_free_agency_market(
             "rounds": [],
         }
 
+    human_ids = _strict_owner_ids(resolved_data_dir)
+    if human_ids is None:
+        return {
+            "applied": False,
+            "reason": "ownership_unknown",
+            "ai_level": ai_level,
+            "rounds_planned": 0,
+            "rounds_run": 0,
+            "signed_players": 0,
+            "remaining_unsigned": len(list_unsigned_players_from_files(data_dir=resolved_data_dir)),
+            "rounds": [],
+        }
     teams = load_teams(resolved_data_dir / "teams.csv")
-    cpu_teams = [team for team in teams if _is_cpu_team(team)]
+    cpu_teams = _cpu_market_teams(teams, human_ids)
     if not cpu_teams:
         return {
             "applied": False,
@@ -461,6 +492,59 @@ def _is_cpu_team(team: Team) -> bool:
     return owner in {"", "cpu", "ai", "none", "computer", "bot"}
 
 
+def _strict_owner_ids(data_dir: Path | str | None) -> set[str] | None:
+    """Owner team ids (upper-case), or None when ownership can't be read."""
+
+    try:
+        from services.team_ownership import human_owned_team_ids_strict
+
+        return human_owned_team_ids_strict(data_dir)
+    except Exception:
+        return None
+
+
+def _cpu_market_teams(teams: Iterable[Team], human_ids: set[str]) -> List[Team]:
+    """Clubs the CPU market may sign for: CPU-run by teams.csv AND not owned.
+
+    teams.csv ``owner_id`` is empty for every cloud club, so it alone would
+    call each owner's club CPU; ``human_ids`` (users.txt) settles it.
+    """
+
+    return [
+        team
+        for team in teams
+        if _is_cpu_team(team)
+        and str(getattr(team, "team_id", "") or "").strip().upper() not in human_ids
+    ]
+
+
+def _read_team_roster(data_dir: Path, team_id: str) -> Roster | None:
+    """``team_id``'s roster file, without placeholder generation (None if unreadable)."""
+
+    path = Path(data_dir) / "rosters" / f"{team_id}.csv"
+    if not path.exists():
+        return Roster(team_id=team_id)
+    try:
+        return read_roster_csv(path, team_id)
+    except Exception:
+        return None
+
+
+def _low_eligible(player: object | None) -> bool:
+    """True unless ``player`` is known to be too old for Low-A."""
+
+    bd = getattr(player, "birthdate", None) if player is not None else None
+    if not bd:
+        return True
+    try:
+        from playbalance.aging import calculate_age
+
+        age = calculate_age(str(bd))
+    except Exception:
+        return True
+    return age < LOW_LEVEL_MAX_AGE
+
+
 def _quality_score(player: Player) -> int:
     is_pitcher = bool(getattr(player, "is_pitcher", False)) or str(
         getattr(player, "primary_position", "") or ""
@@ -485,8 +569,9 @@ def cpu_signing_level(
 
     The active roster while it has a spot -- for a pitcher, only while the
     staff is under the limit (13; 14 in September), since a 14th arm can't
-    pitch -- else AAA, else Low-A. None once the organisation holds
-    ``ORG_LIMIT`` players (active + AAA + LOW).
+    pitch -- else AAA, else Low-A for a player young enough for it (under
+    ``LOW_LEVEL_MAX_AGE``). None when none of those has room, or once the
+    organisation holds ``ORG_LIMIT`` players (active + AAA + LOW).
     """
 
     act = list(getattr(roster, "act", []) or [])
@@ -503,7 +588,7 @@ def cpu_signing_level(
         return "ACT"
     if len(aaa) < AAA_CAP:
         return "AAA"
-    if len(low) < LOW_CAP:
+    if len(low) < LOW_CAP and _low_eligible(player):
         return "LOW"
     return None
 
@@ -527,7 +612,16 @@ def _add_player_to_team_roster(
     data_dir: Path,
     player: object | None = None,
     players_by_id: Dict[str, object] | None = None,
+    cpu_only: bool = False,
 ) -> str | None:
+    """Place a signed free agent on ``team_id``'s roster; the level, or None.
+
+    ``cpu_only`` (the CPU market) re-reads ownership strictly and refuses an
+    owner's club, or any club when ownership can't be read.
+    """
+
+    if cpu_only and not _cpu_team_for_signing(team_id, data_dir):
+        return None
     roster_dir = data_dir / "rosters"
     roster_path = roster_dir / f"{team_id}.csv"
     roster_path.parent.mkdir(parents=True, exist_ok=True)

@@ -7,12 +7,30 @@ from typing import Dict
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster, save_roster
 from utils.roster_rules import (
+    AAA_CAP,
     ACT_HITTER_TARGET,
     ACTIVE_ROSTER_SIZE,
+    LOW_CAP,
     MAX_ACTIVE_PITCHERS,
+    ORG_LIMIT,
     counts_as_pitcher,
 )
 from utils.team_loader import load_teams
+
+
+def _low_eligible(player: object) -> bool:
+    """True unless ``player`` is known to be too old for Low-A."""
+
+    bd = getattr(player, "birthdate", None) if player is not None else None
+    if not bd:
+        return True
+    try:
+        from playbalance.aging import calculate_age
+        from services.roster_validation import LOW_LEVEL_MAX_AGE
+
+        return calculate_age(str(bd)) < LOW_LEVEL_MAX_AGE
+    except Exception:
+        return True
 
 
 def ensure_active_rosters(
@@ -29,8 +47,18 @@ def ensure_active_rosters(
 
     Targets 13 position players and 13 pitchers (never more pitchers than
     the 13-pitcher limit). Owner teams are never touched -- this signs free
-    agents -- and when ownership can't be read nothing is. Players trimmed
-    from an oversized active roster go to AAA, never off the roster.
+    agents -- and when ownership can't be read nothing is. Per club:
+
+    1. surplus pitchers go down first -- to AAA while it is under its cap,
+       else Low-A for a player young enough while it has room; when neither
+       has room an own-org position player comes up to make it (a swap),
+       else the pitcher stays active;
+    2. the active roster fills to ``active_max``, own AAA/Low-A first, free
+       agents only while the organisation is under ``ORG_LIMIT``;
+    3. an active roster still over ``active_max`` options players the same
+       way -- never the last healthy catcher.
+
+    Players are only ever optioned, never released.
     """
 
     try:
@@ -85,6 +113,15 @@ def ensure_active_rosters(
     def is_pitcher(pid: str) -> bool:
         return counts_as_pitcher(players.get(pid))
 
+    def is_healthy_catcher(pid: str) -> bool:
+        player = players.get(pid)
+        return (
+            player is not None
+            and not is_pitcher(pid)
+            and str(getattr(player, "primary_position", "") or "").strip().upper() == "C"
+            and not getattr(player, "injured", False)
+        )
+
     free_agents = [
         pid
         for pid in players.keys()
@@ -94,104 +131,80 @@ def ensure_active_rosters(
     free_hitters = [pid for pid in free_agents if not is_pitcher(pid)]
     free_pitchers = [pid for pid in free_agents if is_pitcher(pid)]
 
+    pitcher_limit = max(min_pitchers, MAX_ACTIVE_PITCHERS)
+    target_hitters = max(min_hitters, ACT_HITTER_TARGET)
+
     for team_id, roster in rosters.items():
         act_ids = list(dict.fromkeys(roster.act))
         act_hitters = [pid for pid in act_ids if not is_pitcher(pid)]
         act_pitchers = [pid for pid in act_ids if is_pitcher(pid)]
 
-        org_hitters = [
-            pid
-            for pid in (roster.aaa + roster.low)
-            if not is_pitcher(pid) and pid not in act_ids
-        ]
-        org_pitchers = [
-            pid
-            for pid in (roster.aaa + roster.low)
-            if is_pitcher(pid) and pid not in act_ids
-        ]
+        def org_size() -> int:
+            return len(act_ids) + len(roster.aaa) + len(roster.low)
 
-        need_hitters = max(0, min_hitters - len(act_hitters))
-        while need_hitters > 0:
-            if org_hitters:
-                pid = org_hitters.pop(0)
-                if pid in roster.aaa:
-                    roster.aaa.remove(pid)
-                if pid in roster.low:
-                    roster.low.remove(pid)
-            elif free_hitters:
-                pid = free_hitters.pop(0)
-            else:
-                break
+        def call_up(want_pitcher: bool) -> bool:
+            # Own organisation, AAA before Low-A.
+            for level in ("aaa", "low"):
+                ids = getattr(roster, level)
+                for pid in ids:
+                    if pid in act_ids or is_pitcher(pid) != want_pitcher:
+                        continue
+                    ids.remove(pid)
+                    act_ids.append(pid)
+                    (act_pitchers if want_pitcher else act_hitters).append(pid)
+                    return True
+            return False
+
+        def sign(want_pitcher: bool) -> bool:
+            if org_size() >= ORG_LIMIT:
+                return False
+            pool = free_pitchers if want_pitcher else free_hitters
+            if not pool:
+                return False
+            pid = pool.pop()
             act_ids.append(pid)
-            act_hitters.append(pid)
-            need_hitters -= 1
-            adjustments += 1
-
-        while len(act_pitchers) < min_pitchers:
-            if org_pitchers:
-                pid = org_pitchers.pop(0)
-                if pid in roster.aaa:
-                    roster.aaa.remove(pid)
-                if pid in roster.low:
-                    roster.low.remove(pid)
-                act_ids.append(pid)
-                act_pitchers.append(pid)
-                adjustments += 1
-            elif free_pitchers:
-                pid = free_pitchers.pop(0)
-                act_ids.append(pid)
-                act_pitchers.append(pid)
-                adjustments += 1
-            else:
-                break
+            (act_pitchers if want_pitcher else act_hitters).append(pid)
+            return True
 
         def add_hitter() -> bool:
-            if org_hitters:
-                pid = org_hitters.pop()
-                if pid in roster.aaa:
-                    roster.aaa.remove(pid)
-                if pid in roster.low:
-                    roster.low.remove(pid)
-            elif free_hitters:
-                pid = free_hitters.pop()
-            else:
-                return False
-            act_ids.append(pid)
-            act_hitters.append(pid)
-            return True
+            return call_up(False) or sign(False)
 
         def add_pitcher() -> bool:
-            if len(act_pitchers) >= MAX_ACTIVE_PITCHERS:
+            if len(act_pitchers) >= pitcher_limit:
                 return False
-            if org_pitchers:
-                pid = org_pitchers.pop()
-                if pid in roster.aaa:
-                    roster.aaa.remove(pid)
-                if pid in roster.low:
-                    roster.low.remove(pid)
-            elif free_pitchers:
-                pid = free_pitchers.pop()
-            else:
-                return False
-            act_ids.append(pid)
-            act_pitchers.append(pid)
-            return True
+            return call_up(True) or sign(True)
 
-        def option(pid: str) -> None:
+        def destination(pid: str) -> str | None:
+            if len(roster.aaa) < AAA_CAP:
+                return "aaa"
+            if len(roster.low) < LOW_CAP and _low_eligible(players.get(pid)):
+                return "low"
+            return None
+
+        def option(pid: str, level: str) -> None:
             nonlocal adjustments
-            if pid in act_ids:
-                act_ids.remove(pid)
-            if pid not in roster.aaa:
-                roster.aaa.append(pid)
+            act_ids.remove(pid)
+            (act_pitchers if is_pitcher(pid) else act_hitters).remove(pid)
+            getattr(roster, level).append(pid)
             adjustments += 1
 
-        target_hitters = max(min_hitters, ACT_HITTER_TARGET)
-        target_pitchers = max(min_pitchers, MAX_ACTIVE_PITCHERS)
+        # 1. surplus pitchers down first, so the fill can use their spots.
+        while len(act_pitchers) > pitcher_limit:
+            pid = act_pitchers[-1]
+            level = destination(pid)
+            if level is None and len(act_hitters) < target_hitters and call_up(False):
+                adjustments += 1        # a position player up makes the room
+                level = destination(pid)
+            if level is None:
+                break                   # nowhere legal: he stays active
+            option(pid, level)
+
+        # 2. fill: position players to the target, then arms to the limit.
         while len(act_ids) < active_max:
             if len(act_hitters) < target_hitters and add_hitter():
                 adjustments += 1
                 continue
-            if len(act_pitchers) < target_pitchers and add_pitcher():
+            if len(act_pitchers) < pitcher_limit and add_pitcher():
                 adjustments += 1
                 continue
             if add_hitter():
@@ -199,14 +212,21 @@ def ensure_active_rosters(
                 continue
             break
 
-        while len(act_pitchers) > max(min_pitchers, MAX_ACTIVE_PITCHERS):
-            option(act_pitchers.pop())
-
-        while len(act_ids) > active_max and act_pitchers and len(act_pitchers) > min_pitchers:
-            option(act_pitchers.pop())
-
-        while len(act_ids) > active_max and len(act_hitters) > min_hitters:
-            option(act_hitters.pop())
+        # 3. still over the size cap: option by composition.
+        while len(act_ids) > active_max:
+            catchers = [p for p in act_hitters if is_healthy_catcher(p)]
+            hitters = (
+                [p for p in act_hitters if not (p in catchers and len(catchers) <= 1)]
+                if len(act_hitters) > min_hitters
+                else []
+            )
+            arms = act_pitchers if len(act_pitchers) > min_pitchers else []
+            pools = (hitters, arms) if len(act_hitters) > target_hitters else (arms, hitters)
+            victim = next((pool[-1] for pool in pools if pool), None)
+            level = destination(victim) if victim is not None else None
+            if level is None:
+                break
+            option(victim, level)
 
         roster.act = act_ids
         save_roster(team_id, roster)

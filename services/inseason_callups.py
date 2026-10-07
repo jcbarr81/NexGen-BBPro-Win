@@ -8,7 +8,8 @@ a revert at the REGULAR_SEASON -> PLAYOFFS edge. Automated moves apply to CPU
 teams only -- ownership read strictly, so an unreadable ``users.txt`` means
 no moves at all; human owners manage their own rosters. The one exception is
 the revert, which options every club (owners included) back to 26 active and
-13 pitchers, each move logged.
+13 pitchers, each move logged (to Low-A when AAA is full and the player is
+young enough for it).
 """
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ from services.prospect_rules import (
     evaluate_roster_move,
     is_player_protected,
 )
+from services.roster_validation import LOW_LEVEL_MAX_AGE
 from services.team_outlook import (
     OUTLOOK_CONTEND,
     OUTLOOK_REBUILD,
@@ -44,7 +46,13 @@ from utils.roster_loader import (
     load_roster,
     save_roster,
 )
-from utils.roster_rules import MAX_ACTIVE_PITCHERS, counts_as_pitcher
+from utils.roster_rules import (
+    AAA_CAP,
+    ACT_HITTER_TARGET,
+    LOW_CAP,
+    MAX_ACTIVE_PITCHERS,
+    counts_as_pitcher,
+)
 from utils.team_loader import load_teams
 from utils.trade_utils import trade_deadline_for_year
 
@@ -272,12 +280,15 @@ def _select_demotion_candidate(
     incoming_is_hitter: bool = False,
     force: bool = False,
     pitchers_only: bool = False,
+    prefer_pitcher: bool | None = None,
 ) -> str | None:
     """Pick the worst-score demotable ACT player (D7). ``force`` skips the
     protection + option gates (used by the September revert as a last resort).
 
     ``pitchers_only`` limits the choice to pitchers (an incoming arm at the
-    pitcher limit, or a staff over it).
+    pitcher limit, or a staff over it). ``prefer_pitcher`` (True/False) picks
+    from that type first and the other only when it has nobody to send.
+    Never the last HEALTHY catcher: an injured one can't catch.
     """
 
     act = list(getattr(roster, "act", []) or [])
@@ -289,8 +300,10 @@ def _select_demotion_candidate(
     catcher_count = sum(
         1
         for pid in act
-        if not _is_pitcher(players_by_id.get(pid))
+        if players_by_id.get(pid) is not None
+        and not _is_pitcher(players_by_id.get(pid))
         and _primary_pos(players_by_id.get(pid)) == "C"
+        and not getattr(players_by_id.get(pid), "injured", False)
     )
     rules_path = _rules_path(data_dir)
 
@@ -326,8 +339,42 @@ def _select_demotion_candidate(
 
     if not candidates:
         return None
+    if prefer_pitcher is not None:
+        preferred = [
+            c for c in candidates if _is_pitcher(players_by_id.get(c[1])) == prefer_pitcher
+        ]
+        if preferred:
+            candidates = preferred
     candidates.sort(key=lambda item: (item[0], item[1]))
     return candidates[0][1]
+
+
+def _prefer_pitcher_down(
+    roster: object, players_by_id: Mapping[str, object], *, incoming_is_pitcher: bool
+) -> bool:
+    """Which type to send down for a call-up -- ``choose_send_down``'s rule.
+
+    By the active roster with the incoming player counted: a pitcher while
+    the position players are at the floor; else a position player while
+    there are more than ``ACT_HITTER_TARGET``; else one of the incoming
+    player's type. (A staff at the limit is handled by ``pitchers_only``.)
+    Sending down the worst player of either type took a full 13/13 club to
+    14 hitters / 12 pitchers for a hitter call-up, and the daily upkeep then
+    churned it back.
+    """
+
+    act = list(getattr(roster, "act", []) or [])
+    hitters = sum(
+        1 for pid in act
+        if players_by_id.get(pid) is not None and not _is_pitcher(players_by_id.get(pid))
+    )
+    if not incoming_is_pitcher:
+        hitters += 1
+    if hitters <= _POSITION_PLAYER_FLOOR:
+        return True
+    if hitters > ACT_HITTER_TARGET:
+        return False
+    return incoming_is_pitcher
 
 
 # ---------------------------------------------------------------------------
@@ -345,34 +392,57 @@ def _demote(
     trigger: str,
     force: bool = False,
     details: str = "Sent down to open a roster spot",
+    to_level: str = "aaa",
 ) -> dict:
     player = players_by_id.get(victim)
     name = _name(player, victim)
-    roster.move_player(victim, "act", "aaa")
+    roster.move_player(victim, "act", to_level)
     try:
         apply_roster_move(
             team_id,
             victim,
             from_level="act",
-            to_level="aaa",
+            to_level=to_level,
             actor="system",
             trigger=trigger,
             path=_rules_path(data_dir),
         )
     except Exception:
         pass
+    label = to_level.upper()
     _record(
         "demote",
         team_id=team_id,
         player_id=victim,
         player_name=name,
         from_level="ACT",
-        to_level="AAA",
+        to_level=label,
         details=details,
         season_date=current,
     )
-    _news(f"{team_id} option {name} to AAA.", category="demotion", team_id=team_id, data_dir=data_dir)
-    return {"team_id": team_id, "player_id": victim, "forced": force}
+    _news(
+        f"{team_id} option {name} to {label}.",
+        category="demotion", team_id=team_id, data_dir=data_dir,
+    )
+    return {"team_id": team_id, "player_id": victim, "forced": force, "to_level": to_level}
+
+
+def _revert_destination(roster: object, player: object) -> tuple[str, bool]:
+    """Where the revert options a player: ``(level, over_aaa_cap)``.
+
+    AAA while it has room (15). A full AAA sends a player young enough for
+    Low-A there while it has room (10); anyone else still goes to AAA -- the
+    revert must make the active roster legal for the playoffs -- and the
+    caller logs that AAA is now over its cap.
+    """
+
+    if len(getattr(roster, "aaa", []) or []) < AAA_CAP:
+        return "aaa", False
+    age = _player_age(player)
+    low_ok = age is None or age < LOW_LEVEL_MAX_AGE
+    if low_ok and len(getattr(roster, "low", []) or []) < LOW_CAP:
+        return "low", False
+    return "aaa", True
 
 
 def _promote(
@@ -569,6 +639,9 @@ def run_monthly_callups(
                     incoming_is_catcher=(_primary_pos(player) == "C"),
                     incoming_is_hitter=not _is_pitcher(player),
                     pitchers_only=arms_full or arms > arm_cap,
+                    prefer_pitcher=_prefer_pitcher_down(
+                        roster, players_by_id, incoming_is_pitcher=_is_pitcher(player)
+                    ),
                 )
                 if victim is None:
                     filtered["no_roster_space"] += 1
@@ -700,7 +773,9 @@ def revert_september_expansion(*, data_dir: Path | None = None) -> dict:
 
     Runs at the REGULAR_SEASON -> PLAYOFFS edge. Owners' clubs included: a
     documented exception to "CPU never touches an owner's roster" (decision
-    8), and only ever by optioning to AAA, never a release. First the size
+    8), and only ever by optioning, never a release: to AAA, or to Low-A
+    when AAA is full and the player is young enough (else AAA over its cap,
+    logged -- the playoff roster must be legal). First the size
     (worst-scoring demotable player), then -- while more than 13 pitchers
     are active -- the worst pitcher. Option and protection rules are honoured
     until nobody else is left, then overridden; every move is a logged
@@ -752,6 +827,12 @@ def revert_september_expansion(*, data_dir: Path | None = None) -> dict:
                 if over_arms and not over_size
                 else f"Optioned for the postseason: back to the {ACTIVE_ROSTER_SIZE}-man roster"
             )
+            to_level, over_aaa = _revert_destination(roster, players_by_id.get(victim))
+            if over_aaa:
+                detail += (
+                    f"; AAA was full, so AAA is now over its {AAA_CAP}-man cap "
+                    "-- send someone down from AAA"
+                )
             demotions.append(
                 _demote(
                     team_id,
@@ -763,6 +844,7 @@ def revert_september_expansion(*, data_dir: Path | None = None) -> dict:
                     trigger="september_revert_forced" if forced else "september_revert",
                     force=forced,
                     details=detail,
+                    to_level=to_level,
                 )
             )
             changed = True

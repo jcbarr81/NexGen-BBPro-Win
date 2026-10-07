@@ -304,10 +304,17 @@ def _cpu_bid_round(
     sim_date: str,
     *,
     max_bidders: int = 3,
+    data_dir: Path | str | None = None,
+    players_by_id: Optional[Dict[str, Any]] = None,
 ) -> int:
     """Ensure the top CPU bidders have a live offer at their bid-book value.
     Idempotent within a window (won't lower an existing offer). Returns how many
-    offers were added or raised this round."""
+    offers were added or raised this round.
+
+    The bid book leaves out a club with nowhere legal to put the player, and a
+    club whose signing of this player already failed (``excluded_teams``)
+    never bids on him again -- otherwise it re-bids daily, wins, fails to
+    sign, and the player never goes to anyone else."""
     if player is None or not teams:
         return 0
     try:
@@ -317,14 +324,24 @@ def _cpu_bid_round(
     seed = int(hashlib.md5(str(player_id).encode("utf-8")).hexdigest()[:8], 16)
     try:
         book = build_cpu_free_agent_bid_book(
-            player, teams, ai_level=ai_level, rng=random.Random(seed)
+            player,
+            teams,
+            ai_level=ai_level,
+            data_dir=data_dir,
+            rng=random.Random(seed),
+            players_by_id=players_by_id,
         )
     except Exception:
         return 0
     if not book:
         return 0
+    excluded = {str(t) for t in negotiation.get("excluded_teams", []) or []}
     ranked = sorted(
-        ((tid, int(amt)) for tid, amt in book.items() if int(amt) > 0),
+        (
+            (tid, int(amt))
+            for tid, amt in book.items()
+            if int(amt) > 0 and str(tid) not in excluded
+        ),
         key=lambda kv: -kv[1],
     )[:max_bidders]
     try:
@@ -390,9 +407,15 @@ def _resolve(
     if not signed:
         # Signing failed (e.g. roster full) — drop that offer and leave the
         # window open for another day rather than losing the player silently.
+        # A CPU club that failed is shut out of this player for good, or its
+        # daily re-bid would win (and fail) every day from now on.
         negotiation["offers"] = [
             o for o in offers if str(o.get("team_id")) != team_id
         ]
+        if winner.get("is_cpu"):
+            excluded = negotiation.setdefault("excluded_teams", [])
+            if team_id not in excluded:
+                excluded.append(team_id)
         return {"signed_team": None, "player_id": player_id, "sign_failed": True}
 
     negotiation["status"] = "resolved"
@@ -465,7 +488,10 @@ def process_negotiations(
         summary["processed"] += 1
         player = (players_by_id or {}).get(pid)
 
-        added = _cpu_bid_round(neg, pid, player, teams, ai_level, sim_date)
+        added = _cpu_bid_round(
+            neg, pid, player, teams, ai_level, sim_date,
+            data_dir=data_dir, players_by_id=players_by_id,
+        )
         if added:
             summary["cpu_offers"] += added
             changed = True
@@ -554,7 +580,9 @@ def seed_cpu_negotiations(
         existed = isinstance(neg, dict) and neg.get("status") == "open"
         if not existed:
             neg = _new_negotiation(pid, sim_date, opened_day=window_day)
-        added = _cpu_bid_round(neg, pid, player, teams, ai_level, sim_date)
+        added = _cpu_bid_round(
+            neg, pid, player, teams, ai_level, sim_date, data_dir=data_dir
+        )
         # Only persist a *new* negotiation if a CPU team actually bid; otherwise
         # we'd leave an empty open window that never resolves.
         if existed:

@@ -435,8 +435,9 @@ def maintain_cpu_active_roster(
 
     Only the club's own AAA/Low-A, never a free agent. ``option_allowed``
     vetoes send-downs the option rules forbid; a surplus pitcher nobody may
-    option is optioned anyway (a :class:`ForcedMove`). CPU clubs only -- an
-    owner's roster is the owner's. Mutates ``roster``.
+    option is optioned anyway (a :class:`ForcedMove`) -- nobody else ever is,
+    so a club whose surplus is out of options stays over the size cap. CPU
+    clubs only -- an owner's roster is the owner's. Mutates ``roster``.
     """
 
     moves: List[Move] = []
@@ -506,15 +507,19 @@ def maintain_cpu_active_roster(
         _option(roster, _weakest(surplus, players), moves)
         _promote(roster, pick[0], pick[1], moves)
 
-    # 5. trim to the cap
+    # 5. trim to the cap. When the option rules veto everyone, only a surplus
+    # pitcher (a staff over the limit) is forced down; anyone else stays and
+    # the club stays over the size cap until a send-down is allowed.
     while len(roster.act) > cap:
         victim = choose_send_down(
             roster, players, allowed=option_allowed, pitcher_cap=limit
         )
         forced = False
         if victim is None and option_allowed is not None:
-            victim = choose_send_down(roster, players, pitcher_cap=limit)
-            forced = victim is not None
+            arms = _pitchers(roster.act, players)
+            if len(arms) > limit:
+                victim = _weakest(arms, players)
+                forced = True
         if victim is None:
             break
         _option(roster, victim, moves, forced=forced)

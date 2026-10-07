@@ -747,3 +747,27 @@ def test_cpu_cpu_never_touches_humans(monkeypatch, tmp_path):
     assert commits, "expected at least one CPU-CPU execution"
     for trade in commits:
         assert trade.from_team in cpu_ids and trade.to_team in cpu_ids
+
+
+def test_cpu_cpu_validation_uses_the_date_caps(monkeypatch, tmp_path):
+    from utils.roster_rules import AAA_CAP, ACTIVE_ROSTER_SIZE, LOW_CAP, MAX_ACTIVE_PITCHERS
+
+    _wire_cpu_cpu(
+        monkeypatch,
+        teams=_CPU_TEAMS,
+        outlooks={"CPUA": "contend", "CPUB": "bubble"},
+        evaluate=lambda *_a, **_kw: SimpleNamespace(
+            action="accept", total_score=1.0, threshold=0.6, counter_offer=None
+        ),
+    )
+    seen: list[dict] = []
+    monkeypatch.setattr(
+        "services.roster_validation.validate_trade",
+        lambda **kw: seen.append(kw) or SimpleNamespace(ok=True),
+    )
+    run_cpu_trade_proposal_cycle(
+        simulated_dates=["2026-07-15"], data_dir=tmp_path, rng=random.Random(1)
+    )
+    assert seen
+    assert seen[0]["level_caps"] == {"act": ACTIVE_ROSTER_SIZE, "aaa": AAA_CAP, "low": LOW_CAP}
+    assert seen[0]["pitcher_cap"] == MAX_ACTIVE_PITCHERS
