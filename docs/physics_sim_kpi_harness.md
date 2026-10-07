@@ -28,7 +28,7 @@ The JSON payload includes:
 - `deltas`: KPI minus MLB benchmark (where available).
 - `tolerance_ok` and `tolerance_failures`: pass/fail summary vs the strict
   tolerances (`DEFAULT_TOLERANCES`); these decide `--strict`.
-- `report_only`: `results` (one row per report-only gate: value, target, delta,
+- `report_only_gates`: `results` (one row per report-only gate: value, target, delta,
   tolerance, `ok`) and `failures`. These gates never fail `--strict`; the
   table is also printed to stderr.
 - `rating_splits`: top/bottom decile summaries for batter contact/power and pitcher control.

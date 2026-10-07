@@ -1,6 +1,8 @@
 """Audit 2026-10-06 Release 2: report-only KPIs (scripts/kpi_extras.py)."""
 import csv
+import json
 import random
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -360,3 +362,24 @@ def test_matchup_grid_small_run_restores_random_state():
     assert out["metrics"]["matchup_k_log5_max_abs_resid"] >= 0.0
     hr_grid = out["tables"]["matchup_hr_grid"]
     assert 50.0 in hr_grid["ph_levels"] and 50.0 in hr_grid["pitcher_levels"]
+
+
+def test_main_keeps_extras_and_report_only_gates_apart(monkeypatch, tmp_path, capsys):
+    """Both Release 2 blocks land in the JSON; neither overwrites the other."""
+
+    extras = {"metrics": {"swing_rate_0_0": 0.4}, "tables": {}, "coverage": {}}
+    monkeypatch.setattr(
+        kpis, "run_sim",
+        lambda *a, **k: {"metrics": {"sba_per_pa": 0.05}, "report_only": extras},
+    )
+    monkeypatch.setattr(kpis.kpi_extras, "format_report", lambda r: "")
+    out = tmp_path / "kpis.json"
+    monkeypatch.setattr(
+        sys, "argv",
+        ["physics_sim_season_kpis.py", "--games", "1", "--output", str(out)],
+    )
+    kpis.main()
+    summary = json.loads(out.read_text(encoding="utf-8"))
+    assert summary["report_only"]["metrics"]["swing_rate_0_0"] == 0.4
+    rows = {r["metric"]: r for r in summary["report_only_gates"]["results"]}
+    assert "sba_per_pa" in rows

@@ -134,8 +134,8 @@ DEFAULT_TOLERANCES: dict[str, float] = {
 
 # Audit 2026-10-06 Release 2 (REPORT H2, M2, M3, M7): corrected benchmarks and
 # newly computed metrics that the current engine fails or only grazes. They are
-# evaluated on every run and written to the JSON under "report_only", but they
-# never fail --strict, so the CI calibration check keeps passing while the
+# evaluated on every run and written to the JSON under "report_only_gates", but
+# they never fail --strict, so the CI calibration check keeps passing while the
 # engine is wrong in these places. Move a key into DEFAULT_TOLERANCES when
 # the engine work that fixes it lands (steals and extra bases: Release 4;
 # batted-ball shape: Release 6). Targets are rows of the benchmark CSV.
@@ -1586,7 +1586,8 @@ def main() -> None:
         benchmarks=benchmarks,
         tolerances=_load_tolerances(args.tolerances, REPORT_ONLY_TOLERANCES),
     )
-    summary["report_only"] = {
+    # "report_only" holds the kpi_extras block; these rows are gates.
+    summary["report_only_gates"] = {
         "results": report_only,
         "failures": [row["metric"] for row in report_only if row["ok"] is False],
     }
