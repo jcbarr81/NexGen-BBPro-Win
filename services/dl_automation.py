@@ -27,7 +27,7 @@ import json
 import os
 from pathlib import Path
 import threading
-from typing import Dict, List, Mapping, Optional, Sequence, Union
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Union
 
 from services.injury_manager import (
     disabled_list_days_remaining,
@@ -231,6 +231,7 @@ def process_disabled_lists(
     days_elapsed: int = 1,
     auto_activate: bool = True,
     force_auto_activate: bool = False,
+    force_teams: Optional[Iterable[str]] = None,
 ) -> DLAutomationSummary:
     """Progress disabled list eligibility and optionally activate players.
 
@@ -241,8 +242,14 @@ def process_disabled_lists(
     owner's 15-day returners only when the owner never chose for that list
     (owner decision Q11: an explicit "off" is honoured every day); an owner's
     60-day list always follows his 60-day choice. When team ownership can't
-    be read nobody is activated, forced or not.
+    be read nobody is activated, forced or not. ``force_teams`` limits the
+    fallback to those clubs (the deadline passes the owners who are not
+    ready, i.e. not showing up); None applies it to every club.
     """
+
+    forced_ids = (
+        None if force_teams is None else {str(t).upper() for t in force_teams}
+    )
 
     summary = DLAutomationSummary()
     target_date = _coerce_date(today)
@@ -311,6 +318,7 @@ def process_disabled_lists(
                 activate = True
             elif (
                 force_auto_activate
+                and (forced_ids is None or str(team_id).upper() in forced_ids)
                 and list_level == "dl"
                 and not _owner_chose(team_id, list_level, data_dir)
             ):
@@ -345,7 +353,12 @@ def process_disabled_lists(
             )
             if destination is None:
                 summary.blocked.append(f"{base_msg} but no roster room is available.")
-                log_news_event(f"{base_msg} but no roster space available.", category="injury")
+                if newly_ready:  # once per stint; the Season page keeps reminding
+                    log_news_event(
+                        f"{base_msg} but no roster space available.",
+                        category="injury",
+                        team_id=team_id,
+                    )
                 continue
             try:
                 recover_from_injury(

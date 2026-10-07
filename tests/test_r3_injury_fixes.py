@@ -149,6 +149,50 @@ def test_force_still_activates_an_owner_who_never_chose(tmp_path, monkeypatch):
     assert "PINJ" in load_roster(TEAM).act
 
 
+def test_force_spares_an_engaged_owner_who_left_the_default(tmp_path, monkeypatch):
+    """The deadline passes only the clubs that aren't ready (owners who
+    stopped showing up). An engaged owner on 'Default' in a league with a
+    manual 15-day list keeps his returner listed."""
+    from services.dl_automation import process_disabled_lists
+
+    data = _prepare_env(tmp_path, monkeypatch)
+    _owners(data, TEAM)
+    monkeypatch.setattr("utils.league_settings.auto_activate_il", lambda *a: False)
+    save_players_to_csv(
+        [_make_player("PINJ", injury_list="dl15")], str(data / "players.csv")
+    )
+    (data / "rosters" / f"{TEAM}.csv").write_text("PACT1,ACT\nPINJ,DL15\n", encoding="utf-8")
+
+    summary = process_disabled_lists(
+        today="2025-04-25", force_auto_activate=True, force_teams=[]
+    )
+    assert not summary.activated
+    assert "PINJ" in load_roster(TEAM).dl
+    summary = process_disabled_lists(
+        today="2025-04-25", force_auto_activate=True, force_teams=[TEAM.lower()]
+    )
+    assert summary.activated
+
+
+def test_the_no_room_news_line_is_logged_once_per_stint(tmp_path, monkeypatch):
+    from services.dl_automation import process_disabled_lists
+
+    data = _prepare_env(tmp_path, monkeypatch, teams=("CPU",))
+    (data / "users.txt").write_text("", encoding="utf-8")
+    lines = _news(monkeypatch)
+    monkeypatch.setattr(
+        "services.dl_automation._resolve_destination", lambda *a, **k: None
+    )
+    save_players_to_csv(
+        [_make_player("PINJ", injury_list="dl15")], str(data / "players.csv")
+    )
+    (data / "rosters" / "CPU.csv").write_text("PACT1,ACT\nPINJ,DL15\n", encoding="utf-8")
+    for day in ("2025-04-25", "2025-04-26", "2025-04-27"):
+        load_players_from_csv.cache_clear()
+        process_disabled_lists(today=day)
+    assert sum("no roster space" in line for line in lines) == 1
+
+
 # --- (2) unknown ownership stands everyone down, even under force ----------
 
 

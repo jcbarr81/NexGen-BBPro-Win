@@ -31,12 +31,18 @@ def data_dir(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     (root / "users.txt").write_text("", encoding="utf-8")
+    # Sentinel so get_data_dir() resolves this root, never a stray local league.
+    (root / "players.csv").write_text(
+        "player_id,first_name,last_name,primary_position,is_pitcher" + chr(10),
+        encoding="utf-8",
+    )
     (root / "rosters").mkdir()
     monkeypatch.setenv("NEXGEN_DATA_ROOT", str(root))
     monkeypatch.delenv("NEXGEN_ACTIVE_LEAGUE", raising=False)
     import utils.path_utils as path_utils
 
     path_utils._DATA_DIR_CACHE.clear()
+    assert path_utils.get_data_dir().resolve() == root.resolve()
     yield root
     path_utils._DATA_DIR_CACHE.clear()
 

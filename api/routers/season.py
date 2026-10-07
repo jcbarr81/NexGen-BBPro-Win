@@ -2552,7 +2552,16 @@ def _cpu_activate_eligible() -> List[str]:
     try:
         from services.dl_automation import process_disabled_lists
 
-        summary = process_disabled_lists(force_auto_activate=True)
+        # The fallback is for owners who stopped showing up: only clubs the
+        # readiness check lists as not ready. An engaged owner's players
+        # follow his own (or the default) setting.
+        try:
+            unready = list(_league_readiness()["unready"])
+        except Exception:
+            unready = []
+        summary = process_disabled_lists(
+            force_auto_activate=True, force_teams=unready
+        )
         return list(getattr(summary, "activated", []) or [])
     except Exception:  # pragma: no cover - defensive
         return []
