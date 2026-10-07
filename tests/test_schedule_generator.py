@@ -143,3 +143,54 @@ def test_mlb_schedule_rejects_too_few_games() -> None:
     teams = ["A", "B", "C", "D"]
     with pytest.raises(ValueError):
         generate_mlb_schedule(teams, date(2025, 3, 31), games_per_team=10)
+
+
+def _span_and_longest_run(schedule: list[dict[str, str]]) -> tuple[int, int]:
+    days = sorted({date.fromisoformat(g["date"]) for g in schedule})
+    span = (days[-1] - days[0]).days + 1
+    longest = run = 1
+    for prev, cur in zip(days, days[1:]):
+        run = run + 1 if (cur - prev).days == 1 else 1
+        longest = max(longest, run)
+    return span, longest
+
+
+@pytest.mark.parametrize("team_count", [30, 20, 12, 8, 4])
+def test_mlb_schedule_is_dense_by_default(team_count: int) -> None:
+    """Owner decision Q4 (Release 3): series run back to back, keeping the
+    weekly off day and the All-Star break -- about 190 days, like MLB."""
+    teams = [f"T{i:02d}" for i in range(team_count)]
+    schedule = generate_mlb_schedule(teams, date(2025, 4, 1))
+    counts = Counter()
+    for game in schedule:
+        counts[game["home"]] += 1
+        counts[game["away"]] += 1
+    assert set(counts.values()) == {162}
+    span, longest = _span_and_longest_run(schedule)
+    assert 180 <= span <= 196, span
+    assert longest <= 10
+    # The weekly off day survives: no series starts on a Monday, so Mondays
+    # are off unless a 4-game series runs through one.
+    mondays = {g["date"] for g in schedule if date.fromisoformat(g["date"]).weekday() == 0}
+    assert len(mondays) < 27
+
+
+def test_series_off_day_restores_the_old_layout() -> None:
+    teams = [f"T{i:02d}" for i in range(30)]
+    schedule = generate_mlb_schedule(teams, date(2025, 4, 1), series_off_day=True)
+    span, _ = _span_and_longest_run(schedule)
+    assert span == 231
+
+
+def test_mlb_162_template_is_dense() -> None:
+    from services.league_presets import (
+        generate_schedule_from_template,
+        get_schedule_template,
+    )
+
+    template = get_schedule_template("mlb_162")
+    assert template is not None and template.series_off_day is False
+    teams = [f"T{i:02d}" for i in range(30)]
+    schedule = generate_schedule_from_template("mlb_162", teams, year=2027)
+    span, _ = _span_and_longest_run(schedule)
+    assert 180 <= span <= 196, span

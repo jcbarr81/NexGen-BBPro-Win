@@ -29,7 +29,7 @@ import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 JOURNAL_SCHEMA = 1
@@ -161,37 +161,23 @@ def usage_state_to_payload(
 ) -> Dict[str, Any]:
     """Serialize a physics ``UsageState`` to a JSON-safe dict.
 
-    Workload dataclasses are serialized field-generically via ``asdict`` so this
-    stays correct as fields are added. When *pids* is given, only those players
+    Workload dataclasses are serialized field-generically (see
+    ``physics_sim.usage.usage_state_to_dict``) so this stays correct as fields
+    are added. When *pids* is given, only those players
     are included (per-game roster filtering keeps payloads small).
     """
 
-    def _filter(workloads: Dict[str, Any]) -> Dict[str, dict]:
-        out: Dict[str, dict] = {}
-        for pid, workload in workloads.items():
-            if pids is None or pid in pids:
-                out[pid] = asdict(workload)
-        return out
+    from physics_sim.usage import usage_state_to_dict
 
-    return {
-        "game_day": game_day,
-        "current_day": getattr(state, "current_day", None),
-        "workloads": _filter(getattr(state, "workloads", {}) or {}),
-        "batter_workloads": _filter(getattr(state, "batter_workloads", {}) or {}),
-    }
+    return {"game_day": game_day, **usage_state_to_dict(state, pids=pids)}
 
 
 def usage_payload_to_state(payload: Optional[Dict[str, Any]]) -> Any:
     """Build a fresh ``UsageState`` from a usage_in payload dict."""
 
-    from physics_sim.usage import BatterWorkload, PitcherWorkload, UsageState
+    from physics_sim.usage import usage_state_from_dict
 
-    state = UsageState(current_day=(payload or {}).get("current_day"))
-    for pid, data in ((payload or {}).get("workloads") or {}).items():
-        state.workloads[pid] = PitcherWorkload(**data)
-    for pid, data in ((payload or {}).get("batter_workloads") or {}).items():
-        state.batter_workloads[pid] = BatterWorkload(**data)
-    return state
+    return usage_state_from_dict(payload)
 
 
 def diff_usage_out(
@@ -214,6 +200,7 @@ def diff_usage_out(
     return {
         "game_day": usage_out.get("game_day"),
         "current_day": usage_out.get("current_day"),
+        "game_index": usage_out.get("game_index"),
         "workloads": {pid: v for pid, v in out_w.items() if in_w.get(pid) != v},
         "batter_workloads": {pid: v for pid, v in out_b.items() if in_b.get(pid) != v},
     }
@@ -223,22 +210,26 @@ def merge_usage_into_state(state: Any, usage_out: Optional[Dict[str, Any]]) -> N
     """Overwrite the parent shared state's per-player workloads from a journal.
 
     Per-game player sets are disjoint within a day, so overwrites never collide.
-    ``current_day`` is advanced to the max seen so the parent's shared state
-    stays coherent for any later serial (degraded) day.
+    ``current_day`` and ``game_index`` are advanced to the max seen: every
+    worker starts from the same pre-day snapshot and advances it once, so the
+    max is exactly what one serial pass over the day produces.
     """
 
     if not usage_out:
         return
-    from physics_sim.usage import BatterWorkload, PitcherWorkload
+    from physics_sim.usage import BatterWorkload, PitcherWorkload, _workload_from_dict
 
     for pid, data in (usage_out.get("workloads") or {}).items():
-        state.workloads[pid] = PitcherWorkload(**data)
+        state.workloads[pid] = _workload_from_dict(PitcherWorkload, data)
     for pid, data in (usage_out.get("batter_workloads") or {}).items():
-        state.batter_workloads[pid] = BatterWorkload(**data)
+        state.batter_workloads[pid] = _workload_from_dict(BatterWorkload, data)
     current_day = usage_out.get("current_day")
     if current_day is not None:
         if state.current_day is None or current_day > state.current_day:
             state.current_day = current_day
+    game_index = usage_out.get("game_index")
+    if game_index is not None and int(game_index) > state.game_index:
+        state.game_index = int(game_index)
 
 
 # ---------------------------------------------------------------------------

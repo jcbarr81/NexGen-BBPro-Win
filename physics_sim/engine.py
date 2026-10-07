@@ -304,6 +304,12 @@ def _pitcher_days_since_use(
     usage_state: UsageState | None,
     game_day: int | None,
 ) -> int | None:
+    """Calendar days since the pitcher last pitched, or ``None`` if unknown.
+
+    ``game_day`` is the rest clock, the calendar day (Release 3, decision 9),
+    so an off day between outings counts as a day of rest: a reliever who
+    pitched on day D and sits through an off day on D+1 reads 2 on D+2.
+    """
     if usage_state is None or game_day is None:
         return None
     workload = usage_state.workload_for(pitcher_id)
@@ -320,6 +326,11 @@ def _pitcher_is_rested(
     game_day: int | None,
     tuning: TuningConfig,
 ) -> bool:
+    """True when the pitcher has had his role's rest in calendar days.
+
+    Starters need ``starter_rest_days`` calendar days; relievers (CL
+    included) need the pitch-count table's full days off plus one.
+    """
     days_since = _pitcher_days_since_use(
         pitcher_id, usage_state=usage_state, game_day=game_day
     )
@@ -347,10 +358,10 @@ def _order_pitchers_for_game(
     ``forced_starter_id`` is the starter the season's rotation tracker already
     assigned. When given it wins outright: the tracker knows the whole season,
     while this function only sees one game. Without it the rotation slot comes
-    from ``game_day``, which is a counter that restarts at zero in every fresh
-    process — so a league simulated in weekly batches replayed
-    SP1, SP2, SP3, SP4, SP5, SP1, SP2 on every run and handed the top two slots
-    twice the starts of the other three (7.41.0).
+    from the usage state's ``game_index`` -- the count of game dates, so off
+    days do not skip a slot (Release 3) -- or, with no usage state, from
+    ``game_day``. (Before 7.41.0 ``game_day`` restarted at zero in every fresh
+    process, so weekly batches replayed SP1, SP2, SP3, SP4, SP5, SP1, SP2.)
     """
 
     if not pitchers:
@@ -381,7 +392,11 @@ def _order_pitchers_for_game(
     starters_sorted = sorted(starters, key=lambda item: _sp_sort_key(item[0]))
     rotation = [pitcher for _, pitcher in starters_sorted]
     start_index = 0
-    if game_day is not None:
+    if usage_state is not None and game_day is not None:
+        # game_day is a calendar day; a pure calendar slot would shift the
+        # rotation on every off day.
+        start_index = usage_state.game_index % len(rotation)
+    elif game_day is not None:
         start_index = game_day % len(rotation)
     chosen_index = start_index
 
@@ -551,7 +566,9 @@ def _apply_usage_state(
     if rest_role == "CL":
         max_ratio = float(tuning.get("closer_max_appearances_ratio", 0.0))
         if max_ratio > 0.0:
-            max_apps = max(1, int((game_day + 1) * max_ratio))
+            # Per game, not per calendar day (Release 3): game_index + 1
+            # is the number of league game dates so far, today included.
+            max_apps = max(1, int((usage_state.game_index + 1) * max_ratio))
             if workload.appearances >= max_apps:
                 state.available = False
 

@@ -19,10 +19,24 @@ _ENV_KEYS = (
 )
 
 
+def _remove_stray_usage_file() -> None:
+    """Delete a physics rest-state file left in the repo's data dir.
+
+    A dated sim against the base data dir (no active league) persists
+    ``data/physics_usage.json`` (Release 3). The file is untracked, so the
+    checkout below would leave it for the next run to load.
+    """
+    try:
+        (_REPO_ROOT / "data" / "physics_usage.json").unlink()
+    except OSError:
+        pass
+
+
 def pytest_sessionstart(session):
     """Ensure a non-deterministic RNG for tests depending on randomness."""
     random.seed()
     os.environ.setdefault("PB_DISABLE_ROLLOVER", "1")
+    _remove_stray_usage_file()
 
 
 def _reset_shared_state() -> None:
@@ -76,6 +90,13 @@ def _reset_shared_state() -> None:
         except Exception:
             pass
 
+    m = sys.modules.get("playbalance.usage_store")
+    if m is not None:
+        try:
+            m.clear_cache()
+        except Exception:
+            pass
+
     m = sys.modules.get("utils.roster_loader")
     if m is not None:
         try:
@@ -116,3 +137,4 @@ def pytest_sessionfinish(session, exitstatus):
                        capture_output=True, timeout=60)
     except Exception:
         pass
+    _remove_stray_usage_file()

@@ -22,7 +22,9 @@ def _pitcher(pid: str, role: str = "MR") -> PitcherRatings:
 def _available(pid, role, *, game_day, last_used_day, last_pitches,
                consecutive=1, appearances=1):
     tuning = load_tuning()
-    usage = UsageState(current_day=game_day)
+    # Every day is a game day here, so the count of game dates (game_index,
+    # which the closer appearance cap reads since Release 3) equals the day.
+    usage = UsageState(current_day=game_day, game_index=game_day)
     wl = usage.workload_for(pid)
     wl.last_used_day = last_used_day
     wl.last_pitches = last_pitches

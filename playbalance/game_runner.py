@@ -46,46 +46,20 @@ LineupEntry = Tuple[str, str]
 
 MAX_PITCHERS_ON_DL = int(os.getenv("PB_MAX_PITCHERS_ON_DL", "5") or 5)
 DAY_TO_DAY_MAX_DAYS = int(os.getenv("PB_DAY_TO_DAY_MAX_DAYS", "5") or 5)
-_PHYSICS_USAGE_STATE = None
-_PHYSICS_USAGE_DAY_MAP: Dict[str, int] = {}
-_PHYSICS_USAGE_YEAR: Optional[int] = None
-_PHYSICS_USAGE_LAST_DATE: Optional[str] = None
-_PHYSICS_USAGE_LEAGUE_KEY: Optional[str] = None
 
 
 def _physics_usage_context(
     date_token: str | None,
 ) -> tuple[object | None, int | None]:
-    if not date_token:
-        return None, None
-    global _PHYSICS_USAGE_STATE
-    global _PHYSICS_USAGE_DAY_MAP
-    global _PHYSICS_USAGE_YEAR
-    global _PHYSICS_USAGE_LAST_DATE
-    global _PHYSICS_USAGE_LEAGUE_KEY
-    league_key = str(get_data_dir().resolve(strict=False))
-    try:
-        year = int(str(date_token).split("-")[0])
-    except Exception:
-        year = None
-    reset = _PHYSICS_USAGE_STATE is None
-    if _PHYSICS_USAGE_LEAGUE_KEY not in (None, league_key):
-        reset = True
-    if year is not None and _PHYSICS_USAGE_YEAR not in (None, year):
-        reset = True
-    if _PHYSICS_USAGE_LAST_DATE and date_token < _PHYSICS_USAGE_LAST_DATE:
-        reset = True
-    if reset:
-        from physics_sim.usage import UsageState
+    """Return the active league's persisted rest state and day for a game date.
 
-        _PHYSICS_USAGE_STATE = UsageState()
-        _PHYSICS_USAGE_DAY_MAP = {}
-        _PHYSICS_USAGE_YEAR = year
-        _PHYSICS_USAGE_LEAGUE_KEY = league_key
-    if date_token not in _PHYSICS_USAGE_DAY_MAP:
-        _PHYSICS_USAGE_DAY_MAP[date_token] = len(_PHYSICS_USAGE_DAY_MAP)
-    _PHYSICS_USAGE_LAST_DATE = date_token
-    return _PHYSICS_USAGE_STATE, _PHYSICS_USAGE_DAY_MAP[date_token]
+    Release 3 (audit M18): the state lives in ``playbalance.usage_store``, per
+    league and on disk, instead of in this module's globals, so it survives a
+    new process.
+    """
+    from playbalance import usage_store
+
+    return usage_store.context(date_token)
 
 
 def _extra_innings_runner_enabled() -> bool:
@@ -1145,8 +1119,8 @@ def _run_physics_game(
 
     jr = active_journal()
     if jr is not None and jr.usage_in is not None:
-        # S1-10 (audit row 9): the worker's module-global usage state is
-        # empty/stale; seed a private UsageState from the payload the parent
+        # S1-10 (audit row 9): a worker never touches the league's usage
+        # store; seed a private UsageState from the payload the parent
         # captured so fatigue-driven outcomes match serial.
         from playbalance.parallel_day import usage_payload_to_state
 
@@ -1201,6 +1175,12 @@ def _run_physics_game(
         from playbalance.parallel_day import usage_state_to_payload
 
         jr.usage_out = usage_state_to_payload(usage_state, game_day)
+    elif usage_state is not None:
+        # Release 3 (M18): persist the league's rest state (now, or once at
+        # the end of the sim day's deferred_saves block).
+        from playbalance import usage_store
+
+        usage_store.mark_dirty()
 
     payload = serialize_game_result(result)
     metadata = (

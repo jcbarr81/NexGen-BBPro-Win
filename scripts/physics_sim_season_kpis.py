@@ -21,7 +21,7 @@ sys.path.append(str(BASE_DIR))
 
 from playbalance.schedule_generator import generate_mlb_schedule
 from physics_sim.engine import simulate_matchup_from_files
-from physics_sim.usage import UsageState
+from physics_sim.usage import UsageState, calendar_day
 from scripts import kpi_extras
 from utils.team_loader import load_teams
 from utils.park_utils import park_lookup_name_for_team
@@ -831,16 +831,34 @@ def _dispersion_metrics(
     return metrics
 
 
+def _back_to_back(days_by_pitcher: dict[str, list[int]]) -> int:
+    count = 0
+    for days in days_by_pitcher.values():
+        days.sort()
+        # Same-day pairs (b - a == 0, doubleheaders) are NOT back-to-backs.
+        count += sum(1 for a, b in zip(days, days[1:]) if b - a == 1)
+    return count
+
+
 def _usage_metrics(
     usage: Counter,
     reliever_days: dict[str, list[int]],
     pitcher_totals: dict[str, Counter],
     games: int,
     games_per_team: int,
+    reliever_game_days: dict[str, list[int]] | None = None,
 ) -> dict[str, float | None]:
     """S2-12 pitching-usage KPIs. Each emits None on a zero denominator (skipped
     by evaluate_tolerances). reliever_top_appearances is pace-normalized to 162
-    games; the rest are already rates."""
+    games; the rest are already rates.
+
+    Release 3 (decision 9, owner decision Q2): ``reliever_days`` holds CALENDAR
+    days, so the gated ``reliever_b2b_share`` counts relief outings on
+    consecutive calendar days (the MLB meaning: an off day breaks the
+    streak). ``reliever_game_days`` (game-date indices) gives the old
+    definition, consecutive league game dates, as the report-only
+    ``reliever_b2b_game_share``.
+    """
     starts = usage.get("starts", 0)
     team_games = games * 2
     reliever_g = [
@@ -848,14 +866,13 @@ def _usage_metrics(
     ]
     total_sv = sum(s.get("sv", 0) for s in pitcher_totals.values())
 
-    b2b = 0
-    for days in reliever_days.values():
-        days.sort()
-        # Same-day pairs (b - a == 0, doubleheaders) are NOT back-to-backs.
-        b2b += sum(1 for a, b in zip(days, days[1:]) if b - a == 1)
+    b2b = _back_to_back(reliever_days)
     total_relief = usage.get("reliever_appearances", 0)
+    game_b2b = (
+        _back_to_back(reliever_game_days) if reliever_game_days is not None else None
+    )
 
-    return {
+    metrics = {
         "pitches_per_start": (usage.get("start_pitches", 0) / starts) if starts else None,
         "ip_per_start": (usage.get("start_outs", 0) / 3.0 / starts) if starts else None,
         "relievers_per_team_game": (total_relief / team_games) if team_games else None,
@@ -867,6 +884,33 @@ def _usage_metrics(
         "saves_per_team_game": (total_sv / team_games) if team_games else None,
         "reliever_b2b_share": (b2b / total_relief) if total_relief else None,
     }
+    if game_b2b is not None:
+        # Report-only (not in any tolerance dict).
+        metrics["reliever_b2b_game_share"] = (
+            (game_b2b / total_relief) if total_relief else None
+        )
+    return metrics
+
+
+def _season_schedule(teams: list[str], games_per_team: int) -> list[dict[str, str]]:
+    """The harness season: the layout new leagues get from the ``mlb_162``
+    template (owner decision Q4: MLB-dense), from 2025-04-01. Rest is counted
+    in calendar days, so the harness must see the off days owners see."""
+    layout: dict[str, object] = {}
+    try:
+        from services.league_presets import get_schedule_template
+
+        template = get_schedule_template("mlb_162")
+    except Exception:  # pragma: no cover - fall back to the generator defaults
+        template = None
+    if template is not None:
+        layout = {
+            "include_all_star_break": template.include_all_star_break,
+            "weekly_off_weekday": template.weekly_off_weekday,
+            "extra_off_every_n_rounds": template.extra_off_every_n_rounds,
+            "series_off_day": template.series_off_day,
+        }
+    return generate_mlb_schedule(teams, date(2025, 4, 1), games_per_team, **layout)
 
 
 def _is_barrel(exit_velo: float, launch_angle: float) -> bool:
@@ -991,7 +1035,7 @@ def run_sim(
     teams_csv = (Path(base_dir) / "teams.csv") if base_dir is not None else None
     teams = _team_ids(teams_csv)
     parks_by_team = _team_parks(teams_csv)
-    schedule = generate_mlb_schedule(teams, date(2025, 4, 1), games_per_team)
+    schedule = _season_schedule(teams, games_per_team)
 
     usage_state = UsageState()
     totals = Counter()
@@ -1011,7 +1055,10 @@ def run_sim(
     pitcher_totals: dict[str, Counter] = defaultdict(Counter)
     # S2-12 pitching-usage accumulators.
     usage: Counter = Counter()  # starts, start_pitches, start_outs, reliever_appearances
-    reliever_days: dict[str, list[int]] = defaultdict(list)  # pid -> game_day per relief app
+    # pid -> calendar day of each relief app (Release 3: the gated b2b clock)
+    reliever_days: dict[str, list[int]] = defaultdict(list)
+    # pid -> game-date index of each relief app (report-only b2b_game_share)
+    reliever_game_days: dict[str, list[int]] = defaultdict(list)
     # S2-07 times-through-order batting splits (bucket "1"/"2"/"3" -> Counter).
     tto_totals: dict[str, Counter] = defaultdict(Counter)
     player_teams: dict[str, str] = {}
@@ -1102,11 +1149,19 @@ def run_sim(
 
     rng = random.Random(seed)
     day_map: dict[str, int] = {}
+    # Release 3 (decision 9): the engine's rest clock is the calendar day,
+    # counted from Opening Day; off days are rest. day_map keeps the
+    # game-date index for the report-only game-date b2b metric.
+    season_start = str(schedule[0].get("date")) if schedule else None
     for idx, game in enumerate(schedule):
         date_token = str(game.get("date") or idx)
         if date_token not in day_map:
             day_map[date_token] = len(day_map)
-        game_day = day_map[date_token]
+        game_index = day_map[date_token]
+        try:
+            game_day = calendar_day(date_token, season_start)
+        except (TypeError, ValueError):
+            game_day = game_index
         result = simulate_matchup_from_files(
             away_team=game["away"],
             home_team=game["home"],
@@ -1160,6 +1215,7 @@ def run_sim(
                 elif player_id:
                     usage["reliever_appearances"] += 1
                     reliever_days[player_id].append(game_day)
+                    reliever_game_days[player_id].append(game_index)
             for line in (meta.get("fielding_lines", {}) or {}).get(side, []):
                 _accumulate(team_fielding[team_id], line, fielding_keys)
         # S2-07: accumulate per-pass batting splits (game-level, not per-side).
@@ -1380,6 +1436,7 @@ def run_sim(
             usage=usage,
             reliever_days=reliever_days,
             pitcher_totals=pitcher_totals,
+            reliever_game_days=reliever_game_days,
             games=len(schedule),
             games_per_team=games_per_team,
         )

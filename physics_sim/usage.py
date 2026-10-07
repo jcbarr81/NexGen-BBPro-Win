@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, Iterable
+from dataclasses import asdict, dataclass, field, fields
+from datetime import date
+from typing import Any, Dict, Iterable, Optional
 
 from .config import TuningConfig
 from .models import BatterRatings, PitcherRatings
@@ -45,12 +46,33 @@ def reliever_rest_days(pitches: int, tuning: "TuningConfig | None" = None) -> in
     return 3
 
 
+def calendar_day(when: date | str, season_start: date | str) -> int:
+    """Calendar days from *season_start* to *when* (Release 3 rest clock).
+
+    Opening Day is day 0 and an off day is one more day of rest. Accepts
+    ``date`` objects or ISO ``YYYY-MM-DD`` strings; raises ``ValueError`` for
+    anything else.
+    """
+
+    def _as_date(value: date | str) -> date:
+        if isinstance(value, date):
+            return value
+        return date.fromisoformat(str(value).strip()[:10])
+
+    return (_as_date(when) - _as_date(season_start)).days
+
+
 @dataclass
 class UsageState:
+    # The rest clock: the CALENDAR day of the current game, counted from the
+    # season's first simmed date (decision 9, Release 3). Rest tables, the
+    # third-straight-day block, fatigue recovery and batter streaks all count
+    # in these days, so an off day is rest.
     current_day: int | None = None
     # Release 3: 0-based index of the current game date -- the number of
     # distinct days advance_day has moved to, so off days never count. Kept
-    # apart from ``current_day`` (the rest clock). Nothing reads it yet.
+    # apart from ``current_day``; read by the rotation fallback and the
+    # appearance caps, which are per game, not per calendar day.
     game_index: int = 0
     workloads: Dict[str, PitcherWorkload] = field(default_factory=dict)
     batter_workloads: Dict[str, BatterWorkload] = field(default_factory=dict)
@@ -157,3 +179,53 @@ class UsageState:
         else:
             workload.consecutive_days_used = 1
         workload.last_used_day = day
+
+
+def _workload_from_dict(cls: type, data: Any) -> Any:
+    """Build a workload dataclass from a stored dict, ignoring unknown keys
+    so state saved by a newer or older build still loads."""
+    names = {item.name for item in fields(cls)}
+    if not isinstance(data, dict):
+        return cls()
+    return cls(**{key: value for key, value in data.items() if key in names})
+
+
+def usage_state_to_dict(
+    state: UsageState, *, pids: Optional[set] = None
+) -> Dict[str, Any]:
+    """Serialize a :class:`UsageState` to a JSON-safe dict (Release 3).
+
+    Shared by the per-league store (``playbalance.usage_store``) and the
+    parallel-day payloads. When *pids* is given only those players' workloads
+    are included.
+    """
+
+    def _filter(workloads: Dict[str, Any]) -> Dict[str, dict]:
+        return {
+            pid: asdict(workload)
+            for pid, workload in workloads.items()
+            if pids is None or pid in pids
+        }
+
+    return {
+        "current_day": state.current_day,
+        "game_index": state.game_index,
+        "workloads": _filter(state.workloads),
+        "batter_workloads": _filter(state.batter_workloads),
+    }
+
+
+def usage_state_from_dict(data: Optional[Dict[str, Any]]) -> UsageState:
+    """Rebuild a :class:`UsageState` from :func:`usage_state_to_dict` output."""
+
+    data = data if isinstance(data, dict) else {}
+    try:
+        game_index = int(data.get("game_index") or 0)
+    except (TypeError, ValueError):
+        game_index = 0
+    state = UsageState(current_day=data.get("current_day"), game_index=game_index)
+    for pid, item in (data.get("workloads") or {}).items():
+        state.workloads[str(pid)] = _workload_from_dict(PitcherWorkload, item)
+    for pid, item in (data.get("batter_workloads") or {}).items():
+        state.batter_workloads[str(pid)] = _workload_from_dict(BatterWorkload, item)
+    return state

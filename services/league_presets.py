@@ -52,6 +52,10 @@ class ScheduleTemplate:
     # periodic-rest rule.
     weekly_off_weekday: Optional[int] = 0
     extra_off_every_n_rounds: int = 4
+    # Release 3 (owner decision Q4): False is the MLB-dense layout (series
+    # back to back, about 190 days for 162 games); True restores the old
+    # league-wide day off after every round of series.
+    series_off_day: bool = False
 
 
 @dataclass(frozen=True)
@@ -131,6 +135,7 @@ def load_schedule_templates() -> List[ScheduleTemplate]:
                 ),
                 weekly_off_weekday=weekly_off,
                 extra_off_every_n_rounds=extra_off,
+                series_off_day=bool(entry.get("series_off_day", False)),
             )
         )
     return [t for t in templates if t.template_id and t.games_per_team > 0]
@@ -245,6 +250,7 @@ def generate_schedule_from_template(
         include_all_star_break=template.include_all_star_break,
         weekly_off_weekday=template.weekly_off_weekday,
         extra_off_every_n_rounds=template.extra_off_every_n_rounds,
+        series_off_day=template.series_off_day,
     )
     return schedule
 
