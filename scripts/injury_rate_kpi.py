@@ -34,8 +34,9 @@ Two modes:
     ``game_runner.simulate_game_scores``, injuries go through
     ``_apply_injury_events`` (the real IL placements and CPU call-ups) and
     ``services.dl_automation`` activates returners after every day. Use a
-    fixture with minor leaguers (``data/calibration_league``) so injured
-    players can be replaced. ``--batching daily`` drops the in-process sim
+    live-format fixture with minor leaguers (``data/calibration_league``) so
+    injured players can be replaced; ``data/calibration``'s players.csv is
+    engine-only and is refused. ``--batching daily`` drops the in-process sim
     state between days the way a fresh process would.
 
 Targets. Owner decision (2026-10-07): pitcher injuries at about 3/4 of MLB's
@@ -590,8 +591,19 @@ def measure_game_runner(
     repo_data = (ROOT / "data").resolve()
     if work_dir == repo_data or repo_data in work_dir.parents:
         raise SystemExit("--work-dir must be outside the repository's data/ folder")
-    # Fail on a bad season length before anything is written.
+    # Fail on a bad season length or a fixture the live loader can't read
+    # (data/calibration's players.csv is engine-only) before anything is
+    # written.
     _schedule(kpi._team_ids(base_dir / "teams.csv"), games_per_team)
+    try:
+        from utils.player_loader import load_players_from_csv
+
+        load_players_from_csv(base_dir / "players.csv")
+    except Exception as exc:
+        raise SystemExit(
+            f"{base_dir} is not a live-format league ({exc}); game_runner mode "
+            "needs one such as data/calibration_league."
+        ) from exc
     league_data = _prepare_scratch_league(work_dir, base_dir)
 
     for key in ("NEXGEN_DISCORD_WEBHOOK_URL", "NEXGEN_WORKING_COPY", "SENDGRID_API_KEY",
