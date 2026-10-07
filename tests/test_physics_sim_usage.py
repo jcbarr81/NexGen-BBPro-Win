@@ -83,6 +83,9 @@ def test_rotation_skips_unrested_starter() -> None:
     usage.workload_for("P2").last_used_day = 0
     usage.workload_for("P2").last_update_day = 0
     usage.workload_for("P3").last_used_day = None
+    # Release 3: with a usage state the rotation slot comes from the count of
+    # game dates (game_index), not the calendar day. Second game date -> SP2.
+    usage.game_index = 1
 
     ordered = _order_pitchers_for_game(
         [p1, p2, p3],

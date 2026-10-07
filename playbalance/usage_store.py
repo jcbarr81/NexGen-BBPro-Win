@@ -12,13 +12,14 @@ This module keeps one state per league data dir, in memory and on disk:
 * File ``<league data dir>/physics_usage.json``::
 
       {"version": 1, "season_year": 2026, "season_start": "2026-04-01",
-       "last_date": "2026-05-12", "last_day": 37, "usage": {...}}
+       "last_date": "2026-05-12", "usage": {...}}
 
   written atomically (tmp file + ``os.replace``).
 * :func:`context` returns ``(state, day)`` for a game date. ``day`` is the
-  rest clock handed to the engine: the 0-based index of the game date in the
-  season (each new date the league plays is one more day). Opening Day is
-  day 0. A date in a new year, or a date before the last one simmed (a reset
+  rest clock handed to the engine: the CALENDAR day counted from the season's
+  first simmed date (decision 9), so an off day is a day of rest. Opening Day
+  is day 0. ``state.game_index`` separately counts the dates the league
+  played. A date in a new year, or a date before the last one simmed (a reset
   or a re-sim), starts a fresh season state; the backwards case is logged.
 * Saves follow the pitcher tracker: :func:`mark_dirty` after each game saves
   at once, unless a :func:`deferred_saves` block is open, which saves once at
@@ -47,6 +48,7 @@ from typing import Dict, Iterator, Optional, Tuple
 
 from physics_sim.usage import (
     UsageState,
+    calendar_day,
     usage_state_from_dict,
     usage_state_to_dict,
 )
@@ -70,7 +72,6 @@ class _LeagueUsage:
         "season_year",
         "season_start",
         "last_date",
-        "last_day",
         "dirty",
         "defer_depth",
     )
@@ -82,7 +83,6 @@ class _LeagueUsage:
         self.season_year: Optional[int] = None
         self.season_start: Optional[date] = None
         self.last_date: Optional[date] = None
-        self.last_day: Optional[int] = None
         self.dirty = False
         self.defer_depth = 0
 
@@ -134,13 +134,11 @@ def _entry(data_dir: str | Path | None = None) -> _LeagueUsage:
 
 
 def _day_for(entry: _LeagueUsage, when: date) -> int:
-    """Rest-clock day for *when* (the game-date clock: one day per new date)."""
+    """Rest-clock day for *when*: calendar days since the season start."""
 
-    if entry.last_date is None or entry.last_day is None:
+    if entry.season_start is None:
         return 0
-    if when == entry.last_date:
-        return entry.last_day
-    return entry.last_day + 1
+    return calendar_day(when, entry.season_start)
 
 
 def _start_season(entry: _LeagueUsage, when: date) -> None:
@@ -148,7 +146,6 @@ def _start_season(entry: _LeagueUsage, when: date) -> None:
     entry.season_year = when.year
     entry.season_start = when
     entry.last_date = None
-    entry.last_day = None
 
 
 # ---------------------------------------------------------------------------
@@ -175,14 +172,12 @@ def _load(entry: _LeagueUsage, when: date) -> None:
         season_year = int(raw.get("season_year"))
     except (TypeError, ValueError):
         season_year = season_start.year if season_start else None
-    last_day = raw.get("last_day")
     if season_start is None or season_year is None:
         return
     entry.state = usage_state_from_dict(raw.get("usage"))
     entry.season_year = season_year
     entry.season_start = season_start
     entry.last_date = last_date
-    entry.last_day = int(last_day) if isinstance(last_day, int) else None
 
 
 def _bootstrap_from_tracker(entry: _LeagueUsage, when: date) -> None:
@@ -261,7 +256,6 @@ def _bootstrap_from_tracker(entry: _LeagueUsage, when: date) -> None:
                 pitcher_id=pid, pitches=pitches, day=day, multiplier=1.0, tuning=tuning
             )
         entry.last_date = played
-        entry.last_day = day
     logger.info(
         "physics usage: bootstrapped %d outings over %d dates from %s",
         len(outings),
@@ -317,7 +311,6 @@ def _save(entry: _LeagueUsage) -> None:
         "season_year": entry.season_year,
         "season_start": entry.season_start.isoformat(),
         "last_date": entry.last_date.isoformat() if entry.last_date else None,
-        "last_day": entry.last_day,
         "usage": usage_state_to_dict(entry.state),
     }
     try:
@@ -352,18 +345,17 @@ def context(
             _start_season(entry, when)
         elif entry.season_year != when.year:
             _start_season(entry, when)
-        elif entry.last_date is not None and when < entry.last_date:
+        elif when < (entry.last_date or entry.season_start or when):
             logger.warning(
                 "physics usage: %s is before the last simmed date %s in %s; "
                 "rest state reset",
                 when.isoformat(),
-                entry.last_date.isoformat(),
+                (entry.last_date or entry.season_start).isoformat(),
                 entry.path.parent,
             )
             _start_season(entry, when)
         day = _day_for(entry, when)
         entry.last_date = when
-        entry.last_day = day
         return entry.state, day
 
 
@@ -421,7 +413,6 @@ def reset(*, data_dir: str | Path | None = None) -> None:
         entry.season_year = None
         entry.season_start = None
         entry.last_date = None
-        entry.last_day = None
         entry.dirty = False
         try:
             entry.path.unlink()

@@ -39,6 +39,37 @@ def test_usage_metrics_from_synthetic_lines():
     assert m["saves_per_team_game"] == pytest.approx(0.0)
 
 
+def test_b2b_share_is_calendar_days_and_game_dates_are_report_only():
+    """Release 3 (decision 9 / owner Q2): the gated b2b share counts relief
+    outings on consecutive CALENDAR days; consecutive game dates across an off
+    day only show in the report-only reliever_b2b_game_share."""
+    usage = Counter(reliever_appearances=4)
+    # Calendar days 0, 2 (an off day between), then 3, 4 back to back.
+    calendar = {"r1": [0, 2], "r2": [3, 4]}
+    # The same outings as game-date indices: 0 and 1 look consecutive.
+    game_dates = {"r1": [0, 1], "r2": [2, 3]}
+    totals = {"r1": Counter(g=2, gs=0), "r2": Counter(g=2, gs=0)}
+    m = kpis._usage_metrics(
+        usage, calendar, totals, games=4, games_per_team=4,
+        reliever_game_days=game_dates,
+    )
+    assert m["reliever_b2b_share"] == pytest.approx(0.25)
+    assert m["reliever_b2b_game_share"] == pytest.approx(0.5)
+    assert "reliever_b2b_game_share" not in kpis.DEFAULT_TOLERANCES
+    assert "reliever_b2b_game_share" not in kpis.REPORT_ONLY_TOLERANCES
+
+
+def test_harness_schedule_is_the_dense_league_template():
+    from datetime import date
+
+    teams = [f"T{i:02d}" for i in range(30)]
+    schedule = kpis._season_schedule(teams, 162)
+    days = sorted({g["date"] for g in schedule})
+    assert days[0] == "2025-04-01"
+    span = (date.fromisoformat(days[-1]) - date.fromisoformat(days[0])).days + 1
+    assert 180 <= span <= 196
+
+
 def test_usage_metrics_zero_denominator_none():
     m = kpis._usage_metrics(Counter(), {}, {}, games=0, games_per_team=0)
     for k in USAGE_KEYS:

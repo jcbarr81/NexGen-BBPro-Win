@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, fields
+from datetime import date
 from typing import Any, Dict, Iterable, Optional
 
 from .config import TuningConfig
@@ -45,13 +46,33 @@ def reliever_rest_days(pitches: int, tuning: "TuningConfig | None" = None) -> in
     return 3
 
 
+def calendar_day(when: date | str, season_start: date | str) -> int:
+    """Calendar days from *season_start* to *when* (Release 3 rest clock).
+
+    Opening Day is day 0 and an off day is one more day of rest. Accepts
+    ``date`` objects or ISO ``YYYY-MM-DD`` strings; raises ``ValueError`` for
+    anything else.
+    """
+
+    def _as_date(value: date | str) -> date:
+        if isinstance(value, date):
+            return value
+        return date.fromisoformat(str(value).strip()[:10])
+
+    return (_as_date(when) - _as_date(season_start)).days
+
+
 @dataclass
 class UsageState:
+    # The rest clock: the CALENDAR day of the current game, counted from the
+    # season's first simmed date (decision 9, Release 3). Rest tables, the
+    # third-straight-day block, fatigue recovery and batter streaks all count
+    # in these days, so an off day is rest.
     current_day: int | None = None
     # Release 3: 0-based index of the current game date -- the number of
     # distinct days advance_day has moved to, so off days never count. Kept
-    # apart from ``current_day`` (the rest clock). Nothing in the engine reads
-    # it yet; it is persisted and merged with the rest of the state.
+    # apart from ``current_day``; read by the rotation fallback and the
+    # appearance caps, which are per game, not per calendar day.
     game_index: int = 0
     workloads: Dict[str, PitcherWorkload] = field(default_factory=dict)
     batter_workloads: Dict[str, BatterWorkload] = field(default_factory=dict)

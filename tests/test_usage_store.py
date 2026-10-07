@@ -244,3 +244,123 @@ def test_payload_ignores_unknown_workload_fields():
     state = parallel_day.usage_payload_to_state(payload)
     assert state.workloads["P1"].fatigue_debt == 3.0
     assert state.game_index == 0
+
+
+# ---------------------------------------------------------------------------
+# The calendar-day rest clock (decision 9)
+# ---------------------------------------------------------------------------
+class _Arm:
+    def __init__(self, player_id: str, durability: float = 50.0) -> None:
+        self.player_id = player_id
+        self.durability = durability
+
+
+def _advance(state: UsageState, day: int, *ids: str) -> None:
+    state.advance_day(day=day, pitchers=[_Arm(i) for i in ids], tuning=load_tuning())
+
+
+def test_context_day_is_the_calendar_day(tmp_path):
+    _, opening = usage_store.context("2026-04-01", data_dir=tmp_path)
+    _, after_off_day = usage_store.context("2026-04-03", data_dir=tmp_path)
+    _, next_week = usage_store.context("2026-04-08", data_dir=tmp_path)
+    assert (opening, after_off_day, next_week) == (0, 2, 7)
+
+
+def test_calendar_day_helper():
+    from datetime import date
+
+    from physics_sim.usage import calendar_day
+
+    assert calendar_day("2026-04-03", "2026-04-01") == 2
+    assert calendar_day(date(2026, 5, 1), date(2026, 4, 1)) == 30
+    with pytest.raises(ValueError):
+        calendar_day("not-a-date", "2026-04-01")
+
+
+def test_an_off_day_is_rest_for_a_reliever(tmp_path):
+    tuning = load_tuning()
+    every_day, off_day = tmp_path / "every", tmp_path / "off"
+    for league in (every_day, off_day):
+        state, day = usage_store.context("2026-04-01", data_dir=league)
+        _advance(state, day, "RP")
+        _outing(state, "RP", 20, day)  # 20 pitches: one full day off needed
+    # One league plays again on 04-02; the other is off and plays on 04-03.
+    tired, next_day = usage_store.context("2026-04-02", data_dir=every_day)
+    rested, after_off_day = usage_store.context("2026-04-03", data_dir=off_day)
+    assert not _pitcher_is_rested(
+        pitcher_id="RP", role="MR", usage_state=tired, game_day=next_day, tuning=tuning
+    )
+    assert _pitcher_is_rested(
+        pitcher_id="RP",
+        role="MR",
+        usage_state=rested,
+        game_day=after_off_day,
+        tuning=tuning,
+    )
+
+
+def test_off_days_break_pitcher_and_batter_streaks():
+    tuning = load_tuning()
+    state = UsageState()
+    for day in (0, 1):
+        state.advance_day(day=day, pitchers=[_Arm("RP")], batters=[_Arm("B")], tuning=tuning)
+        _outing(state, "RP", 10, day)
+        state.record_batter_game(player_id="B", day=day, durability=50.0, tuning=tuning)
+    assert state.workloads["RP"].consecutive_days_used == 2
+    assert state.batter_workloads["B"].consecutive_days_used == 2
+    # Day 2 is an off day; day 3 starts a new streak.
+    state.advance_day(day=3, pitchers=[_Arm("RP")], batters=[_Arm("B")], tuning=tuning)
+    assert state.workloads["RP"].consecutive_days_used == 0
+    assert state.batter_workloads["B"].consecutive_days_used == 0
+    _outing(state, "RP", 10, 3)
+    state.record_batter_game(player_id="B", day=3, durability=50.0, tuning=tuning)
+    assert state.workloads["RP"].consecutive_days_used == 1
+    assert state.batter_workloads["B"].consecutive_days_used == 1
+
+
+def test_game_index_counts_game_dates_not_calendar_days(tmp_path):
+    for token in ("2026-04-01", "2026-04-02", "2026-04-04", "2026-04-04", "2026-04-08"):
+        state, day = usage_store.context(token, data_dir=tmp_path)
+        _advance(state, day, "RP")
+    assert state.current_day == 7
+    assert state.game_index == 3  # four game dates, 0-based
+    usage_store.mark_dirty(data_dir=tmp_path)
+    usage_store.clear_cache()
+    again, _ = usage_store.context("2026-04-09", data_dir=tmp_path)
+    assert again.game_index == 3  # persisted; the game's advance_day bumps it
+
+
+def test_rotation_fallback_uses_the_game_index():
+    from physics_sim.engine import _order_pitchers_for_game
+    from physics_sim.models import PitcherRatings
+
+    staff = [PitcherRatings.from_row({"player_id": f"S{i}"}) for i in range(1, 6)]
+    roles = {f"S{i}": f"SP{i}" for i in range(1, 6)}
+    state = UsageState(current_day=9, game_index=7)
+    ordered = _order_pitchers_for_game(
+        staff, roles_by_id=roles, usage_state=state, game_day=9, tuning=load_tuning()
+    )
+    assert ordered[0].player_id == "S3"  # slot 7 % 5, not calendar day 9 % 5
+
+
+def test_closer_appearance_cap_counts_game_dates():
+    from physics_sim.engine import PitcherState, _apply_usage_state
+    from physics_sim.models import PitcherRatings
+
+    tuning = load_tuning()
+    # Calendar day 20 but only the 10th game date: the 45% cap is
+    # int(10 * 0.45) = 4 appearances, not int(21 * 0.45) = 9.
+    state = UsageState(current_day=20, game_index=9)
+    workload = state.workload_for("CL1")
+    workload.last_used_day = 15
+    workload.last_pitches = 10
+    workload.appearances = 5
+    closer = PitcherState(
+        pitcher=PitcherRatings.from_row({"player_id": "CL1"}),
+        fatigue_start=50.0,
+        fatigue_limit=60.0,
+        rest_role="CL",
+        staff_role="CL",
+    )
+    _apply_usage_state(closer, state, 20, tuning)
+    assert closer.available is False
