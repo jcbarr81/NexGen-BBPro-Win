@@ -16,6 +16,12 @@ from pathlib import Path
 
 
 from utils.park_utils import park_lookup_name_for_team
+from utils.roster_rules import (
+    ACTIVE_ROSTER_SIZE,
+    MAX_ACTIVE_PITCHERS,
+    ORG_LIMIT,
+    counts_as_pitcher,
+)
 from utils.team_loader import load_teams
 
 REPO = Path(__file__).resolve().parents[1]
@@ -82,11 +88,14 @@ def test_rosters_are_real_selections_with_autofill_staffs():
             levels.setdefault(level, []).append(pid)
         act = levels["ACT"]
         # A whole organisation (ACT + minors), not just 26 actives.
-        assert len(roster) == 50 and len(levels["AAA"]) > 0 and len(levels["LOW"]) > 0
-        assert len(act) == 25
-        assert sum(_is_pitcher(players[pid]) for pid in act) == 13
+        assert len(roster) == ORG_LIMIT
+        assert len(levels["AAA"]) > 0 and len(levels["LOW"]) > 0
+        # Decision 8: 26 active, 13 of them pitchers.
+        assert len(act) == ACTIVE_ROSTER_SIZE
+        assert sum(counts_as_pitcher(players[pid]) for pid in act) == MAX_ACTIVE_PITCHERS
 
-        # The Pitching auto-fill's 11 rows, MR1-MR3 labels included (H1).
+        # The Pitching auto-fill's 11 rows, MR1-MR3 labels included (H1); the
+        # 12th and 13th active pitchers stay unlisted.
         staff = _plain(FIXTURE / "rosters" / f"{tid}_pitching.csv")
         assert sorted(role for _, role in staff) == AUTOFILL_SLOTS
         assert all(pid in act for pid, _ in staff)
@@ -117,7 +126,7 @@ def test_act_is_each_organisations_best():
                 total += 1
                 beaten += _overall_score(p) > sorted(act_scores)[len(act_scores) // 2]
     # Coverage rules (a backup C, SP slots) can seat a weaker player, but a
-    # random 25 (what create_league hands out) would put about half the minors
+    # random 26 (what create_league hands out) would put about half the minors
     # above the active median.
     assert beaten / total < 0.05
 

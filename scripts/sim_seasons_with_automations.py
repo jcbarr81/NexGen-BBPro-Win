@@ -10,9 +10,10 @@ reports the acceptance metrics:
     target is 15-40 for a full 30-team season — and whether the stddev of final
     team win% grows season-over-season (talent should not runaway-consolidate:
     season_last_std <= season_1_std * 1.15).
-  * S2-11 (in-season callups): promotions per season, September expansion, and
-    that every team's roster is legal (ACT within cap, no "over cap") after the
-    REGULAR_SEASON->PLAYOFFS September revert.
+  * S2-11 (in-season callups): promotions per season, September expansion
+    (ACT at most 28 with at most 14 pitchers), and that every team's roster is
+    legal after the REGULAR_SEASON->PLAYOFFS September revert: no level "over
+    cap", ACT back to at most 26 with at most 13 pitchers (owner decision 8).
 
 It never touches a real user league: it copies ``--source`` into
 ``tmp/accept_sandbox`` and points NEXGEN_DATA_ROOT there. The default source is
@@ -119,6 +120,13 @@ def main() -> int:
     from utils.trade_utils import load_trades
     from services.roster_validation import validate_roster_state, DEFAULT_LEVEL_CAPS
     from utils.player_loader import load_players_from_csv
+    from utils.roster_rules import (
+        ACTIVE_ROSTER_SIZE,
+        MAX_ACTIVE_PITCHERS,
+        SEPTEMBER_MAX_ACTIVE_PITCHERS,
+        SEPTEMBER_ROSTER_SIZE,
+        counts_as_pitcher,
+    )
 
     teams = load_teams(sandbox / "teams.csv")
     team_ids = [t.team_id for t in teams]
@@ -135,6 +143,20 @@ def main() -> int:
                 "other_positions": list(getattr(p, "other_positions", []) or []),
             }
         return out
+
+    def _act_shapes(pmap: dict) -> dict:
+        """{team_id: (active size, active pitchers)} for every readable roster."""
+
+        shapes = {}
+        for tid in team_ids:
+            try:
+                roster = load_roster(tid, sandbox / "rosters")
+            except Exception:
+                continue
+            act = list(getattr(roster, "act", []) or [])
+            pitchers = sum(1 for pid in act if counts_as_pitcher(pmap.get(pid)))
+            shapes[tid] = (len(act), pitchers)
+        return shapes
 
     season_summaries = []
     for si in range(args.seasons):
@@ -229,12 +251,27 @@ def main() -> int:
                     and str(getattr(tr, "to_team", "")).upper() in cpu_set):
                 persisted_cpu_cpu += 1
 
-        # September revert: advancing REGULAR_SEASON -> PLAYOFFS trims to 25.
+        # September expansion peak (end of the regular season): at most 28
+        # active with at most 14 pitchers.
+        pmap = _players_map()
+        over_september = sorted(
+            tid
+            for tid, (size, pitchers) in _act_shapes(pmap).items()
+            if size > SEPTEMBER_ROSTER_SIZE or pitchers > SEPTEMBER_MAX_ACTIVE_PITCHERS
+        )
+
+        # September revert: advancing REGULAR_SEASON -> PLAYOFFS options players
+        # back down to 26 active with at most 13 pitchers.
         mgr = SeasonManager(path=sandbox / "season_state.json", enable_rollover=False)
         mgr.advance_phase()  # fires services.inseason_callups.revert_september_expansion()
 
         # Roster legality after the revert.
         pmap = _players_map()
+        over_pitchers = sorted(
+            tid
+            for tid, (size, pitchers) in _act_shapes(pmap).items()
+            if size > ACTIVE_ROSTER_SIZE or pitchers > MAX_ACTIVE_PITCHERS
+        )
         overcap = []
         for tid in team_ids:
             try:
@@ -255,13 +292,17 @@ def main() -> int:
             "promotions": promotions, "demotions": demotions,
             "win_pct_stddev": round(win_std, 4),
             "teams_over_cap_after_revert": overcap,
+            "teams_over_26_or_13p_after_revert": over_pitchers,
+            "teams_over_28_or_14p_in_september": over_september,
             "cpu_cpu_filtered_reasons": cc_filtered,
             "automation_errors": errors[:5],
             "automation_error_count": len(errors),
         }
         season_summaries.append(summary)
         _log(f"SEASON {year}: cpu_cpu={persisted_cpu_cpu} promos={promotions} demos={demotions} "
-             f"win%_std={win_std:.4f} over_cap={overcap} errors={len(errors)}")
+             f"win%_std={win_std:.4f} over_cap={overcap} "
+             f"over_26_13p={over_pitchers} over_28_14p_sept={over_september} "
+             f"errors={len(errors)}")
 
     # Verdict.
     std_first = season_summaries[0]["win_pct_stddev"] if season_summaries else 0.0
@@ -272,14 +313,23 @@ def main() -> int:
         "cpu_cpu_volume_per_season": volumes,
         "win_std_first": std_first, "win_std_last": std_last,
         "win_std_not_growing": std_last <= std_first * 1.15 if std_first else True,
-        "any_team_over_cap": any(s["teams_over_cap_after_revert"] for s in season_summaries),
+        "any_team_over_cap": any(
+            s["teams_over_cap_after_revert"] or s["teams_over_26_or_13p_after_revert"]
+            for s in season_summaries
+        ),
+        "any_team_over_september_caps": any(
+            s["teams_over_28_or_14p_in_september"] for s in season_summaries
+        ),
     }
     _log("\n===== VERDICT =====")
     _log(json.dumps(verdict, indent=2))
     _log(f"S2-10 volume/season: {volumes}  (spec target 15-40 for a full 30-team season)")
     _log(f"S2-10 win% stddev not growing (last<=first*1.15): {verdict['win_std_not_growing']} "
          f"({std_last} vs {std_first})")
-    _log(f"S2-11 all rosters legal after September revert: {not verdict['any_team_over_cap']}")
+    _log(f"S2-11 September expansion within 28 active / 14 pitchers: "
+         f"{not verdict['any_team_over_september_caps']}")
+    _log(f"S2-11 all rosters legal after September revert (26 active / 13 pitchers): "
+         f"{not verdict['any_team_over_cap']}")
 
     if args.json_out:
         Path(args.json_out).write_text(json.dumps(verdict, indent=2), encoding="utf-8")

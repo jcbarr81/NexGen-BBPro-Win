@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from models.roster import Roster
 from services import roster_auto_assign as ra
+from utils.roster_rules import ORG_LIMIT
 
 
 def _hitter(pid, pos, ovr):
@@ -25,7 +26,7 @@ def _arm(pid, ovr, pos="P", is_pitcher=True):
 
 
 def test_last_2b_is_rescued_not_released(monkeypatch):
-    # Big org (58 > the 50-slot cap so some are released), coverage for every
+    # Big org (58 > the ORG_LIMIT-slot cap so some are released), coverage for every
     # required position EXCEPT 2B among the hitters. The only 2B is mis-flagged
     # as a pitcher with terrible ratings — without the guard it gets cut.
     hitters = [_hitter(f"{pos}1", pos, 70) for pos in ("C", "SS", "CF", "3B", "1B", "LF", "RF")]
@@ -34,6 +35,7 @@ def test_last_2b_is_rescued_not_released(monkeypatch):
     only_2b = _arm("SECOND", 15, pos="2B", is_pitcher=True)  # the lone 2B, would be cut
     everyone = hitters + pitchers + [only_2b]
     players = {p.player_id: p for p in everyone}
+    assert len(players) > ORG_LIMIT
     roster = Roster(team_id="AAA", act=[p.player_id for p in everyone])
 
     saved = {}
@@ -69,7 +71,7 @@ def _setup(monkeypatch, roster, saved):
 
 
 def test_no_cut_when_under_org_limit(monkeypatch):
-    # 45 players (UNDER the 50-player cap), all over-age (birthdate 1998 -> 27+),
+    # 45 players (UNDER the ORG_LIMIT-player cap), all over-age (birthdate 1998 -> 27+),
     # so LOW (reserved for under-27) can't seat the ACT+AAA overflow. Nobody
     # should be released — the extras are kept (overflow), parked in AAA.
     hitters = [
@@ -80,7 +82,7 @@ def test_no_cut_when_under_org_limit(monkeypatch):
     pitchers = [_arm(f"PIT{i}", 70 - (i % 10)) for i in range(29)]  # -> 45 total
     everyone = hitters + pitchers
     players = {p.player_id: p for p in everyone}
-    assert len(players) == 45
+    assert len(players) == 45 < ORG_LIMIT
     roster = Roster(team_id="BAL", act=[p.player_id for p in everyone])
 
     saved = {}
@@ -95,7 +97,7 @@ def test_no_cut_when_under_org_limit(monkeypatch):
 
 
 def test_release_only_when_over_total_cap(monkeypatch):
-    # 55 players (OVER the 50-player cap) -> the genuine excess is released.
+    # 55 players (OVER the ORG_LIMIT-player cap) -> the genuine excess is released.
     hitters = [
         _hitter(f"{pos}{i}", pos, 70)
         for pos in ("C", "SS", "CF", "2B", "3B", "1B", "LF", "RF")
@@ -104,12 +106,12 @@ def test_release_only_when_over_total_cap(monkeypatch):
     pitchers = [_arm(f"PIT{i}", 70) for i in range(39)]  # -> 55 total
     everyone = hitters + pitchers
     players = {p.player_id: p for p in everyone}
-    assert len(players) == 55
+    assert len(players) == 55 > ORG_LIMIT
     roster = Roster(team_id="BAL", act=[p.player_id for p in everyone])
 
     saved = {}
     _setup(monkeypatch, roster, saved)
     result = ra.auto_assign_team("BAL", players_by_id=players)
 
-    assert result["released"], "over the 50 cap, the genuine excess is released"
+    assert result["released"], "over the org limit, the genuine excess is released"
     assert result["overflow"] == [], "over-cap path releases, it does not park overflow"

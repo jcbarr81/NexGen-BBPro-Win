@@ -2,6 +2,11 @@ import csv
 from pathlib import Path
 
 from utils.roster_loader import load_roster
+from utils.roster_rules import (
+    ACT_HITTER_TARGET,
+    ACTIVE_ROSTER_SIZE,
+    MAX_ACTIVE_PITCHERS,
+)
 
 
 def _prepare_base(tmp_path: Path, monkeypatch) -> Path:
@@ -228,8 +233,13 @@ def test_placeholder_rosters_use_unique_players(tmp_path, monkeypatch):
     roster_a = load_roster("AAA")
     roster_b = load_roster("BBB")
 
-    assert len(roster_a.act) == 25
-    assert len(roster_b.act) == 25
+    # The placeholder active roster is a full 26-man roster: 13 hitters and
+    # 13 pitchers (pitcher ids start with "P" in this fixture).
+    for roster in (roster_a, roster_b):
+        assert len(roster.act) == ACTIVE_ROSTER_SIZE
+        pitchers = [pid for pid in roster.act if pid.startswith("P")]
+        assert len(pitchers) == MAX_ACTIVE_PITCHERS
+        assert len(roster.act) - len(pitchers) == ACT_HITTER_TARGET
 
     overlap = set(roster_a.act) & set(roster_b.act)
     assert not overlap, f"Placeholder rosters reuse players: {overlap}"

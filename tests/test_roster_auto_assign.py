@@ -18,7 +18,9 @@ def test_auto_assign_all_teams_reports_progress(monkeypatch):
         "load_players_from_csv",
         lambda _path: players,
     )
-    monkeypatch.setattr(roster_auto_assign, "load_users", lambda _path: [])
+    monkeypatch.setattr(
+        roster_auto_assign, "human_owned_team_ids_strict", lambda *_a, **_k: set()
+    )
     monkeypatch.setattr(
         roster_auto_assign,
         "auto_assign_team",
@@ -64,7 +66,9 @@ def test_auto_assign_all_teams_passes_resolved_strategy_profiles(monkeypatch):
         "load_players_from_csv",
         lambda _path: players,
     )
-    monkeypatch.setattr(roster_auto_assign, "load_users", lambda _path: [])
+    monkeypatch.setattr(
+        roster_auto_assign, "human_owned_team_ids_strict", lambda *_a, **_k: set()
+    )
     monkeypatch.setattr(
         roster_auto_assign,
         "_resolve_strategy_profile_token",
@@ -100,6 +104,61 @@ def test_auto_assign_all_teams_passes_resolved_strategy_profiles(monkeypatch):
         ("AAA", "development_focus"),
         ("BBB", "power_offense"),
     ]
+
+
+def _patch_all_teams(monkeypatch, owned):
+    teams = [
+        SimpleNamespace(team_id="AAA"),
+        SimpleNamespace(team_id="BBB"),
+        SimpleNamespace(team_id="CCC"),
+    ]
+    assign_calls: list[str] = []
+    lineup_calls: list[str] = []
+    monkeypatch.setattr(roster_auto_assign, "load_teams", lambda _path: teams)
+    monkeypatch.setattr(roster_auto_assign, "load_players_from_csv", lambda _path: [])
+    monkeypatch.setattr(
+        roster_auto_assign, "human_owned_team_ids_strict", lambda *_a, **_k: owned
+    )
+    monkeypatch.setattr(
+        roster_auto_assign, "_resolve_strategy_profile_token", lambda *_a, **_k: "balanced"
+    )
+    monkeypatch.setattr(
+        roster_auto_assign,
+        "auto_assign_team",
+        lambda team_id, **_kwargs: assign_calls.append(team_id),
+    )
+    monkeypatch.setattr(
+        roster_auto_assign,
+        "auto_fill_lineup_for_team",
+        lambda team_id, **_kwargs: lineup_calls.append(team_id),
+    )
+    monkeypatch.setattr(roster_auto_assign.load_roster, "cache_clear", lambda: None)
+    return assign_calls, lineup_calls
+
+
+def test_auto_assign_all_teams_never_touches_owner_teams(monkeypatch):
+    # A full reassign can release players; the CPU never runs it on a club a
+    # person owns (owner-cuts policy).
+    assign_calls, lineup_calls = _patch_all_teams(monkeypatch, {"BBB"})
+
+    summary = roster_auto_assign.auto_assign_all_teams()
+
+    assert assign_calls == ["AAA", "CCC"]
+    assert lineup_calls == ["AAA", "CCC"]
+    assert summary["skipped_owned"] == ["BBB"]
+    assert summary["ownership_unknown"] is False
+
+
+def test_auto_assign_all_teams_does_nothing_when_ownership_unknown(monkeypatch):
+    # users.txt exists but can't be read -> strict ownership is None. Guessing
+    # would treat every owner as CPU, so nothing is reassigned.
+    assign_calls, lineup_calls = _patch_all_teams(monkeypatch, None)
+
+    summary = roster_auto_assign.auto_assign_all_teams()
+
+    assert assign_calls == []
+    assert lineup_calls == []
+    assert summary["ownership_unknown"] is True
 
 
 def test_prospect_sorting_changes_by_strategy_profile():
@@ -209,5 +268,5 @@ def test_pick_minor_rosters_keeps_low_young_and_seats_vets_in_aaa():
     # Every over-age player is seated in AAA (pool has room), not released.
     assert over_age_ids.issubset(set(aaa_ids)), "over-age players were not seated in AAA"
     # Caps respected.
-    assert len(aaa_ids) <= 15
-    assert len(low_ids) <= 10
+    assert len(aaa_ids) <= roster_auto_assign.AAA_MAX
+    assert len(low_ids) <= roster_auto_assign.LOW_MAX
