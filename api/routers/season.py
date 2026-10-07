@@ -637,21 +637,25 @@ def _team_roster_compliance_errors(team_id: str | None) -> List[str]:
     if not team_id:
         return []
 
-    from api.routers.validation import load_players_map, load_team_levels
-    from services.roster_validation import (
-        DEFAULT_LEVEL_CAPS,
-        validate_roster_state,
+    from api.routers.validation import (
+        effective_caps,
+        level_caps_only,
+        load_players_map,
+        load_team_levels,
     )
-
-    from utils.roster_loader import active_roster_cap
+    from services.roster_validation import validate_roster_state
 
     players = load_players_map()
     levels = load_team_levels(team_id)
-    # S2-11: honor September expansion (ACT cap 25 -> 28 while REGULAR_SEASON).
+    # The caps in force today: 26 active / 13 pitchers, or 28 / 14 from
+    # Sept 1 in the regular season (S2-11 expansion). Over the pitcher limit
+    # blocks the sim like any cap; there is no active-roster minimum.
+    caps = effective_caps()
     result = validate_roster_state(
         current_levels=levels,
         players=players,
-        level_caps={**DEFAULT_LEVEL_CAPS, "act": active_roster_cap()},
+        level_caps=level_caps_only(caps),
+        pitcher_cap=caps["act_pitchers"],
     )
     return [f"{team_id}: {msg}" for msg in result.errors]
 
@@ -2186,8 +2190,13 @@ def season_readiness_cpu_fill(
     team_id: str = Query(...),
     identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
-    """Commissioner: have the CPU make one team ready (auto-assign roster +
-    auto-fill both lineups) so an inactive owner doesn't stall the league."""
+    """Commissioner: have the CPU make one team ready (fix the roster +
+    auto-fill both lineups) so an inactive owner doesn't stall the league.
+
+    Runs auto-assign in "gaps" mode, the same as the deadline fill: it fixes
+    what is illegal (coverage, the hitter minimum, over-cap levels) and never
+    releases anyone. Cuts on an owner's team are the owner's call.
+    """
     _require_season_progression(identity)
     tid = str(team_id or "").strip()
     if not tid:
@@ -2198,7 +2207,8 @@ def season_readiness_cpu_fill(
     from utils.lineup_autofill import auto_fill_lineup_for_team
 
     try:
-        auto_assign_team(tid)
+        # Full mode here could release an owner's players (owner-cuts policy).
+        auto_assign_team(tid, mode="gaps")
     except Exception as exc:  # pragma: no cover - defensive
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -2458,14 +2468,17 @@ def _run_schedule(identity: Dict[str, Any], *, force: bool = False) -> Dict[str,
             status_code=status.HTTP_409_CONFLICT,
             detail="A simulation is already in progress.",
         )
-    filled = _cpu_fill_all_unready() if sched["cpu_fill"] else []
     # With auto-activation off, a disengaged owner could leave a healthy player
     # on the injured list indefinitely. The deadline IS their grace period, so
     # when it passes the CPU activates anyone whose stint has elapsed — the same
-    # bargain as CPU-filling an unready roster.
+    # bargain as CPU-filling an unready roster. Activate FIRST: a returning
+    # player can push a roster over a cap or the pitcher limit, and the gaps
+    # fill that follows must see (and repair) that final roster, or the sim
+    # starts on a roster the gate would reject.
     activated: List[str] = []
     if sched["cpu_fill"]:
         activated = _cpu_activate_eligible()
+    filled = _cpu_fill_all_unready() if sched["cpu_fill"] else []
     started = None
     if sched["run_kind"]:
         started = _start_sim(sched["run_kind"], identity, n_arg=sched["run_n"])

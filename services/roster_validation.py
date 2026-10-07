@@ -21,7 +21,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable, List, Mapping, Sequence, Set
 
-from utils.roster_rules import BASE_LEVEL_CAPS, MAX_ACTIVE_PITCHERS
+from utils.roster_rules import (
+    BASE_LEVEL_CAPS,
+    MAX_ACTIVE_PITCHERS,
+    counts_as_pitcher,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -126,6 +130,35 @@ def _is_pitcher(player: Mapping[str, Any]) -> bool:
     if flag is None:
         return False
     return str(flag).strip().lower() in {"1", "true", "yes", "t", "y"}
+
+
+def _resolve_caps(
+    level_caps: Mapping[str, int] | None,
+    pitcher_cap: int | None,
+) -> tuple[dict[str, int], int]:
+    """Merge ``level_caps`` over the defaults and settle the pitcher cap.
+
+    Returns ``(level caps, pitcher cap)``. The level caps hold roster levels
+    only. A caller may pass the pitcher cap either as ``pitcher_cap`` or as
+    an ``"act_pitchers"`` key inside ``level_caps`` (the compliance payload's
+    shape); the explicit argument wins.
+    """
+
+    caps = {**DEFAULT_LEVEL_CAPS, **(level_caps or {})}
+    embedded = caps.pop("act_pitchers", None)
+    if pitcher_cap is None:
+        pitcher_cap = embedded if embedded is not None else DEFAULT_PITCHER_CAP
+    return caps, int(pitcher_cap)
+
+
+def _active_pitcher_count(
+    act_ids: Iterable[str], players: Mapping[str, Mapping[str, Any]]
+) -> int:
+    """Count the active pitchers (``counts_as_pitcher``; ids not in
+    ``players`` cannot be classified and are skipped). Injured-but-active
+    pitchers count, as in MLB."""
+
+    return sum(1 for pid in act_ids if pid in players and counts_as_pitcher(players[pid]))
 
 
 def _player_label(player: Mapping[str, Any], fallback_id: str) -> str:
@@ -396,20 +429,25 @@ def validate_roster_move(
     target_level: str,
     players: Mapping[str, Mapping[str, Any]],
     level_caps: Mapping[str, int] | None = None,
+    pitcher_cap: int | None = None,
 ) -> ValidationResult:
     """Validate a single player move between roster levels.
 
     Rules (ported from ui/reassign_players_dialog.py):
     - target_level must be one of act / aaa / low / dl / ir.
-    - Level caps enforced on act/aaa/low (defaults 25/15/10).
-    - LOW level: players 27+ cannot be demoted there.
-    - ACT roster must still cover all 8 defensive positions after the
-      move (warn if position coverage degrades, error if disappears).
-    - Active roster must carry at least 11 non-pitchers.
+    - Level caps on act/aaa/low (defaults 26/15/10) — a warning.
+    - LOW level: players 27+ cannot be demoted there (an error).
+    - Active pitchers above ``pitcher_cap`` (default 13) — a warning.
+    - Active roster should carry at least ``MIN_POSITION_PLAYERS_ACT``
+      non-pitchers and cover all 8 defensive positions — warnings.
+
+    Everything about the active roster's shape is a warning here so an owner
+    can promote first and demote next; the sim gate
+    (:func:`validate_roster_state`) is where those become errors.
     """
 
     result = ValidationResult()
-    caps = {**DEFAULT_LEVEL_CAPS, **(level_caps or {})}
+    caps, max_pitchers = _resolve_caps(level_caps, pitcher_cap)
 
     target = target_level.lower()
     if target not in {"act", "aaa", "low", "dl", "ir"}:
@@ -458,11 +496,20 @@ def validate_roster_move(
     # start while the active roster is illegal.
     act_ids = post.get("act", [])
     act_players = [players[pid] for pid in act_ids if pid in players]
-    non_pitchers = [p for p in act_players if not _is_pitcher(p)]
+    non_pitchers = [p for p in act_players if not counts_as_pitcher(p)]
     if len(non_pitchers) < MIN_POSITION_PLAYERS_ACT:
         result.warn(
             f"Active roster would have {len(non_pitchers)} position players "
             f"(minimum {MIN_POSITION_PLAYERS_ACT}) — fix before the next game."
+        )
+
+    # Pitcher limit (owner decision 8): a warning on a single move, so the
+    # owner can call a pitcher up and option another next.
+    n_pitchers = _active_pitcher_count(act_ids, players)
+    if n_pitchers > max_pitchers:
+        result.warn(
+            f"ACT would carry {n_pitchers} pitchers (max {max_pitchers}) — "
+            "send a pitcher down before the next game."
         )
 
     covered: Set[str] = set()
@@ -485,6 +532,7 @@ def validate_roster_swap(
     player_b_id: str,
     players: Mapping[str, Mapping[str, Any]],
     level_caps: Mapping[str, int] | None = None,
+    pitcher_cap: int | None = None,
 ) -> ValidationResult:
     """Validate swapping the roster LEVELS of two players (A<->B) atomically.
 
@@ -492,11 +540,15 @@ def validate_roster_swap(
     affected level's headcount is unchanged — which is exactly what lets a
     promote into a *full* level succeed (the exchange partner goes the other
     way). Same rules as :func:`validate_roster_move`, evaluated on the FINAL
-    post-swap state: level caps, LOW age gate for whoever lands in LOW, and ACT
-    composition (min position players + defensive coverage).
+    post-swap state as errors: level caps, LOW age gate for whoever lands in
+    LOW, ACT composition (min position players + defensive coverage) and the
+    active pitcher limit.
+
+    Callers pass the caps in force on the sim date (``effective_level_caps``
+    / ``active_pitcher_cap``); the defaults are the base 26 / 13.
     """
     result = ValidationResult()
-    caps = {**DEFAULT_LEVEL_CAPS, **(level_caps or {})}
+    caps, max_pitchers = _resolve_caps(level_caps, pitcher_cap)
 
     if player_a_id == player_b_id:
         result.error("Pick two different players to swap.")
@@ -558,9 +610,27 @@ def validate_roster_swap(
                     f"(age limit: {LOW_LEVEL_MAX_AGE - 1})."
                 )
 
+    # Pitcher limit. An error when the swap brings a pitcher onto an active
+    # roster that ends up over the limit. A swap that leaves an already-over
+    # staff no bigger (e.g. hitter for hitter after a trade) only warns, so it
+    # never blocks unrelated moves; the sim gate still errors on the count.
+    pitchers_before = _active_pitcher_count(norm.get("act", []), players)
+    pitchers_after = _active_pitcher_count(post.get("act", []), players)
+    if pitchers_after > max_pitchers:
+        if pitchers_after > pitchers_before:
+            result.error(
+                f"Active roster would carry {pitchers_after} pitchers "
+                f"(maximum {max_pitchers})."
+            )
+        else:
+            result.warn(
+                f"Active roster still carries {pitchers_after} pitchers "
+                f"(maximum {max_pitchers}) — send a pitcher down before the next game."
+            )
+
     # ACT composition after the swap.
     act_players = [players[pid] for pid in post.get("act", []) if pid in players]
-    non_pitchers = [p for p in act_players if not _is_pitcher(p)]
+    non_pitchers = [p for p in act_players if not counts_as_pitcher(p)]
     if len(non_pitchers) < MIN_POSITION_PLAYERS_ACT:
         result.error(
             f"Active roster would have {len(non_pitchers)} position players "
@@ -587,6 +657,7 @@ def validate_roster_state(
     current_levels: Mapping[str, Sequence[str]],
     players: Mapping[str, Mapping[str, Any]],
     level_caps: Mapping[str, int] | None = None,
+    pitcher_cap: int | None = None,
 ) -> ValidationResult:
     """Audit an existing roster for rule compliance.
 
@@ -596,15 +667,18 @@ def validate_roster_state(
     and from the season-sim gate (to refuse advancing while the team
     is over a cap or missing positional coverage).
 
-    Rules:
-    - ACT / AAA / LOW level caps (defaults 25 / 15 / 10).
+    Rules (all errors):
+    - ACT / AAA / LOW level caps (defaults 26 / 15 / 10; callers pass
+      ``effective_level_caps(date)`` so September allows 28 active).
+    - At most ``pitcher_cap`` active pitchers (default 13; 14 in September).
+      Injured-but-active pitchers count. There is no active-roster minimum.
     - LOW age gate: players 27+ should not be carried at LOW.
     - ACT must carry at least ``MIN_POSITION_PLAYERS_ACT`` non-pitchers.
     - ACT must cover every required defensive position.
     """
 
     result = ValidationResult()
-    caps = {**DEFAULT_LEVEL_CAPS, **(level_caps or {})}
+    caps, max_pitchers = _resolve_caps(level_caps, pitcher_cap)
 
     levels = {k.lower(): list(v or []) for k, v in (current_levels or {}).items()}
 
@@ -634,8 +708,14 @@ def validate_roster_state(
 
     # ACT composition.
     act_ids = levels.get("act", [])
+    n_pitchers = _active_pitcher_count(act_ids, players)
+    if n_pitchers > max_pitchers:
+        result.error(
+            f"Active roster carries {n_pitchers} pitchers (maximum {max_pitchers})."
+        )
+
     act_players = [players[pid] for pid in act_ids if pid in players]
-    non_pitchers = [p for p in act_players if not _is_pitcher(p)]
+    non_pitchers = [p for p in act_players if not counts_as_pitcher(p)]
     if len(non_pitchers) < MIN_POSITION_PLAYERS_ACT:
         result.error(
             f"Active roster carries {len(non_pitchers)} position players "
@@ -671,6 +751,8 @@ def validate_trade(
     payroll_result: Mapping[str, Any] | None = None,
     tradable_pick_ids_from: Iterable[str] | None = None,
     tradable_pick_ids_to: Iterable[str] | None = None,
+    level_caps: Mapping[str, int] | None = None,
+    pitcher_cap: int | None = None,
 ) -> ValidationResult:
     """Validate a proposed trade.
 
@@ -682,6 +764,9 @@ def validate_trade(
     - Picks must be in the team's tradable pool.
     - Payroll policy result (if provided) adds errors for disallowed
       impacts and warnings for soft violations.
+    - Post-trade level caps and the active pitcher limit are WARNINGS
+      (``level_caps`` / ``pitcher_cap`` default to the base 26/15/10 and 13;
+      callers pass the caps in force on the sim date).
     """
 
     result = ValidationResult()
@@ -745,23 +830,32 @@ def validate_trade(
             for v in violations:
                 result.warn(f"Payroll concern: {v}")
 
-    # Post-trade roster sanity (caps only — defensive coverage is
-    # expensive to compute without full player detail; leave as a hook).
-    # A trade may leave a team temporarily over a roster cap: that's a WARNING,
-    # not a blocker. Owners get their rosters compliant afterward, and the
-    # season/sim gate (validate_roster_state) still HARD-errors on caps, so an
-    # over-limit roster can never actually start a game.
+    # Post-trade roster sanity (caps and the pitcher limit — defensive
+    # coverage is expensive to compute without full player detail; leave as a
+    # hook). A trade may leave a team temporarily over a roster cap or the
+    # pitcher limit: that's a WARNING, not a blocker. Owners get their rosters
+    # compliant afterward, and the season/sim gate (validate_roster_state)
+    # still HARD-errors on both, so an over-limit roster can never actually
+    # start a game.
     if from_team_levels and to_team_levels:
+        caps, max_pitchers = _resolve_caps(level_caps, pitcher_cap)
         post_from = _apply_trade(from_team_levels, drop=give_player_ids, add=receive_player_ids)
         post_to = _apply_trade(to_team_levels, drop=receive_player_ids, add=give_player_ids)
         for side, post in (("your team", post_from), ("other team", post_to)):
-            for level, cap in DEFAULT_LEVEL_CAPS.items():
+            for level, cap in caps.items():
                 if len(post.get(level, [])) > cap:
                     result.warn(
                         f"{side.title()} {level.upper()} would be over the limit "
                         f"({len(post[level])}/{cap}) after the trade — get the "
                         "roster compliant before the next sim."
                     )
+            n_pitchers = _active_pitcher_count(post.get("act", []), players)
+            if n_pitchers > max_pitchers:
+                result.warn(
+                    f"{side.title()} would carry {n_pitchers} active pitchers "
+                    f"(max {max_pitchers}) after the trade — send a pitcher "
+                    "down before the next sim."
+                )
 
     return result
 
@@ -803,10 +897,12 @@ __all__ = [
     "validate_pitching_staff",
     "validate_depth_chart",
     "validate_roster_move",
+    "validate_roster_swap",
     "validate_roster_state",
     "validate_trade",
     "ALL_POSITIONS",
     "REQUIRED_DEF_POSITIONS",
     "PITCHING_ROLES",
     "DEFAULT_LEVEL_CAPS",
+    "DEFAULT_PITCHER_CAP",
 ]

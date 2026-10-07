@@ -286,9 +286,11 @@ def activate_from_list(
         )
 
     if destination == "act":
-        from utils.roster_loader import active_roster_cap
+        from utils.roster_loader import active_pitcher_cap, active_roster_cap
+        from utils.roster_rules import counts_as_pitcher
 
-        if len(list(getattr(roster, "act", []) or [])) >= active_roster_cap():
+        act_ids = list(getattr(roster, "act", []) or [])
+        if len(act_ids) >= active_roster_cap():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
@@ -299,6 +301,30 @@ def activate_from_list(
                     ),
                 },
             )
+        # A returning pitcher must not become the 14th active arm (15th in
+        # September). Same shape as act_full, so the Injury page shows it.
+        if counts_as_pitcher(player):
+            from .validation import load_players_map
+
+            players_map = load_players_map()
+            pitcher_cap = active_pitcher_cap()
+            act_pitchers = sum(
+                1
+                for pid in act_ids
+                if pid in players_map and counts_as_pitcher(players_map[pid])
+            )
+            if act_pitchers >= pitcher_cap:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "act_pitchers_full",
+                        "message": (
+                            f"The active roster already carries {act_pitchers} "
+                            f"pitchers (max {pitcher_cap}). Option a pitcher down "
+                            "first (Roster page), or activate him to AAA."
+                        ),
+                    },
+                )
 
     try:
         recover_from_injury(player, roster, destination=destination, today=_sim_today())

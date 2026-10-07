@@ -66,13 +66,18 @@ def test_ordinary_level_moves_still_work(roster_move, monkeypatch):
     """Only the injured list is off-limits — AAA/LOW moves are untouched."""
     called = {}
     monkeypatch.setattr(
-        roster_move, "team_roster", lambda tid: called.setdefault("ok", tid)
+        roster_move,
+        "team_roster",
+        lambda tid: called.setdefault("ok", {"team_id": tid}),
     )
     # ACT -> ACT short-circuits to a plain read, proving we got past the guards.
-    roster_move.move_roster(
+    out = roster_move.move_roster(
         "T", payload={"player_id": "p1", "to": "ACT"}, identity=_admin()
     )
-    assert called["ok"] == "T"
+    assert called["ok"]["team_id"] == "T"
+    # Every move response carries the validator's warnings and the caps.
+    assert out["warnings"] == []
+    assert set(out["caps"]) == {"act", "aaa", "low", "act_pitchers"}
 
 
 # --- ownership on roster writes --------------------------------------------
