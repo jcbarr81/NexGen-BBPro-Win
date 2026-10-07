@@ -7,8 +7,7 @@ import csv
 import re
 
 from utils.path_utils import get_data_dir
-from utils.rotation import choose_rotation, game_staff_roles
-from utils.staff_roles import canonical_relief_role
+from utils.rotation import game_staff_roles, staff_rotation
 from .models import BatterRatings, PitcherRatings
 
 
@@ -143,14 +142,6 @@ def resolve_lineup(
     return lineup, positions, missing
 
 
-def _sp_sort_key(role: str) -> Tuple[int, str]:
-    role = role or ""
-    match = re.match(r"SP(\d+)", role)
-    if match:
-        return int(match.group(1)), role
-    return 99, role
-
-
 def _normalize_assignment_role(role: str) -> str:
     """Return the staff-file label, tidied.
 
@@ -165,11 +156,6 @@ def _normalize_assignment_role(role: str) -> str:
     return role
 
 
-def _is_starter_capable(pitcher: PitcherRatings) -> bool:
-    role = pitcher.preferred_role or pitcher.role or ""
-    return role.upper().startswith("SP")
-
-
 def build_staff(
     assignments: Iterable[PitcherAssignment],
     pitchers_by_id: Dict[str, PitcherRatings],
@@ -178,8 +164,9 @@ def build_staff(
 ) -> Tuple[List[PitcherRatings], Dict[str, str], List[str]]:
     """Order a club's staff for one game and label every arm.
 
-    The rotation comes from the same builder the live tracker uses
-    (:func:`utils.rotation.choose_rotation`): the staff file's SP1-SP5 first,
+    The rotation comes from the same builder, with the same inputs, the live
+    tracker and the default lineup builder use
+    (:func:`utils.rotation.staff_rotation`): the staff file's SP1-SP5 first,
     then starter-capable arms the file left out. The closer is never moved
     into the rotation. Every other active arm keeps its staff label, and an
     active arm the file does not list pitches as a middle reliever -- the
@@ -208,29 +195,8 @@ def build_staff(
                 continue
             eligible.append(player_id)
 
-    saved = sorted(
-        (
-            (label, pid)
-            for pid, label in staff_labels.items()
-            if re.fullmatch(r"SP[1-5]", label)
-        ),
-        key=lambda item: _sp_sort_key(item[0]),
-    )
-    rotation = choose_rotation(
-        saved_rotation=[pid for _, pid in saved],
-        existing_rotation=[],
-        starter_capable=[
-            (pid, int(pitchers_by_id[pid].endurance or 0))
-            for pid in eligible
-            if _is_starter_capable(pitchers_by_id[pid])
-        ],
-        staff_roles=staff_labels,
-        built=[],
-        eligible=[
-            pid
-            for pid in eligible
-            if canonical_relief_role(staff_labels.get(pid)) != "CL"
-        ],
+    rotation = staff_rotation(
+        [pitchers_by_id[pid] for pid in eligible], staff_labels
     )
     roles_by_id = game_staff_roles(staff_labels, eligible, rotation)
 

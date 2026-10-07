@@ -1140,16 +1140,20 @@ def _assigned_starter_id(state: TeamState) -> str | None:
     return None
 
 
-def _physics_pitcher_roles(state: TeamState) -> dict[str, str]:
+def _physics_pitcher_roles(
+    state: TeamState, rotation: Sequence[str] | None = None
+) -> dict[str, str]:
     """The role each of ``state``'s arms pitches under in the physics engine.
 
     The staff labels are the ones the default game state set from the staff
-    file (``assigned_pitching_role``), and the rotation is the SP1-SP5 they
-    carry -- both built by :func:`utils.rotation.choose_rotation`, the builder
-    the tracker uses. :func:`utils.rotation.game_staff_roles` turns them into
-    the game's map, so an unlabelled arm is a middle reliever. The stored
-    ``role`` column ("RP" for every pitcher in an older league) is never read.
-    Nothing is written back to the player objects.
+    file (``assigned_pitching_role``). The rotation is ``rotation`` -- the
+    recovery tracker's five, which handed out today's start -- when given,
+    otherwise the SP1-SP5 the labels carry; both come from
+    :func:`utils.rotation.staff_rotation` on the same roster and staff file.
+    :func:`utils.rotation.game_staff_roles` turns them into the game's map, so
+    an unlabelled arm is a middle reliever. The stored ``role`` column ("RP"
+    for every pitcher in an older league) is never read. Nothing is written
+    back to the player objects.
     """
 
     from utils.rotation import game_staff_roles
@@ -1164,11 +1168,28 @@ def _physics_pitcher_roles(state: TeamState) -> dict[str, str]:
         labels[str(pid)] = (
             str(getattr(pitcher, "assigned_pitching_role", "") or "").strip().upper()
         )
-    rotation = sorted(
+    tracked = [str(pid) for pid in (rotation or []) if str(pid) in labels]
+    if tracked:
+        return game_staff_roles(labels, ids, tracked)
+    labelled = sorted(
         (pid for pid in ids if re.fullmatch(r"SP\d+", labels[pid])),
         key=lambda pid: int(labels[pid][2:]),
     )
-    return game_staff_roles(labels, ids, rotation)
+    return game_staff_roles(labels, ids, labelled)
+
+
+def _tracker_rotation(
+    tracker: PitcherRecoveryTracker | None, team_id: str
+) -> list[str]:
+    """The recovery tracker's current five for ``team_id`` ([] if unknown)."""
+
+    if tracker is None:
+        return []
+    try:
+        entry = (tracker.data.get("teams") or {}).get(team_id) or {}
+        return [str(pid) for pid in entry.get("rotation") or [] if pid]
+    except Exception:
+        return []
 
 
 def _run_physics_game(
@@ -1237,8 +1258,8 @@ def _run_physics_game(
     if not away_pitchers or not home_pitchers:
         raise ValueError("Physics sim requires pitching staffs for both teams")
 
-    away_roles = _physics_pitcher_roles(away_state)
-    home_roles = _physics_pitcher_roles(home_state)
+    away_roles = _physics_pitcher_roles(away_state, _tracker_rotation(tracker, away_id))
+    home_roles = _physics_pitcher_roles(home_state, _tracker_rotation(tracker, home_id))
 
     # Audit L13: real-park data only for an explicitly chosen park; a
     # generated name that collides with a real one gets the generic park.

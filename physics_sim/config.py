@@ -408,7 +408,7 @@ DEFAULT_TUNING: Dict[str, Any] = {
     #   instead of leaving the spent pitcher in.
     # - mop_up: with every reliever used, the outs cap is suspended and a
     #   forced change may bring in a starter rested emergency_starter_min_days
-    #   or more (owner decision Q6); the outing does not move his next start.
+    #   or more since his last start or emergency (owner decision Q6).
     # - reliever_max_appearances_ratio mirrors closer_max_appearances_ratio for
     #   every other reliever (owner decision Q3: 0.50, about 81 per 162).
     "inning_start_hook": 1.0,
@@ -416,6 +416,18 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "mop_up": 1.0,
     "emergency_starter_min_days": 2.0,
     "reliever_max_appearances_ratio": 0.50,
+    # Release 3 fix round (item B review): the emergency starter's outing is
+    # relief, so it has a relief ceiling -- his pitch cap forces him out at
+    # emergency_max_pitches. An outing of emergency_keep_turn_pitches or fewer
+    # keeps his next turn (a bullpen session); a longer one counts on his
+    # start clock. The tracker uses the same threshold
+    # (utils.rotation.EMERGENCY_KEEP_TURN_PITCHES).
+    "emergency_max_pitches": 45.0,
+    "emergency_keep_turn_pitches": 35.0,
+    # Last resort for a forced change with nobody left: once the pitcher is
+    # this many pitches past his fatigue limit (or hurt), the least-worn
+    # hard-blocked non-closer comes in, then the closer.
+    "bullpen_last_resort_margin": 20.0,
     # Both appearance caps (closer and reliever) never fall below this many
     # appearances, so they cannot bind in the first days of a season.
     "appearance_cap_min_apps": 3.0,
