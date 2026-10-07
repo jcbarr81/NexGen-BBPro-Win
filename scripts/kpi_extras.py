@@ -313,7 +313,7 @@ class ReportOnlyKpis:
         log = getattr(result, "pitch_log", None) or []
         game_index = self.games
         self.games += 1
-        for key in ("pa", "e", "wp", "pb", "sf", "ibb", "hbp", "gidp"):
+        for key in ("pa", "e", "wp", "pb", "sf", "ibb", "hbp"):
             self.totals[key] += _int(totals.get(key))
 
         teams = {"away": away, "home": home}
@@ -398,7 +398,10 @@ class ReportOnlyKpis:
                 if 7 <= inning <= 9:
                     self.half_count["7-9"] += 1
                     self.half_runs["7-9"] += runs
-                if inning >= 10:
+                # Extra halves: top halves only. A bottom half exists only
+                # when the home side hasn't won yet and stops at the winning
+                # run, so including (or excluding) them biases the mean.
+                if inning >= 10 and side == "away":
                     self.extra_halves["n"] += 1
                     self.extra_halves["runs"] += runs
                     self.extra_halves["scored"] += runs > 0
@@ -521,8 +524,9 @@ class ReportOnlyKpis:
                     if nxt is not None:
                         self._add_xbt(token, outs, mask, bat, nxt)
                     elif not walkoff:
-                        # The hit's play made the third out on the bases.
-                        self._add_xbt_thrown_out(token, mask, 3 - outs)
+                        # The hit's play made the third out on the bases;
+                        # the log can't say which runner was out.
+                        self.xbt["skipped_out_on_play"] += 1
             if walkoff:
                 continue
             last = half_pas[-1]
@@ -558,6 +562,13 @@ class ReportOnlyKpis:
         """Extra bases taken (B-Ref XBT%): a runner going more than one base
         on a single, or more than two on a double, when he could (M7).
 
+        Plays with an out on the bases are skipped: the engine throws out
+        non-eligible runners too (the runner from 3rd on a single), and the
+        log does not say whose out it was. The headline XBT% and runner-out
+        rate come from the engine's own counters (``extra_base_advance_rate``
+        / ``extra_base_out_rate`` in the gated metrics); this feeds only the
+        first-to-third rate, which therefore excludes outs.
+
         Runners never pass each other, so with no out on the play the lead
         runner takes the furthest destination; that makes the before/after
         base masks plus the runs scored unambiguous.
@@ -568,7 +579,7 @@ class ReportOnlyKpis:
         outs_added = nxt[2] - outs
         runs = nxt[4] - bat
         if outs_added > 0:
-            self._add_xbt_thrown_out(token, mask, outs_added)
+            self.xbt["skipped_out_on_play"] += 1
             return
         if outs_added < 0 or runs < 0:
             self.xbt["skipped"] += 1
@@ -593,15 +604,6 @@ class ReportOnlyKpis:
                 if start == 1 and token == "1b":
                     self.xbt["first_to_third_opp"] += 1
                     self.xbt["first_to_third"] += dest >= 3
-
-    def _add_xbt_thrown_out(self, token: str, mask: int, outs_added: int) -> None:
-        standard = 1 if token == "1b" else 2
-        eligible = [b for b in (3, 2, 1) if mask & (1 << (b - 1)) and b + standard <= 3]
-        if not eligible or outs_added <= 0:
-            return
-        thrown_out = min(outs_added, len(eligible))
-        self.xbt["opp"] += thrown_out
-        self.xbt["thrown_out"] += thrown_out
 
     # -- results
     def finalize(
@@ -704,10 +706,6 @@ class ReportOnlyKpis:
 
         # Running and defense (M7, M8, M10, M22).
         x = self.xbt
-        metrics["xbt_pct"] = _ratio(x["taken"], x["opp"]) if self.logged_games else None
-        metrics["runner_out_on_hit_pct"] = (
-            _ratio(x["thrown_out"], x["opp"]) if self.logged_games else None
-        )
         metrics["first_to_third_on_single_pct"] = (
             _ratio(x["first_to_third"], x["first_to_third_opp"]) if self.logged_games else None
         )
@@ -1043,6 +1041,12 @@ def _p5_50_p95(values: list[float]) -> list[float]:
     return sorted({float(round(_pct(values, q))) for q in (0.05, 0.95)} | {50.0})
 
 
+# A log5 cell needs this many events in each of its four inputs; with fewer,
+# a zero count clamps to logit(1e-6) and swamps the max residual. Raise
+# --matchup-grid-pa if cells are skipped.
+GRID_MIN_EVENTS = 20
+
+
 def _logit(p: float) -> float:
     p = min(max(p, 1e-6), 1 - 1e-6)
     return math.log(p / (1 - p))
@@ -1135,6 +1139,11 @@ def _log5_grid(
     max_pp = max_logit = 0.0
     for b in levels_b:
         for p in levels_p:
+            inputs = (cells[(b, p)], cells[(b, anchor)], cells[(anchor, p)],
+                      cells[(anchor, anchor)])
+            if min(c[key] for c in inputs) < GRID_MIN_EVENTS:
+                rows.append({"batter": b, "pitcher": p, "skipped": "thin cell"})
+                continue
             obs = cells[(b, p)][key] / cells[(b, p)]["pa"]
             bm = cells[(b, anchor)][key] / cells[(b, anchor)]["pa"]
             pm = cells[(anchor, p)][key] / cells[(anchor, p)]["pa"]

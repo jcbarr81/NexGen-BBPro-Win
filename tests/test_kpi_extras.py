@@ -139,7 +139,6 @@ def test_situational_metrics_from_logged_game():
     # bottom single moving both runners one base is two chances, none taken.
     assert t["xbt_counts"]["opp"] == 4
     assert t["xbt_counts"]["taken"] == 2
-    assert m["xbt_pct"] == pytest.approx(0.5)
     assert m["first_to_third_on_single_pct"] == pytest.approx(0.5)
     # GIDP opportunities: runner on 1st with < 2 out (6 PAs), 2 DPs.
     assert t["gidp_counts"] == {"opp": 6, "gidp": 2}
@@ -153,7 +152,9 @@ def test_situational_metrics_from_logged_game():
     assert m["runs_per_half_inning_1_8"] == pytest.approx(1.5)
 
 
-def test_runner_thrown_out_on_hit_counts_as_failed_chance():
+def test_an_out_on_the_hits_play_is_skipped_not_charged_to_a_runner():
+    # The engine also throws out runners who had no XBT chance, and the log
+    # can't say whose out it was; the engine's own counters cover this.
     log = _pa((1, "top", 0, 3, 0, 0), "1b")  # runners on 1st and 2nd
     log += _pa((1, "top", 1, 3, 0, 0), "so")  # one runner was thrown out
     log += _pa((1, "top", 2, 3, 0, 0), "so")
@@ -161,8 +162,8 @@ def test_runner_thrown_out_on_hit_counts_as_failed_chance():
     acc = kx.ReportOnlyKpis(players_path=Path("missing.csv"), games_per_team=162)
     acc.add_game(game, away="A", home="H")
     t = _finalize(acc)["tables"]
-    assert t["xbt_counts"]["opp"] == 1
-    assert t["xbt_counts"]["thrown_out"] == 1
+    assert t["xbt_counts"].get("opp", 0) == 0
+    assert t["xbt_counts"]["skipped_out_on_play"] == 1
 
 
 def test_walkoff_half_is_not_an_inning_ending_play():
@@ -196,7 +197,7 @@ def test_metrics_without_base_out_logging_are_none():
     report = _finalize(acc)
     m = report["metrics"]
     assert report["coverage"]["base_out_logging"] == "absent"
-    for key in ("re24_empty_0", "xbt_pct", "gidp_per_opp", "late_close_ops_delta",
+    for key in ("re24_empty_0", "first_to_third_on_single_pct", "gidp_per_opp", "late_close_ops_delta",
                 "runs_on_inning_ending_plays"):
         assert m[key] is None
     # Line-score metrics need no base-out state.
@@ -349,7 +350,8 @@ def test_add_game_failure_is_recorded_not_raised(monkeypatch):
     assert summary["metrics"]["k_pct"] > 0  # the gated run is untouched
 
 
-def test_matchup_grid_small_run_restores_random_state():
+def test_matchup_grid_small_run_restores_random_state(monkeypatch):
+    monkeypatch.setattr(kx, "GRID_MIN_EVENTS", 0)  # 40 PA cells are thin
     random.seed(123)
     before = random.getstate()
     out = kx.matchup_grid_metrics(pa_per_cell=40, players_path=CAL / "players.csv")
@@ -383,3 +385,14 @@ def test_main_keeps_extras_and_report_only_gates_apart(monkeypatch, tmp_path, ca
     assert summary["report_only"]["metrics"]["swing_rate_0_0"] == 0.4
     rows = {r["metric"]: r for r in summary["report_only_gates"]["results"]}
     assert "sba_per_pa" in rows
+
+
+def test_thin_log5_cells_are_skipped():
+    from collections import Counter
+
+    cells = {(b, p): Counter(pa=100, k=0 if (b, p) == (60.0, 60.0) else 25)
+             for b in (50.0, 60.0) for p in (50.0, 60.0)}
+    grid = kx._log5_grid(cells, [50.0, 60.0], [50.0, 60.0], 50.0, "k")
+    skipped = [c for c in grid["cells"] if c.get("skipped")]
+    assert [(c["batter"], c["pitcher"]) for c in skipped] == [(60.0, 60.0)]
+    assert grid["max_abs_residual_logit"] < 1.0

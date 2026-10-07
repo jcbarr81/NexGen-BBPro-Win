@@ -1023,16 +1023,20 @@ def run_sim(
     platoon_counts: dict[str, Counter] = defaultdict(Counter)
     # Audit 2026-10-06 Release 2: report-only KPIs (scripts/kpi_extras.py).
     # They never feed summary["metrics"], so --strict cannot see them.
-    extras = kpi_extras.ReportOnlyKpis(
-        players_path=players_path,
-        games_per_team=games_per_team,
-        lineup_dir=(
-            Path(base_dir) / "lineups"
-            if base_dir is not None
-            else BASE_DIR / "data" / "lineups"
-        ),
-    )
     extras_error: str | None = None
+    extras = None
+    try:
+        extras = kpi_extras.ReportOnlyKpis(
+            players_path=players_path,
+            games_per_team=games_per_team,
+            lineup_dir=(
+                Path(base_dir) / "lineups"
+                if base_dir is not None
+                else BASE_DIR / "data" / "lineups"
+            ),
+        )
+    except Exception as exc:  # report-only: never break the gated run
+        extras_error = f"{type(exc).__name__}: {exc}"
     extras_time = 0.0
 
     batting_keys = [
@@ -1468,7 +1472,11 @@ def _report_only_block(
 ) -> dict[str, object]:
     """Finalize the report-only KPIs; a failure is recorded, not raised."""
     report: dict[str, object] = {"metrics": {}, "tables": {}}
-    reference = kpi_extras.load_reference()
+    try:
+        reference = kpi_extras.load_reference()
+    except Exception as exc:  # report-only: never break the gated run
+        reference = {}
+        error = error or f"{type(exc).__name__}: {exc}"
     if error is None:
         started = time.perf_counter()
         try:
@@ -1476,7 +1484,10 @@ def _report_only_block(
         except Exception as exc:  # report-only: never break the gated run
             error = f"{type(exc).__name__}: {exc}"
         runtime_s += time.perf_counter() - started
-    kpi_extras.attach_reference(report, reference)
+    try:
+        kpi_extras.attach_reference(report, reference)
+    except Exception as exc:  # report-only: never break the gated run
+        error = error or f"{type(exc).__name__}: {exc}"
     report["runtime_s"] = runtime_s
     if error is not None:
         report["error"] = error
@@ -1552,17 +1563,23 @@ def main() -> None:
     report_only = summary["report_only"]
     if args.matchup_grid_pa > 0:
         started = time.perf_counter()
-        grids = kpi_extras.matchup_grid_metrics(
-            pa_per_cell=args.matchup_grid_pa,
-            players_path=players_path,
-            tuning_overrides=tuning_overrides,
-        )
-        report_only["metrics"].update(grids["metrics"])
-        report_only["tables"].update(grids["tables"])
+        try:
+            grids = kpi_extras.matchup_grid_metrics(
+                pa_per_cell=args.matchup_grid_pa,
+                players_path=players_path,
+                tuning_overrides=tuning_overrides,
+            )
+            report_only["metrics"].update(grids["metrics"])
+            report_only["tables"].update(grids["tables"])
+            kpi_extras.attach_reference(report_only, kpi_extras.load_reference())
+        except Exception as exc:  # report-only: never break the gated run
+            report_only["matchup_grid_error"] = f"{type(exc).__name__}: {exc}"
         report_only["matchup_grid_runtime_s"] = time.perf_counter() - started
-        kpi_extras.attach_reference(report_only, kpi_extras.load_reference())
     # stderr, so a JSON payload printed to stdout stays parseable.
-    print(kpi_extras.format_report(report_only), file=sys.stderr)
+    try:
+        print(kpi_extras.format_report(report_only), file=sys.stderr)
+    except Exception as exc:  # report-only: never break the gated run
+        print(f"report-only KPIs not printed: {exc}", file=sys.stderr)
     benchmarks = _load_benchmarks(
         BASE_DIR / "data" / "MLB_avg" / "mlb_league_benchmarks_2025_filled.csv"
     )

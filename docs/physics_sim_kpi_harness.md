@@ -91,6 +91,14 @@ talent spread and more. The module cites the audit finding each one tracks
   `fld_score_before`. Games without it are counted under `coverage`, and those
   metrics come back `null`.
 - `runs_on_inning_ending_plays` must be 0 (rule 5.08(a); audit L15).
+- Extra bases taken: XBT% and the runner-out rate come from the engine's
+  counters (`extra_base_advance_rate` / `extra_base_out_rate` above). The
+  extras report only `first_to_third_on_single_pct`, from hits with no out on
+  the bases (the log can't say which runner was out).
+- `range_plays_per_fa_sd_*` is a plays-made proxy (assists for infielders),
+  not OAA, so it has no MLB reference row; true OAA needs engine logging.
+- `extra_half_runs` / `extra_half_p_score` use top halves only: a bottom
+  half in extras stops at the winning run.
 - `--matchup-grid-pa N` adds the CH x pitcher K and PH x pitcher HR log5 grids
   (a PA Monte Carlo on the per-pitch code, N PA per cell; ~20000 resolves a
   2 pp K residual and takes about a minute). Off by default.

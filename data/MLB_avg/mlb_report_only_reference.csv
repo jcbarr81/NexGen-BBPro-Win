@@ -29,20 +29,12 @@ starter_fb_velo_drop_91_105,1.5,1,REPORT H10 target: starter FB fade 1-2 mph by 
 starter_woba_delta_91_105,0.015,1,REPORT H10 target: +10 to +20 wOBA points within pitcher at 91-105 pitches vs 0-25
 tto_pass2_woba_delta,0.01,1,REPORT L14: MLB pass 2 ~+10 wOBA points over pass 1 (within pitcher)
 tto_pass3_woba_delta,0.025,1,REPORT H10/L14 target: pass 3 minus pass 1 +20 to +30 wOBA points
-xbt_pct,0.4,1,extra_base_advance_rate in mlb_league_benchmarks_2025_filled.csv; B-Ref XBT% ~40% (REPORT M7)
-runner_out_on_hit_pct,0.025,1,REPORT M7: runners thrown out on ~2-3% of extra-base opportunities
 first_to_third_on_single_pct,0.28,1,MLB runner from 1st reaches 3rd on a single ~27-30%
 sf_per_pa,0.0067,0,Teams_last5years.csv 2021-24 SF / (AB+BB+HBP+SF)
 gidp_per_opp,0.105,1,"REPORT M8: GIDP per opportunity (runner on 1st, <2 out) MLB ~.10-.11"
 e_per_team_game,0.53,0,Teams_last5years.csv 2021-24 E / G
 wp_per_team_game,0.33,1,REPORT M10
 pb_per_team_game,0.05,1,REPORT M10
-range_plays_per_fa_sd_2b,6.0,1,DECISIONS 12 / REPORT M22: one fa SD ~5-7 OAA per 150 G; the engine value is a plays-made proxy
-range_plays_per_fa_sd_3b,6.0,1,DECISIONS 12 / REPORT M22: one fa SD ~5-7 OAA per 150 G; the engine value is a plays-made proxy
-range_plays_per_fa_sd_ss,6.0,1,DECISIONS 12 / REPORT M22: one fa SD ~5-7 OAA per 150 G; the engine value is a plays-made proxy
-range_plays_per_fa_sd_lf,6.0,1,DECISIONS 12 / REPORT M22: one fa SD ~5-7 OAA per 150 G; the engine value is a plays-made proxy
-range_plays_per_fa_sd_cf,6.0,1,DECISIONS 12 / REPORT M22: one fa SD ~5-7 OAA per 150 G; the engine value is a plays-made proxy
-range_plays_per_fa_sd_rf,6.0,1,DECISIONS 12 / REPORT M22: one fa SD ~5-7 OAA per 150 G; the engine value is a plays-made proxy
 team_der_mean,0.69,0,defensive_efficiency in mlb_league_benchmarks_2025_filled.csv
 team_der_sd,0.011,1,REPORT M22 / DECISIONS 12: team DER sd ~0.010-0.012
 re24_empty_0,0.481,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24

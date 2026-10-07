@@ -1061,3 +1061,70 @@ names generic and keeps deliberate picks, or a commissioner review screen.
 `playbalance.simulation.GameSimulation` (archived; physics_sim is live) still
 gives the pitcher an assist on every strikeout, which 7.45.10 removed from
 the physics engine (audit M9). Align it or retire the legacy engine.
+
+## 57. New leagues get no fast runners (generator ignores speed tiers)
+
+Owner decision 3 (2026-10 engine audit) puts speed in archetype tiers, but
+since 7.24.0 `league_creator.create_league` builds hitters through
+`player_generator._sample_normalized_hitter`, which bootstraps from
+`data/players_normalized.csv` (max SP 67) and applies the speed/elite_speed
+floors only when a caller names an archetype. New leagues therefore have no
+SP >= 70 runners. `scripts/generate_league_fixture.py` patches this with
+`_with_speed_tiers`; move that into the generator (Release 4 or 7 generator
+work), delete the shim, and regenerate `data/calibration_league`. Also verify
+the cloud data root ships `players_normalized.csv` as the ratings source.
+
+## 58. Promote report-only KPI gates as their engine fixes land
+
+Release 2 (7.45.11) added gates the engine still misses as report-only:
+- steal volume (`sba_per_pa` 0.025, `sb_per_team_game` 0.73) and XBT
+  (`extra_base_advance_rate` .40; consider `extra_base_out_rate` ~.025) --
+  Release 4;
+- `hard_hit_pct`, `barrel_pct`, `sweet_spot_pct` -- Release 6 (M2);
+- `qualified_hr40_count` (5 +/- 3) once the 40-HR tail is ~5 on several seeds;
+- the league-like fixture (`data/calibration_league`) CI step to `--strict`,
+  on seeds 1 and 2, once Releases 3-6 bring it inside tolerance (it runs
+  4.1 R/G today: decision 2, league-relative ratings, matters more than
+  assumed);
+- pitcher IL 11-15 per team-season in `scripts/injury_rate_kpi.py` once the
+  per-appearance arm-injury hazard ships (engine gives ~1.2 today).
+- report-only KPIs in `scripts/kpi_extras.py` (`report_only` in the JSON):
+  `runs_on_inning_ending_plays` == 0 with L15 (Release 3; 79/55 today);
+  bullpen usage (`starts_120plus_pct`, `relief_60plus_pct`,
+  `closer_ip_per_app`) with H1; SF/PA and GIDP per opportunity with M7/M8
+  (Release 4); per-count swing rates, first-pitch PA endings, BB/K true sd
+  and the K log5 grid (Release 5); fastball fade (11.8 mph today vs 1-2),
+  HR sd ratio, HR log5 grid and team DER sd (Release 6); LHP-RHP RA9 and
+  per-hand platoon gaps with H7.
+Remove the xfail from `tests/test_sim_batching_invariance.py` when Release 3
+persists reliever rest by league + calendar date (M18).
+`qualified_hr30_count` is strict at 20 +/- 8 with the engine at 15-20; a tail
+count, so an RNG-reshuffling change can trip it -- re-check seeds 1 and 2.
+
+## 59. KPI harness housekeeping
+
+- Benchmark CSV rows nothing computes (iffb_pct, pull/oppo, wOBA/xwOBA/wRC+,
+  FIP/xFIP/SIERA, DER, OAA/DRS, K-BB%, TTO runs, park/weather/umpire): compute
+  or delete them.
+- Per-league benchmark copies under `data/leagues/*/data/MLB_avg/` still have
+  the old values; nothing reads them -- sync or drop.
+- XBT counts batted-ball singles only, not bunt singles.
+- `sb_pct` benchmark .78 is a bit under MLB 2023-24 (.79-.80).
+- The injury harness re-uses static rosters (injured players keep playing).
+- Add MLB in-season total IL per team (~22) to the reference data.
+- Regenerate `data/calibration_league` whenever generation code changes;
+  `test_committed_fixture_matches_the_current_generator` gives the command.
+- Fixture quirks it reproduces: Pitching auto-fill lists 11 of 13 ACT
+  pitchers (the other two are never relievers -- audit H1); team ids like
+  SAN, SAN1, SAN2 from city initials.
+- Multi-seed pooling driver for the noisy extras (true sds via the
+  unclipped variance in `tables.dispersion`, team true W% sd, home W%); one
+  seed can't resolve a BB true sd below ~.007.
+- True OAA in place of the `range_plays_per_fa_sd_*` proxy: the engine must
+  log the responsible fielder and neutral out probability per ball in play
+  (the audit's fdriver.py shows the method); include 1B.
+- Verify the approximate extras references (run probability, inning runs,
+  late & close, platoon by hand, closer IP, relief 60+ share, 1st-to-3rd)
+  against FanGraphs / Baseball-Reference.
+- `tests/conftest.py` teardown runs `git checkout -- data`, silently reverting
+  unstaged edits to tracked data files; note it in CODEX_HANDOFF section 5.
