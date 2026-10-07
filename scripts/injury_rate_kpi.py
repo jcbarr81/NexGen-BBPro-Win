@@ -6,18 +6,29 @@ and pitching rates but tracks NO injury metric, even though the engine runs with
 injuries enabled by default. This script fills that gap: it runs a physics
 season with injuries on and reports the metrics needed to calibrate injuries —
 
-  * injuries per team per (162-game) season
-  * average days per stint
-  * pitcher share of injuries
-  * a per-trigger breakdown
+  * injured-list (IL) stints per team per 162-game season, all and pitchers
+  * pitcher share of IL stints
+  * average days per IL stint
+  * every injury event (IL + day-to-day) per team-season, for information
+  * a per-trigger / per-severity / per-tier breakdown
 
-so a change that wires in new injury triggers (throwing/swing/fielding) can be
-measured instead of guessed. Real-MLB targets (from ``calc_injury_baseline.py``
-over the roster-resource injury workbook): ~27.3 injuries/team, ~78 days/stint,
-~55.7% pitcher share.
+Audit M15 (2026-10-06): the MLB targets are injured-list stints, so only
+events that put a player on an injured list (``dl_tier`` other than ``none``)
+are compared with them. Day-to-day knocks are reported separately; counting
+them against an IL-only target hid that pitcher IL stints run ~9x below MLB.
+The default length is a full 162-game season (the old default, 54, was below
+the schedule generator's minimum for a 30-team league and always crashed),
+and the default league is the calibration fixture, so a bare run never reads
+a real user league.
+
+MLB references (``calc_injury_baseline.py`` over the roster-resource injury
+workbook; audit M15): ~11.4 pitcher IL stints per team in-season (~15.3
+counting offseason stints), so the calibration band is 11-15; pitchers are
+~51% of in-season stints (~56% with offseason); ~27.3 IL stints per team and
+~78 days per stint including offseason stints.
 
 Example:
-    python scripts/injury_rate_kpi.py --games 54 --seed 1 --ensure-lineups
+    python scripts/injury_rate_kpi.py --seed 1
 """
 
 from __future__ import annotations
@@ -26,9 +37,10 @@ import argparse
 import json
 import random
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import date
 from pathlib import Path
+from typing import Iterable, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
 for p in (str(ROOT), str(ROOT / "scripts")):
@@ -45,15 +57,82 @@ from utils.team_loader import load_teams
 import physics_sim_season_kpis as kpi
 
 SEASON_GAMES = 162
+DEFAULT_BASE_DIR = Path("data") / "calibration"
 
-# Real-MLB baselines (calc_injury_baseline.py over the roster-resource workbook).
-MLB_INJURIES_PER_TEAM = 27.3
+# Real-MLB baselines (audit M15; calc_injury_baseline.py over the
+# roster-resource workbook). In-season figures are the calibration targets.
+MLB_PITCHER_IL_PER_TEAM = 11.4  # in-season
+MLB_PITCHER_IL_PER_TEAM_WITH_OFFSEASON = 15.3
+MLB_PITCHER_IL_BAND = (11.0, 15.0)
+MLB_PITCHER_SHARE = 0.51  # in-season
+MLB_PITCHER_SHARE_WITH_OFFSEASON = 0.557
+MLB_IL_PER_TEAM_WITH_OFFSEASON = 27.3
 MLB_DAYS_PER_STINT = 78.0
-MLB_PITCHER_SHARE = 0.557
+
+# Tiers that are NOT an injured-list placement (game_runner treats these as
+# day-to-day and never calls place_on_injury_list).
+_NON_IL_TIERS = {"", "none"}
 
 
-def _is_pitcher(pid: str, positions: dict[str, str]) -> bool:
+def _is_pitcher(pid: str, positions: Mapping[str, str]) -> bool:
     return str(positions.get(pid, "")).upper() in {"P", "SP", "RP"}
+
+
+def is_il_stint(event: Mapping[str, object]) -> bool:
+    """True when the injury event puts the player on an injured list."""
+    return str(event.get("dl_tier") or "").strip().lower() not in _NON_IL_TIERS
+
+
+def _per_team_season(count: int, total_team_games: int) -> float:
+    if not total_team_games:
+        return 0.0
+    return count / total_team_games * SEASON_GAMES
+
+
+def summarize_events(
+    events: Iterable[Mapping[str, object]],
+    *,
+    total_team_games: int,
+    positions: Mapping[str, str],
+) -> dict[str, object]:
+    """Reduce engine injury events to per-team-season IL metrics.
+
+    Rates are per team-game scaled to 162, so a short run is comparable with
+    a full season.
+    """
+    events = list(events)
+    il = [e for e in events if is_il_stint(e)]
+    il_pitcher = [e for e in il if _is_pitcher(str(e.get("player_id")), positions)]
+    days = [int(e.get("days") or 0) for e in il if e.get("days")]
+    return {
+        "il_stints_total": len(il),
+        "il_stints_per_team_season": round(
+            _per_team_season(len(il), total_team_games), 2
+        ),
+        "pitcher_il_stints_per_team_season": round(
+            _per_team_season(len(il_pitcher), total_team_games), 2
+        ),
+        "hitter_il_stints_per_team_season": round(
+            _per_team_season(len(il) - len(il_pitcher), total_team_games), 2
+        ),
+        "pitcher_share_of_il": (
+            round(len(il_pitcher) / len(il), 3) if il else None
+        ),
+        "avg_days_per_il_stint": (
+            round(sum(days) / len(days), 1) if days else None
+        ),
+        # Informational: every injury, day-to-day included (NOT comparable
+        # with the IL-only MLB targets).
+        "all_injury_events_total": len(events),
+        "all_injury_events_per_team_season": round(
+            _per_team_season(len(events), total_team_games), 2
+        ),
+        "il_by_trigger": dict(Counter(str(e.get("trigger")) for e in il)),
+        "il_by_severity": dict(Counter(str(e.get("severity")) for e in il)),
+        "all_by_tier": dict(
+            Counter(str(e.get("dl_tier") or "none") for e in events)
+        ),
+    }
 
 
 def measure(games_per_team: int, seed: int, players_path: Path, base_dir: Path | None):
@@ -92,19 +171,11 @@ def measure(games_per_team: int, seed: int, players_path: Path, base_dir: Path |
 
     total_team_games = sum(team_games.values())
     n_teams = len([t for t in team_games if team_games[t] > 0]) or len(teams)
-    n_injuries = len(events)
-    # Injuries per team per full season: rate per team-game * 162.
-    per_team_game = (n_injuries / total_team_games) if total_team_games else 0.0
-    per_team_season = per_team_game * SEASON_GAMES
-
-    days = [int(e.get("days") or 0) for e in events if e.get("days")]
-    avg_days = (sum(days) / len(days)) if days else 0.0
-    pitcher_ct = sum(1 for e in events if _is_pitcher(str(e.get("player_id")), positions))
-    pitcher_share = (pitcher_ct / n_injuries) if n_injuries else 0.0
-
-    by_trigger = Counter(str(e.get("trigger")) for e in events)
-    by_severity = Counter(str(e.get("severity")) for e in events)
-
+    measured = summarize_events(
+        events, total_team_games=total_team_games, positions=positions
+    )
+    pitcher_rate = measured["pitcher_il_stints_per_team_season"]
+    lo, hi = MLB_PITCHER_IL_BAND
     return {
         "config": {
             "games_per_team": games_per_team,
@@ -112,20 +183,25 @@ def measure(games_per_team: int, seed: int, players_path: Path, base_dir: Path |
             "teams": n_teams,
             "total_team_games": total_team_games,
         },
-        "measured": {
-            "injuries_total": n_injuries,
-            "injuries_per_team_season": round(per_team_season, 1),
-            "avg_days_per_stint": round(avg_days, 1),
-            "pitcher_share": round(pitcher_share, 3),
-            "by_trigger": dict(by_trigger),
-            "by_severity": dict(by_severity),
-        },
+        "measured": measured,
         "mlb_targets": {
-            "injuries_per_team_season": MLB_INJURIES_PER_TEAM,
-            "avg_days_per_stint": MLB_DAYS_PER_STINT,
-            "pitcher_share": MLB_PITCHER_SHARE,
+            "pitcher_il_stints_per_team_season": MLB_PITCHER_IL_PER_TEAM,
+            "pitcher_il_stints_per_team_season_with_offseason": (
+                MLB_PITCHER_IL_PER_TEAM_WITH_OFFSEASON
+            ),
+            "pitcher_il_band": list(MLB_PITCHER_IL_BAND),
+            "pitcher_share_of_il": MLB_PITCHER_SHARE,
+            "pitcher_share_of_il_with_offseason": MLB_PITCHER_SHARE_WITH_OFFSEASON,
+            "il_stints_per_team_season_with_offseason": MLB_IL_PER_TEAM_WITH_OFFSEASON,
+            "avg_days_per_il_stint": MLB_DAYS_PER_STINT,
         },
+        # Report-only for now (audit Release 2); the engine fix is M15 step 1.
+        "pitcher_il_in_band": lo <= pitcher_rate <= hi,
     }
+
+
+def _fmt(value: object) -> str:
+    return "n/a" if value is None else str(value)
 
 
 def _print_report(report: dict) -> None:
@@ -134,43 +210,89 @@ def _print_report(report: dict) -> None:
         f"Ran {cfg['games_per_team']} games/team over {cfg['teams']} teams "
         f"({cfg['total_team_games']} team-games), seed {cfg['seed']}."
     )
+    print("Injured-list stints only; rates per team per 162 games.")
     print("")
-    print(f"{'metric':<28}{'measured':>12}{'MLB target':>14}")
-    print("-" * 54)
-    print(
-        f"{'injuries / team / season':<28}"
-        f"{m['injuries_per_team_season']:>12}{t['injuries_per_team_season']:>14}"
-    )
-    print(
-        f"{'avg days / stint':<28}"
-        f"{m['avg_days_per_stint']:>12}{t['avg_days_per_stint']:>14}"
-    )
-    print(
-        f"{'pitcher share':<28}"
-        f"{m['pitcher_share']:>12}{t['pitcher_share']:>14}"
-    )
+    print(f"{'metric':<34}{'measured':>10}{'MLB target':>22}")
+    print("-" * 66)
+    lo, hi = t["pitcher_il_band"]
+    rows = [
+        (
+            "pitcher IL stints / team",
+            m["pitcher_il_stints_per_team_season"],
+            f"{t['pitcher_il_stints_per_team_season']} ({lo:g}-{hi:g})",
+        ),
+        (
+            "pitcher share of IL stints",
+            m["pitcher_share_of_il"],
+            f"~{t['pitcher_share_of_il']}",
+        ),
+        (
+            "all IL stints / team",
+            m["il_stints_per_team_season"],
+            f"{t['il_stints_per_team_season_with_offseason']} w/ offseason",
+        ),
+        (
+            "hitter IL stints / team",
+            m["hitter_il_stints_per_team_season"],
+            "",
+        ),
+        (
+            "avg days / IL stint",
+            m["avg_days_per_il_stint"],
+            f"{t['avg_days_per_il_stint']} w/ offseason",
+        ),
+    ]
+    for label, value, target in rows:
+        print(f"{label:<34}{_fmt(value):>10}{target:>22}")
     print("")
-    print(f"total injuries: {m['injuries_total']}")
-    print(f"by trigger:  {m['by_trigger']}")
-    print(f"by severity: {m['by_severity']}")
+    print(
+        f"pitcher IL in MLB band: {'yes' if report['pitcher_il_in_band'] else 'NO'}"
+    )
+    print(
+        f"all injury events (incl. day-to-day): {m['all_injury_events_total']} "
+        f"({m['all_injury_events_per_team_season']} / team-season)"
+    )
+    print(f"IL by trigger:  {m['il_by_trigger']}")
+    print(f"IL by severity: {m['il_by_severity']}")
+    print(f"all by tier:    {m['all_by_tier']}")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Measure physics-sim injury rate vs MLB.")
-    parser.add_argument("--games", type=int, default=54, help="Games per team.")
+    parser.add_argument(
+        "--games", type=int, default=SEASON_GAMES, help="Games per team (default 162)."
+    )
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--players", type=Path, default=kpi._default_players_path())
-    parser.add_argument("--base-dir", type=Path, default=None)
+    parser.add_argument(
+        "--base-dir",
+        type=Path,
+        default=DEFAULT_BASE_DIR,
+        help="League folder with teams.csv/rosters/lineups (default: the "
+        "calibration fixture).",
+    )
+    parser.add_argument(
+        "--players",
+        type=Path,
+        default=None,
+        help="players.csv (default: <base-dir>/players.csv).",
+    )
     parser.add_argument("--ensure-lineups", action="store_true")
     parser.add_argument("--output", type=Path, default=None, help="Write JSON report here.")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    players_path = args.players
-    if not players_path.is_absolute():
-        players_path = (kpi.BASE_DIR / players_path).resolve()
     base_dir = args.base_dir
     if base_dir is not None and not base_dir.is_absolute():
         base_dir = (kpi.BASE_DIR / base_dir).resolve()
+    players_path = args.players
+    if players_path is None:
+        candidate = base_dir / "players.csv" if base_dir is not None else None
+        players_path = (
+            candidate
+            if candidate is not None and candidate.exists()
+            else kpi._default_players_path()
+        )
+    if not players_path.is_absolute():
+        players_path = (kpi.BASE_DIR / players_path).resolve()
 
     if args.ensure_lineups:
         for team in load_teams():
@@ -178,7 +300,11 @@ def main() -> int:
                 team.team_id, players_path=players_path, base_dir=kpi.BASE_DIR
             )
 
-    report = measure(args.games, args.seed, players_path, base_dir)
+    try:
+        report = measure(args.games, args.seed, players_path, base_dir)
+    except ValueError as exc:
+        # e.g. --games below the schedule generator's minimum for the league.
+        parser.error(str(exc))
     if args.output:
         args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     _print_report(report)
