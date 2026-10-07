@@ -301,11 +301,15 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "passed_ball_rate": 0.0025,
     "missed_pitch_loc_scale": 0.6,
     "k_in_dirt_rate": 0.02,
-    "extra_innings_runner": 0.0,
+    # Decision 11 (Release 3): the automatic runner on 2nd from the 10th, in
+    # the regular season only. A league can turn it off (league_settings
+    # ``extra_innings_runner``; game_runner writes this key last). Past
+    # ``max_innings`` (a safety guard, no longer a tie cap) every game gets a
+    # sudden-death runner; the hard stop is the only point at which a game
+    # may still end tied.
+    "extra_innings_runner": 1.0,
     "extra_innings_runner_start": 10.0,
-    "max_innings": 18.0,
-    # Release 3 (item D) -- registered in R3-0, read by nothing yet. The hard
-    # stop is the only point at which a game may still end tied.
+    "max_innings": 30.0,
     "max_innings_hard_stop": 60.0,
     # Outcomes
     "hr_scale": 0.925,

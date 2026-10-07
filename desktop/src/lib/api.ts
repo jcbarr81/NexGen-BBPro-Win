@@ -437,6 +437,11 @@ export interface CommissionerSettings {
     max_banked_credits: number;
     auto_spend_cap: number;
   };
+  /** Game rules (decision 11). Changes apply from the next game played. */
+  rules: {
+    /** Automatic runner on 2nd from the 10th inning, regular season only. */
+    extra_innings_runner: boolean;
+  };
   strategy: {
     default_profile: string | null;
     teams: Record<string, string>;
@@ -2202,6 +2207,11 @@ export const api = {
     }),
   saveCommishScouting: (payload: Partial<CommissionerSettings["scouting"]>) =>
     apiRequest<CommissionerSettings>("/commissioner/settings/scouting", {
+      method: "PUT",
+      body: payload,
+    }),
+  saveCommishRules: (payload: CommissionerSettings["rules"]) =>
+    apiRequest<CommissionerSettings>("/commissioner/settings/rules", {
       method: "PUT",
       body: payload,
     }),

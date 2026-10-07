@@ -535,6 +535,10 @@ TUTORIALS: List[Tutorial] = [
                 "<p><b>Admin → Commissioner</b> controls trade rules, global injury level, finance preset + enforcement, the new <b>module-level finance toggles</b> (10 modules from Owner Revenue to GM Finance AI), <b>CPU finance AI tuning</b> (19 numeric knobs — star thresholds, salary share caps, arbitration raise %, FA avoidance bands), and a separate <b>Scouting fog-of-war</b> card with its own enable + 6 pacing knobs. Each module's level dropdown shows a <b>plain-language description of the selected level</b> so you know what Basic vs Advanced vs MLB-Like actually changes. Module / AI sections are collapsed by default; expand them in Custom mode for fine-grained edits.</p>",
             ),
             TutorialStep(
+                "Game rules: extra innings",
+                "<p>The <b>Game rules</b> card on the Commissioner page has the <b>automatic runner on 2nd in extra innings</b>, on by default. From the 10th inning on, each half-inning starts with a runner on second: the batter before that inning's leadoff man. His run is unearned for the pitcher. It applies to <b>regular-season games only</b>; playoff games are played the traditional way. Games never end tied: past the 30th inning every game, playoffs included, gets the runner. Turning the rule off or on takes effect from the <b>next game played</b>, even in the middle of a season; games already played keep the rule they were played under.</p>",
+            ),
+            TutorialStep(
                 "Strategy &amp; auto-reassign",
                 "<p>The <b>Strategy &amp; auto-reassign</b> card on the Commissioner page sets the league-default strategy profile and auto-reassign behavior, plus per-team overrides in a scrollable table.</p>",
             ),

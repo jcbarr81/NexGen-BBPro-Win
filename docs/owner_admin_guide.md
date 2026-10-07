@@ -156,6 +156,16 @@ Administrators control league configuration and high-level operations.
   - The dialog includes prioritized **Finance Alerts** with explicit next-step guidance (cash risk, payroll threshold/floor risk, offseason checklist deadlines, and GM queue pressure).
   - The guidance panel in this dialog reflects the current saved workflow state and the next checklist stage.
 - **Team Strategy Profiles** (League Settings): set league defaults and per-team overrides for both team strategy intent and roster auto-reassign automation.
+- **Game rules** (Admin -> Commissioner): the **automatic runner on 2nd in extra innings**, on by default for every league.
+  - From the 10th inning on, each half-inning starts with a runner on second (the batter before that inning's leadoff man); his run is unearned.
+  - Regular season only: playoff games are played the traditional way.
+  - Games never end tied: past the 30th inning every game, playoffs included, gets the runner (a game is stopped as a tie only at 60 innings).
+  - A change takes effect from the next game played, even mid-season; games already played keep the rule they were played under.
+
+### Playoff Calendar
+- Every playoff game has a date, MLB-style: an off day after the regular season and between rounds, travel days after games 2 and 5 of a seven-game series (after games 2 and 4 of a five-game series), and none inside a three-game Wild Card series. A round starts on its scheduled date even when the previous round ends in a sweep.
+- Because games are dated, starters rotate and relievers rest in October the same way they do in the regular season, and **Sim Next Game** plays one playoff day (every series scheduled that day, in both leagues).
+- Playoff games can never end tied. A bracket saved by an older version with a tied game in it simply replays that game.
 
 ### Trade Oversight (Transactions)
 - **Review Pending Trades**: approve or reject pending trades submitted by teams.
