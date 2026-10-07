@@ -75,6 +75,30 @@ user-facing feature change -> its own MINOR release, separate from the engine
 work; the bullpen fixes (Release 3) are tuned against 13-man staffs.
 Also satisfies the H9 fix's "keep >= 13 position players active".
 
+**Implementation calls (owner, 2026-10-06), for 7.46.0:**
+- **Organisation limit 51** (26 + 15 + 10). Nobody is over a cap on deploy
+  and nobody has to cut; owners fill spot 26 by promoting from AAA or signing.
+- **Max 13 active pitchers: warn on a move, block at the sim.** A move or
+  trade that makes a 14th active pitcher warns (owners can promote, then
+  demote); the swap check, the sim gate and the compliance banner treat it as
+  an error. "CPU handle it" (gaps mode) fixes it by optioning a pitcher. A
+  read-only audit of the live leagues found no owner team above 13, so no
+  grace period is needed. No two-way exemption (no two-way data);
+  injured-but-active pitchers count.
+- **September: 28 active, at most 14 pitchers (MLB).** The playoff revert
+  already options owners' extra players back to the size cap; it now also
+  options the 14th pitcher, logged as a transaction. Optioning, never cutting.
+- **Staff slots stay at 11 for now.** The 12th and 13th pitchers are unslotted
+  relievers (the Lineups page says so); MR4/MR5 arrive with the Release 3
+  bullpen work, together with the engine's relief-role normaliser.
+- Taken as recommended: every league switches on deploy (no per-league
+  setting; there is no active-roster minimum, so a 25-man roster stays
+  legal); the hitter minimum stays 11; CPU clubs converge to 13P/13H through
+  the daily upkeep plus a preseason -> regular-season pass, never touching
+  owner teams; owners learn of the open spot through a non-blocking
+  notification, an action item, a Roster page badge and a news post; one
+  shared pitcher check (`utils.roster_rules.counts_as_pitcher`).
+
 ## 9. Off days and rest — CALENDAR DAYS
 
 Pitcher and batter rest counts calendar days, so league off days rest players
