@@ -2,12 +2,16 @@
 
 Reads and writes the per-team configuration the PyQt
 ``ui/team_settings_dialog.py`` exposes: colors, stadium, team-strategy
-profile (or league default), and auto-reassign override.
+profile (or league default), and auto-reassign override. Since Release 3 it
+also serves the owner's game-day play settings (auto rest days,
+similar-position rest substitutes, automatic activation from the 15- and
+60-day IL) from ``services.team_play_settings``, written through
+``PUT /teams/{team_id}/settings/play``.
 
 Reuses the existing helpers under ``utils.team_loader``,
-``services.team_strategy_profiles`` and
-``services.team_auto_reassign_settings`` -- nothing here re-implements
-business logic.
+``services.team_strategy_profiles``, ``services.team_auto_reassign_settings``
+and ``services.team_play_settings`` -- nothing here re-implements business
+logic.
 """
 
 from __future__ import annotations
@@ -20,6 +24,13 @@ from models.team import Team
 from services.team_auto_reassign_settings import (
     resolve_team_auto_reassign,
     set_team_auto_reassign,
+)
+from services.team_play_settings import (
+    TEAM_PLAY_SETTING_KEYS,
+    default_team_play_settings,
+    load_team_play_overrides,
+    load_team_play_settings,
+    save_team_play_settings,
 )
 from services.team_strategy_profiles import (
     DEFAULT_PROFILE,
@@ -108,6 +119,36 @@ def _resolve_park_id(
     return info.park_id if info is not None and info.park_id else ""
 
 
+def _owner_managed(team_id: str) -> Optional[bool]:
+    """True for an owner-run club, False for CPU, None when ownership is unknown."""
+
+    try:
+        from services.team_ownership import human_owned_team_ids_strict
+
+        human_ids = human_owned_team_ids_strict()
+    except Exception:
+        return None
+    if human_ids is None:
+        return None
+    return team_id.upper() in {str(t).upper() for t in human_ids}
+
+
+def _play_settings(team_id: str) -> Dict[str, Any]:
+    """The owner's play settings: resolved values, defaults and explicit choices.
+
+    ``owner_managed`` lets the page say that CPU-run clubs ignore these
+    choices (the sim always rests, substitutes and activates for them).
+    """
+
+    return {
+        "settings": load_team_play_settings(team_id),
+        "defaults": default_team_play_settings(),
+        "overrides": load_team_play_overrides(team_id),
+        "keys": list(TEAM_PLAY_SETTING_KEYS),
+        "owner_managed": _owner_managed(team_id),
+    }
+
+
 def _serialize(team_id: str) -> Dict[str, Any]:
     team = _team(team_id)
     strategy = resolve_team_strategy_profile(team_id)
@@ -143,6 +184,7 @@ def _serialize(team_id: str) -> Dict[str, Any]:
             "enabled": auto_reassign.enabled,
             "source": auto_reassign.source,
         },
+        "play": _play_settings(team.team_id),
         "options": {
             "strategies": profiles,
             "default_strategy": DEFAULT_PROFILE,
@@ -221,3 +263,43 @@ def save_settings(
             )
 
     return _serialize(team_id)
+
+
+@router.get("/play")
+def get_play_settings(team_id: str) -> Dict[str, Any]:
+    _team(team_id)
+    return _play_settings(team_id)
+
+
+@router.put("/play")
+def save_play_settings(
+    team_id: str,
+    payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Store the owner's play-setting choices for this team.
+
+    Body: ``{"settings": {key: true | false | "default"}}`` (a bare
+    ``{key: value}`` map is accepted too). ``"default"`` or null clears the
+    choice so the team follows the default again; keys left out keep their
+    stored value. An unknown key or value is refused and nothing is written.
+    """
+
+    # Team-scoped write: ownership is enforced server-side. Admins
+    # short-circuit inside require_team_owner.
+    require_team_owner(identity, team_id)
+    _team(team_id)
+
+    updates = payload.get("settings", payload) if isinstance(payload, dict) else None
+    if not isinstance(updates, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="settings must be an object.",
+        )
+    try:
+        save_team_play_settings(team_id, updates)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return _play_settings(team_id)

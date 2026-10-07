@@ -18,8 +18,8 @@ script builds a SECOND fixture that looks like a league owners actually play:
   roster), as in a league that has run auto-assign;
 * the pitching staff is written by the product's Pitching auto-fill
   (:func:`utils.pitching_autofill.autofill_pitching_staff`, the same rows the
-  ``/pitching/autofill`` endpoint writes: SP1-5, LR, CL, SU, MR1-MR3; the
-  12th and 13th active pitchers stay unlisted, as in the product);
+  ``/pitching/autofill`` endpoint writes: SP1-5, LR, CL, SU, MR1-MR3, and
+  the optional MR4/MR5 for the 12th and 13th active pitchers);
 * lineups come from the product's lineup auto-fill;
 * every team plays in the GENERIC park: ``teams.csv`` carries an empty
   ``park_id`` (audit L13: real-park geometry only for an explicit pick).
@@ -85,8 +85,11 @@ LEAGUE_NAME = "KPI League Fixture"
 FIXTURE_LEAGUE_ID = "kpi-league-fixture"
 # Six divisions, so 30 teams split 5/5/5/5/5/5 like MLB.
 DIVISIONS = ["AL East", "AL Central", "AL West", "NL East", "NL Central", "NL West"]
+# Staff slots (utils.staff_roles): the 11 required, then the optional MR4/MR5
+# that the auto-fill uses for the 12th and 13th active arms.
 PITCHING_SLOTS = ["SP1", "SP2", "SP3", "SP4", "SP5", "LR", "CL", "SU",
                   "MR1", "MR2", "MR3"]
+OPTIONAL_PITCHING_SLOTS = ["MR4", "MR5"]
 
 
 def _reexec_with_hash_seed() -> None:
@@ -211,9 +214,9 @@ def _write_pitching_staff(league_dir: Path, team_id: str,
     """Write ``<team>_pitching.csv`` exactly as the Pitching auto-fill does.
 
     Mirrors ``api/routers/lineups.py::autofill_pitching_staff_endpoint``: the
-    ACT pitchers go through ``autofill_pitching_staff`` and its 11 role rows
-    are written in its order. ACT pitchers beyond the 11 slots (the 12th and
-    13th arms) stay unlisted, as they do in the product.
+    ACT pitchers go through ``autofill_pitching_staff`` and its role rows
+    are written in its order: the 11 required slots, then MR4/MR5 for the
+    12th and 13th arms.
     """
 
     from utils.pitching_autofill import autofill_pitching_staff
@@ -405,7 +408,13 @@ def summarize(output_dir: Path) -> dict[str, object]:
                 newline="", encoding="utf-8") as fh:
             staff = [row for row in csv.reader(fh) if row]
         roles = sorted(role for _, role in staff)
-        if roles != sorted(PITCHING_SLOTS):
+        expected_slots = len(PITCHING_SLOTS) + len(OPTIONAL_PITCHING_SLOTS)
+        if (
+            not set(PITCHING_SLOTS) <= set(roles)
+            or not set(roles) <= set(PITCHING_SLOTS + OPTIONAL_PITCHING_SLOTS)
+            or len(set(roles)) != len(roles)
+            or len(roles) != min(team_pitchers, expected_slots)
+        ):
             problems.append(f"{team_id}: staff roles {roles}")
         if any(pid not in act for pid, _ in staff):
             problems.append(f"{team_id}: staff lists a non-ACT pitcher")
@@ -466,8 +475,8 @@ How it is built (all product code, run in an isolated temp data root):
 - ACT rosters: `services.roster_auto_assign.auto_assign_team` per organisation
   (each club's best 13 hitters / 13 pitchers: the 26-man roster, decision 8);
 - pitching staffs: `utils.pitching_autofill.autofill_pitching_staff`, written
-  as the Pitching auto-fill does (SP1-5, LR, CL, SU, MR1-MR3; the 12th and
-  13th active pitchers stay unlisted);
+  as the Pitching auto-fill does (SP1-5, LR, CL, SU, MR1-MR3, then MR4/MR5
+  for the 12th and 13th active pitchers);
 - lineups: `utils.lineup_autofill.auto_fill_lineup_for_team`;
 - parks: generic for every team (`park_id` empty; audit L13).
 

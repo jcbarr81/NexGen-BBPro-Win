@@ -11,6 +11,13 @@ runs day-by-day. Each rule has three knobs:
 Some rules carry a numeric ``threshold`` (streak length, days-out
 horizon, etc.) — those are rendered as a number input on the
 NotificationsPage.
+
+Saved files hold every rule's values, so a changed default cannot be told
+apart from an owner's choice by the values alone. Files carry a ``version``;
+:data:`_DEFAULT_CHANGES` lists, per version, the old defaults that version
+changed. Loading an older file drops a stored value that still equals the old
+default (the owner never moved it) so the new default applies, and keeps any
+value the owner changed. The next save writes the current version.
 """
 
 from __future__ import annotations
@@ -49,10 +56,13 @@ RULE_CATEGORIES: List[Dict[str, Any]] = [
                 "default_stop": False,
             },
             {
+                # Notify-only since Release 3 (owner decision Q8): short
+                # IL stints are routine at MLB injury rates. 7/10/15-day
+                # placements all map here.
                 "id": "injury_dl15",
-                "label": "Player placed on the injured list",
+                "label": "Player placed on the 10- or 15-day injured list",
                 "default_notify": True,
-                "default_stop": True,
+                "default_stop": False,
             },
             {
                 "id": "injury_dl45",
@@ -85,10 +95,13 @@ RULE_CATEGORIES: List[Dict[str, Any]] = [
                 "default_stop": True,
             },
             {
+                # Notify-only since Release 3 (owner decision Q8): an empty
+                # staff slot (often an arm gone to the IL) never stops a
+                # game -- the sim fills it from the active roster.
                 "id": "pitching_staff_invalid",
-                "label": "Pitching staff incomplete",
+                "label": "Pitching staff has an empty slot",
                 "default_notify": True,
-                "default_stop": True,
+                "default_stop": False,
             },
             {
                 "id": "roster_cap_violation",
@@ -294,6 +307,41 @@ def _flat_rule_specs() -> List[Dict[str, Any]]:
 _RULE_SPECS: List[Dict[str, Any]] = _flat_rule_specs()
 _RULE_BY_ID: Dict[str, Dict[str, Any]] = {spec["id"]: spec for spec in _RULE_SPECS}
 
+# Settings-file format version. Files written before versioning read as 1.
+SETTINGS_VERSION = 2
+
+# Default changes by the version that made them: {version: {rule_id: {field:
+# old default}}}. A file older than ``version`` whose stored value equals the
+# old default was never changed by its owner, so the new default applies.
+_DEFAULT_CHANGES: Dict[int, Dict[str, Dict[str, Any]]] = {
+    # Release 3 (owner decision Q8): short IL stints and an empty staff slot
+    # notify without pausing the sim.
+    2: {
+        "injury_dl15": {"stop_sim": True},
+        "pitching_staff_invalid": {"stop_sim": True},
+    },
+}
+
+
+def _file_version(raw: Any) -> int:
+    try:
+        return int(raw.get("version", 1)) if isinstance(raw, Mapping) else 1
+    except (TypeError, ValueError):
+        return 1
+
+
+def _migrate_rule(rule_id: str, stored: Mapping[str, Any], version: int) -> Dict[str, Any]:
+    """Drop stored values that are untouched old defaults (see module doc)."""
+
+    out = dict(stored)
+    for changed_in in sorted(_DEFAULT_CHANGES):
+        if version >= changed_in:
+            continue
+        for field_name, old_default in _DEFAULT_CHANGES[changed_in].get(rule_id, {}).items():
+            if field_name in out and bool(out[field_name]) == bool(old_default):
+                out.pop(field_name)
+    return out
+
 
 @dataclass
 class NotificationRule:
@@ -405,12 +453,15 @@ def load_notification_settings(team_id: str) -> NotificationSettings:
         return NotificationSettings(team_id=team_id, rules=DEFAULT_RULES())
 
     rules_raw = raw.get("rules") if isinstance(raw, dict) else {}
+    version = _file_version(raw)
     rules: Dict[str, NotificationRule] = {}
     for spec in _RULE_SPECS:
         rid = spec["id"]
         existing = rules_raw.get(rid) if isinstance(rules_raw, dict) else None
         if isinstance(existing, dict):
-            rules[rid] = NotificationRule.from_dict(existing, spec)
+            rules[rid] = NotificationRule.from_dict(
+                _migrate_rule(rid, existing, version), spec
+            )
         else:
             rules[rid] = _default_rule(spec)
     return NotificationSettings(team_id=team_id, rules=rules)
@@ -431,8 +482,10 @@ def save_notification_settings(
             settings.rules[rid] = NotificationRule.from_dict(raw, spec)
 
     path = _path(team_id)
+    stored = settings.to_dict()
+    stored["version"] = SETTINGS_VERSION
     path.write_text(
-        json.dumps(settings.to_dict(), indent=2, sort_keys=True),
+        json.dumps(stored, indent=2, sort_keys=True),
         encoding="utf-8",
     )
     return settings

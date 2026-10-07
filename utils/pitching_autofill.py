@@ -12,10 +12,16 @@ from collections import deque
 from typing import Dict, Iterable, Tuple
 
 from .pitcher_role import get_role
+from .staff_roles import STAFF_ROLES
 
 # Type aliases for clarity
 PlayerEntry = Tuple[str, dict]
 Assignments = Dict[str, str]
+
+# MR1-MR3 (required) then MR4-MR5 (optional), in staff order.
+_MIDDLE_RELIEF_SLOTS: Tuple[str, ...] = tuple(
+    role for role in STAFF_ROLES if role.startswith("MR")
+)
 
 
 def autofill_pitching_staff(players: Iterable[PlayerEntry]) -> Assignments:
@@ -32,7 +38,9 @@ def autofill_pitching_staff(players: Iterable[PlayerEntry]) -> Assignments:
     there are not enough starters, the highest-endurance relievers are used to
     fill any remaining rotation spots.  Bullpen roles are then assigned using
     the remaining relievers, with the long reliever getting the highest
-    endurance and the closer getting the lowest endurance.
+    endurance and the closer getting the lowest endurance.  The optional
+    MR4/MR5 slots are filled last, only while pitchers remain, so a 13-arm
+    staff lists all 13 and an 11-arm staff stops at MR3.
     """
 
     def _entry(pid: str, endurance: int, preferred: str = "") -> dict:
@@ -115,16 +123,16 @@ def autofill_pitching_staff(players: Iterable[PlayerEntry]) -> Assignments:
         assignment[f"SP{i + 1}"] = pid
 
     # Bullpen roles use remaining relievers (unique by pid).
-    # The simulator slots are: LR, MR1, MR2, MR3, SU, CL — match the
-    # eleven-row PyQt pitching-staff layout. Fill in priority order so
-    # the essentials (LR / CL / SU) are claimed before optional MR2/MR3
-    # spots, and so a thin pool still produces a usable staff:
-    #   LR  — long relief (high endurance)
-    #   CL  — closer (low endurance, prefers preferred_pitching_role="CL")
-    #   SU  — setup (low-ish endurance, just before closer)
-    #   MR1 — primary middle relief (high endurance)
-    #   MR2 — depth middle relief (high endurance)
-    #   MR3 — depth middle relief (high endurance)
+    # The simulator slots are: LR, MR1-MR3, SU, CL (required) plus the
+    # optional MR4/MR5 for the 12th and 13th arms (utils.staff_roles). Fill
+    # in priority order so the essentials (LR / CL / SU) are claimed before
+    # the middle-relief depth, and so a thin pool still produces a usable
+    # staff:
+    #   LR      — long relief (high endurance)
+    #   CL      — closer (low endurance, prefers preferred_pitching_role="CL")
+    #   SU      — setup (low-ish endurance, just before closer)
+    #   MR1-MR3 — middle relief (high endurance first)
+    #   MR4-MR5 — optional depth, filled only while arms remain
     pid = _pop_relief_high()
     if pid is not None:
         assignment["LR"] = pid
@@ -136,7 +144,7 @@ def autofill_pitching_staff(players: Iterable[PlayerEntry]) -> Assignments:
     pid = _pop_relief_low()
     if pid is not None:
         assignment["SU"] = pid
-    for slot in ("MR1", "MR2", "MR3"):
+    for slot in _MIDDLE_RELIEF_SLOTS:
         pid = _pop_relief_high()
         if pid is None:
             break

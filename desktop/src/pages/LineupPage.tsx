@@ -76,7 +76,9 @@ import {
 } from "@/components/ui";
 
 const HITTER_POSITIONS = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"];
-const STAFF_ROLES = [
+// Mirrors utils/staff_roles.py: 11 required slots, then MR4/MR5 as optional
+// homes for the 12th and 13th active arms (Release 3).
+const REQUIRED_STAFF_ROLES = [
   "SP1",
   "SP2",
   "SP3",
@@ -89,6 +91,8 @@ const STAFF_ROLES = [
   "SU",
   "CL",
 ];
+const OPTIONAL_STAFF_ROLES = ["MR4", "MR5"];
+const STAFF_ROLES = [...REQUIRED_STAFF_ROLES, ...OPTIONAL_STAFF_ROLES];
 
 export function LineupPage() {
   const user = useAuthStore();
@@ -883,9 +887,9 @@ function PitchingTab({
     return m;
   }, [pitchers]);
   const assignedIds = new Set(rows.map((r) => r.player_id).filter(Boolean));
-  // Active pitchers with no staff role. A full active roster carries up to 13
-  // pitchers but the staff has 11 slots, so the 12th and 13th pitch as extra
-  // relievers until the bullpen update adds slots (26-man roster, 7.46.0).
+  // Active pitchers with no staff role. The staff has 11 required slots plus
+  // the optional MR4/MR5, so a 13-pitcher active roster can slot everyone;
+  // an unslotted arm still pitches as an extra middle reliever.
   const unslotted = pitchers.filter((p) => !assignedIds.has(p.player_id));
 
   function updateRow(idx: number, patch: Partial<PitchingStaffEntry>) {
@@ -908,8 +912,20 @@ function PitchingTab({
   const invalid = rows.some((r) => !r.player_id || !r.role);
   const canSave = !invalid && dirty && !save.isPending;
 
-  // Status mirror of PyQt's "Filled: X/Y | Duplicates: Z" label.
+  // Status mirror of PyQt's "Filled: X/Y | Duplicates: Z" label, counted
+  // against the 11 required slots; MR4/MR5 show as "+ N optional".
+  const filledRoles = new Set(
+    rows.filter((r) => r.player_id && r.role).map((r) => r.role),
+  );
+  const requiredFilled = REQUIRED_STAFF_ROLES.filter((r) =>
+    filledRoles.has(r),
+  ).length;
+  const optionalFilled = OPTIONAL_STAFF_ROLES.filter((r) =>
+    filledRoles.has(r),
+  ).length;
   const filledCount = rows.filter((r) => r.player_id && r.role).length;
+  const requiredComplete = requiredFilled >= REQUIRED_STAFF_ROLES.length;
+  const openOptional = OPTIONAL_STAFF_ROLES.filter((r) => !filledRoles.has(r));
   const duplicatePlayers = (() => {
     const seen = new Map<string, number>();
     for (const r of rows) {
@@ -937,8 +953,9 @@ function PitchingTab({
         <div>
           <CardTitle>Pitching staff</CardTitle>
           <CardDescription>
-            Roles used by the sim: SP1–SP5 starters, LR/MR long/middle relief,
-            SU setup, CL closer.
+            Roles used by the sim: SP1–SP5 starters, LR long relief, MR1–MR3
+            middle relief, SU setup, CL closer. MR4 and MR5 are optional
+            slots for a 12th and 13th arm.
           </CardDescription>
         </div>
         <div className="flex items-center gap-2">
@@ -946,7 +963,7 @@ function PitchingTab({
             variant="outline"
             onClick={() => autofill.mutate()}
             disabled={autofill.isPending}
-            title="Auto-assign SP1–SP5 + LR/MR/SU/CL from the active roster"
+            title="Auto-assign SP1–SP5 + LR/MR/SU/CL (and MR4/MR5 while arms remain) from the active roster"
           >
             {autofill.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -956,8 +973,12 @@ function PitchingTab({
             Auto-fill
           </Button>
           {dirty && <Badge tone="warning">Unsaved</Badge>}
-          <Badge tone={duplicatePlayers > 0 ? "danger" : "amber"}>
-            Filled {filledCount}/{STAFF_ROLES.length}
+          <Badge
+            tone={duplicatePlayers > 0 ? "danger" : "amber"}
+            title="Required slots filled; MR4 and MR5 are optional"
+          >
+            Filled {requiredFilled}/{REQUIRED_STAFF_ROLES.length}
+            {optionalFilled > 0 && ` + ${optionalFilled} optional`}
             {duplicatePlayers > 0 && ` · ${duplicatePlayers} dup`}
           </Badge>
         </div>
@@ -984,7 +1005,7 @@ function PitchingTab({
             </p>
           </div>
         )}
-        {filledCount >= STAFF_ROLES.length && unslotted.length > 0 && (
+        {requiredComplete && unslotted.length > 0 && (
           <div className="mx-4 mt-3 rounded-md border border-info/40 bg-info/10 p-3 text-xs text-ink">
             <div className="font-semibold">
               {unslotted.length === 1
@@ -996,13 +1017,16 @@ function PitchingTab({
               {unslotted.map((p) => `${p.first_name} ${p.last_name}`).join(", ")}
             </p>
             <p className="mt-1 text-muted">
-              They still pitch out of the bullpen as extra relief arms. The
-              staff has 11 slots; more relief slots arrive with a later bullpen
-              update.
+              They still pitch out of the bullpen as extra middle relievers.
+              {openOptional.length > 0
+                ? ` Add them to the optional ${openOptional.join(" / ")} slot${
+                    openOptional.length === 1 ? "" : "s"
+                  } with Add role so the staff lists every arm.`
+                : " Every staff slot is taken, so they stay unslotted."}
             </p>
           </div>
         )}
-        {filledCount > 0 && filledCount < STAFF_ROLES.length && unslotted.length > 0 && (
+        {filledCount > 0 && !requiredComplete && unslotted.length > 0 && (
           <div className="mx-4 mt-3 rounded-md border border-info/40 bg-info/10 p-3 text-xs text-ink">
             <div className="font-semibold">
               {unslotted.length === 1

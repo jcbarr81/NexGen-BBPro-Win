@@ -178,7 +178,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Unslotted relievers",
-                "<p>The pitching staff still has 11 slots (SP1–SP5, LR, MR1–MR3, SU, CL). With 13 pitchers active, the 12th and 13th have no slot: they are <b>unslotted relievers</b> who pitch out of the bullpen as extra arms. The Pitching tab on the Lineup page lists them. More relief slots arrive with a later bullpen update.</p>",
+                "<p>The pitching staff has 11 required slots (SP1–SP5, LR, MR1–MR3, SU, CL) and two optional ones, <b>MR4</b> and <b>MR5</b>, for the 12th and 13th active pitchers. Auto-fill uses them whenever you have the arms. Active pitchers without a slot are <b>unslotted relievers</b>: they still pitch out of the bullpen as extra middle relievers, and the Pitching tab on the Lineup page lists them so you can give them MR4 or MR5. Staffs saved before the optional slots existed are left as they are.</p>",
             ),
         ],
     ),
@@ -215,11 +215,11 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Pitching staff roles",
-                "<p>The <b>Pitching</b> tab exposes 11 slots: <b>SP1–SP5</b>, <b>LR</b>, <b>MR1–MR3</b>, <b>SU</b>, <b>CL</b>. Drag or use move buttons to reorder — the simulator schedules starts and calls relievers based on these roles. Low-rating warnings appear for starters or closers without the right ratings.</p><p>A full active roster carries up to 13 pitchers, so two of them have no slot. They are <b>unslotted relievers</b>: they still pitch out of the bullpen as extra relief arms, and the Pitching tab lists them under the staff. More relief slots arrive with a later bullpen update.</p>",
+                "<p>The <b>Pitching</b> tab has 11 required slots: <b>SP1–SP5</b>, <b>LR</b>, <b>MR1–MR3</b>, <b>SU</b>, <b>CL</b>, plus two optional middle-relief slots, <b>MR4</b> and <b>MR5</b>. Drag or use move buttons to reorder — the simulator schedules starts and calls relievers based on these roles. Low-rating warnings appear for starters or closers without the right ratings. The badge reads <i>Filled 11/11 + 2 optional</i> once the 12th and 13th arms have their slots.</p><p>A full active roster carries up to 13 pitchers. Use <b>Add role</b> to put the 12th and 13th in MR4 and MR5. An arm left without a slot is an <b>unslotted reliever</b>: he still pitches out of the bullpen as an extra middle reliever, and the Pitching tab lists him under the staff. A label that is not a slot (an old plain <i>MR</i> row) or a slot listed twice only shows a warning; the staff still saves.</p>",
             ),
             TutorialStep(
                 "Pitching staff Auto-fill",
-                "<p>The <b>Auto-fill</b> button on the Pitching tab seeds all 11 slots from the active roster. Priority order: rotation goes to the five highest-endurance starters (or relievers preferring SP), then bullpen fills as <b>LR → CL → SU → MR1 → MR2 → MR3</b>. Long relief gets a high-endurance arm, closer gets the lowest-endurance arm (preferring anyone whose preferred role is CL), setup gets the next-lowest. The thinning order means a 9-pitcher staff still gets a usable LR/CL/SU before MR2/MR3 get filled.</p>",
+                "<p>The <b>Auto-fill</b> button on the Pitching tab seeds the staff from the active roster: the 11 required slots, then MR4 and MR5 while pitchers remain. Priority order: rotation goes to the five highest-endurance starters (or relievers preferring SP), then bullpen fills as <b>LR → CL → SU → MR1 → MR2 → MR3 → MR4 → MR5</b>. Long relief gets a high-endurance arm, closer gets the lowest-endurance arm (preferring anyone whose preferred role is CL), setup gets the next-lowest. The thinning order means a 9-pitcher staff still gets a usable LR/CL/SU before MR2/MR3 get filled, and a 13-pitcher staff lists every arm.</p>",
             ),
         ],
     ),
@@ -267,7 +267,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Placing and activating",
-                "<p>Use <b>Place on IL</b> on an injured player to open an active-roster spot, and <b>Activate</b> to bring him back once his stint is up. If the active roster is full, option someone down from the Roster page first. Commissioners can hand these moves to owners (or keep them automatic) on the Season page.</p>",
+                "<p>Use <b>Place on IL</b> on an injured player to open an active-roster spot, and <b>Activate</b> to bring him back once his stint is up. If the active roster is full, option someone down from the Roster page first. Commissioners can hand these moves to owners (or keep them automatic) on the Season page, and each owner chooses on <b>My Team → Settings → Game day</b> whether players come off the 10/15-day list and the 60-day list automatically.</p>",
             ),
             TutorialStep(
                 "News trail",
@@ -395,12 +395,12 @@ TUTORIALS: List[Tutorial] = [
     Tutorial(
         tutorial_id="team_settings",
         title="Team Settings & Ballparks",
-        summary="Colors, stadium, strategy profile, auto-reassign — plus park browser.",
+        summary="Colors, stadium, strategy profile, auto-reassign, game-day rest and IL choices — plus park browser.",
         route="/settings",
         steps=[
             TutorialStep(
                 "Access",
-                "<p>Open <b>My Team → Settings</b>. Here you edit branding, home ballpark, team strategy profile, and roster auto-reassign behavior.</p>",
+                "<p>Open <b>My Team → Settings</b>. Here you edit branding, home ballpark, team strategy profile, roster auto-reassign behavior, and the <b>Game day</b> choices for rest days and injured-list returns.</p>",
             ),
             TutorialStep(
                 "Colors",
@@ -413,6 +413,23 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Strategy & auto-reassign",
                 "<p>Strategy profile (Win Now, Development Focus, etc.) steers automation intent. Auto-Reassign lets you inherit the league default or explicitly enable/disable automatic level balancing for this team.</p>",
+            ),
+            TutorialStep(
+                "Game day: rest days",
+                "<p>The <b>Game day</b> card holds four choices for your club. Each one can follow its <b>Default</b> or be set <b>On</b> or <b>Off</b>, and a change applies from the next game.</p>"
+                "<ul>"
+                "<li><b>Auto rest days</b> (default on): before each game the sim sits a worn-down regular, such as a catcher after a long run of starts, and starts a bench player instead. Your saved lineup is not changed; he is back the next day. Switch it off and your lineup plays as saved, tired or not: a tired regular plays worse and carries a small extra injury risk.</li>"
+                "<li><b>Rest substitutes at similar positions</b> (default on): when a regular must rest and nobody on the bench lists his position, the sim may use a bench player from a similar position (LF/RF, CF to a corner, SS to 2B/3B, any infielder to 1B), at most one per game. He fields a little worse out of position. Off means only players who list the position substitute.</li>"
+                "</ul>",
+            ),
+            TutorialStep(
+                "Game day: injured-list returns",
+                "<ul>"
+                "<li><b>Activate automatically from the 10/15-day IL</b>: when a short stint is up and the player is healthy, the sim moves him back to the active roster. Its default follows the league's injured-list setting.</li>"
+                "<li><b>Activate automatically from the 60-day IL</b> (default off): the same for the 60-day list.</li>"
+                "</ul>"
+                "<p>If a returning player has no room on the active roster, he goes to AAA and the Season page shows a <b>ready, make room</b> item. The sim never sends anyone else down to make room on your team. With a setting off, the player waits on the injured list until you activate him from the Injuries page.</p>"
+                "<p>CPU-run clubs ignore these choices: they always rest tired regulars, use similar-position substitutes and activate players automatically.</p>",
             ),
             TutorialStep(
                 "Save with Ctrl+S",
@@ -720,11 +737,16 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Default safety net",
-                "<p>Out of the box, <b>injured-list and season-ending injuries</b> stop the sim — that's the most common reason owners want to be interrupted. Day-to-day knocks are notify-only by default so the AI can keep going and you only see them in the banner. Edit any of these on this page if you'd rather have the AI auto-handle a tier or be paused for a different one.</p>",
+                "<p>Out of the box, only serious events stop the sim: a <b>60-day IL</b> placement, a <b>season-ending injury</b>, an <b>invalid lineup</b> and a <b>roster over the limit</b>. Day-to-day knocks, <b>10/15-day IL</b> placements and a <b>pitching staff with an empty slot</b> are notify-only, so the sim keeps going and you see them in the banner. Edit any of these on this page if you'd rather be paused for a different event.</p>"
+                "<p>If you changed one of these settings before, your choice is kept; only settings you never touched moved to the new defaults.</p>",
             ),
             TutorialStep(
                 "Categories at a glance",
                 "<p>Rules are grouped into seven categories: <b>Health & roster</b>, <b>Performance & milestones</b>, <b>Transactions</b>, <b>Calendar & deadlines</b>, <b>Finance</b>, <b>League & admin</b>, and <b>Draft</b>. Saving writes to <code>data/notifications/&lt;team_id&gt;.json</code>; the engine reads it on every <b>/season/simulate/*</b> call.</p>",
+            ),
+            TutorialStep(
+                "Lineup, staff and roster checks",
+                "<p>On the first day of every sim, on a season phase change, and on any day your club has injury or roster news, the engine checks your saved lineups, pitching staff and roster limits. A staff slot whose pitcher went on the injured list or was sent down counts as an empty slot. Each problem is reported once; fix it and a new problem later is reported again.</p>",
             ),
             TutorialStep(
                 "Recent events tab",

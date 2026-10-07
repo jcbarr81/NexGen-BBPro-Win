@@ -1,6 +1,8 @@
 """Utilities for determining pitcher roles."""
 
 from __future__ import annotations
+
+import re
 from typing import Any
 
 # A pitcher with endurance ABOVE this is a starter (SP), otherwise a reliever
@@ -23,9 +25,11 @@ ENDURANCE_THRESHOLD = 55
 # than a guess derived from one rating.
 _STARTER_TOKENS = {"SP", "SP1", "SP2", "SP3", "SP4", "SP5", "STARTER"}
 _RELIEF_TOKENS = {
-    "RP", "CL", "SU", "LR", "MR", "MR1", "MR2", "MR3",
+    "RP", "CL", "SU", "LR", "MR", "MR1", "MR2", "MR3", "MR4", "MR5",
     "CLOSER", "SETUP", "RELIEVER", "LONG",
 }
+# Any numbered middle-relief slot (MR1-MR5 today) is a relief declaration.
+_MIDDLE_RELIEF_SLOT = re.compile(r"^MR\d+$")
 
 def _get_attr(obj: Any, attr: str, default: Any = None) -> Any:
     """Return attribute or dict key value from *obj* if present."""
@@ -53,7 +57,7 @@ def role_from_preferred(value: Any) -> str:
         return ""
     if token in _STARTER_TOKENS:
         return "SP"
-    if token in _RELIEF_TOKENS:
+    if token in _RELIEF_TOKENS or _MIDDLE_RELIEF_SLOT.match(token):
         return "RP"
     return ""
 

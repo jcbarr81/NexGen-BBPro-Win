@@ -213,10 +213,10 @@ def _build_pitching_staff(players: List[dict]) -> List[tuple[str, str]]:
 
     Uses the Pitching auto-fill (``utils.pitching_autofill``), the same rows
     the editor's Auto-Fill and ``/pitching/autofill`` write: SP1-5, LR, CL,
-    SU, MR1-MR3. A new league therefore starts with a staff the editor's own
-    validation accepts. The creator used to write plain "MR" rows and two
-    "SU" rows, which the editor rejects. Active pitchers beyond the 11 slots
-    (the 12th and 13th arms) stay unlisted and pitch as extra relievers.
+    SU, MR1-MR3, then the optional MR4/MR5 for the 12th and 13th active arms.
+    A new league therefore starts with a staff the editor's own validation
+    accepts and every active pitcher slotted. The creator used to write plain
+    "MR" rows and two "SU" rows, which the editor rejects.
     """
 
     from utils.pitching_autofill import autofill_pitching_staff
