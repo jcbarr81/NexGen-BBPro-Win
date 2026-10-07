@@ -142,9 +142,9 @@ def ensure_active_rosters(
         def org_size() -> int:
             return len(act_ids) + len(roster.aaa) + len(roster.low)
 
-        def call_up(want_pitcher: bool) -> bool:
+        def call_up(want_pitcher: bool, levels=("aaa", "low")) -> bool:
             # Own organisation, AAA before Low-A.
-            for level in ("aaa", "low"):
+            for level in levels:
                 ids = getattr(roster, level)
                 for pid in ids:
                     if pid in act_ids or is_pitcher(pid) != want_pitcher:
@@ -188,16 +188,23 @@ def ensure_active_rosters(
             getattr(roster, level).append(pid)
             adjustments += 1
 
+        def first_with_room(candidates):
+            return next((p for p in candidates if destination(p) is not None), None)
+
         # 1. surplus pitchers down first, so the fill can use their spots.
         while len(act_pitchers) > pitcher_limit:
-            pid = act_pitchers[-1]
-            level = destination(pid)
-            if level is None and len(act_hitters) < target_hitters and call_up(False):
-                adjustments += 1        # a position player up makes the room
-                level = destination(pid)
-            if level is None:
+            pid = first_with_room(reversed(act_pitchers))
+            if (
+                pid is None
+                and len(act_hitters) < target_hitters
+                and call_up(False, levels=("aaa",))
+            ):
+                # An AAA position player up frees the AAA spot the arm needs.
+                adjustments += 1
+                pid = first_with_room(reversed(act_pitchers))
+            if pid is None:
                 break                   # nowhere legal: he stays active
-            option(pid, level)
+            option(pid, destination(pid))
 
         # 2. fill: position players to the target, then arms to the limit.
         while len(act_ids) < active_max:
@@ -222,11 +229,14 @@ def ensure_active_rosters(
             )
             arms = act_pitchers if len(act_pitchers) > min_pitchers else []
             pools = (hitters, arms) if len(act_hitters) > target_hitters else (arms, hitters)
-            victim = next((pool[-1] for pool in pools if pool), None)
-            level = destination(victim) if victim is not None else None
-            if level is None:
+            # Skip anyone with nowhere legal to go rather than giving up.
+            victim = next(
+                (p for pool in pools for p in reversed(pool) if destination(p) is not None),
+                None,
+            )
+            if victim is None:
                 break
-            option(victim, level)
+            option(victim, destination(victim))
 
         roster.act = act_ids
         save_roster(team_id, roster)

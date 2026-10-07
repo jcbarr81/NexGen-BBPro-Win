@@ -684,7 +684,16 @@ def _apply_arbitration_updates(
     awards_by_team: Dict[str, int] = {}
     details: list[Dict[str, object]] = []
     cpu_non_tender_ids: list[str] = []
-    human_owned_teams = _human_owned_team_ids(data_dir)
+    # Strict ownership: a users.txt that can't be read must not turn owners'
+    # clubs into CPU clubs (CPU non-tenders). Unknown -> every club gets the
+    # owner's default for this pass (a standard raise, no CPU decisions).
+    from services.team_ownership import human_owned_team_ids_strict
+
+    strict_owned = human_owned_team_ids_strict(data_dir)
+    ownership_unknown = strict_owned is None
+    human_owned_teams = {
+        str(t).upper() for t in (strict_owned or set()) | _human_owned_team_ids(data_dir)
+    }
     finance_ai_level = settings.module_level("gm_finance_ai")
     team_strategies = (
         load_team_finance_strategies(data_dir=data_dir)
@@ -719,7 +728,7 @@ def _apply_arbitration_updates(
         profile = player_profiles.get(str(player_id), {})
         talent_score = _safe_int(profile.get("talent"), fallback=60)
         performance_score = _safe_int(profile.get("performance"), fallback=55)
-        is_human_team = team_id in human_owned_teams
+        is_human_team = ownership_unknown or str(team_id).upper() in human_owned_teams
 
         decision = "manual_default" if is_human_team else "cpu_standard"
         applied_bump = bump
@@ -874,6 +883,7 @@ def _apply_arbitration_updates(
         "details": details,
         "cpu_non_tenders": int(non_tender_summary.get("released_contracts", 0)),
         "cpu_releases": int(non_tender_summary.get("released_from_rosters", 0)),
+        "ownership_unknown": ownership_unknown,
     }
 
 

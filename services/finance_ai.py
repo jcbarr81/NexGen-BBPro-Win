@@ -393,7 +393,13 @@ def build_cpu_free_agent_bid_book(
     tuning_map = _merge_tuning(settings.finance_ai_tuning)
     fa_star_quality_threshold = _tuning_int(tuning_map, "fa_star_quality_threshold")
 
-    human_ids = _human_owned_team_ids(resolved_data_dir)
+    # Strict: a users.txt that can't be read must not turn owners' clubs into
+    # CPU bidders (their teams.csv owner_id is blank in the cloud).
+    from services.team_ownership import human_owned_team_ids_strict
+
+    human_ids = human_owned_team_ids_strict(resolved_data_dir)
+    if human_ids is None:
+        return {}
     room = _SigningRoom(player, resolved_data_dir, rosters, players_by_id)
 
     bids: Dict[str, int] = {}
@@ -401,7 +407,7 @@ def build_cpu_free_agent_bid_book(
         team_id = str(getattr(team, "team_id", "") or "").strip()
         # Never bid FOR a human-owned team (their owner_id is blank in the cloud,
         # so _is_cpu_team alone would treat them as CPU).
-        if not team_id or team_id in human_ids or not _is_cpu_team(team):
+        if not team_id or team_id.upper() in human_ids or not _is_cpu_team(team):
             continue
         strategy = strategy_map.get(team_id)
         raw_strategy_profile = _raw_strategy_profile(strategy)

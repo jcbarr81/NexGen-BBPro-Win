@@ -656,10 +656,18 @@ def _gaps_assignment(
             aaa.append(pid)
             excess -= 1
 
-    # 5. Trim over-cap levels, lowest value first, without breaking ACT legality.
+    # 5. Trim over-cap levels, lowest value first, without breaking ACT legality
+    # or the rotation (the same MIN_ACTIVE_STARTERS guard as step 4).
+    is_starter_5, _ = _pitcher_trim_order(
+        [pid for pid in act if is_pitcher(pid)], players, staff_roles
+    )
+
     def _can_drop_from_act(pid: str) -> bool:
         if is_pitcher(pid):
-            return True
+            if not is_starter_5(pid):
+                return True
+            starters = sum(1 for p in act if is_pitcher(p) and is_starter_5(p))
+            return starters > MIN_ACTIVE_STARTERS
         remaining = [h for h in act_hitters() if h != pid]
         if len(remaining) < MIN_POSITION_PLAYERS_ACT:
             return False

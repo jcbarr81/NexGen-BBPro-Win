@@ -449,6 +449,91 @@ def test_cpu_team_non_tenders_high_cost_underperformer(tmp_path):
     assert (roster_dir / "AAA.csv").read_text(encoding="utf-8").strip() == ""
 
 
+def test_no_cpu_non_tenders_when_ownership_is_unreadable(tmp_path, monkeypatch):
+    """users.txt can't be read: the club might be an owner's (blank
+    owner_id in the cloud), so no CPU non-tender may run on it."""
+    monkeypatch.setattr(
+        "services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: None
+    )
+    data_dir = tmp_path / "league-data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    ensure_financial_defaults(data_dir=data_dir, league_id="test")
+    update_financial_settings(
+        preset="standard",
+        path=data_dir / "league_financial_settings.json",
+        league_id="test",
+    )
+    (data_dir / "users.txt").write_text("admin,pass,admin,\n", encoding="utf-8")
+    (data_dir / "teams.csv").write_text(
+        "team_id,name,city,abbreviation,division,stadium,primary_color,secondary_color,owner_id\n"
+        "AAA,CPU Club,City,AAA,East,Park,#112233,#445566,cpu\n",
+        encoding="utf-8",
+    )
+    (data_dir / "players.csv").write_text(
+        "player_id,first_name,last_name,birthdate,height,weight,bats,primary_position,other_positions,gf,ch,ph,sp,eye,pl,vl,sc,fa,arm,is_pitcher\n"
+        "P9,Expensive,Bat,2000-01-01,72,190,R,1B,,50,55,54,40,40,55,55,45,48,50,0\n",
+        encoding="utf-8",
+    )
+    (data_dir / "season_stats.json").write_text(
+        json.dumps(
+            {
+                "players": {
+                    "P9": {
+                        "ops": 0.58,
+                        "ab": 520,
+                        "h": 108,
+                    }
+                },
+                "teams": {},
+                "history": [],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    roster_dir = data_dir / "rosters"
+    roster_dir.mkdir(parents=True, exist_ok=True)
+    (roster_dir / "AAA.csv").write_text("P9,ACT\n", encoding="utf-8")
+    (data_dir / "contracts.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "players": {
+                    "P9": {
+                        "team_id": "AAA",
+                        "years_left": 1,
+                        "annual_salary": 25_000_000,
+                        "service_time_days": 620,
+                        "arb_eligible": False,
+                        "fa_year": 2031,
+                        "options": [],
+                    }
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "team_financials.json").write_text(
+        json.dumps({"version": 1, "season_year": 2030, "teams": {"AAA": {}}}, indent=2),
+        encoding="utf-8",
+    )
+
+    result = run_offseason_financial_rollover(
+        ended_season_year=2030,
+        next_season_year=2031,
+        data_dir=data_dir,
+        league_id="test",
+    )
+
+    arbitration = result.get("arbitration", {})
+    assert arbitration.get("ownership_unknown") is True
+    assert arbitration.get("cpu_non_tenders") == 0
+    contracts = json.loads((data_dir / "contracts.json").read_text(encoding="utf-8"))
+    assert "P9" in contracts.get("players", {})
+    assert (roster_dir / "AAA.csv").read_text(encoding="utf-8").strip() == "P9,ACT"
+
+
 def test_owner_league_offseason_requires_gm_queue_resolution_stage(tmp_path):
     data_dir = tmp_path / "league-data"
     data_dir.mkdir(parents=True, exist_ok=True)

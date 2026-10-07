@@ -299,6 +299,25 @@ def test_gaps_trim_sends_a_reliever_not_the_weakest_starter(monkeypatch, tmp_pat
     assert result["released"] == []
 
 
+def test_gaps_size_trim_never_breaks_the_rotation(monkeypatch, tmp_path):
+    """Final review: ACT 27 = 14 hitters + 13 arms (5 starters, the weakest
+    player a starter). The over-cap trim must not leave 4 starters."""
+    players, roster = _org(act_pitchers=0, act_hitters=14, aaa_hitters=4, aaa_pitchers=0, low=0)
+    for i in range(5):
+        p = _arm(f"SP{i}", ovr=20 if i == 4 else 75, pos="SP")
+        players[p.player_id] = p
+        roster.act.append(p.player_id)
+    for i in range(8):
+        p = _arm(f"RP{i}", ovr=60 + i, pos="RP")
+        players[p.player_id] = p
+        roster.act.append(p.player_id)
+    assert len(roster.act) == 27
+    result, r = _run(monkeypatch, players, roster, mode="gaps", roster_dir=str(tmp_path))
+    assert len(r.act) == 26
+    assert "SP4" in r.act, "the size trim must not demote a needed starter"
+    assert result["released"] == []
+
+
 def test_gaps_trim_demotes_unslotted_arms_before_slotted_relievers(monkeypatch, tmp_path):
     players, roster = _rotation_org()
     # The staff file slots the rotation and RP0 (the weakest reliever) as the

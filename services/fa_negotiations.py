@@ -384,6 +384,19 @@ def _resolve(
     forced: bool,
 ) -> Dict[str, Any]:
     """Pick the best acceptable offer and sign it; else close with no deal."""
+    # A CPU offer posted for a club an owner runs (ownership misread when it
+    # was posted) must never sign a player onto the owner's roster. With
+    # ownership unreadable now, wait a day rather than guess.
+    if any(o.get("is_cpu") for o in negotiation.get("offers", []) or []):
+        from services.team_ownership import human_owned_team_ids_strict
+
+        human_ids = human_owned_team_ids_strict()
+        if human_ids is None:
+            return {"signed_team": None, "player_id": player_id, "deferred": "ownership_unknown"}
+        negotiation["offers"] = [
+            o for o in negotiation.get("offers", []) or []
+            if not (o.get("is_cpu") and str(o.get("team_id", "")).upper() in human_ids)
+        ]
     offers = negotiation.get("offers", []) or []
     acceptable = [o for o in offers if _player_accepts(o, player)]
     winner = max(acceptable, key=_offer_value) if acceptable else None

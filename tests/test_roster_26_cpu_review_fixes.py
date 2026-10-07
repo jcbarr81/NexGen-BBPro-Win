@@ -475,3 +475,99 @@ def test_backfill_trim_keeps_the_last_healthy_catcher(backfill):
     backfill.rb.ensure_active_rosters(players=players)
     assert len(roster.act) == ACTIVE_ROSTER_SIZE
     assert "c0" in roster.act
+
+
+def test_backfill_never_leaves_more_than_26_active(backfill):
+    """Final review: 14 old arms + 12 hitters, AAA full of old arms, LOW full
+    of young hitters. No pitcher can legally go down, so the swap must not
+    call a LOW hitter up and leave 27 active."""
+    players = {"c0": _p("c0", "C")}
+    players.update({f"h{i}": _p(f"h{i}", "LF") for i in range(ACT_HITTER_TARGET - 2)})
+    players.update({f"p{i}": _p(f"p{i}", "P") for i in range(MAX_ACTIVE_PITCHERS + 1)})
+    act = list(players)
+    players.update({f"a{i}": _p(f"a{i}", "P") for i in range(AAA_CAP)})
+    players.update({f"l{i}": _p(f"l{i}", "LF", birthdate=_YOUNG) for i in range(LOW_CAP)})
+    roster = Roster(
+        "CPU", act=act, aaa=[f"a{i}" for i in range(AAA_CAP)], low=[f"l{i}" for i in range(LOW_CAP)]
+    )
+    assert len(roster.act) == ACTIVE_ROSTER_SIZE
+    backfill.rosters["CPU"] = roster
+    backfill.rb.ensure_active_rosters(players=players)
+    assert len(roster.act) <= ACTIVE_ROSTER_SIZE
+    assert len(roster.aaa) <= AAA_CAP and len(roster.low) <= LOW_CAP
+
+
+def test_backfill_trim_skips_a_victim_with_nowhere_to_go(backfill):
+    """Over the size cap: the last hitter is old (no LOW) and AAA is full, but
+    a young hitter can go to LOW -- the trim must take him, not give up."""
+    players = {"c0": _p("c0", "C")}
+    players.update({f"h{i}": _p(f"h{i}", "LF", birthdate=_YOUNG) for i in range(ACT_HITTER_TARGET)})
+    players["old"] = _p("old", "LF")
+    players.update({f"p{i}": _p(f"p{i}", "P") for i in range(MAX_ACTIVE_PITCHERS)})
+    act = list(players)
+    players.update({f"a{i}": _p(f"a{i}", "P") for i in range(AAA_CAP)})
+    roster = Roster("CPU", act=act, aaa=[f"a{i}" for i in range(AAA_CAP)], low=[])
+    assert len(roster.act) == ACTIVE_ROSTER_SIZE + 2
+    backfill.rosters["CPU"] = roster
+    backfill.rb.ensure_active_rosters(players=players)
+    assert len(roster.act) == ACTIVE_ROSTER_SIZE
+    assert "old" in roster.act and len(roster.low) == 2
+
+
+# --- final review: strict ownership in negotiations ---------------------------
+
+
+def test_the_bid_book_bids_for_nobody_when_ownership_is_unreadable(tmp_path, monkeypatch):
+    """users.txt exists but can't be read: an owner's club (blank owner_id in
+    the cloud) must not get a CPU bid posted for it."""
+    from services.finance_ai import build_cpu_free_agent_bid_book
+
+    data_dir = _fa_league(tmp_path)
+    monkeypatch.setattr(
+        "services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: None
+    )
+    teams = [SimpleNamespace(team_id="AAA", owner_id=""), SimpleNamespace(team_id="BBB", owner_id="")]
+    bids = build_cpu_free_agent_bid_book(
+        _p("P100", "1B", 60), teams, ai_level="advanced", data_dir=data_dir
+    )
+    assert bids == {}
+
+
+def test_a_stale_cpu_offer_for_an_owners_club_never_signs(monkeypatch):
+    """An is_cpu offer posted for BBB while ownership was misread: at
+    resolution BBB is known to be an owner's club, so the offer is dropped and
+    the real CPU club's offer wins."""
+    import services.fa_negotiations as neg
+
+    monkeypatch.setattr(
+        "services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: {"BBB"}
+    )
+    monkeypatch.setattr(neg, "_player_accepts", lambda o, p: True)
+    negotiation = {
+        "offers": [
+            {"team_id": "BBB", "is_cpu": True, "annual_salary": 9_000_000, "years": 1},
+            {"team_id": "AAA", "is_cpu": True, "annual_salary": 5_000_000, "years": 1},
+        ]
+    }
+    signed = []
+    out = neg._resolve(
+        negotiation, "P100", SimpleNamespace(player_id="P100"),
+        lambda **k: signed.append(k["team_id"]) or True, None, "2026-11-01", forced=True,
+    )
+    assert out["signed_team"] == "AAA"
+    assert signed == ["AAA"]
+
+
+def test_resolution_waits_while_ownership_is_unreadable(monkeypatch):
+    import services.fa_negotiations as neg
+
+    monkeypatch.setattr(
+        "services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: None
+    )
+    negotiation = {"offers": [{"team_id": "BBB", "is_cpu": True, "annual_salary": 1, "years": 1}]}
+    out = neg._resolve(
+        negotiation, "P100", SimpleNamespace(player_id="P100"),
+        lambda **k: True, None, "2026-11-01", forced=True,
+    )
+    assert out.get("deferred") == "ownership_unknown"
+    assert "status" not in negotiation

@@ -108,7 +108,7 @@ def _resolve_destination(
     return None
 
 
-def _teams_managing_their_own_il(data_dir) -> set:
+def _teams_managing_their_own_il(data_dir) -> set | None:
     """Human-owned teams that have opted out of automatic activation.
 
     CPU teams are never in this set: nobody is watching them, so a club without
@@ -124,11 +124,13 @@ def _teams_managing_their_own_il(data_dir) -> set:
     except Exception:  # pragma: no cover - defensive
         return set()
     try:
-        from services.finance_ai import _human_owned_team_ids
+        from services.team_ownership import human_owned_team_ids_strict
 
-        return set(_human_owned_team_ids(data_dir))
+        # None (users.txt unreadable): every club waits a day rather than an
+        # owner's injured list being run for him.
+        return human_owned_team_ids_strict(data_dir)
     except Exception:  # pragma: no cover - defensive
-        return set()
+        return None
 
 
 def process_disabled_lists(
@@ -208,7 +210,9 @@ def process_disabled_lists(
             list_label = disabled_list_label(getattr(player, "injury_list", ""))
             base_msg = f"{_player_name(player)} ready to return from {list_label or 'injury list'} ({team_id})"
 
-            if auto_activate and team_id in owner_managed:
+            if auto_activate and (
+                owner_managed is None or str(team_id).upper() in owner_managed
+            ):
                 # The owner runs this team's injured list by hand.
                 summary.awaiting_owner.append(
                     f"{_player_name(player)} is eligible to come off the "

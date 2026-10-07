@@ -61,7 +61,7 @@ def automation(monkeypatch, tmp_path):
 def test_nobody_is_held_back_while_the_setting_is_on(automation, monkeypatch):
     monkeypatch.setattr("utils.league_settings.auto_activate_il", lambda: True)
     monkeypatch.setattr(
-        "services.finance_ai._human_owned_team_ids", lambda d: {"HUM"}
+        "services.team_ownership.human_owned_team_ids_strict", lambda d=None: {"HUM"}
     )
     assert automation._teams_managing_their_own_il(None) == set()
 
@@ -71,11 +71,21 @@ def test_only_human_teams_are_held_back(automation, monkeypatch):
     a stranded player would sit there for the rest of the season."""
     monkeypatch.setattr("utils.league_settings.auto_activate_il", lambda: False)
     monkeypatch.setattr(
-        "services.finance_ai._human_owned_team_ids", lambda d: {"HUM", "HUM2"}
+        "services.team_ownership.human_owned_team_ids_strict", lambda d=None: {"HUM", "HUM2"}
     )
     held = automation._teams_managing_their_own_il(None)
     assert held == {"HUM", "HUM2"}
     assert "CPU" not in held
+
+
+def test_unknown_ownership_holds_every_club(automation, monkeypatch):
+    """users.txt unreadable: nobody's injured list is run for him. Every club
+    waits a day rather than an owner who manages his own list being overruled."""
+    monkeypatch.setattr("utils.league_settings.auto_activate_il", lambda: False)
+    monkeypatch.setattr(
+        "services.team_ownership.human_owned_team_ids_strict", lambda d=None: None
+    )
+    assert automation._teams_managing_their_own_il(None) is None
 
 
 def test_a_broken_settings_read_fails_open(automation, monkeypatch):
@@ -92,7 +102,7 @@ def test_a_broken_settings_read_fails_open(automation, monkeypatch):
 def test_batch_runs_ignore_the_setting(automation, monkeypatch):
     """The long-run sim harness has no owner to wait on."""
     monkeypatch.setattr("utils.league_settings.auto_activate_il", lambda: False)
-    monkeypatch.setattr("services.finance_ai._human_owned_team_ids", lambda d: {"HUM"})
+    monkeypatch.setattr("services.team_ownership.human_owned_team_ids_strict", lambda d=None: {"HUM"})
     monkeypatch.setattr(automation, "load_players_from_csv", lambda *a, **k: [])
     monkeypatch.setattr(automation, "load_teams", lambda *a, **k: [])
 
