@@ -109,8 +109,14 @@ def _default_hitters(
 ) -> Tuple[List[Player], List[Player]]:
     """Return ``(lineup, bench)`` for ``team_id``'s default game state.
 
-    Nine position players are selected for the lineup based on descending
-    ``ph`` (power hitting) rating; the remaining hitters form the bench.
+    Nine position players are chosen by the lineup auto-fill's coverage-first
+    :func:`utils.lineup_autofill.build_lineup` (Release 3: it used to be the
+    top nine by ``ph``, which could leave C or SS empty), in memory -- no
+    lineup file is written -- and batted in the auto-fill's slot order. Each
+    lineup player's ``position`` is set as :func:`apply_lineup` does; a saved
+    lineup applied afterwards overrides it. The remaining hitters form the
+    bench. Only the club's own players: the old fallback to other clubs'
+    hitters is gone (the game rejected them anyway, audit H9).
     """
 
     # A big-league game uses the ACTIVE roster. 3.2.12 widened this pool to
@@ -128,18 +134,28 @@ def _default_hitters(
         )
         minor_hitters.sort(key=lambda p: getattr(p, "ph", 0), reverse=True)
         hitters.extend(minor_hitters[: max(0, 9 - len(hitters))])
-    if len(hitters) < 9:
-        all_hitters, _ = _separate_players(all_players.values())
-        used_ids = {p.player_id for p in hitters}
-        fallback_hitters = [p for p in all_hitters if p.player_id not in used_ids]
-        rng = random.Random(f"{team_id}-fallback-hitters")
-        rng.shuffle(fallback_hitters)
-        needed = 9 - len(hitters)
-        hitters.extend(fallback_hitters[:needed])
 
-    hitters.sort(key=lambda p: getattr(p, "ph", 0), reverse=True)
-    lineup = hitters[:9]
-    bench = hitters[9:]
+    from utils.lineup_autofill import (
+        _assign_batting_order,
+        build_lineup,
+        lineup_hitter_score,
+    )
+
+    by_id = {p.player_id: p for p in hitters}
+
+    def score(pid: str) -> float:
+        return lineup_hitter_score(by_id[pid], vs_hand="R")
+
+    picked, _counters = build_lineup(list(by_id), by_id, score=score)
+    if len(picked) >= 9:
+        picked = _assign_batting_order(picked, by_id, vs_hand="R", overall_score=score)
+    lineup: List[Player] = []
+    for pid, pos in picked:
+        player = by_id[pid]
+        setattr(player, "position", pos)
+        lineup.append(player)
+    chosen = {p.player_id for p in lineup}
+    bench = [p for p in hitters if p.player_id not in chosen]
     return lineup, bench
 
 

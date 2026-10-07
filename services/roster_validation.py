@@ -906,3 +906,46 @@ __all__ = [
     "DEFAULT_LEVEL_CAPS",
     "DEFAULT_PITCHER_CAP",
 ]
+
+
+# ---------------------------------------------------------------------------
+# 6. Catcher depth (Release 3, owner decision 10) -- advisory only
+
+
+def validate_catcher_depth(
+    act_ids: Iterable[str],
+    players: Mapping[str, Mapping[str, Any]],
+    *,
+    min_catchers: int | None = None,
+) -> ValidationResult:
+    """Warn when the active roster carries fewer than two catchers.
+
+    Never an error: CPU clubs carry two (their roster upkeep calls one up),
+    while an owner's roster is the owner's -- a one-catcher club still plays,
+    it just can't rest its catcher, who then starts every game. A catcher is
+    a position player at C or listing C (:func:`utils.roster_rules.is_catcher`);
+    an injured one doesn't count. Ids missing from ``players`` are skipped.
+    """
+
+    from utils.roster_rules import MIN_ACTIVE_CATCHERS, is_catcher
+
+    want = MIN_ACTIVE_CATCHERS if min_catchers is None else int(min_catchers)
+    result = ValidationResult()
+    count = 0
+    for pid in act_ids or ():
+        player = players.get(pid)
+        if not player or not is_catcher(player):
+            continue
+        if str(player.get("injured", "") or "").strip().lower() in {"1", "true", "yes"}:
+            continue
+        count += 1
+    if count < want:
+        noun = "catcher" if count == 1 else "catchers"
+        result.warn(
+            f"Active roster carries {count} healthy {noun}; clubs carry {want} "
+            "so the starter can rest (otherwise he catches every game)."
+        )
+    return result
+
+
+__all__.append("validate_catcher_depth")

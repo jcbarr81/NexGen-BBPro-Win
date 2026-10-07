@@ -51,7 +51,9 @@ from utils.roster_rules import (
     ACT_HITTER_TARGET,
     LOW_CAP,
     MAX_ACTIVE_PITCHERS,
+    MIN_ACTIVE_CATCHERS,
     counts_as_pitcher,
+    is_catcher,
 )
 from utils.team_loader import load_teams
 from utils.trade_utils import trade_deadline_for_year
@@ -339,6 +341,18 @@ def _select_demotion_candidate(
 
     if not candidates:
         return None
+    # Release 3 (decision 10): a CPU club carries two catchers, so one of the
+    # last two goes down only when nobody else qualifies; the daily upkeep
+    # would otherwise call a catcher straight back up.
+    catchers_left = sum(
+        1 for pid in act
+        if is_catcher(players_by_id.get(pid))
+        and not getattr(players_by_id.get(pid), "injured", False)
+    ) + (1 if incoming_is_catcher else 0)
+    if catchers_left - 1 < MIN_ACTIVE_CATCHERS:
+        spare = [c for c in candidates if not is_catcher(players_by_id.get(c[1]))]
+        if spare:
+            candidates = spare
     if prefer_pitcher is not None:
         preferred = [
             c for c in candidates if _is_pitcher(players_by_id.get(c[1])) == prefer_pitcher

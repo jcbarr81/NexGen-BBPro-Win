@@ -1153,6 +1153,8 @@ export interface SeasonReadinessTeam {
   team_id: string;
   ready: boolean;
   issues: string[];
+  /** Advisory notes (e.g. one catcher); never affect ``ready``. */
+  notes?: string[];
 }
 
 export interface SeasonReadiness {
@@ -1525,6 +1527,23 @@ export interface TeamSettingsPatch {
   park_id?: string;
   strategy?: string;
   auto_reassign?: "enabled" | "disabled" | "default" | null;
+}
+
+/** Release 3: per-team game-day choices (services/team_play_settings.py). */
+export type TeamPlaySettingKey =
+  | "auto_rest_days"
+  | "rest_subs_similar_positions"
+  | "il_auto_activate_15"
+  | "il_auto_activate_60";
+
+export interface TeamPlaySettings {
+  team_id: string;
+  keys: TeamPlaySettingKey[];
+  values: Record<TeamPlaySettingKey, boolean>;
+  overrides: Partial<Record<TeamPlaySettingKey, boolean>>;
+  defaults: Record<TeamPlaySettingKey, boolean>;
+  /** CPU clubs ignore these settings (always rest / substitute / activate). */
+  cpu_managed: boolean;
 }
 
 // --- Training focus ---
@@ -2553,6 +2572,18 @@ export const api = {
       method: "PUT",
       body: payload,
     }),
+  getTeamPlaySettings: (teamId: string) =>
+    apiRequest<TeamPlaySettings>(
+      `/teams/${encodeURIComponent(teamId)}/settings/play`,
+    ),
+  saveTeamPlaySettings: (
+    teamId: string,
+    settings: Partial<Record<TeamPlaySettingKey, boolean | "default">>,
+  ) =>
+    apiRequest<TeamPlaySettings>(
+      `/teams/${encodeURIComponent(teamId)}/settings/play`,
+      { method: "PUT", body: { settings } },
+    ),
   getTraining: (teamId: string) =>
     apiRequest<TrainingFocus>(`/teams/${encodeURIComponent(teamId)}/training`),
   saveTraining: (

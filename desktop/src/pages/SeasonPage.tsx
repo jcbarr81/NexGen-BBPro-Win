@@ -1714,6 +1714,7 @@ function ReadinessBoard({
                     ))}
                   </ul>
                 )}
+                <ReadinessNotes teamId={t.team_id} notes={t.notes} />
               </div>
               {!t.ready && (
                 <Button
@@ -1781,10 +1782,24 @@ function OwnerWaitingCard({
                 ))}
               </ul>
             )}
+            <ReadinessNotes teamId={mine.team_id} notes={mine.notes} />
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Advisory readiness notes (Release 3: fewer than two catchers). They never
+ *  block the sim, so they render in amber whether or not the team is ready. */
+function ReadinessNotes({ teamId, notes }: { teamId: string; notes?: string[] }) {
+  if (!notes || notes.length === 0) return null;
+  return (
+    <ul className="mt-1 space-y-0.5 text-[11px] text-amber-text">
+      {notes.slice(0, 3).map((note, i) => (
+        <li key={i}>• {_issueText(teamId, note)}</li>
+      ))}
+    </ul>
   );
 }
 

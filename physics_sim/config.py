@@ -403,14 +403,21 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "mop_up": 0.0,
     "emergency_starter_min_days": 2.0,
     "reliever_max_appearances_ratio": 0.0,
-    "batter_daily_recovery_base": 6.0,
-    "batter_daily_recovery_durability_scale": 0.05,
+    # Release 3 (item F, audit M16): batter fatigue that accrues. Each calendar
+    # day recovers base + scale * durability (4.9 at durability 50) -- less
+    # than a game costs -- and a game day on the bench recovers the rest-day
+    # bonus on top, so a regular builds debt and a day off clears it. Tuned on
+    # today's game-date clock (no off days); re-check after item A's
+    # calendar-day clock (off days recover only the base).
+    "batter_daily_recovery_base": 2.9,
+    "batter_daily_recovery_durability_scale": 0.04,
+    "batter_rest_day_recovery_bonus": 10.0,
+    # Game cost by the position he started at; a substitute pays the sub cost.
     "batter_fatigue_game_cost": 6.0,
     "batter_fatigue_durability_scale": 0.02,
-    # Release 3 (item F) per-position game cost, registered in R3-0 equal to
-    # today's flat batter_fatigue_game_cost (fielders keep that knob).
-    "batter_fatigue_game_cost_catcher": 6.0,
-    "batter_fatigue_game_cost_dh": 6.0,
+    "batter_fatigue_game_cost_catcher": 9.0,
+    "batter_fatigue_game_cost_dh": 5.0,
+    "batter_fatigue_game_cost_sub": 1.5,
     "batter_fatigue_threshold_base": 35.0,
     "batter_fatigue_threshold_scale": 0.45,
     "batter_fatigue_penalty_scale": 0.5,
@@ -423,10 +430,18 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # S2-05: fatigue-aware pre-game position-player rest.
     "batter_rest_fatigue_ratio": 0.85,       # rest when debt >= ratio * in-game penalty threshold
     "batter_rest_hard_ratio": 1.20,          # overrides the min-gap guard
-    "batter_rest_consecutive_limit": 9.0,    # non-catchers: rest on the 10th consecutive game day
-    "batter_rest_consecutive_limit_catcher": 2.0,  # catchers: rest on the 3rd
+    # Release 3: fatigue is the everyday player's rest trigger; the streak
+    # limit is a backstop (rest on the 14th consecutive game day). Catchers
+    # rest on the 4th straight game (was the 3rd).
+    "batter_rest_consecutive_limit": 13.0,
+    "batter_rest_consecutive_limit_catcher": 3.0,
     "batter_rest_min_gap_days": 3.0,         # don't force-rest the same player again within 3 game days
     "batter_rest_max_swaps": 2.0,            # per team per game
+    # Release 3 (owner decision 9): similar-position rest substitutes only on
+    # a hard rest (fatigue triggered it, or the streak is this many games past
+    # the limit), at most this many per team per game.
+    "batter_rest_hard_streak_extra": 3.0,
+    "batter_rest_similar_max": 1.0,
     # Park/environment
     "park_size_scale": 1.0,
     "park_factor_scale": 0.0,

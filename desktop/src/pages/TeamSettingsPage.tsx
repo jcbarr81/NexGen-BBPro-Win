@@ -7,6 +7,8 @@
  *   picked from the catalog plays with real dimensions (audit L13).
  * - Team strategy profile (or inherit league default)
  * - Auto-reassign override (enabled / disabled / inherit)
+ * - Game day (Release 3): auto rest days and similar-position rest
+ *   substitutes, saved through /teams/{id}/settings/play
  *
  * Saves call into utils.team_loader.save_team_settings (validates colors)
  * plus services.team_strategy_profiles.set_team_strategy_profile and
@@ -26,7 +28,11 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-import { api, type TeamSettingsPatch } from "@/lib/api";
+import {
+  api,
+  type TeamPlaySettingKey,
+  type TeamSettingsPatch,
+} from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { useActiveTeamColor } from "@/lib/team-colors";
@@ -367,6 +373,8 @@ function SettingsEditor({ teamId }: { teamId: string }) {
         </Card>
       </div>
 
+      <GameDaySettingsCard teamId={teamId} />
+
       <div className="flex items-center justify-end gap-3">
         <Button
           variant="ghost"
@@ -391,6 +399,113 @@ function SettingsEditor({ teamId }: { teamId: string }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+/** Release 3 game-day settings (services/team_play_settings.py). Each row
+ *  saves on its own when toggled; more rows (the IL auto-activation pair)
+ *  slot into PLAY_SETTING_ROWS. */
+const PLAY_SETTING_ROWS: {
+  key: TeamPlaySettingKey;
+  label: string;
+  help: string;
+}[] = [
+  {
+    key: "auto_rest_days",
+    label: "Auto rest days",
+    help:
+      "At game time the sim sits a tired or overworked regular and starts a " +
+      "bench player in his place (your saved lineup is not changed). Off: " +
+      "your lineup plays every game as saved, and a tired regular plays worse " +
+      "and is slightly more likely to get hurt.",
+  },
+  {
+    key: "rest_subs_similar_positions",
+    label: "Rest substitutes at similar positions",
+    help:
+      "When nobody on the bench plays the resting regular's position, a " +
+      "player from a similar one may fill in (LF/RF, a CF at a corner, a SS " +
+      "at 2B or 3B, any infielder at 1B), at most once per game and only " +
+      "when the regular really needs the day. Off: he plays instead.",
+  },
+];
+
+function GameDaySettingsCard({ teamId }: { teamId: string }) {
+  const queryClient = useQueryClient();
+  const play = useQuery({
+    queryKey: ["team-play-settings", teamId],
+    queryFn: () => api.getTeamPlaySettings(teamId),
+  });
+  const save = useMutation({
+    mutationFn: (patch: Partial<Record<TeamPlaySettingKey, boolean>>) =>
+      api.saveTeamPlaySettings(teamId, patch),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["team-play-settings", teamId], data);
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Game Day</CardTitle>
+          <CardDescription>
+            How the sim manages your regulars at game time. Changes save
+            immediately and apply from the next game.
+          </CardDescription>
+        </div>
+        {play.data?.cpu_managed && (
+          <Badge tone="neutral">CPU-run: always on</Badge>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {play.isLoading && (
+          <div className="flex items-center gap-2 text-sm text-muted">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+          </div>
+        )}
+        {play.isError && (
+          <div className="text-sm text-danger">
+            {(play.error as Error).message}
+          </div>
+        )}
+        {save.isError && (
+          <div className="text-sm text-danger">
+            {(save.error as Error).message}
+          </div>
+        )}
+        {play.data &&
+          PLAY_SETTING_ROWS.map((row) => {
+            const on = play.data.values[row.key];
+            return (
+              <div key={row.key} className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <Label>{row.label}</Label>
+                  <p className="mt-0.5 text-xs text-muted">{row.help}</p>
+                </div>
+                <div className="flex shrink-0 gap-1 rounded-lg border border-border bg-surfaceAlt p-1">
+                  {([true, false] as const).map((val) => (
+                    <button
+                      key={String(val)}
+                      type="button"
+                      disabled={save.isPending}
+                      onClick={() => save.mutate({ [row.key]: val })}
+                      className={cn(
+                        "rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider transition",
+                        on === val
+                          ? "bg-amber text-espresso"
+                          : "text-muted hover:bg-surface hover:text-ink",
+                      )}
+                    >
+                      {val ? "On" : "Off"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+      </CardContent>
+    </Card>
   );
 }
 

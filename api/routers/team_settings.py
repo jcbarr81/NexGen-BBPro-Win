@@ -221,3 +221,70 @@ def save_settings(
             )
 
     return _serialize(team_id)
+
+
+# ---------------------------------------------------------------------------
+# Game-day ("play") settings -- Release 3: services.team_play_settings
+
+
+def _play_settings_payload(team_id: str) -> Dict[str, Any]:
+    from services.team_ownership import human_owned_team_ids_strict
+    from services.team_play_settings import (
+        TEAM_PLAY_SETTING_KEYS,
+        default_team_play_settings,
+        load_team_play_overrides,
+        load_team_play_settings,
+    )
+
+    _team(team_id)
+    try:
+        human = human_owned_team_ids_strict()
+    except Exception:
+        human = None
+    return {
+        "team_id": team_id,
+        "keys": list(TEAM_PLAY_SETTING_KEYS),
+        # The values in force for an owner's team (stored choice or default).
+        "values": load_team_play_settings(team_id),
+        "overrides": load_team_play_overrides(team_id),
+        "defaults": default_team_play_settings(),
+        # CPU clubs always rest, substitute and auto-activate; their stored
+        # values (if any) are ignored until an owner takes the team over.
+        "cpu_managed": human is not None and team_id.upper() not in human,
+    }
+
+
+@router.get("/play")
+def get_play_settings(team_id: str) -> Dict[str, Any]:
+    """The owner's game-day settings for ``team_id`` (auto rest days,
+    similar-position rest substitutes, IL auto-activation)."""
+
+    return _play_settings_payload(team_id)
+
+
+@router.put("/play")
+def save_play_settings(
+    team_id: str,
+    payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Merge ``{key: true | false | "default"}`` into the team's game-day
+    settings. Unknown keys or values are a 400 and nothing is written."""
+
+    require_team_owner(identity, team_id)
+    _team(team_id)
+    from services.team_play_settings import save_team_play_settings
+
+    updates = payload.get("settings", payload) if isinstance(payload, dict) else None
+    if not isinstance(updates, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Expected an object of {setting: value}.",
+        )
+    try:
+        save_team_play_settings(team_id, updates)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return _play_settings_payload(team_id)

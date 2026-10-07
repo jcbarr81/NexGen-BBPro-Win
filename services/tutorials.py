@@ -141,6 +141,11 @@ TUTORIALS: List[Tutorial] = [
                 "<p>Clubs that never saved a chart get one generated at the next sim so injuries can be covered. A chart you save is never changed by the sim; a generated one only guides injury coverage, it does not decide your starters.</p>",
             ),
             TutorialStep(
+                "Two catchers and rest days",
+                "<p>Carry two catchers. Your starting catcher sits on his 4th straight game, and only a real catcher replaces him -- with one catcher on the active roster he catches every game. CPU clubs always carry two; a club with one gets an advisory note on the Roster page and in season readiness (it never stops the sim). Regulars at other positions rest when they get tired; who covers is the best rested bench player at the position, then a teammate who can slide over. Turn rest days off, or similar-position substitutes on or off, under <b>My Team → Settings → Game Day</b>.</p>"
+                "<p>If a saved lineup lists a player who is no longer on your active roster, auto-fill rebuilds only that lineup (vs LHP or vs RHP) -- your other lineup is untouched -- and a news item tells you which one changed. Auto-fill puts the best fit at each position: someone who plays it, then a player from a similar position, never a non-catcher behind the plate while a catcher is active.</p>",
+            ),
+            TutorialStep(
                 "Auto-generate depth chart",
                 "<p>Click <b>Auto-generate</b> to seed every position with the best three available players from your roster — primary fits first, sorted by level (ACT before AAA / LOW) and overall rating. The button overwrites the current chart and saves immediately, so use it as a starting point or after a roster shake-up. Tweak from there with the move buttons.</p>",
             ),
@@ -395,7 +400,7 @@ TUTORIALS: List[Tutorial] = [
     Tutorial(
         tutorial_id="team_settings",
         title="Team Settings & Ballparks",
-        summary="Colors, stadium, strategy profile, auto-reassign — plus park browser.",
+        summary="Colors, stadium, strategy profile, auto-reassign, game-day rest settings — plus park browser.",
         route="/settings",
         steps=[
             TutorialStep(
@@ -413,6 +418,11 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Strategy & auto-reassign",
                 "<p>Strategy profile (Win Now, Development Focus, etc.) steers automation intent. Auto-Reassign lets you inherit the league default or explicitly enable/disable automatic level balancing for this team.</p>",
+            ),
+            TutorialStep(
+                "Game day: rest days",
+                "<p>The <b>Game Day</b> card holds two switches, both on by default. <b>Auto rest days</b>: players now get tired over a long run of games -- catchers fastest, a DH slowest, durable players more slowly -- and a day on the bench clears it. At game time the sim sits a regular who is tired (or a catcher on his 4th straight game) and starts a bench player who plays his position; your saved lineup file is never changed. Turn it off and your lineup plays every game as saved: a tired regular hits and fields a little worse and carries a small extra injury risk.</p>"
+                "<p><b>Rest substitutes at similar positions</b>: when nobody on the bench plays the resting regular's position (and no teammate can slide over), a player from a similar one may fill in -- LF and RF for each other, a CF at a corner, a SS at 2B or 3B, any infielder at 1B -- at most once per game, and only when the regular really needs the day. Turn it off and he plays instead. CPU clubs always use both.</p>",
             ),
             TutorialStep(
                 "Save with Ctrl+S",

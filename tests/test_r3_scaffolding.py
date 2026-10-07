@@ -38,9 +38,13 @@ R3_KNOBS = {
     "pitcher_arm_pitch_ramp_start": 100.0,
     "pitcher_arm_rate_reference": 0.1,
     "pitcher_arm_major_share": 0.30,
-    # item F (batter fatigue): equal to today's flat game cost
-    "batter_fatigue_game_cost_catcher": 6.0,
-    "batter_fatigue_game_cost_dh": 6.0,
+    # item F (batter fatigue that accrues; tuned in R3-F)
+    "batter_fatigue_game_cost_catcher": 9.0,
+    "batter_fatigue_game_cost_dh": 5.0,
+    "batter_fatigue_game_cost_sub": 1.5,
+    "batter_rest_day_recovery_bonus": 10.0,
+    "batter_rest_hard_streak_extra": 3.0,
+    "batter_rest_similar_max": 1.0,
 }
 
 
@@ -59,10 +63,18 @@ def test_r3_knob_survives_from_overrides(key):
     assert tuning.get(key) == pytest.approx(value)
 
 
-def test_per_position_batter_cost_matches_the_flat_cost():
+def test_per_position_batter_cost_orders_catcher_fielder_dh():
+    # R3-F: a catcher's game costs most, a DH's least, a substitute's less.
     flat = DEFAULT_TUNING["batter_fatigue_game_cost"]
-    assert DEFAULT_TUNING["batter_fatigue_game_cost_catcher"] == flat
-    assert DEFAULT_TUNING["batter_fatigue_game_cost_dh"] == flat
+    assert DEFAULT_TUNING["batter_fatigue_game_cost_catcher"] > flat
+    assert flat > DEFAULT_TUNING["batter_fatigue_game_cost_dh"]
+    assert DEFAULT_TUNING["batter_fatigue_game_cost_dh"] > DEFAULT_TUNING["batter_fatigue_game_cost_sub"]
+    # Fatigue accrues: a day's recovery at durability 50 is below a game's cost.
+    recovery = (
+        DEFAULT_TUNING["batter_daily_recovery_base"]
+        + 50 * DEFAULT_TUNING["batter_daily_recovery_durability_scale"]
+    )
+    assert recovery < flat
 
 
 def test_rotation_builder_moved_and_is_re_exported():

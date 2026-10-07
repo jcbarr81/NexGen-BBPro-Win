@@ -716,6 +716,20 @@ def _human_team_ids() -> List[str]:
         return []
 
 
+def _team_readiness_notes(team_id: str) -> List[str]:
+    """Non-blocking readiness notes for an owner's team (Release 3): today
+    only "fewer than two catchers" (owner decision 10). Never stops a sim."""
+    try:
+        from api.routers.validation import load_players_map, load_team_levels
+        from services.roster_validation import validate_catcher_depth
+
+        levels = load_team_levels(team_id)
+        result = validate_catcher_depth(levels.get("act", []), load_players_map())
+    except Exception:
+        return []
+    return [f"{team_id}: {msg}" for msg in result.warnings]
+
+
 def _league_readiness(*, include_lineups: bool = True) -> Dict[str, Any]:
     """Per-human-team readiness for advancing the season: legal roster, lineups
     set/legal, and Opening-Day solvency. Multi-owner is commissioner-driven, so
@@ -727,7 +741,13 @@ def _league_readiness(*, include_lineups: bool = True) -> Dict[str, Any]:
         if include_lineups:
             issues += _team_lineup_issues(tid)
         issues += _team_solvency_issues(tid)
-        teams.append({"team_id": tid, "ready": not issues, "issues": issues})
+        teams.append({
+            "team_id": tid,
+            "ready": not issues,
+            "issues": issues,
+            # Advisory only (never affects ``ready``): Release 3 decision 10.
+            "notes": _team_readiness_notes(tid),
+        })
     return {
         "teams": teams,
         "all_ready": all(t["ready"] for t in teams),

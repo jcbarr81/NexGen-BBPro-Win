@@ -527,23 +527,134 @@ def _sanitize_lineup(
     roster_dir: str = "data/rosters",
     lineup_dir: str | Path = "data/lineups",
 ) -> Sequence[LineupEntry]:
-    """Return a valid 9-player lineup and persist it to disk.
+    """Return a valid 9-player lineup for a game whose saved one is broken.
 
-    Ignores ``desired`` when regenerating to ensure the final lineup reflects
-    the current active roster.
+    The auto-fill builds the replacement from the current active roster
+    (``desired`` only identifies which saved file it came from).
+
+    * CPU clubs: both lineup files are regenerated, as always.
+    * Owner teams (Release 3, owner decision 11) -- and every team when
+      ownership can't be read: only the saved file(s) that are actually
+      broken (vs LHP and/or vs RHP: a player not on the active roster, a
+      duplicate, not nine players) are rewritten; a good file stays
+      byte-identical, and the owner gets a news item naming the file. When
+      ``desired`` matches no broken file (it didn't come from disk), nothing
+      is written and the replacement is used for this game only.
     """
     try:
         load_roster.cache_clear()
     except Exception:
         pass
-    lineup = auto_fill_lineup_for_team(
-        team_id,
-        players_file=players_file,
-        roster_dir=roster_dir,
-        lineup_dir=lineup_dir,
+    fill = dict(
+        players_file=players_file, roster_dir=roster_dir, lineup_dir=lineup_dir
     )
-    # Provide as sequence of (pid, position)
-    return list(lineup)
+    if _team_is_cpu(team_id):
+        return list(auto_fill_lineup_for_team(team_id, **fill))
+
+    pool = _game_hitter_ids(team_id, players_file=players_file, roster_dir=roster_dir)
+    wanted = [(str(pid), str(pos)) for pid, pos in (desired or [])]
+    broken: list[str] = []
+    source: str | None = None
+    for vs in ("lhp", "rhp"):
+        saved = _load_saved_lineup(team_id, vs, lineup_dir=lineup_dir)
+        if saved is None:
+            continue
+        if not _lineup_fits_pool(saved, pool):
+            broken.append(vs)
+        if source is None and [(str(a), str(b)) for a, b in saved] == wanted:
+            source = vs
+    rewritten: dict[str, list[LineupEntry]] = {}
+    for vs in broken:
+        rewritten[vs] = list(auto_fill_lineup_for_team(team_id, vs=vs, **fill))
+    if broken:
+        _notify_lineup_rewritten(team_id, broken)
+    if source in rewritten:
+        return rewritten[source]
+    return list(auto_fill_lineup_for_team(team_id, persist=False, **fill))
+
+
+def _team_rest_policy(team_id: str) -> dict[str, bool]:
+    """The engine's per-team rest policy (Release 3, owner decisions 8 and 9).
+
+    CPU clubs always get automatic rest days and similar-position rest
+    substitutes (``{}``: the engine's defaults), whatever a settings file
+    says. Any other club -- an owner's, or every club when ``users.txt``
+    can't be read -- uses ``services.team_play_settings``, whose defaults are
+    both on, so an owner who never changed anything plays as before.
+    """
+
+    try:
+        from services.team_play_settings import (
+            AUTO_REST_DAYS,
+            REST_SUBS_SIMILAR_POSITIONS,
+            load_team_play_settings,
+        )
+    except Exception:  # pragma: no cover - defensive
+        return {}
+    if _team_is_cpu(team_id):
+        return {}
+    try:
+        settings = load_team_play_settings(team_id)
+    except Exception:
+        return {}
+    return {
+        AUTO_REST_DAYS: bool(settings.get(AUTO_REST_DAYS, True)),
+        REST_SUBS_SIMILAR_POSITIONS: bool(settings.get(REST_SUBS_SIMILAR_POSITIONS, True)),
+    }
+
+
+def _team_is_cpu(team_id: str) -> bool:
+    """True only when ownership is readable and no human owns ``team_id``."""
+
+    try:
+        from services.team_ownership import human_owned_team_ids_strict
+
+        human = human_owned_team_ids_strict()
+    except Exception:
+        return False
+    return human is not None and str(team_id or "").upper() not in human
+
+
+def _game_hitter_ids(
+    team_id: str, *, players_file: str, roster_dir: str | Path
+) -> set[str]:
+    """The position players a game can use for ``team_id`` (what
+    :func:`apply_lineup` accepts): the default state's lineup and bench."""
+
+    try:
+        state = build_default_game_state(
+            team_id, players_file=players_file, roster_dir=str(roster_dir), teams_file=""
+        )
+    except Exception:
+        return set()
+    return {p.player_id for p in list(state.lineup) + list(state.bench)}
+
+
+def _lineup_fits_pool(rows: Sequence[LineupEntry], pool: set[str]) -> bool:
+    """Whether a saved lineup would pass :func:`apply_lineup` against ``pool``."""
+
+    ids = [str(pid) for pid, _pos in rows]
+    return len(ids) == 9 and len(set(ids)) == 9 and all(pid in pool for pid in ids)
+
+
+def _notify_lineup_rewritten(team_id: str, rewritten: Sequence[str]) -> None:
+    """Tell the owner which saved lineup(s) auto-fill rebuilt."""
+
+    hands = [("LHP" if vs == "lhp" else "RHP") for vs in rewritten]
+    which = " and ".join(f"vs {hand}" for hand in hands)
+    kept = [hand for hand in ("LHP", "RHP") if hand not in hands]
+    tail = f" Your vs {kept[0]} lineup was not changed." if kept else ""
+    try:
+        log_news_event(
+            f"{team_id}: auto-fill rebuilt your saved lineup {which} -- it no "
+            f"longer matched the active roster (a player not active, a "
+            f"duplicate, or not nine players). Review it on the Lineups page."
+            f"{tail}",
+            category="lineup",
+            team_id=team_id,
+        )
+    except Exception:
+        pass
 
 
 def _player_for_boxscore(
@@ -1176,6 +1287,9 @@ def _run_physics_game(
         # -- a counter that restarts at zero each process (7.41.0).
         away_starter_id=_assigned_starter_id(away_state),
         home_starter_id=_assigned_starter_id(home_state),
+        # Release 3 item F: owners' auto-rest / similar-position settings.
+        away_rest_policy=_team_rest_policy(away_id),
+        home_rest_policy=_team_rest_policy(home_id),
     )
 
     if jr is not None and usage_state is not None:

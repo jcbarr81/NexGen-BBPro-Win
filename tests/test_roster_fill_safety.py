@@ -58,9 +58,18 @@ def test_the_last_healthy_catcher_is_never_optioned():
     assert choose_send_down(roster, players) != "h0"
 
 
-def test_a_second_catcher_can_go():
+def test_a_second_catcher_stays_while_another_hitter_can_go():
+    """Release 3 (decision 10): CPU clubs carry two catchers, so the weaker
+    catcher is kept while any other position player may go down."""
     players, roster = _team(*_HITTER_HEAVY, catchers=2)
-    assert choose_send_down(roster, players) in {"h0", "h1"}
+    assert choose_send_down(roster, players) not in {"h0", "h1"}
+
+
+def test_a_second_catcher_can_go_when_nobody_else_may():
+    players, roster = _team(*_HITTER_HEAVY, catchers=2)
+    only_catchers = choose_send_down(roster, players, allowed=lambda pid: pid in {"h0", "h1"})
+    assert only_catchers in {"h0", "h1"}
+    assert choose_send_down(roster, players, keep_catchers=1) in {"h0", "h1"}
 
 
 def test_send_down_follows_composition_not_the_returners_type():

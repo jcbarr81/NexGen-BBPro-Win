@@ -27,6 +27,51 @@ class BatterWorkload:
     rests: int = 0  # S2-05: season count of forced rests
 
 
+def batter_fatigue_threshold(durability: float, tuning: TuningConfig) -> float:
+    """Fatigue debt at which a position player starts to play tired.
+
+    The engine's in-game batter penalty starts above it, and the pre-game
+    rest trigger sits at ``batter_rest_fatigue_ratio`` (0.85) of it. A more
+    durable player carries more: 35 + 0.45 * durability by default (57.5 at
+    durability 50).
+    """
+
+    threshold = tuning.get("batter_fatigue_threshold_base", 35.0)
+    threshold += float(durability or 0.0) * tuning.get("batter_fatigue_threshold_scale", 0.45)
+    return threshold
+
+
+def batter_game_cost(
+    durability: float,
+    tuning: TuningConfig,
+    *,
+    position: str | None = None,
+    started: bool = True,
+) -> float:
+    """Fatigue debt one game adds (Release 3, audit M16).
+
+    By the position he started at: a catcher pays
+    ``batter_fatigue_game_cost_catcher``, a DH ``batter_fatigue_game_cost_dh``,
+    any other fielder (or an unknown position) the flat
+    ``batter_fatigue_game_cost``. A player who only came off the bench (pinch
+    hitter, pinch runner, defensive replacement) pays
+    ``batter_fatigue_game_cost_sub``. Below durability 50 every cost grows by
+    ``batter_fatigue_durability_scale`` per point.
+    """
+
+    pos = str(position or "").strip().upper()
+    if not started:
+        base = tuning.get("batter_fatigue_game_cost_sub", 1.5)
+    elif pos == "C":
+        base = tuning.get("batter_fatigue_game_cost_catcher", 6.0)
+    elif pos in {"DH", "PH", "PR"}:
+        base = tuning.get("batter_fatigue_game_cost_dh", 6.0)
+    else:
+        base = tuning.get("batter_fatigue_game_cost", 6.0)
+    scale = tuning.get("batter_fatigue_durability_scale", 0.02)
+    return base + max(0.0, (50.0 - float(durability or 0.0)) * scale)
+
+
 def reliever_rest_days(pitches: int, tuning: "TuningConfig | None" = None) -> int:
     """Full off days required after a relief outing of ``pitches`` pitches.
 
@@ -99,8 +144,18 @@ class UsageState:
                 workload.consecutive_days_used = 0
 
         if batters:
+            # Release 3 (audit M16): fatigue now accrues. Every calendar day
+            # recovers base + scale * durability -- less than a game costs,
+            # so an everyday player builds debt -- and a game day he sat out
+            # (on the roster, not in the game) recovers
+            # ``batter_rest_day_recovery_bonus`` on top: a day off is what
+            # clears it. A team off day is only a plain day: under the
+            # calendar-day clock (Release 3 item A) off days slow the build-up
+            # without stopping it. Tuned on today's game-date clock; re-check
+            # after A's rebase (rests per regular, hitters starting every game).
             bat_base = tuning.get("batter_daily_recovery_base", 6.0)
             bat_scale = tuning.get("batter_daily_recovery_durability_scale", 0.05)
+            rest_bonus = tuning.get("batter_rest_day_recovery_bonus", 0.0)
             for batter in batters:
                 workload = self.batter_workload_for(batter.player_id)
                 last_update = workload.last_update_day
@@ -111,6 +166,8 @@ class UsageState:
                 if days_passed <= 0:
                     continue
                 recovery = days_passed * (bat_base + batter.durability * bat_scale)
+                if workload.last_used_day != last_update:
+                    recovery += rest_bonus  # he sat out his team's game that day
                 workload.fatigue_debt = max(0.0, workload.fatigue_debt - recovery)
                 workload.last_update_day = day
                 if workload.last_used_day is not None and day - workload.last_used_day > 1:
@@ -146,14 +203,44 @@ class UsageState:
         day: int,
         durability: float,
         tuning: TuningConfig,
+        position: str | None = None,
+        started: bool = True,
     ) -> None:
+        """Charge one game to ``player_id`` (see :func:`batter_game_cost`).
+
+        A start extends his consecutive-days streak and is his "last used"
+        day. Coming off the bench (``started=False``) adds the small
+        substitute cost only, so a regular resting today who pinch-hits late
+        still had his day off.
+        """
+
         workload = self.batter_workload_for(player_id)
-        cost_base = tuning.get("batter_fatigue_game_cost", 6.0)
-        cost_scale = tuning.get("batter_fatigue_durability_scale", 0.02)
-        cost = cost_base + max(0.0, (50.0 - durability) * cost_scale)
-        workload.fatigue_debt += cost
+        workload.fatigue_debt += batter_game_cost(
+            durability, tuning, position=position, started=started
+        )
+        if not started:
+            return
         if workload.last_used_day is not None and day - workload.last_used_day == 1:
             workload.consecutive_days_used += 1
         else:
             workload.consecutive_days_used = 1
         workload.last_used_day = day
+
+    def batter_fatigue_level(
+        self, player_id: str, durability: float, tuning: TuningConfig
+    ) -> float:
+        """How tired ``player_id`` is, as debt / :func:`batter_fatigue_threshold`.
+
+        0 is fresh. At ``batter_rest_fatigue_ratio`` (0.85) the pre-game rest
+        triggers; above 1.0 he plays with an in-game penalty (and, from
+        Release 3 item E, a small extra injury risk). Read-only: never creates
+        a workload, so asking about an unknown player returns 0.
+        """
+
+        workload = self.batter_workloads.get(player_id)
+        if workload is None:
+            return 0.0
+        threshold = batter_fatigue_threshold(durability, tuning)
+        if threshold <= 0.0:
+            return 0.0
+        return max(0.0, workload.fatigue_debt) / threshold

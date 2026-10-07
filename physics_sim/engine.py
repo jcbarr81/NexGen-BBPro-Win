@@ -32,6 +32,7 @@ from .physics import (
     miss_distance,
 )
 from .usage import UsageState, reliever_rest_days
+from .usage import batter_fatigue_threshold  # Release 3 item F
 from .team_data import (
     build_staff,
     build_bench,
@@ -44,6 +45,7 @@ from .team_data import (
 )
 from utils.path_utils import get_data_dir
 from utils.lineup_autofill import auto_fill_lineup_for_team
+from utils.position_fit import can_cover_similar
 from services.injury_simulator import InjurySimulator
 
 # Pitch-outcome classification sets (S1-09: module constants — these were
@@ -3236,8 +3238,7 @@ def _batter_fatigue_penalty(
     if usage_state is None or game_day is None:
         return 0.0
     workload = usage_state.batter_workload_for(batter.player_id)
-    threshold = tuning.get("batter_fatigue_threshold_base", 35.0)
-    threshold += batter.durability * tuning.get("batter_fatigue_threshold_scale", 0.45)
+    threshold = batter_fatigue_threshold(batter.durability, tuning)
     if threshold <= 0.0:
         return 0.0
     over = max(0.0, workload.fatigue_debt - threshold)
@@ -3588,6 +3589,25 @@ def simulate_matchup_from_files(
     return result
 
 
+def _rest_bench_value(b: BatterRatings, opposing_starter: PitcherRatings | None) -> float:
+    if opposing_starter is not None:
+        return _batter_offense_score(b, opposing_starter)
+    return b.contact * 0.55 + b.power * 0.45
+
+
+def _rest_is_rested(
+    b: BatterRatings, usage_state: UsageState, threshold_ratio: float, tuning: TuningConfig
+) -> bool:
+    wl = usage_state.batter_workload_for(b.player_id)
+    return wl.fatigue_debt < threshold_ratio * batter_fatigue_threshold(b.durability, tuning)
+
+
+def _listed_at(b: BatterRatings, pos: str) -> bool:
+    primary = (b.primary_position or "").upper()
+    others = {str(x).upper() for x in (b.other_positions or [])}
+    return pos == primary or pos in others
+
+
 def _best_rest_replacement(
     bench: List[BatterRatings],
     pos: str,
@@ -3597,33 +3617,117 @@ def _best_rest_replacement(
     threshold_ratio: float,
     tuning: TuningConfig,
 ) -> BatterRatings | None:
+    """Tier 1: the best rested bench player listed at ``pos`` (anyone at DH;
+    only a catcher at C)."""
+
     def eligible(b: BatterRatings) -> bool:
         if pos in {"", "DH"}:
             return True
-        primary = (b.primary_position or "").upper()
-        others = {str(x).upper() for x in (b.other_positions or [])}
-        if pos == "C":
-            return primary == "C" or "C" in others  # never emergency-catch
-        return pos == primary or pos in others
-
-    def rested(b: BatterRatings) -> bool:
-        wl = usage_state.batter_workload_for(b.player_id)
-        threshold = (
-            tuning.get("batter_fatigue_threshold_base", 35.0)
-            + b.durability * tuning.get("batter_fatigue_threshold_scale", 0.45)
-        )
-        return wl.fatigue_debt < threshold_ratio * threshold
+        return _listed_at(b, pos)  # at C: a real catcher, never an emergency one
 
     # Sort by player_id so ties break deterministically regardless of the bench
     # list order (build_bench iterates a set → order varies by PYTHONHASHSEED).
     candidates = sorted(
-        (b for b in bench if eligible(b) and rested(b)), key=lambda b: b.player_id
+        (
+            b for b in bench
+            if eligible(b) and _rest_is_rested(b, usage_state, threshold_ratio, tuning)
+        ),
+        key=lambda b: b.player_id,
     )
     if not candidates:
         return None
-    if opposing_starter is not None:
-        return max(candidates, key=lambda b: _batter_offense_score(b, opposing_starter))
-    return max(candidates, key=lambda b: b.contact * 0.55 + b.power * 0.45)
+    return max(candidates, key=lambda b: _rest_bench_value(b, opposing_starter))
+
+
+def _chain_rest_replacement(
+    lineup: List[BatterRatings],
+    bench: List[BatterRatings],
+    positions: Dict[str, str],
+    idx: int,
+    pos: str,
+    *,
+    opposing_starter: PitcherRatings | None,
+    usage_state: UsageState,
+    threshold_ratio: float,
+    tuning: TuningConfig,
+) -> tuple[BatterRatings, BatterRatings, str] | None:
+    """Tier 2, a one-swap chain: a lineup teammate listed at ``pos`` moves
+    over and a rested bench player listed at the teammate's spot takes it
+    (anyone at DH). Nobody plays out of position, and a catcher never leaves
+    C -- but the DH, or anyone else, who can catch may move behind the plate.
+    Returns ``(teammate, bench player, teammate's old position)``."""
+
+    return _rest_swap(
+        lineup, bench, positions, idx, pos,
+        can_move=lambda mate: _listed_at(mate, pos),
+        opposing_starter=opposing_starter, usage_state=usage_state,
+        threshold_ratio=threshold_ratio, tuning=tuning,
+    )
+
+
+def _rest_swap(
+    lineup: List[BatterRatings],
+    bench: List[BatterRatings],
+    positions: Dict[str, str],
+    idx: int,
+    pos: str,
+    *,
+    can_move,
+    opposing_starter: PitcherRatings | None,
+    usage_state: UsageState,
+    threshold_ratio: float,
+    tuning: TuningConfig,
+) -> tuple[BatterRatings, BatterRatings, str] | None:
+    """A teammate for whom ``can_move`` holds moves to ``pos``; the best
+    rested bench player listed at his spot (anyone at DH) takes it. Never a
+    catcher out from behind the plate."""
+
+    options: list[tuple[float, str, BatterRatings, BatterRatings, str]] = []
+    for j, mate in enumerate(lineup):
+        if j == idx:
+            continue
+        spot = (positions.get(mate.player_id) or mate.primary_position or "").upper()
+        if spot in {"C", pos} or not can_move(mate):
+            continue
+        filler = _best_rest_replacement(
+            bench, spot, opposing_starter=opposing_starter, usage_state=usage_state,
+            threshold_ratio=threshold_ratio, tuning=tuning,
+        )
+        if filler is not None:
+            options.append(
+                (_rest_bench_value(filler, opposing_starter), filler.player_id, mate, filler, spot)
+            )
+    if not options:
+        return None
+    best = max(options, key=lambda o: (o[0], o[1]))
+    return best[2], best[3], best[4]
+
+
+def _similar_rest_replacement(
+    bench: List[BatterRatings],
+    pos: str,
+    *,
+    opposing_starter: PitcherRatings | None,
+    usage_state: UsageState,
+    threshold_ratio: float,
+    tuning: TuningConfig,
+) -> BatterRatings | None:
+    """Tier 3: the best rested bench player from a similar position (owner
+    decision 9: LF/RF, CF to a corner, SS to 2B/3B, any infielder to 1B --
+    ``utils.position_fit.REST_SIMILAR_SOURCES``). Never at C, SS or CF; he
+    fields there out of position."""
+
+    candidates = sorted(
+        (
+            b for b in bench
+            if can_cover_similar(b, pos)
+            and _rest_is_rested(b, usage_state, threshold_ratio, tuning)
+        ),
+        key=lambda b: b.player_id,
+    )
+    if not candidates:
+        return None
+    return max(candidates, key=lambda b: _rest_bench_value(b, opposing_starter))
 
 
 def _apply_rest_days(
@@ -3635,27 +3739,54 @@ def _apply_rest_days(
     usage_state: UsageState | None,
     game_day: int | None,
     tuning: TuningConfig,
+    allow_similar: bool = True,
+    report: Dict[str, int] | None = None,
 ) -> tuple[List[BatterRatings], List[BatterRatings], Dict[str, str]]:
     """Bench fatigued / overworked starters before the game (S2-05). In-memory
-    only; lineup files are never rewritten. Returns (lineup, bench, positions)."""
+    only; lineup files are never rewritten. Returns (lineup, bench, positions).
+
+    A starter is due a rest when his fatigue reaches the rest trigger
+    (``batter_rest_fatigue_ratio`` of the penalty threshold) or his streak of
+    consecutive games reaches the limit (a catcher rests on his 4th straight
+    game, Release 3). The rest is HARD when fatigue triggered it, or the
+    streak is ``batter_rest_hard_streak_extra`` games past the limit (a
+    scheduled rest that kept finding nobody). Substitutes, in tiers
+    (Release 3, audit M16 / owner decision 9):
+
+    1. a rested bench player listed at the position (anyone at DH; at C only
+       a catcher);
+    2. a one-swap chain -- a teammate listed at the position moves over, a
+       bench player listed at his spot takes it;
+    3. on a hard rest only, and only when ``allow_similar`` (CPU clubs
+       always; an owner's per-team setting): a bench player from a similar
+       position -- or a teammate from one (the DH-ing shortstop to second)
+       with the bench covering his spot -- at most
+       ``batter_rest_similar_max`` (1) per team per game.
+
+    Never a non-catcher at C. Nobody found: he plays (a blocked rest). At
+    most ``batter_rest_max_swaps`` rests per team per game. ``report``, when
+    given, counts ``due``, ``rests``, ``chain``, ``similar``, ``blocked`` and
+    ``blocked_c``.
+    """
     if usage_state is None or game_day is None or not bench:
         return lineup, bench, positions
     lineup = list(lineup)
     bench = list(bench)
     positions = dict(positions)
+    tally = report if report is not None else {}
     max_swaps = int(tuning.get("batter_rest_max_swaps", 2.0))
+    max_similar = int(tuning.get("batter_rest_similar_max", 1.0))
+    hard_extra = tuning.get("batter_rest_hard_streak_extra", 3.0)
     ratio = tuning.get("batter_rest_fatigue_ratio", 0.85)
     hard_ratio = tuning.get("batter_rest_hard_ratio", 1.2)
     min_gap = tuning.get("batter_rest_min_gap_days", 5.0)
-    swaps = 0
-    for idx, starter in enumerate(list(lineup)):
-        if swaps >= max_swaps:
-            break
+    # Who is due, most urgent first: catchers (their rest is the scarce
+    # one), then the most tired. A fixed batting-order scan let the top of
+    # the order use up the swaps, so the catcher batting ninth rarely sat.
+    due: list[tuple[tuple, int, BatterRatings, bool]] = []
+    for idx, starter in enumerate(lineup):
         wl = usage_state.batter_workload_for(starter.player_id)
-        threshold = (
-            tuning.get("batter_fatigue_threshold_base", 35.0)
-            + starter.durability * tuning.get("batter_fatigue_threshold_scale", 0.45)
-        )
+        threshold = batter_fatigue_threshold(starter.durability, tuning)
         pos = (positions.get(starter.player_id) or starter.primary_position or "").upper()
         limit_key = (
             "batter_rest_consecutive_limit_catcher"
@@ -3672,19 +3803,73 @@ def _apply_rest_days(
         )
         if recently_rested and wl.fatigue_debt < hard_ratio * threshold:
             continue
-        replacement = _best_rest_replacement(
-            bench, pos, opposing_starter=opposing_starter, usage_state=usage_state,
+        hard = fatigued or wl.consecutive_days_used >= limit + hard_extra
+        urgency = wl.fatigue_debt / threshold if threshold > 0 else 0.0
+        key = (pos != "C", -urgency, -(wl.consecutive_days_used - limit), idx)
+        due.append((key, idx, starter, hard))
+    due.sort(key=lambda item: item[0])
+    swaps = 0
+    similar_used = 0
+    for _key, idx, starter, hard in due:
+        if swaps >= max_swaps:
+            break
+        if lineup[idx].player_id != starter.player_id:
+            continue  # already moved by an earlier swap
+        wl = usage_state.batter_workload_for(starter.player_id)
+        pos = (positions.get(starter.player_id) or starter.primary_position or "").upper()
+        tally["due"] = tally.get("due", 0) + 1
+        search = dict(
+            opposing_starter=opposing_starter, usage_state=usage_state,
             threshold_ratio=ratio, tuning=tuning,
         )
+        mate: BatterRatings | None = None
+        mate_spot = ""
+        kind = "rests"
+        replacement = _best_rest_replacement(bench, pos, **search)
+        if replacement is None and pos not in {"", "DH"}:
+            chain = _chain_rest_replacement(lineup, bench, positions, idx, pos, **search)
+            if chain is not None:
+                mate, replacement, mate_spot = chain
+                kind = "chain"
+        if (
+            replacement is None
+            and hard
+            and allow_similar
+            and similar_used < max_similar
+            and pos not in {"", "DH", "C"}
+        ):
+            replacement = _similar_rest_replacement(bench, pos, **search)
+            if replacement is None:
+                # A teammate from a similar position (the DH-ing shortstop
+                # to second) moves over; the bench covers his spot.
+                chain = _rest_swap(
+                    lineup, bench, positions, idx, pos,
+                    can_move=lambda m: can_cover_similar(m, pos), **search,
+                )
+                if chain is not None:
+                    mate, replacement, mate_spot = chain
+            if replacement is not None:
+                kind = "similar"
+                similar_used += 1
         if replacement is None:
+            tally["blocked"] = tally.get("blocked", 0) + 1
+            if pos == "C":
+                tally["blocked_c"] = tally.get("blocked_c", 0) + 1
             continue
         bench.remove(replacement)
         lineup[idx] = replacement  # inherits the batting slot
         positions.pop(starter.player_id, None)
-        positions[replacement.player_id] = pos  # inherits the defensive position
+        if mate is not None:
+            positions[mate.player_id] = pos  # the teammate slides over
+            positions[replacement.player_id] = mate_spot
+        else:
+            positions[replacement.player_id] = pos  # inherits the defensive position
         wl.last_rest_day = game_day
         wl.rests += 1
         swaps += 1
+        tally["rests"] = tally.get("rests", 0) + 1
+        if kind != "rests":
+            tally[kind] = tally.get(kind, 0) + 1
     return lineup, bench, positions
 
 
@@ -3710,12 +3895,21 @@ def simulate_game(
     away_starter_id: str | None = None,
     home_starter_id: str | None = None,
     postseason: bool = False,
+    away_rest_policy: Dict[str, bool] | None = None,
+    home_rest_policy: Dict[str, bool] | None = None,
 ) -> GameResult:
     """Very early stub of the physics-based game simulation.
 
     This will be expanded to handle full rosters, substitutions, defense, and
     realistic fatigue/usage. It currently supports a starter + bullpen and
     optional multi-game usage tracking.
+
+    ``away_rest_policy`` / ``home_rest_policy`` (Release 3, owner decisions 8
+    and 9) carry the owner's per-team settings, keyed as
+    ``services.team_play_settings``: ``auto_rest_days`` (False: no automatic
+    rest days -- the saved lineup plays, tired or not) and
+    ``rest_subs_similar_positions`` (False: no similar-position rest
+    substitutes). Missing keys or ``None`` mean on, as for every CPU club.
     """
 
     rng = random.Random(seed)
@@ -3819,6 +4013,9 @@ def simulate_game(
     if not away_pitchers or not home_pitchers:
         raise ValueError("Both teams must have at least one pitcher.")
 
+    # Release 3: pre-game rest / fatigue tallies per side (GameResult metadata
+    # "bench_usage"; scripts/kpi_extras.py reads them).
+    bench_usage: Dict[str, Dict[str, int]] = {"away": {}, "home": {}}
     if usage_state is not None and game_day is not None:
         usage_pitchers = list(away_pitchers) + list(home_pitchers)
         usage_batters = (
@@ -3836,16 +4033,28 @@ def simulate_game(
 
         # S2-05: bench fatigued/overworked starters (recovery already applied, so
         # debt is current) before the in-game fatigue penalty is computed.
-        away_lineup, away_bench, away_positions = _apply_rest_days(
-            list(away_lineup), list(away_bench), dict(away_positions),
-            opposing_starter=home_pitchers[0] if home_pitchers else None,
-            usage_state=usage_state, game_day=game_day, tuning=tuning,
-        )
-        home_lineup, home_bench, home_positions = _apply_rest_days(
-            list(home_lineup), list(home_bench), dict(home_positions),
-            opposing_starter=away_pitchers[0] if away_pitchers else None,
-            usage_state=usage_state, game_day=game_day, tuning=tuning,
-        )
+        # Release 3: an owner may turn automatic rest days, or the
+        # similar-position substitutes, off for his team.
+        away_policy = away_rest_policy or {}
+        home_policy = home_rest_policy or {}
+        if away_policy.get("auto_rest_days", True) is not False:
+            away_lineup, away_bench, away_positions = _apply_rest_days(
+                list(away_lineup), list(away_bench), dict(away_positions),
+                opposing_starter=home_pitchers[0] if home_pitchers else None,
+                usage_state=usage_state, game_day=game_day, tuning=tuning,
+                allow_similar=away_policy.get("rest_subs_similar_positions", True)
+                is not False,
+                report=bench_usage["away"],
+            )
+        if home_policy.get("auto_rest_days", True) is not False:
+            home_lineup, home_bench, home_positions = _apply_rest_days(
+                list(home_lineup), list(home_bench), dict(home_positions),
+                opposing_starter=away_pitchers[0] if away_pitchers else None,
+                usage_state=usage_state, game_day=game_day, tuning=tuning,
+                allow_similar=home_policy.get("rest_subs_similar_positions", True)
+                is not False,
+                report=bench_usage["home"],
+            )
 
         away_lineup = _apply_batter_fatigue(
             list(away_lineup),
@@ -3871,6 +4080,27 @@ def simulate_game(
             game_day=game_day,
             tuning=tuning,
         )
+        for side, side_lineup in (("away", away_lineup), ("home", home_lineup)):
+            bench_usage[side]["starters"] = len(side_lineup)
+            bench_usage[side]["starters_tired"] = sum(
+                1 for b in side_lineup if getattr(b, "fatigue_penalty", 0.0) > 0.0
+            )
+
+    # Release 3: who started where, for the post-game fatigue charge (a
+    # catcher's game costs more than a DH's; a substitute's costs little).
+    starter_positions = {
+        b.player_id: (positions.get(b.player_id) or b.primary_position or "")
+        for side_lineup, positions in (
+            (away_lineup, away_positions), (home_lineup, home_positions)
+        )
+        for b in side_lineup
+    }
+    # Everyone who could appear today: a player hurt mid-game leaves the
+    # lineup without returning to the bench, and must still be charged.
+    game_batters = {
+        b.player_id: b
+        for b in list(away_lineup) + list(away_bench) + list(home_lineup) + list(home_bench)
+    }
 
     away_pitchers = _order_pitchers_for_game(
         list(away_pitchers),
@@ -5862,7 +6092,8 @@ def simulate_game(
                     multiplier=state.usage_multiplier,
                     tuning=tuning,
                 )
-        batter_lookup: dict[str, BatterRatings] = {
+        batter_lookup: dict[str, BatterRatings] = dict(game_batters)
+        batter_lookup.update({
             batter.player_id: batter
             for batter in (
                 list(away_state.lineup)
@@ -5870,7 +6101,7 @@ def simulate_game(
                 + list(home_state.lineup)
                 + list(home_state.bench)
             )
-        }
+        })
         batter_ids = set(away_state.batting_lines.keys())
         batter_ids.update(home_state.batting_lines.keys())
         batter_ids.update(away_state.fielding_lines.keys())
@@ -5889,6 +6120,8 @@ def simulate_game(
                 day=game_day,
                 durability=batter.durability,
                 tuning=tuning,
+                position=starter_positions.get(player_id),
+                started=player_id in starter_positions,
             )
 
     _flush_tto()  # S2-07: capture the final PA's split.
@@ -5937,5 +6170,6 @@ def simulate_game(
                 "home": len(home_state.bench),
             },
             "injury_events": injury_events,
+            "bench_usage": bench_usage,
         },
     )
