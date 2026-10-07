@@ -170,11 +170,18 @@ def data_dir(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     (root / "users.txt").write_text("", encoding="utf-8")
+    # Sentinel so get_data_dir() never seeds a copy of the repo's data/ (or
+    # resolves a stray local league) instead of this root.
+    (root / "players.csv").write_text(
+        "player_id,first_name,last_name,primary_position,is_pitcher\n",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("NEXGEN_DATA_ROOT", str(root))
     monkeypatch.delenv("NEXGEN_ACTIVE_LEAGUE", raising=False)
     import utils.path_utils as path_utils
 
     path_utils._DATA_DIR_CACHE.clear()
+    assert path_utils.get_data_dir().resolve() == root.resolve(), path_utils.get_data_dir()
     yield root
     path_utils._DATA_DIR_CACHE.clear()
 
@@ -235,3 +242,26 @@ def test_autofill_endpoint_is_owner_only(data_dir):
     with pytest.raises(HTTPException) as exc:
         lineups.autofill_pitching_staff_endpoint(TEAM, identity={"r": "user", "u": "x", "t": "OTHER"})
     assert exc.value.status_code == 403
+
+
+def test_a_pre_7_46_staff_file_validates_with_warnings_only():
+    """Older leagues' creator wrote SP1-5, CL, SU, SU, LR, MR, MR: the spare
+    relief rows stand in for MR1-MR3 (a warning, not an error)."""
+    from services.roster_validation import validate_pitching_staff
+
+    roles = ["SP1", "SP2", "SP3", "SP4", "SP5", "CL", "SU", "SU", "LR", "MR", "MR"]
+    staff = [{"role": r, "player_id": f"p{i}"} for i, r in enumerate(roles)]
+    players = {f"p{i}": {"player_id": f"p{i}", "is_pitcher": True} for i in range(len(roles))}
+    res = validate_pitching_staff(staff=staff, players=players)
+    assert res.ok, res.errors
+    assert res.warnings
+
+
+def test_missing_mr_slots_without_spare_rows_still_error():
+    from services.roster_validation import validate_pitching_staff
+
+    roles = ["SP1", "SP2", "SP3", "SP4", "SP5", "CL", "SU", "LR", "MR1"]
+    staff = [{"role": r, "player_id": f"p{i}"} for i, r in enumerate(roles)]
+    players = {f"p{i}": {"player_id": f"p{i}", "is_pitcher": True} for i in range(len(roles))}
+    res = validate_pitching_staff(staff=staff, players=players)
+    assert any("MR2" in e for e in res.errors) and any("MR3" in e for e in res.errors)

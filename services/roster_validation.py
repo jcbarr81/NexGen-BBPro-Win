@@ -286,8 +286,24 @@ def validate_pitching_staff(
         entries.append((role, pid))
 
     filled_roles = {role for role, pid in entries if pid}
+    # Staff files written before 7.46.0 carry plain "MR" rows and a second
+    # "SU" instead of MR1-MR3. Those arms pitch as middle relievers either
+    # way, so let such spare relief rows stand in for empty MR slots (they
+    # still get the warning below) rather than flag every older league.
+    filled_counts: dict[str, int] = {}
+    for role, pid in entries:
+        if pid:
+            filled_counts[role] = filled_counts.get(role, 0) + 1
+    spare_relief = sum(
+        count if role not in known_roles else count - 1
+        for role, count in filled_counts.items()
+        if role not in STARTER_ROLES and (role not in known_roles or count > 1)
+    )
     for role in PITCHING_ROLES:
         if role not in filled_roles:
+            if role.startswith("MR") and spare_relief > 0:
+                spare_relief -= 1
+                continue
             result.error(f"Role {role} is not assigned.")
 
     role_counts: dict[str, int] = {}

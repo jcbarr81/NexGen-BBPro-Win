@@ -389,3 +389,26 @@ def test_roster_26_man_tutorial_is_served():
     # MLB has no 26-man minimum and the game has none either.
     assert "minimum of 26" not in body.lower()
     assert "no minimum" in body.lower()
+
+
+def test_minor_league_overflow_notifies_without_pausing(data_dir, monkeypatch):
+    """AAA over its cap (auto-assign parks unseatable players there) is
+    reported, but only active-roster and pitcher-limit problems pause."""
+    import services.notification_engine as engine
+    from utils.roster_rules import AAA_CAP
+
+    hitters = ACTIVE_ROSTER_SIZE - MAX_ACTIVE_PITCHERS
+    rows = [f"P{i},ACT" for i in range(MAX_ACTIVE_PITCHERS)]
+    rows += [f"H{i},ACT" for i in range(hitters)]
+    rows += [f"A{i},AAA" for i in range(AAA_CAP + 2)]
+    (data_dir / "rosters" / f"{TEAM}.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "utils.player_loader.load_players_from_csv",
+        lambda *a, **k: _players(MAX_ACTIVE_PITCHERS, hitters),
+    )
+    events = engine._detect_lineup_validity(
+        TEAM, _settings("roster_cap_violation", stop_sim=True), AUGUST
+    )
+    assert [e.rule_id for e in events] == ["roster_cap_violation"]
+    assert "AAA" in events[0].message
+    assert events[0].stop_sim is False

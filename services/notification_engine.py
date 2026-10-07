@@ -809,7 +809,11 @@ def _detect_lineup_validity(
                         message="; ".join(cap_errors),
                         sim_date=sim_date,
                         payload={"team_id": team_id, "errors": cap_errors},
-                        stop_sim=bool(rule_cap.stop_sim),
+                        # Only the active roster and the pitcher limit pause
+                        # the sim; AAA/LOW overflow is often deliberate (auto-
+                        # assign parks unseatable players there) -- notify only.
+                        stop_sim=bool(rule_cap.stop_sim)
+                        and any(e.startswith("Active roster") for e in cap_errors),
                     )
                 )
         except Exception:
