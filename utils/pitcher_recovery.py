@@ -16,10 +16,12 @@ from utils.roster_loader import load_roster
 # The rotation builder moved to utils.rotation (Release 3); re-exported here
 # so existing callers and tests keep importing it from the tracker module.
 from utils.rotation import (  # noqa: F401
+    EMERGENCY_KEEP_TURN_PITCHES,
     ROTATION_SLOTS,
     _is_relief_role,
     _spot_start_rank,
     choose_rotation,
+    staff_rotation,
 )
 
 _DATE_FORMAT = "%Y-%m-%d"
@@ -563,29 +565,14 @@ class PitcherRecoveryTracker:
             if not status.recent:
                 entry_pitchers.pop(pid, None)
 
-        # ``_build_rotation`` returns player ids, not pitcher objects. Reading
-        # ``.player_id`` off a string yielded "" for every entry, so this list
-        # was silently always empty and rotation gaps fell straight through to
-        # raw active-roster order -- which is how a closer ended up starting.
-        built = [pid for pid in self._build_rotation(active_pitchers) if pid]
-
-        starter_capable = [
-            (
-                getattr(pitcher, "player_id", ""),
-                int(getattr(pitcher, "endurance", 0) or 0),
-            )
-            for pitcher in active_pitchers
-            if getattr(pitcher, "player_id", "") and get_role(pitcher) == "SP"
-        ]
-
-        rotation = choose_rotation(
-            saved_rotation=saved_rotation,
-            existing_rotation=entry.get("rotation") or [],
-            starter_capable=starter_capable,
-            staff_roles=staff_roles,
-            built=built,
-            eligible=pitcher_ids,
-        )
+        # One rotation builder with one set of inputs (Release 3 fix round):
+        # the default lineup builder and the harness call the same
+        # ``staff_rotation`` with the same roster and staff file, so the five
+        # the tracker hands starts to are the five every game labels SP1-SP5.
+        # It no longer leans on yesterday's rotation -- that history was the
+        # one input the other builders could not see, and it let a backfill
+        # keep his slot over a stronger starter the lineup builder picked.
+        rotation = staff_rotation(active_pitchers, staff_roles)
 
         entry["rotation"] = rotation
         if rotation:
@@ -604,8 +591,13 @@ class PitcherRecoveryTracker:
         staff_roles: Dict[str, str] | None = None,
     ) -> Dict[str, object]:
         pitcher_list = list(pitchers)
-        rotation = saved_rotation or self._build_rotation(pitcher_list)
-        roles = staff_roles or {}
+        roles = dict(staff_roles or {})
+        if saved_rotation and not roles:
+            roles = {pid: f"SP{slot}" for slot, pid in enumerate(saved_rotation, 1)}
+        # The same builder as every later day (and as the lineup builder): a
+        # staff file with only four starters used to leave a new club's first
+        # rotation four arms long.
+        rotation = staff_rotation(pitcher_list, roles)
         status = {
             getattr(p, "player_id"): self._initial_status(
                 p, roles.get(getattr(p, "player_id", ""))
@@ -898,10 +890,15 @@ class PitcherRecoveryTracker:
             stored_status = pitchers.get(pid, {})
             if role == "SP" and bool(getattr(state, "relief_outing", False)):
                 # Release 3 (owner decision Q6): a rested starter who came out
-                # of the pen in an emergency keeps his turn. The outing counts
-                # as relief, so it does not restart his starter's rest clock.
+                # of the pen in an emergency keeps his turn when the outing
+                # was short (a bullpen session's worth). A longer one is work
+                # on his arm: his next start waits the starter's rest for it,
+                # never sooner than the turn he already had.
                 stored_on = _parse_date(stored_status.get("available_on"))
-                available_on = max(stored_on, date_obj + timedelta(days=1))
+                if pitches <= EMERGENCY_KEEP_TURN_PITCHES:
+                    available_on = max(stored_on, date_obj + timedelta(days=1))
+                else:
+                    available_on = max(stored_on, available_on)
             prior_recent: list[dict] = []
             for recent_entry in stored_status.get("recent", []):
                 if isinstance(recent_entry, dict):

@@ -368,26 +368,43 @@ def test_live_role_map_never_reads_the_stored_role_column():
     }
 
 
-def test_tracker_records_a_starters_relief_outing_without_moving_his_turn(tmp_path):
-    from utils.path_utils import get_data_dir
+def test_tracker_records_a_starters_relief_outing_without_moving_his_turn(
+    tmp_path, monkeypatch
+):
+    import shutil
+
+    from utils import roster_loader
     from utils.pitcher_recovery import PitcherRecoveryTracker, _parse_date
 
+    # A copy of a calibration fixture club, never the active league.
+    league = REPO / "data" / "calibration_league"
+    rosters = tmp_path / "rosters"
+    rosters.mkdir()
+    for name in ("ALB.csv", "ALB_pitching.csv"):
+        shutil.copy(league / "rosters" / name, rosters / name)
+    players_file = league / "players.csv"
+    # The roster loader's placeholder registry and depth check would otherwise
+    # read and write the active league.
+    monkeypatch.setattr(roster_loader, "_placeholder_registry_path",
+                        lambda: tmp_path / "_placeholder_registry.json")
+    monkeypatch.setattr(roster_loader, "_PLACEHOLDER_PLAYERS_FILE", str(players_file))
+    roster_loader.load_roster.cache_clear()
     tracker = PitcherRecoveryTracker(path=tmp_path / "pitcher_recovery_test.json")
-    players_file = get_data_dir() / "players.csv"
-    roster_dir = get_data_dir() / "rosters"
     player = SimpleNamespace(player_id="ZZ-SP", role="SP", assigned_pitching_role="SP3")
 
     def record(day, pitches, relief):
         tracker.record_game(
-            "ATL", day,
+            "ALB", day,
             [SimpleNamespace(player=player, pitches_thrown=pitches, relief_outing=relief)],
-            players_file, roster_dir,
+            players_file, rosters,
         )
-        return _parse_date(tracker.data["teams"]["ATL"]["pitchers"]["ZZ-SP"]["available_on"])
+        return _parse_date(tracker.data["teams"]["ALB"]["pitchers"]["ZZ-SP"]["available_on"])
 
     start_turn = record("2025-04-01", 95, False)
-    assert start_turn > _parse_date("2025-04-03")
-    assert record("2025-04-03", 35, True) == start_turn
+    assert start_turn > _parse_date("2025-04-04")
+    # Starter rest for 35 pitches on 04-04 would be 04-07, after his turn; a
+    # short emergency outing keeps the turn where it was.
+    assert record("2025-04-04", 35, True) == start_turn
     # A real start on the same day would have restarted the clock.
-    assert record("2025-04-03", 95, False) > start_turn
+    assert record("2025-04-04", 95, False) > start_turn
     assert start_turn - _parse_date("2025-04-01") >= timedelta(days=4)

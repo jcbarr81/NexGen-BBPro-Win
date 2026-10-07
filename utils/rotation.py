@@ -97,6 +97,90 @@ def choose_rotation(
     return rotation
 
 
+def is_starter_capable(pitcher: object) -> bool:
+    """The one "can this arm start?" test for every rotation builder.
+
+    :func:`utils.pitcher_role.get_role` is ``"SP"``. A physics-engine
+    ``PitcherRatings`` carries its declared role as ``preferred_role`` (the
+    ``preferred_pitching_role`` column), so it is read under that name; the
+    stored ``role`` column is only the last fallback, as in ``get_role``.
+    """
+
+    from utils.pitcher_role import get_role
+
+    if hasattr(pitcher, "preferred_pitching_role") or isinstance(pitcher, dict):
+        return get_role(pitcher) == "SP"
+    view = {
+        "primary_position": getattr(pitcher, "primary_position", ""),
+        "preferred_pitching_role": getattr(pitcher, "preferred_role", ""),
+        "endurance": getattr(pitcher, "endurance", None),
+        "role": getattr(pitcher, "role", ""),
+    }
+    return get_role(view) == "SP"
+
+
+def _endurance(pitcher: object) -> int:
+    try:
+        return int(getattr(pitcher, "endurance", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def staff_rotation(
+    pitchers: Sequence[object],
+    staff_roles: Mapping[str, str],
+) -> list[str]:
+    """The five who start for a club, from its active arms and staff file.
+
+    The single entry point the recovery tracker, the default lineup builder
+    and the harness staff builder all call, with the same inputs, so they can
+    never pick different fives (Release 3 fix round). ``pitchers`` are the
+    active arms (objects with ``player_id`` and ``endurance``) and
+    ``staff_roles`` the staff file as pid -> label. The staff file's SP1-SP5
+    come first in slot order; holes are filled by :func:`choose_rotation` from
+    starter-capable arms (:func:`is_starter_capable`), then by endurance. The
+    closer is never a candidate unless he is the only arm. Nothing here
+    depends on what was picked yesterday, so a rotation is a pure function of
+    today's roster and staff file; ties break on player id, never on the
+    order a caller happened to list the arms in.
+    """
+
+    by_id: dict[str, object] = {}
+    for pitcher in pitchers:
+        pid = str(getattr(pitcher, "player_id", "") or "")
+        if pid and pid not in by_id:
+            by_id[pid] = pitcher
+    ids = sorted(by_id)
+    labels = {
+        pid: str(staff_roles.get(pid) or "").strip().upper() for pid in ids
+    }
+    saved = sorted(
+        (label, pid) for pid, label in labels.items() if label in _SAVED_SLOTS
+    )
+    capable = [(pid, _endurance(by_id[pid])) for pid in ids if is_starter_capable(by_id[pid])]
+    capable_ids = {pid for pid, _ in capable}
+    built = sorted(
+        ids, key=lambda pid: (pid not in capable_ids, -_endurance(by_id[pid]), pid)
+    )
+    eligible = [pid for pid in ids if labels[pid] != "CL"] or ids
+    return choose_rotation(
+        saved_rotation=[pid for _, pid in saved],
+        existing_rotation=[],
+        starter_capable=capable,
+        staff_roles=labels,
+        built=built,
+        eligible=eligible,
+    )
+
+
+_SAVED_SLOTS = frozenset({"SP1", "SP2", "SP3", "SP4", "SP5"})
+
+# An emergency relief outing by a starter of this many pitches or fewer keeps
+# his next turn (a bullpen session's worth); a longer one counts as work on
+# his start clock. Mirrors the engine's ``emergency_keep_turn_pitches`` knob.
+EMERGENCY_KEEP_TURN_PITCHES = 35
+
+
 def game_staff_roles(
     staff_roles: Mapping[str, str],
     active_pitcher_ids: Sequence[str],
@@ -133,9 +217,12 @@ def game_staff_roles(
 
 
 __all__ = [
+    "EMERGENCY_KEEP_TURN_PITCHES",
     "ROTATION_SLOTS",
     "choose_rotation",
     "game_staff_roles",
+    "is_starter_capable",
+    "staff_rotation",
     "_is_relief_role",
     "_spot_start_rank",
 ]

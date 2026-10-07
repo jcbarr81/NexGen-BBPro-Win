@@ -16,6 +16,12 @@ class PitcherWorkload:
     last_update_day: int | None = None
     appearances: int = 0
     last_pitches: int = 0
+    # Release 3 (owner decision Q6): a starter's last emergency relief outing,
+    # kept apart from his start clock above. It blocks another emergency for
+    # ``emergency_starter_min_days`` and costs his next start a short-rest
+    # penalty even when the outing was short enough to keep his turn.
+    emergency_day: int | None = None
+    emergency_pitches: int = 0
 
 
 #: A break of more than this many calendar days between his team's games (the

@@ -12,8 +12,7 @@ from utils.path_utils import resolve_app_path
 from .player_loader import load_players_from_csv
 from .roster_loader import load_roster
 from .pitcher_role import get_role
-from .rotation import choose_rotation, game_staff_roles
-from .staff_roles import canonical_relief_role
+from .rotation import game_staff_roles, staff_rotation
 from utils.team_loader import load_teams
 
 
@@ -166,7 +165,7 @@ def _default_pitchers(
 ) -> List[Pitcher]:
     """Return ``team_id``'s pitchers, the five-man rotation first.
 
-    The rotation comes from :func:`utils.rotation.choose_rotation` and is
+    The rotation comes from :func:`utils.rotation.staff_rotation` and is
     labelled SP1-SP5; it is followed by the bullpen in staff-file order, then
     the unlisted arms by endurance. Each arm's ``assigned_pitching_role`` is
     its :func:`utils.rotation.game_staff_roles` label.
@@ -205,31 +204,13 @@ def _default_pitchers(
     )
     eligible.extend(p.player_id for p in unlisted)
 
-    # One rotation builder for the whole game path (Release 3): the tracker
-    # picks from the same five. The closer is never promoted into it; a thin
-    # staff spot-starts its long man or the strongest other arm instead.
-    saved = sorted(
-        (
-            (role, pid)
-            for pid, role in staff_labels.items()
-            if role in {"SP1", "SP2", "SP3", "SP4", "SP5"}
-        ),
-    )
-    rotation = choose_rotation(
-        saved_rotation=[pid for _, pid in saved],
-        existing_rotation=[],
-        starter_capable=[
-            (pid, int(getattr(pitcher_lookup[pid], "endurance", 0) or 0))
-            for pid in eligible
-            if get_role(pitcher_lookup[pid]) == "SP"
-        ],
-        staff_roles=staff_labels,
-        built=[],
-        eligible=[
-            pid
-            for pid in eligible
-            if canonical_relief_role(staff_labels.get(pid)) != "CL"
-        ],
+    # One rotation builder, one set of inputs, for the whole game path
+    # (Release 3): the tracker calls the same ``staff_rotation`` on the same
+    # roster and staff file, so these SP1-SP5 are the five it hands starts
+    # to. The closer is never promoted into it; a thin staff spot-starts its
+    # long man or the strongest other arm instead.
+    rotation = staff_rotation(
+        [pitcher_lookup[pid] for pid in eligible], staff_labels
     )
     # The rotation is SP1-SP5, staff-file relief labels stand, and anyone else
     # (an unlisted arm, a listed starter outside the five) is a middle

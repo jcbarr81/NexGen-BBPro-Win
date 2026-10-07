@@ -23,6 +23,10 @@ R3_KNOBS = {
     "mop_up": 1.0,
     "emergency_starter_min_days": 2.0,
     "reliever_max_appearances_ratio": 0.50,
+    # item B fix round: emergency ceiling / kept turn, last-resort tier
+    "emergency_max_pitches": 45.0,
+    "emergency_keep_turn_pitches": 35.0,
+    "bullpen_last_resort_margin": 20.0,
     # item D (extra innings)
     "max_innings_hard_stop": 60.0,
     # item E (pitcher arm hazard): on, calibrated to ~3/4 of MLB
