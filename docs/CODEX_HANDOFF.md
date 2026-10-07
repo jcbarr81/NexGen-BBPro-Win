@@ -102,8 +102,9 @@ harness scripts are the gates:
 
 **Prereqs:** Python 3.11+, Node 20+.
 
-**Python virtualenvs:** both `.venv` and `.venv2` exist in the repo. `AGENTS.md`
-says use **`.venv2`**; `.venv` also works for tests. Pick one and be consistent.
+**Python virtualenv:** use **`.venv`** (Python 3.11; the `python` on PATH).
+`.venv2` is broken -- its base interpreter was switched to Python 3.12 while
+its packages are cp311 builds, so pydantic/fastapi imports fail. Don't use it.
 (If you see import errors for `fastapi`/`numpy`, install the runtime deps — see
 below.)
 
@@ -118,7 +119,7 @@ below.)
 
 ```powershell
 # backend deps that match production
-.\.venv2\Scripts\python.exe -m pip install -r requirements-server.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-server.txt
 
 # run the API (see README for the exact uvicorn command / Electron dev flow)
 # frontend:
@@ -126,7 +127,7 @@ cd desktop; npm install; npm run dev
 ```
 
 **Build a desktop release** (per `AGENTS.md`):
-`.\.venv2\Scripts\python.exe scripts\build_release.py --clean`
+`.\.venv\Scripts\python.exe scripts\build_release.py --clean`
 
 **Deploy (cloud):** the backend deploys to Cloud Run from
 `requirements-server.txt`; the React app is built and served statically; Firebase

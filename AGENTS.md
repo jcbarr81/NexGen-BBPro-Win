@@ -12,10 +12,15 @@
   `docs/CODEX_HANDOFF.md` §5. Every file passes on its own.
 - Run with `PYTHONHASHSEED=0`; never run sims/tests against a real user league,
   and clean stray data with `git clean -fdq data/leagues` (not just `git checkout`).
-- Virtual envrionment exists in .venv, use this interpreter
+- Python environment: `.venv` (Python 3.11). It is the `python` on PATH in
+  this checkout, so `python -m pytest ...` and `python scripts/...` use it;
+  explicitly: `.\.venv\Scripts\python.exe`.
 
 ## Development guidelines
-- Use the .venv2 environment for python
+- Use the `.venv` environment for python. Do NOT use `.venv2`: it was
+  re-pointed to a Python 3.12 runtime while its packages are built for 3.11,
+  so anything importing pydantic/fastapi fails ("No module named
+  'pydantic_core._pydantic_core'") and ~25 test files error at collection.
 - Use `rg` for searching the repository.
 - Follow PEP8 style guidelines.
 - Increment version in `VERSION` for code/behavior/build changes.
@@ -25,7 +30,7 @@
 - Add all backlog requests/items to `docs/future_work.md`.
 - Remember to create tutorials/guides and add them to the menu for new features
 - To build release run: 
-    .\.venv2\Scripts\python.exe scripts\build_release.py --clean
+    .\.venv\Scripts\python.exe scripts\build_release.py --clean
 
 ## Versioning Policy (SemVer)
 - Default: bump PATCH (`X.Y.Z -> X.Y.(Z+1)`) for bug fixes, installer/build fixes, tests, and small UX tweaks.
