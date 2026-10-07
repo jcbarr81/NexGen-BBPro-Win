@@ -26,6 +26,11 @@ from utils.roster_rules import (
     MAX_ACTIVE_PITCHERS,
     counts_as_pitcher,
 )
+from utils.staff_roles import (
+    OPTIONAL_PITCHING_ROLES,
+    REQUIRED_PITCHING_ROLES,
+    STAFF_ROLES,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -44,19 +49,12 @@ ALL_POSITIONS: Sequence[str] = (
 
 REQUIRED_DEF_POSITIONS: Sequence[str] = ("C", "1B", "2B", "3B", "SS", "LF", "CF", "RF")
 
-PITCHING_ROLES: Sequence[str] = (
-    "SP1",
-    "SP2",
-    "SP3",
-    "SP4",
-    "SP5",
-    "LR",
-    "MR1",
-    "MR2",
-    "MR3",
-    "SU",
-    "CL",
-)
+# The 11 required staff slots, plus MR4/MR5 as optional homes for the 12th
+# and 13th active arms (Release 3, owner decision Q7). One source of truth in
+# utils.staff_roles; existing staff files are never migrated to the new slots.
+PITCHING_ROLES: Sequence[str] = REQUIRED_PITCHING_ROLES
+OPTIONAL_STAFF_ROLES: Sequence[str] = OPTIONAL_PITCHING_ROLES
+ALL_STAFF_ROLES: Sequence[str] = STAFF_ROLES
 
 STARTER_ROLES: Set[str] = {"SP1", "SP2", "SP3", "SP4", "SP5"}
 CLOSER_ROLES: Set[str] = {"CL", "SU"}
@@ -263,32 +261,51 @@ def validate_pitching_staff(
     """Validate the pitching-staff role map.
 
     Rules (ported from ui/pitching_editor.py):
-    - Every one of the 11 roles (SP1..SP5, LR, MR1..MR3, SU, CL) is filled.
+    - Every one of the 11 required roles (SP1..SP5, LR, MR1..MR3, SU, CL) is
+      filled. MR4 and MR5 are optional slots for the 12th and 13th arms.
     - No pitcher occupies more than one role.
     - Every assigned pitcher is on the active roster (if active_ids given).
     - Non-pitchers cannot hold pitching roles.
     - Warn when an SP-role has a non-starter (no SP rating) or CL has no
       closer rating.
+    - Warn, without blocking the save, on a label that is not a staff slot
+      (a legacy "MR" row) or a slot listed twice (an older file's two SU
+      rows): the sim pitches those arms as relievers either way.
     """
 
     result = ValidationResult()
     active_set: Set[str] | None = set(active_ids) if active_ids is not None else None
+    known_roles = set(ALL_STAFF_ROLES)
 
-    assignments: dict[str, str] = {}
+    entries: list[tuple[str, str]] = []
     for entry in staff:
-        role = str(entry.get("role", "")).upper()
-        pid = str(entry.get("player_id", "") or "")
+        role = str(entry.get("role", "") or "").strip().upper()
+        pid = str(entry.get("player_id", "") or "").strip()
         if not role:
             continue
-        assignments[role] = pid
+        entries.append((role, pid))
 
+    filled_roles = {role for role, pid in entries if pid}
     for role in PITCHING_ROLES:
-        if not assignments.get(role):
+        if role not in filled_roles:
             result.error(f"Role {role} is not assigned.")
+
+    role_counts: dict[str, int] = {}
+    for role, pid in entries:
+        if pid:
+            role_counts[role] = role_counts.get(role, 0) + 1
+    for role, count in role_counts.items():
+        if role not in known_roles:
+            result.warn(
+                f"{role} is not a staff slot; that pitcher works as a middle "
+                "reliever. Pick a slot (MR1-MR5) to keep the staff tidy."
+            )
+        elif count > 1:
+            result.warn(f"Role {role} is listed {count} times.")
 
     # Duplicate pitcher check.
     seen: dict[str, str] = {}
-    for role, pid in assignments.items():
+    for role, pid in entries:
         if not pid:
             continue
         if pid in seen:
@@ -299,10 +316,8 @@ def validate_pitching_staff(
         else:
             seen[pid] = role
 
-    # Per-pitcher checks.
-    for role, pid in assignments.items():
-        if not pid:
-            continue
+    # Per-pitcher checks, once per pitcher.
+    for pid, role in seen.items():
         player = players.get(pid)
         if not player:
             result.error(f"{role}: player {pid} not found.")
@@ -317,13 +332,12 @@ def validate_pitching_staff(
                 f"{role}: {_player_label(player, pid)} is not on the active roster."
             )
 
-        role_upper = role.upper()
-        role_rating = _role_rating(player, role_upper)
-        if role_upper in STARTER_ROLES and role_rating is not None and role_rating < 40:
+        role_rating = _role_rating(player, role)
+        if role in STARTER_ROLES and role_rating is not None and role_rating < 40:
             result.warn(
                 f"{role}: {_player_label(player, pid)} has a low starter rating ({role_rating})."
             )
-        if role_upper == "CL" and role_rating is not None and role_rating < 40:
+        if role == "CL" and role_rating is not None and role_rating < 40:
             result.warn(
                 f"CL: {_player_label(player, pid)} has a low closer rating ({role_rating})."
             )
@@ -903,6 +917,8 @@ __all__ = [
     "ALL_POSITIONS",
     "REQUIRED_DEF_POSITIONS",
     "PITCHING_ROLES",
+    "OPTIONAL_STAFF_ROLES",
+    "ALL_STAFF_ROLES",
     "DEFAULT_LEVEL_CAPS",
     "DEFAULT_PITCHER_CAP",
 ]

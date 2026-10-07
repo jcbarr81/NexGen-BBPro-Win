@@ -241,11 +241,13 @@ def autofill_pitching_staff_endpoint(
 
     """Auto-assign SP1-SP5 + LR/MR/SU/CL using the same heuristic the
     PyQt Pitching Editor's "Auto-Fill Staff" button fires
-    (``utils.pitching_autofill.autofill_pitching_staff``). Persists the
-    result to ``<team_id>_pitching.csv`` and returns the fresh staff.
+    (``utils.pitching_autofill.autofill_pitching_staff``), including the
+    optional MR4/MR5 slots while active arms remain. Persists the result to
+    ``<team_id>_pitching.csv`` and returns the fresh staff.
     """
 
     from utils.pitching_autofill import autofill_pitching_staff
+    from utils.roster_rules import counts_as_pitcher
 
     from .validation import load_players_map
 
@@ -266,11 +268,16 @@ def autofill_pitching_staff_endpoint(
             continue
         # The autofill helper wants the ``role`` / ``endurance`` /
         # ``preferred_pitching_role`` fields. ``load_players_map`` already
-        # surfaces those; skip non-pitchers via the stored role check.
-        role = str(entry.get("role", "")).strip().upper()
-        primary = str(entry.get("primary_position", "")).strip().upper()
-        if role not in {"SP", "RP"} and primary != "P":
+        # surfaces those. Pitchers are picked with the shared roster rule:
+        # the stored ``role`` column is stale (or empty) in older leagues
+        # and used to drop real pitchers from the staff.
+        if not counts_as_pitcher(entry):
             continue
+        stored_role = str(entry.get("role", "") or "").strip().upper()
+        if stored_role not in {"SP", "RP"}:
+            # Last-resort signal for get_role when a pitcher has no declared
+            # role and no endurance; never overrides a real answer.
+            entry = {**entry, "role": "RP"}
         candidates.append((pid, entry))
 
     assignments = autofill_pitching_staff(candidates)

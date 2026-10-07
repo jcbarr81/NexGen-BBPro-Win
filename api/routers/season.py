@@ -929,12 +929,20 @@ def _simulate_n(
             try:
                 post_phase = getattr(manager, "phase", None)
                 post_phase_str = post_phase.name if post_phase is not None else None
+                # Lineup / staff / roster-cap checks (Release 3, owner
+                # decision Q8): on the first day of every sim, on a phase
+                # change, and on any day with injury or transaction news for
+                # the team. Each problem is reported once, not every day.
                 day_events = detect_events(
                     team_id,
                     notif_settings,
                     pre_state,
                     sim_date=target_date,
                     new_phase=post_phase_str,
+                    run_lineup_validators=(
+                        days_done == 1 or post_phase != pre_phase
+                    ),
+                    validate_on_roster_news=True,
                 )
             except Exception:
                 day_events = []
