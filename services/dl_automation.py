@@ -1,10 +1,29 @@
-"""Automations for disabled list maintenance during simulations."""
+"""Automations for disabled list maintenance during simulations.
+
+Who comes off an injured list on his own (Release 3, owner decision Q11):
+
+* a CPU club activates everyone whose stint has run out, from the 15-day and
+  the 60-day list alike -- nobody else would;
+* an owner's club follows the owner's per-team choices in
+  ``services.team_play_settings``: ``il_auto_activate_15`` (default: the
+  league's ``auto_activate_il``) and ``il_auto_activate_60`` (default off);
+* when team ownership can't be read, every club waits a day.
+
+An owner's returner goes to the active roster only if there is room (and,
+for a pitcher, room on the staff). Otherwise he goes to AAA, the owner gets a
+"ready - make room" action item on the Season page, and nobody else on the
+owner's roster is moved: the CPU never makes room on an owner's club.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
-from typing import Dict, List, Optional, Union
+from datetime import date, datetime, timedelta, timezone
+import json
+import os
+from pathlib import Path
+import threading
+from typing import Dict, List, Mapping, Optional, Sequence, Union
 
 from services.injury_manager import (
     disabled_list_days_remaining,
@@ -24,6 +43,13 @@ from utils.team_loader import load_teams
 
 DateLike = Union[None, str, date]
 
+#: Owner returners parked in the minors for lack of room, kept for the
+#: Season page's "ready - make room" action item.
+AWAITING_ROOM_FILENAME = "il_returns_awaiting_room.json"
+#: How many league days the reminder stays up if the owner leaves him down.
+AWAITING_ROOM_DAYS = 10
+_AWAITING_ROOM_LOCK = threading.Lock()
+
 
 @dataclass
 class DLAutomationSummary:
@@ -32,6 +58,8 @@ class DLAutomationSummary:
     blocked: List[str] = field(default_factory=list)
     lineup_restored: List[str] = field(default_factory=list)
     awaiting_owner: List[str] = field(default_factory=list)
+    # Owner returners sent to the minors because the active roster was full.
+    awaiting_room: List[str] = field(default_factory=list)
 
     def has_updates(self) -> bool:
         return any(
@@ -41,6 +69,7 @@ class DLAutomationSummary:
                 self.blocked,
                 self.lineup_restored,
                 self.awaiting_owner,
+                self.awaiting_room,
             )
         )
 
@@ -108,29 +137,26 @@ def _resolve_destination(
     return None
 
 
-def _teams_managing_their_own_il(data_dir) -> set | None:
-    """Human-owned teams that have opted out of automatic activation.
+def _owner_auto_activates(team_id: str, list_level: str, data_dir) -> bool:
+    """The owner's per-team choice for this list (owner decision Q11).
 
-    CPU teams are never in this set: nobody is watching them, so a club without
-    an owner must keep activating on its own or it would strand healthy players
-    on the list forever.
+    ``list_level`` is the roster level: ``"dl"`` (the 7/10/15-day lists) or
+    ``"ir"`` (the 60-day list). A broken settings read falls back to the
+    defaults: the 15-day list follows the league setting, which itself fails
+    open, and the 60-day list stays manual.
     """
 
-    try:
-        from utils.league_settings import auto_activate_il
+    from services.team_play_settings import (
+        IL_AUTO_ACTIVATE_15,
+        IL_AUTO_ACTIVATE_60,
+        get_team_play_setting,
+    )
 
-        if auto_activate_il():
-            return set()
-    except Exception:  # pragma: no cover - defensive
-        return set()
+    key = IL_AUTO_ACTIVATE_60 if list_level == "ir" else IL_AUTO_ACTIVATE_15
     try:
-        from services.team_ownership import human_owned_team_ids_strict
-
-        # None (users.txt unreadable): every club waits a day rather than an
-        # owner's injured list being run for him.
-        return human_owned_team_ids_strict(data_dir)
+        return bool(get_team_play_setting(team_id, key, data_dir=data_dir))
     except Exception:  # pragma: no cover - defensive
-        return None
+        return list_level != "ir"
 
 
 def process_disabled_lists(
@@ -142,19 +168,17 @@ def process_disabled_lists(
 ) -> DLAutomationSummary:
     """Progress disabled list eligibility and optionally activate players.
 
-    ``auto_activate`` is the caller's intent; the league's ``auto_activate_il``
-    setting can still hold back HUMAN-owned teams so their owner decides when a
-    player comes back. ``force_auto_activate`` overrides that for batch tools
-    (the long-run sim harness) that have no owner to wait for.
+    ``auto_activate`` is the caller's intent. A CPU club always activates; an
+    owner's club follows the owner's per-team 15-day and 60-day choices
+    (``services.team_play_settings``). ``force_auto_activate`` overrides the
+    owner's 15-day choice for batch tools and the deadline CPU fill, which
+    have no owner to wait for; an owner's 60-day list still follows his
+    60-day choice.
     """
 
     summary = DLAutomationSummary()
     target_date = _coerce_date(today)
-    owner_managed = (
-        set()
-        if (force_auto_activate or not auto_activate)
-        else _teams_managing_their_own_il(get_data_dir())
-    )
+    data_dir = get_data_dir()
     players = list(load_players_from_csv("data/players.csv"))
     player_map = {getattr(p, "player_id", ""): p for p in players}
     teams = []
@@ -173,6 +197,7 @@ def process_disabled_lists(
     except Exception:  # pragma: no cover - defensive
         human_ids = None
     mutated_players: set[str] = set()
+    parked: Dict[str, List[dict]] = {}
 
     for team in teams:
         team_id = getattr(team, "team_id", "")
@@ -183,107 +208,122 @@ def process_disabled_lists(
         except Exception:
             continue
         rosters[team_id] = roster
-        # The 60-day list (roster.ir) is managed by hand -- except at a CPU
-        # club, where nobody would ever activate him and his like-for-like
-        # call-up would be permanent (audit H9 review).
         cpu_club = human_ids is not None and str(team_id).upper() not in human_ids
-        dl_entries = list(getattr(roster, "dl", []) or [])
-        if cpu_club:
-            dl_entries += list(getattr(roster, "ir", []) or [])
-        if not dl_entries:
-            continue
-        for pid in dl_entries:
+        entries = [(pid, "dl") for pid in list(getattr(roster, "dl", []) or [])]
+        entries += [(pid, "ir") for pid in list(getattr(roster, "ir", []) or [])]
+        for pid, list_level in entries:
             player = player_map.get(pid)
             if player is None:
                 continue
             days_remaining = disabled_list_days_remaining(player, today=target_date)
-            ready_for_return = False
-            if days_remaining is not None and days_remaining <= 0:
-                ready_for_return = True
-                if not getattr(player, "ready", False):
-                    player.ready = True
-                    mutated_players.add(pid)
-
-            if not ready_for_return:
+            if days_remaining is None or days_remaining > 0:
                 continue
+            newly_ready = not getattr(player, "ready", False)
+            if newly_ready:
+                player.ready = True
+                mutated_players.add(pid)
 
             list_label = disabled_list_label(getattr(player, "injury_list", ""))
             base_msg = f"{_player_name(player)} ready to return from {list_label or 'injury list'} ({team_id})"
 
-            if auto_activate and (
-                owner_managed is None or str(team_id).upper() in owner_managed
-            ):
-                # The owner runs this team's injured list by hand -- or team
-                # ownership couldn't be read, and every club waits a day.
+            if not auto_activate:
+                summary.alerts.append(base_msg)
+                log_news_event(base_msg, category="injury")
+                continue
+
+            if cpu_club or (force_auto_activate and list_level == "dl"):
+                activate = True
+            elif human_ids is None:
+                activate = False
+            else:
+                activate = _owner_auto_activates(team_id, list_level, data_dir)
+            if not activate:
+                # The owner runs this list by hand -- or team ownership
+                # couldn't be read, and every club waits a day.
                 summary.awaiting_owner.append(
                     f"{_player_name(player)} is eligible to come off the "
                     f"{list_label or 'injured list'} ({team_id})"
                 )
-                why = (
-                    " — team ownership couldn't be read; retrying next sim day."
-                    if owner_managed is None
-                    else " — waiting on the owner."
-                )
-                log_news_event(base_msg + why, category="injury")
+                if newly_ready:
+                    why = (
+                        " — team ownership couldn't be read; retrying next sim day."
+                        if human_ids is None
+                        else " — waiting on the owner."
+                    )
+                    log_news_event(base_msg + why, category="injury", team_id=team_id)
                 continue
 
-            if auto_activate:
-                destination = _resolve_destination(
-                    roster,
-                    cpu_owned=human_ids is not None and str(team_id).upper() not in human_ids,
-                    player=player,
-                    players_by_id=player_map,
+            destination = _resolve_destination(
+                roster,
+                cpu_owned=cpu_club,
+                player=player,
+                players_by_id=player_map,
+            )
+            if destination is None:
+                summary.blocked.append(f"{base_msg} but no roster room is available.")
+                log_news_event(f"{base_msg} but no roster space available.", category="injury")
+                continue
+            try:
+                recover_from_injury(
+                    player, roster, destination=destination, players_by_id=player_map
                 )
-                if destination is None:
-                    summary.blocked.append(f"{base_msg} but no roster room is available.")
-                    log_news_event(f"{base_msg} but no roster space available.", category="injury")
-                    continue
-                try:
-                    recover_from_injury(
-                        player, roster, destination=destination, players_by_id=player_map
-                    )
-                except ValueError:
-                    summary.alerts.append(base_msg)
-                    log_news_event(base_msg, category="injury")
-                    continue
-                mutated_players.add(pid)
-                mutated_rosters.add(team_id)
-                dest_label = destination.upper()
-                msg = f"Activated {_player_name(player)} to {dest_label} ({team_id})"
-
-                # Coming off the list isn't symmetrical with going on it. The
-                # injury left the lineup a man short, so the sim rebuilt it and
-                # a replacement took the spot; activation restores the roster
-                # but leaves a perfectly valid nine in place, so the regular
-                # starter would sit behind his own backup indefinitely. Put him
-                # back wherever the depth chart says he's the starter.
-                if destination == "act":
-                    try:
-                        from services.lineup_restore import restore_depth_chart_starter
-
-                        restored = restore_depth_chart_starter(
-                            team_id,
-                            pid,
-                            lineup_dir=get_data_dir() / "lineups",
-                            active_ids=list(getattr(roster, "act", []) or []),
-                        )
-                        if restored:
-                            position = next(iter(restored.values()))
-                            msg += f", back in the lineup at {position}"
-                            summary.lineup_restored.append(
-                                f"{_player_name(player)} restored at {position} ({team_id})"
-                            )
-                    except Exception:  # pragma: no cover - defensive
-                        pass
-
-                summary.activated.append(msg)
-                log_news_event(msg, category="injury")
-            else:
+            except ValueError:
                 summary.alerts.append(base_msg)
                 log_news_event(base_msg, category="injury")
+                continue
+            mutated_players.add(pid)
+            mutated_rosters.add(team_id)
+            dest_label = destination.upper()
+            msg = f"Activated {_player_name(player)} to {dest_label} ({team_id})"
+
+            if destination != "act" and not cpu_club:
+                # An owner's club with no room: he waits in the minors and
+                # the owner decides who makes way. Nobody else is moved.
+                parked.setdefault(str(team_id).upper(), []).append(
+                    {
+                        "player_id": pid,
+                        "list": list_label or "injured list",
+                        "level": destination,
+                        "date": target_date.isoformat(),
+                    }
+                )
+                summary.awaiting_room.append(
+                    f"{_player_name(player)} is healthy and waiting in "
+                    f"{dest_label} for an active-roster spot ({team_id})"
+                )
+                msg += (
+                    " — no room on the active roster. Make room to bring him up."
+                )
+
+            # Coming off the list isn't symmetrical with going on it. The
+            # injury left the lineup a man short, so the sim rebuilt it and
+            # a replacement took the spot; activation restores the roster
+            # but leaves a perfectly valid nine in place, so the regular
+            # starter would sit behind his own backup indefinitely. Put him
+            # back wherever the depth chart says he's the starter.
+            if destination == "act":
+                try:
+                    from services.lineup_restore import restore_depth_chart_starter
+
+                    restored = restore_depth_chart_starter(
+                        team_id,
+                        pid,
+                        lineup_dir=get_data_dir() / "lineups",
+                        active_ids=list(getattr(roster, "act", []) or []),
+                    )
+                    if restored:
+                        position = next(iter(restored.values()))
+                        msg += f", back in the lineup at {position}"
+                        summary.lineup_restored.append(
+                            f"{_player_name(player)} restored at {position} ({team_id})"
+                        )
+                except Exception:  # pragma: no cover - defensive
+                    pass
+
+            summary.activated.append(msg)
+            log_news_event(msg, category="injury", team_id=team_id)
 
     if mutated_rosters:
-        data_dir = get_data_dir()
         for team_id in mutated_rosters:
             save_roster(team_id, rosters[team_id])
             try:
@@ -304,7 +344,132 @@ def process_disabled_lists(
         dest_path = get_data_dir() / "players.csv"
         save_players(players, dest_path)
 
+    try:
+        _update_awaiting_room(
+            parked, rosters=rosters, today=target_date, data_dir=data_dir
+        )
+    except Exception:  # pragma: no cover - the reminder is best effort
+        pass
+
     return summary
 
 
-__all__ = ["DLAutomationSummary", "process_disabled_lists"]
+# ---------------------------------------------------------------------------
+# "Ready - make room" reminders for owners
+# ---------------------------------------------------------------------------
+
+
+def players_awaiting_room(
+    team_id: str,
+    *,
+    levels: Mapping[str, Sequence[str]],
+    today: DateLike = None,
+    data_dir=None,
+) -> List[dict]:
+    """Owner returners still parked in the minors for lack of room.
+
+    ``levels`` is the team's current roster as ``{level: [player_id, ...]}``
+    (``api.routers.validation.load_team_levels``). An entry counts while the
+    player is still in the club's AAA/Low-A and the reminder is under
+    :data:`AWAITING_ROOM_DAYS` league days old. Read-only.
+    """
+
+    key = str(team_id or "").strip().upper()
+    if not key:
+        return []
+    payload = _load_awaiting_room(data_dir)
+    entries = (payload.get("teams") or {}).get(key) or []
+    minors = set(levels.get("aaa", []) or []) | set(levels.get("low", []) or [])
+    current = _coerce_date(today)
+    out: List[dict] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("player_id") or "") not in minors:
+            continue
+        if _entry_expired(entry, current):
+            continue
+        out.append(dict(entry))
+    return out
+
+
+def _entry_expired(entry: Mapping[str, object], today: date) -> bool:
+    try:
+        when = date.fromisoformat(str(entry.get("date") or "")[:10])
+    except ValueError:
+        return True
+    return today - when > timedelta(days=AWAITING_ROOM_DAYS)
+
+
+def _awaiting_room_path(data_dir) -> Path:
+    base = Path(data_dir) if data_dir is not None else get_data_dir()
+    return base / AWAITING_ROOM_FILENAME
+
+
+def _load_awaiting_room(data_dir) -> dict:
+    try:
+        payload = json.loads(_awaiting_room_path(data_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"version": 1, "teams": {}}
+    if not isinstance(payload, dict) or not isinstance(payload.get("teams"), dict):
+        return {"version": 1, "teams": {}}
+    return payload
+
+
+def _update_awaiting_room(
+    parked: Mapping[str, List[dict]],
+    *,
+    rosters: Mapping[str, object],
+    today: date,
+    data_dir,
+) -> None:
+    """Add today's parked returners and drop reminders that no longer apply."""
+
+    with _AWAITING_ROOM_LOCK:
+        payload = _load_awaiting_room(data_dir)
+        teams = payload.get("teams") or {}
+        if not teams and not parked:
+            return
+        roster_by_key = {str(t).upper(): r for t, r in rosters.items()}
+        updated: Dict[str, List[dict]] = {}
+        for key in sorted(set(teams) | set(parked)):
+            entries = [e for e in teams.get(key) or [] if isinstance(e, dict)]
+            fresh = list(parked.get(key) or [])
+            fresh_ids = {e["player_id"] for e in fresh}
+            entries = [e for e in entries if e.get("player_id") not in fresh_ids]
+            roster = roster_by_key.get(key)
+            if roster is not None:
+                minors = set(getattr(roster, "aaa", []) or []) | set(
+                    getattr(roster, "low", []) or []
+                )
+                entries = [e for e in entries if e.get("player_id") in minors]
+            entries = [e for e in entries if not _entry_expired(e, today)]
+            entries += fresh
+            if entries:
+                updated[key] = entries
+        if updated == teams:
+            return
+        path = _awaiting_room_path(data_dir)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}.{threading.get_ident()}")
+        try:
+            tmp.write_text(
+                json.dumps({"version": 1, "teams": updated}, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            os.replace(tmp, path)
+        finally:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
+
+
+__all__ = [
+    "AWAITING_ROOM_DAYS",
+    "AWAITING_ROOM_FILENAME",
+    "DLAutomationSummary",
+    "players_awaiting_room",
+    "process_disabled_lists",
+]

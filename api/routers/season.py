@@ -3170,12 +3170,108 @@ def season_action_items(
             }
         )
 
+    # 5. Injured-list returns (Release 3, owner decision Q11): players healthy
+    # again but waiting on the owner -- parked in the minors because the
+    # active roster was full ("ready - make room"), or still on a list the
+    # owner activates by hand. Read-only: the automation never moves anyone
+    # else on an owner's roster to make room.
+    items.extend(_il_return_action_items(team_id))
+
     return {
         "team_id": team_id,
         "items": items,
         "count": len(items),
         "deadline": deadline,
     }
+
+
+def _il_return_action_items(team_id: str) -> List[Dict[str, Any]]:
+    """Season-page items for an owner's healthy injured-list returners."""
+
+    out: List[Dict[str, Any]] = []
+    try:
+        from services.dl_automation import players_awaiting_room
+        from services.injury_manager import (
+            disabled_list_days_remaining,
+            disabled_list_label,
+        )
+        from utils.player_loader import load_players_from_csv
+
+        from .validation import load_team_levels
+
+        levels = load_team_levels(team_id)
+        parked = players_awaiting_room(team_id, levels=levels)
+        listed = list(levels.get("dl", []) or []) + list(levels.get("ir", []) or [])
+        players: Dict[str, Any] = {}
+        if parked or listed:
+            players = {
+                str(p.player_id): p
+                for p in load_players_from_csv(get_data_dir() / "players.csv")
+            }
+    except Exception:
+        return out
+
+    def _name(pid: str) -> str:
+        p = players.get(pid)
+        name = f"{getattr(p, 'first_name', '')} {getattr(p, 'last_name', '')}".strip()
+        return name or pid
+
+    if parked:
+        names = [_name(str(e.get("player_id"))) for e in parked]
+        n = len(names)
+        where = sorted({str(e.get("level") or "aaa").upper() for e in parked})
+        out.append(
+            {
+                "kind": "il_return_needs_room",
+                "severity": "action",
+                "title": (
+                    f"{names[0]} is healthy — make room to bring him up"
+                    if n == 1
+                    else f"{n} players are healthy — make room to bring them up"
+                ),
+                "detail": (
+                    f"Back from the injured list and waiting in {'/'.join(where)} "
+                    f"because your active roster was full: {', '.join(names[:4])}. "
+                    "Option or release someone, then promote him on the Roster page."
+                ),
+                "count": n,
+                "href": "/roster",
+            }
+        )
+
+    ready: List[str] = []
+    for pid in listed:
+        player = players.get(pid)
+        if player is None:
+            continue
+        try:
+            remaining = disabled_list_days_remaining(player)
+        except Exception:
+            continue
+        if remaining is not None and remaining <= 0:
+            label = disabled_list_label(getattr(player, "injury_list", "")) or "IL"
+            ready.append(f"{_name(pid)} ({label})")
+    if ready:
+        n = len(ready)
+        out.append(
+            {
+                "kind": "il_return_ready",
+                "severity": "action",
+                "title": (
+                    f"{ready[0]} can come off the injured list"
+                    if n == 1
+                    else f"{n} players can come off the injured list"
+                ),
+                "detail": (
+                    f"Their minimum stint is over: {', '.join(ready[:4])}. "
+                    "Activate them on the Injuries page, or turn on automatic "
+                    "activation in your team settings."
+                ),
+                "count": n,
+                "href": "/injuries",
+            }
+        )
+    return out
 
 
 @router.post("/preseason/training-camp")

@@ -517,16 +517,20 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "injury_overuse_scale": 0.19,
     "injury_swing_scale": 1.02,
     "injury_error_scale": 2.0,
-    # Release 3 pitcher arm-injury hazard (item E), registered in R3-0 and off.
+    # Release 3 pitcher arm-injury hazard (item E; physics_sim/arm_injury.py),
+    # rolled once per appearance after the game on its own RNG.
     # Per appearance: level * (base + per_pitch * pitches)
     #   * exp(-durability_k * (durability - durability_center) / 10)
     #   * (1 + rest penalty) * (1 + pitch_ramp * max(0, pitches - ramp_start) / 10)
     # with level = injury_rate_scale / rate_reference. Rest penalties apply to a
     # reliever on 0 calendar days' rest or a starter on fewer than
-    # starter_short_rest_days. The durability centre is overridden per league.
-    "pitcher_arm_enabled": 0.0,
-    "pitcher_arm_base": 0.0072,
-    "pitcher_arm_per_pitch": 0.00024,
+    # starter_short_rest_days. The durability centre is the league's ACT
+    # pitcher mean, supplied per season by services/injury_settings.
+    # Calibrated with scripts/injury_rate_kpi.py to ~3/4 of MLB (owner,
+    # 2026-10-07): 9-10 pitcher IL stints per team-season, overuse included.
+    "pitcher_arm_enabled": 1.0,
+    "pitcher_arm_base": 0.0075,
+    "pitcher_arm_per_pitch": 0.00013,
     "pitcher_arm_durability_k": 0.25,
     "pitcher_arm_durability_center": 50.0,
     "pitcher_arm_reliever_rest_penalty": 0.5,
@@ -536,6 +540,14 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "pitcher_arm_pitch_ramp_start": 100.0,
     "pitcher_arm_rate_reference": 0.1,
     "pitcher_arm_major_share": 0.30,
+    # Owner Q14: a position player who plays tired risks a small post-game
+    # injury: level * base * fatigue, fatigue in [0, 1] (the in-game penalty
+    # over its cap). Severity: major / moderate shares, the rest minor
+    # (day-to-day). Small on purpose -- no injury-riddled seasons.
+    "batter_fatigue_injury_enabled": 1.0,
+    "batter_fatigue_injury_base": 0.008,
+    "batter_fatigue_injury_moderate_share": 0.45,
+    "batter_fatigue_injury_major_share": 0.05,
     # S2-01: sized so the league platoon-split KPI lands in its 20-32 wOBA-point
     # band (2.0 produced ~46 pts). Tune these three together.
     "handedness_contact_bonus": 1.8,

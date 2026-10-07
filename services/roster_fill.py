@@ -170,6 +170,7 @@ def callup_candidates(
     exclude: Iterable[str] = (),
     allowed: Optional[Callable[[str, str], bool]] = None,
     position_only: bool = False,
+    want_starter: bool = False,
 ) -> List[tuple]:
     """Ordered ``(player_id, from_level)`` candidates for one promotion.
 
@@ -178,6 +179,10 @@ def callup_candidates(
     2. players who can play ``position``;
     3. any healthy player of the right type -- skipped when ``position_only``
        (an owner's club gets a player for the open position or nobody).
+
+    ``want_starter`` (pitchers only): a starter goes down, so starter-capable
+    arms come first -- a reliever called up for him would leave a hole in the
+    rotation (Release 3, audit M15).
 
     ``allowed(player_id, from_level)`` lets the caller veto a move (prospect
     service-time rules); vetoed players are skipped, never forced.
@@ -220,6 +225,11 @@ def callup_candidates(
     for entry in _best([e for e in pool if e[0] not in seen]):
         ordered.append(entry)
         seen.add(entry[0])
+    if want_pitcher and want_starter:
+        from utils.pitcher_role import get_role
+
+        # Stable: AAA before Low-A and best first within each group.
+        ordered.sort(key=lambda e: get_role(players_by_id.get(e[0])) != "SP")
     if allowed is not None:
         ordered = [e for e in ordered if allowed(e[0], e[1])]
     return ordered
