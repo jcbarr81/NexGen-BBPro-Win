@@ -10,6 +10,14 @@ from utils.team_loader import load_teams
 from utils.user_manager import load_users
 import random
 import pytest
+from utils.roster_rules import (
+    AAA_CAP,
+    ACT_HITTER_TARGET,
+    ACTIVE_ROSTER_SIZE,
+    LOW_CAP,
+    MAX_ACTIVE_PITCHERS,
+    ORG_LIMIT,
+)
 
 
 def test_create_league_generates_files(tmp_path):
@@ -34,23 +42,25 @@ def test_create_league_generates_files(tmp_path):
     with open(players_path, newline="") as f:
         players = list(csv.DictReader(f))
     players_by_id = {p["player_id"]: p for p in players}
-    assert len(players) == 100
+    assert len(players) == 2 * ORG_LIMIT
 
     for t in teams:
         r_file = rosters_dir / f"{t['team_id']}.csv"
         assert r_file.exists()
         with open(r_file) as f:
             rows = [line.split(",") for line in f.read().strip().splitlines() if line]
-        assert len(rows) == 50
+        assert len(rows) == ORG_LIMIT
         counts = Counter(level for _, level in rows)
-        assert counts["ACT"] == 25
-        assert counts["AAA"] == 15
-        assert counts["LOW"] == 10
+        assert counts["ACT"] == ACTIVE_ROSTER_SIZE
+        assert counts["AAA"] == AAA_CAP
+        assert counts["LOW"] == LOW_CAP
         assert set(counts.keys()) == {"ACT", "AAA", "LOW"}
 
+        # Decision 8: a full 26-man ACT of 13 pitchers and 13 hitters.
         act_players = [players_by_id[pid] for pid, level in rows if level == "ACT"]
         act_pitchers = sum(1 for p in act_players if p["is_pitcher"] == "1")
-        assert act_pitchers >= 11
+        assert act_pitchers == MAX_ACTIVE_PITCHERS
+        assert len(act_players) - act_pitchers == ACT_HITTER_TARGET
         act_positions = {p["primary_position"] for p in act_players if p["is_pitcher"] == "0"}
         assert {"C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"} <= act_positions
 
@@ -148,6 +158,70 @@ def test_create_league_rosters_pass_sim_gate_validation(tmp_path):
             level_caps=DEFAULT_LEVEL_CAPS,
         )
         assert result.ok, f"{t.team_id} not compliant: {result.errors}"
+
+
+def test_create_league_writes_editor_valid_pitching_staffs(tmp_path):
+    """New leagues get the Pitching auto-fill's 11 slots (SP1-5, LR, MR1-3,
+    SU, CL), which pass the editor's validation; the 12th and 13th active
+    pitchers stay unlisted."""
+
+    from services.roster_validation import PITCHING_ROLES, validate_pitching_staff
+
+    random.seed(3)
+    divisions = {"East": [("CityA", "Cats"), ("CityB", "Dogs")]}
+    create_league(str(tmp_path), divisions, "Staff League")
+
+    with open(tmp_path / "players.csv", newline="") as f:
+        players = {
+            r["player_id"]: {
+                "player_id": r["player_id"],
+                "primary_position": r.get("primary_position", ""),
+                "is_pitcher": r.get("is_pitcher") in {"1", "True", "true"},
+                "endurance": r.get("endurance", ""),
+                "preferred_pitching_role": r.get("preferred_pitching_role", ""),
+            }
+            for r in csv.DictReader(f)
+        }
+    for t in load_teams(str(tmp_path / "teams.csv")):
+        with open(tmp_path / "rosters" / f"{t.team_id}.csv") as f:
+            act = [
+                line.split(",")[0]
+                for line in f.read().strip().splitlines()
+                if line.endswith(",ACT")
+            ]
+        with open(tmp_path / "rosters" / f"{t.team_id}_pitching.csv", newline="") as f:
+            staff = [
+                {"player_id": pid, "role": role}
+                for pid, role in csv.reader(f)
+            ]
+        assert sorted(e["role"] for e in staff) == sorted(PITCHING_ROLES)
+        result = validate_pitching_staff(staff=staff, players=players, active_ids=act)
+        assert result.ok, f"{t.team_id}: {result.errors}"
+        act_pitchers = [pid for pid in act if players[pid]["is_pitcher"]]
+        unlisted = set(act_pitchers) - {e["player_id"] for e in staff}
+        assert len(unlisted) == MAX_ACTIVE_PITCHERS - len(PITCHING_ROLES)
+
+
+def test_compliance_guard_rejects_a_14th_active_pitcher():
+    from models.roster import Roster
+    from playbalance.league_creator import _assert_rosters_compliant
+
+    positions = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"]
+    hitters = [
+        {"player_id": f"H{i}", "primary_position": positions[i % 8],
+         "is_pitcher": False, "birthdate": "1995-01-01"}
+        for i in range(ACT_HITTER_TARGET - 1)
+    ]
+    pitchers = [
+        {"player_id": f"P{i}", "primary_position": "P",
+         "is_pitcher": True, "birthdate": "1995-01-01"}
+        for i in range(MAX_ACTIVE_PITCHERS + 1)
+    ]
+    roster = Roster(
+        team_id="T", act=[p["player_id"] for p in hitters + pitchers]
+    )
+    with pytest.raises(ValueError, match="pitchers"):
+        _assert_rosters_compliant({"T": roster}, hitters + pitchers)
 
 
 def test_abbr_uses_city_only():

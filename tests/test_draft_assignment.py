@@ -8,6 +8,7 @@ from services.roster_moves import cut_player
 from services.transaction_log import load_transactions, reset_player_cache
 from utils.exceptions import DraftRosterError
 from utils.roster_loader import load_roster
+from utils.roster_rules import ACTIVE_ROSTER_SIZE, LOW_CAP
 
 
 def _prepare_base(tmp_path: Path, monkeypatch) -> Path:
@@ -71,12 +72,12 @@ def _write_draft_files(path: Path, year: int, results: list[tuple[str, str]], po
             writer.writerow(row)
 
 
-@pytest.mark.parametrize("low_entries", [10, 9])
+@pytest.mark.parametrize("low_entries", [LOW_CAP, LOW_CAP - 1])
 def test_commit_draft_results_handles_low_capacity(tmp_path, monkeypatch, low_entries):
     data = _prepare_base(tmp_path, monkeypatch)
     _write_players(data, [["p000", "Existing", "Player"]])
     low_roster = [(f"low{i}", "LOW") for i in range(low_entries)]
-    _write_roster(data, "AAA", [(f"act{i}", "ACT") for i in range(25)] + low_roster)
+    _write_roster(data, "AAA", [(f"act{i}", "ACT") for i in range(ACTIVE_ROSTER_SIZE)] + low_roster)
     _write_draft_files(
         data,
         2025,
@@ -122,10 +123,14 @@ def test_commit_draft_results_handles_low_capacity(tmp_path, monkeypatch, low_en
     assert entry.get("player_id") == "d100"
 
 
+def test_low_cap_comes_from_the_roster_rules():
+    assert draft_assignment.LOW_MAX == LOW_CAP
+
+
 def test_cut_player_updates_roster_and_logs(tmp_path, monkeypatch):
     data = _prepare_base(tmp_path, monkeypatch)
     _write_players(data, [["c001", "Taylor", "Release"]])
-    _write_roster(data, "BBB", [(f"act{i}", "ACT") for i in range(25)] + [("c001", "AAA"), ("keep", "AAA")])
+    _write_roster(data, "BBB", [(f"act{i}", "ACT") for i in range(ACTIVE_ROSTER_SIZE)] + [("c001", "AAA"), ("keep", "AAA")])
 
     roster = load_roster("BBB")
     cut_player("BBB", "c001", roster)

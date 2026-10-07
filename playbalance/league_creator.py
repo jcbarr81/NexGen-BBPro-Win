@@ -18,10 +18,27 @@ from utils.user_manager import clear_users
 import utils.lineup_loader as lineup_loader
 from utils.lineup_loader import build_default_game_state
 from utils import roster_loader
+from utils.roster_rules import (
+    AAA_CAP,
+    ACT_HITTER_TARGET,
+    LOW_CAP,
+    MAX_ACTIVE_PITCHERS,
+    counts_as_pitcher,
+)
 from playbalance.season_context import SeasonContext, slugify_league_id
 from services.standings_repository import save_standings
 
 MAX_LEAGUE_TEAMS = 40
+
+# Generated organisations (owner decision 8, utils.roster_rules): a full
+# 26-man ACT of 13 pitchers and 13 hitters, then AAA and LOW at their caps --
+# 51 players, the organisation limit.
+ACT_PITCHERS = MAX_ACTIVE_PITCHERS
+ACT_HITTERS = ACT_HITTER_TARGET
+AAA_PITCHERS = 7
+AAA_HITTERS = AAA_CAP - AAA_PITCHERS
+LOW_PITCHERS = 5
+LOW_HITTERS = LOW_CAP - LOW_PITCHERS
 
 
 def _abbr(city: str, name: str, existing: set) -> str:
@@ -192,66 +209,25 @@ def _ensure_act_positions(players: List[dict]) -> None:
 
 
 def _build_pitching_staff(players: List[dict]) -> List[tuple[str, str]]:
-    """Return ordered (player_id, role) entries for a pitching staff."""
+    """Return ordered (player_id, role) entries for a pitching staff.
 
-    pitchers = [p for p in players if p.get("is_pitcher")]  # type: ignore[truthy-bool]
-    if not pitchers:
+    Uses the Pitching auto-fill (``utils.pitching_autofill``), the same rows
+    the editor's Auto-Fill and ``/pitching/autofill`` write: SP1-5, LR, CL,
+    SU, MR1-MR3. A new league therefore starts with a staff the editor's own
+    validation accepts. The creator used to write plain "MR" rows and two
+    "SU" rows, which the editor rejects. Active pitchers beyond the 11 slots
+    (the 12th and 13th arms) stay unlisted and pitch as extra relievers.
+    """
+
+    from utils.pitching_autofill import autofill_pitching_staff
+
+    candidates = [
+        (str(p["player_id"]), p) for p in players if counts_as_pitcher(p)
+    ]
+    if not candidates:
         return []
-
-    def rating(p: dict) -> float:
-        return (
-            float(p.get("arm", 0)) * 0.5
-            + float(p.get("movement", 0)) * 0.3
-            + float(p.get("control", 0)) * 0.2
-        )
-
-    starters = sorted(
-        pitchers, key=lambda p: float(p.get("endurance", 0)), reverse=True
-    )[:5]
-    starter_ids = {p["player_id"] for p in starters}
-    bullpen = [p for p in pitchers if p["player_id"] not in starter_ids]
-
-    closer_candidates = [
-        p
-        for p in bullpen
-        if str(p.get("preferred_pitching_role", "")).upper() == "CL"
-        or str(p.get("pitcher_archetype", "")).lower() == "closer"
-    ]
-    if not closer_candidates:
-        closer_candidates = bullpen[:]
-    closer = max(closer_candidates, key=rating) if closer_candidates else None
-
-    bullpen = [
-        p
-        for p in bullpen
-        if closer is None or p["player_id"] != closer["player_id"]
-    ]
-    long_relief = (
-        max(bullpen, key=lambda p: float(p.get("endurance", 0))) if bullpen else None
-    )
-    bullpen = [
-        p
-        for p in bullpen
-        if long_relief is None or p["player_id"] != long_relief["player_id"]
-    ]
-    setup = sorted(bullpen, key=rating, reverse=True)[:2]
-    setup_ids = {p["player_id"] for p in setup}
-    bullpen_rest = [p for p in bullpen if p["player_id"] not in setup_ids]
-
-    staff: List[tuple[str, str]] = []
-    for idx, pitcher in enumerate(starters, start=1):
-        staff.append((pitcher["player_id"], f"SP{idx}"))
-    if closer is not None:
-        staff.append((closer["player_id"], "CL"))
-    for pitcher in setup:
-        staff.append((pitcher["player_id"], "SU"))
-    if long_relief is not None:
-        staff.append((long_relief["player_id"], "LR"))
-    for pitcher in bullpen_rest:
-        staff.append((pitcher["player_id"], "MR"))
-    return staff
-
-
+    assignments = autofill_pitching_staff(candidates)
+    return [(pid, role) for role, pid in assignments.items() if pid]
 
 
 def _write_default_lineups(base_dir: Path, team_ids: Iterable[str]) -> None:
@@ -341,8 +317,19 @@ def _assert_rosters_compliant(
             players=players_map,
             level_caps=DEFAULT_LEVEL_CAPS,
         )
-        if not result.ok:
-            problems.append(f"{team_id}: " + "; ".join(result.errors))
+        errors = list(result.errors) if not result.ok else []
+        # The 13-pitcher maximum (decision 8), checked here directly so the
+        # guard does not depend on which rules the validator has learned.
+        act_pitchers = sum(
+            1 for pid in roster.act if counts_as_pitcher(players_map.get(pid))
+        )
+        if act_pitchers > MAX_ACTIVE_PITCHERS:
+            errors.append(
+                f"Active roster carries {act_pitchers} pitchers "
+                f"(maximum {MAX_ACTIVE_PITCHERS})."
+            )
+        if errors:
+            problems.append(f"{team_id}: " + "; ".join(errors))
 
     if problems:
         raise ValueError(
@@ -524,13 +511,15 @@ def create_league(
                 }
             )
 
-            act_players = generate_roster(11, 14, (21, 38), ensure_positions=True, closers=1)
+            act_players = generate_roster(
+                ACT_PITCHERS, ACT_HITTERS, (21, 38), ensure_positions=True, closers=1
+            )
             _ensure_act_positions(act_players)
-            aaa_players = generate_roster(7, 8, (21, 38), closers=1)
+            aaa_players = generate_roster(AAA_PITCHERS, AAA_HITTERS, (21, 38), closers=1)
             # LOW is for young prospects only — keep the age range comfortably
             # under services.roster_validation.LOW_LEVEL_MAX_AGE (currently 27,
             # i.e. a 26 limit) so generated LOW rosters are always compliant.
-            low_players = generate_roster(5, 5, (18, 21), closers=1)
+            low_players = generate_roster(LOW_PITCHERS, LOW_HITTERS, (18, 21), closers=1)
 
             roster_levels = {"ACT": act_players, "AAA": aaa_players, "LOW": low_players}
 

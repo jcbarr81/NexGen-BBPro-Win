@@ -10,8 +10,7 @@ from utils.news_logger import log_news_event
 from utils.path_utils import get_data_dir
 from utils.pitcher_role import role_from_endurance
 from utils.roster_loader import load_roster, save_roster
-
-LOW_MAX = 10
+from utils.roster_rules import LOW_CAP as LOW_MAX
 
 
 def _data_dir() -> Path:

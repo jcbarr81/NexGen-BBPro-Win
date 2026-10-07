@@ -9,15 +9,17 @@ parks. Alpha-test, a real league, runs ~5.0 R/G and fails ~21 gates. This
 script builds a SECOND fixture that looks like a league owners actually play:
 
 * players come from :func:`playbalance.league_creator.create_league` -- the
-  same generator and 50-player organisations a new league gets -- with the
+  same generator and 51-player organisations a new league gets -- with the
   archetype speed tiers owner decision 3 keeps (the generator's default
   bootstrap path no longer applies them; see :func:`_with_speed_tiers`);
 * every organisation's ACT roster is then re-picked by the product's
   auto-assign (:func:`services.roster_auto_assign.auto_assign_team`), so ACT
-  holds each club's best players, as in a league that has run auto-assign;
+  holds each club's best 13 hitters and 13 pitchers (decision 8's 26-man
+  roster), as in a league that has run auto-assign;
 * the pitching staff is written by the product's Pitching auto-fill
   (:func:`utils.pitching_autofill.autofill_pitching_staff`, the same rows the
-  ``/pitching/autofill`` endpoint writes: SP1-5, LR, CL, SU, MR1-MR3);
+  ``/pitching/autofill`` endpoint writes: SP1-5, LR, CL, SU, MR1-MR3; the
+  12th and 13th active pitchers stay unlisted, as in the product);
 * lineups come from the product's lineup auto-fill;
 * every team plays in the GENERIC park: ``teams.csv`` carries an empty
   ``park_id`` (audit L13: real-park geometry only for an explicit pick).
@@ -28,11 +30,9 @@ NOT YET REFLECTED (owner decisions, DECISIONS.md, still to be implemented):
   ``rating - 50`` terms, so the run level depends on where the generator puts
   hitters against pitchers. Today's generator (bootstrap since 7.24.0) plus
   best-of-organisation ACT rosters gives pitchers the bigger edge, so this
-  fixture runs COLD (~4.1 R/G), while alpha-test, built by the older
+  fixture runs COLD (~4.0 R/G), while alpha-test, built by the older
   generator, runs hot (~5.0). Neither matches the calibration fixture;
-* decision 7 -- an MLB batting-side mix in the generator;
-* decision 8 -- the 26-man roster with 13 pitchers (ACT is still 25: auto-assign
-  targets 12 hitters / 13 pitchers).
+* decision 7 -- an MLB batting-side mix in the generator.
 
 The fixture therefore reflects the CURRENT generator. When those land,
 regenerate it with the same command (the defaults are the committed fixture's
@@ -211,22 +211,19 @@ def _write_pitching_staff(league_dir: Path, team_id: str,
     """Write ``<team>_pitching.csv`` exactly as the Pitching auto-fill does.
 
     Mirrors ``api/routers/lineups.py::autofill_pitching_staff_endpoint``: the
-    ACT pitchers (stored role SP/RP or primary position P) go through
-    ``autofill_pitching_staff`` and its 11 role rows are written in its order.
-    ACT pitchers beyond the 11 slots stay unlisted, as they do in the product.
+    ACT pitchers go through ``autofill_pitching_staff`` and its 11 role rows
+    are written in its order. ACT pitchers beyond the 11 slots (the 12th and
+    13th arms) stay unlisted, as they do in the product.
     """
 
     from utils.pitching_autofill import autofill_pitching_staff
+    from utils.roster_rules import counts_as_pitcher
 
     act = _read_roster(league_dir / "rosters" / f"{team_id}.csv").get("ACT", [])
     candidates = []
     for pid in act:
         entry = players.get(pid)
-        if not entry:
-            continue
-        role = str(entry.get("role", "")).strip().upper()
-        primary = str(entry.get("primary_position", "")).strip().upper()
-        if role not in {"SP", "RP"} and primary != "P":
+        if not entry or not counts_as_pitcher(entry):
             continue
         candidates.append((pid, entry))
     assignments = autofill_pitching_staff(candidates)
@@ -293,9 +290,9 @@ def build_league(work_dir: Path, *, seed: int, teams: int, as_of: date,
             league_dir, _divisions(teams), LEAGUE_NAME, rating_profile="normalized"
         )
 
-        # Real roster selection: the generator hands every club 25 random
+        # Real roster selection: the generator hands every club 26 random
         # "ACT" players; a live league runs auto-assign, which puts each
-        # organisation's best 12 hitters and 13 pitchers on ACT.
+        # organisation's best 13 hitters and 13 pitchers on ACT.
         players_file = str(league_dir / "players.csv")
         roster_dir = str(league_dir / "rosters")
         load_roster.cache_clear()
@@ -365,6 +362,13 @@ def _num(row: dict[str, str], key: str) -> float | None:
 def summarize(output_dir: Path) -> dict[str, object]:
     """Validate the fixture and return the numbers its README reports."""
 
+    from utils.roster_rules import (
+        ACTIVE_ROSTER_SIZE,
+        MAX_ACTIVE_PITCHERS,
+        ORG_LIMIT,
+        counts_as_pitcher,
+    )
+
     players = {r["player_id"]: r for r in _read_csv_rows(output_dir / "players.csv")}
     teams = _read_csv_rows(output_dir / "teams.csv")
     problems: list[str] = []
@@ -379,10 +383,24 @@ def summarize(output_dir: Path) -> dict[str, object]:
         levels = _read_roster(output_dir / "rosters" / f"{team_id}.csv")
         act = levels.get("ACT", [])
         act_sizes.append(len(act))
+        team_pitchers = 0
         for pid in act:
             row = players[pid]
-            (act_pitchers if row.get("is_pitcher") in {"1", "True", "true"}
-             else act_hitters).append(row)
+            if counts_as_pitcher(row):
+                act_pitchers.append(row)
+                team_pitchers += 1
+            else:
+                act_hitters.append(row)
+        if len(act) > ACTIVE_ROSTER_SIZE:
+            problems.append(f"{team_id}: ACT holds {len(act)} (max {ACTIVE_ROSTER_SIZE})")
+        if team_pitchers > MAX_ACTIVE_PITCHERS:
+            problems.append(
+                f"{team_id}: ACT carries {team_pitchers} pitchers "
+                f"(max {MAX_ACTIVE_PITCHERS})"
+            )
+        org = sum(len(levels.get(level, [])) for level in ("ACT", "AAA", "LOW"))
+        if org > ORG_LIMIT:
+            problems.append(f"{team_id}: organisation of {org} (max {ORG_LIMIT})")
         with (output_dir / "rosters" / f"{team_id}_pitching.csv").open(
                 newline="", encoding="utf-8") as fh:
             staff = [row for row in csv.reader(fh) if row]
@@ -446,18 +464,19 @@ How it is built (all product code, run in an isolated temp data root):
   with the generator's own archetype weights and floors (its default bootstrap
   path skips them, so the script applies them; see `_with_speed_tiers`);
 - ACT rosters: `services.roster_auto_assign.auto_assign_team` per organisation
-  (each club's best 12 hitters / 13 pitchers);
+  (each club's best 13 hitters / 13 pitchers: the 26-man roster, decision 8);
 - pitching staffs: `utils.pitching_autofill.autofill_pitching_staff`, written
-  as the Pitching auto-fill does (SP1-5, LR, CL, SU, MR1-MR3);
+  as the Pitching auto-fill does (SP1-5, LR, CL, SU, MR1-MR3; the 12th and
+  13th active pitchers stay unlisted);
 - lineups: `utils.lineup_autofill.auto_fill_lineup_for_team`;
 - parks: generic for every team (`park_id` empty; audit L13).
 
 Not yet reflected (owner decisions still to be implemented, DECISIONS.md):
-decision 2 (league-relative ratings), decision 7 (MLB batting-side mix) and
-decision 8 (26-man roster, 13 pitchers). The fixture reflects the CURRENT
-generator; regenerate it when those land. Under today's absolute ratings its
-run level is set by where the generator puts hitters against pitchers, so it
-differs from both alpha-test (older generator) and `data/calibration`.
+decision 2 (league-relative ratings) and decision 7 (MLB batting-side mix).
+The fixture reflects the CURRENT generator; regenerate it when those land.
+Under today's absolute ratings its run level is set by where the generator
+puts hitters against pitchers, so it differs from both alpha-test (older
+generator) and `data/calibration`.
 
 Parameters: seed {args.seed}, {summary['teams']} teams, ages as of {args.as_of},
 ratings source `{_display_path(args.ratings_source)}`.
