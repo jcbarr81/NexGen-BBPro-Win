@@ -96,6 +96,16 @@ RULE_CATEGORIES: List[Dict[str, Any]] = [
                 "default_notify": True,
                 "default_stop": True,
             },
+            {
+                # Informational (7.46.0, 26-man roster): an open active spot
+                # is legal, so this never stops the sim by default. Saved
+                # settings files that predate the rule pick up these defaults
+                # in load_notification_settings.
+                "id": "roster_spot_open",
+                "label": "Active roster spot open",
+                "default_notify": True,
+                "default_stop": False,
+            },
         ],
     },
     {

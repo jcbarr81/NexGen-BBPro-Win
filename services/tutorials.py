@@ -121,7 +121,7 @@ TUTORIALS: List[Tutorial] = [
         steps=[
             TutorialStep(
                 "Roster levels",
-                "<p>Open <b>My Team → Roster</b>. Players are grouped by level: Active (25), AAA, Low, DL, IR. Each table shows position, role, and ratings.</p>",
+                "<p>Open <b>My Team → Roster</b>. Players are grouped by level: Active (up to 26, at most 13 of them pitchers), AAA (15), Low (10), DL, IR. Each table shows position, role, and ratings. When your active roster is below the limit the page shows a <b>spot is open</b> badge; filling it is up to you. See the <b>26-Man Active Roster</b> tutorial for the full rules.</p>",
             ),
             TutorialStep(
                 "Right-click context menu",
@@ -129,7 +129,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Move validation",
-                "<p>Every move runs the shared validator — level caps (ACT 25 / AAA 15 / LOW 10), LOW age gate (27+), post-move minimum 11 non-pitchers on ACT, and defensive coverage. If a move would break a rule, the server returns a 422 with the specific error.</p>",
+                "<p>Every move runs the shared validator. The limits: 26 active players with at most 13 pitchers (28 and 14 from September 1 to the end of the regular season), 15 in AAA and 10 in Low-A. Moving a player into a full level, or adding a 14th active pitcher, is allowed with a warning, so you can promote first and send someone down next; the Roster page then flags it and the season check won't let you sim until the roster is legal again. That check also wants at least 11 position players on the active roster and every defensive position covered. A move that breaks a hard rule, such as sending a player aged 27 or older to Low-A, is refused with the specific error.</p>",
             ),
             TutorialStep(
                 "Depth chart",
@@ -147,6 +147,38 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Saving with Ctrl+S",
                 "<p>Press <b>Ctrl+S</b> (Cmd+S on macOS) to save any editor. An autosave kicks in every ~1.5 seconds while you're editing; if you reload mid-edit, a <b>Restore / Dismiss</b> banner offers to reinstate the draft.</p>",
+            ),
+        ],
+    ),
+    Tutorial(
+        tutorial_id="roster_26_man",
+        title="26-Man Active Roster",
+        summary="26 active with at most 13 pitchers, 28 and 14 in September, a 51-player organisation, and what owners and the CPU do.",
+        route=None,
+        steps=[
+            TutorialStep(
+                "26 active, at most 13 pitchers",
+                "<p>Every league uses MLB's active-roster rule: up to <b>26</b> players on the active roster, and no more than <b>13</b> of them pitchers. Only active players play in games. Injured players who stay on the active roster (day-to-day knocks) still count toward both numbers.</p><p>There is no minimum: a club with 25 active players is legal, it just has a spot it isn't using.</p>",
+            ),
+            TutorialStep(
+                "September: 28 and 14",
+                "<p>From <b>September 1</b> to the end of the regular season the limits rise to <b>28</b> active players and <b>14</b> pitchers, so you can call up extra players for the stretch run.</p><p>When the playoffs begin, every club goes back to 26 and 13. Extra players, and pitchers above 13, are optioned to AAA automatically, owner teams included, and each move is written to the Transactions log. Nobody is released.</p>",
+            ),
+            TutorialStep(
+                "The organisation limit: 51",
+                "<p>An organisation holds up to <b>51</b> players: 26 active, 15 in AAA and 10 in Low-A. Players on the injured lists don't count toward it.</p>",
+            ),
+            TutorialStep(
+                "What you do",
+                "<p>If your active roster is below the limit, the Roster page shows a <b>spot is open</b> badge, the Season page lists it under <b>Needs your attention</b>, and you get an <b>Active roster spot open</b> notification (notify only; it never stops the sim unless you switch that on under Notifications). Fill the spot by promoting a player from AAA or signing a free agent, or leave it open. Nothing is moved for you.</p><p>A move that would make a 14th active pitcher is allowed with a warning, so you can promote first and send someone down next. Until you are back to 13, the Roster page's compliance banner shows the pitcher count and the season check won't let you sim. <b>Auto-assign → Fill gaps only</b> fixes it by optioning a pitcher to AAA.</p>",
+            ),
+            TutorialStep(
+                "What the CPU does",
+                "<p>CPU clubs fill their own active rosters to 13 pitchers and 13 position players, on game days and once more when the regular season starts. The CPU never fills or rearranges an owner's team; the exceptions are the September cut-back above and an emergency call-up from your own minor leaguers when you can't field nine position players.</p><p><b>Auto-assign → Full reassign</b> on the Roster page builds the same shape for you: 13 pitchers and 13 position players when your organisation has them.</p>",
+            ),
+            TutorialStep(
+                "Unslotted relievers",
+                "<p>The pitching staff still has 11 slots (SP1–SP5, LR, MR1–MR3, SU, CL). With 13 pitchers active, the 12th and 13th have no slot: they are <b>unslotted relievers</b> who pitch out of the bullpen as extra arms. The Pitching tab on the Lineup page lists them. More relief slots arrive with a later bullpen update.</p>",
             ),
         ],
     ),
@@ -183,7 +215,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Pitching staff roles",
-                "<p>The <b>Pitching</b> tab exposes 11 slots: <b>SP1–SP5</b>, <b>LR</b>, <b>MR1–MR3</b>, <b>SU</b>, <b>CL</b>. Drag or use move buttons to reorder — the simulator schedules starts and calls relievers based on these roles. Low-rating warnings appear for starters or closers without the right ratings.</p>",
+                "<p>The <b>Pitching</b> tab exposes 11 slots: <b>SP1–SP5</b>, <b>LR</b>, <b>MR1–MR3</b>, <b>SU</b>, <b>CL</b>. Drag or use move buttons to reorder — the simulator schedules starts and calls relievers based on these roles. Low-rating warnings appear for starters or closers without the right ratings.</p><p>A full active roster carries up to 13 pitchers, so two of them have no slot. They are <b>unslotted relievers</b>: they still pitch out of the bullpen as extra relief arms, and the Pitching tab lists them under the staff. More relief slots arrive with a later bullpen update.</p>",
             ),
             TutorialStep(
                 "Pitching staff Auto-fill",
@@ -255,7 +287,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Sign a player",
-                "<p>Click <b>Sign</b> on a row, pick the destination level (ACT/AAA/LOW), set the salary/years, and optionally a <b>signing bonus</b> (which debits your cash now). The dialog previews the player's <b>fair-market value</b>, likely response, and the top <b>competing CPU bids</b> so you know who you're up against. Confirm — the server enforces roster caps and writes a sign transaction.</p>",
+                "<p>Click <b>Sign</b> on a row, pick the destination level (ACT/AAA/LOW), set the salary/years, and optionally a <b>signing bonus</b> (which debits your cash now). The dialog previews the player's <b>fair-market value</b>, likely response, and the top <b>competing CPU bids</b> so you know who you're up against. Confirm — the signing is written to the transactions log. Signing into a full level isn't refused (you get a warning instead); send someone down before your next game, because the season check won't sim an over-limit roster.</p>",
             ),
             TutorialStep(
                 "The offseason bidding window",

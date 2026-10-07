@@ -34,9 +34,16 @@ Team owners manage their franchise through the Owner Dashboard.
 - Move players between levels using the dropdown and movement buttons.
 - Cut players from a roster.
 - Save the roster. Validation enforces:
-  - Maximum 25 players and at least 11 position players on the Active roster.
+  - Maximum 26 players on the Active roster, at most 13 of them pitchers
+    (28 and 14 from September 1 to the end of the regular season), and at
+    least 11 position players. There is no minimum roster size: 25 active is
+    legal and the Roster page shows that a spot is open.
   - Maximum 15 players on the AAA roster.
   - Maximum 10 players on the Low roster.
+  - An organisation (Active + AAA + Low) of at most 51; injured-list players
+    don't count.
+  - A move into a full level, or a 14th active pitcher, is allowed with a
+    warning; the season check blocks the sim until it is fixed.
 
 ### Player and Lineup Tools
 - **Position Players / Pitchers**: open detailed windows to inspect players by role.

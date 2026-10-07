@@ -200,6 +200,33 @@ Pitcher SP/RP labeling reflects each pitcher's display role; granular roles
 (SP, RP, CL, LR, MR, SU) collapse to SP/RP here and drive the Lineup → Pitching
 Staff editor.
 
+#### Roster limits
+
+- **Active roster: up to 26 players, at most 13 of them pitchers.** From
+  September 1 to the end of the regular season the limits are 28 and 14. When
+  the playoffs begin, extra players and pitchers above 13 are optioned to AAA
+  automatically (owner teams included, logged in Transactions; nobody is
+  released).
+- **AAA 15, Low-A 10.** The organisation (active + AAA + Low-A) holds up to
+  51; injured-list players don't count.
+- There is no minimum. An active roster of 25 is legal; the page shows a
+  **spot is open** badge next to the active count (for example 25/26), and
+  the Season page lists it under *Needs your attention*. Fill it by promoting
+  from AAA or signing a free agent, or leave it open. Nothing is moved for
+  you.
+- Moving into a full level, or adding a 14th active pitcher, is allowed with a
+  warning toast. The **compliance banner** then shows the counts (ACT, AAA,
+  LOW, P n/13, H n) and the season check won't sim until the roster is legal.
+  **Auto-assign → Fill gaps only** fixes an extra pitcher by optioning one to
+  AAA; **Full reassign** targets 13 pitchers and 13 position players.
+- CPU clubs fill and balance their own rosters (13 pitchers / 13 position
+  players). The CPU never rearranges an owner's team except for the September
+  cut-back and emergency call-ups from your own minor leaguers when you can't
+  field nine position players.
+
+The **26-Man Active Roster** tutorial (Help → Tutorials) walks through the same
+rules.
+
 ### Lineup
 
 Tabs for **vs LHP** and **vs RHP** (separate batting orders) plus a **Pitching
@@ -215,7 +242,10 @@ Staff** tab.
   changes after a reload.
 
 **Pitching Staff** has 11 slots (SP1–SP5, LR, MR1–MR3, SU, CL); **Auto-fill**
-seeds them from the active roster by endurance and role tags.
+seeds them from the active roster by endurance and role tags. Active pitchers
+without a slot (the 12th and 13th on a full staff) are listed as **unslotted
+relievers**: they pitch out of the bullpen as extra relief arms. More relief
+slots arrive with a later bullpen update.
 
 ### Depth Chart
 
@@ -460,8 +490,11 @@ save time (a hard 422 with an inline error list) and live as you edit:
   pitcher-not-in-lineup, position eligibility.
 - **Depth chart** — max 3 per position, no duplicates, no pitchers, eligibility,
   off-roster rejection, low-depth warnings.
-- **Roster moves** — level caps (ACT 25 / AAA 15 / LOW 10), LOW age gate (27+),
-  post-move minimum non-pitchers on ACT, defensive coverage.
+- **Roster moves** — level caps (ACT 26, or 28 from September 1; AAA 15; LOW
+  10) and at most 13 active pitchers (14 in September) are warnings on a single
+  move and errors at the season check; LOW age gate (27+) is a hard error;
+  minimum 11 position players on ACT and defensive coverage are checked before
+  every game.
 - **Trades** — each side ≥1 asset, pick-trading enabled, picks in the tradable
   pool, post-trade caps, payroll policy.
 

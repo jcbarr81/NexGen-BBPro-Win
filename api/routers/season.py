@@ -2951,9 +2951,10 @@ def season_action_items(
 
     Computed live from current state (not the historical notification log), so
     an owner logging in sees the turn-style items waiting on them right now:
-    incoming trade offers, an open FA window they haven't bid in, and — during
+    incoming trade offers, an open FA window they haven't bid in, — during
     the preseason — a roster/lineup that's blocking the commissioner from
-    advancing. Purely a read; nothing here mutates state or auto-advances."""
+    advancing, and an open active-roster spot (informational). Purely a read;
+    nothing here mutates state or auto-advances."""
 
     team_id = str(identity.get("t") or "").strip()
     items: List[Dict[str, Any]] = []
@@ -3043,6 +3044,40 @@ def season_action_items(
                         "href": "/roster",
                     }
                 )
+
+    # 4. An open active-roster spot (26-man roster, 7.46.0). Informational:
+    # a short active roster is legal, so this is deliberately NOT a readiness
+    # issue (that would mark the owner unready and let the deadline run the
+    # CPU fill on their team) and nothing is moved for them. Read-only:
+    # load_team_levels never writes, unlike load_roster on a missing file.
+    try:
+        from utils.roster_loader import active_roster_cap
+
+        from .validation import load_team_levels
+
+        active = len(load_team_levels(team_id).get("act", []))
+        cap = active_roster_cap()
+    except Exception:
+        active, cap = 0, 0
+    if 0 < active < cap:
+        open_spots = cap - active
+        items.append(
+            {
+                "kind": "roster_spot_open",
+                "severity": "info",
+                "title": (
+                    f"Active roster spot open ({active}/{cap})"
+                    if open_spots == 1
+                    else f"{open_spots} active roster spots open ({active}/{cap})"
+                ),
+                "detail": (
+                    "Optional: promote a player from AAA or sign a free agent "
+                    "to fill it. An open spot never holds up the sim."
+                ),
+                "count": open_spots,
+                "href": "/roster",
+            }
+        )
 
     return {
         "team_id": team_id,
