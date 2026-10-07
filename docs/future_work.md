@@ -1175,3 +1175,46 @@ count, so an RNG-reshuffling change can trip it -- re-check seeds 1 and 2.
   paths strict: roster automation, the CPU FA market and bid book,
   negotiations, IL auto-activation and the arbitration/non-tender pass.)
 
+## 61. Release 3 follow-ups (7.47.0)
+
+- Admin exhibition games still write real season/career stats and special
+  events to the live league (PB_PERSIST_STATS); run exhibitions with stats
+  persistence off and test that season_stats.json is unchanged.
+- Rest-state bootstrap after deploy replays only the tracker's last 14 days;
+  batters start fresh and the appearance caps undercount for that season.
+  Optionally rebuild appearances from season_stats.
+- Re-simming a day whose usage was already saved double-counts fatigue (the
+  tracker has the same exposure); add per-date idempotency markers.
+- tests/test_sim_batching_invariance.py takes ~5 min idle (15+ under load);
+  mark slow or trim modes if CI time matters.
+- Appearance caps are keyed on league-wide game dates; a club's own off days
+  loosen its cap. Consider a per-team games-played count or a rolling window.
+- Closer IP per appearance is ~0.93 (MLB ~1.0) and the top closer ~65 IP/162
+  (MLB ~75) since closers stopped pitching middle innings -- revisit in the
+  Release 5 retune.
+- Emergency (rested-starter) relief: show "emergency relief" in box scores
+  and game logs; consider position-player pitching in blowouts (owner Q6 c).
+- Generator: hitters with other_positions (today ~5%) and a 1B backup would
+  cut blocked rest days further (regenerated fixture ~1.2k blocked field
+  rests vs a <500 target; starters ~142 GS vs 145-155).
+- Promote the report-only bench metrics (blocked rests, hitters starting all
+  162, backup-C starts, tired-starter share) to strict once stable.
+- Measure the fatigue-linked hitter injury on live leagues; add a hitter
+  soft-tissue hazard in Release 5/6 (owner Q10).
+- Playoff dates can run past New Year on the old long schedules; the IL league
+  clock does not advance during dated playoffs.
+- Show playoff game dates on the Playoffs page; a box-score note for the
+  extra-inning automatic runner.
+- A real-game playoff tie (only possible at the 60-inning hard stop) is
+  re-simmed after its stats were written; sim without persisting until decisive.
+- Lineup validation does not check that lineup players are on the ACTIVE
+  roster; several injury news writers log without team_id.
+- Owner one-click "slot unslotted arms into MR4/MR5"; a Season-page item for
+  a persistent invalid pitching staff; Notifications page "reset to defaults".
+- tests/test_team_loader.py::test_load_teams_from_any_cwd needs an untracked
+  ui/ dir; scripts/run_tests_isolated.py progress output is block-buffered.
+- load_roster writes _placeholder_registry.json into the active data dir from
+  tests that load tmp rosters; sandbox it in conftest.
+- Test fixtures that set NEXGEN_DATA_ROOT without a players.csv sentinel can
+  resolve a stray local league instead of their tmp root (backlog #48); add
+  the sentinel in a shared fixture.
