@@ -36,7 +36,8 @@ ops,0.705
 ops_plus,100.0
 iso,0.165
 sb_pct,0.780
-sba_per_pa,0.050
+sba_per_pa,0.025
+sb_per_team_game,0.73
 extra_base_advance_rate,0.4
 defensive_efficiency,0.69
 oaa_index,100.0
@@ -66,12 +67,12 @@ doubles_per_team_game,1.63
 triples_per_team_game,0.14
 qualified_avg_sd,0.028
 qualified_ops_sd,0.080
-qualified_hr40_count,2.5
-qualified_hr30_count,5.5
+qualified_hr40_count,5.0
+qualified_hr30_count,20.0
 qualified_sub220_count,3.0
 qualified_avg300_count,9.0
 qualified_era_sd,0.85
-qualified_k_pct_sd,0.055
+qualified_hitter_k_pct_sd,0.055
 pitches_per_start,86.0
 ip_per_start,5.2
 relievers_per_team_game,3.3
