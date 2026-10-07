@@ -21,6 +21,12 @@ the schedule generator's minimum for a 30-team league and always crashed),
 and the default league is the calibration fixture, so a bare run never reads
 a real user league.
 
+What is counted are engine IL-tier events in a harness with static rosters:
+an injured player is never removed and can be hurt again, the pitcher DL cap
+(MAX_PITCHERS_ON_DL) never downgrades an IL to day-to-day, and the facilities
+void/recovery factors are not applied. Read the IL numbers as an upper bound
+on what game_runner would actually place on the injured list.
+
 MLB references (``calc_injury_baseline.py`` over the roster-resource injury
 workbook; audit M15): ~11.4 pitcher IL stints per team in-season (~15.3
 counting offseason stints), so the calibration band is 11-15; pitchers are
@@ -50,13 +56,16 @@ for p in (str(ROOT), str(ROOT / "scripts")):
 from playbalance.schedule_generator import generate_mlb_schedule
 from physics_sim.engine import simulate_matchup_from_files
 from physics_sim.usage import UsageState
-from utils.team_loader import load_teams
 
 # Reuse the calibration harness's fixture/lineup setup + player helpers so this
 # script measures the same league the KPI harness does.
 import physics_sim_season_kpis as kpi
 
 SEASON_GAMES = 162
+
+
+class ScheduleError(Exception):
+    """The schedule generator rejected the requested season length."""
 DEFAULT_BASE_DIR = Path("data") / "calibration"
 
 # Real-MLB baselines (audit M15; calc_injury_baseline.py over the
@@ -140,7 +149,10 @@ def measure(games_per_team: int, seed: int, players_path: Path, base_dir: Path |
     teams = kpi._team_ids(teams_csv)
     parks_by_team = kpi._team_parks(teams_csv)
     positions = kpi._load_player_positions(players_path)
-    schedule = generate_mlb_schedule(teams, date(2025, 4, 1), games_per_team)
+    try:
+        schedule = generate_mlb_schedule(teams, date(2025, 4, 1), games_per_team)
+    except ValueError as exc:
+        raise ScheduleError(str(exc)) from exc
 
     usage_state = UsageState()
     rng = random.Random(seed)
@@ -295,14 +307,16 @@ def main(argv: list[str] | None = None) -> int:
         players_path = (kpi.BASE_DIR / players_path).resolve()
 
     if args.ensure_lineups:
-        for team in load_teams():
+        teams_csv = (base_dir / "teams.csv") if base_dir is not None else None
+        for team_id in kpi._team_ids(teams_csv):
             kpi._ensure_team_files(
-                team.team_id, players_path=players_path, base_dir=kpi.BASE_DIR
+                team_id, players_path=players_path,
+                base_dir=base_dir if base_dir is not None else kpi.BASE_DIR,
             )
 
     try:
         report = measure(args.games, args.seed, players_path, base_dir)
-    except ValueError as exc:
+    except ScheduleError as exc:
         # e.g. --games below the schedule generator's minimum for the league.
         parser.error(str(exc))
     if args.output:

@@ -511,10 +511,20 @@ def main(argv: list[str] | None = None) -> None:
     as_of = date.fromisoformat(args.as_of)
     output_dir = args.output_dir
     if not output_dir.is_absolute():
-        output_dir = (Path.cwd() / output_dir).resolve()
+        output_dir = Path.cwd() / output_dir
+    output_dir = output_dir.resolve()
     leagues_root = (BASE_DIR / "data" / "leagues").resolve()
     if output_dir == leagues_root or leagues_root in output_dir.parents:
         parser.error("refusing to write a fixture inside data/leagues")
+    protected = {BASE_DIR.resolve(), (BASE_DIR / "data").resolve(),
+                 (BASE_DIR / "data" / "calibration").resolve()}
+    if output_dir in protected:
+        parser.error(f"refusing to overwrite {output_dir}")
+    # export_fixture replaces rosters/ and lineups/: only reuse an empty
+    # folder or one this generator wrote before.
+    if (output_dir.exists() and any(output_dir.iterdir())
+            and not (output_dir / "README.md").exists()):
+        parser.error(f"{output_dir} is not empty and holds no generated fixture")
 
     sys.path.insert(0, str(BASE_DIR))
     work_dir = Path(tempfile.mkdtemp(prefix="league_fixture_"))

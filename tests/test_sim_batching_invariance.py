@@ -167,6 +167,7 @@ def _run_league(root: Path, monkeypatch, *, one_day_per_call: bool) -> dict[str,
 
 @pytest.mark.xfail(
     strict=False,
+    raises=AssertionError,
     reason=(
         "Audit M18: reliever rest state lives only in process memory, so "
         "one-day sim calls lose it; fixed in Release 3 (persist/rebuild "
@@ -174,6 +175,17 @@ def _run_league(root: Path, monkeypatch, *, one_day_per_call: bool) -> dict[str,
     ),
 )
 def test_one_day_calls_match_one_multi_day_call(tmp_path, monkeypatch):
+    # Snapshot the module-level usage state so a single-process pytest run
+    # does not inherit this test's tmp league afterwards.
+    for name in (
+        "_PHYSICS_USAGE_STATE",
+        "_PHYSICS_USAGE_DAY_MAP",
+        "_PHYSICS_USAGE_YEAR",
+        "_PHYSICS_USAGE_LAST_DATE",
+        "_PHYSICS_USAGE_LEAGUE_KEY",
+    ):
+        assert hasattr(game_runner, name), name
+        monkeypatch.setattr(game_runner, name, getattr(game_runner, name))
     monkeypatch.delenv("PB_PARALLEL_GAMES", raising=False)
     monkeypatch.setattr(game_runner, "render_boxscore_html", lambda *a, **k: "")
 
