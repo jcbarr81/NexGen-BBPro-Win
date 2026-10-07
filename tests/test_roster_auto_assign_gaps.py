@@ -239,12 +239,12 @@ def test_gaps_counts_sp_rp_positions_as_pitchers(monkeypatch):
 
 
 def test_gaps_pitcher_trim_never_releases_when_aaa_is_full(monkeypatch):
-    # AAA already full of veterans (too old for LOW): the surplus arm still
-    # leaves ACT, AAA is reported as overflow for the owner to trim, and nobody
-    # is released.
+    # AAA already full of veteran arms (too old for LOW, and no bat to promote
+    # into the slot the surplus arm frees): the surplus arm still leaves ACT,
+    # AAA is reported as overflow for the owner to trim, and nobody is released.
     players, roster = _legal_base()
     for pid in roster.aaa:
-        players[pid].birthdate = f"{AS_OF.year - 30}-06-15"
+        players[pid] = _arm(pid, ovr=55, age=30)
     while len(roster.aaa) < AAA_CAP:
         p = _arm(f"AAA_P{len(roster.aaa)}", ovr=55, age=30)
         players[p.player_id] = p

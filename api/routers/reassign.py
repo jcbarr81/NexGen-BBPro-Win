@@ -83,11 +83,32 @@ async def auto_assign_one(
 
 @all_router.post("/all")
 async def auto_assign_all(_: Dict[str, Any] = Depends(_require_admin)) -> Dict[str, Any]:
+    """Full reassign of every CPU-run club; owners' clubs are skipped.
+
+    Returns ``{status, assigned, skipped_owned, ownership_unknown}``. When
+    team ownership can't be read nothing runs, and the answer is 409 rather
+    than an "ok" that hides it.
+    """
     try:
-        await asyncio.to_thread(auto_assign_all_teams)
+        summary = await asyncio.to_thread(auto_assign_all_teams)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"League-wide auto-assign failed: {exc}",
         ) from exc
-    return {"status": "ok"}
+    summary = dict(summary or {})
+    if summary.get("ownership_unknown"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Team ownership could not be read (users.txt), so no rosters "
+                "were changed. Try again; if it persists, check the league's "
+                "users file."
+            ),
+        )
+    return {
+        "status": "ok",
+        "assigned": list(summary.get("assigned") or []),
+        "skipped_owned": list(summary.get("skipped_owned") or []),
+        "ownership_unknown": False,
+    }
