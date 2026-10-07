@@ -463,7 +463,14 @@ def create_league(
             players.append(_ensure_unique_id(data))
         if ensure_positions:
             positions = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"]
-            for pos in positions:
+            # Release 3: a second catcher and a spare SS and CF, so a club
+            # can rest its regulars (owner decision 10; the generator used to
+            # leave some organisations one catcher in 51). The spares are
+            # utility players who also list the neighbouring positions.
+            spares = {"C": [], "SS": ["2B", "3B"], "CF": ["LF", "RF"]}
+            if num_hitters >= len(positions) + len(spares):
+                positions += list(spares)
+            for index, pos in enumerate(positions):
                 data = generate_player(
                     is_pitcher=False,
                     age_range=age_range,
@@ -471,6 +478,11 @@ def create_league(
                     rating_profile=profile,
                 )
                 data["is_pitcher"] = False
+                if index >= 8 and spares.get(pos):
+                    others = [p for p in list(data.get("other_positions") or []) if p]
+                    data["other_positions"] = others + [
+                        p for p in spares[pos] if p not in others and p != pos
+                    ]
                 players.append(_ensure_unique_id(data))
             remaining = num_hitters - len(positions)
         else:
