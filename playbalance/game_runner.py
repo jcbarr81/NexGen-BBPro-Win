@@ -37,14 +37,12 @@ from services.decision_explanations import (
     should_persist_decision_logs,
 )
 from utils.news_logger import log_news_event
-from utils.pitcher_role import get_role
 from utils.path_utils import get_data_dir, resolve_app_path
 from utils.park_utils import park_lookup_name_for_team
 from playbalance.parallel_day import active_journal
 
 LineupEntry = Tuple[str, str]
 
-MAX_PITCHERS_ON_DL = int(os.getenv("PB_MAX_PITCHERS_ON_DL", "5") or 5)
 DAY_TO_DAY_MAX_DAYS = int(os.getenv("PB_DAY_TO_DAY_MAX_DAYS", "5") or 5)
 _PHYSICS_USAGE_STATE = None
 _PHYSICS_USAGE_DAY_MAP: Dict[str, int] = {}
@@ -1613,19 +1611,7 @@ def _apply_injury_events(
     players = list(load_players_from_csv(players_file))
     player_map = {p.player_id: p for p in players}
     team_rosters: Dict[str, object] = {}
-    pitcher_dl_counts: Dict[str, int] = {}
     changed_players = False
-
-    def _is_pitcher(player) -> bool:
-        if player is None:
-            return False
-        if getattr(player, "is_pitcher", False):
-            return True
-        return get_role(player) in {"SP", "RP"}
-
-    def _pitchers_on_dl(roster, team_id: str) -> int:
-        player_ids = getattr(roster, "dl", []) or []
-        return sum(1 for pid in player_ids if _is_pitcher(player_map.get(pid)))
 
     for event in events:
         team_id = event.get("team_id")
@@ -1640,7 +1626,6 @@ def _apply_injury_events(
         if roster is None:
             roster = load_roster(team_id_str, roster_dir=roster_dir)
             team_rosters[team_id_str] = roster
-            pitcher_dl_counts[team_id_str] = _pitchers_on_dl(roster, team_id_str)
         dl_tier = str(event.get("dl_tier") or "").lower()
         if dl_tier in {"dl45", "45", "45-day", "45 day"}:
             dl_tier = "ir"
@@ -1684,29 +1669,10 @@ def _apply_injury_events(
         eligible = injury_date + timedelta(days=max(days, 0))
         player.injury_eligible_date = eligible.isoformat()
 
-        if (
-            _is_pitcher(player)
-            and dl_tier
-            and dl_tier != "none"
-            and MAX_PITCHERS_ON_DL > 0
-        ):
-            current = pitcher_dl_counts.get(team_id_str, 0)
-            if current >= MAX_PITCHERS_ON_DL:
-                # Convert to a short day-to-day injury when the DL is saturated.
-                dl_tier = "none"
-                event["dl_tier"] = "none"
-                days = max(1, min(days or DAY_TO_DAY_MAX_DAYS, DAY_TO_DAY_MAX_DAYS))
-                player.injury_minimum_days = days
-                eligible = injury_date + timedelta(days=days)
-                player.injury_eligible_date = eligible.isoformat()
-                description = f"{description} (day-to-day)"
-                event["description"] = description
-                player.injury_description = description
-                player.injury_list = None
-                player.return_date = None
-            else:
-                pitcher_dl_counts[team_id_str] = current + 1
-
+        # Release 3 (audit M15): there is no cap on pitchers on the injured
+        # list. The old cap (MAX_PITCHERS_ON_DL, 5) turned a sixth pitcher's
+        # IL stint into a day-to-day knock, which left a hurt arm free to
+        # pitch the next day.
         if dl_tier and dl_tier != "none":
             # Pass the SIM date. Without it the placement stamped date.today()
             # over the sim dates set just above, so an injured list ran on the

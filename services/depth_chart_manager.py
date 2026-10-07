@@ -18,6 +18,7 @@ rosters drifted pitcher-heavy until a sim day stalled (audit H9).
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from typing import Callable, Iterable, Mapping, Optional, Set
 
@@ -52,6 +53,34 @@ def _position_of(player: object) -> str:
     if is_pitcher(player):
         return "P"
     return str(getattr(player, "primary_position", "") or "").strip().upper()
+
+
+def _is_starter(roster: Roster, pitcher: object) -> bool:
+    """Whether the injured pitcher is one of the club's starters.
+
+    The staff file (``rosters/{team}_pitching.csv``) decides when it lists
+    him: an SP slot is a starter, any relief slot is not. Otherwise his
+    pitcher role (``utils.pitcher_role.get_role``) does.
+    """
+
+    pid = str(getattr(pitcher, "player_id", "") or "")
+    team_id = str(getattr(roster, "team_id", "") or "").strip()
+    if pid and team_id:
+        try:
+            from utils.path_utils import get_data_dir
+            from utils.staff_roles import canonical_relief_role
+
+            path = get_data_dir() / "rosters" / f"{team_id}_pitching.csv"
+            if path.exists():
+                with path.open(newline="", encoding="utf-8") as fh:
+                    for row in csv.reader(fh):
+                        if len(row) >= 2 and row[0].strip() == pid:
+                            return canonical_relief_role(row[1]).startswith("SP")
+        except Exception:  # pragma: no cover - fall back to the role
+            pass
+    from utils.pitcher_role import get_role
+
+    return get_role(pitcher) == "SP"
 
 
 def handle_injury_replacement(
@@ -140,6 +169,8 @@ def handle_injury_replacement(
         # An owner's open spot is filled only by someone who can play the
         # position (rule 3); otherwise it stays open for the owner.
         position_only=not cpu_owned,
+        # A starter is replaced by a starter-capable arm (Release 3).
+        want_starter=want_pitcher and _is_starter(roster, injured),
     )
     if not candidates:
         coverage.left_open = True

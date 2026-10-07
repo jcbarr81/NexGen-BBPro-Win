@@ -7,6 +7,7 @@ import random
 import re
 import zlib
 
+from .arm_injury import roll_post_game_injuries
 from .config import load_tuning, TuningConfig
 from .data_loader import load_players_by_id
 from .models import BatterRatings, PitcherRatings
@@ -5852,6 +5853,24 @@ def simulate_game(
                 away_line.sv += 1
 
     # R3: post-game hazards
+    # Arm and fatigue injuries are rolled here, after the last pitch and on
+    # their own random streams, so they never change the game; rest days are
+    # read before the usage loop below records today's outings.
+    injury_events.extend(
+        roll_post_game_injuries(
+            seed=seed,
+            tuning=tuning,
+            usage_state=usage_state,
+            game_day=game_day,
+            staffs={"away": away_staff, "home": home_staff},
+            lineups={"away": away_state, "home": home_state},
+            batters={
+                "away": list(away_lineup) + list(away_bench),
+                "home": list(home_lineup) + list(home_bench),
+            },
+            injured_players=injured_players,
+        )
+    )
     if usage_state is not None and game_day is not None:
         for state in away_staff.all_pitchers() + home_staff.all_pitchers():
             if state.pitches > 0:

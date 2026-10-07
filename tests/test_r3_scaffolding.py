@@ -25,10 +25,10 @@ R3_KNOBS = {
     "reliever_max_appearances_ratio": 0.0,
     # item D (extra innings)
     "max_innings_hard_stop": 60.0,
-    # item E (pitcher arm hazard): off
-    "pitcher_arm_enabled": 0.0,
-    "pitcher_arm_base": 0.0072,
-    "pitcher_arm_per_pitch": 0.00024,
+    # item E (pitcher arm hazard): on, calibrated to ~3/4 of MLB
+    "pitcher_arm_enabled": 1.0,
+    "pitcher_arm_base": 0.0075,
+    "pitcher_arm_per_pitch": 0.00013,
     "pitcher_arm_durability_k": 0.25,
     "pitcher_arm_durability_center": 50.0,
     "pitcher_arm_reliever_rest_penalty": 0.5,
@@ -38,6 +38,11 @@ R3_KNOBS = {
     "pitcher_arm_pitch_ramp_start": 100.0,
     "pitcher_arm_rate_reference": 0.1,
     "pitcher_arm_major_share": 0.30,
+    # item E (owner Q14): fatigue-linked hitter injuries
+    "batter_fatigue_injury_enabled": 1.0,
+    "batter_fatigue_injury_base": 0.008,
+    "batter_fatigue_injury_moderate_share": 0.45,
+    "batter_fatigue_injury_major_share": 0.05,
     # item F (batter fatigue): equal to today's flat game cost
     "batter_fatigue_game_cost_catcher": 6.0,
     "batter_fatigue_game_cost_dh": 6.0,
