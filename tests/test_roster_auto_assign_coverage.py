@@ -97,7 +97,8 @@ def test_no_cut_when_under_org_limit(monkeypatch):
 
 
 def test_release_only_when_over_total_cap(monkeypatch):
-    # 55 players (OVER the ORG_LIMIT-player cap) -> the genuine excess is released.
+    # 55 players (OVER the ORG_LIMIT-player cap) -> only the genuine excess
+    # (55 - ORG_LIMIT) is released; the rest of the unplaced are parked.
     hitters = [
         _hitter(f"{pos}{i}", pos, 70)
         for pos in ("C", "SS", "CF", "2B", "3B", "1B", "LF", "RF")
@@ -113,5 +114,11 @@ def test_release_only_when_over_total_cap(monkeypatch):
     _setup(monkeypatch, roster, saved)
     result = ra.auto_assign_team("BAL", players_by_id=players)
 
-    assert result["released"], "over the org limit, the genuine excess is released"
-    assert result["overflow"] == [], "over-cap path releases, it does not park overflow"
+    assert len(result["released"]) == len(players) - ORG_LIMIT, (
+        "over the org limit, exactly the excess is released"
+    )
+    assert result["overflow"], "the rest of the unplaced are parked, not cut"
+    r = saved["r"]
+    assert set(result["overflow"]) <= set(r.aaa)
+    kept = set(r.act) | set(r.aaa) | set(r.low)
+    assert len(kept) == ORG_LIMIT

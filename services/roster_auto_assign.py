@@ -19,10 +19,11 @@ considered for the Active roster. Existing DL/IR assignments are preserved.
 """
 
 import copy
+import csv
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Set, Tuple
+from typing import Callable, Dict, Iterable, List, Mapping, Set, Tuple
 
 from playbalance.aging import calculate_age, get_sim_date
 from services.roster_validation import LOW_LEVEL_MAX_AGE, MIN_POSITION_PLAYERS_ACT
@@ -30,7 +31,13 @@ from services.team_strategy_profiles import resolve_team_strategy_profile
 from utils.player_loader import load_players_from_csv
 from utils.team_loader import load_teams
 from utils.lineup_autofill import auto_fill_lineup_for_team
-from utils.roster_loader import load_roster, save_roster
+from utils.path_utils import resolve_app_path
+from utils.roster_loader import (
+    active_pitcher_cap,
+    active_roster_cap,
+    load_roster,
+    save_roster,
+)
 from utils.pitcher_role import get_role
 from utils.player_overall import player_overall_score
 from services.team_ownership import human_owned_team_ids_strict
@@ -532,6 +539,7 @@ def _gaps_assignment(
     age_cache: Dict[str, int | None] | None = None,
     act_cap: int = ACTIVE_MAX,
     pitcher_cap: int = MAX_ACTIVE_PITCHERS,
+    staff_roles: Mapping[str, str] | None = None,
 ) -> Tuple[List[str], List[str], List[str], List[str], List[str]]:
     """"Fill gaps only" assignment: keep the owner's current ACT/AAA/LOW
     placements and make ONLY the moves required for legality —
@@ -540,11 +548,16 @@ def _gaps_assignment(
       2. players who have aged out of LOW (>= LOW_LEVEL_MAX_AGE) move up to AAA,
       3. the fewest best-fit players are promoted from AAA (then LOW) to restore
          ACT defensive coverage and the position-player minimum,
-      4. the lowest-value pitchers above ``pitcher_cap`` are demoted to AAA, and
-      5. the lowest-value excess is demoted when a level is over its cap.
+      4. pitchers above ``pitcher_cap`` are demoted to AAA, relievers first
+         (see :func:`_pitcher_trim_order`), never breaking the rotation,
+      5. the lowest-value excess is demoted when a level is over its cap; an
+         AAA left over its cap while ACT has room promotes its best position
+         player into the open ACT slot before anyone is sent to LOW.
 
-    Returns ``(act, aaa, low, dl, overflow)``. Unlike a full reassign it never
-    releases anyone and never reshuffles a player who is already legally placed.
+    ``staff_roles`` is the team's staff file (``{team}_pitching.csv``) as
+    pid -> role. Returns ``(act, aaa, low, dl, overflow)``. Unlike a full
+    reassign it never releases anyone and never reshuffles a player who is
+    already legally placed.
     """
 
     act = [pid for pid in roster.act if pid in players]
@@ -621,12 +634,27 @@ def _gaps_assignment(
             break  # org genuinely has too few position players
 
     # 4. ACT carries more pitchers than the cap (decision 8: 13, or 14 in
-    # September) -> demote the lowest-value pitchers to AAA. Pitchers are
-    # never needed for coverage or the hitter minimum, so any of them can go.
-    act_pitchers = sorted([pid for pid in act if is_pitcher(pid)], key=score)
-    for pid in act_pitchers[: max(0, len(act_pitchers) - pitcher_cap)]:
-        act.remove(pid)
-        aaa.append(pid)
+    # September) -> demote the surplus to AAA. Pitchers are never needed for
+    # coverage or the hitter minimum, but the rotation is: relievers go first
+    # and the active staff keeps MIN_ACTIVE_STARTERS starters, as in a full
+    # reassign. A demoted pitcher keeps his row in the staff file; the staff
+    # page already shows a role held by an inactive pitcher as a vacancy and
+    # games only use active pitchers, so the owner's file is left alone.
+    act_pitchers = [pid for pid in act if is_pitcher(pid)]
+    excess = len(act_pitchers) - pitcher_cap
+    if excess > 0:
+        is_starter, order = _pitcher_trim_order(act_pitchers, players, staff_roles)
+        starters_left = sum(1 for pid in act_pitchers if is_starter(pid))
+        for pid in order:
+            if excess <= 0:
+                break
+            if is_starter(pid):
+                if starters_left <= MIN_ACTIVE_STARTERS:
+                    continue
+                starters_left -= 1
+            act.remove(pid)
+            aaa.append(pid)
+            excess -= 1
 
     # 5. Trim over-cap levels, lowest value first, without breaking ACT legality.
     def _can_drop_from_act(pid: str) -> bool:
@@ -647,6 +675,16 @@ def _gaps_assignment(
         if _can_drop_from_act(pid):
             act.remove(pid)
             aaa.append(pid)
+
+    # AAA over cap while ACT has room (usually the slot a demoted pitcher just
+    # freed) -> promote the best AAA position player. Adding a bat to ACT
+    # never costs coverage, and it keeps AAA legal without sending anyone down.
+    while len(aaa) > AAA_MAX and len(act) < act_cap:
+        bats = sorted([pid for pid in aaa if not is_pitcher(pid)], key=score, reverse=True)
+        if not bats:
+            break
+        aaa.remove(bats[0])
+        act.append(bats[0])
 
     # AAA over cap -> demote lowest-value age-eligible players to LOW (if room).
     for pid in sorted(list(aaa), key=score):
@@ -669,6 +707,60 @@ def _gaps_assignment(
         overflow.extend(sorted(low, key=score)[: len(low) - LOW_MAX])
 
     return act, aaa, low, dl, overflow
+
+
+def _pitcher_trim_order(
+    act_pitchers: List[str],
+    players: Mapping[str, object],
+    staff_roles: Mapping[str, str] | None,
+) -> Tuple[Callable[[str], bool], List[str]]:
+    """Who leaves first when the active staff is over the pitcher cap.
+
+    Returns ``(is_starter, order)``. The order: pitchers the staff file gives
+    no role, then slotted relievers, then starters; weakest first within each
+    group. A starter is a pitcher slotted SP1-SP5 in the staff file; when the
+    file names fewer than ``MIN_ACTIVE_STARTERS`` active starters (or there is
+    no file), pitchers whose role (:func:`get_role`) is SP count too.
+    """
+
+    roles = {
+        str(pid): str(role or "").strip().upper()
+        for pid, role in (staff_roles or {}).items()
+    }
+    rotation = {pid for pid in act_pitchers if roles.get(pid, "").startswith("SP")}
+    rotation_full = len(rotation) >= MIN_ACTIVE_STARTERS
+
+    def is_starter(pid: str) -> bool:
+        if pid in rotation:
+            return True
+        if rotation_full or pid in roles:
+            return False
+        return get_role(players[pid]) == "SP"
+
+    def key(pid: str) -> tuple:
+        return (is_starter(pid), pid in roles, _overall_score(players[pid]))
+
+    return is_starter, sorted(act_pitchers, key=key)
+
+
+def _load_staff_roles(team_id: str, roster_dir: str | Path) -> Dict[str, str]:
+    """The team's staff file (``{team}_pitching.csv``) as pid -> role."""
+
+    roles: Dict[str, str] = {}
+    try:
+        path = resolve_app_path(roster_dir) / f"{team_id}_pitching.csv"
+        if not path.exists():
+            return roles
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            for row in csv.reader(handle):
+                if len(row) < 2:
+                    continue
+                pid, role = row[0].strip(), row[1].strip().upper()
+                if pid and role:
+                    roles.setdefault(pid, role)
+    except (OSError, csv.Error):
+        return {}
+    return roles
 
 
 _DRAFT_ID_RE = __import__("re").compile(r"^D(\d{4})\d+$")
@@ -749,15 +841,15 @@ def auto_assign_team(
     strategy_profile: str | None = None,
     mode: str = "full",
     dry_run: bool = False,
-    act_cap: int = ACTIVE_MAX,
-    pitcher_cap: int = MAX_ACTIVE_PITCHERS,
+    act_cap: int | None = None,
+    pitcher_cap: int | None = None,
 ) -> Dict[str, List[str]]:
     """Re-balance ACT / AAA / LOW for *team_id*.
 
-    ``act_cap`` / ``pitcher_cap`` default to the base 26-man / 13-pitcher
-    rules; a caller acting during the September window passes the expanded
-    caps (``active_roster_cap`` / ``active_pitcher_cap``) so the reassign
-    does not undo September call-ups.
+    ``act_cap`` / ``pitcher_cap`` default to the caps in force on
+    ``as_of_date`` (the current sim date when omitted): 26 / 13, or 28 / 14
+    from Sept 1 in the regular season, so a reassign never undoes legal
+    September call-ups. Explicit values win.
 
     Returns a dict describing the result. ``released`` lists every player
     that didn't fit any roster level after the rebalance and was released
@@ -769,6 +861,13 @@ def auto_assign_team(
     (14-in-LOW after a 4-round draft) silently dropped the overflow off
     the roster and out of the transaction log.
     """
+
+    if act_cap is None or pitcher_cap is None:
+        sim_date = str(as_of_date)[:10] if as_of_date is not None else None
+        if act_cap is None:
+            act_cap = active_roster_cap(sim_date)
+        if pitcher_cap is None:
+            pitcher_cap = active_pitcher_cap(sim_date)
 
     players = players_by_id
     if players is None:
@@ -795,6 +894,7 @@ def auto_assign_team(
             age_cache=age_cache,
             act_cap=act_cap,
             pitcher_cap=pitcher_cap,
+            staff_roles=_load_staff_roles(team_id, roster_dir),
         )
         roster.act = act_ids
         roster.aaa = aaa_ids
@@ -893,21 +993,26 @@ def auto_assign_team(
             roster, released, players, year=_current_draft_class_year()
         )
 
-        # Only RELEASE on genuine over-capacity: the org holds more than
-        # ORG_LIMIT players (injured players headed for the DL don't count; the
-        # DL/IR sit outside the limit). A would-be release UNDER that limit only
-        # happens because LOW is reserved for under-LOW_LEVEL_MAX_AGE players, or
-        # because a short-of-hitters org can't seat a pitcher beyond the cap, so a
-        # surplus has no soft slot — but silently cutting a player from an under-cap
-        # roster surprises owners (the whole point of this fix). Keep those players
-        # instead (parked in AAA, which has no age cap) and report them as
-        # ``overflow`` so the UI can ask the owner to trim manually, rather than
-        # releasing them to free agency.
+        # Only RELEASE on genuine over-capacity, and only the excess: an org
+        # holding more than ORG_LIMIT players (injured players headed for the
+        # DL don't count; the DL/IR sit outside the limit) releases its
+        # (org_size - ORG_LIMIT) lowest-value unplaced players. Every other
+        # would-be release has no soft slot only because LOW is reserved for
+        # under-LOW_LEVEL_MAX_AGE players, or because a short-of-hitters org
+        # can't seat a pitcher beyond the cap -- cutting those surprises
+        # owners. Keep them instead (parked in AAA, which has no age cap) and
+        # report them as ``overflow`` so the UI can ask for a manual trim.
         org_size = sum(1 for pid in pool_ids if pid not in injured_ids)
-        overflow: List[str] = []
-        if released and org_size <= ORG_LIMIT:
-            overflow = list(released)
-            released = []
+        excess = max(0, org_size - ORG_LIMIT)
+        cut = set(
+            sorted(
+                released,
+                key=lambda pid: _overall_score(players[pid]) if pid in players else 0.0,
+            )[:excess]
+        )
+        overflow: List[str] = [pid for pid in released if pid not in cut]
+        released = [pid for pid in released if pid in cut]
+        if overflow:
             roster.aaa = list(dict.fromkeys(list(roster.aaa) + overflow))
             assigned.update(overflow)
 
@@ -989,6 +1094,11 @@ def auto_assign_all_teams(
     unknown (``users.txt`` exists but can't be read) nothing is touched,
     because guessing would treat every owner as CPU.
 
+    Ownership is read next to the teams file: an absolute ``teams_file`` uses
+    its folder, and a relative one is resolved the way ``load_teams`` resolves
+    it and uses that folder when it holds a ``users.txt``; otherwise the
+    league's data directory.
+
     Returns ``{"assigned": [...], "skipped_owned": [...],
     "ownership_unknown": bool}``.
     """
@@ -1006,10 +1116,7 @@ def auto_assign_all_teams(
         "skipped_owned": [],
         "ownership_unknown": False,
     }
-    teams_path = Path(teams_file)
-    owned = human_owned_team_ids_strict(
-        teams_path.parent if teams_path.is_absolute() else None
-    )
+    owned = human_owned_team_ids_strict(_ownership_dir(teams_file))
     if owned is None:
         summary["ownership_unknown"] = True
         _report_progress("Complete", 0, 0)
@@ -1021,6 +1128,9 @@ def auto_assign_all_teams(
     _report_progress("Loading", 0, total_teams)
     players_by_id = {p.player_id: p for p in load_players_from_csv(players_file)}
     as_of_date = get_sim_date() or date.today()
+    # The caps in force today (28 / 14 in September), resolved once.
+    act_cap = active_roster_cap(as_of_date.isoformat())
+    pitcher_cap = active_pitcher_cap(as_of_date.isoformat())
     age_cache: Dict[str, int | None] = {}
     for index, team in enumerate(teams, start=1):
         _report_progress("Processing", index - 1, total_teams)
@@ -1042,6 +1152,8 @@ def auto_assign_all_teams(
                 as_of_date=as_of_date,
                 age_cache=age_cache,
                 strategy_profile=team_profile,
+                act_cap=act_cap,
+                pitcher_cap=pitcher_cap,
             )
             load_roster.cache_clear()
             # CPU clubs get fresh lineups to keep sims valid.
@@ -1059,6 +1171,21 @@ def auto_assign_all_teams(
         _report_progress("Saving", index, total_teams)
     _report_progress("Complete", total_teams, total_teams)
     return summary
+
+
+def _ownership_dir(teams_file: str | Path) -> Path | None:
+    """Folder whose ``users.txt`` decides ownership for ``teams_file``."""
+
+    path = Path(teams_file)
+    if path.is_absolute():
+        return path.parent
+    try:
+        from utils.team_loader import _resolve_path
+
+        folder = _resolve_path(path).parent
+    except Exception:  # pragma: no cover - defensive
+        return None
+    return folder if (folder / "users.txt").exists() else None
 
 
 def _resolve_strategy_profile_token(
