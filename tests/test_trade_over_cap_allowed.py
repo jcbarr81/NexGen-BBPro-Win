@@ -14,8 +14,8 @@ def _levels(act):
 
 
 def test_over_cap_trade_is_allowed_with_warning():
-    cap = DEFAULT_LEVEL_CAPS["act"]  # 25
-    # From-team is full on ACT; it gives 1 and receives 2 -> 26 on ACT.
+    cap = DEFAULT_LEVEL_CAPS["act"]  # 26
+    # From-team is full on ACT; it gives 1 and receives 2 -> cap + 1 on ACT.
     from_levels = _levels([f"F{i}" for i in range(cap)])
     to_levels = _levels(["T1", "T2"])
     players = {pid: {} for pid in [f"F{i}" for i in range(cap)] + ["T1", "T2"]}

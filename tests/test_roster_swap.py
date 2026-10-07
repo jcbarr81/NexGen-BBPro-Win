@@ -3,6 +3,11 @@ promote into a FULL level is allowed (net headcount unchanged) — while caps, t
 LOW age gate, and ACT composition are still enforced on the final state."""
 
 from services.roster_validation import validate_roster_move, validate_roster_swap
+from utils.roster_rules import (
+    ACT_HITTER_TARGET,
+    ACTIVE_ROSTER_SIZE,
+    MAX_ACTIVE_PITCHERS,
+)
 
 
 def _pp(pos, age=25):
@@ -14,28 +19,28 @@ def _pitcher(age=25):
 
 
 def _build():
-    """A legal, full (25-man) ACT: 8 starters covering every position, 3 bench
-    position players, 14 pitchers. Plus a full-ish AAA."""
+    """A legal, full (26-man) ACT: 8 starters covering every position, a
+    bench up to the 13-hitter target, and 13 pitchers (the limit)."""
     players = {}
     levels = {"act": [], "aaa": [], "low": [], "dl": [], "ir": []}
     for pos in ("C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"):
         pid = f"ACT_{pos}"
         players[pid] = _pp(pos)
         levels["act"].append(pid)
-    for i in range(3):
+    for i in range(ACT_HITTER_TARGET - 8):
         pid = f"ACT_B{i}"
         players[pid] = _pp("1B")
         levels["act"].append(pid)
-    for i in range(14):
+    for i in range(MAX_ACTIVE_PITCHERS):
         pid = f"ACT_P{i}"
         players[pid] = _pitcher()
         levels["act"].append(pid)
-    assert len(levels["act"]) == 25  # full
+    assert len(levels["act"]) == ACTIVE_ROSTER_SIZE  # full
     return players, levels
 
 
 def test_move_into_full_level_allowed_as_warning():
-    # An owner must be able to promote into a full ACT (going 26/25) intending to
+    # An owner must be able to promote into a full ACT (going 27/26) intending to
     # demote someone next. That's now allowed (ok) with a WARNING, not blocked.
     players, levels = _build()
     players["AAA_POS"] = _pp("1B")

@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Mapping, Sequence
 from fastapi import APIRouter, Body, HTTPException, status
 
 from services.roster_validation import (
-    DEFAULT_LEVEL_CAPS,
     PITCHING_ROLES,
     validate_depth_chart,
     validate_lineup,
@@ -24,6 +23,7 @@ from services.roster_validation import (
     validate_trade,
 )
 from utils.path_utils import get_data_dir
+from utils.roster_rules import ORG_LIMIT, counts_as_pitcher
 
 from ..security import CurrentIdentity
 
@@ -131,6 +131,49 @@ def load_team_levels(team_id: str) -> Dict[str, List[str]]:
     return levels
 
 
+def effective_caps(sim_date: str | None = None) -> Dict[str, int]:
+    """Roster caps in force on ``sim_date`` (default: the league's sim date).
+
+    ``{"act", "aaa", "low", "act_pitchers"}``: 26/15/10 with at most 13
+    active pitchers, or 28 active / 14 pitchers from Sept 1 in the regular
+    season. The API's single answer to "what are the limits right now", so
+    the move/swap checks, the compliance banner and the sim gate agree.
+    """
+
+    from utils.roster_loader import active_pitcher_cap, effective_level_caps
+
+    caps = dict(effective_level_caps(sim_date))
+    caps["act_pitchers"] = active_pitcher_cap(sim_date)
+    return caps
+
+
+def level_caps_only(caps: Mapping[str, int]) -> Dict[str, int]:
+    """``caps`` without the pitcher limit (the shape ``level_caps`` takes)."""
+
+    return {k: int(v) for k, v in caps.items() if k in {"act", "aaa", "low"}}
+
+
+def active_composition(
+    act_ids: Sequence[str], players: Mapping[str, Mapping[str, Any]]
+) -> Dict[str, int]:
+    """``{"act_pitchers", "act_hitters"}`` for an active roster.
+
+    Uses the shared ``counts_as_pitcher`` rule; ids missing from ``players``
+    cannot be classified and count as neither.
+    """
+
+    pitchers = hitters = 0
+    for pid in act_ids:
+        player = players.get(pid)
+        if player is None:
+            continue
+        if counts_as_pitcher(player):
+            pitchers += 1
+        else:
+            hitters += 1
+    return {"act_pitchers": pitchers, "act_hitters": hitters}
+
+
 # ---------------------------------------------------------------------------
 # Lineup
 
@@ -217,14 +260,18 @@ def validate_roster_move_endpoint(
         )
     players = load_players_map()
     levels = load_team_levels(team_id)
+    caps = effective_caps()
     result = validate_roster_move(
         current_levels=levels,
         player_id=player_id,
         target_level=target_level,
         players=players,
-        level_caps=DEFAULT_LEVEL_CAPS,
+        level_caps=level_caps_only(caps),
+        pitcher_cap=caps["act_pitchers"],
     )
-    return result.to_dict()
+    payload = result.to_dict()
+    payload["caps"] = caps
+    return payload
 
 
 @router.get("/teams/{team_id}/roster/compliance")
@@ -233,21 +280,31 @@ def roster_compliance_endpoint(team_id: str) -> Dict[str, Any]:
 
     Used by the Roster page banner and by the season-sim gate so the
     user can't advance the calendar while their roster sits over a
-    level cap or missing defensive coverage.
+    level cap or the pitcher limit, or is missing defensive coverage.
+
+    Response contract (the Roster page reads it):
+    ``caps {act, aaa, low, act_pitchers}`` (September-aware),
+    ``counts {act, aaa, low, dl, ir, act_pitchers, act_hitters}`` and
+    ``org_limit`` (active + AAA + LOW; the injured lists don't count).
     """
 
     players = load_players_map()
     levels = load_team_levels(team_id)
+    caps = effective_caps()
     result = validate_roster_state(
         current_levels=levels,
         players=players,
-        level_caps=DEFAULT_LEVEL_CAPS,
+        level_caps=level_caps_only(caps),
+        pitcher_cap=caps["act_pitchers"],
     )
     payload = result.to_dict()
-    payload["counts"] = {
+    counts: Dict[str, int] = {
         level: len(levels.get(level, [])) for level in ("act", "aaa", "low", "dl", "ir")
     }
-    payload["caps"] = dict(DEFAULT_LEVEL_CAPS)
+    counts.update(active_composition(levels.get("act", []), players))
+    payload["counts"] = counts
+    payload["caps"] = caps
+    payload["org_limit"] = ORG_LIMIT
     return payload
 
 
@@ -276,6 +333,7 @@ def validate_trade_endpoint(payload: Dict[str, Any] = Body(...)) -> Dict[str, An
     players = load_players_map()
     from_levels = load_team_levels(from_team)
     to_levels = load_team_levels(to_team)
+    caps = effective_caps()
     result = validate_trade(
         give_player_ids=give_player_ids,
         receive_player_ids=receive_player_ids,
@@ -288,6 +346,8 @@ def validate_trade_endpoint(payload: Dict[str, Any] = Body(...)) -> Dict[str, An
         payroll_result=payroll_result if isinstance(payroll_result, dict) else None,
         tradable_pick_ids_from=tradable_from if isinstance(tradable_from, list) else None,
         tradable_pick_ids_to=tradable_to if isinstance(tradable_to, list) else None,
+        level_caps=level_caps_only(caps),
+        pitcher_cap=caps["act_pitchers"],
     )
     return result.to_dict()
 
@@ -298,4 +358,11 @@ def _string_list(value: Any) -> List[str]:
     return [str(v) for v in value if str(v)]
 
 
-__all__ = ["router", "load_players_map", "load_team_levels"]
+__all__ = [
+    "router",
+    "load_players_map",
+    "load_team_levels",
+    "effective_caps",
+    "level_caps_only",
+    "active_composition",
+]

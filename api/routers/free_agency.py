@@ -321,6 +321,50 @@ def evaluate_fa_offer(
     }
 
 
+def _signing_roster_warnings(
+    roster: Any, player_id: str, level: str
+) -> tuple[List[str], Dict[str, int]]:
+    """Roster-limit warnings for signing ``player_id`` onto ``level``.
+
+    The owner's call, so never a block: over a level cap, an active roster
+    past the pitcher limit (13, or 14 in September) or an organisation past
+    ``ORG_LIMIT`` comes back as warnings for the response; the sim gate is
+    what enforces the caps and the pitcher limit. Returns
+    ``(warnings, caps)``; a failure reads as no warnings.
+    """
+
+    try:
+        from services.roster_validation import validate_roster_move
+        from utils.roster_rules import ORG_LIMIT
+
+        from .validation import effective_caps, level_caps_only, load_players_map
+
+        caps = effective_caps()
+        levels = {
+            attr: list(getattr(roster, attr, []) or [])
+            for attr in ("act", "aaa", "low", "dl", "ir")
+        }
+        result = validate_roster_move(
+            current_levels=levels,
+            player_id=player_id,
+            target_level=level.lower(),
+            players=load_players_map(),
+            level_caps=level_caps_only(caps),
+            pitcher_cap=caps["act_pitchers"],
+        )
+        warnings = list(result.warnings)
+        org_size = sum(len(levels[attr]) for attr in ("act", "aaa", "low")) + 1
+        if org_size > ORG_LIMIT:
+            warnings.append(
+                f"The organisation would hold {org_size} players (limit "
+                f"{ORG_LIMIT}, active + AAA + LOW) — trade or release a player "
+                "to get back under it."
+            )
+        return warnings, caps
+    except Exception:  # pragma: no cover - defensive
+        return [], {}
+
+
 @router.post("/teams/{team_id}/sign")
 def sign_free_agent(
     team_id: str,
@@ -478,6 +522,9 @@ def sign_free_agent(
     # placeholder pool re-assigns IDs at signing time; trust the caller and
     # let save_roster + the placeholder reconciler resolve conflicts the
     # same way trades do.
+    roster_warnings, roster_caps = _signing_roster_warnings(
+        roster, player_id, level_raw
+    )
     target_attr = _LEVEL_ATTR[level_raw]
     getattr(roster, target_attr).append(player_id)
 
@@ -559,6 +606,10 @@ def sign_free_agent(
         "payroll_warning": payroll_warning,
         "negotiation": negotiation,
         "forced": can_force,
+        # Roster limits are the owner's call: warnings only (the sim gate
+        # enforces the caps and the pitcher limit).
+        "warnings": roster_warnings,
+        "caps": roster_caps,
     }
 
 

@@ -79,6 +79,7 @@ def test_run_cpu_fills_starts_sim_and_rolls_recurring(sched_file, monkeypatch):
     calls = {}
     monkeypatch.setattr(s, "_sim_running", lambda: False)
     monkeypatch.setattr(s, "_cpu_fill_all_unready", lambda: ["B", "C"])
+    monkeypatch.setattr(s, "_cpu_activate_eligible", lambda: [])
     monkeypatch.setattr(
         s, "_start_sim", lambda kind, identity, n_arg=1: calls.setdefault("sim", (kind, n_arg))
     )
@@ -100,6 +101,7 @@ def test_run_cpu_fills_starts_sim_and_rolls_recurring(sched_file, monkeypatch):
 def test_run_oneshot_clears_deadline(sched_file, monkeypatch):
     monkeypatch.setattr(s, "_sim_running", lambda: False)
     monkeypatch.setattr(s, "_cpu_fill_all_unready", lambda: [])
+    monkeypatch.setattr(s, "_cpu_activate_eligible", lambda: [])
     monkeypatch.setattr(s, "_start_sim", lambda *a, **k: {"status": "running"})
     past = datetime.now(timezone.utc) - timedelta(hours=1)
     s._write_schedule(
@@ -108,6 +110,45 @@ def test_run_oneshot_clears_deadline(sched_file, monkeypatch):
     result = s._run_schedule({"r": "admin"})
     assert result["next_deadline"] is None
     assert s._read_schedule()["deadline"] is None  # one-shot cleared
+
+
+def test_run_activates_before_it_fills(sched_file, monkeypatch):
+    """A returning player can push an owner's roster over a cap or the pitcher
+    limit (26-man rule, 7.46.0). The CPU fill must see that final roster, so
+    the deadline activates injured players FIRST and fills SECOND; the other
+    way round the sim would start on a roster the gate rejects."""
+    order = []
+    monkeypatch.setattr("utils.news_logger.log_news_event", lambda *a, **k: None)
+    monkeypatch.setattr(s, "_sim_running", lambda: False)
+    monkeypatch.setattr(
+        s, "_cpu_activate_eligible", lambda: order.append("activate") or ["P1"]
+    )
+    monkeypatch.setattr(
+        s, "_cpu_fill_all_unready", lambda: order.append("fill") or ["B"]
+    )
+    monkeypatch.setattr(
+        s, "_start_sim", lambda *a, **k: order.append("sim") or {"status": "running"}
+    )
+    s._write_schedule(
+        {"deadline": _PAST, "run_kind": "days", "run_n": 1, "cpu_fill": True}
+    )
+    result = s._run_schedule({"r": "admin"})
+    assert order == ["activate", "fill", "sim"]
+    assert result["activated"] == ["P1"] and result["filled"] == ["B"]
+
+
+def test_run_without_cpu_fill_neither_activates_nor_fills(sched_file, monkeypatch):
+    order = []
+    monkeypatch.setattr("utils.news_logger.log_news_event", lambda *a, **k: None)
+    monkeypatch.setattr(s, "_sim_running", lambda: False)
+    monkeypatch.setattr(s, "_cpu_activate_eligible", lambda: order.append("activate") or [])
+    monkeypatch.setattr(s, "_cpu_fill_all_unready", lambda: order.append("fill") or [])
+    monkeypatch.setattr(s, "_start_sim", lambda *a, **k: {"status": "running"})
+    s._write_schedule(
+        {"deadline": _PAST, "run_kind": "days", "run_n": 1, "cpu_fill": False}
+    )
+    s._run_schedule({"r": "admin"})
+    assert order == []
 
 
 # --- Phase 2: automatic firing (Cloud Scheduler tick) -----------------------

@@ -37,6 +37,22 @@ def _require_admin(identity: Dict[str, Any]) -> None:
         )
 
 
+def _trade_cap_kwargs() -> Dict[str, Any]:
+    """``validate_trade`` keyword args for the caps in force today.
+
+    September allows 28 active / 14 pitchers. Post-trade caps and the pitcher
+    limit are warnings only; the sim gate is what blocks an illegal roster.
+    """
+
+    from .validation import effective_caps, level_caps_only
+
+    caps = effective_caps()
+    return {
+        "level_caps": level_caps_only(caps),
+        "pitcher_cap": caps["act_pitchers"],
+    }
+
+
 def _require_trade_party(identity: Dict[str, Any], trade: Trade) -> None:
     """Either team in the trade (or the commissioner) — e.g. to reject."""
     if str(identity.get("r", "")).lower() == "admin":
@@ -437,6 +453,7 @@ def propose_trade(
         to_team_levels=to_levels,
         players=players_map,
         settings=settings,
+        **_trade_cap_kwargs(),
     )
     if not result.ok:
         raise HTTPException(
@@ -551,6 +568,7 @@ def propose_trade(
         "status": trade.status,
         "cpu_response": cpu_response,
         "counter_trade_id": counter_trade_id,
+        "warnings": list(result.warnings),
     }
 
 
@@ -619,6 +637,7 @@ def admin_approve_trade(
         from_team_levels=from_levels,
         to_team_levels=to_levels,
         players=players_map,
+        **_trade_cap_kwargs(),
     )
     if not result.ok and not force:
         raise HTTPException(
@@ -898,6 +917,7 @@ def counter_trade(
         from_team_levels=from_levels,
         to_team_levels=to_levels,
         players=players_map,
+        **_trade_cap_kwargs(),
     )
     if not result.ok:
         # Roll back the rejection so the owner can keep the original
@@ -1001,6 +1021,7 @@ def counter_trade(
         "counter_status": counter.status,
         "cpu_response": cpu_response,
         "counter_back_id": counter_back_id,
+        "warnings": list(result.warnings),
     }
 
 

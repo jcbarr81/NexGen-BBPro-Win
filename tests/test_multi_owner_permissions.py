@@ -222,3 +222,95 @@ def test_league_readiness_all_ready(monkeypatch):
     monkeypatch.setattr(season, "_team_solvency_issues", lambda t: [])
     r = season._league_readiness()
     assert r["all_ready"] is True and r["unready"] == []
+
+
+# --- readiness CPU-fill never cuts an owner's player ---
+
+def test_readiness_cpu_fill_runs_gaps_and_releases_nobody(monkeypatch):
+    """The commissioner's "CPU-fill this team" ran auto-assign in FULL mode on
+    an OWNER's team, which releases anyone past the organisation limit. It now
+    runs "gaps" (the deadline fill's mode): it fixes what is illegal and never
+    releases a player. Driven through the real auto-assign on an org that is
+    over the limit, so full mode would have cut."""
+    from datetime import date
+
+    from models.roster import Roster
+    from services import roster_auto_assign as ra
+    from utils.roster_rules import (
+        AAA_CAP,
+        ACT_HITTER_TARGET,
+        LOW_CAP,
+        MAX_ACTIVE_PITCHERS,
+        ORG_LIMIT,
+    )
+
+    as_of = date(2026, 8, 1)
+
+    def _p(pid, pos, pitcher=False, age=24):
+        return SimpleNamespace(
+            player_id=pid, primary_position=pos, other_positions="",
+            is_pitcher=pitcher, ch=60, ph=60, sp=60, fa=60, arm=60, gf=60,
+            eye=60, control=60, movement=60, endurance=60, fb=60,
+            birthdate=f"{as_of.year - age}-06-15", injured=False,
+            first_name="F", last_name=pid,
+        )
+
+    positions = ("C", "1B", "2B", "3B", "SS", "LF", "CF", "RF")
+    players = {}
+    act = []
+    for i in range(ACT_HITTER_TARGET):
+        pid = f"H{i}"
+        players[pid] = _p(pid, positions[i] if i < len(positions) else "1B")
+        act.append(pid)
+    for i in range(MAX_ACTIVE_PITCHERS):
+        pid = f"P{i}"
+        players[pid] = _p(pid, "P", pitcher=True)
+        act.append(pid)
+    extra = 3
+    aaa = [f"A{i}" for i in range(AAA_CAP + extra)]
+    low = [f"L{i}" for i in range(LOW_CAP)]
+    for pid in aaa:
+        players[pid] = _p(pid, "1B")
+    for pid in low:
+        players[pid] = _p(pid, "1B", age=19)
+    assert len(act) + len(aaa) + len(low) == ORG_LIMIT + extra
+    roster = Roster(team_id="AAA", act=act, aaa=aaa, low=low)
+    org = set(act) | set(aaa) | set(low)
+
+    saved = {}
+    calls = []
+    real = ra.auto_assign_team
+
+    def _auto_assign(tid, **kwargs):
+        calls.append(kwargs.get("mode", "full"))
+        return real(
+            tid, players_by_id=players, as_of_date=as_of, age_cache={}, **kwargs
+        )
+
+    monkeypatch.setattr(ra, "auto_assign_team", _auto_assign)
+    monkeypatch.setattr(ra, "load_roster", lambda *a, **k: roster)
+    monkeypatch.setattr(ra, "save_roster", lambda tid, r, **k: saved.update(r=r))
+    monkeypatch.setattr(ra, "_resolve_strategy_profile_token", lambda *a, **k: "balanced")
+    monkeypatch.setattr("services.transaction_log.record_transaction", lambda **k: None)
+    monkeypatch.setattr(
+        "services.contracts_service.release_contracts_to_free_agency",
+        lambda ids: pytest.fail(f"released {ids}"),
+    )
+    monkeypatch.setattr(
+        "utils.lineup_autofill.auto_fill_lineup_for_team", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        "utils.league_settings.can_run_season_progression", lambda role: True
+    )
+    monkeypatch.setattr(season, "_team_roster_compliance_errors", lambda t: [])
+    monkeypatch.setattr(season, "_team_lineup_issues", lambda t: [])
+    monkeypatch.setattr(season, "_team_solvency_issues", lambda t: [])
+    monkeypatch.setattr(season, "_league_readiness", lambda **k: {"unready": []})
+
+    out = season.season_readiness_cpu_fill(team_id="AAA", identity={"r": "admin"})
+
+    assert calls == ["gaps"]
+    assert out["ready"] is True
+    final = saved["r"]
+    kept = set(final.act) | set(final.aaa) | set(final.low)
+    assert kept == org  # nobody released

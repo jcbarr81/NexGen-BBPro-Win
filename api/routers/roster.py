@@ -20,7 +20,13 @@ from services.roster_moves import cut_player
 from services.transaction_log import record_transaction
 from utils.pitcher_role import get_display_role, get_role
 from utils.player_loader import load_players_from_csv
-from utils.roster_loader import load_roster, save_roster
+from utils.roster_loader import (
+    active_pitcher_cap,
+    active_roster_cap,
+    load_roster,
+    save_roster,
+)
+from utils.roster_rules import ORG_LIMIT, counts_as_pitcher
 
 from ..security import CurrentIdentity, require_bearer, require_team_owner
 from ._rating_presentation import compute_overall, rating_context, scale_rating
@@ -193,9 +199,26 @@ def team_roster(team_id: str) -> Dict[str, Any]:
             out.append(_player_summary(player, level, dl_tier))
         return out
 
+    # Active-roster shape against the limits in force today (26 / 13, or
+    # 28 / 14 in September). Unknown ids can't be classified: neither count.
+    act_pitchers = act_hitters = 0
+    for pid in roster.act:
+        player = players_by_id.get(pid)
+        if player is None:
+            continue
+        if counts_as_pitcher(player):
+            act_pitchers += 1
+        else:
+            act_hitters += 1
+
     return {
         "team_id": team_id,
         "active_size": len(roster.act),
+        "active_cap": active_roster_cap(),
+        "pitcher_cap": active_pitcher_cap(),
+        "act_pitchers": act_pitchers,
+        "act_hitters": act_hitters,
+        "org_limit": ORG_LIMIT,
         "levels": {
             "ACT": _hydrate(roster.act, "ACT"),
             "AAA": _hydrate(roster.aaa, "AAA"),
@@ -218,6 +241,19 @@ def _find_level(roster, player_id: str) -> Optional[str]:
         if player_id in getattr(roster, attr, []):
             return label
     return None
+
+
+def _roster_with_feedback(
+    team_id: str, warnings: List[str], caps: Dict[str, int]
+) -> Dict[str, Any]:
+    """The roster payload plus the validator's ``warnings`` and the ``caps``
+    the move was checked against, so the client can toast "ACT would carry
+    14 pitchers (max 13)" instead of guessing the limits itself."""
+
+    payload = team_roster(team_id)
+    payload["warnings"] = list(warnings)
+    payload["caps"] = dict(caps)
+    return payload
 
 
 @router.post("/roster/move")
@@ -267,6 +303,10 @@ def move_roster(
             detail=f"Failed to load roster: {exc}",
         ) from exc
 
+    from .validation import effective_caps, level_caps_only
+
+    caps = effective_caps()
+
     from_level = _find_level(roster, player_id)
     if from_level is None:
         raise HTTPException(
@@ -274,7 +314,7 @@ def move_roster(
             detail=f"{player_id} is not on {team_id}'s roster.",
         )
     if from_level == to_level:
-        return team_roster(team_id)
+        return _roster_with_feedback(team_id, [], caps)
 
     # And the same in reverse: sliding a player OFF the list here skipped the
     # eligibility check entirely and left `injured`, `injury_list` and the dates
@@ -291,8 +331,10 @@ def move_roster(
             },
         )
 
-    # Run the shared roster-move validator before mutating state.
-    from services.roster_validation import DEFAULT_LEVEL_CAPS, validate_roster_move
+    # Run the shared roster-move validator before mutating state, against the
+    # caps in force today (September allows 28 active / 14 pitchers). Over a
+    # cap or the pitcher limit is a warning here; the sim gate blocks.
+    from services.roster_validation import validate_roster_move
 
     from .validation import load_players_map, load_team_levels
 
@@ -303,7 +345,8 @@ def move_roster(
         player_id=player_id,
         target_level=to_level.lower(),
         players=players_map,
-        level_caps=DEFAULT_LEVEL_CAPS,
+        level_caps=level_caps_only(caps),
+        pitcher_cap=caps["act_pitchers"],
     )
     if not result.ok:
         raise HTTPException(
@@ -346,7 +389,7 @@ def move_roster(
     except Exception:
         pass
 
-    return team_roster(team_id)
+    return _roster_with_feedback(team_id, result.warnings, caps)
 
 
 @router.post("/roster/swap")
@@ -398,10 +441,18 @@ def swap_roster(
             detail="Both players are already at the same level — nothing to swap.",
         )
 
-    from services.roster_validation import DEFAULT_LEVEL_CAPS, validate_roster_swap
+    from services.roster_validation import validate_roster_swap
 
-    from .validation import load_players_map, load_team_levels
+    from .validation import (
+        effective_caps,
+        level_caps_only,
+        load_players_map,
+        load_team_levels,
+    )
 
+    # The caps in force today: the flat 25-man caps here rejected every
+    # September swap once a club had expanded ("ACT would exceed cap (27/25)").
+    caps = effective_caps()
     players_map = load_players_map()
     current_levels = load_team_levels(team_id)
     result = validate_roster_swap(
@@ -409,7 +460,8 @@ def swap_roster(
         player_a_id=a,
         player_b_id=b,
         players=players_map,
-        level_caps=DEFAULT_LEVEL_CAPS,
+        level_caps=level_caps_only(caps),
+        pitcher_cap=caps["act_pitchers"],
     )
     if not result.ok:
         raise HTTPException(
@@ -449,7 +501,7 @@ def swap_roster(
         except Exception:
             pass
 
-    return team_roster(team_id)
+    return _roster_with_feedback(team_id, result.warnings, caps)
 
 
 @router.post("/roster/cut")
