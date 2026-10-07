@@ -1,0 +1,105 @@
+metric_key,value,approximate,source_note
+starts_120plus_pct,0.002,1,share of starts at 120+ pitches; REPORT H1 'MLB about 0.2%'
+relief_60plus_pct,0.01,1,share of relief outings at 60+ pitches; rough - long relief is rare in MLB and REPORT H1 gives no figure
+relief_outs_per_app,3.2,1,REPORT H1: MLB ~3.2 outs per relief outing
+relief_pitches_per_app,17.0,1,REPORT H1: MLB ~17 pitches per relief outing
+closer_ip_per_app,1.0,1,closers work about one inning per appearance (REPORT H1: engine 1.41-1.62)
+closer_top_ip_per_162,75.0,1,busiest MLB closers pitch ~70-80 IP (REPORT H1: engine top closer on pace for 134)
+swing_rate_0_0,0.3104,0,statcast_counts_2023.csv swing_rate
+swing_rate_0_1,0.4881,0,statcast_counts_2023.csv swing_rate
+swing_rate_0_2,0.5136,0,statcast_counts_2023.csv swing_rate
+swing_rate_1_0,0.4267,0,statcast_counts_2023.csv swing_rate
+swing_rate_1_1,0.5425,0,statcast_counts_2023.csv swing_rate
+swing_rate_1_2,0.5752,0,statcast_counts_2023.csv swing_rate
+swing_rate_2_0,0.4268,0,statcast_counts_2023.csv swing_rate
+swing_rate_2_1,0.5758,0,statcast_counts_2023.csv swing_rate
+swing_rate_2_2,0.6403,0,statcast_counts_2023.csv swing_rate
+swing_rate_3_0,0.097,0,statcast_counts_2023.csv swing_rate
+swing_rate_3_1,0.5361,0,statcast_counts_2023.csv swing_rate
+swing_rate_3_2,0.701,0,statcast_counts_2023.csv swing_rate
+first_pitch_pa_end_pct,0.1115,0,statcast_counts_2023.csv: (ball in play + HBP) at 0-0 / 0-0 pitches; REPORT M1 11.2%
+hitter_bb_pct_true_sd,0.025,1,REPORT H4: MLB ~2.5 pp; pool replicates - one seed cannot resolve < ~.007
+pitcher_bb_pct_true_sd,0.02,1,REPORT H4: MLB ~2 pp
+hitter_k_pct_true_sd,0.052,1,REPORT M1: MLB ~.052
+pitcher_k_pct_sd,0.042,1,"REPORT H6: qualified pitcher K% sd MLB ~.040-.045 (observed, not true)"
+pitcher_hitter_hr_true_sd_ratio,0.45,1,REPORT M21 / DECISIONS 13: MLB ~0.4-0.5x; gate <= 0.5
+matchup_k_log5_max_abs_resid,0.02,1,"gate bound, not an MLB value: |K log5 residual| <= 2 pp in every CH x pitcher cell 35-80 (REPORT M20)"
+matchup_hr_log5_max_abs_resid_logit,0.3,1,"gate bound, not an MLB value: PH x pitcher HR log5 residual within +/-0.3 logit over p5-p95 (REPORT M21)"
+starter_fb_velo_drop_91_105,1.5,1,REPORT H10 target: starter FB fade 1-2 mph by pitches 91-105 (within outing)
+starter_woba_delta_91_105,0.015,1,REPORT H10 target: +10 to +20 wOBA points within pitcher at 91-105 pitches vs 0-25
+tto_pass2_woba_delta,0.01,1,REPORT L14: MLB pass 2 ~+10 wOBA points over pass 1 (within pitcher)
+tto_pass3_woba_delta,0.025,1,REPORT H10/L14 target: pass 3 minus pass 1 +20 to +30 wOBA points
+xbt_pct,0.4,1,extra_base_advance_rate in mlb_league_benchmarks_2025_filled.csv; B-Ref XBT% ~40% (REPORT M7)
+runner_out_on_hit_pct,0.025,1,REPORT M7: runners thrown out on ~2-3% of extra-base opportunities
+first_to_third_on_single_pct,0.28,1,MLB runner from 1st reaches 3rd on a single ~27-30%
+sf_per_pa,0.0067,0,Teams_last5years.csv 2021-24 SF / (AB+BB+HBP+SF)
+gidp_per_opp,0.105,1,"REPORT M8: GIDP per opportunity (runner on 1st, <2 out) MLB ~.10-.11"
+e_per_team_game,0.53,0,Teams_last5years.csv 2021-24 E / G
+wp_per_team_game,0.33,1,REPORT M10
+pb_per_team_game,0.05,1,REPORT M10
+range_plays_per_fa_sd_2b,6.0,1,DECISIONS 12 / REPORT M22: one fa SD ~5-7 OAA per 150 G; the engine value is a plays-made proxy
+range_plays_per_fa_sd_3b,6.0,1,DECISIONS 12 / REPORT M22: one fa SD ~5-7 OAA per 150 G; the engine value is a plays-made proxy
+range_plays_per_fa_sd_ss,6.0,1,DECISIONS 12 / REPORT M22: one fa SD ~5-7 OAA per 150 G; the engine value is a plays-made proxy
+range_plays_per_fa_sd_lf,6.0,1,DECISIONS 12 / REPORT M22: one fa SD ~5-7 OAA per 150 G; the engine value is a plays-made proxy
+range_plays_per_fa_sd_cf,6.0,1,DECISIONS 12 / REPORT M22: one fa SD ~5-7 OAA per 150 G; the engine value is a plays-made proxy
+range_plays_per_fa_sd_rf,6.0,1,DECISIONS 12 / REPORT M22: one fa SD ~5-7 OAA per 150 G; the engine value is a plays-made proxy
+team_der_mean,0.69,0,defensive_efficiency in mlb_league_benchmarks_2025_filled.csv
+team_der_sd,0.011,1,REPORT M22 / DECISIONS 12: team DER sd ~0.010-0.012
+re24_empty_0,0.481,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_empty_1,0.254,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_empty_2,0.098,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_1b_0,0.859,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_1b_1,0.509,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_1b_2,0.224,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_2b_0,1.1,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_2b_1,0.664,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_2b_2,0.319,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_3b_0,1.356,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_3b_1,0.95,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_3b_2,0.353,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_1b2b_0,1.437,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_1b2b_1,0.884,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_1b2b_2,0.429,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_1b3b_0,1.784,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_1b3b_1,1.13,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_1b3b_2,0.478,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_2b3b_0,1.964,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_2b3b_1,1.376,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_2b3b_2,0.58,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_loaded_0,2.292,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_loaded_1,1.541,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_loaded_2,0.752,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
+re24_env_scale_2023_24,1.06,0,2023-24 R/G over 2010-15 R/G; multiply RE24 by this for a 2023-24 environment
+runprob_empty_0,0.268,1,P(>=1 run rest of inning); Tango run-probability table 2010s
+runprob_1b_0,0.416,1,P(>=1 run rest of inning); Tango run-probability table 2010s
+runprob_2b_0,0.614,1,P(>=1 run rest of inning); Tango run-probability table 2010s
+runprob_3b_0,0.846,1,P(>=1 run rest of inning); Tango run-probability table 2010s
+runprob_3b_1,0.66,1,P(>=1 run rest of inning); Tango run-probability table 2010s
+runprob_1b3b_0,0.866,1,P(>=1 run rest of inning); Tango run-probability table 2010s
+runprob_1b3b_1,0.637,1,P(>=1 run rest of inning); Tango run-probability table 2010s
+inning_runs_p0,0.73,1,share of half-innings (1-8) by runs at ~0.48-0.50 R/inning
+inning_runs_p1,0.15,1,share of half-innings (1-8) by runs at ~0.48-0.50 R/inning
+inning_runs_p2,0.065,1,share of half-innings (1-8) by runs at ~0.48-0.50 R/inning
+inning_runs_p3plus,0.055,1,share of half-innings (1-8) by runs at ~0.48-0.50 R/inning
+runs_per_half_inning_1_8,0.49,1,~0.48-0.50 runs per half-inning
+first_inning_runs_ratio,1.1,1,1st-inning runs per half / innings 1-8 mean (1.08-1.15)
+late_inning_runs_ratio_7_9,0.95,1,innings 7-9 runs per half / innings 1-8 mean (bullpen effect)
+late_inning_runs_ratio_7_9_vs_3_6,0.935,1,REPORT M19: innings 7-9 roughly 5-8% below innings 3-6
+late_close_ops_delta,-0.03,1,Late & Close OPS minus overall (-.02 to -.04)
+risp_ops_delta,0.015,1,RISP OPS minus overall; OBP +.015-.025 from IBB/HBP
+men_on_ops_delta,0.025,1,men-on OPS minus bases-empty OPS
+extra_half_runs,0.48,1,no automatic runner (~RE24 empty/0 out); with the 2020+ runner MLB is ~0.95
+ghost_runner_runs_per_extra_half,0.95,1,"runs per extra half with the automatic runner (2020+), 0.9-1.0"
+extra_half_p_score,0.27,1,no automatic runner (~runprob empty/0 out); with the runner ~0.62
+extra_inning_game_share,0.085,0,share of games going to extras (pre- and post-2020 both ~8-9%)
+runs_on_inning_ending_plays,0,0,MLB rule 5.08(a): no run scores when the third out is a force or the batter-runner retired before first (REPORT L15)
+home_wpct,0.535,1,REPORT L1: MLB home edge ~+3-4 pp; pool seeds before reading
+platoon_gap_woba_lhb,0.028,1,LHB wOBA vs RHP minus vs LHP (MLB ~.025-.030)
+platoon_gap_woba_rhb,0.018,1,RHB wOBA vs LHP minus vs RHP (MLB ~.015-.020; REPORT H7)
+lhp_minus_rhp_ra9,0.0,1,"DECISIONS 7: equal on average; gate +/-0.15 (raw, not rating-matched)"
+ibb_per_pa,0.0025,1,"REPORT L5: ~140-210 IBB per 70,739 PA"
+hbp_per_pa,0.0114,0,Teams_last5years.csv 2021-24 HBP / (AB+BB+HBP+SF)
+backup_c_starts_mean_per_162,35.0,1,spec S2-05 target 35+ backup-catcher starts
+backup_c_starts_min_per_162,35.0,1,spec S2-05 target 35+ backup-catcher starts
+team_wpct_sd,0.083,0,Teams_last5years.csv 2021-24 observed W% sd
+team_true_wpct_sd,0.073,1,Teams_last5years.csv 2021-24 observed minus binomial (REPORT M17: 0.065-0.080)

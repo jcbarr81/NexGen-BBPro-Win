@@ -10,6 +10,7 @@ import re
 import shutil
 import statistics
 import sys
+import time
 from collections import Counter, defaultdict
 from datetime import date
 from pathlib import Path
@@ -21,6 +22,7 @@ sys.path.append(str(BASE_DIR))
 from playbalance.schedule_generator import generate_mlb_schedule
 from physics_sim.engine import simulate_matchup_from_files
 from physics_sim.usage import UsageState
+from scripts import kpi_extras
 from utils.team_loader import load_teams
 from utils.park_utils import park_lookup_name_for_team
 from utils.lineup_autofill import auto_fill_lineup_for_team
@@ -1019,6 +1021,19 @@ def run_sim(
     )
     bats_by_id, throws_by_id = _load_player_hands(players_path)
     platoon_counts: dict[str, Counter] = defaultdict(Counter)
+    # Audit 2026-10-06 Release 2: report-only KPIs (scripts/kpi_extras.py).
+    # They never feed summary["metrics"], so --strict cannot see them.
+    extras = kpi_extras.ReportOnlyKpis(
+        players_path=players_path,
+        games_per_team=games_per_team,
+        lineup_dir=(
+            Path(base_dir) / "lineups"
+            if base_dir is not None
+            else BASE_DIR / "data" / "lineups"
+        ),
+    )
+    extras_error: str | None = None
+    extras_time = 0.0
 
     batting_keys = [
         "g",
@@ -1103,6 +1118,17 @@ def run_sim(
         meta = result.metadata or {}
         teams_meta = meta.get("teams", {})
         scores = meta.get("score", {})
+        if extras_error is None:
+            started = time.perf_counter()
+            try:
+                extras.add_game(
+                    result,
+                    away=teams_meta.get("away", game.get("away")),
+                    home=teams_meta.get("home", game.get("home")),
+                )
+            except Exception as exc:  # report-only: never break the gated run
+                extras_error = f"{type(exc).__name__}: {exc}"
+            extras_time += time.perf_counter() - started
         for side in ("away", "home"):
             team_id = teams_meta.get(side, game.get(side))
             if not team_id:
@@ -1431,7 +1457,30 @@ def run_sim(
         power=power_ratings,
         control=control_ratings,
     )
+    summary["report_only"] = _report_only_block(extras, extras_error, extras_time)
     return summary
+
+
+def _report_only_block(
+    extras: "kpi_extras.ReportOnlyKpis",
+    error: str | None,
+    runtime_s: float,
+) -> dict[str, object]:
+    """Finalize the report-only KPIs; a failure is recorded, not raised."""
+    report: dict[str, object] = {"metrics": {}, "tables": {}}
+    reference = kpi_extras.load_reference()
+    if error is None:
+        started = time.perf_counter()
+        try:
+            report = extras.finalize(reference)
+        except Exception as exc:  # report-only: never break the gated run
+            error = f"{type(exc).__name__}: {exc}"
+        runtime_s += time.perf_counter() - started
+    kpi_extras.attach_reference(report, reference)
+    report["runtime_s"] = runtime_s
+    if error is not None:
+        report["error"] = error
+    return report
 
 
 def main() -> None:
@@ -1462,6 +1511,16 @@ def main() -> None:
         help="Disable park factor scaling while preserving park geometry.",
     )
     parser.add_argument(
+        "--matchup-grid-pa",
+        type=int,
+        default=0,
+        help=(
+            "Report-only: PA per cell for the CH x pitcher K and PH x pitcher HR "
+            "log5 grids (PA Monte Carlo on the per-pitch code; 0 = skip). "
+            "About 20000 resolves a 2 pp K residual."
+        ),
+    )
+    parser.add_argument(
         "--base-dir",
         type=Path,
         default=None,
@@ -1490,6 +1549,20 @@ def main() -> None:
     if args.disable_park_factors:
         tuning_overrides = {"park_factor_scale": 0.0}
     summary = run_sim(args.games, args.seed, players_path, tuning_overrides, base_dir)
+    report_only = summary["report_only"]
+    if args.matchup_grid_pa > 0:
+        started = time.perf_counter()
+        grids = kpi_extras.matchup_grid_metrics(
+            pa_per_cell=args.matchup_grid_pa,
+            players_path=players_path,
+            tuning_overrides=tuning_overrides,
+        )
+        report_only["metrics"].update(grids["metrics"])
+        report_only["tables"].update(grids["tables"])
+        report_only["matchup_grid_runtime_s"] = time.perf_counter() - started
+        kpi_extras.attach_reference(report_only, kpi_extras.load_reference())
+    # stderr, so a JSON payload printed to stdout stays parseable.
+    print(kpi_extras.format_report(report_only), file=sys.stderr)
     benchmarks = _load_benchmarks(
         BASE_DIR / "data" / "MLB_avg" / "mlb_league_benchmarks_2025_filled.csv"
     )
