@@ -628,15 +628,22 @@ def _notify_lineup_rewritten(team_id: str, rewritten: Sequence[str]) -> None:
     which = " and ".join(f"vs {hand}" for hand in hands)
     kept = [hand for hand in ("LHP", "RHP") if hand not in hands]
     tail = f" Your vs {kept[0]} lineup was not changed." if kept else ""
-    try:
-        log_news_event(
-            f"{team_id}: auto-fill rebuilt your saved lineup {which} -- it no "
-            f"longer matched the active roster (a player not active, a "
-            f"duplicate, or not nine players). Review it on the Lineups page."
-            f"{tail}",
-            category="lineup",
-            team_id=team_id,
+    message = (
+        f"{team_id}: auto-fill rebuilt your saved lineup {which} -- it no "
+        f"longer matched the active roster (a player not active, a "
+        f"duplicate, or not nine players). Review it on the Lineups page."
+        f"{tail}"
+    )
+    jr = active_journal()
+    if jr is not None:
+        # S1-10: a parallel-day worker captures the item; the parent logs it
+        # in serial game order (replay_game_journal).
+        jr.news_events.append(
+            {"event": message, "category": "lineup", "team_id": team_id}
         )
+        return
+    try:
+        log_news_event(message, category="lineup", team_id=team_id)
     except Exception:
         pass
 
@@ -1973,6 +1980,20 @@ def replay_game_journal(
             with path.open("a", encoding="utf-8") as handle:
                 for text in bullpen_logs:
                     handle.write(text)
+        except Exception:
+            pass
+
+    # (a2) news written during state prep (lineup rewrites), before this
+    #      game's injury news, as a serial game logs them.
+    for item in journal.get("news_events") or []:
+        if not isinstance(item, Mapping):
+            continue
+        try:
+            log_news_event(
+                str(item.get("event") or ""),
+                category=item.get("category"),
+                team_id=item.get("team_id"),
+            )
         except Exception:
             pass
 

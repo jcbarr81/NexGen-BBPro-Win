@@ -23,6 +23,7 @@ import csv
 import json
 import os
 import random
+import re
 import shutil
 import sys
 from collections import defaultdict
@@ -36,7 +37,10 @@ from playbalance.league_creator import create_league
 from playbalance.season_simulator import SeasonSimulator
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DAYS = 8
+# 20+ game dates so the season appearance caps (keyed on the game-date index)
+# reach past their floor and bind (plan V6).
+DAYS = 22
+WEEKLY = (7, 7, 7, 1)
 SEED = 20261006
 DIVISIONS = {
     "East": [("CityA", "Cats"), ("CityB", "Dogs"), ("CityC", "Owls"), ("CityD", "Elks")]
@@ -82,6 +86,31 @@ def _canonical(path: Path) -> str:
     return json.dumps(json.loads(path.read_text(encoding="utf-8")), sort_keys=True)
 
 
+_NEWS_STAMP = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]")
+
+
+def _league_files(data_dir: Path) -> dict[str, object]:
+    """The league files a sim writes that every batching must leave identical.
+
+    The news feed is compared in order with its wall-clock stamps removed.
+    """
+    files: dict[str, object] = {}
+    for sub in ("rosters", "lineups"):
+        for path in sorted((data_dir / sub).glob("*.csv")):
+            files[f"{sub}/{path.name}"] = path.read_text(encoding="utf-8")
+    for name in ("players.csv", "season_stats.json"):
+        path = data_dir / name
+        if path.exists():
+            files[name] = path.read_text(encoding="utf-8")
+    news = data_dir / "news_feed.txt"
+    if news.exists():
+        files["news_feed.txt"] = [
+            _NEWS_STAMP.sub("", line)
+            for line in news.read_text(encoding="utf-8").splitlines()
+        ]
+    return files
+
+
 def _run_league(
     root: Path,
     monkeypatch,
@@ -106,6 +135,16 @@ def _run_league(
     # Same generated league in every run.
     random.seed(SEED)
     create_league(str(data_dir), DIVISIONS, "Batching League")
+    # Parallel-day workers are spawned processes: they resolve the league
+    # through NEXGEN_DATA_ROOT, with the repo as their base dir (the
+    # sys._MEIPASS patch above does not reach them). A data root with no
+    # league registry and no leagues/ folder gets the repo's data/ seeded
+    # into it on first use -- users.txt, settings, the injury catalog, every
+    # tracked league -- so the workers would sim a different league from the
+    # parent. A real data root always has leagues/; give this one the same,
+    # and the injury catalog a real league carries.
+    (data_dir / "leagues").mkdir(exist_ok=True)
+    shutil.copy(REPO_ROOT / "data" / "injury_catalog.json", data_dir)
     with (data_dir / "teams.csv").open(newline="") as fh:
         team_ids = [row["team_id"] for row in csv.DictReader(fh)]
     schedule = _schedule(team_ids, off_days=off_days)
@@ -190,11 +229,15 @@ def _run_league(
             else 0.0
         ),
     }
+    usage = json.loads((data_dir / "physics_usage.json").read_text(encoding="utf-8"))
     return {
         "metrics": metrics,
         "scores": [g.get("result") for g in schedule],
+        "game_index": usage["usage"]["game_index"],
+        "game_dates": len(dates),
         "usage": _canonical(data_dir / "physics_usage.json"),
         "tracker": _canonical(data_dir / "pitcher_recovery.json"),
+        "files": _league_files(data_dir),
     }
 
 
@@ -208,15 +251,43 @@ def _serial_env(monkeypatch):
     usage_store.clear_cache()
 
 
+# One serial multi-day run per schedule shape, shared by the tests in this
+# module: it is the reference every other batching must reproduce.
+_SERIAL_RUNS: dict[bool, dict[str, object]] = {}
+
+
+def _serial_run(tmp_path: Path, monkeypatch, *, off_days: bool) -> dict[str, object]:
+    if off_days not in _SERIAL_RUNS:
+        _SERIAL_RUNS[off_days] = _run_league(
+            tmp_path / "batched", monkeypatch, calls=(DAYS,), off_days=off_days
+        )
+    return _SERIAL_RUNS[off_days]
+
+
+def _assert_caps_live(run: dict[str, object]) -> None:
+    """The run reached the dates where the appearance caps bind."""
+    from physics_sim.config import load_tuning
+
+    tuning = load_tuning()
+    assert tuning.get("reliever_max_appearances_ratio", 0.0) > 0.0
+    assert tuning.get("closer_max_appearances_ratio", 0.0) > 0.0
+    floor = tuning.get("appearance_cap_min_apps", 1.0)
+    # game_index counts the dates played (0-based); it must have advanced
+    # once per date, or every cap sits at its floor all season.
+    assert run["game_index"] == run["game_dates"] - 1
+    assert (run["game_index"] + 1) * tuning.get("reliever_max_appearances_ratio", 0.0) > floor
+    assert run["metrics"]["relief_appearances"] > 0
+
+
 @pytest.mark.parametrize("off_days", [False, True], ids=["every-day", "off-days"])
 def test_one_day_and_weekly_calls_match_one_multi_day_call(
     tmp_path, monkeypatch, _serial_env, off_days
 ):
-    batched = _run_league(tmp_path / "batched", monkeypatch, calls=(DAYS,), off_days=off_days)
+    batched = _serial_run(tmp_path, monkeypatch, off_days=off_days)
     daily = _run_league(tmp_path / "daily", monkeypatch, calls=(1,) * DAYS, off_days=off_days)
-    weekly = _run_league(tmp_path / "weekly", monkeypatch, calls=(7, 1), off_days=off_days)
+    weekly = _run_league(tmp_path / "weekly", monkeypatch, calls=WEEKLY, off_days=off_days)
 
-    assert batched["metrics"]["relief_appearances"] > 0
+    _assert_caps_live(batched)
     # Same days, same seeds, same league: batching must not change anything --
     # not the bullpen metrics, the scores, or the persisted state.
     assert daily == batched, (daily["metrics"], batched["metrics"])
@@ -228,15 +299,19 @@ def test_one_day_and_weekly_calls_match_one_multi_day_call(
     reason="parallel-day parity needs PYTHONHASHSEED=0 in the parent too",
 )
 def test_parallel_day_matches_serial(tmp_path, monkeypatch, _serial_env):
+    """PB_PARALLEL_GAMES=2 over 20+ dates, split across two processes, must
+    leave exactly what one serial call leaves: scores, bullpen metrics, the
+    rest state (game_index included, so the caps bind the same way), the
+    tracker, rosters, lineups, stats and the news feed in order."""
     from playbalance import parallel_day
 
-    serial = _run_league(tmp_path / "serial", monkeypatch, calls=(DAYS,), off_days=True)
+    serial = _serial_run(tmp_path, monkeypatch, off_days=True)
     monkeypatch.setenv("PB_PARALLEL_GAMES", "2")
     try:
         parallel = _run_league(
-            tmp_path / "parallel", monkeypatch, calls=(4, 4), off_days=True
+            tmp_path / "parallel", monkeypatch, calls=(7, DAYS - 7), off_days=True
         )
     finally:
         parallel_day.shutdown_pool()
-    assert serial["metrics"]["relief_appearances"] > 0
+    _assert_caps_live(serial)
     assert parallel == serial, (parallel["metrics"], serial["metrics"])

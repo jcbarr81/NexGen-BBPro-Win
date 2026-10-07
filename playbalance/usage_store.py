@@ -19,8 +19,13 @@ This module keeps one state per league data dir, in memory and on disk:
   rest clock handed to the engine: the CALENDAR day counted from the season's
   first simmed date (decision 9), so an off day is a day of rest. Opening Day
   is day 0. ``state.game_index`` separately counts the dates the league
-  played. A date in a new year, or a date before the last one simmed (a reset
-  or a re-sim), starts a fresh season state; the backwards case is logged.
+  played. A new season starts a fresh state: a date more than
+  :data:`OFFSEASON_GAP_DAYS` after the last one simmed (an offseason), or more
+  than :data:`SEASON_SPAN_DAYS` after the season's first date. A season may
+  cross January 1 (old 20-team schedules end Dec 23 - Jan 12; dated playoffs),
+  so a new calendar year alone is not a new season. A date before the last one
+  simmed (a reset or a re-sim) also starts fresh. Every reset is logged, and
+  ``league_rollover`` / the admin reset call :func:`reset` directly.
 * Saves follow the pitcher tracker: :func:`mark_dirty` after each game saves
   at once, unless a :func:`deferred_saves` block is open, which saves once at
   exit. ``SeasonSimulator.simulate_next_day`` opens one per sim day.
@@ -58,6 +63,13 @@ logger = logging.getLogger(__name__)
 FILENAME = "physics_usage.json"
 FILE_VERSION = 1
 TRACKER_FILENAME = "pitcher_recovery.json"
+# A gap this long since the last simmed date is an offseason: the next date
+# opens a new season. In-season breaks (the All-Star break, the days between
+# the regular season and dated playoffs) are a few days.
+OFFSEASON_GAP_DAYS = 60
+# No season runs this long from its first simmed date, even one that crosses
+# New Year into January playoffs (Apr 1 - Jan 12 is 286 days).
+SEASON_SPAN_DAYS = 330
 
 _LOCK = threading.RLock()
 
@@ -141,6 +153,18 @@ def _day_for(entry: _LeagueUsage, when: date) -> int:
     return calendar_day(when, entry.season_start)
 
 
+def _new_season_reason(entry: _LeagueUsage, when: date) -> Optional[str]:
+    """Why *when* opens a new season for *entry*, or ``None`` if it does not."""
+
+    last = entry.last_date or entry.season_start
+    if last is not None and (when - last).days > OFFSEASON_GAP_DAYS:
+        return f"{(when - last).days} days after the last simmed date {last.isoformat()}"
+    start = entry.season_start
+    if start is not None and (when - start).days > SEASON_SPAN_DAYS:
+        return f"{(when - start).days} days after the season start {start.isoformat()}"
+    return None
+
+
 def _start_season(entry: _LeagueUsage, when: date) -> None:
     entry.state = UsageState()
     entry.season_year = when.year
@@ -183,10 +207,12 @@ def _load(entry: _LeagueUsage, when: date) -> None:
 def _bootstrap_from_tracker(entry: _LeagueUsage, when: date) -> None:
     """Rebuild pitcher rest from this season's ``pitcher_recovery.json``.
 
-    Replays every recorded appearance from this year that is before *when*
-    (the tracker keeps about two weeks) through ``advance_day`` and
-    ``record_outing``, so relievers who pitched yesterday are not fresh on the
-    first sim after this release. Batters start fresh.
+    Replays every recorded appearance from this season that is before *when*
+    (the tracker keeps about two weeks; anything more than
+    :data:`OFFSEASON_GAP_DAYS` old belongs to a previous season, while a
+    December outing still counts on a January date) through ``advance_day``
+    and ``record_outing``, so relievers who pitched yesterday are not fresh on
+    the first sim after this release. Batters start fresh.
     """
 
     tracker_path = entry.path.parent / TRACKER_FILENAME
@@ -210,7 +236,9 @@ def _bootstrap_from_tracker(entry: _LeagueUsage, when: date) -> None:
                 if item.get("warmed_only"):
                     continue
                 played = _parse_date(item.get("date"))
-                if played is None or played >= when or played.year != when.year:
+                if played is None or played >= when:
+                    continue
+                if (when - played).days > OFFSEASON_GAP_DAYS:
                     continue
                 try:
                     pitches = int(item.get("pitches") or 0)
@@ -341,9 +369,16 @@ def context(
         entry = _entry(data_dir)
         if not entry.loaded:
             _load(entry, when)
+        new_season = None if entry.state is None else _new_season_reason(entry, when)
         if entry.state is None:
             _start_season(entry, when)
-        elif entry.season_year != when.year:
+        elif new_season is not None:
+            logger.info(
+                "physics usage: %s starts a new season in %s (%s); rest state reset",
+                when.isoformat(),
+                entry.path.parent,
+                new_season,
+            )
             _start_season(entry, when)
         elif when < (entry.last_date or entry.season_start or when):
             logger.warning(

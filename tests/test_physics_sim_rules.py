@@ -274,9 +274,14 @@ def test_hard_stop_is_the_only_tie_and_innings_are_counted_once():
     assert ties
 
 
-def test_pitcher_entering_an_extra_half_inherits_no_automatic_runner():
-    checked = 0
-    for result in _calibration_games():
+def _extra_half_entrances(results):
+    """Pitchers who came in to start an extra half.
+
+    Yields ``(result, entry, line)`` for the first PA of every extra half that
+    a new pitcher started: ``entry`` is that PA's pitch-log entry and ``line``
+    the new pitcher's line.
+    """
+    for result in results:
         lines = {
             line["player_id"]: line
             for side in ("away", "home")
@@ -294,12 +299,57 @@ def test_pitcher_entering_an_extra_half_inherits_no_automatic_runner():
                 and entry["inning"] >= 10
                 and previous_pitcher.get(half, (None, None))[0] not in (None, pid)
             ):
-                # A new pitcher started this extra half: the only runner on
-                # base was the automatic runner, who is not his.
-                assert lines[pid]["ir"] == 0, (entry["inning"], half, pid)
-                checked += 1
+                yield result, entry, lines[pid]
             previous_pitcher[half] = (pid, entry["inning"])
+
+
+def test_pitcher_entering_an_extra_half_inherits_no_automatic_runner():
+    checked = 0
+    for _result, entry, line in _extra_half_entrances(_calibration_games()):
+        # The half really started with the automatic runner on 2nd (and only
+        # him), and a pitching change brought the new man in for it -- so the
+        # check below is not passing on empty bases.
+        assert entry["bases_before"] == 2, (entry["inning"], entry["half"])
+        # The only runner on base was the automatic runner, who is not his.
+        assert line["ir"] == 0, (entry["inning"], entry["half"], entry["pitcher_id"])
+        checked += 1
     assert checked
+
+
+def test_the_automatic_runners_run_is_unearned():
+    """A pitcher who starts an extra half owns the automatic runner, but the
+    run he scores is unearned (r - er >= 1 on that pitcher's line).
+
+    Each pitcher counted here first pitched in an extra half, so every run on
+    his line came in extra innings. The automatic runner can be retired on the
+    bases, so not every such line must carry an unearned run; with the run
+    charged as earned (or the runner off) almost none would.
+    """
+
+    def _scored_lines(results):
+        out = []
+        for result in results:
+            first_inning = {}
+            for entry in result.pitch_log:
+                if entry.get("pa_start"):
+                    first_inning.setdefault(entry["pitcher_id"], entry["inning"])
+            for side in ("away", "home"):
+                for line in result.metadata["pitcher_lines"][side]:
+                    if first_inning.get(line["player_id"], 0) >= 10 and line["r"] > 0:
+                        out.append(line)
+        return out
+
+    with_runner = _scored_lines(_calibration_games())
+    assert len(with_runner) >= 5
+    unearned = [line for line in with_runner if line["r"] - line["er"] >= 1]
+    assert len(unearned) >= 0.75 * len(with_runner), [
+        (line["player_id"], line["r"], line["er"]) for line in with_runner
+    ]
+
+    # Contrast: with the runner off the same games charge those runs earned.
+    without = _scored_lines(_calibration_games(overrides={"extra_innings_runner": 0.0}))
+    unearned_off = [line for line in without if line["r"] - line["er"] >= 1]
+    assert len(unearned_off) <= 0.25 * max(1, len(without))
 
 
 # --- league setting and plumbing ------------------------------------------------

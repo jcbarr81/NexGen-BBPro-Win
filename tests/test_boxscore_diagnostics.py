@@ -124,9 +124,15 @@ def test_a_successful_save_still_records_the_path(tmp_path, monkeypatch):
 
 
 def test_every_boxscore_save_site_is_instrumented():
-    """There are two save sites in playoffs.py and one in the season persist
-    path. Instrumenting only some of them wastes a whole diagnose-deploy-sim
-    round trip on the one that wasn't covered — which is exactly what happened.
+    """Every box score save site must record its outcome. Instrumenting only
+    some of them wastes a whole diagnose-deploy-sim round trip on the one that
+    wasn't covered -- which is exactly what happened.
+
+    Release 3 (item D) consolidated the playoff saves: ``simulate_series`` and
+    the next-game path both play a game through
+    ``_simulate_next_series_game``, the one playoff save site. It reports a
+    save, a failed save and a missing box score under ``playoffs_single:*``,
+    and a game it could not finish (still tied) under ``playoffs:tie``.
     """
     import inspect
 
@@ -135,14 +141,20 @@ def test_every_boxscore_save_site_is_instrumented():
 
     for module in (playoffs_mod, season_mod):
         src = inspect.getsource(module)
-        saves = src.count("save_boxscore_html")
+        assert src.count("save_boxscore_html") >= 1, module.__name__
         # Each site imports the saver once; every one needs a recorded outcome.
         assert src.count("record_failure") >= 1, module.__name__
-        # playoffs has two independent save sites; both must report.
-        if module is playoffs_mod:
-            assert saves >= 2
-            assert src.count("playoffs:") >= 1
-            assert src.count("playoffs_single:") >= 1
+
+    site = inspect.getsource(playoffs_mod._simulate_next_series_game)
+    assert "save_boxscore_html" in site
+    assert "record_success" in site
+    for label in ("playoffs_single:save", "playoffs_single:no_html", "playoffs:tie"):
+        assert label in site, label
+    # Both playoff paths (whole series, next game) reach that site: its
+    # definition plus at least two calls.
+    assert "_simulate_next_series_game(" in inspect.getsource(playoffs_mod.simulate_series)
+    playoffs_src = inspect.getsource(playoffs_mod)
+    assert playoffs_src.count("_simulate_next_series_game(") >= 3
 
 
 def test_no_bare_swallow_remains_around_a_boxscore_save():

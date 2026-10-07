@@ -982,6 +982,31 @@ _PLAN_SERIES_LENGTHS = {"ds": 5, "cs": 7, "ws": 7, "wildcard": 3}
 _TRAVEL_DAY_MIN_LENGTH = 5
 
 
+def _plan_series_settings() -> Dict[str, Any]:
+    """Series lengths and home/away patterns for rounds still being planned.
+
+    The league's configured values (``playoffs_config``), the same ones the
+    first round is generated with and ``_normalize_series_configs`` restores
+    on load; the MLB defaults when the config can't be read. Used both to
+    build a planned series (:func:`_populate`) and to size its calendar
+    window (:class:`_PlayoffCalendar`), so the two always agree.
+    """
+
+    lengths: Dict[str, Any] = dict(_PLAN_SERIES_LENGTHS)
+    patterns: Dict[int, List[int]] = {
+        k: list(v) for k, v in _DEFAULT_HOME_AWAY_PATTERNS.items()
+    }
+    try:
+        from playbalance.playoffs_config import load_playoffs_config
+
+        cfg_lengths, cfg_patterns = _extract_series_settings(load_playoffs_config())
+    except Exception:
+        cfg_lengths, cfg_patterns = {}, {}
+    lengths.update(cfg_lengths)
+    patterns.update(cfg_patterns)
+    return {"series_lengths": lengths, "home_away_patterns": patterns}
+
+
 def _score_pair(game: GameResult) -> Optional[Tuple[int, int]]:
     result = str(getattr(game, "result", "") or "")
     if "-" not in result:
@@ -1087,16 +1112,15 @@ class _PlayoffCalendar:
 
     def __init__(self, bracket: PlayoffBracket, season_end: Optional[_date]):
         self.season_end = season_end
+        settings = _plan_series_settings()
         stages: Dict[str, Dict[str, int]] = {}
         self._stage_of: Dict[str, str] = {}
         for index, rnd in enumerate(bracket.rounds):
             key = _stage_key_from_round_name(rnd.name) or rnd.name
             spans = [_series_span(m.config.pattern) for m in rnd.matchups]
             for entry in getattr(rnd, "plan", []) or []:
-                length = _PLAN_SERIES_LENGTHS.get(entry.series_key, 7)
-                spans.append(
-                    _series_span(_pattern_for_length(length, _DEFAULT_HOME_AWAY_PATTERNS))
-                )
+                planned = _series_config_from_settings(settings, entry.series_key)
+                spans.append(_series_span(planned.pattern))
             if not spans:
                 continue
             stage = stages.setdefault(key, {"first": index, "span": 0})
@@ -1428,17 +1452,11 @@ def _populate_next_round(bracket: PlayoffBracket, cfg: Any) -> None:
 
 
 
-_NEXT_ROUND_CFG = {
-    "series_lengths": _PLAN_SERIES_LENGTHS,
-    "home_away_patterns": _DEFAULT_HOME_AWAY_PATTERNS,
-}
-
-
 def _populate(bracket: PlayoffBracket) -> None:
-    _populate_next_round(bracket, cfg={
-        "series_lengths": getattr(bracket, "series_lengths", _NEXT_ROUND_CFG["series_lengths"]),
-        "home_away_patterns": _NEXT_ROUND_CFG["home_away_patterns"],
-    })
+    # The league's configured lengths (Release 3 fix round): a planned round
+    # used to be built with the MLB defaults whatever the league configured,
+    # and only reshaped to the configured length on the next load.
+    _populate_next_round(bracket, cfg=_plan_series_settings())
 
 
 def _sync_mirror_matchups(bracket: PlayoffBracket) -> set[int]:
