@@ -188,3 +188,57 @@ pops AAA[0] -- often a pitcher. This is part of the Release 1 H9 hotfix.
   the MLB defensive spectrum (12) and single-path, log5 HR suppression (13).
 - Release 7 (MAJOR, needs confirmation) no longer re-spreads speed (3);
   recentres hitter vl by bats (6).
+
+## Release 3 owner decisions (2026-10-07)
+
+Taken after the Release 3 design pass (bullpen, rest, rules, bench/fatigue,
+injuries). Version: **7.47.0** (MINOR: the extra-inning runner setting, new
+staff slots and new owner settings are user-facing).
+
+1. **Pitcher injuries at about 3/4 of MLB's rate, everywhere, on deploy.**
+   A per-appearance arm-injury hazard (durability and workload) puts
+   pitchers on the IL about 9-10 times per team-season (MLB 11-15). The owner
+   does not want seasons to be injury-riddled. Hitters' baseline injury rate
+   stays as is for now (report-only KPI); it is revisited in Release 5/6.
+2. **What pauses sim-to-date:** only serious events. The three roster/lineup
+   alerts are wired up for the first time; "staff has an empty slot" and
+   15-day IL placements become notify-only; an invalid lineup, a roster over
+   the cap, 60-day IL and season-ending injuries still pause. Owners who
+   changed a setting keep their choice.
+3. **IL returns: the owner chooses.** Per team, the owner decides whether
+   players come off the 15-day list automatically and, separately, whether
+   they come off the 60-day list automatically. A returner with no room goes
+   to AAA and the owner gets a "ready - make room" item; the CPU never moves
+   anyone else to make room.
+4. **MLB-dense schedules going forward.** New leagues and next season's
+   schedules drop the off day after every series (weekly off day and the
+   All-Star break stay; ~190 days); the KPI harness uses the same template.
+   Current seasons keep their schedules.
+5. **Playoffs get dates, MLB-style:** an off day between rounds and travel
+   days after games 2 and 5 of a 7-game series (none inside the Wild Card
+   round).
+6. **Automatic runner (decision 11) on at deploy** for every league, including
+   mid-season ones, announced with a news post; the commissioner can switch it
+   off at any time (from the next game, with a warning).
+7. **Empty bullpen:** a starter rested 2+ days comes in when the last
+   reliever reaches his limit; the outing counts as relief so his next start
+   is not pushed back.
+8. **Auto rest days: per-team owner setting, on by default** (the engine
+   sits overworked regulars at game time; the saved lineup is not changed).
+9. **Rest substitutes at similar positions: per-team owner setting.** If an
+   owner chooses not to rest players, that is their call -- and playing a
+   tired regular carries a real (small) extra injury risk, for every team.
+   CPU clubs use similar-position rest substitutes (LF/RF, CF to a corner,
+   SS to 2B/3B, any infielder to 1B; hard rest only; at most one per team per
+   game).
+10. **Two catchers:** CPU clubs carry two; an owner team with one gets a
+    non-blocking warning only.
+11. **An invalid owner lineup:** only the broken file (vs LHP or vs RHP) is
+    rewritten by auto-fill, and the owner is notified.
+
+Taken as recommended (technical): non-closer relievers capped at 50% of team
+games (~81 per 162); the gated reliever back-to-back share is measured in
+calendar days (game-date version report-only); MR4/MR5 are optional staff
+slots and existing staff files are left alone; a documented temporary
+`platoon_gap_woba` widening (0.006 -> 0.009, expiring in Release 5) only if
+the final branch fails it.
