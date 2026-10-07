@@ -38,6 +38,8 @@ import {
   api,
   type RosterLevel,
   type RatingContextEntry,
+  type RosterCompliance,
+  type RosterMoveResult,
   type RosterPlayer,
   type TeamRoster,
 } from "@/lib/api";
@@ -174,16 +176,13 @@ export function RosterPage() {
     onSuccess: (data, args) => {
       queryClient.setQueryData(["team-roster", fallbackTeamId], data);
       invalidateCompliance();
-      // Over-cap moves are allowed at any level (send a player down next); the
-      // compliance banner surfaces the over-cap state and the sim gate enforces
-      // it. Applies to ACT (25), AAA (15) and LOW (10).
-      const LEVEL_CAPS: Record<string, number> = { ACT: 25, AAA: 15, LOW: 10 };
-      const cap = LEVEL_CAPS[args.to];
-      const count = data.levels?.[args.to as keyof typeof data.levels]?.length ?? 0;
-      if (cap != null && count > cap) {
-        toast.info(
-          `Moved to ${args.to} — now ${count}/${cap}. Send a player down before your next game.`,
-        );
+      // Over-cap moves (a full level, or a 14th active pitcher) are allowed
+      // with a warning so the owner can promote first and send someone down
+      // next; the compliance banner shows the state and the sim gate enforces
+      // it. The server owns the numbers (26 / 13, or 28 / 14 in September).
+      const warnings = moveWarnings(data, args.to);
+      if (warnings.length > 0) {
+        toast.info(`Moved to ${args.to}`, { description: warnings.join(" ") });
       } else {
         toast.success(`Moved to ${args.to}`);
       }
@@ -244,7 +243,7 @@ export function RosterPage() {
       const overflow = data.overflow_count ?? 0;
       if (released > 0) {
         toast.success(
-          `Auto-assign complete — rebalanced. Released ${released} player${released === 1 ? "" : "s"} to free agency (org over the 50-player limit).`,
+          `Auto-assign complete — rebalanced. Released ${released} player${released === 1 ? "" : "s"} to free agency (${orgOverLimitText(roster.data?.org_limit ?? compliance.data?.org_limit)}).`,
         );
       } else if (overflow > 0) {
         // Under the org limit but couldn't legally seat everyone (LOW is
@@ -262,6 +261,9 @@ export function RosterPage() {
       toast.error((err as Error).message);
     },
   });
+
+  const orgLimit = roster.data?.org_limit ?? compliance.data?.org_limit;
+  const levelCaps = levelCapsFrom(roster.data, compliance.data);
 
   const actions: RosterActions | null = fallbackTeamId
     ? {
@@ -301,7 +303,7 @@ export function RosterPage() {
   return (
     <AppShell
       title="Roster"
-      subtitle={`Team ${fallbackTeamId} · ${roster.data?.active_size ?? "—"} active`}
+      subtitle={`Team ${fallbackTeamId} · ${activeSummary(roster.data)}`}
       teamAccentColor={teamAccentColor}
     >
       {roster.isLoading ? (
@@ -335,19 +337,23 @@ export function RosterPage() {
               <span className="whitespace-pre-line">{actions.error}</span>
             </div>
           )}
-          <div className="mb-4 flex items-center justify-end">
-            <AutoAssignMenu
-              pending={previewMutation.isPending}
-              onPreview={(mode) => previewMutation.mutate(mode)}
-            />
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <OpenSpotBadge roster={roster.data} />
+            <div className="ml-auto">
+              <AutoAssignMenu
+                pending={previewMutation.isPending}
+                onPreview={(mode) => previewMutation.mutate(mode)}
+              />
+            </div>
           </div>
           <AutoAssignPreviewDialog
             preview={autoAssignPreview}
+            orgLimit={orgLimit}
             applying={applyMutation.isPending}
             onApply={(mode) => applyMutation.mutate(mode)}
             onCancel={() => setAutoAssignPreview(null)}
           />
-          <RosterTabs roster={roster.data} actions={actions} />
+          <RosterTabs roster={roster.data} actions={actions} caps={levelCaps} />
           <QuickLinks
             links={[
               { label: "Lineups", to: "/lineup" },
@@ -361,15 +367,69 @@ export function RosterPage() {
   );
 }
 
-interface ComplianceBannerData {
-  ok: boolean;
-  errors: string[];
-  warnings: string[];
-  counts: { act: number; aaa: number; low: number; dl: number; ir: number };
-  caps: { act: number; aaa: number; low: number };
+/** Toast text for a completed move: the server's validator warnings, or (an
+ *  older server without ``warnings``) a level-count check against the caps
+ *  the server returned. No caps from the server means no client-side guess. */
+function moveWarnings(data: RosterMoveResult, to: RosterLevel): string[] {
+  if (Array.isArray(data.warnings)) return data.warnings;
+  const key = to.toLowerCase() as "act" | "aaa" | "low";
+  const cap = data.caps?.[key] ?? (to === "ACT" ? data.active_cap : undefined);
+  const count = data.levels?.[to]?.length ?? 0;
+  if (cap != null && count > cap) {
+    return [`${to} is now ${count}/${cap}. Send a player down before your next game.`];
+  }
+  return [];
 }
 
-function ComplianceBanner({ data }: { data: ComplianceBannerData }) {
+function orgOverLimitText(orgLimit: number | undefined): string {
+  return orgLimit
+    ? `org over the ${orgLimit}-player limit`
+    : "org over its player limit";
+}
+
+/** "25/26 active · 13P/12H" (falls back to the bare count on an older server). */
+function activeSummary(roster: TeamRoster | undefined): string {
+  if (!roster) return "— active";
+  let out = roster.active_cap
+    ? `${roster.active_size}/${roster.active_cap} active`
+    : `${roster.active_size} active`;
+  if (roster.act_pitchers != null && roster.act_hitters != null) {
+    out += ` · ${roster.act_pitchers}P/${roster.act_hitters}H`;
+  }
+  return out;
+}
+
+/** Per-level caps for the tab badges, from the server only. */
+function levelCapsFrom(
+  roster: TeamRoster | undefined,
+  compliance: RosterCompliance | undefined,
+): Partial<Record<RosterLevel, number>> {
+  const caps: Partial<Record<RosterLevel, number>> = {};
+  const act = roster?.active_cap ?? compliance?.caps?.act;
+  if (act) caps.ACT = act;
+  if (compliance?.caps?.aaa) caps.AAA = compliance.caps.aaa;
+  if (compliance?.caps?.low) caps.LOW = compliance.caps.low;
+  return caps;
+}
+
+/** "ACT 25/26 · a spot is open". Informational: a short active roster is
+ *  legal, and nothing is moved for the owner. */
+function OpenSpotBadge({ roster }: { roster: TeamRoster | undefined }) {
+  const cap = roster?.active_cap;
+  if (!roster || !cap || roster.active_size >= cap) return null;
+  const open = cap - roster.active_size;
+  return (
+    <Badge
+      tone="info"
+      title="An open spot is legal. Promote a player from AAA or sign a free agent to fill it, or leave it open."
+    >
+      ACT {roster.active_size}/{cap} ·{" "}
+      {open === 1 ? "a spot is open" : `${open} spots are open`}
+    </Badge>
+  );
+}
+
+function ComplianceBanner({ data }: { data: RosterCompliance }) {
   return (
     <div className="mb-4 rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
       <div className="flex items-start gap-2">
@@ -398,6 +458,21 @@ function ComplianceBanner({ data }: { data: ComplianceBannerData }) {
             <span>
               LOW {data.counts.low}/{data.caps.low}
             </span>
+            {data.counts.act_pitchers != null && (
+              <span
+                className={cn(
+                  data.caps.act_pitchers != null &&
+                    data.counts.act_pitchers > data.caps.act_pitchers &&
+                    "font-semibold text-danger",
+                )}
+              >
+                P {data.counts.act_pitchers}
+                {data.caps.act_pitchers != null ? `/${data.caps.act_pitchers}` : ""}
+              </span>
+            )}
+            {data.counts.act_hitters != null && (
+              <span>H {data.counts.act_hitters}</span>
+            )}
           </div>
         </div>
       </div>
@@ -491,7 +566,8 @@ function AutoAssignMenu({
             <div className="font-medium">Fill gaps only</div>
             <div className="text-xs text-muted">
               Keep your roster; only fix illegal spots (injuries, coverage,
-              over-cap). Recommended for in-season tweaks.
+              over-cap, too many active pitchers). Recommended for in-season
+              tweaks.
             </div>
           </div>
         </DropdownMenuItem>
@@ -500,8 +576,9 @@ function AutoAssignMenu({
           <div>
             <div className="font-medium">Full reassign</div>
             <div className="text-xs text-muted">
-              Rebuild ACT/AAA/LOW from scratch by position &amp; ratings. Best as
-              a first setup.
+              Rebuild ACT/AAA/LOW from scratch by position &amp; ratings, with
+              the active roster split evenly between pitchers and position
+              players. Best as a first setup.
             </div>
           </div>
         </DropdownMenuItem>
@@ -512,11 +589,13 @@ function AutoAssignMenu({
 
 function AutoAssignPreviewDialog({
   preview,
+  orgLimit,
   applying,
   onApply,
   onCancel,
 }: {
   preview: AutoAssignPreview | null;
+  orgLimit: number | undefined;
   applying: boolean;
   onApply: (mode: AutoAssignMode) => void;
   onCancel: () => void;
@@ -561,7 +640,7 @@ function AutoAssignPreviewDialog({
             {preview.released > 0 && (
               <div>
                 {preview.released} player{preview.released === 1 ? "" : "s"} would
-                be released to free agency (org over the 50-player limit).
+                be released to free agency ({orgOverLimitText(orgLimit)}).
               </div>
             )}
             {preview.overflow > 0 && (
@@ -624,9 +703,11 @@ function writePositionContextPref(value: boolean) {
 function RosterTabs({
   roster,
   actions,
+  caps,
 }: {
   roster: TeamRoster;
   actions: RosterActions;
+  caps: Partial<Record<RosterLevel, number>>;
 }) {
   const [positionContext, setPositionContextState] = useState(readPositionContextPref);
   const setPositionContext = (value: boolean) => {
@@ -667,7 +748,12 @@ function RosterTabs({
             {LEVEL_ORDER.map((level) => {
               const count = roster.levels[level]?.length ?? 0;
               return (
-                <DroppableTabTrigger key={level} level={level} count={count} />
+                <DroppableTabTrigger
+                  key={level}
+                  level={level}
+                  count={count}
+                  cap={caps[level]}
+                />
               );
             })}
           </TabsList>
@@ -704,9 +790,11 @@ function RosterTabs({
 function DroppableTabTrigger({
   level,
   count,
+  cap,
 }: {
   level: RosterLevel;
   count: number;
+  cap?: number;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: level });
   return (
@@ -719,8 +807,11 @@ function DroppableTabTrigger({
       )}
     >
       <span>{LEVEL_LABEL[level]}</span>
-      <Badge tone="neutral" className="ml-2">
-        {count}
+      <Badge
+        tone={cap != null && count > cap ? "warning" : "neutral"}
+        className="ml-2"
+      >
+        {cap != null ? `${count}/${cap}` : count}
       </Badge>
     </TabsTrigger>
   );

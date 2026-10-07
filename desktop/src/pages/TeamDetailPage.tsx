@@ -172,7 +172,15 @@ function TeamDetailBody({
   team: Team;
   snapshot: TeamSnapshot | undefined;
   division: DivisionStandings | undefined;
-  roster: { active_size: number; levels: Record<string, unknown[]> } | undefined;
+  roster:
+    | {
+        active_size: number;
+        levels: Record<string, unknown[]>;
+        active_cap?: number;
+        act_pitchers?: number;
+        act_hitters?: number;
+      }
+    | undefined;
   upcoming: ScheduleGame[];
   recent: ScheduleGame[];
   schedule: { isLoading: boolean };
@@ -207,8 +215,18 @@ function TeamDetailBody({
         />
         <StatCard
           label="Active Roster"
-          value={roster?.active_size ?? "—"}
-          sub={`${(roster?.levels.AAA?.length ?? 0) + (roster?.levels.LOW?.length ?? 0)} in minors`}
+          value={
+            roster
+              ? roster.active_cap
+                ? `${roster.active_size}/${roster.active_cap}`
+                : roster.active_size
+              : "—"
+          }
+          sub={`${
+            roster?.act_pitchers != null && roster?.act_hitters != null
+              ? `${roster.act_pitchers}P · ${roster.act_hitters}H · `
+              : ""
+          }${(roster?.levels.AAA?.length ?? 0) + (roster?.levels.LOW?.length ?? 0)} in minors`}
           Icon={UsersIcon}
           accentColor={accent.stripe}
         />

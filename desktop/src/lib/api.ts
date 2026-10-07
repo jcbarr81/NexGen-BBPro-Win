@@ -592,6 +592,47 @@ export interface TeamRoster {
   team_id: string;
   active_size: number;
   levels: Record<RosterLevel, RosterPlayer[]>;
+  /** Roster limits in force today (26-man roster, 7.46.0): 26 active and
+   *  13 pitchers, or 28 / 14 from Sept 1 in the regular season. Optional so
+   *  an older server degrades to the bare count. */
+  active_cap?: number;
+  pitcher_cap?: number;
+  act_pitchers?: number;
+  act_hitters?: number;
+  /** Active + AAA + LOW (injured lists excluded). */
+  org_limit?: number;
+}
+
+/** Level caps in force today, plus the active-roster pitcher limit. */
+export interface RosterCaps {
+  act: number;
+  aaa: number;
+  low: number;
+  act_pitchers?: number;
+}
+
+export interface RosterCompliance {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  counts: {
+    act: number;
+    aaa: number;
+    low: number;
+    dl: number;
+    ir: number;
+    act_pitchers?: number;
+    act_hitters?: number;
+  };
+  caps: RosterCaps;
+  org_limit?: number;
+}
+
+/** A move / swap returns the updated roster plus the validator's warnings
+ *  (a move into a full level or a 14th active pitcher is allowed, but warned). */
+export interface RosterMoveResult extends TeamRoster {
+  warnings?: string[];
+  caps?: RosterCaps;
 }
 
 export interface LeagueStandingsRow {
@@ -1886,18 +1927,14 @@ export const api = {
   teamRoster: (teamId: string) =>
     apiRequest<TeamRoster>(`/teams/${encodeURIComponent(teamId)}/roster`),
   teamRosterCompliance: (teamId: string) =>
-    apiRequest<{
-      ok: boolean;
-      errors: string[];
-      warnings: string[];
-      counts: { act: number; aaa: number; low: number; dl: number; ir: number };
-      caps: { act: number; aaa: number; low: number };
-    }>(`/teams/${encodeURIComponent(teamId)}/roster/compliance`),
+    apiRequest<RosterCompliance>(
+      `/teams/${encodeURIComponent(teamId)}/roster/compliance`,
+    ),
   moveRoster: (
     teamId: string,
     payload: { player_id: string; to: RosterLevel; dl_tier?: "dl15" | "dl45" },
   ) =>
-    apiRequest<TeamRoster>(
+    apiRequest<RosterMoveResult>(
       `/teams/${encodeURIComponent(teamId)}/roster/move`,
       { method: "POST", body: payload },
     ),
@@ -1905,7 +1942,7 @@ export const api = {
     teamId: string,
     payload: { player_a_id: string; player_b_id: string },
   ) =>
-    apiRequest<TeamRoster>(
+    apiRequest<RosterMoveResult>(
       `/teams/${encodeURIComponent(teamId)}/roster/swap`,
       { method: "POST", body: payload },
     ),

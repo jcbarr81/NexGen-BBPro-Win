@@ -1,6 +1,13 @@
 # S2-11 — In-Season Callups + September Expansion (spec)
 
 > Implementation-ready spec, verified against the working tree 2026-07-15.
+>
+> **Update 7.46.0 (26-man roster, owner decision 8):** the base active roster
+> is now **26** with at most **13** pitchers; September expansion is
+> **26→28** with at most **14** pitchers, and the playoff revert trims back to
+> 26 and 13 pitchers (owner teams included, by optioning). The rules live in
+> `utils/roster_rules.py`. Where the verified-state notes below cite "25" they
+> describe the code as it was in 2026-07.
 > Depends on S2-09's `services/team_outlook.py` (outlook classification) —
 > land S2-09 first or cherry-pick that module.
 
@@ -13,7 +20,7 @@ expansion doesn't exist (`playbalance/season_manager.py:73-79` mentions
 August/September only in a phase-ordering comment). Add (1) a monthly
 in-season AAA→ACT callup check wired into the sim's post-day automations,
 outlook-weighted, protection/option-aware, (2) September 1 ACT expansion
-25→28 with a revert at the end of the regular season, (3) transaction-log +
+26→28 with a revert at the end of the regular season, (3) transaction-log +
 news visibility.
 
 ## Verified current state (load-bearing facts)
@@ -91,7 +98,8 @@ news visibility.
    skipped.
 5. From September 1 through the end of REGULAR_SEASON the ACT cap is 28 (a
    September check may fill to 28); on REGULAR_SEASON→PLAYOFFS the cap
-   reverts to 25 and over-cap teams are trimmed by the same demotion logic.
+   reverts to 26 (and 13 pitchers) and over-cap teams are trimmed by the same
+   demotion logic.
 6. Every move produces a transaction-log row and a news-feed line.
 7. Existing suites green: `tests/test_prospect_promotion.py` (verify name via
    `pytest tests -k "prospect" --collect-only`), `tests/test_prospect_rules.py`,
@@ -280,7 +288,7 @@ def revert_september_expansion(*, data_dir=None) -> dict: ...
 8. Persist `last_check_month = month_key`; return summary.
 
 `revert_september_expansion` flow: for every team (CPU **and** human —
-the 25-cap becomes hard again and playoffs must start legal): while
+the 26-man cap becomes hard again and playoffs must start legal): while
 `len(roster.act) > ACTIVE_ROSTER_SIZE`, demote `_select_demotion_candidate`
 picks; if the selector returns None while still over cap, force-demote the
 lowest-score non-injured, non-last-catcher ACT player WITHOUT the option

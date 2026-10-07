@@ -145,7 +145,7 @@ export function InjuryPage() {
           <InjuryTable
             title="60-Day Injured List"
             teamId={activeTeamId}
-            description="Roster spot opened up; counts toward 40-man only"
+            description="Frees an active-roster spot; doesn't count toward your organisation limit"
             entries={injuries.data.ir}
             emptyText="Nobody on the 60-day IL."
           />

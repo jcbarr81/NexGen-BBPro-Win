@@ -501,6 +501,147 @@ def _detect_finance_cash_low(
     return []
 
 
+def _read_team_roster(team_id: str):
+    """The team's saved roster, or None when it has no roster file.
+
+    Read-only on purpose: ``load_roster`` generates and saves a placeholder
+    roster when the file is missing, which a notification check must never do.
+    """
+
+    from utils.roster_io import read_roster_csv
+
+    path = get_data_dir() / "rosters" / f"{team_id}.csv"
+    if not path.exists():
+        return None
+    return read_roster_csv(path, team_id)
+
+
+def _roster_cap_errors(
+    team_id: str,
+    players_map: Mapping[str, Mapping[str, Any]],
+    sim_date: Optional[str],
+) -> List[str]:
+    """Level-cap and pitcher-cap problems on the team's saved roster.
+
+    Uses the caps in force on ``sim_date`` (26 active / 13 pitchers; 28 / 14
+    from Sept 1 in the regular season), so a legal September roster never
+    trips the rule. Pitchers are counted with the shared roster rule; a
+    player missing from ``players_map`` counts as a hitter.
+    """
+
+    from utils.roster_loader import active_pitcher_cap, effective_level_caps
+    from utils.roster_rules import counts_as_pitcher
+
+    roster = _read_team_roster(team_id)
+    if roster is None:
+        return []
+    caps = effective_level_caps(sim_date)
+    errors: List[str] = []
+    act = list(roster.act)
+    for count, cap, label in (
+        (len(act), caps["act"], "Active roster"),
+        (len(roster.aaa), caps["aaa"], "AAA"),
+        (len(roster.low), caps["low"], "LOW-A"),
+    ):
+        if count > cap:
+            errors.append(f"{label} has {count} players (max {cap}).")
+    pitcher_cap = active_pitcher_cap(sim_date)
+    act_pitchers = sum(1 for pid in act if counts_as_pitcher(players_map.get(pid)))
+    if act_pitchers > pitcher_cap:
+        errors.append(
+            f"Active roster has {act_pitchers} pitchers (max {pitcher_cap})."
+        )
+    return errors
+
+
+def _detector_state_path(team_id: str) -> Path:
+    base = get_data_dir() / "notifications"
+    base.mkdir(parents=True, exist_ok=True)
+    safe = "".join(ch for ch in team_id if ch.isalnum() or ch in {"-", "_"}) or "team"
+    return base / f"{safe}.state.json"
+
+
+def _load_detector_state(team_id: str) -> Dict[str, Any]:
+    try:
+        raw = json.loads(_detector_state_path(team_id).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _save_detector_state(team_id: str, state: Mapping[str, Any]) -> None:
+    try:
+        _detector_state_path(team_id).write_text(
+            json.dumps(dict(state), indent=2, sort_keys=True), encoding="utf-8"
+        )
+    except OSError:
+        pass
+
+
+def _detect_roster_spot_open(
+    team_id: str,
+    settings: NotificationSettings,
+    sim_date: Optional[str],
+) -> List[NotificationEvent]:
+    """Tell the owner when the active roster is below its cap (7.46.0).
+
+    Informational only: a short active roster is legal, so the rule's default
+    is notify without stopping. Cheap enough to run every sim day (one roster
+    file read), but it fires once per open-spot state ("25/26") rather than
+    every day: the last state notified is kept in
+    ``notifications/<team>.state.json`` and cleared once the roster is full,
+    so a multi-day sim does not repeat it and an owner who opted into
+    stop-the-sim is paused once, not on every day.
+    """
+
+    rule = settings.rule("roster_spot_open")
+    if not (rule.enabled and rule.notify):
+        return []
+    try:
+        from utils.roster_loader import active_roster_cap
+
+        roster = _read_team_roster(team_id)
+        if roster is None:
+            return []
+        active = len(list(roster.act))
+        cap = active_roster_cap(sim_date)
+    except Exception:
+        return []
+
+    signature = f"{active}/{cap}" if active < cap else None
+    state = _load_detector_state(team_id)
+    previous = state.get("roster_spot_open")
+    if signature != previous:
+        state["roster_spot_open"] = signature
+        _save_detector_state(team_id, state)
+    if signature is None or signature == previous:
+        return []
+
+    open_spots = cap - active
+    spots = "a spot" if open_spots == 1 else f"{open_spots} spots"
+    return [
+        NotificationEvent(
+            rule_id="roster_spot_open",
+            severity="info",
+            title="Active roster spot open",
+            message=(
+                f"Your active roster has {active} of {cap} players, so {spots} "
+                "open. Promote a player from AAA or sign a free agent if you "
+                "want to fill it; an open spot is legal and does not hold up "
+                "the sim."
+            ),
+            sim_date=sim_date,
+            payload={
+                "team_id": team_id,
+                "active": active,
+                "cap": cap,
+                "open_spots": open_spots,
+            },
+            stop_sim=bool(rule.stop_sim),
+        )
+    ]
+
+
 def _detect_lineup_validity(
     team_id: str,
     settings: NotificationSettings,
@@ -615,14 +756,7 @@ def _detect_lineup_validity(
 
     if rule_cap.enabled and rule_cap.notify:
         try:
-            roster_obj = load_roster(team_id)
-            cap_errors: List[str] = []
-            if len(list(roster_obj.act)) > 25:
-                cap_errors.append(f"Active roster has {len(list(roster_obj.act))} players (max 25).")
-            if len(list(roster_obj.aaa)) > 15:
-                cap_errors.append(f"AAA has {len(list(roster_obj.aaa))} players (max 15).")
-            if len(list(roster_obj.low)) > 10:
-                cap_errors.append(f"LOW-A has {len(list(roster_obj.low))} players (max 10).")
+            cap_errors = _roster_cap_errors(team_id, players_map, sim_date)
             if cap_errors:
                 events.append(
                     NotificationEvent(
@@ -652,6 +786,7 @@ def _rule_title(rule_id: str) -> str:
         "lineup_invalid": "Lineup invalid",
         "pitching_staff_invalid": "Pitching staff incomplete",
         "roster_cap_violation": "Roster cap violation",
+        "roster_spot_open": "Active roster spot open",
         "win_streak": "Win streak",
         "losing_streak": "Losing streak",
         "player_milestone": "Player milestone",
@@ -699,6 +834,7 @@ def detect_events(
     events.extend(_detect_finance_cash_low(team_id, settings, pre_state, sim_date))
     events.extend(_detect_finance_payroll_over(team_id, settings, pre_state, new_phase, sim_date))
     events.extend(_detect_finance_negative_net(team_id, settings, pre_state, new_phase, sim_date))
+    events.extend(_detect_roster_spot_open(team_id, settings, sim_date))
     if run_lineup_validators:
         events.extend(_detect_lineup_validity(team_id, settings, sim_date))
     return events

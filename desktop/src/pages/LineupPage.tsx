@@ -883,6 +883,10 @@ function PitchingTab({
     return m;
   }, [pitchers]);
   const assignedIds = new Set(rows.map((r) => r.player_id).filter(Boolean));
+  // Active pitchers with no staff role. A full active roster carries up to 13
+  // pitchers but the staff has 11 slots, so the 12th and 13th pitch as extra
+  // relievers until the bullpen update adds slots (26-man roster, 7.46.0).
+  const unslotted = pitchers.filter((p) => !assignedIds.has(p.player_id));
 
   function updateRow(idx: number, patch: Partial<PitchingStaffEntry>) {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
@@ -977,6 +981,24 @@ function PitchingTab({
             <p className="mt-1 text-muted">
               Only active pitchers pitch, so the sim fills these roles itself
               until you assign someone. Saving keeps your active staff only.
+            </p>
+          </div>
+        )}
+        {filledCount > 0 && unslotted.length > 0 && (
+          <div className="mx-4 mt-3 rounded-md border border-info/40 bg-info/10 p-3 text-xs text-ink">
+            <div className="font-semibold">
+              {unslotted.length === 1
+                ? "1 active pitcher has no staff role"
+                : `${unslotted.length} active pitchers have no staff role`}
+              {" "}— unslotted relievers
+            </div>
+            <p className="mt-1 text-muted">
+              {unslotted.map((p) => `${p.first_name} ${p.last_name}`).join(", ")}
+            </p>
+            <p className="mt-1 text-muted">
+              They still pitch out of the bullpen as extra relief arms. The
+              staff has 11 slots; more relief slots arrive with a later bullpen
+              update.
             </p>
           </div>
         )}
