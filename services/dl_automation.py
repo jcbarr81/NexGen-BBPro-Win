@@ -213,12 +213,18 @@ def process_disabled_lists(
             if auto_activate and (
                 owner_managed is None or str(team_id).upper() in owner_managed
             ):
-                # The owner runs this team's injured list by hand.
+                # The owner runs this team's injured list by hand -- or team
+                # ownership couldn't be read, and every club waits a day.
                 summary.awaiting_owner.append(
                     f"{_player_name(player)} is eligible to come off the "
                     f"{list_label or 'injured list'} ({team_id})"
                 )
-                log_news_event(base_msg + " — waiting on the owner.", category="injury")
+                why = (
+                    " — team ownership couldn't be read; retrying next sim day."
+                    if owner_managed is None
+                    else " — waiting on the owner."
+                )
+                log_news_event(base_msg + why, category="injury")
                 continue
 
             if auto_activate:

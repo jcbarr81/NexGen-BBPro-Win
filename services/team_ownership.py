@@ -152,7 +152,12 @@ def is_cpu_owned(
     token = str(team_id or "").strip().upper()
     if not token:
         return False
-    return not is_human_owned(token, human_ids=human_ids, data_dir=data_dir)
+    if human_ids is None:
+        # Strict: a users.txt that can't be read is "unknown", not "nobody".
+        human_ids = human_owned_team_ids_strict(data_dir)
+        if human_ids is None:
+            return False
+    return token not in human_ids
 
 
 __all__ = [

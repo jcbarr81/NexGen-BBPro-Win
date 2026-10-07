@@ -382,6 +382,7 @@ def _resolve(
     sim_date: str,
     *,
     forced: bool,
+    data_dir: Path | str | None = None,
 ) -> Dict[str, Any]:
     """Pick the best acceptable offer and sign it; else close with no deal."""
     # A CPU offer posted for a club an owner runs (ownership misread when it
@@ -390,13 +391,19 @@ def _resolve(
     if any(o.get("is_cpu") for o in negotiation.get("offers", []) or []):
         from services.team_ownership import human_owned_team_ids_strict
 
-        human_ids = human_owned_team_ids_strict()
+        human_ids = human_owned_team_ids_strict(data_dir)
         if human_ids is None:
             return {"signed_team": None, "player_id": player_id, "deferred": "ownership_unknown"}
-        negotiation["offers"] = [
-            o for o in negotiation.get("offers", []) or []
+        before = negotiation.get("offers", []) or []
+        kept = [
+            o for o in before
             if not (o.get("is_cpu") and str(o.get("team_id", "")).upper() in human_ids)
         ]
+        negotiation["offers"] = kept
+        if len(kept) < len(before) and not forced:
+            # The offer that triggered an early signing was bogus; give the
+            # remaining bidders the rest of the negotiation to raise.
+            return {"signed_team": None, "player_id": player_id, "pruned": True}
     offers = negotiation.get("offers", []) or []
     acceptable = [o for o in offers if _player_accepts(o, player)]
     winner = max(acceptable, key=_offer_value) if acceptable else None
@@ -541,11 +548,17 @@ def process_negotiations(
 
         if at_deadline or early:
             result = _resolve(
-                neg, pid, player, sign_fn, notify_fn, sim_date, forced=at_deadline
+                neg, pid, player, sign_fn, notify_fn, sim_date,
+                forced=at_deadline, data_dir=data_dir,
             )
             changed = True
             if result.get("signed_team"):
                 summary["signed"].append(result)
+            elif result.get("deferred"):
+                # Ownership unreadable: still open, retried next sim day.
+                summary.setdefault("deferred", []).append(pid)
+            elif result.get("pruned"):
+                pass  # still open; bogus CPU offer removed
             elif not result.get("sign_failed"):
                 summary["no_deal"].append(pid)
 

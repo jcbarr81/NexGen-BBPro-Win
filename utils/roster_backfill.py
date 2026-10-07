@@ -4,7 +4,9 @@ import random
 from pathlib import Path
 from typing import Dict
 
+from utils.pitcher_role import get_role
 from utils.player_loader import load_players_from_csv
+from utils.player_overall import player_overall_score
 from utils.roster_loader import load_roster, save_roster
 from utils.roster_rules import (
     AAA_CAP,
@@ -16,6 +18,9 @@ from utils.roster_rules import (
     counts_as_pitcher,
 )
 from utils.team_loader import load_teams
+
+# The rotation the trims never break (as in auto-assign).
+MIN_ACTIVE_STARTERS = 5
 
 
 def _low_eligible(player: object) -> bool:
@@ -113,6 +118,16 @@ def ensure_active_rosters(
     def is_pitcher(pid: str) -> bool:
         return counts_as_pitcher(players.get(pid))
 
+    def value(pid: str) -> float:
+        score = player_overall_score(players.get(pid))
+        return float(score) if score is not None else 0.0
+
+    def is_starter(pid: str) -> bool:
+        try:
+            return get_role(players.get(pid)) == "SP"
+        except Exception:
+            return False
+
     def is_healthy_catcher(pid: str) -> bool:
         player = players.get(pid)
         return (
@@ -188,22 +203,38 @@ def ensure_active_rosters(
             getattr(roster, level).append(pid)
             adjustments += 1
 
-        def first_with_room(candidates):
-            return next((p for p in candidates if destination(p) is not None), None)
+        def droppable_arms() -> list[str]:
+            # Weakest first; the rotation keeps MIN_ACTIVE_STARTERS starters.
+            starters = sum(1 for p in act_pitchers if is_starter(p))
+            return sorted(
+                (p for p in act_pitchers
+                 if not (is_starter(p) and starters <= MIN_ACTIVE_STARTERS)),
+                key=value,
+            )
+
+        def first_to(level: str | None, candidates: list[str]) -> str | None:
+            return next(
+                (p for p in candidates
+                 if (destination(p) == level if level else destination(p) is not None)),
+                None,
+            )
 
         # 1. surplus pitchers down first, so the fill can use their spots.
         while len(act_pitchers) > pitcher_limit:
-            pid = first_with_room(reversed(act_pitchers))
+            arms = droppable_arms()
+            pid = first_to("aaa", arms)
             if (
                 pid is None
+                and len(roster.aaa) == AAA_CAP   # one call-up frees exactly a spot
                 and len(act_hitters) < target_hitters
                 and call_up(False, levels=("aaa",))
             ):
-                # An AAA position player up frees the AAA spot the arm needs.
                 adjustments += 1
-                pid = first_with_room(reversed(act_pitchers))
+                pid = first_to("aaa", arms)
             if pid is None:
-                break                   # nowhere legal: he stays active
+                pid = first_to(None, arms)      # a young arm to Low-A
+            if pid is None:
+                break                           # nowhere legal: he stays active
             option(pid, destination(pid))
 
         # 2. fill: position players to the target, then arms to the limit.
@@ -227,11 +258,12 @@ def ensure_active_rosters(
                 if len(act_hitters) > min_hitters
                 else []
             )
-            arms = act_pitchers if len(act_pitchers) > min_pitchers else []
+            arms = droppable_arms() if len(act_pitchers) > min_pitchers else []
             pools = (hitters, arms) if len(act_hitters) > target_hitters else (arms, hitters)
-            # Skip anyone with nowhere legal to go rather than giving up.
+            # Weakest first; skip anyone with nowhere legal to go.
             victim = next(
-                (p for pool in pools for p in reversed(pool) if destination(p) is not None),
+                (p for pool in pools for p in sorted(pool, key=value)
+                 if destination(p) is not None),
                 None,
             )
             if victim is None:

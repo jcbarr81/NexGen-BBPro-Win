@@ -976,9 +976,17 @@ def auto_advance(
 
     rounds_total = _load_settings_rounds()
     role = str(identity.get("r", "")).lower()
-    from services.team_ownership import human_owned_team_ids
+    from services.team_ownership import human_owned_team_ids_strict
 
-    human_ids = set() if include_humans else human_owned_team_ids()
+    human_ids = set() if include_humans else human_owned_team_ids_strict()
+    if human_ids is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Team ownership couldn't be read, so the CPU won't pick for "
+                "anyone right now. Try again in a moment."
+            ),
+        )
 
     target_team: Optional[str] = None
     if stop_mode == "my_pick":

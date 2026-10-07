@@ -41,7 +41,7 @@ def draft(monkeypatch):
     monkeypatch.setattr(D, "_best_available", lambda y, s: {"player_id": f"P{s['overall_pick']}"})
     monkeypatch.setattr(D, "_load_settings_rounds", lambda: 2)
     monkeypatch.setattr(
-        "services.team_ownership.human_owned_team_ids", lambda *a, **k: set(HUMANS)
+        "services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: set(HUMANS)
     )
     return state, made
 
@@ -78,7 +78,7 @@ def test_it_crosses_into_the_next_round(draft):
 
 
 def test_no_owner_left_means_it_runs_to_the_end(draft, monkeypatch):
-    monkeypatch.setattr("services.team_ownership.human_owned_team_ids", lambda *a, **k: set())
+    monkeypatch.setattr("services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: set())
     state, made = draft
     result = D.auto_advance({"year": 2026, "stop": "next_human"}, identity=ADMIN)
     assert result["draft_complete"] is True

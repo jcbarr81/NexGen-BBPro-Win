@@ -2739,7 +2739,7 @@ def _advance_draft_for_league(league: str) -> Optional[Dict[str, Any]]:
     from api.routers import draft as draft_router
     from services import draft_clock, draft_state
     from services.draft_settings import load_draft_settings
-    from services.team_ownership import human_owned_team_ids
+    from services.team_ownership import human_owned_team_ids_strict
     from services.trade_settings import current_league_year
 
     year = int(current_league_year())
@@ -2753,7 +2753,11 @@ def _advance_draft_for_league(league: str) -> Optional[Dict[str, Any]]:
     on_clock = draft_router._team_on_clock(state)
     if not on_clock:
         return None
-    human_ids = human_owned_team_ids()
+    human_ids = human_owned_team_ids_strict()
+    if human_ids is None:
+        # Ownership unreadable: the CPU must not pick for a club that may be
+        # an owner's. Try again next tick.
+        return None
     is_human = str(on_clock).strip().upper() in human_ids
 
     # With no pick clock set, the draft does not run itself at all: the

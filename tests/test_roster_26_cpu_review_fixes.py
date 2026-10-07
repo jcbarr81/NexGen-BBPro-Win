@@ -514,6 +514,38 @@ def test_backfill_trim_skips_a_victim_with_nowhere_to_go(backfill):
     assert "old" in roster.act and len(roster.low) == 2
 
 
+def test_backfill_with_aaa_already_over_its_cap_never_reaches_27(backfill):
+    """A call-up from an AAA already over its cap frees no spot: no swap."""
+    players = {"c0": _p("c0", "C")}
+    players.update({f"h{i}": _p(f"h{i}", "LF") for i in range(ACT_HITTER_TARGET - 2)})
+    players.update({f"p{i}": _p(f"p{i}", "P") for i in range(MAX_ACTIVE_PITCHERS + 1)})
+    act = list(players)
+    players.update({f"a{i}": _p(f"a{i}", "LF") for i in range(AAA_CAP + 1)})
+    players.update({f"l{i}": _p(f"l{i}", "LF", birthdate=_YOUNG) for i in range(LOW_CAP)})
+    roster = Roster("CPU", act=act, aaa=[f"a{i}" for i in range(AAA_CAP + 1)],
+                    low=[f"l{i}" for i in range(LOW_CAP)])
+    backfill.rosters["CPU"] = roster
+    backfill.rb.ensure_active_rosters(players=players)
+    assert len(roster.act) <= ACTIVE_ROSTER_SIZE
+
+
+def test_backfill_swaps_before_sending_a_young_ace_to_low(backfill):
+    """AAA exactly full, LOW open: an AAA bat comes up and the weakest old arm
+    goes to AAA -- the young ace stays, not optioned to Low-A."""
+    players = {"c0": _p("c0", "C")}
+    players.update({f"h{i}": _p(f"h{i}", "LF") for i in range(ACT_HITTER_TARGET - 2)})
+    players["ace"] = _p("ace", "P", 80, birthdate=_YOUNG)
+    players.update({f"p{i}": _p(f"p{i}", "P", 40) for i in range(MAX_ACTIVE_PITCHERS)})
+    act = list(players)
+    players.update({f"a{i}": _p(f"a{i}", "LF") for i in range(AAA_CAP)})
+    roster = Roster("CPU", act=act, aaa=[f"a{i}" for i in range(AAA_CAP)], low=[])
+    backfill.rosters["CPU"] = roster
+    backfill.rb.ensure_active_rosters(players=players)
+    assert "ace" in roster.act
+    assert len(roster.act) == ACTIVE_ROSTER_SIZE
+    assert _shape(roster, players) == (MAX_ACTIVE_PITCHERS, ACT_HITTER_TARGET)
+
+
 # --- final review: strict ownership in negotiations ---------------------------
 
 

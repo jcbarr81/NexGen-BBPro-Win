@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 import json
+import os
 
 import bcrypt
 
@@ -130,13 +131,17 @@ def _bootstrap_password_hash(data_root: str | Path | None = None) -> str:
 
 
 def _write_users(file_path: Path, users: List[Dict[str, str]]) -> None:
+    # Atomic: readers (team ownership) must never see a half-written file --
+    # an empty read would make every owner's club look CPU-run.
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    with file_path.open("w", encoding="utf-8") as handle:
+    tmp = file_path.with_name(f".{file_path.name}.{os.getpid()}.tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
         for user in users:
             handle.write(
                 f"{user['username']},{user['password']},"
                 f"{user['role']},{user['team_id']}\n"
             )
+    os.replace(tmp, file_path)
 
 
 def _set_admin_password_hash(file_path: Path, password_hash: str) -> bool:

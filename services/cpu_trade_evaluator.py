@@ -92,9 +92,11 @@ def is_cpu_owned_team(
     # writes owners to users.txt and leaves this column blank for EVERY team,
     # so trusting it alone reported all 7 of alpha-test's human owners as CPU
     # and let the evaluator answer trade offers addressed to real people.
-    from services.team_ownership import is_human_owned
+    # Strict: unreadable ownership means "not CPU" -- never answer for a
+    # club a person might run.
+    from services.team_ownership import is_cpu_owned
 
-    return not is_human_owned(token, data_dir=data_dir)
+    return is_cpu_owned(token, data_dir=data_dir)
 
 
 def evaluate_cpu_trade_offer(

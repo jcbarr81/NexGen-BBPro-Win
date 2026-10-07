@@ -325,6 +325,7 @@ def advance_day(
     ]
 
     is_final = day >= total
+    deferred = list(summary.get("deferred") or [])
     if not is_final:
         # The market moved today — CPU teams re-target whoever is still available
         # for tomorrow (new negotiations get a day of exposure before they can
@@ -339,6 +340,12 @@ def advance_day(
         "message": (
             f"Day {day}: {len(signed)} signing{'s' if len(signed) != 1 else ''}."
             + ("" if not is_final else " Window closed — remaining players took their best offer.")
+            + (
+                ""
+                if not deferred
+                else f" {len(deferred)} still open (team ownership couldn't be read);"
+                " they resolve on the next sim day."
+            )
         ),
     }
     state.setdefault("log", []).append(log_entry)
