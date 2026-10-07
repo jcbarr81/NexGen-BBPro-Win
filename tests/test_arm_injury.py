@@ -211,7 +211,7 @@ def _roll_batters(batters, **overrides):
         seed=7,
         tuning=t,
         usage_state=None,
-        game_day=None,
+        game_day=0,  # a season game; an undated one rolls nothing
         staffs={},
         lineups={"home": lineup},
         batters={"home": batters},
@@ -236,7 +236,7 @@ def test_a_player_already_hurt_in_the_game_is_skipped():
     t = _tuning(pitcher_arm_enabled=0.0, batter_fatigue_injury_base=1.0)
     lineup = SimpleNamespace(batting_lines={"TIRED": None}, fielding_lines={})
     events = arm_injury.roll_post_game_injuries(
-        seed=7, tuning=t, usage_state=None, game_day=None, staffs={},
+        seed=7, tuning=t, usage_state=None, game_day=0, staffs={},
         lineups={"home": lineup},
         batters={"home": [_batter("TIRED", fatigue_penalty=cap)]},
         injured_players={"TIRED"},

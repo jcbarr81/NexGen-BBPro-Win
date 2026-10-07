@@ -7,12 +7,16 @@ Who comes off an injured list on his own (Release 3, owner decision Q11):
 * an owner's club follows the owner's per-team choices in
   ``services.team_play_settings``: ``il_auto_activate_15`` (default: the
   league's ``auto_activate_il``) and ``il_auto_activate_60`` (default off);
-* when team ownership can't be read, every club waits a day.
+* the deadline fallback (``force_auto_activate``) activates an owner's
+  15-day returners only when that owner never made a 15-day choice: an
+  owner who turned it off keeps his player listed;
+* when team ownership can't be read, every club waits a day -- forced or not.
 
 An owner's returner goes to the active roster only if there is room (and,
-for a pitcher, room on the staff). Otherwise he goes to AAA, the owner gets a
-"ready - make room" action item on the Season page, and nobody else on the
-owner's roster is moved: the CPU never makes room on an owner's club.
+for a pitcher, room on the staff). Otherwise he goes to AAA (or Low-A, if he
+is young enough for it), the owner gets a "ready - make room" action item on
+the Season page, and nobody else on the owner's roster is moved: the CPU
+never makes room on an owner's club.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ from services.injury_manager import (
 )
 from services.team_auto_reassign_settings import auto_reassign_team_if_enabled
 from services.roster_auto_assign import ACTIVE_MAX, AAA_MAX, LOW_MAX
+from services.roster_validation import LOW_LEVEL_MAX_AGE
 from services.players_repository import save_players
 from utils.news_logger import log_news_event
 from utils.path_utils import get_data_dir
@@ -105,6 +110,50 @@ def _player_name(player) -> str:
     return f"{getattr(player, 'first_name', '')} {getattr(player, 'last_name', '')}".strip() or getattr(player, "player_id", "")
 
 
+def _act_block_reason(
+    roster,
+    player=None,
+    players_by_id: Optional[Dict[str, object]] = None,
+) -> Optional[str]:
+    """Why an owner's returner can't join the active roster, or None if he can.
+
+    ``"active_full"`` when the active roster is at its cap; ``"pitcher_cap"``
+    when there is an active spot but he is a pitcher and the staff is already
+    at the limit (13; 14 in September) -- activating one more would block the
+    owner's next sim.
+    """
+
+    act = list(getattr(roster, "act", []) or [])
+    if len(act) >= active_roster_cap():
+        return "active_full"
+    if counts_as_pitcher(player):
+        lookup = players_by_id or {}
+        arms = sum(1 for pid in act if counts_as_pitcher(lookup.get(pid)))
+        if arms >= active_pitcher_cap():
+            return "pitcher_cap"
+    return None
+
+
+def _low_eligible(player) -> bool:
+    """True unless ``player`` is known to be too old for Low-A.
+
+    Age on the real calendar date, the basis the roster validator uses
+    (``api.routers.validation``), so a returner the automation parks in Low-A
+    is one the owner's own roster validation accepts.
+    """
+
+    raw = str(getattr(player, "birthdate", "") or "").strip()
+    if not raw:
+        return True
+    try:
+        born = date.fromisoformat(raw.split("T", 1)[0][:10])
+    except ValueError:
+        return True
+    today = date.today()
+    age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+    return age < LOW_LEVEL_MAX_AGE
+
+
 def _resolve_destination(
     roster,
     *,
@@ -119,22 +168,39 @@ def _resolve_destination(
     # one got hurt (audit H9).
     if cpu_owned:
         return "act"
-    act = list(getattr(roster, "act", []) or [])
-    room = len(act) < active_roster_cap()
-    if room and counts_as_pitcher(player):
-        # An owner's pitcher comes back to the active roster only if the
-        # staff is under the limit (13; 14 in September): activating a 14th
-        # would block the owner's next sim.
-        lookup = players_by_id or {}
-        arms = sum(1 for pid in act if counts_as_pitcher(lookup.get(pid)))
-        room = arms < active_pitcher_cap()
-    if room:
+    if _act_block_reason(roster, player, players_by_id) is None:
         return "act"
     if len(getattr(roster, "aaa", []) or []) < AAA_MAX:
         return "aaa"
-    if len(getattr(roster, "low", []) or []) < LOW_MAX:
+    # Low-A takes only players under its age limit. A veteran with no room in
+    # AAA stays listed (blocked) and the owner gets the "ready" item instead.
+    if len(getattr(roster, "low", []) or []) < LOW_MAX and _low_eligible(player):
         return "low"
     return None
+
+
+def _owner_chose(team_id: str, list_level: str, data_dir) -> bool:
+    """True when the owner explicitly stored a choice for this list.
+
+    A settings file that exists but can't be read counts as a choice, so the
+    deadline fallback never overrides an owner on a guess.
+    """
+
+    from services.team_play_settings import (
+        IL_AUTO_ACTIVATE_15,
+        IL_AUTO_ACTIVATE_60,
+        SETTINGS_FILENAME,
+        load_team_play_overrides,
+    )
+
+    key = IL_AUTO_ACTIVATE_60 if list_level == "ir" else IL_AUTO_ACTIVATE_15
+    try:
+        path = Path(data_dir) / SETTINGS_FILENAME
+        if path.exists():
+            json.loads(path.read_text(encoding="utf-8"))
+        return key in load_team_play_overrides(team_id, data_dir=data_dir)
+    except Exception:
+        return True
 
 
 def _owner_auto_activates(team_id: str, list_level: str, data_dir) -> bool:
@@ -170,10 +236,12 @@ def process_disabled_lists(
 
     ``auto_activate`` is the caller's intent. A CPU club always activates; an
     owner's club follows the owner's per-team 15-day and 60-day choices
-    (``services.team_play_settings``). ``force_auto_activate`` overrides the
-    owner's 15-day choice for batch tools and the deadline CPU fill, which
-    have no owner to wait for; an owner's 60-day list still follows his
-    60-day choice.
+    (``services.team_play_settings``). ``force_auto_activate`` is the
+    fallback for batch tools and the deadline CPU fill: it activates an
+    owner's 15-day returners only when the owner never chose for that list
+    (owner decision Q11: an explicit "off" is honoured every day); an owner's
+    60-day list always follows his 60-day choice. When team ownership can't
+    be read nobody is activated, forced or not.
     """
 
     summary = DLAutomationSummary()
@@ -218,8 +286,12 @@ def process_disabled_lists(
             days_remaining = disabled_list_days_remaining(player, today=target_date)
             if days_remaining is None or days_remaining > 0:
                 continue
+            # ``ready`` also records that the "ready" news line went out. On a
+            # day ownership can't be read the only line logged is "retrying",
+            # so the flag waits for the first day ownership is known and the
+            # owner still gets his "waiting on the owner" line then.
             newly_ready = not getattr(player, "ready", False)
-            if newly_ready:
+            if newly_ready and human_ids is not None:
                 player.ready = True
                 mutated_players.add(pid)
 
@@ -231,10 +303,19 @@ def process_disabled_lists(
                 log_news_event(base_msg, category="injury")
                 continue
 
-            if cpu_club or (force_auto_activate and list_level == "dl"):
-                activate = True
-            elif human_ids is None:
+            if human_ids is None:
+                # Ownership unknown: stand down, even under force. A guess
+                # could activate an owner's player or park a CPU returner.
                 activate = False
+            elif cpu_club:
+                activate = True
+            elif (
+                force_auto_activate
+                and list_level == "dl"
+                and not _owner_chose(team_id, list_level, data_dir)
+            ):
+                # The deadline fallback, for an owner who never chose.
+                activate = True
             else:
                 activate = _owner_auto_activates(team_id, list_level, data_dir)
             if not activate:
@@ -253,6 +334,9 @@ def process_disabled_lists(
                     log_news_event(base_msg + why, category="injury", team_id=team_id)
                 continue
 
+            block_reason = (
+                None if cpu_club else _act_block_reason(roster, player, player_map)
+            )
             destination = _resolve_destination(
                 roster,
                 cpu_owned=cpu_club,
@@ -279,21 +363,32 @@ def process_disabled_lists(
             if destination != "act" and not cpu_club:
                 # An owner's club with no room: he waits in the minors and
                 # the owner decides who makes way. Nobody else is moved.
-                parked.setdefault(str(team_id).upper(), []).append(
-                    {
-                        "player_id": pid,
-                        "list": list_label or "injured list",
-                        "level": destination,
-                        "date": target_date.isoformat(),
-                    }
-                )
+                entry = {
+                    "player_id": pid,
+                    "list": list_label or "injured list",
+                    "level": destination,
+                    "date": target_date.isoformat(),
+                    # The Season page item says why he is waiting.
+                    "reason": block_reason or "active_full",
+                }
+                if block_reason == "pitcher_cap":
+                    entry["pitcher_cap"] = active_pitcher_cap()
+                parked.setdefault(str(team_id).upper(), []).append(entry)
                 summary.awaiting_room.append(
                     f"{_player_name(player)} is healthy and waiting in "
                     f"{dest_label} for an active-roster spot ({team_id})"
                 )
-                msg += (
-                    " — no room on the active roster. Make room to bring him up."
-                )
+                if block_reason == "pitcher_cap":
+                    msg += (
+                        " — the pitching staff is at the "
+                        f"{active_pitcher_cap()}-pitcher limit. Make room to "
+                        "bring him up."
+                    )
+                else:
+                    msg += (
+                        " — no room on the active roster. Make room to bring "
+                        "him up."
+                    )
 
             # Coming off the list isn't symmetrical with going on it. The
             # injury left the lineup a man short, so the sim rebuilt it and
