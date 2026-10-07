@@ -1128,3 +1128,50 @@ count, so an RNG-reshuffling change can trip it -- re-check seeds 1 and 2.
   against FanGraphs / Baseball-Reference.
 - `tests/conftest.py` teardown runs `git checkout -- data`, silently reverting
   unstaged edits to tracked data files; note it in CODEX_HANDOFF section 5.
+
+## 60. 26-man roster follow-ups (7.46.0)
+
+- MR4/MR5 staff slots plus the engine relief-role normaliser (MR1-3, RP and
+  unlisted pitchers recognised as relievers) -- Release 3, tuned against
+  13-man staffs. New leagues' 12th/13th pitchers and MR1-3 rows are not yet
+  engine-recognised relievers.
+- Waivers / DFA / outright assignments. Out-of-options surplus CPU pitchers
+  are force-optioned today (logged); owners get the generic pitcher-limit
+  error -- add "{name} is out of options: trade or release a pitcher".
+- Check owner teams on commissioner/scheduler sims and in the postseason
+  (playoff sims have no roster gate); gate it behind the deadline flow so the
+  auto-run can't stall.
+- Two-way player designation (MLB exempts them from the pitcher count).
+- Wire the dormant lineup/roster notification validators
+  (`run_lineup_validators` is never passed) together with the
+  `pitching_staff_invalid` kwarg bug (`roster_ids` vs `active_ids`).
+- Notify every owner of an open active spot in multi-owner leagues (today
+  the notification goes to the team that runs the sim; the Season-page action
+  item reaches everyone).
+- Free Agency offer dialog: show level room ("ACT 25/26 - 13/13 P") and the
+  server's signing warnings (the /sign response returns them; the client
+  doesn't show them yet).
+- Surface owners' yearly-promotion suggestions as an action item / Roster
+  hint (news lines only today).
+- Opening Day CPU roster pass: optional dry-run admin endpoint.
+- Daily CPU upkeep passes no option-limit veto, so its trims ignore option
+  limits silently (pre-existing); pass `injury_manager._option_allowed`.
+- `api/routers/lineups.py` Pitching auto-fill still picks pitchers from the
+  stale stored role column; use `counts_as_pitcher`.
+- CPU organisations in existing leagues already exceed today's limits (alpha
+  and stats-test CPU orgs hold 53-55 with Low-A at 14-15 vs a cap of 10,
+  from draft picks that are never released). Harmless (the gate checks only
+  the requesting team) but worth a CPU-only offseason trim policy.
+- Client `npm run typecheck` fails on main (24 strict-mode errors in pages
+  this release didn't touch: LeagueCreatePage, StandingsPage, ParksPage...).
+- Post a league news item announcing the 26-man roster at deploy.
+- The offseason arbitration pass returns `ownership_unknown` when it ran
+  with every club treated as an owner's (no CPU raises/non-tenders that
+  year); surface it on the offseason checklist so the commissioner knows.
+- Lenient ownership reads left (read-only uses): `api/routers/season._human_team_ids`
+  (readiness: an unreadable users.txt lists no owner teams, so nothing is
+  checked) and `fa_window._human_participation` (display). Switch both to
+  `team_ownership.human_owned_team_ids_strict`. (7.46.0 made the mutating
+  paths strict: roster automation, the CPU FA market and bid book,
+  negotiations, IL auto-activation and the arbitration/non-tender pass.)
+
