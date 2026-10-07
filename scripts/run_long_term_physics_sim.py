@@ -850,13 +850,30 @@ def main() -> int:
         )
         log_phase("season_sim_start", year=year)
 
-        def simulate_game(home_id: str, away_id: str, seed: int | None = None, game_date: str | None = None):
+        def simulate_game(
+            home_id: str,
+            away_id: str,
+            seed: int | None = None,
+            game_date: str | None = None,
+            postseason: bool = False,
+        ):
             return simulate_game_scores(
                 home_id,
                 away_id,
                 seed=seed,
                 game_date=game_date,
                 engine="physics",
+                postseason=postseason,
+            )
+
+        def simulate_playoff_game(
+            home_id: str,
+            away_id: str,
+            seed: int | None = None,
+            game_date: str | None = None,
+        ):
+            return simulate_game(
+                home_id, away_id, seed=seed, game_date=game_date, postseason=True
             )
 
         def record_game(game: dict[str, str]) -> None:
@@ -1053,7 +1070,11 @@ def main() -> int:
             if not args.include_playoff_stats:
                 os.environ["PB_PERSIST_STATS"] = "0"
             try:
-                bracket = simulate_playoffs(bracket, simulate_game=simulate_game, persist_cb=save_bracket)
+                bracket = simulate_playoffs(
+                    bracket,
+                    simulate_game=simulate_playoff_game,
+                    persist_cb=save_bracket,
+                )
             finally:
                 if prev_persist is None:
                     os.environ.pop("PB_PERSIST_STATS", None)

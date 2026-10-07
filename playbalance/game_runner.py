@@ -88,6 +88,17 @@ def _physics_usage_context(
     return _PHYSICS_USAGE_STATE, _PHYSICS_USAGE_DAY_MAP[date_token]
 
 
+def _extra_innings_runner_enabled() -> bool:
+    """The active league's automatic-runner setting (default on)."""
+
+    try:
+        from utils.league_settings import extra_innings_runner_enabled
+
+        return extra_innings_runner_enabled()
+    except Exception:
+        return True
+
+
 def _resolve_game_engine(engine: str | None) -> str:
     raw = engine or os.getenv("PB_GAME_ENGINE") or os.getenv("PB_SIM_ENGINE")
     token = str(raw or "").strip().lower()
@@ -1058,6 +1069,7 @@ def _run_physics_game(
     tracker: PitcherRecoveryTracker | None,
     players_lookup: Mapping[str, object],
     persist_stats: bool,
+    postseason: bool = False,
 ) -> tuple[TeamState, TeamState, dict[str, object], str, dict[str, object]]:
     from physics_sim.data_loader import load_players_by_id
     from physics_sim.engine import simulate_game
@@ -1152,8 +1164,12 @@ def _run_physics_game(
         tuning_overrides.update(get_injury_tuning_overrides())
     except Exception:
         pass
-    if not tuning_overrides:
-        tuning_overrides = None
+    # Decision 11: the league's automatic-runner rule, written last so it
+    # wins over any stored physics override. The engine already skips the
+    # runner in postseason games.
+    tuning_overrides["extra_innings_runner"] = (
+        1.0 if _extra_innings_runner_enabled() else 0.0
+    )
 
     result = simulate_game(
         away_lineup=away_lineup,
@@ -1171,6 +1187,7 @@ def _run_physics_game(
         tuning_overrides=tuning_overrides,
         usage_state=usage_state,
         game_day=game_day,
+        postseason=postseason,
         # The rotation tracker already decided who starts, weighing the whole
         # season's rest. Tell the engine, or it re-picks a slot from `game_day`
         # -- a counter that restarts at zero each process (7.41.0).
@@ -1361,8 +1378,13 @@ def run_single_game(
     game_date: str | date | None = None,
     seed: int | None = None,
     engine: str | None = None,
+    postseason: bool = False,
 ) -> tuple[TeamState, TeamState, dict[str, object], str, dict[str, object]]:
-    """Simulate a single game and return team states, box score, HTML and metadata."""
+    """Simulate a single game and return team states, box score, HTML and metadata.
+
+    ``postseason`` marks a playoff game: no automatic runner in extra innings
+    and the engine's postseason bullpen hooks (physics engine only).
+    """
 
     engine_name = _resolve_game_engine(engine)
     date_token = _normalize_game_date(game_date)
@@ -1483,6 +1505,7 @@ def run_single_game(
             tracker=tracker,
             players_lookup=players_lookup,
             persist_stats=persist_stats,
+            postseason=postseason,
         )
 
     cfg, _ = load_tuned_playbalance_config()
@@ -1777,12 +1800,14 @@ def simulate_game_scores(
     engine: str | None = None,
     home_starter: str | None = None,
     away_starter: str | None = None,
+    postseason: bool = False,
 ) -> tuple[int, int, str, dict[str, object]]:
     """Return the final score, rendered HTML and metadata for a matchup.
 
     ``home_starter`` / ``away_starter`` let a caller pin the starting pitchers
     (S1-10: the parallel-day parent pre-assigns them so ``next_index`` advances
-    exactly once per team, in serial order, before dispatch).
+    exactly once per team, in serial order, before dispatch). ``postseason``
+    marks a playoff game (see :func:`run_single_game`).
     """
 
     data_dir = get_data_dir()
@@ -1821,6 +1846,7 @@ def simulate_game_scores(
         engine=engine,
         home_starter=home_starter,
         away_starter=away_starter,
+        postseason=postseason,
     )
     return home_state.runs, away_state.runs, html, meta
 

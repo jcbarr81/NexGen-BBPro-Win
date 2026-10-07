@@ -2573,13 +2573,14 @@ def _resolve_ground_out(
             bases.second = None
             events.append("tp")
             return runs, outs_added, events, scored
+    # Audit L15: the runner on 3rd's chance to score is rolled here, as it
+    # always was (so the RNG stream is unchanged), but the run only counts if
+    # the play does not end the inning as a double play (rule 5.08(a)).
+    third_scores = False
     if bases.third and outs < 2:
         prob = tuning.get("ground_rbi_prob", 0.12)
         prob += (bases.third.speed - 50.0) / 400.0
-        if random.random() < prob:
-            runs += 1
-            scored.append(bases.third)
-            bases.third = None
+        third_scores = random.random() < prob
     if bases.first and outs < 2:
         dp_prob = double_play_probability(
             runner_speed=bases.first.speed,
@@ -2591,7 +2592,16 @@ def _resolve_ground_out(
             outs_added = 2
             bases.first = None
             events.append("dp")
+            if third_scores and outs + outs_added < 3:
+                runs += 1
+                scored.append(bases.third)
+                bases.third = None
             return runs, outs_added, events, scored
+    if third_scores:
+        runs += 1
+        scored.append(bases.third)
+        bases.third = None
+    if bases.first and outs < 2:
         force_prob = tuning.get("fielder_choice_force_prob", 0.55)
         force_prob += (infield_range - 50.0) / 200.0
         force_prob += (turn_arm - 50.0) / 320.0
@@ -2604,8 +2614,14 @@ def _resolve_ground_out(
                 bases.first.speed, turn_arm, tuning, extra=0.05
             )
             if random.random() < prob:
-                bases.second = bases.first
-                bases.first = None
+                # Audit M8: never overwrite an occupied base. The runner on
+                # 2nd moves up if 3rd is open; with both taken, R1 holds.
+                if bases.second is not None and bases.third is None:
+                    bases.third = bases.second
+                    bases.second = None
+                if bases.second is None:
+                    bases.second = bases.first
+                    bases.first = None
     return runs, outs_added, events, scored
 
 
@@ -3968,7 +3984,8 @@ def simulate_game(
         runner_pitchers: dict[str, PitcherLine] = {}
         unearned_runners: set[str] = set()
         # Release 3: ids of extra-inning automatic runners placed this half.
-        # Populated by item D; an inning-start change passes it as exclude_ids.
+        # An inning-start pitching change passes it as exclude_ids, so the
+        # entering pitcher is not charged with an inherited runner.
         auto_runner_ids: set[str] = set()
         unearned_outs = 0
         if batting_team == "away":
@@ -3998,14 +4015,22 @@ def simulate_game(
         )
         walkoff = False
 
-        if (
+        # Decision 11: the automatic runner on 2nd from the 10th, in the
+        # regular season only (a league may turn it off). Past the safety
+        # guard (``max_innings``) every game gets one, postseason and opt-out
+        # leagues included, so no game runs on toward the hard stop. He is the
+        # batter before the half's leadoff man, and his run is unearned.
+        regular_runner = (
             tuning.get("extra_innings_runner", 0.0) > 0.5
+            and not postseason
             and inning >= int(tuning.get("extra_innings_runner_start", 10.0))
-            and lineup
-        ):
+        )
+        sudden_death = inning > int(tuning.get("max_innings", 30.0))
+        if lineup and (regular_runner or sudden_death):
             ghost = lineup[(batter_index - 1) % len(lineup)]
             bases.second = ghost
             unearned_runners.add(ghost.player_id)
+            auto_runner_ids.add(ghost.player_id)
 
         if inning >= 9:
             lead = defense_score - offense_score
@@ -4286,6 +4311,10 @@ def simulate_game(
                     pitch_log[-1]["runner_event"] = pinch_event
 
         # R3: first PA of half
+        # The automatic runner is charged to whoever pitches to the half's
+        # first batter: the loop below maps every runner on base to the
+        # current pitcher's line on each PA (setdefault), and his run is
+        # scored unearned through ``unearned_runners``.
         while outs < 3:
             pitcher_state = pitching_state.current
             line = _line_for_pitcher(pitching_state, pitcher_state, inning)
@@ -5754,7 +5783,13 @@ def simulate_game(
         finalize_half_inning()
         return outs, batter_index
 
-    max_innings = int(tuning.get("max_innings", 18.0))
+    # Decision 11: no ties. Past ``max_innings`` (the safety guard) the
+    # sudden-death runner applies; the hard stop is the only way a game can
+    # still end tied, and ``inning`` is always the last inning played.
+    hard_stop = max(
+        int(tuning.get("max_innings", 30.0)),
+        int(tuning.get("max_innings_hard_stop", 60.0)),
+    )
     inning = 1
     ended_in_tie = False
     while True:
@@ -5780,10 +5815,10 @@ def simulate_game(
         )
         if inning >= 9 and score_home != score_away:
             break
-        inning += 1
-        if inning > max_innings:
+        if inning >= hard_stop:
             ended_in_tie = True
             break
+        inning += 1
 
     final_home = home_staff.current
     final_away = away_staff.current

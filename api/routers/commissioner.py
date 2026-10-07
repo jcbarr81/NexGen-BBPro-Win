@@ -6,6 +6,7 @@ read + write them in one place:
 - :mod:`services.trade_settings`  (trade toggles + CPU cadence)
 - :mod:`services.injury_settings` (off/low/normal level)
 - :mod:`services.finance_settings` (preset + enforcement + enabled)
+- :mod:`utils.league_settings` (game rules: the extra-innings runner)
 
 All writes are admin-gated.
 """
@@ -23,6 +24,7 @@ from services import scouting_service as scout
 from services import team_auto_reassign_settings as tar
 from services import team_strategy_profiles as tsp
 from services import trade_settings as ts
+from utils import league_settings as ls
 
 from ..security import require_bearer
 
@@ -142,6 +144,9 @@ def _serialize() -> Dict[str, Any]:
             "finance_ai_tuning": dict(finance.finance_ai_tuning),
         },
         "scouting": _serialize_scouting(scouting),
+        "rules": {
+            "extra_innings_runner": ls.extra_innings_runner_enabled(),
+        },
         "strategy": {
             "default_profile": strategy_settings.get("default_profile"),
             "teams": strategy_settings.get("teams") or {},
@@ -227,6 +232,27 @@ def save_injury_settings(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
+    return _serialize()
+
+
+@router.put("/settings/rules")
+def save_rules_settings(
+    payload: Dict[str, Any] = Body(...),
+    _: Dict[str, Any] = AdminIdentity,
+) -> Dict[str, Any]:
+    """Game rules. Today: the extra-innings automatic runner (decision 11).
+
+    Takes effect from the next game played; games already in the books keep
+    the rule they were played under.
+    """
+
+    value = payload.get("extra_innings_runner")
+    if not isinstance(value, bool):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="extra_innings_runner must be true or false.",
+        )
+    ls.set_extra_innings_runner(value)
     return _serialize()
 
 
