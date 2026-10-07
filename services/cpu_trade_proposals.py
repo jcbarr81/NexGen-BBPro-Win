@@ -16,10 +16,10 @@ from services.trade_settings import load_trade_settings
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster
+from utils.roster_rules import counts_as_pitcher
 from utils.sim_date import get_current_sim_date
 from utils.team_loader import load_teams
 from utils.trade_utils import load_trades, save_trade, trade_deadline_for_year
-from utils.user_manager import load_users
 from services.team_outlook import load_outlooks, OUTLOOK_CONTEND, OUTLOOK_REBUILD
 
 __all__ = ["run_cpu_trade_proposal_cycle"]
@@ -165,6 +165,11 @@ def run_cpu_trade_proposal_cycle(
     # roster auto-assign service uses, falling back to the teams.csv
     # ``owner_id`` flag when users.txt is empty (legacy/test fixtures).
     human_team_ids = _load_human_team_ids(data_dir=resolved_data_dir)
+    if human_team_ids is None:
+        # users.txt exists but can't be read: never guess which clubs are
+        # CPU (a guess made every owner's club a CPU trade partner).
+        result["reason"] = "ownership_unknown"
+        return result
     if human_team_ids:
         cpu_teams = [
             team_id
@@ -662,7 +667,7 @@ def _run_cpu_cpu_pass(
     # Players mapping (once) for validate_trade.
     players_map = {
         pid: {
-            "is_pitcher": bool(getattr(p, "is_pitcher", False)),
+            "is_pitcher": counts_as_pitcher(p),
             "primary_position": getattr(p, "primary_position", "") or "",
             "other_positions": list(getattr(p, "other_positions", []) or []),
             "first_name": getattr(p, "first_name", "") or "",
@@ -1158,29 +1163,20 @@ def _is_cpu_team(team: object) -> bool:
     return owner in CPU_OWNER_IDS
 
 
-def _load_human_team_ids(*, data_dir: Path) -> set[str]:
+def _load_human_team_ids(*, data_dir: Path) -> set[str] | None:
     """Return the set of team_ids that have a real (human) owner.
 
-    Reads ``users.txt`` because that's the source of truth for who
-    owns which team. Falls back to an empty set on any I/O failure —
-    that just means every team gets treated as CPU, matching the prior
-    behavior.
+    The strict reader (``services.team_ownership``): None when
+    ``users.txt`` exists but can't be read. The old private copy returned
+    an empty set on a read error, which treated every owner as CPU.
     """
 
-    users_path = data_dir / "users.txt"
     try:
-        users = load_users(str(users_path))
+        from services.team_ownership import human_owned_team_ids_strict
+
+        return human_owned_team_ids_strict(data_dir)
     except Exception:
-        return set()
-    owned: set[str] = set()
-    for user in users:
-        role = str(user.get("role", "") or "").strip().lower()
-        if role != "owner":
-            continue
-        team_id = str(user.get("team_id", "") or "").strip().upper()
-        if team_id:
-            owned.add(team_id)
-    return owned
+        return None
 
 
 def _load_rosters(team_ids: Sequence[str], *, data_dir: Path) -> dict[str, object]:

@@ -28,7 +28,13 @@ from services.transaction_log import record_transaction
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.roster_io import read_roster_csv
-from utils.roster_loader import load_roster, save_roster
+from utils.roster_loader import (
+    active_pitcher_cap,
+    active_roster_cap,
+    load_roster,
+    save_roster,
+)
+from utils.roster_rules import AAA_CAP, LOW_CAP, ORG_LIMIT, counts_as_pitcher
 from utils.team_loader import load_teams
 
 
@@ -201,6 +207,7 @@ def run_cpu_free_agency_round(
 
     signed = 0
     signings: list[Dict[str, object]] = []
+    roster_players: Dict[str, object] | None = None
     for player in candidates:
         if max_signings is not None and signed >= max(0, int(max_signings)):
             break
@@ -252,10 +259,22 @@ def run_cpu_free_agency_round(
         team_id = selected_team_id
         if not team_id:
             continue
+        if roster_players is None:
+            # Loaded once per pass, only when someone signs: the placement
+            # needs to know who on each active roster is a pitcher.
+            try:
+                roster_players = {
+                    str(getattr(p, "player_id", "") or ""): p
+                    for p in load_players_from_csv(resolved_data_dir / "players.csv")
+                }
+            except Exception:
+                roster_players = {}
         roster_level = _add_player_to_team_roster(
             team_id,
             player_id,
             data_dir=resolved_data_dir,
+            player=player,
+            players_by_id=roster_players,
         )
         if roster_level is None:
             continue
@@ -457,11 +476,57 @@ def _quality_score(player: Player) -> int:
     return max(20, min(95, int(round(sum(values) / len(values)))))
 
 
+def cpu_signing_level(
+    roster: Roster,
+    player: object | None,
+    players_by_id: Dict[str, object] | None = None,
+) -> str | None:
+    """Where a CPU club puts a free agent it signs, or None if it has no room.
+
+    The active roster while it has a spot -- for a pitcher, only while the
+    staff is under the limit (13; 14 in September), since a 14th arm can't
+    pitch -- else AAA, else Low-A. None once the organisation holds
+    ``ORG_LIMIT`` players (active + AAA + LOW).
+    """
+
+    act = list(getattr(roster, "act", []) or [])
+    aaa = list(getattr(roster, "aaa", []) or [])
+    low = list(getattr(roster, "low", []) or [])
+    if len(act) + len(aaa) + len(low) >= ORG_LIMIT:
+        return None
+    act_room = len(act) < active_roster_cap()
+    if act_room and counts_as_pitcher(player):
+        lookup = players_by_id or {}
+        arms = sum(1 for pid in act if counts_as_pitcher(lookup.get(pid)))
+        act_room = arms < active_pitcher_cap()
+    if act_room:
+        return "ACT"
+    if len(aaa) < AAA_CAP:
+        return "AAA"
+    if len(low) < LOW_CAP:
+        return "LOW"
+    return None
+
+
+def _cpu_team_for_signing(team_id: str, data_dir: Path | str | None) -> bool:
+    """True when ownership is known and nobody owns ``team_id``."""
+
+    try:
+        from services.team_ownership import human_owned_team_ids_strict
+
+        human = human_owned_team_ids_strict(data_dir)
+    except Exception:
+        return False
+    return human is not None and str(team_id or "").strip().upper() not in human
+
+
 def _add_player_to_team_roster(
     team_id: str,
     player_id: str,
     *,
     data_dir: Path,
+    player: object | None = None,
+    players_by_id: Dict[str, object] | None = None,
 ) -> str | None:
     roster_dir = data_dir / "rosters"
     roster_path = roster_dir / f"{team_id}.csv"
@@ -477,21 +542,10 @@ def _add_player_to_team_roster(
     if player_id in roster.act or player_id in roster.aaa or player_id in roster.low:
         return None
 
-    act = len(roster.act)
-    aaa = len(roster.aaa)
-    low = len(roster.low)
-
-    if act < 25:
-        target_level = "ACT"
-        roster.act.append(player_id)
-    elif aaa < 15:
-        target_level = "AAA"
-        roster.aaa.append(player_id)
-    elif low < 10:
-        target_level = "LOW"
-        roster.low.append(player_id)
-    else:
+    target_level = cpu_signing_level(roster, player, players_by_id)
+    if target_level is None:
         return None
+    getattr(roster, _FA_LEVEL_ATTR[target_level]).append(player_id)
 
     try:
         save_roster(team_id, roster, roster_dir=roster_dir)
@@ -513,19 +567,27 @@ def finalize_fa_signing(
     signing_bonus: int = 0,
     player: object | None = None,
     data_dir: Path | str | None = None,
+    cpu_placement: bool | None = None,
 ) -> bool:
     """Roster + contract for a free agent that just won a negotiation (#12).
 
     Mirrors the /teams/{id}/sign endpoint's finalize steps so a negotiation
     resolution signs the winner exactly like a manual signing would. Returns
     False (no-op) if the player is already rostered somewhere on the team.
+
+    An owner's signing goes to the level the owner chose. A CPU club's goes
+    where :func:`cpu_signing_level` puts it (a pitcher to AAA when the staff
+    is full); a CPU club with a full organisation returns False, so the
+    negotiation moves on to the next offer. ``cpu_placement`` None means
+    "work it out from ownership" (unreadable ownership: the owner's path).
     """
     tid = str(team_id or "").strip()
     pid = str(player_id or "").strip()
     if not tid or not pid:
         return False
     lvl = str(level or "ACT").upper()
-    attr = _FA_LEVEL_ATTR.get(lvl, "act")
+    if lvl not in _FA_LEVEL_ATTR:
+        lvl = "ACT"
     try:
         roster = load_roster(tid)
     except Exception:
@@ -533,6 +595,23 @@ def finalize_fa_signing(
     for a in ("act", "aaa", "low", "dl", "ir"):
         if pid in getattr(roster, a, []):
             return False
+    if cpu_placement is None:
+        cpu_placement = _cpu_team_for_signing(tid, data_dir)
+    if cpu_placement:
+        try:
+            base = get_data_dir() if data_dir is None else Path(data_dir)
+            lookup = {
+                str(getattr(p, "player_id", "") or ""): p
+                for p in load_players_from_csv(base / "players.csv")
+            }
+        except Exception:
+            lookup = {}
+        signee = player if player is not None else lookup.get(pid)
+        placed = cpu_signing_level(roster, signee, lookup)
+        if placed is None:
+            return False
+        lvl = placed
+    attr = _FA_LEVEL_ATTR[lvl]
     try:
         getattr(roster, attr).append(pid)
         save_roster(tid, roster)

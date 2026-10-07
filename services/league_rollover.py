@@ -255,6 +255,9 @@ class LeagueRolloverService:
         # Promote prospects AFTER retirements so newly-vacated ACT spots
         # get filled by the AAA / LOW pipeline. Single-step per offseason
         # so the owner can watch a kid climb LOW → AAA → ACT over years.
+        # Only CPU clubs move a player onto the active roster (26-man cap,
+        # 13 pitchers); an owner's ready prospect is a suggestion. CPU clubs
+        # are rebalanced to 13 pitchers / 13 hitters at Opening Day.
         try:
             from services.prospect_promotion import run_yearly_promotions
 
@@ -263,6 +266,7 @@ class LeagueRolloverService:
                 artifacts["promotions"] = json.dumps(
                     {
                         "count": int(promo_summary.get("count", 0) or 0),
+                        "suggestions": len(promo_summary.get("suggestions", []) or []),
                     }
                 )
         except Exception as exc:  # pragma: no cover - defensive

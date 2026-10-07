@@ -3,9 +3,12 @@
 The offseason promoter (``services.prospect_promotion``) runs once per year;
 this module adds the *in-season* lane: a monthly, outlook-weighted,
 protection/option-aware callup check wired into the sim's post-day
-automations, plus September 1 expansion (25 -> 28) with a revert at the
-REGULAR_SEASON -> PLAYOFFS edge. Automated moves apply to CPU teams only;
-human owners manage their own rosters.
+automations, plus September 1 expansion (26 -> 28, at most 14 pitchers) with
+a revert at the REGULAR_SEASON -> PLAYOFFS edge. Automated moves apply to CPU
+teams only -- ownership read strictly, so an unreadable ``users.txt`` means
+no moves at all; human owners manage their own rosters. The one exception is
+the revert, which options every club (owners included) back to 26 active and
+13 pitchers, each move logged.
 """
 from __future__ import annotations
 
@@ -30,18 +33,20 @@ from services.team_outlook import (
     OUTLOOK_REBUILD,
     load_outlooks,
 )
+from services.team_ownership import human_owned_team_ids_strict
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import (
     ACTIVE_ROSTER_SIZE,
     MIN_ACTIVE_PITCHERS,
+    active_pitcher_cap,
     active_roster_cap,
     load_roster,
     save_roster,
 )
+from utils.roster_rules import MAX_ACTIVE_PITCHERS, counts_as_pitcher
 from utils.team_loader import load_teams
 from utils.trade_utils import trade_deadline_for_year
-from utils.user_manager import load_users
 
 __all__ = [
     "run_monthly_callups",
@@ -52,7 +57,9 @@ __all__ = [
 CALLUP_STATE_FILENAME = "callup_state.json"
 VERSION = 1
 _HITTER_POSITIONS = ("C", "1B", "2B", "3B", "SS", "LF", "CF", "RF")
-_PITCHER_COMFORT = 11  # one under the evaluator's 12-pitcher comfort line
+# Fewer active arms than this is a pitching hole: one under the 13-pitcher
+# limit, matching the trade evaluator's need line.
+_PITCHER_COMFORT = MAX_ACTIVE_PITCHERS - 1
 # Never leave fewer active position players than this after a swap: one above
 # the season gate's minimum (roster_validation.MIN_POSITION_PLAYERS_ACT) so an
 # injury can still be covered. Pitcher call-ups with no floor here were one of
@@ -66,9 +73,12 @@ _HOLE_PERCENTILE = 0.25
 
 
 def _is_pitcher(player: object) -> bool:
-    return bool(getattr(player, "is_pitcher", False)) or str(
-        getattr(player, "primary_position", "") or ""
-    ).strip().upper() == "P"
+    return counts_as_pitcher(player)
+
+
+def _act_pitcher_count(roster: object, players_by_id: Mapping[str, object]) -> int:
+    act = list(getattr(roster, "act", []) or [])
+    return sum(1 for pid in act if _is_pitcher(players_by_id.get(pid)))
 
 
 def _primary_pos(player: object) -> str:
@@ -149,22 +159,18 @@ def _write_state(payload: Mapping, data_dir: Path) -> None:
     path.write_text(json.dumps(dict(payload), indent=2), encoding="utf-8")
 
 
-def _human_team_ids(data_dir: Path) -> set[str]:
-    """Team ids with a real (human) owner — copied from
-    cpu_trade_proposals._load_human_team_ids so this module stays independent."""
+def _human_team_ids(data_dir: Path) -> set[str] | None:
+    """Team ids with a real (human) owner, or None when that can't be read.
+
+    The strict reader: the old private copy returned an empty set when
+    ``users.txt`` could not be read, which made every owner's club look CPU
+    and let the call-ups move its players.
+    """
 
     try:
-        users = load_users(str(data_dir / "users.txt"))
+        return human_owned_team_ids_strict(data_dir)
     except Exception:
-        return set()
-    owned: set[str] = set()
-    for user in users:
-        if str(user.get("role", "") or "").strip().lower() != "owner":
-            continue
-        team_id = str(user.get("team_id", "") or "").strip().upper()
-        if team_id:
-            owned.add(team_id)
-    return owned
+        return None
 
 
 def _current_phase_is_regular_season() -> bool:
@@ -265,9 +271,14 @@ def _select_demotion_candidate(
     incoming_is_catcher: bool = False,
     incoming_is_hitter: bool = False,
     force: bool = False,
+    pitchers_only: bool = False,
 ) -> str | None:
     """Pick the worst-score demotable ACT player (D7). ``force`` skips the
-    protection + option gates (used by the September revert as a last resort)."""
+    protection + option gates (used by the September revert as a last resort).
+
+    ``pitchers_only`` limits the choice to pitchers (an incoming arm at the
+    pitcher limit, or a staff over it).
+    """
 
     act = list(getattr(roster, "act", []) or [])
     pitcher_count = sum(1 for pid in act if _is_pitcher(players_by_id.get(pid)))
@@ -289,6 +300,8 @@ def _select_demotion_candidate(
         if player is None:
             continue
         if getattr(player, "injured", False):
+            continue
+        if pitchers_only and not _is_pitcher(player):
             continue
         if _is_pitcher(player) and pitcher_count <= MIN_ACTIVE_PITCHERS:
             continue
@@ -331,6 +344,7 @@ def _demote(
     current: str | None,
     trigger: str,
     force: bool = False,
+    details: str = "Sent down to open a roster spot",
 ) -> dict:
     player = players_by_id.get(victim)
     name = _name(player, victim)
@@ -354,7 +368,7 @@ def _demote(
         player_name=name,
         from_level="ACT",
         to_level="AAA",
-        details="Sent down to open a roster spot",
+        details=details,
         season_date=current,
     )
     _news(f"{team_id} option {name} to AAA.", category="demotion", team_id=team_id, data_dir=data_dir)
@@ -468,6 +482,10 @@ def run_monthly_callups(
         return {"applied": False, "reason": f"load_failed:{exc}", "month": month_key}
 
     human = _human_team_ids(resolved)
+    if human is None:
+        # Ownership unreadable: never guess which clubs are CPU. Not marked
+        # as run, so the next day's check tries again.
+        return {"applied": False, "reason": "ownership_unknown", "month": month_key}
     cpu_team_ids = [
         str(getattr(t, "team_id", "") or "").strip().upper()
         for t in teams
@@ -536,7 +554,13 @@ def run_monthly_callups(
                 filtered["blocked_by_rules"] += 1
                 continue
 
-            if len(getattr(roster, "act", []) or []) >= active_roster_cap(current):
+            # A pitcher coming up to a staff at the limit swaps for a
+            # pitcher, even with an open roster spot; a staff already over
+            # the limit gives up a pitcher whoever comes up.
+            arms = _act_pitcher_count(roster, players_by_id)
+            arm_cap = active_pitcher_cap(current)
+            arms_full = _is_pitcher(player) and arms >= arm_cap
+            if arms_full or len(getattr(roster, "act", []) or []) >= active_roster_cap(current):
                 victim = _select_demotion_candidate(
                     team_id,
                     roster,
@@ -544,6 +568,7 @@ def run_monthly_callups(
                     data_dir=resolved,
                     incoming_is_catcher=(_primary_pos(player) == "C"),
                     incoming_is_hitter=not _is_pitcher(player),
+                    pitchers_only=arms_full or arms > arm_cap,
                 )
                 if victim is None:
                     filtered["no_roster_space"] += 1
@@ -602,12 +627,17 @@ def run_monthly_callups(
 
 def run_september_expansion(*, sim_date: str, data_dir: Path | None = None) -> dict:
     """Fill every CPU team toward the (expanded) active cap with its best
-    remaining eligible AAA players — no hole requirement, no demotions."""
+    remaining eligible AAA players — no hole requirement, no demotions.
+
+    26 -> 28; pitchers stop at the September limit (14), so the extra spots
+    go to position players once the staff is full.
+    """
 
     resolved = Path(data_dir) if data_dir is not None else get_data_dir()
     cap = active_roster_cap(sim_date)
     if cap <= ACTIVE_ROSTER_SIZE:
         return {"applied": False, "reason": "not_expanded", "promotions": []}
+    pitcher_cap = active_pitcher_cap(sim_date)
 
     try:
         players_by_id = {
@@ -619,6 +649,8 @@ def run_september_expansion(*, sim_date: str, data_dir: Path | None = None) -> d
         return {"applied": False, "reason": f"load_failed:{exc}", "promotions": []}
 
     human = _human_team_ids(resolved)
+    if human is None:
+        return {"applied": False, "reason": "ownership_unknown", "promotions": []}
     cpu_team_ids = [
         t
         for t in (
@@ -634,6 +666,8 @@ def run_september_expansion(*, sim_date: str, data_dir: Path | None = None) -> d
         for pid, player, overall in _eligible_aaa(roster, players_by_id):
             if len(getattr(roster, "act", []) or []) >= cap:
                 break
+            if _is_pitcher(player) and _act_pitcher_count(roster, players_by_id) >= pitcher_cap:
+                continue
             decision = evaluate_roster_move(
                 team_id, pid, from_level="aaa", to_level="act", path=_rules_path(resolved)
             )
@@ -662,7 +696,16 @@ def run_september_expansion(*, sim_date: str, data_dir: Path | None = None) -> d
 
 
 def revert_september_expansion(*, data_dir: Path | None = None) -> dict:
-    """Trim every team (CPU and human) back to the 25-man cap for playoffs."""
+    """Trim every team (CPU and human) back to 26 active and 13 pitchers.
+
+    Runs at the REGULAR_SEASON -> PLAYOFFS edge. Owners' clubs included: a
+    documented exception to "CPU never touches an owner's roster" (decision
+    8), and only ever by optioning to AAA, never a release. First the size
+    (worst-scoring demotable player), then -- while more than 13 pitchers
+    are active -- the worst pitcher. Option and protection rules are honoured
+    until nobody else is left, then overridden; every move is a logged
+    transaction.
+    """
 
     resolved = Path(data_dir) if data_dir is not None else get_data_dir()
     try:
@@ -685,19 +728,30 @@ def revert_september_expansion(*, data_dir: Path | None = None) -> dict:
             continue
         changed = False
         guard = 0
-        while len(getattr(roster, "act", []) or []) > ACTIVE_ROSTER_SIZE and guard < 20:
+        while guard < 40:
+            over_size = len(getattr(roster, "act", []) or []) > ACTIVE_ROSTER_SIZE
+            over_arms = _act_pitcher_count(roster, players_by_id) > MAX_ACTIVE_PITCHERS
+            if not (over_size or over_arms):
+                break
             guard += 1
             victim = _select_demotion_candidate(
-                team_id, roster, players_by_id, data_dir=resolved
+                team_id, roster, players_by_id, data_dir=resolved,
+                pitchers_only=over_arms,
             )
             forced = False
             if victim is None:
                 victim = _select_demotion_candidate(
-                    team_id, roster, players_by_id, data_dir=resolved, force=True
+                    team_id, roster, players_by_id, data_dir=resolved, force=True,
+                    pitchers_only=over_arms,
                 )
                 forced = True
             if victim is None:
                 break
+            detail = (
+                f"Optioned for the postseason: over the {MAX_ACTIVE_PITCHERS}-pitcher limit"
+                if over_arms and not over_size
+                else f"Optioned for the postseason: back to the {ACTIVE_ROSTER_SIZE}-man roster"
+            )
             demotions.append(
                 _demote(
                     team_id,
@@ -708,6 +762,7 @@ def revert_september_expansion(*, data_dir: Path | None = None) -> dict:
                     current=None,
                     trigger="september_revert_forced" if forced else "september_revert",
                     force=forced,
+                    details=detail,
                 )
             )
             changed = True

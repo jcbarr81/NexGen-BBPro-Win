@@ -109,8 +109,9 @@ class SeasonManager:
                     artifacts={},
                     reason=str(exc),
                 )
-        # S2-11: undo September roster expansion (28 -> 25) so playoffs start
-        # with legal rosters. Fires only on the REGULAR_SEASON -> PLAYOFFS edge.
+        # S2-11: undo September roster expansion (28 -> 26, at most 13
+        # pitchers) so playoffs start with legal rosters. Fires only on the
+        # REGULAR_SEASON -> PLAYOFFS edge.
         if previous == SeasonPhase.REGULAR_SEASON and self.phase == SeasonPhase.PLAYOFFS:
             try:
                 from services.inseason_callups import revert_september_expansion

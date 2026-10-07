@@ -15,9 +15,17 @@ import pytest
 from models.roster import Roster
 from services.roster_fill import (
     HITTER_FLOOR,
+    ForcedMove,
     choose_send_down,
     is_pitcher,
     maintain_cpu_active_roster,
+)
+from utils.roster_rules import (
+    ACT_HITTER_TARGET,
+    ACTIVE_ROSTER_SIZE,
+    MAX_ACTIVE_PITCHERS,
+    SEPTEMBER_MAX_ACTIVE_PITCHERS,
+    SEPTEMBER_ROSTER_SIZE,
 )
 
 
@@ -41,35 +49,171 @@ def _team(n_hitters, n_pitchers, catchers=1):
     return players, Roster("CPU", act=act)
 
 
+# A full roster with one hitter too many: 14 hitters / 12 pitchers today.
+_HITTER_HEAVY = (ACT_HITTER_TARGET + 1, ACTIVE_ROSTER_SIZE - ACT_HITTER_TARGET - 1)
+
+
 def test_the_last_healthy_catcher_is_never_optioned():
-    players, roster = _team(14, 12, catchers=1)   # the catcher is the weakest hitter
+    players, roster = _team(*_HITTER_HEAVY, catchers=1)   # the catcher is the weakest hitter
     assert choose_send_down(roster, players) != "h0"
 
 
 def test_a_second_catcher_can_go():
-    players, roster = _team(14, 12, catchers=2)
+    players, roster = _team(*_HITTER_HEAVY, catchers=2)
     assert choose_send_down(roster, players) in {"h0", "h1"}
 
 
 def test_send_down_follows_composition_not_the_returners_type():
     """Hitters at the floor: a pitcher goes, even if a hitter just returned."""
-    players, roster = _team(HITTER_FLOOR, 14)
+    players, roster = _team(HITTER_FLOOR, MAX_ACTIVE_PITCHERS + 1)
     victim = choose_send_down(roster, players)
     assert is_pitcher(players[victim])
 
 
+def test_a_returning_pitcher_on_a_full_staff_sends_a_pitcher_down():
+    """13 hitters / 13 pitchers plus a pitcher back from the IL (his
+    replacement gone): counting the returner, the staff is the surplus."""
+    players, roster = _team(ACT_HITTER_TARGET, MAX_ACTIVE_PITCHERS)
+    players["back"] = _p("back", "P", score=10)
+    roster.act.append("back")
+    victim = choose_send_down(roster, players, exclude={"back"})
+    assert victim != "back" and is_pitcher(players[victim])
+
+
+def test_a_returning_hitter_on_a_full_roster_sends_a_hitter_down():
+    players, roster = _team(ACT_HITTER_TARGET, MAX_ACTIVE_PITCHERS)
+    players["back"] = _p("back", "LF", score=10)
+    roster.act.append("back")
+    victim = choose_send_down(roster, players, exclude={"back"})
+    assert victim != "back" and not is_pitcher(players[victim])
+
+
+def test_september_staff_of_14_is_within_the_limit():
+    hitters = SEPTEMBER_ROSTER_SIZE - SEPTEMBER_MAX_ACTIVE_PITCHERS + 1
+    players, roster = _team(hitters, SEPTEMBER_MAX_ACTIVE_PITCHERS)
+    victim = choose_send_down(roster, players, pitcher_cap=SEPTEMBER_MAX_ACTIVE_PITCHERS)
+    assert not is_pitcher(players[victim])
+
+
 def test_cpu_upkeep_calls_up_a_catcher_when_none_is_active():
-    players, roster = _team(13, 12, catchers=0)
+    players, roster = _team(ACT_HITTER_TARGET, MAX_ACTIVE_PITCHERS - 1, catchers=0)
     players["aaa_c"] = _p("aaa_c", "C")
     roster.aaa.append("aaa_c")
-    maintain_cpu_active_roster("CPU", roster, players, target_size=25, cap=25)
+    maintain_cpu_active_roster(
+        "CPU", roster, players, target_size=ACTIVE_ROSTER_SIZE, cap=ACTIVE_ROSTER_SIZE
+    )
     assert "aaa_c" in roster.act
 
 
 def test_cpu_trim_keeps_the_only_catcher():
-    players, roster = _team(14, 12, catchers=1)
-    maintain_cpu_active_roster("CPU", roster, players, target_size=25, cap=25)
-    assert "h0" in roster.act and len(roster.act) == 25
+    players, roster = _team(*_HITTER_HEAVY, catchers=1)
+    maintain_cpu_active_roster(
+        "CPU", roster, players, target_size=ACTIVE_ROSTER_SIZE, cap=ACTIVE_ROSTER_SIZE
+    )
+    assert "h0" in roster.act and len(roster.act) == ACTIVE_ROSTER_SIZE
+
+
+# --- the 26-man shape (decision 8): 13 pitchers / 13 hitters ----------------
+
+
+def _counts(roster, players):
+    arms = sum(is_pitcher(players[p]) for p in roster.act)
+    return arms, len(roster.act) - arms
+
+
+def _with_minors(players, roster, *, arms=0, bats=0, score=50):
+    for i in range(arms):
+        players[f"ap{i}"] = _p(f"ap{i}", "P", score=score + i)
+        roster.aaa.append(f"ap{i}")
+    for i in range(bats):
+        players[f"ah{i}"] = _p(f"ah{i}", "CF", score=score + i)
+        roster.aaa.append(f"ah{i}")
+
+
+def test_a_creator_built_cpu_roster_converges_to_13_and_13():
+    """The creator's 25-man shape (11 pitchers / 14 hitters) stopped at
+    12/14 under the old upkeep."""
+    arms = MAX_ACTIVE_PITCHERS - 2
+    players, roster = _team(ACTIVE_ROSTER_SIZE - 1 - arms, arms, catchers=2)
+    _with_minors(players, roster, arms=4, bats=2)
+    # A better free agent pitcher is never signed: own organisation only.
+    players["fa_ace"] = _p("fa_ace", "P", score=99)
+    before_org = set(roster.act + roster.aaa + roster.low)
+    maintain_cpu_active_roster(
+        "CPU", roster, players, target_size=ACTIVE_ROSTER_SIZE, cap=ACTIVE_ROSTER_SIZE
+    )
+    assert _counts(roster, players) == (MAX_ACTIVE_PITCHERS, ACT_HITTER_TARGET)
+    assert len(roster.act) == ACTIVE_ROSTER_SIZE
+    assert set(roster.act + roster.aaa + roster.low) == before_org
+    assert {"h0", "h1"} & set(roster.act)        # a catcher is kept
+
+
+def test_a_pitcher_heavy_cpu_roster_is_trimmed_to_the_limit():
+    hitters = ACT_HITTER_TARGET - 1
+    players, roster = _team(hitters, ACTIVE_ROSTER_SIZE - hitters)   # 12 / 14
+    _with_minors(players, roster, bats=1)
+    maintain_cpu_active_roster(
+        "CPU", roster, players, target_size=ACTIVE_ROSTER_SIZE, cap=ACTIVE_ROSTER_SIZE
+    )
+    assert _counts(roster, players) == (MAX_ACTIVE_PITCHERS, ACT_HITTER_TARGET)
+
+
+def test_upkeep_leaves_the_roster_short_rather_than_add_a_14th_pitcher():
+    hitters = ACT_HITTER_TARGET - 3
+    players, roster = _team(hitters, MAX_ACTIVE_PITCHERS)
+    _with_minors(players, roster, arms=5)          # no hitters left in the minors
+    maintain_cpu_active_roster(
+        "CPU", roster, players, target_size=ACTIVE_ROSTER_SIZE, cap=ACTIVE_ROSTER_SIZE
+    )
+    assert _counts(roster, players) == (MAX_ACTIVE_PITCHERS, hitters)
+
+
+def test_september_upkeep_allows_14_pitchers_but_never_rebalances_past_13():
+    hitters = SEPTEMBER_ROSTER_SIZE - SEPTEMBER_MAX_ACTIVE_PITCHERS
+    players, roster = _team(hitters, SEPTEMBER_MAX_ACTIVE_PITCHERS)   # 14 / 14
+    maintain_cpu_active_roster(
+        "CPU", roster, players, target_size=ACTIVE_ROSTER_SIZE, cap=SEPTEMBER_ROSTER_SIZE
+    )
+    assert _counts(roster, players) == (SEPTEMBER_MAX_ACTIVE_PITCHERS, hitters)
+    # 15 / 13 (a September call-up of a bat) is not swapped for an arm.
+    players, roster = _team(hitters + 1, MAX_ACTIVE_PITCHERS)
+    _with_minors(players, roster, arms=3)
+    maintain_cpu_active_roster(
+        "CPU", roster, players, target_size=ACTIVE_ROSTER_SIZE, cap=SEPTEMBER_ROSTER_SIZE
+    )
+    assert _counts(roster, players) == (MAX_ACTIVE_PITCHERS, hitters + 1)
+
+
+def test_an_out_of_options_surplus_pitcher_is_forced_and_labelled(monkeypatch):
+    hitters = ACT_HITTER_TARGET - 1
+    players, roster = _team(hitters, ACTIVE_ROSTER_SIZE - hitters)
+    moves = maintain_cpu_active_roster(
+        "CPU", roster, players, target_size=ACTIVE_ROSTER_SIZE, cap=ACTIVE_ROSTER_SIZE,
+        option_allowed=lambda pid: False,
+    )
+    forced = [m for m in moves if isinstance(m, ForcedMove)]
+    assert len(forced) == 1 and forced[0][1:] == ("act", "aaa")
+    assert _counts(roster, players)[0] == MAX_ACTIVE_PITCHERS
+
+    import services.roster_fill as rf
+
+    logged = []
+    monkeypatch.setattr(
+        "services.transaction_log.record_transaction", lambda **k: logged.append(k)
+    )
+    rf.record_roster_moves("CPU", moves, players, details="CPU roster upkeep")
+    assert "option limit" in logged[0]["details"]
+
+
+def test_an_optionable_pitcher_goes_before_a_forced_one():
+    hitters = ACT_HITTER_TARGET - 1
+    players, roster = _team(hitters, ACTIVE_ROSTER_SIZE - hitters)
+    moves = maintain_cpu_active_roster(
+        "CPU", roster, players, target_size=ACTIVE_ROSTER_SIZE, cap=ACTIVE_ROSTER_SIZE,
+        option_allowed=lambda pid: pid == "p3",
+    )
+    assert ("p3", "act", "aaa") in moves
+    assert not any(isinstance(m, ForcedMove) for m in moves)
 
 
 # --- ownership --------------------------------------------------------------
