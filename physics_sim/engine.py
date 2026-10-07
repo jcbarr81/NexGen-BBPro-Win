@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Collection, Dict, List
 import random
 import re
 import zlib
@@ -925,7 +925,15 @@ def _pitcher_enter_stats(
     bases: BaseState,
     postseason: bool,
     tuning: TuningConfig,
+    exclude_ids: Collection[str] | None = None,
 ) -> PitcherLine:
+    """Bring ``pitcher_state`` in and open his line.
+
+    Runners on base are charged to him as inherited runners, except any whose
+    ids are in ``exclude_ids`` (Release 3: the extra-inning automatic runner,
+    who belongs to no pitcher).
+    """
+
     _enter_pitcher(
         pitching_state,
         pitcher_state,
@@ -936,8 +944,11 @@ def _pitcher_enter_stats(
     )
     line = _line_for_pitcher(pitching_state, pitcher_state, inning)
     _fielding_line(lineup_state, pitcher_state.pitcher.player_id)
+    excluded = exclude_ids or ()
     inherited = sum(
-        1 for runner in (bases.first, bases.second, bases.third) if runner is not None
+        1
+        for runner in (bases.first, bases.second, bases.third)
+        if runner is not None and runner.player_id not in excluded
     )
     if inherited:
         line.ir += inherited
@@ -3956,6 +3967,9 @@ def simulate_game(
         half_inning_runs = 0
         runner_pitchers: dict[str, PitcherLine] = {}
         unearned_runners: set[str] = set()
+        # Release 3: ids of extra-inning automatic runners placed this half.
+        # Populated by item D; an inning-start change passes it as exclude_ids.
+        auto_runner_ids: set[str] = set()
         unearned_outs = 0
         if batting_team == "away":
             offense_score = score_away
@@ -4074,7 +4088,10 @@ def simulate_game(
                             bases=bases,
                             postseason=postseason,
                             tuning=tuning,
+                            exclude_ids=auto_runner_ids,
                         )
+
+        # R3: end of inning-start pitching changes
 
         def record_runs(
             runs_scored: int,
@@ -4267,6 +4284,8 @@ def simulate_game(
                     pitch_log[-1]["runner_event"] = f"{existing_event}+{pinch_event}"
                 else:
                     pitch_log[-1]["runner_event"] = pinch_event
+
+        # R3: first PA of half
         while outs < 3:
             pitcher_state = pitching_state.current
             line = _line_for_pitcher(pitching_state, pitcher_state, inning)
@@ -5832,6 +5851,7 @@ def simulate_game(
             ):
                 away_line.sv += 1
 
+    # R3: post-game hazards
     if usage_state is not None and game_day is not None:
         for state in away_staff.all_pitchers() + home_staff.all_pitchers():
             if state.pitches > 0:

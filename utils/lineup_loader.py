@@ -7,6 +7,7 @@ from typing import Iterable, List, Tuple
 from playbalance.simulation import TeamState
 from models.player import Player
 from models.pitcher import Pitcher
+from models.roster import Roster
 from utils.path_utils import resolve_app_path
 from .player_loader import load_players_from_csv
 from .roster_loader import load_roster
@@ -87,30 +88,30 @@ def _load_pitching_staff(
     return entries
 
 
-def _build_default_lists(
-    team_id: str, players_file: str, roster_dir: str
-) -> Tuple[List[Player], List[Player], List[Pitcher]]:
-    """Return ``(lineup, bench, pitchers)`` for ``team_id``.
+def _resolve_players(
+    ids: Iterable[str], all_players: dict[str, Player], seen: set[str]
+) -> List[Player]:
+    """Resolve ``ids`` against ``all_players``, skipping ids already in ``seen``."""
 
-    The active roster is loaded from ``roster_dir`` and players are resolved via
-    ``players_file``.  Nine position players are selected for the lineup based
-    on descending ``ph`` (power hitting) rating.  Pitchers are ordered with a
-    single starter first followed by the remaining bullpen arms.
+    found: List[Player] = []
+    for pid in ids:
+        if pid in seen:
+            continue
+        seen.add(pid)
+        player = all_players.get(pid)
+        if player is not None:
+            found.append(player)
+    return found
+
+
+def _default_hitters(
+    team_id: str, roster: Roster, all_players: dict[str, Player]
+) -> Tuple[List[Player], List[Player]]:
+    """Return ``(lineup, bench)`` for ``team_id``'s default game state.
+
+    Nine position players are selected for the lineup based on descending
+    ``ph`` (power hitting) rating; the remaining hitters form the bench.
     """
-
-    all_players = {p.player_id: p for p in load_players_from_csv(players_file)}
-    roster = load_roster(team_id, roster_dir)
-
-    def _resolve(ids: Iterable[str], seen: set[str]) -> List[Player]:
-        found: List[Player] = []
-        for pid in ids:
-            if pid in seen:
-                continue
-            seen.add(pid)
-            player = all_players.get(pid)
-            if player is not None:
-                found.append(player)
-        return found
 
     # A big-league game uses the ACTIVE roster. 3.2.12 widened this pool to
     # every level, and for the whole 2026 alpha-test season AAA and Low-A
@@ -120,38 +121,53 @@ def _build_default_lists(
     # game. Injured players are never eligible; healthy minor leaguers only
     # fill in when the active roster cannot field a team.
     seen_ids: set[str] = set()
-    hitters, pitchers = _separate_players(_resolve(roster.act, seen_ids))
-    if len(hitters) < 9 or not pitchers:
-        minor_hitters, minor_pitchers = _separate_players(
-            _resolve(list(roster.aaa) + list(roster.low), seen_ids)
+    hitters, _ = _separate_players(_resolve_players(roster.act, all_players, seen_ids))
+    if len(hitters) < 9:
+        minor_hitters, _ = _separate_players(
+            _resolve_players(list(roster.aaa) + list(roster.low), all_players, seen_ids)
         )
         minor_hitters.sort(key=lambda p: getattr(p, "ph", 0), reverse=True)
         hitters.extend(minor_hitters[: max(0, 9 - len(hitters))])
-        if not pitchers:
-            minor_pitchers.sort(key=lambda p: getattr(p, "endurance", 0), reverse=True)
-            pitchers.extend(minor_pitchers[:10])
-    if len(hitters) < 9 or not pitchers:
-        all_hitters, all_pitchers = _separate_players(all_players.values())
-        used_ids = {p.player_id for p in hitters + pitchers}
-        if len(hitters) < 9:
-            fallback_hitters = [p for p in all_hitters if p.player_id not in used_ids]
-            rng = random.Random(f"{team_id}-fallback-hitters")
-            rng.shuffle(fallback_hitters)
-            needed = 9 - len(hitters)
-            hitters.extend(fallback_hitters[:needed])
-            used_ids.update(p.player_id for p in fallback_hitters[:needed])
-        if not pitchers:
-            fallback_pitchers = [
-                p for p in all_pitchers if p.player_id not in used_ids
-            ]
-            rng = random.Random(f"{team_id}-fallback-pitchers")
-            rng.shuffle(fallback_pitchers)
-            pitchers.extend(fallback_pitchers[:10])
-            used_ids.update(p.player_id for p in fallback_pitchers[:10])
+    if len(hitters) < 9:
+        all_hitters, _ = _separate_players(all_players.values())
+        used_ids = {p.player_id for p in hitters}
+        fallback_hitters = [p for p in all_hitters if p.player_id not in used_ids]
+        rng = random.Random(f"{team_id}-fallback-hitters")
+        rng.shuffle(fallback_hitters)
+        needed = 9 - len(hitters)
+        hitters.extend(fallback_hitters[:needed])
 
     hitters.sort(key=lambda p: getattr(p, "ph", 0), reverse=True)
     lineup = hitters[:9]
     bench = hitters[9:]
+    return lineup, bench
+
+
+def _default_pitchers(
+    team_id: str, roster_dir: str, roster: Roster, all_players: dict[str, Player]
+) -> List[Pitcher]:
+    """Return ``team_id``'s pitchers, the five-man rotation first.
+
+    Staff-file arms keep their listed roles; the rotation is labelled SP1-SP5
+    and followed by the remaining bullpen arms.
+    """
+
+    # Active roster first; healthy minor leaguers only when it has no arms
+    # (see _default_hitters).
+    seen_ids: set[str] = set()
+    _, pitchers = _separate_players(_resolve_players(roster.act, all_players, seen_ids))
+    if not pitchers:
+        _, minor_pitchers = _separate_players(
+            _resolve_players(list(roster.aaa) + list(roster.low), all_players, seen_ids)
+        )
+        minor_pitchers.sort(key=lambda p: getattr(p, "endurance", 0), reverse=True)
+        pitchers.extend(minor_pitchers[:10])
+    if not pitchers:
+        _, all_pitchers = _separate_players(all_players.values())
+        fallback_pitchers = list(all_pitchers)
+        rng = random.Random(f"{team_id}-fallback-pitchers")
+        rng.shuffle(fallback_pitchers)
+        pitchers.extend(fallback_pitchers[:10])
 
     pitcher_lookup = {p.player_id: p for p in pitchers}
     staff_entries = _load_pitching_staff(team_id, roster_dir, set(pitcher_lookup))
@@ -226,7 +242,27 @@ def _build_default_lists(
 
     ordered_pitchers = rotation + bullpen
 
-    return lineup, bench, ordered_pitchers
+    return ordered_pitchers
+
+
+def _build_default_lists(
+    team_id: str, players_file: str, roster_dir: str
+) -> Tuple[List[Player], List[Player], List[Pitcher]]:
+    """Return ``(lineup, bench, pitchers)`` for ``team_id``.
+
+    The active roster is loaded from ``roster_dir`` and players are resolved via
+    ``players_file``. The hitters come from :func:`_default_hitters` and the
+    pitchers, a single starter first followed by the remaining bullpen arms,
+    from :func:`_default_pitchers`.
+    """
+
+    all_players = {p.player_id: p for p in load_players_from_csv(players_file)}
+    roster = load_roster(team_id, roster_dir)
+    # Hitters first: their pool is chosen before any pitcher's
+    # ``assigned_pitching_role`` is (re)labelled, as it always was.
+    lineup, bench = _default_hitters(team_id, roster, all_players)
+    pitchers = _default_pitchers(team_id, roster_dir, roster, all_players)
+    return lineup, bench, pitchers
 
 
 @lru_cache(maxsize=None)

@@ -304,6 +304,9 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "extra_innings_runner": 0.0,
     "extra_innings_runner_start": 10.0,
     "max_innings": 18.0,
+    # Release 3 (item D) -- registered in R3-0, read by nothing yet. The hard
+    # stop is the only point at which a game may still end tied.
+    "max_innings_hard_stop": 60.0,
     # Outcomes
     "hr_scale": 0.925,
     "double_distance_scale": 0.70,
@@ -392,10 +395,22 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "setup_max_outs": 3.0,
     "middle_reliever_max_outs": 4.0,
     "long_reliever_max_outs": 6.0,
+    # Release 3 bullpen usage (item B) -- registered in R3-0 at neutral values
+    # (0 = off) and read by nothing yet. reliever_max_appearances_ratio mirrors
+    # closer_max_appearances_ratio for non-closers (owner decision Q3: 0.50).
+    "inning_start_hook": 0.0,
+    "bullpen_fallback": 0.0,
+    "mop_up": 0.0,
+    "emergency_starter_min_days": 2.0,
+    "reliever_max_appearances_ratio": 0.0,
     "batter_daily_recovery_base": 6.0,
     "batter_daily_recovery_durability_scale": 0.05,
     "batter_fatigue_game_cost": 6.0,
     "batter_fatigue_durability_scale": 0.02,
+    # Release 3 (item F) per-position game cost, registered in R3-0 equal to
+    # today's flat batter_fatigue_game_cost (fielders keep that knob).
+    "batter_fatigue_game_cost_catcher": 6.0,
+    "batter_fatigue_game_cost_dh": 6.0,
     "batter_fatigue_threshold_base": 35.0,
     "batter_fatigue_threshold_scale": 0.45,
     "batter_fatigue_penalty_scale": 0.5,
@@ -486,6 +501,25 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "injury_overuse_scale": 0.19,
     "injury_swing_scale": 1.02,
     "injury_error_scale": 2.0,
+    # Release 3 pitcher arm-injury hazard (item E), registered in R3-0 and off.
+    # Per appearance: level * (base + per_pitch * pitches)
+    #   * exp(-durability_k * (durability - durability_center) / 10)
+    #   * (1 + rest penalty) * (1 + pitch_ramp * max(0, pitches - ramp_start) / 10)
+    # with level = injury_rate_scale / rate_reference. Rest penalties apply to a
+    # reliever on 0 calendar days' rest or a starter on fewer than
+    # starter_short_rest_days. The durability centre is overridden per league.
+    "pitcher_arm_enabled": 0.0,
+    "pitcher_arm_base": 0.0072,
+    "pitcher_arm_per_pitch": 0.00024,
+    "pitcher_arm_durability_k": 0.25,
+    "pitcher_arm_durability_center": 50.0,
+    "pitcher_arm_reliever_rest_penalty": 0.5,
+    "pitcher_arm_starter_short_rest_penalty": 0.5,
+    "pitcher_arm_starter_short_rest_days": 4.0,
+    "pitcher_arm_pitch_ramp": 0.15,
+    "pitcher_arm_pitch_ramp_start": 100.0,
+    "pitcher_arm_rate_reference": 0.1,
+    "pitcher_arm_major_share": 0.30,
     # S2-01: sized so the league platoon-split KPI lands in its 20-32 wOBA-point
     # band (2.0 produced ~46 pts). Tune these three together.
     "handedness_contact_bonus": 1.8,

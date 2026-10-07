@@ -48,6 +48,10 @@ def reliever_rest_days(pitches: int, tuning: "TuningConfig | None" = None) -> in
 @dataclass
 class UsageState:
     current_day: int | None = None
+    # Release 3: 0-based index of the current game date -- the number of
+    # distinct days advance_day has moved to, so off days never count. Kept
+    # apart from ``current_day`` (the rest clock). Nothing reads it yet.
+    game_index: int = 0
     workloads: Dict[str, PitcherWorkload] = field(default_factory=dict)
     batter_workloads: Dict[str, BatterWorkload] = field(default_factory=dict)
 
@@ -69,8 +73,11 @@ class UsageState:
         batters: Iterable[BatterRatings] | None = None,
         tuning: TuningConfig,
     ) -> None:
-        if self.current_day is None or day > self.current_day:
+        if self.current_day is None:
             self.current_day = day
+        elif day > self.current_day:
+            self.current_day = day
+            self.game_index += 1
         if day < self.current_day:
             return
 
