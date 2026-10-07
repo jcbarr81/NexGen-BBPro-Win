@@ -6,8 +6,9 @@
 > is now **26** with at most **13** pitchers; September expansion is
 > **26→28** with at most **14** pitchers, and the playoff revert trims back to
 > 26 and 13 pitchers (owner teams included, by optioning). The rules live in
-> `utils/roster_rules.py`. Where the verified-state notes below cite "25" they
-> describe the code as it was in 2026-07.
+> `utils/roster_rules.py`. The rest of this spec (verified state, design and
+> test plan) was written for the 25-man roster in 2026-07: read every "25"
+> below as 26, and the test expectations as historical.
 > Depends on S2-09's `services/team_outlook.py` (outlook classification) —
 > land S2-09 first or cherry-pick that module.
 

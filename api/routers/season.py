@@ -2951,9 +2951,9 @@ def season_action_items(
 
     Computed live from current state (not the historical notification log), so
     an owner logging in sees the turn-style items waiting on them right now:
-    incoming trade offers, an open FA window they haven't bid in, — during
-    the preseason — a roster/lineup that's blocking the commissioner from
-    advancing, and an open active-roster spot (informational). Purely a read;
+    incoming trade offers, an open FA window they haven't bid in, a
+    roster/lineup that's blocking the commissioner from advancing (preseason),
+    and an open active-roster spot (informational). Purely a read;
     nothing here mutates state or auto-advances."""
 
     team_id = str(identity.get("t") or "").strip()

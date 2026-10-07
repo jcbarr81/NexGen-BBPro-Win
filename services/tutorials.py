@@ -170,7 +170,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "What you do",
-                "<p>If your active roster is below the limit, the Roster page shows a <b>spot is open</b> badge, the Season page lists it under <b>Needs your attention</b>, and you get an <b>Active roster spot open</b> notification (notify only; it never stops the sim unless you switch that on under Notifications). Fill the spot by promoting a player from AAA or signing a free agent, or leave it open. Nothing is moved for you.</p><p>A move that would make a 14th active pitcher is allowed with a warning, so you can promote first and send someone down next. Until you are back to 13, the Roster page's compliance banner shows the pitcher count and the season check won't let you sim. <b>Auto-assign → Fill gaps only</b> fixes it by optioning a pitcher to AAA.</p>",
+                "<p>If your active roster is below the limit, the Roster page shows a <b>spot is open</b> badge, the Season page lists it under <b>Needs your attention</b>, and when you run a sim you also get an <b>Active roster spot open</b> notification (notify only; it never stops the sim unless you switch that on under Notifications). Fill the spot by promoting a player from AAA or signing a free agent, or leave it open. Nothing is moved for you.</p><p>A move that would make a 14th active pitcher is allowed with a warning, so you can promote first and send someone down next. Until you are back to 13, the Roster page's compliance banner shows the pitcher count and the season check won't let you sim. <b>Auto-assign → Fill gaps only</b> fixes it by optioning a pitcher to AAA.</p>",
             ),
             TutorialStep(
                 "What the CPU does",
@@ -287,7 +287,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Sign a player",
-                "<p>Click <b>Sign</b> on a row, pick the destination level (ACT/AAA/LOW), set the salary/years, and optionally a <b>signing bonus</b> (which debits your cash now). The dialog previews the player's <b>fair-market value</b>, likely response, and the top <b>competing CPU bids</b> so you know who you're up against. Confirm — the signing is written to the transactions log. Signing into a full level isn't refused (you get a warning instead); send someone down before your next game, because the season check won't sim an over-limit roster.</p>",
+                "<p>Click <b>Sign</b> on a row, pick the destination level (ACT/AAA/LOW), set the salary/years, and optionally a <b>signing bonus</b> (which debits your cash now). The dialog previews the player's <b>fair-market value</b>, likely response, and the top <b>competing CPU bids</b> so you know who you're up against. Confirm — the signing is written to the transactions log. Signing into a full level isn't refused; send someone down before your next game, because the season check won't sim an over-limit roster.</p>",
             ),
             TutorialStep(
                 "The offseason bidding window",

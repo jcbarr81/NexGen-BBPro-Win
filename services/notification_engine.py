@@ -607,6 +607,8 @@ def _detect_roster_spot_open(
         cap = active_roster_cap(sim_date)
     except Exception:
         return []
+    if active == 0:
+        return []  # no roster to speak of; matches the Season-page action item
 
     signature = f"{active}/{cap}" if active < cap else None
     state = _load_detector_state(team_id)

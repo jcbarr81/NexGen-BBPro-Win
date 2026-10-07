@@ -149,6 +149,40 @@ def test_14_pitchers_fires_with_the_pitcher_cap(data_dir, monkeypatch):
     assert "players (max" not in events[0].message
 
 
+def test_september_outside_the_regular_season_uses_the_base_caps(data_dir, monkeypatch):
+    """Sept 10 in the playoffs: no expansion, so 27 active fires."""
+    from playbalance import season_manager as sm
+
+    monkeypatch.setattr(
+        sm, "SeasonManager", lambda *a, **k: SimpleNamespace(phase=sm.SeasonPhase.PLAYOFFS)
+    )
+    over = ACTIVE_ROSTER_SIZE + 1
+    events = _cap_events(
+        monkeypatch, data_dir, pitchers=MAX_ACTIVE_PITCHERS, hitters=over - MAX_ACTIVE_PITCHERS,
+        sim_date=SEPTEMBER,
+    )
+    assert [e.rule_id for e in events] == ["roster_cap_violation"]
+
+
+def test_15_pitchers_in_september_fires_with_the_september_cap(data_dir, monkeypatch):
+    _regular_season(monkeypatch)
+    pitchers = SEPTEMBER_MAX_ACTIVE_PITCHERS + 1
+    events = _cap_events(
+        monkeypatch, data_dir, pitchers=pitchers, hitters=SEPTEMBER_ROSTER_SIZE - pitchers,
+        sim_date=SEPTEMBER,
+    )
+    assert [e.rule_id for e in events] == ["roster_cap_violation"]
+    assert f"{pitchers} pitchers (max {SEPTEMBER_MAX_ACTIVE_PITCHERS})" in events[0].message
+
+
+def test_empty_roster_does_not_report_an_open_spot(data_dir):
+    import services.notification_engine as engine
+
+    (data_dir / "rosters" / f"{TEAM}.csv").write_text("", encoding="utf-8")
+    settings = _settings("roster_spot_open", notify=True)
+    assert engine._detect_roster_spot_open(TEAM, settings, AUGUST) == []
+
+
 def test_cap_check_never_writes_a_placeholder_roster(data_dir, monkeypatch):
     import services.notification_engine as engine
 

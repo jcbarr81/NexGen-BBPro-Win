@@ -984,7 +984,7 @@ function PitchingTab({
             </p>
           </div>
         )}
-        {filledCount > 0 && unslotted.length > 0 && (
+        {filledCount >= STAFF_ROLES.length && unslotted.length > 0 && (
           <div className="mx-4 mt-3 rounded-md border border-info/40 bg-info/10 p-3 text-xs text-ink">
             <div className="font-semibold">
               {unslotted.length === 1
@@ -999,6 +999,19 @@ function PitchingTab({
               They still pitch out of the bullpen as extra relief arms. The
               staff has 11 slots; more relief slots arrive with a later bullpen
               update.
+            </p>
+          </div>
+        )}
+        {filledCount > 0 && filledCount < STAFF_ROLES.length && unslotted.length > 0 && (
+          <div className="mx-4 mt-3 rounded-md border border-info/40 bg-info/10 p-3 text-xs text-ink">
+            <div className="font-semibold">
+              {unslotted.length === 1
+                ? "1 active pitcher is not assigned"
+                : `${unslotted.length} active pitchers are not assigned`}
+              {" "}— open slots remain
+            </div>
+            <p className="mt-1 text-muted">
+              {unslotted.map((p) => `${p.first_name} ${p.last_name}`).join(", ")}
             </p>
           </div>
         )}
