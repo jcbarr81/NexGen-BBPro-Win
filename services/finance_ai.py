@@ -362,8 +362,18 @@ def build_cpu_free_agent_bid_book(
     ai_level: str,
     data_dir: Path | str | None = None,
     rng: random.Random | None = None,
+    rosters: Mapping[str, object] | None = None,
+    players_by_id: Mapping[str, object] | None = None,
 ) -> Dict[str, int]:
-    """Build strategy-aware salary offers for CPU teams."""
+    """Build strategy-aware salary offers for CPU teams.
+
+    A club with nowhere legal to put the player (a full organisation, or no
+    level with room he can play at -- ``free_agency.cpu_signing_level``)
+    doesn't bid: its signing would fail and, in a negotiation, its standing
+    offer would block everyone else. ``rosters`` (team id -> roster) and
+    ``players_by_id`` save re-reading them; a club missing from ``rosters``
+    is read from ``data_dir``.
+    """
 
     level = str(ai_level or "").strip().lower()
     if level not in {AI_LEVEL_BASIC, AI_LEVEL_ADVANCED}:
@@ -384,6 +394,7 @@ def build_cpu_free_agent_bid_book(
     fa_star_quality_threshold = _tuning_int(tuning_map, "fa_star_quality_threshold")
 
     human_ids = _human_owned_team_ids(resolved_data_dir)
+    room = _SigningRoom(player, resolved_data_dir, rosters, players_by_id)
 
     bids: Dict[str, int] = {}
     for team in teams:
@@ -442,9 +453,58 @@ def build_cpu_free_agent_bid_book(
                     continue
 
         offer = int(generator.randint(min_offer, max_offer))
+        # Checked last (after the draw, so the other clubs' offers don't
+        # shift): only a club that would bid reads its roster.
+        if not room.has_room(team_id):
+            continue
         bids[team_id] = max(DEFAULT_MIN_SALARY, offer)
 
     return bids
+
+
+class _SigningRoom:
+    """Whether a CPU club has a legal level for one free agent."""
+
+    def __init__(
+        self,
+        player: object,
+        data_dir: Path,
+        rosters: Mapping[str, object] | None,
+        players_by_id: Mapping[str, object] | None,
+    ) -> None:
+        self._player = player
+        self._data_dir = Path(data_dir)
+        self._rosters = rosters or {}
+        self._players_by_id = players_by_id
+
+    def _lookup(self) -> Mapping[str, object]:
+        # Only a pitcher's placement counts the staff; load players lazily.
+        if self._players_by_id is None:
+            try:
+                from utils.player_loader import load_players_from_csv
+
+                self._players_by_id = {
+                    str(getattr(p, "player_id", "") or ""): p
+                    for p in load_players_from_csv(self._data_dir / "players.csv")
+                }
+            except Exception:
+                self._players_by_id = {}
+        return self._players_by_id
+
+    def has_room(self, team_id: str) -> bool:
+        try:
+            from services.free_agency import _read_team_roster, cpu_signing_level
+            from utils.roster_rules import counts_as_pitcher
+        except Exception:  # pragma: no cover - defensive
+            return True
+        if team_id in self._rosters:
+            roster = self._rosters[team_id]
+        else:
+            roster = _read_team_roster(self._data_dir, team_id)
+        if roster is None:
+            return False
+        lookup = self._lookup() if counts_as_pitcher(self._player) else {}
+        return cpu_signing_level(roster, self._player, lookup) is not None
 
 
 def _load_standings(data_dir: Path) -> Dict[str, Mapping[str, object]]:

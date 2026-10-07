@@ -15,7 +15,11 @@ from services.cpu_trade_evaluator import evaluate_cpu_trade_offer
 from services.trade_settings import load_trade_settings
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
-from utils.roster_loader import load_roster
+from utils.roster_loader import (
+    active_pitcher_cap,
+    effective_level_caps,
+    load_roster,
+)
 from utils.roster_rules import counts_as_pitcher
 from utils.sim_date import get_current_sim_date
 from utils.team_loader import load_teams
@@ -800,6 +804,8 @@ def _run_cpu_cpu_pass(
             to_team_levels=_levels(final.to_team),
             players=players_map,
             settings=trade_settings,
+            level_caps=effective_level_caps(current_date.isoformat()),
+            pitcher_cap=active_pitcher_cap(current_date.isoformat()),
         )
         if not getattr(validation, "ok", False):
             filtered["validation_failed"] += 1

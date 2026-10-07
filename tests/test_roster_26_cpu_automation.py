@@ -188,7 +188,8 @@ def test_cpu_signing_level_sends_a_pitcher_to_aaa_at_a_full_staff(fa):
     assert fa.cpu_signing_level(roster, _p("arm", "P"), players) == "AAA"
     assert fa.cpu_signing_level(roster, _p("bat", "SS"), players) == "ACT"
     roster.aaa = [f"x{i}" for i in range(AAA_CAP)]
-    assert fa.cpu_signing_level(roster, _p("arm", "P"), players) == "LOW"
+    # Low-A only for a player young enough for it (LOW_LEVEL_MAX_AGE).
+    assert fa.cpu_signing_level(roster, _p("arm", "P", birthdate="2006-01-01"), players) == "LOW"
     roster.low = [f"y{i}" for i in range(ORG_LIMIT - len(roster.act) - AAA_CAP)]
     assert fa.cpu_signing_level(roster, _p("bat", "SS"), players) is None
 

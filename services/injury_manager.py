@@ -617,6 +617,18 @@ def recover_from_injury(
                 roster.act.remove(rep)
                 getattr(roster, level).append(rep)
                 moves.append((rep, "act", level))
+        # A CPU staff he takes over the pitcher limit gives up a pitcher
+        # first -- forced past the option rules if every other arm is out of
+        # options -- which also frees his roster spot. Trimming the size
+        # first optioned a hitter (the arms all vetoed) and then forced a
+        # pitcher anyway: two moves for one returning arm. An owner's club is
+        # the owner's: automatic activation sends his pitcher to AAA instead
+        # when the staff is full (dl_automation._resolve_destination).
+        while cpu and _arms_over():
+            if not _option_surplus_pitcher(
+                roster, players, moves, exclude={player.player_id}, option_allowed=option_ok
+            ):
+                break
         while len(roster.act) > cap:
             down = choose_send_down(
                 roster, players, exclude={player.player_id}, allowed=option_ok,
@@ -627,15 +639,6 @@ def recover_from_injury(
             roster.act.remove(down)
             roster.aaa.append(down)
             moves.append((down, "act", "aaa"))
-        # Under the size cap but over the pitcher limit (12 hitters + 13
-        # pitchers + a returning pitcher). An owner's club is the owner's:
-        # automatic activation sends his pitcher to AAA instead when the
-        # staff is full (dl_automation._resolve_destination).
-        while cpu and _arms_over():
-            if not _option_surplus_pitcher(
-                roster, players, moves, exclude={player.player_id}, option_allowed=option_ok
-            ):
-                break
         if moves and team_id:
             record_roster_moves(
                 team_id, moves, players,
