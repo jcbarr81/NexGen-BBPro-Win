@@ -135,6 +135,8 @@ def generate_mlb_schedule(
     all_star_break_days: int = 6,
     weekly_off_weekday: int | None = 0,
     extra_off_every_n_rounds: int = 0,
+    series_off_day: bool = False,
+    max_consecutive_days: int | None = 10,
 ) -> List[Dict[str, str]]:
     """Generate a full 162-game schedule for each team.
 
@@ -163,9 +165,21 @@ def generate_mlb_schedule(
         ``None`` to disable. Default ``0`` (Monday).
     extra_off_every_n_rounds:
         When > 0, insert an extra day off after every Nth round in
-        addition to the standard 1-day inter-round buffer. Adds the
-        weekly off-day cadence MLB observes beyond pure travel days.
+        addition to any inter-round buffer.
         Default ``0`` (no extra off days).
+    series_off_day:
+        When True, every round of series is followed by a league-wide day
+        off (the pre-Release-3 layout: about 246 days for 30 teams). The
+        default ``False`` is MLB-dense (owner decision Q4, Release 3): series
+        run back to back, so with the weekly off day a club plays six days in
+        seven and 162 games span about 190 days plus the All-Star break.
+        Rest is counted in calendar days, so the density decides how often a
+        bullpen gets a day off.
+    max_consecutive_days:
+        Dense layout only: the longest stretch of straight game days before a
+        league-wide day off is forced. Rounds of 4-game series can run
+        through the weekly off day; this keeps an off day at least every
+        ``max_consecutive_days`` days. ``None`` or ``0`` disables it.
 
     Returns
     -------
@@ -187,6 +201,8 @@ def generate_mlb_schedule(
         all_star_break_days=all_star_break_days,
         weekly_off_weekday=weekly_off_weekday,
         extra_off_every_n_rounds=extra_off_every_n_rounds,
+        series_off_day=series_off_day,
+        max_consecutive_days=max_consecutive_days,
     )
 
 
@@ -323,6 +339,8 @@ def _build_series_schedule(
     all_star_break_days: int = 6,
     weekly_off_weekday: int | None = 0,
     extra_off_every_n_rounds: int = 0,
+    series_off_day: bool = False,
+    max_consecutive_days: int | None = 10,
 ) -> List[Dict[str, str]]:
     """Expand a series plan into a day-by-day schedule."""
 
@@ -357,6 +375,10 @@ def _build_series_schedule(
     pattern_index = 0
     rounds_played = 0
     all_star_inserted = False
+    # Dense layout bookkeeping: first day of the current stretch of straight
+    # game days, and the day after the last round ended.
+    run_start: date | None = None
+    run_end: date | None = None
 
     while _series_remaining(queues):
         round_games = patterns[pattern_index % len(patterns)]
@@ -377,6 +399,20 @@ def _build_series_schedule(
         if not assignments:
             continue
 
+        round_length = max(series.length for series in assignments)
+        if (
+            not series_off_day
+            and max_consecutive_days
+            and run_start is not None
+            and current == run_end
+            and (current - run_start).days + round_length > max_consecutive_days
+        ):
+            # Dense layout: with 4-game series a round can run through the
+            # weekly off day, so cap the stretch of straight game days.
+            current += timedelta(days=1)
+        if current != run_end:
+            run_start = current
+
         for series in assignments:
             for offset in range(series.length):
                 date_value = (current + timedelta(days=offset)).isoformat()
@@ -385,8 +421,8 @@ def _build_series_schedule(
                 )
                 games_scheduled += 1
 
-        round_length = max(series.length for series in assignments)
         current += timedelta(days=round_length)
+        run_end = current
         rounds_played += 1
 
         if (
@@ -399,10 +435,9 @@ def _build_series_schedule(
             all_star_inserted = True
 
         if _series_remaining(queues):
-            current += timedelta(days=1)
-            # Periodic extra off day on top of the standard travel buffer
-            # — gives every team a roughly weekly off day when the cadence
-            # is set to a small number relative to the round count.
+            if series_off_day:
+                current += timedelta(days=1)
+            # Periodic extra off day on top of any travel buffer.
             if (
                 extra_off_every_n_rounds > 0
                 and rounds_played % extra_off_every_n_rounds == 0
