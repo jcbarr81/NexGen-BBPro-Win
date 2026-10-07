@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Dict, List
 
+from utils.roster_rules import ACTIVE_ROSTER_SIZE
+
 @dataclass
 class Roster:
     team_id: str
@@ -25,7 +27,7 @@ class Roster:
             # Default manual moves to the 15-day list unless overwritten elsewhere.
             self.dl_tiers[player_id] = self.dl_tiers.get(player_id, "dl15")
 
-    def promote_replacements(self, target_size: int = 25) -> None:
+    def promote_replacements(self, target_size: int = ACTIVE_ROSTER_SIZE) -> None:
         """Promote players from the minors to fill active roster vacancies.
 
         Parameters

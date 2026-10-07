@@ -31,9 +31,14 @@ from utils.pitcher_role import get_role
 from utils.player_overall import player_overall_score
 
 
-ACTIVE_MAX = 25
-AAA_MAX = 15
-LOW_MAX = 10
+from utils.roster_rules import (  # noqa: E402
+    AAA_CAP as AAA_MAX,
+    ACTIVE_ROSTER_SIZE as ACTIVE_MAX,
+    LOW_CAP as LOW_MAX,
+    MAX_ACTIVE_PITCHERS,
+    ORG_LIMIT,
+)
+
 AAA_MIN_PITCHERS = 4
 AAA_MIN_HITTERS = 4
 PROSPECT_AGE_CUTOFF = 21
@@ -873,7 +878,7 @@ def auto_assign_team(
         # instead (parked in AAA, which has no age cap) and report them as
         # ``overflow`` so the UI can ask the owner to trim manually, rather than
         # releasing them to free agency.
-        total_cap = ACTIVE_MAX + AAA_MAX + LOW_MAX
+        total_cap = ORG_LIMIT
         overflow: List[str] = []
         if released and len(pool_ids) <= total_cap:
             overflow = list(released)

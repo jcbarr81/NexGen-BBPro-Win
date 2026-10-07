@@ -14,25 +14,31 @@ from utils.path_utils import (
 )
 from .player_loader import load_players_from_csv
 from .roster_io import write_roster_csv
+from .roster_rules import counts_as_pitcher
 from services.unified_data_service import get_unified_data_service
 
 # Backwards compatibility: tests patch these attributes directly.
 get_base_dir = _get_base_dir
 get_data_dir = _get_data_dir
 
-# Teams should field exactly 25 players on the active roster.
-ACTIVE_ROSTER_SIZE = 25
-# September call-up expansion (S2-11): from Sept 1 through the end of the
-# regular season the active roster may carry up to 28.
-SEPTEMBER_ROSTER_SIZE = 28
+# Roster size rules live in utils.roster_rules (owner decision 8, 7.46.0):
+# 26 active with at most 13 pitchers; 28 / 14 from Sept 1 during the regular
+# season (September call-up expansion, S2-11). Re-exported here because many
+# callers and tests import them from this module.
+from .roster_rules import (  # noqa: E402
+    ACTIVE_ROSTER_SIZE,
+    BASE_LEVEL_CAPS,
+    MAX_ACTIVE_PITCHERS,
+    SEPTEMBER_MAX_ACTIVE_PITCHERS,
+    SEPTEMBER_ROSTER_SIZE,
+)
 
 
-def active_roster_cap(sim_date: str | None = None) -> int:
-    """Return the active-roster cap for ``sim_date``.
+def in_september_window(sim_date: str | None = None) -> bool:
+    """True from Sept 1 while the season phase is REGULAR_SEASON.
 
-    25 normally; 28 from Sept 1 while the season phase is REGULAR_SEASON.
     ``sim_date`` is an ISO date; defaults to the current sim date. Any failure
-    falls back to the strict 25-man cap.
+    reads as "not September", i.e. the base caps.
     """
 
     try:
@@ -44,14 +50,41 @@ def active_roster_cap(sim_date: str | None = None) -> int:
         if month >= 9:
             from playbalance.season_manager import SeasonManager, SeasonPhase
 
-            if SeasonManager().phase == SeasonPhase.REGULAR_SEASON:
-                return SEPTEMBER_ROSTER_SIZE
+            return SeasonManager().phase == SeasonPhase.REGULAR_SEASON
     except Exception:
         pass
+    return False
+
+
+def active_roster_cap(sim_date: str | None = None) -> int:
+    """Return the active-roster cap for ``sim_date``: 26, or 28 in September."""
+
+    if in_september_window(sim_date):
+        return SEPTEMBER_ROSTER_SIZE
     return ACTIVE_ROSTER_SIZE
+
+
+def active_pitcher_cap(sim_date: str | None = None) -> int:
+    """Return the most pitchers the active roster may carry: 13, or 14 in September."""
+
+    if in_september_window(sim_date):
+        return SEPTEMBER_MAX_ACTIVE_PITCHERS
+    return MAX_ACTIVE_PITCHERS
+
+
+def effective_level_caps(sim_date: str | None = None) -> Dict[str, int]:
+    """Level caps ``{"act", "aaa", "low"}`` in force on ``sim_date``.
+
+    Only roster levels, so it can be passed wherever ``level_caps`` is
+    accepted; the pitcher limit comes from ``active_pitcher_cap``.
+    """
+
+    caps = dict(BASE_LEVEL_CAPS)
+    caps["act"] = active_roster_cap(sim_date)
+    return caps
 _PLACEHOLDER_PLAYERS_FILE = "data/players.csv"
-_PLACEHOLDER_HITTERS = 17
-_PLACEHOLDER_PITCHERS = 8
+_PLACEHOLDER_HITTERS = ACTIVE_ROSTER_SIZE - MAX_ACTIVE_PITCHERS
+_PLACEHOLDER_PITCHERS = MAX_ACTIVE_PITCHERS
 MIN_ACTIVE_PITCHERS = 6
 _PLACEHOLDER_LOAD_WARNING_EMITTED = False
 
@@ -445,18 +478,19 @@ def _ensure_pitcher_depth(roster: Roster, *, min_pitchers: int = MIN_ACTIVE_PITC
         return False
 
     def _is_pitcher(pid: str) -> bool:
-        player = players.get(pid)
-        return bool(player and getattr(player, "is_pitcher", False))
+        return counts_as_pitcher(players.get(pid))
 
     active_pitchers: List[str] = [pid for pid in roster.act if _is_pitcher(pid)]
     if len(active_pitchers) >= min_pitchers:
         return False
 
     changed = False
+    # September rosters may legally run to 28; never trim them on read.
+    act_cap = active_roster_cap()
 
     def _trim_excess() -> None:
         nonlocal changed
-        while len(roster.act) > ACTIVE_ROSTER_SIZE:
+        while len(roster.act) > act_cap:
             moved = False
             for idx in range(len(roster.act) - 1, -1, -1):
                 pid = roster.act[idx]

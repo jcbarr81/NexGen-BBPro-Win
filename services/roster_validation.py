@@ -21,6 +21,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable, List, Mapping, Sequence, Set
 
+from utils.roster_rules import BASE_LEVEL_CAPS, MAX_ACTIVE_PITCHERS
+
 # ---------------------------------------------------------------------------
 # Constants
 
@@ -55,7 +57,11 @@ PITCHING_ROLES: Sequence[str] = (
 STARTER_ROLES: Set[str] = {"SP1", "SP2", "SP3", "SP4", "SP5"}
 CLOSER_ROLES: Set[str] = {"CL", "SU"}
 
-DEFAULT_LEVEL_CAPS = {"act": 25, "aaa": 15, "low": 10}
+# 26 / 15 / 10 (utils.roster_rules; owner decision 8). September and the
+# pitcher limit come from utils.roster_loader.effective_level_caps /
+# active_pitcher_cap at the call site.
+DEFAULT_LEVEL_CAPS = dict(BASE_LEVEL_CAPS)
+DEFAULT_PITCHER_CAP = MAX_ACTIVE_PITCHERS
 
 MIN_POSITION_PLAYERS_ACT = 11
 MIN_DEPTH_PRIMARY = 1  # at least one entry per defensive position
