@@ -53,6 +53,7 @@ __all__ = [
     "fatigue_injury_chance",
     "hazard_level",
     "hazard_rng",
+    "pitcher_durability",
     "rest_days_before",
     "roll_post_game_injuries",
 ]
@@ -154,6 +155,22 @@ def arm_hazard(
     return min(1.0, max(0.0, level * hazard))
 
 
+def pitcher_durability(pitcher: Any, default: float = 50.0) -> float:
+    """The pitcher's durability rating; ``default`` only when it is missing.
+
+    A rating of 0 is real -- the least durable arm there is -- so only None,
+    an empty value or an unreadable one falls back to the league average.
+    """
+
+    value = getattr(pitcher, "durability", None)
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def batter_fatigue_level(batter: Any, tuning: TuningConfig) -> float:
     """How tired a batter played today, from 0 (fresh) to 1 (exhausted).
 
@@ -205,8 +222,14 @@ def roll_post_game_injuries(
     ``batting_lines``/``fielding_lines``); ``batters`` to every batter object
     the side could have used (lineup and bench). Players already hurt in this
     game are skipped and every new casualty is added to ``injured_players``.
+
+    An undated game (``game_day`` None: the admin exhibition, one-off tools)
+    rolls nothing. It is not part of a season, so there is no rest clock to
+    read and no injured list it should put a real player on.
     """
 
+    if game_day is None:
+        return []
     level = hazard_level(tuning)
     if level <= 0.0:
         return []
@@ -236,7 +259,7 @@ def roll_post_game_injuries(
                 continue
             started = state is starter
             rest = rest_days_before(usage_state, pid, game_day)
-            durability = float(getattr(pitcher, "durability", 50.0) or 50.0)
+            durability = pitcher_durability(pitcher)
             chance = arm_hazard(
                 pitches=pitches,
                 durability=durability,

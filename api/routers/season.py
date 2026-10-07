@@ -2542,7 +2542,11 @@ def _cpu_activate_eligible() -> List[str]:
 
     Runs with ``force_auto_activate`` so it ignores the league's
     ``auto_activate_il`` setting: this IS the fallback for owners who left that
-    off and then stopped showing up.
+    off and then stopped showing up. It never overrides an owner's own
+    per-team choice (owner decision Q11): an owner who turned 15-day
+    activation off keeps his players listed, the 60-day list always follows
+    the owner's 60-day choice, and nobody moves when ownership can't be read
+    (``services.dl_automation.process_disabled_lists``).
     """
 
     try:
@@ -3240,6 +3244,23 @@ def _il_return_action_items(team_id: str) -> List[Dict[str, Any]]:
         names = [_name(str(e.get("player_id"))) for e in parked]
         n = len(names)
         where = sorted({str(e.get("level") or "aaa").upper() for e in parked})
+        # Why he is waiting, as the automation recorded it: a full active
+        # roster, or an open spot with the staff already at the pitcher limit.
+        reasons = {str(e.get("reason") or "active_full") for e in parked}
+        caps = [e.get("pitcher_cap") for e in parked if e.get("pitcher_cap")]
+        try:
+            from utils.roster_loader import active_pitcher_cap
+
+            pitcher_cap = int(caps[0]) if caps else active_pitcher_cap()
+        except Exception:
+            pitcher_cap = 13
+        staff_full = f"your pitching staff was at the {pitcher_cap}-pitcher limit"
+        if reasons == {"pitcher_cap"}:
+            why = f"because {staff_full}"
+        elif "pitcher_cap" in reasons:
+            why = f"because your active roster was full or {staff_full}"
+        else:
+            why = "because your active roster was full"
         out.append(
             {
                 "kind": "il_return_needs_room",
@@ -3251,7 +3272,7 @@ def _il_return_action_items(team_id: str) -> List[Dict[str, Any]]:
                 ),
                 "detail": (
                     f"Back from the injured list and waiting in {'/'.join(where)} "
-                    f"because your active roster was full: {', '.join(names[:4])}. "
+                    f"{why}: {', '.join(names[:4])}. "
                     "Option or release someone, then promote him on the Roster page."
                 ),
                 "count": n,
@@ -3259,7 +3280,26 @@ def _il_return_action_items(team_id: str) -> List[Dict[str, Any]]:
             }
         )
 
-    ready: List[str] = []
+    # A list the owner runs by hand vs one on automatic activation: a player
+    # still listed after his stint on an automatic list was blocked -- no
+    # room in the active roster, AAA or Low-A -- so pointing the owner to the
+    # setting he already turned on would be wrong.
+    def _auto_list(list_level: str) -> bool:
+        try:
+            from services.team_play_settings import (
+                IL_AUTO_ACTIVATE_15,
+                IL_AUTO_ACTIVATE_60,
+                get_team_play_setting,
+            )
+
+            key = IL_AUTO_ACTIVATE_60 if list_level == "ir" else IL_AUTO_ACTIVATE_15
+            return bool(get_team_play_setting(team_id, key, data_dir=get_data_dir()))
+        except Exception:
+            return False
+
+    ir_ids = set(levels.get("ir", []) or [])
+    manual: List[str] = []
+    blocked: List[str] = []
     for pid in listed:
         player = players.get(pid)
         if player is None:
@@ -3270,9 +3310,29 @@ def _il_return_action_items(team_id: str) -> List[Dict[str, Any]]:
             continue
         if remaining is not None and remaining <= 0:
             label = disabled_list_label(getattr(player, "injury_list", "")) or "IL"
-            ready.append(f"{_name(pid)} ({label})")
+            entry = f"{_name(pid)} ({label})"
+            if _auto_list("ir" if pid in ir_ids else "dl"):
+                blocked.append(entry)
+            else:
+                manual.append(entry)
+    ready = manual + blocked
     if ready:
         n = len(ready)
+        details: List[str] = []
+        if manual:
+            details.append(
+                f"Their minimum stint is over: {', '.join(manual[:4])}. "
+                "Activate them on the Injuries page, or turn on automatic "
+                "activation in your team settings."
+            )
+        if blocked:
+            details.append(
+                "Automatic activation is on, but there is no room for "
+                f"{', '.join(blocked[:4])}: your active roster (or, for a "
+                "pitcher, your staff) and AAA are full, and Low-A is full or "
+                "he is too old for it. Option or release someone, then "
+                "activate him on the Injuries page."
+            )
         out.append(
             {
                 "kind": "il_return_ready",
@@ -3282,11 +3342,7 @@ def _il_return_action_items(team_id: str) -> List[Dict[str, Any]]:
                     if n == 1
                     else f"{n} players can come off the injured list"
                 ),
-                "detail": (
-                    f"Their minimum stint is over: {', '.join(ready[:4])}. "
-                    "Activate them on the Injuries page, or turn on automatic "
-                    "activation in your team settings."
-                ),
+                "detail": " ".join(details),
                 "count": n,
                 "href": "/injuries",
             }

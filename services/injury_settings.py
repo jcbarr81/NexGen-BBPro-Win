@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import csv
 from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
 import threading
-from typing import Dict, Mapping, MutableMapping, Optional
+from typing import Dict, Iterator, Mapping, MutableMapping, Optional
 
 from playbalance.season_context import SeasonContext
 from utils.path_utils import get_data_dir
@@ -22,6 +24,8 @@ __all__ = [
     "save_injury_settings",
     "set_injury_level",
     "get_injury_tuning_overrides",
+    "injuries_suppressed",
+    "suppress_injuries",
     "league_pitcher_durability_center",
     "active_pitcher_mean_durability",
 ]
@@ -31,6 +35,34 @@ DURABILITY_CENTER_FILENAME = "pitcher_durability_center.json"
 # (league dir, season) -> centre; the file is the source of truth.
 _CENTER_CACHE: Dict[tuple, float] = {}
 _CENTER_LOCK = threading.Lock()
+# Roster-directory files that are not a club's roster (<team>_pitching.csv,
+# <team>_lineup.csv). Team ids themselves may contain underscores.
+_ROSTER_SIDE_SUFFIXES = ("_pitching", "_lineup")
+
+# True while a game outside the season runs (the admin exhibition): the
+# engine then rolls no injuries at all. A context variable, not a global, so
+# it covers only the request that set it -- asyncio.to_thread copies it into
+# the worker thread -- and never a season sim running at the same time.
+_INJURIES_SUPPRESSED: ContextVar[bool] = ContextVar(
+    "nexgen_injuries_suppressed", default=False
+)
+
+
+@contextmanager
+def suppress_injuries() -> Iterator[None]:
+    """Run the block with injuries off (games outside the season)."""
+
+    token = _INJURIES_SUPPRESSED.set(True)
+    try:
+        yield
+    finally:
+        _INJURIES_SUPPRESSED.reset(token)
+
+
+def injuries_suppressed() -> bool:
+    """True inside :func:`suppress_injuries`."""
+
+    return _INJURIES_SUPPRESSED.get()
 
 
 def _settings_path() -> Path:
@@ -90,8 +122,12 @@ def get_injury_tuning_overrides() -> Dict[str, float]:
     Besides the level, this carries the league's pitcher durability centre
     for the arm-injury hazard (``pitcher_arm_durability_center``), so a
     pitcher's durability is read against his own league (audit decision 2).
+    Inside :func:`suppress_injuries` it returns the "off" level, so a game
+    outside the season injures nobody.
     """
 
+    if injuries_suppressed():
+        return dict(LEVEL_OPTIONS["off"])
     settings = load_injury_settings()
     overrides = settings.tuning_overrides()
     try:
@@ -176,7 +212,7 @@ def active_pitcher_mean_durability(base: Path) -> Optional[float]:
         return None
     active: set[str] = set()
     for roster_file in sorted(roster_dir.glob("*.csv")):
-        if "_" in roster_file.stem:
+        if roster_file.stem.endswith(_ROSTER_SIDE_SUFFIXES):
             continue  # <team>_pitching.csv and other side files
         try:
             with roster_file.open(newline="", encoding="utf-8") as fh:
