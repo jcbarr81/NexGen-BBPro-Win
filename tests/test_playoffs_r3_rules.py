@@ -154,6 +154,10 @@ def test_real_games_are_simulated_as_postseason_games(schedule, monkeypatch):
 
     monkeypatch.setattr(gr, "simulate_game_scores", fake_scores)
     monkeypatch.setattr(roster_fill, "prepare_teams_for_game", lambda teams: None)
+    # The playoff-day injured-list step would read the real league files.
+    monkeypatch.setattr(
+        "services.dl_automation.process_disabled_lists", lambda **kwargs: None
+    )
     bracket = PlayoffBracket(year=2025, rounds=[Round(name="WS", matchups=[_matchup(7, (2, 3, 2))])])
     simulate_next_game(bracket, persist_cb=lambda b: None)
     assert seen and seen[0]["postseason"] is True

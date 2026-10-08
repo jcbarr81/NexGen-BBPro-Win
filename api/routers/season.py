@@ -37,6 +37,7 @@ from services.notification_engine import (
 )
 from services.notification_settings import load_notification_settings
 from utils.path_utils import get_data_dir
+from utils.sim_date import sim_date_scope
 
 from ..security import CurrentIdentity, require_bearer
 
@@ -768,10 +769,28 @@ def _simulate_n(
 
     Mirrors the full post-day flow from PyQt's
     ``ui/season_progress_window._simulate_day`` — running games is only
-    step 1. After each batch of sim days we also run finance cadence
-    updates, CPU trade proposals, and DL/injury recovery, then log a
-    recap. Without these post-day hooks the sim produces box scores but
+    step 1. Without the post-day hooks the sim produces box scores but
     leaves the economic and roster-management side of the league frozen.
+    They run at two cadences (see ``_run_day_automations`` and
+    ``_run_call_automations``):
+
+    * after EVERY played date, inside the day loop: the injured lists
+      (activations, owner team play settings honoured), the monthly CPU
+      call-up check and the FA negotiation day. These change who plays the
+      next day, so they must not wait for the end of the call -- a healed
+      player used to sit until then (up to 29 days on "Sim month"), and a
+      league's games depended on how its days were batched;
+    * once per call, after the results are persisted: the owner finance
+      cadence (it walks the call's dates itself) and the CPU trade proposal
+      cycle (minutes per run; it scales its odds by the number of days).
+
+    With the game seeds fixed, the games, the injured-list moves and the
+    persisted league state are then the same however the days are split
+    into calls. The CPU trade cycle is the exception: it runs once per call
+    with its own unseeded generator, so a CPU-CPU trade can land on a
+    different day. The per-game seeds themselves come from an unseeded
+    generator in each new process (``SeasonSimulator._seed_rng``), so two
+    live runs only match when those are pinned (tests do).
 
     If the simulator hits the configured ``draft_date`` we stop early
     and set ``draft_blocked=True`` so the UI can prompt the commissioner
@@ -867,6 +886,7 @@ def _simulate_n(
     # the next ``_begin_sim_progress`` call resets it.
     playable = max(0, min(n, len(simulator.dates) - simulator._index))
     _begin_sim_progress(playable)
+    day_automations: Dict[str, Any] = {}
 
     # Count only days that actually played games: a date whose games were all
     # finished earlier (a resumed partial day from an older build) advances the
@@ -927,8 +947,10 @@ def _simulate_n(
 
         # Rosters first, in this process (not inside parallel game workers):
         # every club playing today can field nine, and CPU clubs are full,
-        # balanced and under the cap (audit H9 / decision 14).
-        _prepare_rosters_for_date(simulator, target_date)
+        # balanced and under the cap (audit H9 / decision 14). On today's
+        # league date: the league files still hold the call's first day.
+        with sim_date_scope(target_date):
+            _prepare_rosters_for_date(simulator, target_date)
         try:
             games_played = simulator.simulate_next_day()
         except Exception as exc:  # pragma: no cover - defensive
@@ -944,6 +966,17 @@ def _simulate_n(
         days_done += 1
         played_dates.append(target_date)
         _bump_sim_progress()
+
+        # The per-day automations (injured lists, monthly call-ups, FA
+        # negotiations), before tomorrow's roster prep and before the
+        # notification check below, so the owner hears about a return the
+        # day it happens.
+        _merge_day_automations(
+            day_automations,
+            _run_day_automations(
+                target_date, next_date=_next_game_date(simulator)
+            ),
+        )
 
         if notif_settings is not None and team_id and pre_state is not None:
             try:
@@ -987,12 +1020,13 @@ def _simulate_n(
     if played_dates or partial_dates:
         _persist_post_sim_state(simulator, played_dates, partial_dates=partial_dates)
 
-    # Post-day automations. Only run these if we actually played days —
+    # Once-per-call automations. Only run these if we actually played days —
     # a no-op sim (draft pause, empty schedule, etc.) shouldn't trigger
-    # finance settlement or trade offers.
+    # finance settlement or trade offers. The per-day ones already ran.
     automations: Dict[str, Any] = {}
     if played_dates:
-        automations = _run_daily_automations(played_dates)
+        automations = _run_call_automations(played_dates)
+        automations.update(day_automations)
 
     result: Dict[str, Any] = {
         "played_dates": played_dates,
@@ -1296,12 +1330,156 @@ def _persist_post_sim_state(
         pass
 
 
-def _run_daily_automations(played_dates: List[str]) -> Dict[str, Any]:
-    """Run the same post-day service cycle PyQt's season window runs:
-    owner finance cadence, CPU trade proposal cycle, and DL/injury
-    recovery. Each block is wrapped so a single misbehaving service
-    can't block the others or roll back the game results we just
-    persisted."""
+def _next_game_date(simulator: SeasonSimulator) -> Optional[str]:
+    """The next date in the simulator's calendar with a game still to play.
+
+    That is the league's current sim date once the dates played so far are
+    persisted (``utils.sim_date.get_current_sim_date``); None at the end of
+    the schedule.
+    """
+
+    pending = {
+        str(game.get("date", ""))
+        for game in simulator.schedule
+        if not str(game.get("result", "") or "").strip()
+    }
+    for date in simulator.dates[simulator._index:]:
+        if str(date) in pending:
+            return str(date)
+    return None
+
+
+def _run_day_automations(
+    played_date: str, *, next_date: Optional[str] = None
+) -> Dict[str, Any]:
+    """The post-day steps that run after EVERY played date.
+
+    Injured lists, the monthly CPU call-up check and the FA negotiation day:
+    each can change who plays the next day, so ``_simulate_n`` runs them
+    inside its day loop, after the date's games and before the next date's
+    roster prep. ``next_date`` is the next date with games (None at the end
+    of the schedule): a stint that is over by then ends now, so the player is
+    back for that game -- the date a one-day call has always used, as the
+    league's sim date moves to the next game date once the day is saved.
+    Every step runs on that league date (``sim_date_scope``), since the
+    league files still hold the call's first day until the call ends. Each
+    step is wrapped so one failing service can't block the others.
+    """
+
+    summary: Dict[str, Any] = {}
+    il_date = str(next_date or played_date)
+
+    with sim_date_scope(il_date):
+        try:
+            from services.dl_automation import process_disabled_lists
+
+            # A CPU club activates everyone due; an owner's club follows the
+            # owner's team play settings (services.team_play_settings).
+            dl_summary = process_disabled_lists(
+                today=il_date,
+                days_elapsed=1,
+                auto_activate=True,
+            )
+            summary["dl_updates"] = {
+                "activated": len(getattr(dl_summary, "activated", []) or []),
+                "alerts": len(getattr(dl_summary, "alerts", []) or []),
+                "blocked": len(getattr(dl_summary, "blocked", []) or []),
+                "lineup_restored": len(
+                    getattr(dl_summary, "lineup_restored", []) or []
+                ),
+            }
+        except Exception as exc:  # pragma: no cover - defensive
+            summary["dl_updates_error"] = str(exc)
+
+        try:
+            from services.inseason_callups import run_monthly_callups
+
+            # Once a month, on the first played date of the month.
+            summary["callups"] = run_monthly_callups(
+                played_dates=[played_date], data_dir=get_data_dir()
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            summary["callups_error"] = str(exc)
+
+        # FA negotiation windows (#12): advance each open negotiation one day
+        # per played date -- CPU teams bid, blow-away offers win early,
+        # deadlines resolve and sign the winner. Runs in the parent (post-day),
+        # so it doesn't touch the parallel game sim.
+        try:
+            from services import fa_negotiations
+            from services.free_agency import finalize_fa_signing
+            from utils.player_loader import load_players_from_csv
+            from utils.team_loader import load_teams
+
+            data_dir = get_data_dir()
+            players_by_id = {
+                str(getattr(p, "player_id", "")): p
+                for p in load_players_from_csv(str(data_dir / "players.csv"))
+            }
+            try:
+                teams = load_teams()
+            except Exception:
+                teams = []
+
+            def _sign(*, team_id, player_id, offer, player) -> bool:
+                return finalize_fa_signing(
+                    team_id,
+                    player_id,
+                    level=str(offer.get("level", "ACT")),
+                    years=int(offer.get("years", 1) or 1),
+                    annual_salary=int(offer.get("annual_salary", 0) or 0),
+                    signing_bonus=int(offer.get("signing_bonus", 0) or 0),
+                    player=player,
+                    data_dir=data_dir,
+                )
+
+            res = fa_negotiations.process_negotiations(
+                played_date,
+                data_dir=data_dir,
+                sign_fn=_sign,
+                players_by_id=players_by_id,
+                teams=teams,
+            )
+            summary["fa_negotiations"] = {
+                "cpu_offers": int(res.get("cpu_offers", 0) or 0),
+                "signed": len(res.get("signed", []) or []),
+                "no_deal": len(res.get("no_deal", []) or []),
+            }
+        except Exception as exc:  # pragma: no cover - defensive
+            summary["fa_negotiations_error"] = str(exc)
+
+    return summary
+
+
+def _merge_day_automations(total: Dict[str, Any], day: Dict[str, Any]) -> None:
+    """Fold one date's ``_run_day_automations`` summary into the call's."""
+
+    for key in ("dl_updates", "fa_negotiations"):
+        counts = day.get(key)
+        if not isinstance(counts, dict):
+            continue
+        bucket = total.setdefault(key, {})
+        for name, value in counts.items():
+            bucket[name] = int(bucket.get(name, 0) or 0) + int(value or 0)
+    callups = day.get("callups")
+    if isinstance(callups, dict) and (
+        "callups" not in total or callups.get("reason") != "already_ran"
+    ):
+        # The month's actual check, not the "already ran" days after it.
+        total["callups"] = callups
+    for key, value in day.items():
+        if key.endswith("_error"):
+            total[key] = value
+
+
+def _run_call_automations(played_dates: List[str]) -> Dict[str, Any]:
+    """The post-day steps that run once per sim call, after it is saved.
+
+    The owner finance cadence walks the call's dates itself, and the CPU
+    trade proposal cycle takes minutes per run and scales its odds by the
+    number of days. Each block is wrapped so a single misbehaving service
+    can't block the others or roll back the game results just persisted.
+    """
 
     summary: Dict[str, Any] = {}
 
@@ -1324,81 +1502,36 @@ def _run_daily_automations(played_dates: List[str]) -> Dict[str, Any]:
     except Exception as exc:  # pragma: no cover - defensive
         summary["cpu_trades_error"] = str(exc)
 
-    try:
-        from services.dl_automation import process_disabled_lists
-
-        dl_summary = process_disabled_lists(
-            today=None,  # defaults to current sim date
-            days_elapsed=len(played_dates),
-            auto_activate=True,
-        )
-        summary["dl_updates"] = {
-            "activated": len(getattr(dl_summary, "activated", []) or []),
-            "alerts": len(getattr(dl_summary, "alerts", []) or []),
-            "blocked": len(getattr(dl_summary, "blocked", []) or []),
-            "lineup_restored": len(getattr(dl_summary, "lineup_restored", []) or []),
-        }
-    except Exception as exc:  # pragma: no cover - defensive
-        summary["dl_updates_error"] = str(exc)
-
-    try:
-        from services.inseason_callups import run_monthly_callups
-
-        summary["callups"] = run_monthly_callups(
-            played_dates=played_dates, data_dir=get_data_dir()
-        )
-    except Exception as exc:  # pragma: no cover - defensive
-        summary["callups_error"] = str(exc)
-
-    # FA negotiation windows (#12): advance each open negotiation one day per
-    # played date — CPU teams bid, blow-away offers win early, deadlines resolve
-    # and sign the winner. Runs in the parent (post-day), so it doesn't touch the
-    # parallel game sim.
-    try:
-        from services import fa_negotiations
-        from services.free_agency import finalize_fa_signing
-        from utils.player_loader import load_players_from_csv
-        from utils.team_loader import load_teams
-
-        data_dir = get_data_dir()
-        players_by_id = {
-            str(getattr(p, "player_id", "")): p
-            for p in load_players_from_csv(str(data_dir / "players.csv"))
-        }
-        try:
-            teams = load_teams()
-        except Exception:
-            teams = []
-
-        def _sign(*, team_id, player_id, offer, player) -> bool:
-            return finalize_fa_signing(
-                team_id,
-                player_id,
-                level=str(offer.get("level", "ACT")),
-                years=int(offer.get("years", 1) or 1),
-                annual_salary=int(offer.get("annual_salary", 0) or 0),
-                signing_bonus=int(offer.get("signing_bonus", 0) or 0),
-                player=player,
-                data_dir=data_dir,
-            )
-
-        neg_summary = {"cpu_offers": 0, "signed": 0, "no_deal": 0}
-        for played_date in played_dates:
-            res = fa_negotiations.process_negotiations(
-                played_date,
-                data_dir=data_dir,
-                sign_fn=_sign,
-                players_by_id=players_by_id,
-                teams=teams,
-            )
-            neg_summary["cpu_offers"] += int(res.get("cpu_offers", 0) or 0)
-            neg_summary["signed"] += len(res.get("signed", []) or [])
-            neg_summary["no_deal"] += len(res.get("no_deal", []) or [])
-        summary["fa_negotiations"] = neg_summary
-    except Exception as exc:  # pragma: no cover - defensive
-        summary["fa_negotiations_error"] = str(exc)
-
     return summary
+
+
+def _run_daily_automations(played_dates: List[str]) -> Dict[str, Any]:
+    """The whole post-day cycle for dates already played and saved.
+
+    For callers without a live simulator (tools, tests): the per-day steps for
+    each date in order -- each injured-list step on the following date in the
+    list, the last on the league's current sim date -- then the once-per-call
+    steps. ``_simulate_n`` runs the two halves itself.
+    """
+
+    dates = [str(d) for d in played_dates]
+    summary: Dict[str, Any] = {}
+    for index, played_date in enumerate(dates):
+        if index + 1 < len(dates):
+            next_date: Optional[str] = dates[index + 1]
+        else:
+            try:
+                from utils.sim_date import get_current_sim_date
+
+                next_date = get_current_sim_date() or None
+            except Exception:  # pragma: no cover - defensive
+                next_date = None
+        _merge_day_automations(
+            summary, _run_day_automations(played_date, next_date=next_date)
+        )
+    automations = _run_call_automations(dates) if dates else {}
+    automations.update(summary)
+    return automations
 
 
 # ---------------------------------------------------------------------------

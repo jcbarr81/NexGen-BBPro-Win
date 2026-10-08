@@ -1264,8 +1264,12 @@ def _simulate_next_series_game(
     seed_parts = [str(year), round_name, str(series_index), str(played_games), home, away]
     if real_games:
         from services.roster_fill import prepare_teams_for_game
+        from utils.sim_date import sim_date_scope
 
-        prepare_teams_for_game((home, away))
+        # On the playoff date: the league files still hold the last
+        # regular-season date, which every call-up used to be logged on.
+        with sim_date_scope(game_date):
+            prepare_teams_for_game((home, away))
     for attempt in range(_TIE_TRIES):
         # The first try keeps the pre-Release-3 seed; retries salt it.
         parts = seed_parts if attempt == 0 else seed_parts + [f"tie-retry-{attempt}"]
@@ -1545,12 +1549,33 @@ def _scheduled_games(bracket: PlayoffBracket, calendar: _PlayoffCalendar):
     return games
 
 
+def _process_injured_lists_for_playoff_day(game_date: Optional[str]) -> None:
+    """The injured-list step before a playoff day's games.
+
+    The same step the regular season runs after every played date
+    (``api.routers.season._run_day_automations``): a player whose stint is
+    over by ``game_date`` comes off the list -- on a CPU club always, on an
+    owner's club as the owner's team play settings say. Without it nobody
+    came back in the postseason. Best effort: never blocks a playoff day.
+    """
+
+    if not game_date:
+        return
+    try:
+        from services.dl_automation import process_disabled_lists
+
+        process_disabled_lists(today=game_date, days_elapsed=1, auto_activate=True)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
 def _play_next_day(bracket: PlayoffBracket, *, year: int, simulate_game, persist) -> bool:
     """Play every playoff game on the earliest date that still has one.
 
     Games run in calendar order across all series and both leagues, so the
     rotation and bullpen rest clocks only ever move forward. Returns True if
-    any game was added.
+    any game was added. With the real game sim (``simulate_game`` None) the
+    injured lists are processed on that date first.
     """
 
     _populate(bracket)
@@ -1560,6 +1585,8 @@ def _play_next_day(bracket: PlayoffBracket, *, year: int, simulate_game, persist
         return False
     today = min(day for day, _, _, _ in games)
     game_date = calendar.date_for(today)
+    if simulate_game is None:
+        _process_injured_lists_for_playoff_day(game_date)
     progressed = False
     for day, rnd, idx, matchup in games:
         if day != today:

@@ -308,6 +308,9 @@ def place_on_injury_list(
                 [(coverage.promoted_id, coverage.promoted_from or "aaa", "act")],
                 players,
                 details=f"Called up to cover the injured {_name(player)}",
+                # The date he got hurt -- the game's date, which the league
+                # files don't hold yet (mid-call, and all postseason).
+                season_date=today.isoformat(),
             )
         except Exception:
             pass
