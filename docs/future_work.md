@@ -1218,3 +1218,16 @@ count, so an RNG-reshuffling change can trip it -- re-check seeds 1 and 2.
 - Test fixtures that set NEXGEN_DATA_ROOT without a players.csv sentinel can
   resolve a stray local league instead of their tmp root (backlog #48); add
   the sentinel in a shared fixture.
+- The CPU trade-proposal cycle dominates a one-day sim call (~336 s of 357 s
+  on a loaded Windows/OneDrive box: 55k get_current_sim_date calls via
+  trade_settings.current_league_year, 191k Path.resolve). Hoist the league
+  year/sim date out of cpu_trade_evaluator's per-candidate loops; memoise
+  data/base dir resolution per call.
+- Injury catalogue: "Grade 2 oblique strain" (25-45 days) is tagged for the
+  60-day IL, so a 29-day injury keeps a player out 60 days. Set dl_tier from
+  the drawn days (re-check the IL60 share after).
+- Production game seeds come from the unseeded global RNG, so re-sims are not
+  reproducible; derive per-date seeds from a league seed + date.
+- Live-path reliever back-to-back share (~0.11-0.12) and April pitcher IL pace
+  (8.0-9.1) sit at the low end of the targets; re-check on a full live season.
+
