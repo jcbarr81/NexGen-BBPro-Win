@@ -37,7 +37,13 @@ Two modes:
     live-format fixture with minor leaguers (``data/calibration_league``) so
     injured players can be replaced; ``data/calibration``'s players.csv is
     engine-only and is refused. ``--batching daily`` drops the in-process sim
-    state between days the way a fresh process would.
+    state between days the way a fresh process would. Every pitcher in
+    ``data/calibration_league`` has durability 50, so the durability
+    quintile ratio is n/a there; read it from static mode on
+    ``data/calibration``.
+
+Judge the bands on the mean of several seeds: one season has ~290 pitcher
+IL stints, so the 60-day share alone moves by about +/-0.05 between seeds.
 
 Targets. Owner decision (2026-10-07): pitcher injuries at about 3/4 of MLB's
 rate -- 9-10 pitcher IL stints per team-season (band 8.5-11); starters
