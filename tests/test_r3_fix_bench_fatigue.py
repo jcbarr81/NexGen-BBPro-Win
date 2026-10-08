@@ -139,14 +139,23 @@ def test_an_unrested_regular_by_choice_plays_with_the_full_penalty():
     assert full[0].fatigue_penalty == pytest.approx(TUNING.get("batter_fatigue_penalty_cap"))
 
 
-def test_a_blocked_fatigue_rest_gets_some_relief_a_streak_rest_does_not():
+def test_a_blocked_worn_down_regular_gets_some_relief_a_streak_rest_does_not():
+    # Second fix round: the relief comes once he is worn down (over the
+    # penalty threshold), after that game's penalty is priced -- relief from
+    # the 0.85 rest trigger held him just under the threshold, at no cost.
     relief = TUNING.get("batter_blocked_rest_relief")
     assert relief > 0.0
-    tired = UsageState()
-    tired.batter_workload_for("c1").fatigue_debt = 0.9 * THRESHOLD
-    _rest([_b("c1", "C")], [_b("x", "LF")], {"c1": "C"}, tired)
-    assert tired.batter_workload_for("c1").fatigue_debt == pytest.approx(
-        0.9 * THRESHOLD - relief
+    worn = UsageState()
+    worn.batter_workload_for("c1").fatigue_debt = 1.1 * THRESHOLD
+    kept: set = set()
+    lineup, _bench, _pos = _rest(
+        [_b("c1", "C")], [_b("x", "LF")], {"c1": "C"}, worn, could_not_rest=kept
+    )
+    assert worn.batter_workload_for("c1").fatigue_debt == pytest.approx(1.1 * THRESHOLD)
+    _apply_batter_fatigue(lineup, usage_state=worn, game_day=20, tuning=TUNING,
+                          blocked_ids=kept)
+    assert worn.batter_workload_for("c1").fatigue_debt == pytest.approx(
+        1.1 * THRESHOLD - relief
     )
     streak = UsageState()
     wl = streak.batter_workload_for("c1")

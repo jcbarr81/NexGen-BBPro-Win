@@ -56,7 +56,7 @@ R3_KNOBS = {
     "batter_rest_similar_max": 1.0,
     # item F fix round: a rest the engine cannot give costs little
     "batter_blocked_rest_penalty_cap": 0.06,
-    "batter_blocked_rest_relief": 6.0,
+    "batter_blocked_rest_relief": 12.0,
 }
 
 

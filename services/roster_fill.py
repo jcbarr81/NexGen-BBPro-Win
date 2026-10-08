@@ -282,6 +282,10 @@ def _healthy_catchers(ids: Sequence[str], players: Mapping[str, object]) -> List
     return [p for p in ids if _is_catcher(players.get(p)) and _available(players.get(p))]
 
 
+def _is_primary_catcher(player: object) -> bool:
+    return str(getattr(player, "primary_position", "") or "").strip().upper() == "C"
+
+
 def choose_send_down(
     roster: object,
     players: Mapping[str, object],
@@ -349,13 +353,16 @@ def _weakest_non_catcher_hitter(
     protect: Iterable[str] = (),
 ) -> Optional[str]:
     """The weakest active position player who is not a catcher, not in
-    ``protect`` (see :func:`_protected_hitters`) and whom the option rules
-    allow to go down, or ``None``."""
+    ``protect`` (see :func:`_protected_hitters`), not hurt (a day-to-day
+    player still on the active roster is back in a day or two; optioning him
+    cost a club its only shortstop) and whom the option rules allow to go
+    down, or ``None``."""
 
     keep = set(protect or ())
     pool = [
         p for p in _hitters(roster.act, players)
         if not _is_catcher(players.get(p)) and p not in keep
+        and _available(players.get(p))
     ]
     if option_allowed is not None:
         pool = [p for p in pool if option_allowed(p)]
@@ -392,27 +399,34 @@ def _injury_covers(team_id: str, roster: object) -> set:
 def _protected_hitters(roster: object, players: Mapping[str, object]) -> set:
     """Active position players the CPU upkeep never options to make room:
 
-    * the last healthy one who can play a ``_REQUIRED_POSITIONS`` spot;
+    * the last one who can play a ``_REQUIRED_POSITIONS`` spot;
     * a club's only spare at a ``SPARE_GROUPS`` key position (SS, CF): while
       two or fewer can play it, both stay;
     * a group's only spare otherwise: while the group is covered by at most
       one more player than it has positions, all of them stay.
+
+    Counted twice, among the healthy and among everyone present -- a
+    day-to-day player still on the active roster is present, as the catcher
+    step counts him -- and protected by either count: the day-to-day regular
+    keeps his place, and so does the healthy backup who plays meanwhile.
     """
 
-    healthy = [p for p in _hitters(roster.act, players) if _available(players.get(p))]
-    can = {pid: set(positions_of(players.get(pid))) for pid in healthy}
+    present = _hitters(roster.act, players)
+    healthy = [p for p in present if _available(players.get(p))]
+    can = {pid: set(positions_of(players.get(pid))) for pid in present}
     protected = set()
-    for pos in _REQUIRED_POSITIONS:
-        able = [pid for pid in healthy if pos in can[pid]]
-        if len(able) == 1:
-            protected.add(able[0])
-    for group in SPARE_GROUPS:
-        key_able = [pid for pid in healthy if group[0] in can[pid]]
-        if len(key_able) <= 2:
-            protected.update(key_able)
-        covering = [pid for pid in healthy if can[pid] & set(group)]
-        if len(covering) <= len(group) + 1:
-            protected.update(covering)
+    for group_ids in (healthy, present):
+        for pos in _REQUIRED_POSITIONS:
+            able = [pid for pid in group_ids if pos in can[pid]]
+            if len(able) == 1:
+                protected.add(able[0])
+        for group in SPARE_GROUPS:
+            key_able = [pid for pid in group_ids if group[0] in can[pid]]
+            if len(key_able) <= 2:
+                protected.update(key_able)
+            covering = [pid for pid in group_ids if can[pid] & set(group)]
+            if len(covering) <= len(group) + 1:
+                protected.update(covering)
     return protected
 
 
@@ -426,11 +440,14 @@ def _spare_callup(
 ) -> Optional[tuple]:
     """The minor leaguer to call up as the club's spare for ``group``, or
     ``None`` when it has one (two who can play the key position, or -- with
-    nobody in the minors who can -- one more than the group's positions)."""
+    nobody in the minors who can -- one more than the group's positions).
 
-    healthy = [p for p in _hitters(roster.act, players) if _available(players.get(p))]
+    A day-to-day player still on the active roster counts: a short injury is
+    no reason for a call-up (and the send-down that pays for it)."""
+
+    present = _hitters(roster.act, players)
     key = group[0]
-    if sum(1 for p in healthy if can_play(players.get(p), key)) >= 2:
+    if sum(1 for p in present if can_play(players.get(p), key)) >= 2:
         return None
     cands = callup_candidates(
         roster, players, want_pitcher=False, position=key, allowed=allowed,
@@ -439,7 +456,7 @@ def _spare_callup(
     if cands:
         return cands[0]
     covering = sum(
-        1 for p in healthy if set(positions_of(players.get(p))) & set(group)
+        1 for p in present if set(positions_of(players.get(p))) & set(group)
     )
     if covering > len(group):
         return None
@@ -590,8 +607,10 @@ def maintain_cpu_active_roster(
     That player is never the last who can play a required position, the
     club's only spare SS / CF, a player covering for a teammate still on the
     injured list, or one in ``protect``. No catcher in the organisation, or
-    nobody who may go down, means no move. A third healthy catcher (primary
-    C) is optioned.
+    nobody who may go down, means no move. A third healthy primary-C catcher
+    is optioned (one who only lists C elsewhere is not counted). A day-to-day
+    player on the active roster counts as present at his positions and is
+    never the one optioned.
 
     Step 6 carries a spare SS and CF (``SPARE_GROUPS``) from the club's own
     minors, by the same rules, so live CPU clubs match the full auto-assign
@@ -641,15 +660,21 @@ def maintain_cpu_active_roster(
             break
         _promote(roster, cands[0][0], cands[0][1], moves)
 
-    # 0b. a third healthy catcher (primary C) goes down; the fill below
-    # replaces him with a hitter, never another catcher.
-    while len(_healthy_catchers(list(roster.act), players)) > MIN_ACTIVE_CATCHERS:
+    # 0b. a third healthy catcher goes down; the fill below replaces him with
+    # a hitter, never another catcher. Counted and trimmed among real
+    # (primary C) catchers only: a first baseman who also lists C is not a
+    # third catcher, so he never cost the club one of its two.
+    def _real_catchers() -> List[str]:
+        return [
+            p for p in _healthy_catchers(list(roster.act), players)
+            if _is_primary_catcher(players.get(p))
+        ]
+
+    while len(_real_catchers()) > MIN_ACTIVE_CATCHERS:
         guarded = keep_out | _protected_hitters(roster, players)
         pool = [
-            p for p in _healthy_catchers(list(roster.act), players)
-            if str(getattr(players.get(p), "primary_position", "") or "").strip().upper() == "C"
-            and p not in guarded
-            and (option_allowed is None or option_allowed(p))
+            p for p in _real_catchers()
+            if p not in guarded and (option_allowed is None or option_allowed(p))
         ]
         if not pool:
             break

@@ -954,8 +954,9 @@ def validate_catcher_depth(
 
     Never an error: CPU clubs carry two (their roster upkeep calls one up),
     while an owner's roster is the owner's -- a one-catcher club still plays,
-    it just can't rest its catcher, who starts every game, tires and plays a
-    little worse (Release 3 batter fatigue). A catcher is
+    it just can't rest its catcher, who starts every game and, when he is worn
+    down, plays a little worse (Release 3 batter fatigue; with Auto rest days
+    off, tired players play worse and add a small injury risk). A catcher is
     a position player at C or listing C (:func:`utils.roster_rules.is_catcher`);
     an injured one doesn't count. Ids missing from ``players`` are skipped.
     """
@@ -975,8 +976,10 @@ def validate_catcher_depth(
     if count < want:
         noun = "catcher" if count == 1 else "catchers"
         cost = (
-            " A rest day needs a backup catcher: without one he catches every "
-            "game, tires and plays a little worse."
+            " Without a backup catcher he can't get days off: he catches every "
+            "game and tires, and when he's worn down he plays a little worse. "
+            "With Auto rest days off, tired players play worse and add a small "
+            "injury risk."
             if count == 1
             else ""
         )
