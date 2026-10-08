@@ -44,6 +44,7 @@ from utils.player_loader import load_players_from_csv
 from utils.roster_loader import active_pitcher_cap, active_roster_cap, load_roster
 from utils.roster_loader import save_roster
 from utils.roster_rules import counts_as_pitcher
+from utils.sim_date import sim_date_scope
 from utils.team_loader import load_teams
 
 DateLike = Union[None, str, date]
@@ -114,22 +115,24 @@ def _act_block_reason(
     roster,
     player=None,
     players_by_id: Optional[Dict[str, object]] = None,
+    sim_date: Optional[str] = None,
 ) -> Optional[str]:
     """Why an owner's returner can't join the active roster, or None if he can.
 
     ``"active_full"`` when the active roster is at its cap; ``"pitcher_cap"``
     when there is an active spot but he is a pitcher and the staff is already
     at the limit (13; 14 in September) -- activating one more would block the
-    owner's next sim.
+    owner's next sim. ``sim_date`` is the league date the caps apply on
+    (default: the current sim date).
     """
 
     act = list(getattr(roster, "act", []) or [])
-    if len(act) >= active_roster_cap():
+    if len(act) >= active_roster_cap(sim_date):
         return "active_full"
     if counts_as_pitcher(player):
         lookup = players_by_id or {}
         arms = sum(1 for pid in act if counts_as_pitcher(lookup.get(pid)))
-        if arms >= active_pitcher_cap():
+        if arms >= active_pitcher_cap(sim_date):
             return "pitcher_cap"
     return None
 
@@ -160,6 +163,7 @@ def _resolve_destination(
     cpu_owned: bool = False,
     player=None,
     players_by_id: Optional[Dict[str, object]] = None,
+    sim_date: Optional[str] = None,
 ) -> Optional[str]:
     # A CPU club always brings a healthy player back to the active roster;
     # recover_from_injury sends his like-for-like replacement down if the
@@ -168,7 +172,7 @@ def _resolve_destination(
     # one got hurt (audit H9).
     if cpu_owned:
         return "act"
-    if _act_block_reason(roster, player, players_by_id) is None:
+    if _act_block_reason(roster, player, players_by_id, sim_date) is None:
         return "act"
     if len(getattr(roster, "aaa", []) or []) < AAA_MAX:
         return "aaa"
@@ -245,14 +249,39 @@ def process_disabled_lists(
     be read nobody is activated, forced or not. ``force_teams`` limits the
     fallback to those clubs (the deadline passes the owners who are not
     ready, i.e. not showing up); None applies it to every club.
+
+    ``today`` is the league date to act on (default: the current sim date).
+    Everything the step reads or stamps -- eligibility, the roster caps (28 /
+    14 in September), the date on a logged transaction -- uses that date,
+    also where the league files still hold an earlier one (inside a
+    multi-day sim call, and all postseason).
     """
+
+    target_date = _coerce_date(today)
+    with sim_date_scope(target_date.isoformat()):
+        return _process_disabled_lists(
+            target_date,
+            auto_activate=auto_activate,
+            force_auto_activate=force_auto_activate,
+            force_teams=force_teams,
+        )
+
+
+def _process_disabled_lists(
+    target_date: date,
+    *,
+    auto_activate: bool,
+    force_auto_activate: bool,
+    force_teams: Optional[Iterable[str]],
+) -> DLAutomationSummary:
+    """The body of :func:`process_disabled_lists`, on ``target_date``."""
 
     forced_ids = (
         None if force_teams is None else {str(t).upper() for t in force_teams}
     )
 
     summary = DLAutomationSummary()
-    target_date = _coerce_date(today)
+    day_token = target_date.isoformat()
     data_dir = get_data_dir()
     players = list(load_players_from_csv("data/players.csv"))
     player_map = {getattr(p, "player_id", ""): p for p in players}
@@ -343,13 +372,16 @@ def process_disabled_lists(
                 continue
 
             block_reason = (
-                None if cpu_club else _act_block_reason(roster, player, player_map)
+                None
+                if cpu_club
+                else _act_block_reason(roster, player, player_map, day_token)
             )
             destination = _resolve_destination(
                 roster,
                 cpu_owned=cpu_club,
                 player=player,
                 players_by_id=player_map,
+                sim_date=day_token,
             )
             if destination is None:
                 summary.blocked.append(f"{base_msg} but no roster room is available.")
@@ -361,8 +393,16 @@ def process_disabled_lists(
                     )
                 continue
             try:
+                # On the same league date the eligibility above was read on:
+                # left to default, recovery re-checked against the date in
+                # the league files, which lags inside a multi-day sim call
+                # and in the postseason.
                 recover_from_injury(
-                    player, roster, destination=destination, players_by_id=player_map
+                    player,
+                    roster,
+                    destination=destination,
+                    players_by_id=player_map,
+                    today=target_date,
                 )
             except ValueError:
                 summary.alerts.append(base_msg)
@@ -385,7 +425,7 @@ def process_disabled_lists(
                     "reason": block_reason or "active_full",
                 }
                 if block_reason == "pitcher_cap":
-                    entry["pitcher_cap"] = active_pitcher_cap()
+                    entry["pitcher_cap"] = active_pitcher_cap(day_token)
                 parked.setdefault(str(team_id).upper(), []).append(entry)
                 summary.awaiting_room.append(
                     f"{_player_name(player)} is healthy and waiting in "
@@ -394,7 +434,7 @@ def process_disabled_lists(
                 if block_reason == "pitcher_cap":
                     msg += (
                         " — the pitching staff is at the "
-                        f"{active_pitcher_cap()}-pitcher limit. Make room to "
+                        f"{active_pitcher_cap(day_token)}-pitcher limit. Make room to "
                         "bring him up."
                     )
                 else:

@@ -798,11 +798,15 @@ def record_roster_moves(
     *,
     details: str,
     news: bool = False,
+    season_date: Optional[str] = None,
 ) -> None:
     """Transaction-log (and optionally news) lines for automatic moves.
 
     The sim's injury call-ups and send-downs used to reach only the prospect
     event log, so owners browsing transactions never saw them.
+    ``season_date`` is the league date to log (default: the current sim
+    date, which lags inside a game: the league files move on only when the
+    sim call ends, and stay on the last regular-season date all postseason).
     """
 
     if not moves:
@@ -828,6 +832,7 @@ def record_roster_moves(
                 from_level=str(from_level).upper(),
                 to_level=str(to_level).upper(),
                 details=line,
+                season_date=season_date,
             )
         except Exception:
             pass
