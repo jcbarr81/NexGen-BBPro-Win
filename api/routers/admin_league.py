@@ -371,7 +371,14 @@ def reset_to_opening_day(
         if first_year is not None:
             playoff_candidates.append(data_root / f"playoffs_{first_year}.json")
         try:
-            playoff_candidates.extend(data_root.glob("playoffs_*.json"))
+            # Bracket files only: playoffs_config.json (the league's chosen
+            # playoff format) also matches playoffs_*.json and must survive.
+            from playbalance.playoffs import _BRACKET_FILE_RE
+
+            playoff_candidates.extend(
+                p for p in data_root.glob("playoffs_*.json")
+                if _BRACKET_FILE_RE.match(p.name)
+            )
         except Exception:
             pass
         for candidate in playoff_candidates:
