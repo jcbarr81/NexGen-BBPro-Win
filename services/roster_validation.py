@@ -977,7 +977,8 @@ def validate_catcher_depth(
         noun = "catcher" if count == 1 else "catchers"
         cost = (
             " Without a backup catcher he can't get days off: he catches every "
-            "game and tires, and when he's worn down he plays a little worse. "
+            "game and tires, and when he's worn down he plays a little worse, with "
+            "a very small injury risk. "
             "With Auto rest days off, tired players play worse and add a small "
             "injury risk."
             if count == 1
