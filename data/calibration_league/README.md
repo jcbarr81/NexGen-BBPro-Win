@@ -13,8 +13,8 @@ How it is built (all product code, run in an isolated temp data root):
 - ACT rosters: `services.roster_auto_assign.auto_assign_team` per organisation
   (each club's best 13 hitters / 13 pitchers: the 26-man roster, decision 8);
 - pitching staffs: `utils.pitching_autofill.autofill_pitching_staff`, written
-  as the Pitching auto-fill does (SP1-5, LR, CL, SU, MR1-MR3; the 12th and
-  13th active pitchers stay unlisted);
+  as the Pitching auto-fill does (SP1-5, LR, CL, SU, MR1-MR3, then MR4/MR5
+  for the 12th and 13th active pitchers);
 - lineups: `utils.lineup_autofill.auto_fill_lineup_for_team`;
 - parks: generic for every team (`park_id` empty; audit L13).
 
@@ -42,7 +42,7 @@ fail gates here -- that is the point of the fixture):
 Generated profile:
 
 - 1530 players; ACT 390 hitters / 390 pitchers
-- lineup regulars (vs RHP) mean CH 51.4 / PH 51.0 / EYE 50.5 / SP 54.7
-- ACT pitchers mean arm 59.0 / control 53.9 / movement 56.8 / endurance 41.2
-- ACT hitters with SP >= 70: 14.6%; SP >= 85: 3.6%
-- ACT hitters batting left: 24.1%
+- lineup regulars (vs RHP) mean CH 51.1 / PH 51.0 / EYE 50.4 / SP 56.8
+- ACT pitchers mean arm 59.7 / control 53.6 / movement 56.4 / endurance 41.4
+- ACT hitters with SP >= 70: 19.0%; SP >= 85: 3.8%
+- ACT hitters batting left: 23.8%
