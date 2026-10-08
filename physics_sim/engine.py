@@ -1119,7 +1119,11 @@ def _forced_fallback(
             choice = _least_worn(group, leverage, score_diff)
             choice.fallback = not choice.available
             return choice
-    choice = _reserve_last_resort(team_state, must_replace=must_replace)
+    choice = _reserve_last_resort(
+        team_state,
+        must_replace=must_replace,
+        mop_up=float(tuning.get("mop_up", 0.0)) > 0.0,
+    )
     if choice is not None:
         choice.emergency = True
         return choice
@@ -1127,7 +1131,7 @@ def _forced_fallback(
 
 
 def _reserve_last_resort(
-    team_state: TeamPitchingState, *, must_replace: bool
+    team_state: TeamPitchingState, *, must_replace: bool, mop_up: bool = True
 ) -> PitcherState | None:
     """A reserve arm for a pitcher who must come out with the pen used up.
 
@@ -1135,10 +1139,11 @@ def _reserve_last_resort(
     least recently used first. A spent pitcher gets one only while no
     emergency arm has pitched today (one per club per game). A hurt one is
     replaced by anyone left on the staff: a rested arm the one-emergency rule
-    kept out first, a debt-blocked arm last.
+    kept out first, a debt-blocked arm last. With ``mop_up`` off (the switch
+    for bringing starters out of the pen) only a hurt pitcher is replaced.
     """
 
-    if not must_replace and any(p.used for p in team_state.reserve):
+    if not must_replace and (not mop_up or any(p.used for p in team_state.reserve)):
         return None
     unused = [
         (index, p)
@@ -1162,7 +1167,8 @@ def _reserve_last_resort(
         for item in unused
         if not item[1].available and item[1].reserve_block != "rest"
     ]
-    if must_replace and rested:
+    if rested:
+        # A rested arm always goes before one short of his rest days.
         return max(rested, key=_emergency_rank)[1]
     if rest_only:
         return min(rest_only, key=least_recent)[1]

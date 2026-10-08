@@ -214,6 +214,21 @@ def test_a_spent_pitcher_with_an_empty_pen_is_replaced():
     assert pick.pitcher.player_id == "yday"
 
 
+def test_with_mop_up_off_a_spent_pitcher_keeps_the_ball():
+    """mop_up is the switch for starters out of the pen: off, an empty pen
+    leaves a spent (not hurt) pitcher in rather than taking yesterday's starter."""
+    tuning = load_tuning({"mop_up": 0.0})
+    staff = _empty_pen_staff()
+    current = staff.current
+    current.pitches = int(current.fatigue_limit + tuning.get("bullpen_last_resort_margin"))
+    pick = _select_reliever(staff, "mid", inning=7, score_diff=0, tuning=tuning, forced=True)
+    assert pick is current
+    # A hurt pitcher is still replaced.
+    hurt = _select_reliever(staff, "mid", inning=7, score_diff=0, tuning=tuning,
+                            must_replace=True)
+    assert hurt is not current
+
+
 def test_a_tiring_pitcher_with_an_empty_pen_is_not_yet_replaced():
     staff = _empty_pen_staff()
     staff.current.pitches = int(staff.current.fatigue_limit)
