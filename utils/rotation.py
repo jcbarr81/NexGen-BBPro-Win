@@ -175,11 +175,6 @@ def staff_rotation(
 
 _SAVED_SLOTS = frozenset({"SP1", "SP2", "SP3", "SP4", "SP5"})
 
-# An emergency relief outing by a starter of this many pitches or fewer keeps
-# his next turn (a bullpen session's worth); a longer one counts as work on
-# his start clock. Mirrors the engine's ``emergency_keep_turn_pitches`` knob.
-EMERGENCY_KEEP_TURN_PITCHES = 35
-
 
 def game_staff_roles(
     staff_roles: Mapping[str, str],
@@ -217,7 +212,6 @@ def game_staff_roles(
 
 
 __all__ = [
-    "EMERGENCY_KEEP_TURN_PITCHES",
     "ROTATION_SLOTS",
     "choose_rotation",
     "game_staff_roles",
