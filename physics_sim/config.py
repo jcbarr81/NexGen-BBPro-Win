@@ -481,11 +481,17 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # substitutes switched off when one was there). A regular the engine
     # cannot rest -- nobody on the bench may take his position, the swap cap,
     # the min-gap guard -- plays at most this penalty (offense x0.95 at
-    # 0.06), and a fatigue rest blocked for lack of a substitute recovers
-    # this much debt on top (the manager eases his load), so a thin roster
-    # loses rest days but not a quarter of its regulars' bats.
+    # 0.06), so a thin roster loses rest days but not a quarter of its
+    # regulars' bats. Once he is worn down (over the penalty threshold, so he
+    # plays a little worse that day) the manager eases his load: he recovers
+    # this much debt, and wears down again a few games later. On the 7.46.0
+    # one-catcher fixture a lone catcher plays about one game in four a
+    # little worse (mean penalty 0.018; 2.7% of lineup slots league-wide).
+    # (Second fix round: the relief was 6.0 on every blocked fatigue rest
+    # from the 0.85 trigger, which held him just under the threshold -- no
+    # cost at all.)
     "batter_blocked_rest_penalty_cap": 0.06,
-    "batter_blocked_rest_relief": 6.0,
+    "batter_blocked_rest_relief": 12.0,
     # Park/environment
     "park_size_scale": 1.0,
     "park_factor_scale": 0.0,
