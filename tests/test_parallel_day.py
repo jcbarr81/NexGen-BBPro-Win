@@ -175,6 +175,131 @@ def test_seed_rng_decoupled_from_global():
 
 
 # ---------------------------------------------------------------------------
+# Release 3 fix round: worker state that must match a serial day
+# ---------------------------------------------------------------------------
+def test_worker_job_reloads_rosters_the_parent_changed(tmp_path, monkeypatch):
+    """The pool's workers are persistent. The parent replays an injury (IL
+    placement, call-up) into the roster files; a worker that had loaded the
+    club before must not dress the injured arm from its stale roster cache."""
+    from playbalance import game_runner
+    from utils import roster_loader
+
+    rosters = tmp_path / "rosters"
+    rosters.mkdir()
+    roster_file = rosters / "AAA.csv"
+    monkeypatch.setattr(
+        roster_loader,
+        "_load_roster_from_storage",
+        lambda tid, d: (Path(d) / f"{tid}.csv").read_text(encoding="utf-8"),
+    )
+    roster_file.write_text("P_HURT,ACT\n", encoding="utf-8")
+    roster_loader.load_roster.cache_clear()
+    assert roster_loader.load_roster("AAA", rosters) == "P_HURT,ACT\n"  # cached
+    # The parent (another process) moves him to the IL and calls a man up.
+    roster_file.write_text("P_UP,ACT\nP_HURT,IR\n", encoding="utf-8")
+
+    seen = []
+
+    def fake_scores(home, away, **kwargs):
+        seen.append(roster_loader.load_roster("AAA", rosters))
+        return 1, 0, "", {}
+
+    monkeypatch.setattr(game_runner, "_resolve_game_engine", lambda _=None: "physics")
+    monkeypatch.setattr(game_runner, "simulate_game_scores", fake_scores)
+    payload = parallel_day.build_payload(
+        home="AAA", away="BBB", seed=1, date="2026-04-02",
+        home_starter=None, away_starter=None, data_root=str(tmp_path),
+        league_id=None, usage_in={},
+    )
+    journal = parallel_day.simulate_game_job(payload)
+    assert seen == ["P_UP,ACT\nP_HURT,IR\n"]
+    assert journal["news_events"] == []
+
+
+def test_worker_job_drops_its_players_cache(tmp_path, monkeypatch):
+    """players.csv is cached by path only, like the rosters: a persistent
+    worker must not keep the copy it loaded for an earlier job."""
+    from playbalance import game_runner
+    from utils import player_loader
+
+    cleared = []
+    monkeypatch.setattr(
+        player_loader.load_players_from_csv, "cache_clear",
+        lambda *a, **k: cleared.append(True), raising=False,
+    )
+    monkeypatch.setattr(game_runner, "_resolve_game_engine", lambda _=None: "physics")
+    monkeypatch.setattr(game_runner, "simulate_game_scores", lambda *a, **k: (1, 0, "", {}))
+    payload = parallel_day.build_payload(
+        home="AAA", away="BBB", seed=1, date="2026-04-02",
+        home_starter=None, away_starter=None, data_root=str(tmp_path),
+        league_id=None, usage_in={},
+    )
+    parallel_day.simulate_game_job(payload)
+    assert cleared
+
+
+def test_lineup_rewrite_news_is_journaled_inside_a_worker(monkeypatch):
+    from playbalance import game_runner
+
+    logged = []
+    monkeypatch.setattr(
+        game_runner, "log_news_event", lambda *a, **k: logged.append((a, k))
+    )
+    journal = parallel_day.GameJournal()
+    with parallel_day.journal_capture(journal):
+        game_runner._notify_lineup_rewritten("AAA", ["lhp"])
+    assert logged == []  # never written from the worker
+    assert len(journal.news_events) == 1
+    item = journal.news_events[0]
+    assert item["category"] == "lineup" and item["team_id"] == "AAA"
+    assert "vs LHP" in item["event"]
+
+    # Outside a worker (serial) it is logged at once, as before.
+    game_runner._notify_lineup_rewritten("AAA", ["lhp"])
+    assert len(logged) == 1 and logged[0][0][0] == item["event"]
+
+
+def test_replay_logs_journaled_news_before_the_games_injuries(monkeypatch):
+    from playbalance import game_runner
+
+    order = []
+    monkeypatch.setattr(
+        game_runner,
+        "log_news_event",
+        lambda event, **k: order.append(("news", event, k.get("team_id"))),
+    )
+    monkeypatch.setattr(
+        game_runner,
+        "_apply_injury_events",
+        lambda events, **k: order.append(("injuries", len(events), None)),
+    )
+    journal = {
+        "home": "AAA",
+        "away": "BBB",
+        "result": {"home_runs": 2, "away_runs": 1},
+        "news_events": [
+            {"event": "first", "category": "lineup", "team_id": "AAA"},
+            {"event": "second", "category": "lineup", "team_id": "BBB"},
+        ],
+        "injury_events": [{"player_id": "P1", "team_id": "AAA"}],
+    }
+    result = game_runner.replay_game_journal(
+        journal,
+        tracker=None,
+        players_file="unused.csv",
+        roster_dir="unused",
+        game_date=None,
+        day_lookup={},
+    )
+    assert result[:2] == (2, 1)
+    assert order == [
+        ("news", "first", "AAA"),
+        ("news", "second", "BBB"),
+        ("injuries", 1, None),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # The release gate: parallel digests == serial digests (byte-parity)
 # ---------------------------------------------------------------------------
 def test_parallel_matches_serial_digests(tmp_path):

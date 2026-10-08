@@ -98,6 +98,31 @@ def set_auto_activate_il(
     return settings
 
 
+# Decision 11 (Release 3): the automatic runner on 2nd in extra innings,
+# regular season only. Default ON for every league, including leagues created
+# before the setting existed; the commissioner can switch it off at any time
+# and the change applies from the next game played. Postseason games never get
+# the runner, and past the 30-inning safety guard every game does, whatever
+# this says, so a game cannot end tied.
+EXTRA_INNINGS_RUNNER_KEY = "extra_innings_runner"
+
+
+def extra_innings_runner_enabled(settings: Optional[Dict[str, Any]] = None) -> bool:
+    """Is the extra-innings automatic runner on? Defaults to True."""
+
+    payload = settings if settings is not None else load_league_settings()
+    return bool(payload.get(EXTRA_INNINGS_RUNNER_KEY, True))
+
+
+def set_extra_innings_runner(
+    enabled: bool, *, path: Path | str | None = None
+) -> Dict[str, Any]:
+    settings = load_league_settings(path)
+    settings[EXTRA_INNINGS_RUNNER_KEY] = bool(enabled)
+    save_league_settings(settings, path)
+    return settings
+
+
 def can_run_season_progression(
     actor_role: Optional[str],
     *,
@@ -167,8 +192,10 @@ def _verify_legacy_hash(password: str, stored: str) -> bool:
 __all__ = [
     "can_run_season_progression",
     "configure_league_settings",
+    "extra_innings_runner_enabled",
     "is_owner_league",
     "load_league_settings",
     "save_league_settings",
+    "set_extra_innings_runner",
     "verify_commissioner_password",
 ]

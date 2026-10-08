@@ -7,9 +7,13 @@ simulation are implemented in subsequent tickets; here we define the
 data-shapes and stable JSON schema to support resume and UI rendering.
 """
 
+import functools
 import hashlib
+import inspect
 import json
+import re
 from datetime import date as _date
+from datetime import timedelta as _timedelta
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Tuple
@@ -272,6 +276,29 @@ class PlayoffBracket:
         return br
 
 
+# Bracket documents are ``playoffs.json`` or ``playoffs_<year>.json``. A plain
+# ``playoffs_*.json`` glob also matched the league wizard's
+# ``playoffs_config.json`` (the playoff *format*), which parsed as an empty
+# year-0 bracket and masked the missing real one.
+_BRACKET_FILE_RE = re.compile(r"^playoffs_(\d+)\.json$")
+
+
+def bracket_is_empty(bracket: Optional["PlayoffBracket"]) -> bool:
+    """True when ``bracket`` is missing or has nothing to play.
+
+    A bracket with year 0 or no rounds is a placeholder (or a non-bracket
+    document parsed as one), never a seeded postseason.
+    """
+
+    if bracket is None:
+        return True
+    try:
+        year = int(getattr(bracket, "year", 0) or 0)
+    except (TypeError, ValueError):
+        year = 0
+    return year <= 0 or not list(getattr(bracket, "rounds", None) or [])
+
+
 def _bracket_path(year: int | None = None) -> Path:
     base = get_data_dir()
     if year:
@@ -322,7 +349,10 @@ def load_bracket(path: Optional[Path] = None, *, year: Optional[int] = None) -> 
                 candidates.append(_bracket_path(inferred_year))
         base = get_data_dir()
         try:
-            matches = list(base.glob("playoffs_*.json"))
+            matches = [
+                p for p in base.glob("playoffs_*.json")
+                if _BRACKET_FILE_RE.match(p.name)
+            ]
         except Exception:
             matches = []
         if year is None and matches:
@@ -960,117 +990,264 @@ def _championship_round_names(bracket: PlayoffBracket) -> set[str]:
     return set()
 
 
-def simulate_series(matchup: Matchup, *, year: int, round_name: str, series_index: int, simulate_game=None) -> Matchup:
-    """Simulate a single series to completion and return the updated matchup."""
+# --- Ties, dates and the game call (Release 3, item D) ---------------------------------
 
-    wins_needed = _wins_needed(matchup.config.length)
+# A tied playoff result is never stored: the game is re-simulated with a
+# salted seed, up to this many tries in all, and otherwise the slot is left
+# unplayed. The engine itself cannot tie a postseason game short of its
+# 60-inning hard stop (decision 11), so this is a backstop.
+_TIE_TRIES = 3
+
+# Owner decision Q5: MLB-style playoff dates. Day 0 is the second day after
+# the last regular-season date (one off day first); each round starts the day
+# after the previous round's last possible game (an off day between rounds);
+# a series of five or more games gets a travel day at every change of home
+# field (after games 2 and 5 of a 2-3-2 seven-game series); a three-game Wild
+# Card series is played on consecutive days.
+_STAGE_ORDER = {"wildcard": 0, "ds": 1, "cs": 2, "ws": 3}
+_PLAN_SERIES_LENGTHS = {"ds": 5, "cs": 7, "ws": 7, "wildcard": 3}
+_TRAVEL_DAY_MIN_LENGTH = 5
+
+
+def _plan_series_settings() -> Dict[str, Any]:
+    """Series lengths and home/away patterns for rounds still being planned.
+
+    The league's configured values (``playoffs_config``), the same ones the
+    first round is generated with and ``_normalize_series_configs`` restores
+    on load; the MLB defaults when the config can't be read. Used both to
+    build a planned series (:func:`_populate`) and to size its calendar
+    window (:class:`_PlayoffCalendar`), so the two always agree.
+    """
+
+    lengths: Dict[str, Any] = dict(_PLAN_SERIES_LENGTHS)
+    patterns: Dict[int, List[int]] = {
+        k: list(v) for k, v in _DEFAULT_HOME_AWAY_PATTERNS.items()
+    }
+    try:
+        from playbalance.playoffs_config import load_playoffs_config
+
+        cfg_lengths, cfg_patterns = _extract_series_settings(load_playoffs_config())
+    except Exception:
+        cfg_lengths, cfg_patterns = {}, {}
+    lengths.update(cfg_lengths)
+    patterns.update(cfg_patterns)
+    return {"series_lengths": lengths, "home_away_patterns": patterns}
+
+
+def _score_pair(game: GameResult) -> Optional[Tuple[int, int]]:
+    result = str(getattr(game, "result", "") or "")
+    if "-" not in result:
+        return None
+    try:
+        home_runs_str, away_runs_str = result.split("-", 1)
+        return int(home_runs_str.strip()), int(away_runs_str.strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_tied_game(game: GameResult) -> bool:
+    pair = _score_pair(game)
+    return pair is not None and pair[0] == pair[1]
+
+
+def _played_slots(matchup: Matchup) -> int:
+    """Series games played so far.
+
+    A tied game stored before Release 3 never counts (self-heal): its slot is
+    played again, so a series that used one up can still finish.
+    """
+
+    return sum(1 for game in (matchup.games or []) if not _is_tied_game(game))
+
+
+def _home_order(matchup: Matchup) -> List[str]:
     high_id = matchup.high.team_id
     low_id = matchup.low.team_id
-
-    # Build home/away order for games according to pattern
     homes: List[str] = []
     flip = False
     for block in matchup.config.pattern:
         homes.extend([high_id if not flip else low_id] * block)
         flip = not flip
+    return homes
 
-    existing_high, existing_low = _count_series_wins(matchup)
-    if existing_high >= wins_needed or existing_low >= wins_needed:
-        matchup.winner = high_id if existing_high >= wins_needed else low_id
-        return matchup
 
-    real_games = simulate_game is None
-    if simulate_game is None:
-        from playbalance.game_runner import simulate_game_scores as _sim
-        simulate_game = _sim
+def _series_day_offsets(pattern: List[int]) -> List[int]:
+    """Day offset of each game of a series from its round's first day."""
 
-    high_wins = existing_high
-    low_wins = existing_low
-    played_games = min(len(matchup.games), len(homes))
-    game_no = played_games
+    blocks = [int(b) for b in (pattern or []) if int(b) > 0]
+    games = sum(blocks)
+    travel_after: set[int] = set()
+    if games >= _TRAVEL_DAY_MIN_LENGTH:
+        played = 0
+        for block in blocks[:-1]:
+            played += block
+            travel_after.add(played)
+    offsets: List[int] = []
+    day = 0
+    for game_no in range(1, games + 1):
+        offsets.append(day)
+        day += 2 if game_no in travel_after else 1
+    return offsets
 
-    for home in homes[played_games:]:
-        if high_wins >= wins_needed or low_wins >= wins_needed:
-            break
-        away = low_id if home == high_id else high_id
-        seed = _deterministic_seed(str(year), round_name, str(series_index), str(game_no), home, away)
-        if real_games:
-            from services.roster_fill import prepare_teams_for_game
 
-            prepare_teams_for_game((home, away))
-        # Call simulate_game with keyword seed if accepted; otherwise rely on RNG state
+def _series_span(pattern: List[int]) -> int:
+    """Days from a series' first game to its last possible one, inclusive."""
+
+    offsets = _series_day_offsets(pattern)
+    return offsets[-1] + 1 if offsets else 0
+
+
+def _regular_season_end(year: int | None) -> Optional[_date]:
+    """Last regular-season date of the league's schedule, or None.
+
+    None when there is no readable schedule or it belongs to another season
+    than the bracket (the games then stay undated, as before Release 3).
+    """
+
+    import csv
+
+    sched = get_data_dir() / "schedule.csv"
+    try:
+        if not sched.exists():
+            return None
+        with sched.open(newline="", encoding="utf-8") as fh:
+            tokens = [str(r.get("date") or "").strip() for r in csv.DictReader(fh)]
+    except Exception:
+        return None
+    dates: List[_date] = []
+    for token in tokens:
         try:
-            result = simulate_game(home, away, seed=seed)
-        except TypeError:
-            result = simulate_game(home, away)
+            dates.append(_date.fromisoformat(token))
+        except ValueError:
+            continue
+    if not dates:
+        return None
+    end = max(dates)
+    if year and end.year != int(year):
+        return None
+    return end
 
-        # Parse result tuple
-        home_runs = away_runs = None
-        html = None
-        extra = {}
-        if isinstance(result, tuple):
-            if len(result) >= 2:
-                home_runs, away_runs = result[0], result[1]
-            if len(result) >= 3:
-                html = result[2] if isinstance(result[2], str) else None
-            if len(result) >= 4 and isinstance(result[3], dict):
-                extra = result[3]
-        # Winning side
-        if isinstance(home_runs, int) and isinstance(away_runs, int):
-            if home_runs > away_runs:
-                winner_team = home
-            elif away_runs > home_runs:
-                winner_team = away
-            else:
-                winner_team = None
-            if winner_team == high_id:
-                high_wins += 1
-            elif winner_team == low_id:
-                low_wins += 1
-        # Save boxscore html if provided
-        box_path = None
-        game_id = f"{year}_{round_name}_S{series_index}_G{game_no}_{away}_at_{home}"
-        if html:
-            try:
-                from playbalance.simulation import save_boxscore_html as _save_html
 
-                box_path = _save_html("playoffs", html, game_id)
-                from services import boxscore_diagnostics as _diag
+class _PlayoffCalendar:
+    """Day index (and date, when the season's end is known) of every game.
 
-                _diag.record_success()
-            except Exception as exc:
-                box_path = None
-                try:
-                    from services import boxscore_diagnostics as _diag
+    Rounds are grouped into stages (Wild Card, Division Series, ...) by their
+    names; all series of a stage share its days, whatever league they are in.
+    A stage lasts as long as its longest possible series, so a sweep does not
+    move the next round up, just as MLB's schedule does not.
+    """
 
-                    _diag.record_failure("playoffs:save", game_id, exc)
-                except Exception:
-                    pass
-        else:
-            try:
-                from services import boxscore_diagnostics as _diag
-
-                _diag.record_failure(
-                    "playoffs:no_html",
-                    game_id,
-                    ValueError("simulator returned no boxscore html"),
-                )
-            except Exception:
-                pass
-
-        result_str = None
-        if isinstance(home_runs, int) and isinstance(away_runs, int):
-            result_str = f"{home_runs}-{away_runs}"
-
-        matchup.games.append(
-            GameResult(home=home, away=away, date=None, result=result_str, boxscore=box_path, meta=extra)
+    def __init__(self, bracket: PlayoffBracket, season_end: Optional[_date]):
+        self.season_end = season_end
+        settings = _plan_series_settings()
+        stages: Dict[str, Dict[str, int]] = {}
+        self._stage_of: Dict[str, str] = {}
+        for index, rnd in enumerate(bracket.rounds):
+            key = _stage_key_from_round_name(rnd.name) or rnd.name
+            spans = [_series_span(m.config.pattern) for m in rnd.matchups]
+            for entry in getattr(rnd, "plan", []) or []:
+                planned = _series_config_from_settings(settings, entry.series_key)
+                spans.append(_series_span(planned.pattern))
+            if not spans:
+                continue
+            stage = stages.setdefault(key, {"first": index, "span": 0})
+            stage["span"] = max(stage["span"], *spans)
+            self._stage_of[rnd.name] = key
+        order = sorted(
+            stages,
+            key=lambda k: (_STAGE_ORDER.get(k, len(_STAGE_ORDER)), stages[k]["first"]),
         )
-        game_no += 1
+        self._start: Dict[str, int] = {}
+        day = 0
+        for key in order:
+            self._start[key] = day
+            day += stages[key]["span"] + 1
 
-    if high_wins >= wins_needed or low_wins >= wins_needed:
-        matchup.winner = high_id if high_wins >= wins_needed else low_id
-    else:
-        matchup.winner = None
+    def game_day(self, round_name: str, matchup: Matchup, slot: int) -> Optional[int]:
+        key = self._stage_of.get(round_name)
+        if key is None:
+            return None
+        offsets = _series_day_offsets(matchup.config.pattern)
+        if slot >= len(offsets):
+            return None
+        return self._start[key] + offsets[slot]
+
+    def date_for(self, day: Optional[int]) -> Optional[str]:
+        if day is None or self.season_end is None:
+            return None
+        return (self.season_end + _timedelta(days=2 + day)).isoformat()
+
+
+def _default_simulate_game():
+    """The real game simulator, flagged as a postseason game."""
+
+    from playbalance.game_runner import simulate_game_scores
+
+    return functools.partial(simulate_game_scores, postseason=True)
+
+
+def _call_simulate_game(simulate_game, home: str, away: str, *, seed: int, game_date: Optional[str]):
+    """Call ``simulate_game`` with the keywords it accepts.
+
+    ``seed`` is passed whenever it is accepted, ``game_date`` only when the
+    game has a date. Test stubs and older callers keep their signatures.
+    """
+
+    kwargs: Dict[str, Any] = {"seed": seed}
+    if game_date is not None:
+        kwargs["game_date"] = game_date
+    try:
+        params = inspect.signature(simulate_game).parameters
+    except (TypeError, ValueError):
+        params = None
+    if params is not None and not any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+    ):
+        kwargs = {key: value for key, value in kwargs.items() if key in params}
+    return simulate_game(home, away, **kwargs)
+
+
+def _unpack_result(result: Any) -> Tuple[Any, Any, Optional[str], Dict[str, Any]]:
+    home_runs = away_runs = None
+    html = None
+    extra: Dict[str, Any] = {}
+    if isinstance(result, tuple):
+        if len(result) >= 2:
+            home_runs, away_runs = result[0], result[1]
+        if len(result) >= 3:
+            html = result[2] if isinstance(result[2], str) else None
+        if len(result) >= 4 and isinstance(result[3], dict):
+            extra = result[3]
+    return home_runs, away_runs, html, extra
+
+
+def simulate_series(
+    matchup: Matchup,
+    *,
+    year: int,
+    round_name: str,
+    series_index: int,
+    simulate_game=None,
+    date_for_slot=None,
+) -> Matchup:
+    """Simulate a single series to completion and return the updated matchup.
+
+    ``date_for_slot(slot) -> "YYYY-MM-DD" | None`` dates each game; without it
+    the games are undated. The bracket-level entry points date every game.
+    """
+
+    while not matchup.winner:
+        slot = _played_slots(matchup)
+        game_date = date_for_slot(slot) if callable(date_for_slot) else None
+        if not _simulate_next_series_game(
+            matchup,
+            year=year,
+            round_name=round_name,
+            series_index=series_index,
+            simulate_game=simulate_game,
+            game_date=game_date,
+        ):
+            break
     return matchup
 
 
@@ -1081,8 +1258,13 @@ def _simulate_next_series_game(
     round_name: str,
     series_index: int,
     simulate_game=None,
+    game_date: Optional[str] = None,
 ) -> bool:
-    """Simulate the next unplayed game in a series."""
+    """Simulate the next unplayed game in a series.
+
+    Returns True when a game was added. A tie is never added (see
+    ``_TIE_TRIES``), and a stored tie does not use up a slot.
+    """
 
     wins_needed = _wins_needed(matchup.config.length)
     high_id = matchup.high.team_id
@@ -1097,57 +1279,68 @@ def _simulate_next_series_game(
 
     real_games = simulate_game is None
     if simulate_game is None:
-        from playbalance.game_runner import simulate_game_scores as _sim
-        simulate_game = _sim
+        simulate_game = _default_simulate_game()
 
-    homes: List[str] = []
-    flip = False
-    for block in matchup.config.pattern:
-        homes.extend([high_id if not flip else low_id] * block)
-        flip = not flip
-
-    played_games = min(len(matchup.games), len(homes))
+    homes = _home_order(matchup)
+    played_games = min(_played_slots(matchup), len(homes))
     if played_games >= len(homes):
         return False
 
     home = homes[played_games]
     away = low_id if home == high_id else high_id
-    seed = _deterministic_seed(str(year), round_name, str(series_index), str(played_games), home, away)
+    seed_parts = [str(year), round_name, str(series_index), str(played_games), home, away]
     if real_games:
         from services.roster_fill import prepare_teams_for_game
+        from utils.sim_date import sim_date_scope
 
-        prepare_teams_for_game((home, away))
-    try:
-        result = simulate_game(home, away, seed=seed)
-    except TypeError:
-        result = simulate_game(home, away)
+        # On the playoff date: the league files still hold the last
+        # regular-season date, which every call-up used to be logged on.
+        with sim_date_scope(game_date):
+            prepare_teams_for_game((home, away))
+    for attempt in range(_TIE_TRIES):
+        # The first try keeps the pre-Release-3 seed; retries salt it.
+        parts = seed_parts if attempt == 0 else seed_parts + [f"tie-retry-{attempt}"]
+        result = _call_simulate_game(
+            simulate_game,
+            home,
+            away,
+            seed=_deterministic_seed(*parts),
+            game_date=game_date,
+        )
+        home_runs, away_runs, html, extra = _unpack_result(result)
+        tied = (
+            isinstance(home_runs, int)
+            and isinstance(away_runs, int)
+            and home_runs == away_runs
+        )
+        if not tied:
+            break
+    else:
+        try:
+            from services import boxscore_diagnostics as _diag
 
-    home_runs = away_runs = None
-    html = None
-    extra: Dict[str, Any] = {}
-    if isinstance(result, tuple):
-        if len(result) >= 2:
-            home_runs, away_runs = result[0], result[1]
-        if len(result) >= 3:
-            html = result[2] if isinstance(result[2], str) else None
-        if len(result) >= 4 and isinstance(result[3], dict):
-            extra = result[3]
+            _diag.record_failure(
+                "playoffs:tie",
+                f"{year}_{round_name}_S{series_index}_G{played_games}_{away}_at_{home}",
+                ValueError(f"game still tied after {_TIE_TRIES} tries; slot left unplayed"),
+            )
+        except Exception:
+            pass
+        return False
 
     high_wins = existing_high
     low_wins = existing_low
     if isinstance(home_runs, int) and isinstance(away_runs, int):
-        winner_team = None
-        if home_runs > away_runs:
-            winner_team = home
-        elif away_runs > home_runs:
-            winner_team = away
+        winner_team = home if home_runs > away_runs else away
         if winner_team == high_id:
             high_wins += 1
         elif winner_team == low_id:
             low_wins += 1
 
     box_path = None
-    game_id = f"{year}_{round_name}_S{series_index}_G{played_games}_{away}_at_{home}"
+    # Box score ids run on the stored game count, so a game replayed over a
+    # stored tie gets its own file.
+    game_id = f"{year}_{round_name}_S{series_index}_G{len(matchup.games)}_{away}_at_{home}"
     if html:
         try:
             from playbalance.simulation import save_boxscore_html as _save_html
@@ -1202,7 +1395,7 @@ def _simulate_next_series_game(
         result_str = f"{home_runs}-{away_runs}"
 
     matchup.games.append(
-        GameResult(home=home, away=away, date=None, result=result_str, boxscore=box_path, meta=extra)
+        GameResult(home=home, away=away, date=game_date, result=result_str, boxscore=box_path, meta=extra)
     )
 
     if high_wins >= wins_needed or low_wins >= wins_needed:
@@ -1290,182 +1483,227 @@ def _populate_next_round(bracket: PlayoffBracket, cfg: Any) -> None:
 
 
 
+def _populate(bracket: PlayoffBracket) -> None:
+    # The league's configured lengths (Release 3 fix round): a planned round
+    # used to be built with the MLB defaults whatever the league configured,
+    # and only reshaped to the configured length on the next load.
+    _populate_next_round(bracket, cfg=_plan_series_settings())
+
+
+def _sync_mirror_matchups(bracket: PlayoffBracket) -> set[int]:
+    """Keep display copies of a series in step with the series itself.
+
+    A single-league bracket repeats its league final as a "Final" round. In
+    memory the two rounds share the matchup objects, but a saved bracket loads
+    them as separate copies; a later copy of the same pairing mirrors the
+    first one instead of being played again. Returns the ids of the mirrors.
+    """
+
+    seen: Dict[Tuple[str, str], Matchup] = {}
+    mirrors: set[int] = set()
+    for rnd in bracket.rounds:
+        for matchup in rnd.matchups:
+            pair = (matchup.high.team_id, matchup.low.team_id)
+            source = seen.get(pair)
+            if source is None:
+                seen[pair] = matchup
+                continue
+            if source is not matchup:
+                matchup.games = list(source.games)
+                matchup.winner = source.winner
+                mirrors.add(id(matchup))
+    return mirrors
+
+
+def _sync_winner(matchup: Matchup) -> None:
+    wins_needed = _wins_needed(matchup.config.length)
+    wins_high, wins_low = _count_series_wins(matchup)
+    if wins_high >= wins_needed:
+        matchup.winner = matchup.high.team_id
+    elif wins_low >= wins_needed:
+        matchup.winner = matchup.low.team_id
+
+
+def _is_pending(matchup: Matchup) -> bool:
+    return bool(
+        not matchup.winner
+        and matchup.high
+        and matchup.low
+        and matchup.high.team_id
+        and matchup.low.team_id
+    )
+
+
+def _resolve_champion(bracket: PlayoffBracket) -> bool:
+    """Set the champion once a championship round is decided."""
+
+    champ_round_names = _championship_round_names(bracket)
+    for rnd in bracket.rounds:
+        if rnd.name not in champ_round_names or not rnd.matchups:
+            continue
+        if not all(m.winner for m in rnd.matchups):
+            continue
+        final = rnd.matchups[0]
+        champ_id = final.winner
+        if not champ_id:
+            continue
+        bracket.champion = champ_id
+        bracket.runner_up = (
+            final.low.team_id if champ_id == final.high.team_id else final.high.team_id
+        )
+        return True
+    return False
+
+
+def _scheduled_games(bracket: PlayoffBracket, calendar: _PlayoffCalendar):
+    """Every pending series' next game as (day, round, series index, matchup)."""
+
+    mirrors = _sync_mirror_matchups(bracket)
+    games = []
+    seen: set[int] = set()
+    for rnd in bracket.rounds:
+        for idx, matchup in enumerate(rnd.matchups):
+            if id(matchup) in seen or id(matchup) in mirrors:
+                continue
+            seen.add(id(matchup))
+            _sync_winner(matchup)
+            if not _is_pending(matchup):
+                continue
+            day = calendar.game_day(rnd.name, matchup, _played_slots(matchup))
+            if day is None:
+                continue
+            games.append((day, rnd, idx, matchup))
+    return games
+
+
+def _process_injured_lists_for_playoff_day(game_date: Optional[str]) -> None:
+    """The injured-list step before a playoff day's games.
+
+    The same step the regular season runs after every played date
+    (``api.routers.season._run_day_automations``): a player whose stint is
+    over by ``game_date`` comes off the list -- on a CPU club always, on an
+    owner's club as the owner's team play settings say. Without it nobody
+    came back in the postseason. Best effort: never blocks a playoff day.
+    """
+
+    if not game_date:
+        return
+    try:
+        from services.dl_automation import process_disabled_lists
+
+        process_disabled_lists(today=game_date, days_elapsed=1, auto_activate=True)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
+def _play_next_day(bracket: PlayoffBracket, *, year: int, simulate_game, persist) -> bool:
+    """Play every playoff game on the earliest date that still has one.
+
+    Games run in calendar order across all series and both leagues, so the
+    rotation and bullpen rest clocks only ever move forward. Returns True if
+    any game was added. With the real game sim (``simulate_game`` None) the
+    injured lists are processed on that date first.
+    """
+
+    _populate(bracket)
+    calendar = _PlayoffCalendar(bracket, _regular_season_end(year))
+    games = _scheduled_games(bracket, calendar)
+    if not games:
+        return False
+    today = min(day for day, _, _, _ in games)
+    game_date = calendar.date_for(today)
+    if simulate_game is None:
+        _process_injured_lists_for_playoff_day(game_date)
+    progressed = False
+    for day, rnd, idx, matchup in games:
+        if day != today:
+            continue
+        if _simulate_next_series_game(
+            matchup,
+            year=year,
+            round_name=rnd.name,
+            series_index=idx,
+            simulate_game=simulate_game,
+            game_date=game_date,
+        ):
+            progressed = True
+            persist()
+    _sync_mirror_matchups(bracket)
+    _populate(bracket)
+    return progressed
+
+
+def _persist_fn(bracket: PlayoffBracket, persist_cb):
+    def persist():
+        try:
+            if persist_cb:
+                persist_cb(bracket)
+            else:
+                save_bracket(bracket)
+        except Exception:
+            pass
+
+    return persist
+
+
 def simulate_playoffs(bracket: PlayoffBracket, *, simulate_game=None, persist_cb=None) -> PlayoffBracket:
     """Simulate playoffs from current state to the end.
 
-    - Simulates outstanding matchups in the first non-empty round(s)
-    - After each round, populates the next round's matchups
+    - Plays the postseason one calendar day at a time (see ``_play_next_day``)
+    - Populates each round's matchups as their participants are decided
     - Calls ``persist_cb(bracket)`` after each game if provided
     """
 
     year = bracket.year or _get_year_from_schedule()
-
-    def persist():
-        try:
-            if persist_cb:
-                persist_cb(bracket)
-            else:
-                save_bracket(bracket)
-        except Exception:
-            pass
-
-    # Iterate until no progress can be made
-    made_progress = True
-    while made_progress:
-        made_progress = False
-        champ_round_names = _championship_round_names(bracket)
-        # Simulate the first round that has pending matchups
-        for r_index, rnd in enumerate(bracket.rounds):
-            pendings = [i for i, m in enumerate(rnd.matchups) if not m.winner and m.high and m.low and m.high.team_id and m.low.team_id]
-            if not pendings:
-                if rnd.name in champ_round_names and rnd.matchups and all(m.winner for m in rnd.matchups):
-                    champ_id = rnd.matchups[0].winner
-                    if champ_id:
-                        bracket.champion = champ_id
-                        m = rnd.matchups[0]
-                        bracket.runner_up = m.low.team_id if champ_id == m.high.team_id else m.high.team_id
-                        persist()
-                        return bracket
-                continue
-            for i in pendings:
-                simulate_series(rnd.matchups[i], year=year, round_name=rnd.name, series_index=i, simulate_game=simulate_game)
-                made_progress = True
-                persist()
-            # After completing this round (all winners set), populate next stage
-            if all(m.winner for m in rnd.matchups):
-                # Champion resolution if WS/Final
-                if rnd.name in champ_round_names and rnd.matchups:
-                    champ_id = rnd.matchups[0].winner
-                    if champ_id:
-                        bracket.champion = champ_id
-                        # Runner-up is the other participant
-                        m = rnd.matchups[0]
-                        bracket.runner_up = m.low.team_id if champ_id == m.high.team_id else m.high.team_id
-                        # Nothing else to populate; playoffs complete
-                        persist()
-                    return bracket
-                _populate_next_round(bracket, cfg={
-                    "series_lengths": getattr(bracket, "series_lengths", {"ds": 5, "cs": 7, "ws": 7, "wildcard": 3}),
-                    "home_away_patterns": _DEFAULT_HOME_AWAY_PATTERNS,
-                })
-            break  # simulate one round at a time
+    persist = _persist_fn(bracket, persist_cb)
+    _sync_mirror_matchups(bracket)
+    while not _resolve_champion(bracket):
+        if not _play_next_day(bracket, year=year, simulate_game=simulate_game, persist=persist):
+            return bracket
+    persist()
     return bracket
 
 
 def simulate_next_game(bracket: PlayoffBracket, *, simulate_game=None, persist_cb=None) -> PlayoffBracket:
-    """Simulate the next playoff day (one game per active series in the round)."""
+    """Simulate the next playoff day: one game in every series scheduled that day."""
 
     year = bracket.year or _get_year_from_schedule()
-
-    def persist():
-        try:
-            if persist_cb:
-                persist_cb(bracket)
-            else:
-                save_bracket(bracket)
-        except Exception:
-            pass
-
-    _populate_next_round(bracket, cfg={
-        "series_lengths": getattr(bracket, "series_lengths", {"ds": 5, "cs": 7, "ws": 7, "wildcard": 3}),
-        "home_away_patterns": _DEFAULT_HOME_AWAY_PATTERNS,
-    })
-
-    champ_round_names = _championship_round_names(bracket)
-    for rnd in bracket.rounds:
-        pendings = [
-            i
-            for i, m in enumerate(rnd.matchups)
-            if not m.winner and m.high and m.low and m.high.team_id and m.low.team_id
-        ]
-        if not pendings:
-            if rnd.name in champ_round_names and rnd.matchups and all(m.winner for m in rnd.matchups):
-                champ_id = rnd.matchups[0].winner
-                if champ_id:
-                    bracket.champion = champ_id
-                    m = rnd.matchups[0]
-                    bracket.runner_up = m.low.team_id if champ_id == m.high.team_id else m.high.team_id
-                    persist()
-            continue
-        progressed_any = False
-        for idx in pendings:
-            progressed = _simulate_next_series_game(
-                rnd.matchups[idx],
-                year=year,
-                round_name=rnd.name,
-                series_index=idx,
-                simulate_game=simulate_game,
-            )
-            if progressed:
-                progressed_any = True
-                persist()
-        if all(m.winner for m in rnd.matchups):
-            if rnd.name in champ_round_names and rnd.matchups:
-                champ_id = rnd.matchups[0].winner
-                if champ_id:
-                    bracket.champion = champ_id
-                    m = rnd.matchups[0]
-                    bracket.runner_up = m.low.team_id if champ_id == m.high.team_id else m.high.team_id
-                persist()
-                return bracket
-            _populate_next_round(bracket, cfg={
-                "series_lengths": getattr(bracket, "series_lengths", {"ds": 5, "cs": 7, "ws": 7, "wildcard": 3}),
-                "home_away_patterns": _DEFAULT_HOME_AWAY_PATTERNS,
-            })
+    persist = _persist_fn(bracket, persist_cb)
+    _sync_mirror_matchups(bracket)
+    if not _resolve_champion(bracket):
+        _play_next_day(bracket, year=year, simulate_game=simulate_game, persist=persist)
+        if _resolve_champion(bracket):
             persist()
-        break
+    else:
+        persist()
     return bracket
 
 
 def simulate_next_round(bracket: PlayoffBracket, *, simulate_game=None, persist_cb=None) -> PlayoffBracket:
-    """Simulate only the next round that has any pending matchups."""
+    """Simulate until the next round with pending series is decided.
+
+    Days are played in calendar order, so other series scheduled on the same
+    days (the other league's round of the same stage) are played as well.
+    """
 
     year = bracket.year or _get_year_from_schedule()
-
-    def persist():
-        try:
-            if persist_cb:
-                persist_cb(bracket)
-            else:
-                save_bracket(bracket)
-        except Exception:
-            pass
-
-    # Find the next round with pending matchups
-    for r_index, rnd in enumerate(bracket.rounds):
-        pendings = [i for i, m in enumerate(rnd.matchups) if not m.winner and m.high and m.low and m.high.team_id and m.low.team_id]
-        if not pendings:
-            champ_round_names = _championship_round_names(bracket)
-            if rnd.name in champ_round_names and rnd.matchups and all(m.winner for m in rnd.matchups):
-                champ_id = rnd.matchups[0].winner
-                if champ_id:
-                    bracket.champion = champ_id
-                    m = rnd.matchups[0]
-                    bracket.runner_up = m.low.team_id if champ_id == m.high.team_id else m.high.team_id
-                persist()
-            continue
-        for i in pendings:
-            simulate_series(rnd.matchups[i], year=year, round_name=rnd.name, series_index=i, simulate_game=simulate_game)
-            persist()
-        # After finishing this round, populate next round matchups
-        if all(m.winner for m in rnd.matchups):
-            champ_round_names = _championship_round_names(bracket)
-            if rnd.name in champ_round_names and rnd.matchups:
-                # Champion resolved
-                champ_id = rnd.matchups[0].winner
-                if champ_id:
-                    bracket.champion = champ_id
-                    m = rnd.matchups[0]
-                    bracket.runner_up = m.low.team_id if champ_id == m.high.team_id else m.high.team_id
-            else:
-                _populate_next_round(bracket, cfg={
-                    "series_lengths": getattr(bracket, "series_lengths", {"ds": 5, "cs": 7, "ws": 7, "wildcard": 3}),
-                    "home_away_patterns": _DEFAULT_HOME_AWAY_PATTERNS,
-                })
-            persist()
-        break
+    persist = _persist_fn(bracket, persist_cb)
+    _populate(bracket)
+    mirrors = _sync_mirror_matchups(bracket)
+    target = None
+    for rnd in bracket.rounds:
+        for matchup in rnd.matchups:
+            _sync_winner(matchup)
+        if any(_is_pending(m) and id(m) not in mirrors for m in rnd.matchups):
+            target = rnd
+            break
+    while target is not None and any(_is_pending(m) for m in target.matchups):
+        if not _play_next_day(bracket, year=year, simulate_game=simulate_game, persist=persist):
+            break
+        _sync_mirror_matchups(bracket)
+    _resolve_champion(bracket)
+    persist()
     return bracket
- 
 
 
 __all__ = [
@@ -1479,6 +1717,7 @@ __all__ = [
     "PlayoffBracket",
     "save_bracket",
     "load_bracket",
+    "bracket_is_empty",
     "generate_bracket",
     "simulate_series",
     "simulate_playoffs",

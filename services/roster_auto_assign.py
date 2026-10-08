@@ -48,8 +48,10 @@ from utils.roster_rules import (  # noqa: E402
     ACTIVE_ROSTER_SIZE as ACTIVE_MAX,
     LOW_CAP as LOW_MAX,
     MAX_ACTIVE_PITCHERS,
+    MIN_ACTIVE_CATCHERS,
     ORG_LIMIT,
     counts_as_pitcher,
+    is_catcher,
 )
 
 # A full reassign keeps at least this many starters on the active staff.
@@ -63,6 +65,9 @@ PROSPECT_BONUS_PER_YEAR = 1.5
 # Defensive positions that must be represented by at least one
 # eligible player on the Active (ACT) roster to allow a legal lineup.
 REQUIRED_POSITIONS: Tuple[str, ...] = ("C", "SS", "CF", "2B", "3B", "1B", "LF", "RF")
+# A full reassign carries a backup for each group, the first position
+# preferred, so the regulars can rest (Release 3).
+BACKUP_GROUPS: Tuple[Tuple[str, ...], ...] = (("SS", "2B", "3B"), ("CF", "LF", "RF"))
 
 
 @dataclass
@@ -305,7 +310,9 @@ def _pick_active_roster(
       least ``MIN_POSITION_PLAYERS_ACT`` hitters and ``MIN_ACTIVE_STARTERS``
       starters when the organisation has them.
     - Ensure at least one eligible player for each defensive position in
-      ``REQUIRED_POSITIONS`` among the hitters.
+      ``REQUIRED_POSITIONS`` among the hitters, and ``MIN_ACTIVE_CATCHERS``
+      (two) catchers when the organisation has them (Release 3, decision 10),
+      plus a backup infielder (SS first) and outfielder (CF first).
     - Never seat more than ``pitcher_cap`` pitchers: an organisation short
       of hitters leaves the active roster short instead.
     - Prefer best-graded players by role when multiple candidates exist.
@@ -365,6 +372,49 @@ def _pick_active_roster(
         if candidate is not None:
             active_hitters.append(candidate)
             selected_ids.add(getattr(candidate, "player_id"))
+
+    # A second catcher, the best one left: the starter needs days off and a
+    # one-catcher club can't rest him (Release 3, owner decision 10).
+    catchers = sum(1 for h in active_hitters if is_catcher(h))
+    for h in hitters_sorted:
+        if catchers >= MIN_ACTIVE_CATCHERS or len(active_hitters) >= hitter_target:
+            break
+        pid = getattr(h, "player_id")
+        if pid in selected_ids or not is_catcher(h):
+            continue
+        active_hitters.append(h)
+        selected_ids.add(pid)
+        catchers += 1
+
+    # A backup infielder and a backup outfielder, so the regulars can rest
+    # (Release 3, audit M16): one who can play SS and one who can play CF
+    # first -- nobody else covers those spots on a rest day, the
+    # similar-position moves run the other way (SS to 2B/3B, CF to a corner)
+    # -- else, for an organisation without one, a spare 2B (only a SS covers
+    # second otherwise), then 3B, or a corner outfielder.
+    def _best_unselected(positions: Tuple[str, ...]) -> object | None:
+        for h in hitters_sorted:
+            if getattr(h, "player_id") in selected_ids or is_catcher(h):
+                continue
+            if _eligible_positions(h) & set(positions):
+                return h
+        return None
+
+    for group in BACKUP_GROUPS:
+        if len(active_hitters) >= hitter_target:
+            break
+        key = group[0]
+        pick = None
+        if sum(1 for h in active_hitters if key in _eligible_positions(h)) < 2:
+            pick = _best_unselected((key,))
+        covering = sum(1 for h in active_hitters if _eligible_positions(h) & set(group))
+        for pos in group[1:]:
+            if pick is not None or covering > len(group):
+                break
+            pick = _best_unselected((pos,))
+        if pick is not None:
+            active_hitters.append(pick)
+            selected_ids.add(getattr(pick, "player_id"))
 
     # Fill the remaining hitter slots with the best available.
     for h in hitters_sorted:

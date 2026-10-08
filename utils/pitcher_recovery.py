@@ -7,12 +7,21 @@ from datetime import date, datetime, timedelta
 import functools
 import json
 from pathlib import Path
-from typing import Dict, Iterable, Mapping, Optional, Sequence
+from typing import Dict, Iterable, Optional
 
 from utils.path_utils import get_base_dir, resolve_app_path
 from utils.pitcher_role import get_role
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster
+# The rotation builder moved to utils.rotation (Release 3); re-exported here
+# so existing callers and tests keep importing it from the tracker module.
+from utils.rotation import (  # noqa: F401
+    ROTATION_SLOTS,
+    _is_relief_role,
+    _spot_start_rank,
+    choose_rotation,
+    staff_rotation,
+)
 
 _DATE_FORMAT = "%Y-%m-%d"
 _EPOCH = date(1970, 1, 1)
@@ -48,92 +57,6 @@ def _parse_date(value: str | None) -> date:
 
 def _format_date(value: date) -> str:
     return value.strftime(_DATE_FORMAT)
-
-
-_RELIEF_STAFF_ROLES = {"CL", "SU", "LR"}
-
-# How naturally a relief label converts to a spot start. The long man exists
-# for exactly this; the closer is the last arm you want opening a game.
-_SPOT_START_RANK = {"LR": 0, "MR": 1, "SU": 2, "CL": 3}
-
-
-def _spot_start_rank(staff_role: str | None) -> int:
-    token = str(staff_role or "").strip().upper()
-    if token.startswith("MR"):
-        token = "MR"
-    return _SPOT_START_RANK.get(token, 1)
-
-
-def _is_relief_role(staff_role: str | None) -> bool:
-    """True when the owner's staff file labels this arm as relief.
-
-    Roles are the tokens in ``{team}_pitching.csv``: SP1-SP5, CL, SU, LR and
-    MR1/MR2/... Anything unlabelled is not treated as relief, so a pitcher the
-    owner never assigned can still fill a rotation hole.
-    """
-
-    token = str(staff_role or "").strip().upper()
-    if not token:
-        return False
-    return token in _RELIEF_STAFF_ROLES or token.startswith("MR")
-
-
-ROTATION_SLOTS = 5
-
-
-def choose_rotation(
-    *,
-    saved_rotation: Sequence[str],
-    existing_rotation: Sequence[str],
-    starter_capable: Sequence[tuple[str, int]],
-    staff_roles: Mapping[str, str],
-    built: Sequence[str],
-    eligible: Sequence[str],
-) -> list[str]:
-    """Pick the five who will start, best claim first.
-
-    ``starter_capable`` is ``(player_id, endurance)`` for every active arm whose
-    resolved role is SP; ``eligible`` is everyone allowed in a slot (the active
-    roster), and nobody outside it can be chosen.
-
-    The order of preference matters more than it looks. A fill that merely
-    "already holds the slot" used to outrank every better candidate, and since
-    it re-qualified the next day too, one bad choice was permanent -- which is
-    how a closer kept a rotation spot on the live league while three starters
-    sat on the active roster.
-    """
-
-    capable = {pid: endurance for pid, endurance in starter_capable if pid}
-    by_strength = sorted(capable, key=lambda pid: -capable[pid])
-    # Arms the owner has not committed to the bullpen.
-    free_starters = [pid for pid in by_strength if not _is_relief_role(staff_roles.get(pid))]
-    # Then arms who can start but are assigned to relief. A thin staff may have
-    # nothing else, and there the long man is the answer and the closer is not.
-    bullpen_starters = sorted(
-        (pid for pid in by_strength if _is_relief_role(staff_roles.get(pid))),
-        key=lambda pid: (_spot_start_rank(staff_roles.get(pid)), -capable[pid]),
-    )
-
-    candidates: list[str] = []
-    candidates.extend(saved_rotation)                                    # the owner's own five
-    candidates.extend(pid for pid in existing_rotation if pid in free_starters)
-    candidates.extend(free_starters)
-    candidates.extend(bullpen_starters)
-    candidates.extend(existing_rotation)   # keep a thin staff stable rather than churning
-    candidates.extend(built)
-    candidates.extend(eligible)            # last resort: anyone with a pulse
-
-    allowed = set(eligible)
-    rotation: list[str] = []
-    seen: set[str] = set()
-    for pid in candidates:
-        if len(rotation) >= ROTATION_SLOTS:
-            break
-        if not pid or pid not in allowed or pid in seen:
-            continue
-        rotation.append(pid)
-        seen.add(pid)
-    return rotation
 
 
 @functools.lru_cache(maxsize=512)
@@ -641,29 +564,14 @@ class PitcherRecoveryTracker:
             if not status.recent:
                 entry_pitchers.pop(pid, None)
 
-        # ``_build_rotation`` returns player ids, not pitcher objects. Reading
-        # ``.player_id`` off a string yielded "" for every entry, so this list
-        # was silently always empty and rotation gaps fell straight through to
-        # raw active-roster order -- which is how a closer ended up starting.
-        built = [pid for pid in self._build_rotation(active_pitchers) if pid]
-
-        starter_capable = [
-            (
-                getattr(pitcher, "player_id", ""),
-                int(getattr(pitcher, "endurance", 0) or 0),
-            )
-            for pitcher in active_pitchers
-            if getattr(pitcher, "player_id", "") and get_role(pitcher) == "SP"
-        ]
-
-        rotation = choose_rotation(
-            saved_rotation=saved_rotation,
-            existing_rotation=entry.get("rotation") or [],
-            starter_capable=starter_capable,
-            staff_roles=staff_roles,
-            built=built,
-            eligible=pitcher_ids,
-        )
+        # One rotation builder with one set of inputs (Release 3 fix round):
+        # the default lineup builder and the harness call the same
+        # ``staff_rotation`` with the same roster and staff file, so the five
+        # the tracker hands starts to are the five every game labels SP1-SP5.
+        # It no longer leans on yesterday's rotation -- that history was the
+        # one input the other builders could not see, and it let a backfill
+        # keep his slot over a stronger starter the lineup builder picked.
+        rotation = staff_rotation(active_pitchers, staff_roles)
 
         entry["rotation"] = rotation
         if rotation:
@@ -682,8 +590,13 @@ class PitcherRecoveryTracker:
         staff_roles: Dict[str, str] | None = None,
     ) -> Dict[str, object]:
         pitcher_list = list(pitchers)
-        rotation = saved_rotation or self._build_rotation(pitcher_list)
-        roles = staff_roles or {}
+        roles = dict(staff_roles or {})
+        if saved_rotation and not roles:
+            roles = {pid: f"SP{slot}" for slot, pid in enumerate(saved_rotation, 1)}
+        # The same builder as every later day (and as the lineup builder): a
+        # staff file with only four starters used to leave a new club's first
+        # rotation four arms long.
+        rotation = staff_rotation(pitcher_list, roles)
         status = {
             getattr(p, "player_id"): self._initial_status(
                 p, roles.get(getattr(p, "player_id", ""))
@@ -974,6 +887,14 @@ class PitcherRecoveryTracker:
             rest_days = _rest_days(pitches, role)
             available_on = date_obj + timedelta(days=rest_days)
             stored_status = pitchers.get(pid, {})
+            if role == "SP" and bool(getattr(state, "relief_outing", False)):
+                # Release 3 (owner decision 7): a rested starter who came out
+                # of the pen in an emergency keeps his turn, however long the
+                # outing ran -- it counts as relief. The arm cost lands on his
+                # next start as the engine's short-rest penalty (its usage
+                # state keeps the outing), not on this clock.
+                stored_on = _parse_date(stored_status.get("available_on"))
+                available_on = max(stored_on, date_obj + timedelta(days=1))
             prior_recent: list[dict] = []
             for recent_entry in stored_status.get("recent", []):
                 if isinstance(recent_entry, dict):

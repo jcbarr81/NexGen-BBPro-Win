@@ -256,12 +256,18 @@ class SeasonSimulator:
         # persistence intercepted into journals; the parent replays them below in
         # serial game order, so the on-disk state is byte-identical to serial.
         # Default (PB_PARALLEL_GAMES unset) resolves to 0 workers -> serial path.
-        from playbalance import parallel_day
+        # Release 3 (M18): the physics rest state is persisted per league and
+        # flushed once per day like the tracker.
+        from playbalance import parallel_day, usage_store
 
         workers = parallel_day.resolve_worker_count(len(games))
         parallel = workers >= 2 and self._parallel_eligible()
 
-        with batched_stats_writes(), self._tracker.deferred_saves():
+        with (
+            batched_stats_writes(),
+            self._tracker.deferred_saves(),
+            usage_store.deferred_saves(),
+        ):
             if parallel:
                 self._simulate_day_parallel(
                     games,
@@ -382,7 +388,7 @@ class SeasonSimulator:
         from concurrent.futures import TimeoutError as _FutureTimeout
         from concurrent.futures.process import BrokenProcessPool
 
-        from playbalance import game_runner, parallel_day
+        from playbalance import game_runner, parallel_day, usage_store
         from utils.path_utils import (
             get_active_league_id,
             get_data_dir,
@@ -494,6 +500,8 @@ class SeasonSimulator:
                     day_lookup=day_lookup,
                 )
                 parallel_day.merge_usage_into_state(usage_state, journal.get("usage"))
+                if usage_state is not None:
+                    usage_store.mark_dirty()
                 if journal.get("injury_events"):
                     day_lookup = {
                         p.player_id: p for p in load_players_from_csv(players_file)

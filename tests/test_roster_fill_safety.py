@@ -24,6 +24,7 @@ from utils.roster_rules import (
     ACT_HITTER_TARGET,
     ACTIVE_ROSTER_SIZE,
     MAX_ACTIVE_PITCHERS,
+    MIN_ACTIVE_CATCHERS,
     SEPTEMBER_MAX_ACTIVE_PITCHERS,
     SEPTEMBER_ROSTER_SIZE,
 )
@@ -58,9 +59,21 @@ def test_the_last_healthy_catcher_is_never_optioned():
     assert choose_send_down(roster, players) != "h0"
 
 
-def test_a_second_catcher_can_go():
+def test_a_second_catcher_stays_while_another_hitter_can_go():
+    """Release 3 (decision 10): CPU clubs carry two catchers, so the weaker
+    catcher is kept while any other position player may go down. CPU paths
+    ask for it; the default (an owner's club) protects only the last one."""
     players, roster = _team(*_HITTER_HEAVY, catchers=2)
-    assert choose_send_down(roster, players) in {"h0", "h1"}
+    assert choose_send_down(
+        roster, players, keep_catchers=MIN_ACTIVE_CATCHERS
+    ) not in {"h0", "h1"}
+
+
+def test_a_second_catcher_can_go_when_nobody_else_may():
+    players, roster = _team(*_HITTER_HEAVY, catchers=2)
+    only_catchers = choose_send_down(roster, players, allowed=lambda pid: pid in {"h0", "h1"})
+    assert only_catchers in {"h0", "h1"}
+    assert choose_send_down(roster, players, keep_catchers=1) in {"h0", "h1"}
 
 
 def test_send_down_follows_composition_not_the_returners_type():

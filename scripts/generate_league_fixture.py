@@ -18,8 +18,8 @@ script builds a SECOND fixture that looks like a league owners actually play:
   roster), as in a league that has run auto-assign;
 * the pitching staff is written by the product's Pitching auto-fill
   (:func:`utils.pitching_autofill.autofill_pitching_staff`, the same rows the
-  ``/pitching/autofill`` endpoint writes: SP1-5, LR, CL, SU, MR1-MR3; the
-  12th and 13th active pitchers stay unlisted, as in the product);
+  ``/pitching/autofill`` endpoint writes: SP1-5, LR, CL, SU, MR1-MR3, and
+  the optional MR4/MR5 for the 12th and 13th active pitchers);
 * lineups come from the product's lineup auto-fill;
 * every team plays in the GENERIC park: ``teams.csv`` carries an empty
   ``park_id`` (audit L13: real-park geometry only for an explicit pick).
@@ -68,6 +68,7 @@ import tempfile
 from contextlib import ExitStack
 from datetime import date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -85,8 +86,11 @@ LEAGUE_NAME = "KPI League Fixture"
 FIXTURE_LEAGUE_ID = "kpi-league-fixture"
 # Six divisions, so 30 teams split 5/5/5/5/5/5 like MLB.
 DIVISIONS = ["AL East", "AL Central", "AL West", "NL East", "NL Central", "NL West"]
+# Staff slots (utils.staff_roles): the 11 required, then the optional MR4/MR5
+# that the auto-fill uses for the 12th and 13th active arms.
 PITCHING_SLOTS = ["SP1", "SP2", "SP3", "SP4", "SP5", "LR", "CL", "SU",
                   "MR1", "MR2", "MR3"]
+OPTIONAL_PITCHING_SLOTS = ["MR4", "MR5"]
 
 
 def _reexec_with_hash_seed() -> None:
@@ -211,9 +215,9 @@ def _write_pitching_staff(league_dir: Path, team_id: str,
     """Write ``<team>_pitching.csv`` exactly as the Pitching auto-fill does.
 
     Mirrors ``api/routers/lineups.py::autofill_pitching_staff_endpoint``: the
-    ACT pitchers go through ``autofill_pitching_staff`` and its 11 role rows
-    are written in its order. ACT pitchers beyond the 11 slots (the 12th and
-    13th arms) stay unlisted, as they do in the product.
+    ACT pitchers go through ``autofill_pitching_staff`` and its role rows
+    are written in its order: the 11 required slots, then MR4/MR5 for the
+    12th and 13th arms.
     """
 
     from utils.pitching_autofill import autofill_pitching_staff
@@ -362,16 +366,26 @@ def _num(row: dict[str, str], key: str) -> float | None:
 def summarize(output_dir: Path) -> dict[str, object]:
     """Validate the fixture and return the numbers its README reports."""
 
+    from services.roster_fill import positions_of
     from utils.roster_rules import (
         ACTIVE_ROSTER_SIZE,
         MAX_ACTIVE_PITCHERS,
+        MIN_ACTIVE_CATCHERS,
         ORG_LIMIT,
         counts_as_pitcher,
+        is_catcher,
     )
+
+    def _row_positions(row: dict[str, str]) -> list[str]:
+        return positions_of(SimpleNamespace(
+            primary_position=row.get("primary_position", ""),
+            other_positions=row.get("other_positions", ""),
+        ))
 
     players = {r["player_id"]: r for r in _read_csv_rows(output_dir / "players.csv")}
     teams = _read_csv_rows(output_dir / "teams.csv")
     problems: list[str] = []
+    act_catchers: list[int] = []
     lineup_hitters: list[dict[str, str]] = []
     act_hitters: list[dict[str, str]] = []
     act_pitchers: list[dict[str, str]] = []
@@ -393,6 +407,16 @@ def summarize(output_dir: Path) -> dict[str, object]:
                 act_hitters.append(row)
         if len(act) > ACTIVE_ROSTER_SIZE:
             problems.append(f"{team_id}: ACT holds {len(act)} (max {ACTIVE_ROSTER_SIZE})")
+        # Release 3: two catchers and a spare SS and CF, so regulars can rest.
+        hitters_here = [players[pid] for pid in act if not counts_as_pitcher(players[pid])]
+        catchers = sum(1 for row in hitters_here if is_catcher(row))
+        act_catchers.append(catchers)
+        if catchers < MIN_ACTIVE_CATCHERS:
+            problems.append(f"{team_id}: ACT carries {catchers} catcher(s)")
+        for pos in ("SS", "CF"):
+            able = sum(1 for row in hitters_here if pos in _row_positions(row))
+            if able < 2:
+                problems.append(f"{team_id}: ACT has no spare {pos}")
         if team_pitchers > MAX_ACTIVE_PITCHERS:
             problems.append(
                 f"{team_id}: ACT carries {team_pitchers} pitchers "
@@ -405,7 +429,13 @@ def summarize(output_dir: Path) -> dict[str, object]:
                 newline="", encoding="utf-8") as fh:
             staff = [row for row in csv.reader(fh) if row]
         roles = sorted(role for _, role in staff)
-        if roles != sorted(PITCHING_SLOTS):
+        expected_slots = len(PITCHING_SLOTS) + len(OPTIONAL_PITCHING_SLOTS)
+        if (
+            not set(PITCHING_SLOTS) <= set(roles)
+            or not set(roles) <= set(PITCHING_SLOTS + OPTIONAL_PITCHING_SLOTS)
+            or len(set(roles)) != len(roles)
+            or len(roles) != min(team_pitchers, expected_slots)
+        ):
             problems.append(f"{team_id}: staff roles {roles}")
         if any(pid not in act for pid, _ in staff):
             problems.append(f"{team_id}: staff lists a non-ACT pitcher")
@@ -429,6 +459,7 @@ def summarize(output_dir: Path) -> dict[str, object]:
         "act_sizes": sorted(set(act_sizes)),
         "act_hitters": len(act_hitters),
         "act_pitchers": len(act_pitchers),
+        "act_catchers_min": min(act_catchers) if act_catchers else 0,
         "lineup_means": {k: mean(lineup_hitters, k) for k in ("ch", "ph", "eye", "sp")},
         "act_pitcher_means": {
             k: mean(act_pitchers, k)
@@ -466,8 +497,8 @@ How it is built (all product code, run in an isolated temp data root):
 - ACT rosters: `services.roster_auto_assign.auto_assign_team` per organisation
   (each club's best 13 hitters / 13 pitchers: the 26-man roster, decision 8);
 - pitching staffs: `utils.pitching_autofill.autofill_pitching_staff`, written
-  as the Pitching auto-fill does (SP1-5, LR, CL, SU, MR1-MR3; the 12th and
-  13th active pitchers stay unlisted);
+  as the Pitching auto-fill does (SP1-5, LR, CL, SU, MR1-MR3, then MR4/MR5
+  for the 12th and 13th active pitchers);
 - lineups: `utils.lineup_autofill.auto_fill_lineup_for_team`;
 - parks: generic for every team (`park_id` empty; audit L13).
 

@@ -28,6 +28,7 @@ import {
   Sliders,
   Snowflake,
   Swords,
+  Timer,
   UserCog,
 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -72,6 +73,7 @@ export function CommissionerPage() {
         <div className="space-y-6">
           <TradeCard data={settings.data} />
           <InjuryCard data={settings.data} />
+          <GameRulesCard data={settings.data} />
           <FinanceCard data={settings.data} />
           <ScoutingCard data={settings.data} />
           <StrategyCard data={settings.data} />
@@ -246,6 +248,77 @@ function InjuryCard({ data }: { data: CommissionerSettings }) {
               <Save className="h-4 w-4" />
             )}
             Save injury level
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Game rules (decision 11). Today: the extra-innings automatic runner, on by
+ * default. A change applies from the next game played, mid-season included,
+ * so the card says so before the commissioner saves.
+ */
+function GameRulesCard({ data }: { data: CommissionerSettings }) {
+  const queryClient = useQueryClient();
+  const [runner, setRunner] = useState(data.rules.extra_innings_runner);
+  const mutation = useMutation({
+    mutationFn: () => api.saveCommishRules({ extra_innings_runner: runner }),
+    onSuccess: (next) => queryClient.setQueryData(["commissioner-settings"], next),
+  });
+  const dirty = runner !== data.rules.extra_innings_runner;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Game rules</CardTitle>
+          <CardDescription>How extra innings are played</CardDescription>
+        </div>
+        <Badge tone={data.rules.extra_innings_runner ? "amber" : "neutral"}>
+          <Timer className="h-3 w-3" />{" "}
+          {data.rules.extra_innings_runner ? "Runner on 2nd" : "Traditional"}
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Toggle
+          label="Automatic runner on 2nd in extra innings"
+          checked={runner}
+          onChange={setRunner}
+        />
+        <p className="text-xs text-muted">
+          From the 10th inning on, each half-inning starts with a runner on
+          second (the batter before the leadoff man). His run is unearned.
+          Regular season only: playoff games never use it. Games cannot end
+          tied: past the 30th inning every game gets the runner.
+        </p>
+        {dirty && (
+          <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              This takes effect from the next game played, including in the
+              middle of a season. Games already played keep the rule they were
+              played under.
+            </span>
+          </div>
+        )}
+        {mutation.isError && (
+          <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            {(mutation.error as Error).message}
+          </div>
+        )}
+        <div className="flex justify-end">
+          <Button
+            onClick={() => mutation.mutate()}
+            disabled={!dirty || mutation.isPending}
+          >
+            {mutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Save game rules
           </Button>
         </div>
       </CardContent>

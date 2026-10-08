@@ -48,6 +48,8 @@ def test_toggle_leaves_other_settings_alone(settings_file):
 
 
 # --- who the automation holds back -----------------------------------------
+# Release 3 (owner decision Q11): each owner chooses, per team, whether the
+# 15-day and the 60-day lists activate on their own. CPU clubs always do.
 
 
 @pytest.fixture
@@ -58,50 +60,37 @@ def automation(monkeypatch, tmp_path):
     return dl
 
 
-def test_nobody_is_held_back_while_the_setting_is_on(automation, monkeypatch):
-    monkeypatch.setattr("utils.league_settings.auto_activate_il", lambda: True)
-    monkeypatch.setattr(
-        "services.team_ownership.human_owned_team_ids_strict", lambda d=None: {"HUM"}
+def test_owner_15_day_choice_follows_the_league_setting_by_default(
+    automation, tmp_path, monkeypatch
+):
+    """An owner who never picked keeps what the league does today."""
+    monkeypatch.setattr(ls, "_settings_path", lambda p=None: tmp_path / "league_settings.json")
+    assert automation._owner_auto_activates("HUM", "dl", tmp_path) is True
+    ls.set_auto_activate_il(False)
+    assert automation._owner_auto_activates("HUM", "dl", tmp_path) is False
+
+
+def test_owner_60_day_list_is_manual_by_default(automation, tmp_path):
+    assert automation._owner_auto_activates("HUM", "ir", tmp_path) is False
+
+
+def test_owner_choices_are_per_team_and_per_list(automation, tmp_path):
+    from services.team_play_settings import save_team_play_settings
+
+    save_team_play_settings(
+        "HUM",
+        {"il_auto_activate_15": False, "il_auto_activate_60": True},
+        data_dir=tmp_path,
     )
-    assert automation._teams_managing_their_own_il(None) == set()
-
-
-def test_only_human_teams_are_held_back(automation, monkeypatch):
-    """CPU clubs must keep activating themselves — nobody is watching them, and
-    a stranded player would sit there for the rest of the season."""
-    monkeypatch.setattr("utils.league_settings.auto_activate_il", lambda: False)
-    monkeypatch.setattr(
-        "services.team_ownership.human_owned_team_ids_strict", lambda d=None: {"HUM", "HUM2"}
-    )
-    held = automation._teams_managing_their_own_il(None)
-    assert held == {"HUM", "HUM2"}
-    assert "CPU" not in held
-
-
-def test_unknown_ownership_holds_every_club(automation, monkeypatch):
-    """users.txt unreadable: nobody's injured list is run for him. Every club
-    waits a day rather than an owner who manages his own list being overruled."""
-    monkeypatch.setattr("utils.league_settings.auto_activate_il", lambda: False)
-    monkeypatch.setattr(
-        "services.team_ownership.human_owned_team_ids_strict", lambda d=None: None
-    )
-    assert automation._teams_managing_their_own_il(None) is None
-
-
-def test_a_broken_settings_read_fails_open(automation, monkeypatch):
-    """If the setting can't be read, keep activating — the old behaviour — so a
-    bad file can't quietly strand every injured player in the league."""
-
-    def boom():
-        raise RuntimeError("no settings")
-
-    monkeypatch.setattr("utils.league_settings.auto_activate_il", boom)
-    assert automation._teams_managing_their_own_il(None) == set()
+    assert automation._owner_auto_activates("HUM", "dl", tmp_path) is False
+    assert automation._owner_auto_activates("HUM", "ir", tmp_path) is True
+    # Another owner's club is untouched by HUM's choices.
+    assert automation._owner_auto_activates("HUM2", "ir", tmp_path) is False
 
 
 def test_batch_runs_ignore_the_setting(automation, monkeypatch):
     """The long-run sim harness has no owner to wait on."""
-    monkeypatch.setattr("utils.league_settings.auto_activate_il", lambda: False)
+    monkeypatch.setattr("utils.league_settings.auto_activate_il", lambda *a: False)
     monkeypatch.setattr("services.team_ownership.human_owned_team_ids_strict", lambda d=None: {"HUM"})
     monkeypatch.setattr(automation, "load_players_from_csv", lambda *a, **k: [])
     monkeypatch.setattr(automation, "load_teams", lambda *a, **k: [])

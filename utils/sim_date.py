@@ -1,10 +1,42 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
+from typing import Iterator, Optional
 import csv
 import json
 
 from .path_utils import get_data_dir
+
+# The league date a step inside a running sim call acts on (see
+# ``sim_date_scope``). None outside such a step.
+_SIM_DATE_OVERRIDE: ContextVar[Optional[str]] = ContextVar(
+    "nexgen_sim_date_override", default=None
+)
+
+
+@contextmanager
+def sim_date_scope(sim_date: Optional[str]) -> Iterator[None]:
+    """Pin :func:`get_current_sim_date` to ``sim_date`` inside the block.
+
+    The season router persists the schedule and ``season_progress.json`` only
+    when a sim call ends, so during a multi-day call the date read from those
+    files is still the call's FIRST day. Roster prep before a date's games,
+    the per-day injured-list step after them and the playoff-day steps run
+    under this scope, so everything they read or stamp (roster caps,
+    eligibility, the ``season_date`` of a transaction) uses the date a one-day
+    call would have seen. Applies only to the current context (thread /
+    request) and only to calls without an explicit ``base_dir``. A blank
+    ``sim_date`` leaves the normal lookup in place.
+    """
+
+    value = str(sim_date or "").strip()[:10] or None
+    token = _SIM_DATE_OVERRIDE.set(value)
+    try:
+        yield
+    finally:
+        _SIM_DATE_OVERRIDE.reset(token)
 
 
 def _infer_completed_days(
@@ -51,6 +83,11 @@ def get_current_sim_date(base_dir: Path | None = None) -> str | None:
     re-parse the entire schedule CSV on every call. The result is an immutable
     string, so sharing is safe.
     """
+
+    if base_dir is None:
+        pinned = _SIM_DATE_OVERRIDE.get()
+        if pinned:
+            return pinned
 
     from utils.file_cache import cached_read
 

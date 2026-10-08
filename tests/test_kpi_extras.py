@@ -259,6 +259,49 @@ def test_usage_metrics_from_pitcher_lines():
     assert m["home_wpct"] == pytest.approx(1.0)
 
 
+def test_release3_bullpen_tallies():
+    meta = {
+        "pitcher_lines": {
+            "away": [
+                {"player_id": "SP1", "gs": 1, "pitches": 90, "outs": 18},
+                {"player_id": "MR1", "gs": 0, "pitches": 20, "outs": 4},
+                {"player_id": "SP3", "gs": 0, "pitches": 40, "outs": 6},
+            ],
+            "home": [
+                {"player_id": "SP2", "gs": 1, "pitches": 95, "outs": 21},
+                {"player_id": "CL1", "gs": 0, "pitches": 15, "outs": 3},
+                {"player_id": "SU1", "gs": 0, "pitches": 12, "outs": 2},
+            ],
+        },
+        "pitcher_usage": {
+            "away": [
+                {"player_id": "SP1", "staff_role": "SP"},
+                {"player_id": "MR1", "staff_role": "MR", "fallback": True},
+                {"player_id": "SP3", "staff_role": "SP", "emergency": True},
+            ],
+            "home": [
+                {"player_id": "SP2", "staff_role": "SP"},
+                {"player_id": "CL1", "staff_role": "CL", "prior_streak": 2},
+                {"player_id": "SU1", "staff_role": "SU", "prior_streak": 1},
+            ],
+        },
+    }
+    game = _game([], inning_runs={}, score={"away": 1, "home": 2}, innings=9, meta=meta)
+    acc = kx.ReportOnlyKpis(players_path=Path("missing.csv"), games_per_team=162)
+    acc.add_game(game, away="A", home="H")
+    report = _finalize(acc)
+    m = report["metrics"]
+    assert m["closer_third_straight_day"] == 1
+    assert m["emergency_starter_relief_apps"] == 1
+    assert m["bullpen_fallback_share"] == pytest.approx(0.25)
+    assert m["relief_outs_per_app_mr"] == pytest.approx(4.0)
+    assert m["relief_outs_per_app_cl"] == pytest.approx(3.0)
+    assert m["relief_outs_per_app_lr"] is None
+    assert report["tables"]["relief_outs_per_app_by_role"]["SP"] == {
+        "apps": 1, "outs_per_app": 6.0,
+    }
+
+
 def test_fatigue_and_tto_are_within_pitcher():
     log = []
     # Starter SP: early PAs (pitch 1-) all outs, late PAs (91+) all HRs.
@@ -294,17 +337,24 @@ def test_reference_csv_covers_known_metrics():
         .finalize(ref)["metrics"]
     )
     produced |= {"matchup_k_log5_max_abs_resid", "matchup_hr_log5_max_abs_resid_logit"}
-    notes = {"re24_env_scale_2023_24", "ghost_runner_runs_per_extra_half"}
+    notes = {
+        "re24_env_scale_2023_24",
+        "extra_half_runs_no_runner",
+        "extra_half_p_score_no_runner",
+    }
     assert set(keys) - notes <= produced
     assert ref["runs_on_inning_ending_plays"]["value"] == 0
 
 
 def test_report_only_keys_are_never_gated():
+    # Only the keys promoted on purpose (Release 3) overlap the strict gates.
     produced = set(
         kx.ReportOnlyKpis(players_path=Path("missing.csv"), games_per_team=162)
         .finalize({})["metrics"]
     )
-    assert not produced & set(kpis.DEFAULT_TOLERANCES)
+    promoted = set(kpis.STRICT_EXTRAS_TARGETS)
+    assert promoted <= produced
+    assert produced & set(kpis.DEFAULT_TOLERANCES) == promoted
     assert not produced & set(kpis.RATING_OUTCOME_TARGETS)
 
 

@@ -7,10 +7,14 @@
  *   picked from the catalog plays with real dimensions (audit L13).
  * - Team strategy profile (or inherit league default)
  * - Auto-reassign override (enabled / disabled / inherit)
+ * - Game-day play settings (Release 3): auto rest days, similar-position
+ *   rest substitutes, automatic activation from the 15- and 60-day IL
  *
  * Saves call into utils.team_loader.save_team_settings (validates colors)
  * plus services.team_strategy_profiles.set_team_strategy_profile and
- * services.team_auto_reassign_settings.set_team_auto_reassign on the server.
+ * services.team_auto_reassign_settings.set_team_auto_reassign on the server;
+ * play settings go to services.team_play_settings via PUT .../settings/play,
+ * and only when they changed.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -18,6 +22,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Building2,
+  CalendarClock,
+  Info,
   Loader2,
   Palette,
   RotateCcw,
@@ -26,7 +32,14 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-import { api, type TeamSettingsPatch } from "@/lib/api";
+import {
+  api,
+  type TeamPlaySettingKey,
+  type TeamPlaySettings,
+  type TeamPlaySettingsPatch,
+  type TeamSettings,
+  type TeamSettingsPatch,
+} from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { useActiveTeamColor } from "@/lib/team-colors";
@@ -77,7 +90,7 @@ export function TeamSettingsPage() {
   return (
     <AppShell
       title="Team Settings"
-      subtitle={`Team ${activeTeamId} · colors, stadium, strategy`}
+      subtitle={`Team ${activeTeamId} · colors, stadium, strategy, game day`}
       teamAccentColor={teamAccentColor}
     >
       <SettingsEditor teamId={activeTeamId} />
@@ -103,6 +116,7 @@ function SettingsEditor({ teamId }: { teamId: string }) {
     park_id: string | null;
     strategy: string;
     auto_reassign: "default" | "enabled" | "disabled";
+    play: Record<TeamPlaySettingKey, PlayChoice>;
   } | null>(null);
 
   useEffect(() => {
@@ -121,23 +135,46 @@ function SettingsEditor({ teamId }: { teamId: string }) {
               ? "enabled"
               : "disabled"
             : "default",
+        play: playChoices(s.play),
       });
     }
   }, [settings.data]);
 
   const save = useMutation({
-    mutationFn: (payload: TeamSettingsPatch) =>
-      api.saveTeamSettings(teamId, payload),
-    onSuccess: (data) => {
-      queryClient.setQueryData(["team-settings", teamId], data);
-      // Team metadata is referenced everywhere; nuke the relevant caches.
-      queryClient.invalidateQueries({ queryKey: ["teams"] });
-      queryClient.invalidateQueries({ queryKey: ["team", teamId] });
-      queryClient.invalidateQueries({ queryKey: ["league-standings"] });
+    mutationFn: async ({
+      main,
+      play,
+    }: {
+      main: TeamSettingsPatch | null;
+      play: TeamPlaySettingsPatch | null;
+    }): Promise<TeamSettings | undefined> => {
+      // Play settings have their own endpoint, so a play-only change never
+      // rewrites the team's colors/stadium row.
+      let data = main ? await api.saveTeamSettings(teamId, main) : settings.data;
+      if (play && data) {
+        const playData = await api.saveTeamPlaySettings(teamId, play);
+        data = { ...data, play: playData };
+      }
+      return data;
+    },
+    onSuccess: (data, vars) => {
+      if (data) queryClient.setQueryData(["team-settings", teamId], data);
+      if (vars.main) {
+        // Team metadata is referenced everywhere; nuke the relevant caches.
+        queryClient.invalidateQueries({ queryKey: ["teams"] });
+        queryClient.invalidateQueries({ queryKey: ["team", teamId] });
+        queryClient.invalidateQueries({ queryKey: ["league-standings"] });
+      }
     },
   });
 
-  const dirty = useMemo(() => {
+  const playDirty = useMemo(() => {
+    if (!settings.data || !draft) return false;
+    const initial = playChoices(settings.data.play);
+    return PLAY_SETTINGS.some((spec) => draft.play[spec.key] !== initial[spec.key]);
+  }, [draft, settings.data]);
+
+  const mainDirty = useMemo(() => {
     if (!settings.data || !draft) return false;
     const s = settings.data;
     const initialStrategy =
@@ -158,6 +195,8 @@ function SettingsEditor({ teamId }: { teamId: string }) {
     );
   }, [draft, settings.data]);
 
+  const dirty = mainDirty || playDirty;
+
   const payloadFromDraft = (
     d: NonNullable<typeof draft>,
   ): TeamSettingsPatch => ({
@@ -171,11 +210,28 @@ function SettingsEditor({ teamId }: { teamId: string }) {
     auto_reassign: d.auto_reassign,
   });
 
+  const playPatchFromDraft = (
+    d: NonNullable<typeof draft>,
+  ): TeamPlaySettingsPatch => {
+    const patch: TeamPlaySettingsPatch = {};
+    for (const spec of PLAY_SETTINGS) {
+      const choice = d.play[spec.key];
+      patch[spec.key] = choice === "default" ? "default" : choice === "on";
+    }
+    return patch;
+  };
+
+  const saveDraft = (d: NonNullable<typeof draft>) =>
+    save.mutate({
+      main: mainDirty ? payloadFromDraft(d) : null,
+      play: playDirty ? playPatchFromDraft(d) : null,
+    });
+
   useHotkey(
     "mod+s",
     () => {
       if (dirty && !save.isPending && draft) {
-        save.mutate(payloadFromDraft(draft));
+        saveDraft(draft);
       }
     },
     { enabled: !!draft && dirty && !save.isPending },
@@ -367,6 +423,14 @@ function SettingsEditor({ teamId }: { teamId: string }) {
         </Card>
       </div>
 
+      <GameDayCard
+        play={data.play}
+        choices={draft.play}
+        onChange={(key, choice) =>
+          setDraft({ ...draft, play: { ...draft.play, [key]: choice } })
+        }
+      />
+
       <div className="flex items-center justify-end gap-3">
         <Button
           variant="ghost"
@@ -377,9 +441,7 @@ function SettingsEditor({ teamId }: { teamId: string }) {
           Discard changes
         </Button>
         <Button
-          onClick={() =>
-            save.mutate(payloadFromDraft(draft))
-          }
+          onClick={() => saveDraft(draft)}
           disabled={!dirty || save.isPending}
         >
           {save.isPending ? (
@@ -391,6 +453,165 @@ function SettingsEditor({ teamId }: { teamId: string }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+// --- Game-day play settings (Release 3) -----------------------------------
+
+type PlayChoice = "default" | "on" | "off";
+
+interface PlaySettingSpec {
+  key: TeamPlaySettingKey;
+  label: string;
+  on: string;
+  off: string;
+  /** Where the default comes from, when it is not a fixed value. */
+  defaultSource?: string;
+}
+
+const PLAY_SETTINGS: PlaySettingSpec[] = [
+  {
+    key: "auto_rest_days",
+    label: "Auto rest days",
+    on:
+      "Before each game the sim sits a worn-down regular (a catcher after a " +
+      "long run of starts, any player whose fatigue is high) and starts a " +
+      "bench player instead. Your saved lineup is not changed; he is back " +
+      "the next day.",
+    off:
+      "Your lineup plays as saved, tired or not. A tired regular plays " +
+      "worse and carries a small extra injury risk.",
+  },
+  {
+    key: "rest_subs_similar_positions",
+    label: "Rest substitutes at similar positions",
+    on:
+      "When a regular must rest and nobody on the bench lists his position, " +
+      "the sim may use a bench player from a similar position (LF/RF, CF to " +
+      "a corner, SS to 2B/3B, any infielder to 1B), at most one per game. " +
+      "He fields a little worse out of position.",
+    off:
+      "Only bench players who list the position can substitute. If there " +
+      "is none, the regular plays.",
+  },
+  {
+    key: "il_auto_activate_15",
+    label: "Activate automatically from the 10/15-day IL",
+    on:
+      "When a short-term stint is up and the player is healthy, the sim " +
+      "moves him back to the active roster. With no room, he goes to AAA " +
+      "and you get a \"ready, make room\" item; the sim never moves anyone " +
+      "else to make room.",
+    off:
+      "He waits on the injured list until you activate him from the " +
+      "Injuries page.",
+    defaultSource: "the league's injured-list setting",
+  },
+  {
+    key: "il_auto_activate_60",
+    label: "Activate automatically from the 60-day IL",
+    on:
+      "The same for the 60-day list: a returning player comes back to the " +
+      "active roster, or to AAA with a \"ready, make room\" item when " +
+      "there is no room.",
+    off: "60-day returns wait for you to activate them.",
+  },
+];
+
+function playChoices(
+  play: TeamPlaySettings | undefined,
+): Record<TeamPlaySettingKey, PlayChoice> {
+  const out = {} as Record<TeamPlaySettingKey, PlayChoice>;
+  for (const spec of PLAY_SETTINGS) {
+    const chosen = play?.overrides?.[spec.key];
+    out[spec.key] = chosen === undefined ? "default" : chosen ? "on" : "off";
+  }
+  return out;
+}
+
+function GameDayCard({
+  play,
+  choices,
+  onChange,
+}: {
+  play: TeamPlaySettings | undefined;
+  choices: Record<TeamPlaySettingKey, PlayChoice>;
+  onChange: (key: TeamPlaySettingKey, choice: PlayChoice) => void;
+}) {
+  if (!play) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Game day</CardTitle>
+          <CardDescription>
+            How the sim handles rest and injured-list returns for your club.
+            Changes apply from the next game.
+          </CardDescription>
+        </div>
+        <Badge tone="neutral">
+          <CalendarClock className="h-3 w-3" /> Owner choices
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {play.owner_managed === false && (
+          <div className="flex items-start gap-2 rounded-md border border-info/40 bg-info/10 p-3 text-xs text-ink">
+            <Info className="mt-0.5 h-3 w-3 shrink-0" />
+            <span>
+              This club is CPU-run, so the sim ignores these choices: CPU clubs
+              always rest tired regulars, use similar-position substitutes and
+              activate players from the injured list automatically. They take
+              effect once an owner runs the team.
+            </span>
+          </div>
+        )}
+        {PLAY_SETTINGS.map((spec) => {
+          const choice = choices[spec.key];
+          const defaultOn = play.defaults[spec.key];
+          const effectiveOn = choice === "default" ? defaultOn : choice === "on";
+          const options: { val: PlayChoice; label: string }[] = [
+            { val: "default", label: `Default (${defaultOn ? "on" : "off"})` },
+            { val: "on", label: "On" },
+            { val: "off", label: "Off" },
+          ];
+          return (
+            <div key={spec.key} className="space-y-1.5">
+              <Label>{spec.label}</Label>
+              <div className="flex gap-1 rounded-lg border border-border bg-surfaceAlt p-1">
+                {options.map((opt) => (
+                  <button
+                    key={opt.val}
+                    type="button"
+                    onClick={() => onChange(spec.key, opt.val)}
+                    aria-pressed={choice === opt.val}
+                    className={cn(
+                      "flex-1 rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider transition",
+                      choice === opt.val
+                        ? "bg-amber text-espresso"
+                        : "text-muted hover:bg-surface hover:text-ink",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted">
+                <span className="font-semibold text-ink">
+                  {effectiveOn ? "On: " : "Off: "}
+                </span>
+                {effectiveOn ? spec.on : spec.off}
+              </p>
+              {choice === "default" && spec.defaultSource && (
+                <p className="text-xs text-muted">
+                  The default follows {spec.defaultSource}, so it changes if
+                  the commissioner changes that.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -71,3 +71,64 @@ def test_too_short_season_is_a_clean_cli_error(capsys):
         inj.main(["--games", "10"])
     assert exc.value.code == 2
     assert "smaller than the minimum" in capsys.readouterr().err
+
+
+def test_game_runner_mode_too_short_season_writes_nothing(tmp_path, capsys):
+    work = tmp_path / "work"
+    with pytest.raises(SystemExit) as exc:
+        inj.main(["--mode", "game_runner", "--games", "10", "--work-dir", str(work)])
+    assert exc.value.code == 2
+    assert not work.exists()
+
+
+def test_game_runner_mode_refuses_the_repo_data_folder():
+    with pytest.raises(SystemExit):
+        inj.measure_game_runner(162, 1, ROOT / "data" / "calibration",
+                                work_dir=ROOT / "data" / "scratch")
+
+
+# --- Release 3 pitcher-hazard metrics --------------------------------------
+
+
+def test_stint_days_respect_the_list_minimum():
+    assert inj.stint_days_after_floor({"dl_tier": "dl15", "days": 12}, pitcher=True) == 15
+    assert inj.stint_days_after_floor({"dl_tier": "dl15", "days": 12}, pitcher=False) == 12
+    assert inj.stint_days_after_floor({"dl_tier": "dl15", "days": 8}, pitcher=False) == 10
+    assert inj.stint_days_after_floor({"dl_tier": "il60", "days": 40}, pitcher=True) == 60
+    assert inj.stint_days_after_floor({"dl_tier": "ir", "days": 200}, pitcher=True) == 200
+
+
+def test_summary_reports_the_pitcher_hazard_targets():
+    positions = {"S1": "P", "R1": "P", "H1": "CF"}
+    events = [
+        {"player_id": "S1", "dl_tier": "dl15", "days": 12, "trigger": "pitcher_arm",
+         "starter": True},
+        {"player_id": "R1", "dl_tier": "il60", "days": 40, "trigger": "pitcher_arm",
+         "starter": False},
+        {"player_id": "R1", "dl_tier": "dl15", "days": 20, "trigger": "pitcher_overuse",
+         "starter": False},
+        {"player_id": "H1", "dl_tier": "none", "days": 2, "trigger": "batter_fatigue"},
+    ]
+    m = inj.summarize_events(events, total_team_games=162, positions=positions)
+    assert m["pitcher_il_stints_per_team_season"] == 3.0
+    assert m["sp_share_of_pitcher_il"] == pytest.approx(0.333, abs=1e-3)
+    assert m["pitcher_il_days_after_floor"] == pytest.approx((15 + 60 + 20) / 3, abs=0.05)
+    assert m["pitcher_il60_share"] == pytest.approx(0.333, abs=1e-3)
+    assert m["fatigue_injuries_per_team_season"] == 1.0
+    assert m["fatigue_il_stints_per_team_season"] == 0.0
+    assert m["durability_quintile_hazard_ratio"] is None
+
+
+def test_durability_quintile_ratio():
+    durability = {f"P{i}": float(30 + i) for i in range(50)}
+    appearances = {pid: 10 for pid in durability}
+    # Two arm stints in the bottom fifth, one in the top fifth.
+    events = [
+        {"player_id": "P0", "dl_tier": "dl15", "trigger": "pitcher_arm"},
+        {"player_id": "P1", "dl_tier": "dl15", "trigger": "pitcher_arm"},
+        {"player_id": "P49", "dl_tier": "dl15", "trigger": "pitcher_arm"},
+        {"player_id": "P2", "dl_tier": "dl15", "trigger": "swing"},
+    ]
+    assert inj.durability_quintile_ratio(events, appearances, durability) == 2.0
+    flat = {pid: 50.0 for pid in durability}
+    assert inj.durability_quintile_ratio(events, appearances, flat) is None

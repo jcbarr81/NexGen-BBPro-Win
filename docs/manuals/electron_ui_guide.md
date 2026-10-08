@@ -241,11 +241,14 @@ Staff** tab.
 - **Ctrl+S** saves; autosave debounces ~1.5s and offers to restore unsaved
   changes after a reload.
 
-**Pitching Staff** has 11 slots (SP1–SP5, LR, MR1–MR3, SU, CL); **Auto-fill**
-seeds them from the active roster by endurance and role tags. Active pitchers
-without a slot (the 12th and 13th on a full staff) are listed as **unslotted
-relievers**: they pitch out of the bullpen as extra relief arms. More relief
-slots arrive with a later bullpen update.
+**Pitching Staff** has 11 required slots (SP1–SP5, LR, MR1–MR3, SU, CL) and
+two optional ones, **MR4** and **MR5**, for the 12th and 13th active arms. The
+badge reads *Filled 11/11 + N optional*. **Auto-fill** seeds the staff from
+the active roster by endurance and role tags, filling MR4/MR5 while pitchers
+remain. An active pitcher without a slot is listed as an **unslotted
+reliever**: he still pitches out of the bullpen as an extra middle reliever.
+Older staffs are left as they are; a label that is not a slot (a plain "MR")
+or a slot listed twice only warns.
 
 ### Depth Chart
 
@@ -294,14 +297,18 @@ the sim** when a flagged event occurs.
   the batch), *Stop sim* (break the loop immediately), and an optional
   *threshold*. Rules are grouped into Health & roster, Performance & milestones,
   Transactions, Calendar & deadlines, Finance, League & admin, and Draft.
-- **Defaults** — injured-list placements and season-ending injuries stop the
-  sim; day-to-day knocks are notify-only.
+- **Defaults** — only serious events stop the sim: 60-day IL placements,
+  season-ending injuries, an invalid lineup and a roster over the limit.
+  Day-to-day knocks, 10/15-day IL placements and a pitching staff with an
+  empty slot are notify-only. Owners who changed a rule keep their choice.
 - **Recent events tab** — the last ~100 notifications for your team.
 
 During a sim each day is run, then the engine checks news-based detectors
 (injuries, milestones, trades) and state-based detectors
-(streaks, phase transitions, low cash). A stop-rule breaks the loop early and
-the Season page shows the reason.
+(streaks, phase transitions, low cash). The lineup, pitching-staff and
+roster-limit checks run on the first day of a sim, on a phase change and on
+days with injury or roster news for the team; each problem is reported once.
+A stop-rule breaks the loop early and the Season page shows the reason.
 
 ### Finance
 
@@ -372,6 +379,14 @@ All owner finance actions are **owner-or-commissioner only** (enforced server-si
   the full park browser.
 - **Team strategy** — league default or a profile (Win Now, Development Focus…).
 - **Auto-reassign** — inherit league default or set per-team. Ctrl+S.
+- **Game day** — four owner choices, each Default / On / Off, applied from
+  the next game: **Auto rest days** (default on; the sim sits worn-down
+  regulars at game time without changing the saved lineup), **Rest
+  substitutes at similar positions** (default on; at most one per game),
+  **Activate automatically from the 10/15-day IL** (default follows the
+  league's IL setting) and **from the 60-day IL** (default off). A returner
+  with no room goes to AAA with a "ready, make room" item; nobody else is
+  moved. CPU-run clubs ignore these choices.
 
 ---
 

@@ -31,9 +31,11 @@ from services.roster_validation import MIN_POSITION_PLAYERS_ACT
 from utils.roster_rules import (
     ACT_HITTER_TARGET,
     MAX_ACTIVE_PITCHERS,
+    MIN_ACTIVE_CATCHERS,
     SEPTEMBER_MAX_ACTIVE_PITCHERS,
     SEPTEMBER_ROSTER_SIZE,
     counts_as_pitcher,
+    is_catcher,
 )
 
 __all__ = [
@@ -65,6 +67,15 @@ HITTER_FLOOR = MIN_POSITION_PLAYERS_ACT + 1
 PITCHER_KEEP = MAX_ACTIVE_PITCHERS - 2
 #: CPU clubs aim for this many active position players (26 - 13).
 HITTER_TARGET = ACT_HITTER_TARGET
+#: Positions a lineup needs covered; mirrors
+#: ``services.roster_auto_assign.REQUIRED_POSITIONS`` (a test pins the two).
+_REQUIRED_POSITIONS: Tuple[str, ...] = ("C", "SS", "CF", "2B", "3B", "1B", "LF", "RF")
+#: Release 3: a CPU club carries a spare for each group -- one more player who
+#: can play the first position (SS, CF: nobody else covers them on a rest
+#: day, the similar-position moves run the other way), else, without one in
+#: the organisation, one more for the group. Mirrors full-mode auto-assign's
+#: ``BACKUP_GROUPS``.
+SPARE_GROUPS: Tuple[Tuple[str, ...], ...] = (("SS", "2B", "3B"), ("CF", "LF", "RF"))
 
 Move = Tuple[str, str, str]  # (player_id, from_level, to_level)
 
@@ -170,6 +181,7 @@ def callup_candidates(
     exclude: Iterable[str] = (),
     allowed: Optional[Callable[[str, str], bool]] = None,
     position_only: bool = False,
+    want_starter: bool = False,
 ) -> List[tuple]:
     """Ordered ``(player_id, from_level)`` candidates for one promotion.
 
@@ -178,6 +190,10 @@ def callup_candidates(
     2. players who can play ``position``;
     3. any healthy player of the right type -- skipped when ``position_only``
        (an owner's club gets a player for the open position or nobody).
+
+    ``want_starter`` (pitchers only): a starter goes down, so starter-capable
+    arms come first -- a reliever called up for him would leave a hole in the
+    rotation (Release 3, audit M15).
 
     ``allowed(player_id, from_level)`` lets the caller veto a move (prospect
     service-time rules); vetoed players are skipped, never forced.
@@ -220,6 +236,11 @@ def callup_candidates(
     for entry in _best([e for e in pool if e[0] not in seen]):
         ordered.append(entry)
         seen.add(entry[0])
+    if want_pitcher and want_starter:
+        from utils.pitcher_role import get_role
+
+        # Stable: AAA before Low-A and best first within each group.
+        ordered.sort(key=lambda e: get_role(players_by_id.get(e[0])) != "SP")
     if allowed is not None:
         ordered = [e for e in ordered if allowed(e[0], e[1])]
     return ordered
@@ -252,15 +273,17 @@ def _weakest(ids: Sequence[str], players: Mapping[str, object]) -> Optional[str]
 
 
 def _is_catcher(player: object) -> bool:
-    return (
-        player is not None
-        and not is_pitcher(player)
-        and str(getattr(player, "primary_position", "") or "").strip().upper() == "C"
-    )
+    # The shared predicate (Release 3): primary C or C listed among the
+    # other positions, so a utility catcher protects the club too.
+    return is_catcher(player)
 
 
 def _healthy_catchers(ids: Sequence[str], players: Mapping[str, object]) -> List[str]:
     return [p for p in ids if _is_catcher(players.get(p)) and _available(players.get(p))]
+
+
+def _is_primary_catcher(player: object) -> bool:
+    return str(getattr(player, "primary_position", "") or "").strip().upper() == "C"
 
 
 def choose_send_down(
@@ -271,6 +294,7 @@ def choose_send_down(
     allowed: Optional[Callable[[str], bool]] = None,
     pitcher_cap: Optional[int] = None,
     hitter_target: int = HITTER_TARGET,
+    keep_catchers: int = 1,
 ) -> Optional[str]:
     """Who to option when the active roster is over the cap.
 
@@ -280,9 +304,12 @@ def choose_send_down(
     the floor; else a position player while there are more than
     ``hitter_target``; else one of the arriving player's type. Never the
     club's last healthy catcher (a pitcher-heavy CPU club once optioned its
-    only catcher this way). Players in ``exclude`` (the man just activated)
-    are counted but never chosen; those ``allowed`` vetoes (option limits)
-    are skipped.
+    only catcher this way), and one of its last ``keep_catchers`` only when
+    nobody else of the chosen type may go. CPU paths pass
+    ``MIN_ACTIVE_CATCHERS`` (two, Release 3, owner decision 10); the default
+    of one is for an owner's club, whose second catcher is his call. Players in
+    ``exclude`` (the man just activated) are counted but never chosen; those
+    ``allowed`` vetoes (option limits) are skipped.
     """
 
     skip = {str(p) for p in exclude or ()}
@@ -294,8 +321,8 @@ def choose_send_down(
     catchers = _healthy_catchers(act_all, players)
     limit = MAX_ACTIVE_PITCHERS if pitcher_cap is None else int(pitcher_cap)
 
-    def _ok(pid: str) -> bool:
-        if pid in catchers and len(catchers) <= 1:
+    def _ok(pid: str, keep: int) -> bool:
+        if pid in catchers and len(catchers) <= max(1, keep):
             return False
         return allowed is None or allowed(pid)
 
@@ -310,9 +337,136 @@ def choose_send_down(
         else:
             order = (hitters, arms)
     for pool in order:
-        pool = [p for p in pool if _ok(p)]
-        if pool:
-            return _weakest(pool, players)
+        # The second catcher goes only when nobody else of this type may.
+        for keep in (keep_catchers, 1):
+            eligible = [p for p in pool if _ok(p, keep)]
+            if eligible:
+                return _weakest(eligible, players)
+    return None
+
+
+def _weakest_non_catcher_hitter(
+    roster: object,
+    players: Mapping[str, object],
+    *,
+    option_allowed: Optional[Callable[[str], bool]] = None,
+    protect: Iterable[str] = (),
+) -> Optional[str]:
+    """The weakest active position player who is not a catcher, not in
+    ``protect`` (see :func:`_protected_hitters`), not hurt (a day-to-day
+    player still on the active roster is back in a day or two; optioning him
+    cost a club its only shortstop) and whom the option rules allow to go
+    down, or ``None``."""
+
+    keep = set(protect or ())
+    pool = [
+        p for p in _hitters(roster.act, players)
+        if not _is_catcher(players.get(p)) and p not in keep
+        and _available(players.get(p))
+    ]
+    if option_allowed is not None:
+        pool = [p for p in pool if option_allowed(p)]
+    return _weakest(pool, players)
+
+
+def _injury_covers(team_id: str, roster: object) -> set:
+    """Players called up to cover a teammate who is still on the injured
+    list (``services.injury_replacements``): the upkeep never options them
+    (one went LOW -> ACT -> AAA overnight)."""
+
+    try:
+        from services.injury_replacements import _load
+
+        data = _load()
+    except Exception:
+        return set()
+    hurt = {
+        str(p)
+        for level in ("dl", "ir")
+        for p in list(getattr(roster, level, []) or [])
+    }
+    covers = set()
+    for injured_id, entry in (data or {}).items():
+        if not isinstance(entry, dict) or str(injured_id) not in hurt:
+            continue
+        if str(entry.get("team_id", "")) != str(team_id):
+            continue
+        if entry.get("replacement_id"):
+            covers.add(str(entry["replacement_id"]))
+    return covers
+
+
+def _protected_hitters(roster: object, players: Mapping[str, object]) -> set:
+    """Active position players the CPU upkeep never options to make room:
+
+    * the last one who can play a ``_REQUIRED_POSITIONS`` spot;
+    * a club's only spare at a ``SPARE_GROUPS`` key position (SS, CF): while
+      two or fewer can play it, both stay;
+    * a group's only spare otherwise: while the group is covered by at most
+      one more player than it has positions, all of them stay.
+
+    Counted twice, among the healthy and among everyone present -- a
+    day-to-day player still on the active roster is present, as the catcher
+    step counts him -- and protected by either count: the day-to-day regular
+    keeps his place, and so does the healthy backup who plays meanwhile.
+    """
+
+    present = _hitters(roster.act, players)
+    healthy = [p for p in present if _available(players.get(p))]
+    can = {pid: set(positions_of(players.get(pid))) for pid in present}
+    protected = set()
+    for group_ids in (healthy, present):
+        for pos in _REQUIRED_POSITIONS:
+            able = [pid for pid in group_ids if pos in can[pid]]
+            if len(able) == 1:
+                protected.add(able[0])
+        for group in SPARE_GROUPS:
+            key_able = [pid for pid in group_ids if group[0] in can[pid]]
+            if len(key_able) <= 2:
+                protected.update(key_able)
+            covering = [pid for pid in group_ids if can[pid] & set(group)]
+            if len(covering) <= len(group) + 1:
+                protected.update(covering)
+    return protected
+
+
+def _spare_callup(
+    roster: object,
+    players: Mapping[str, object],
+    group: Tuple[str, ...],
+    *,
+    allowed: Optional[Callable[[str, str], bool]],
+    exclude: Iterable[str],
+) -> Optional[tuple]:
+    """The minor leaguer to call up as the club's spare for ``group``, or
+    ``None`` when it has one (two who can play the key position, or -- with
+    nobody in the minors who can -- one more than the group's positions).
+
+    A day-to-day player still on the active roster counts: a short injury is
+    no reason for a call-up (and the send-down that pays for it)."""
+
+    present = _hitters(roster.act, players)
+    key = group[0]
+    if sum(1 for p in present if can_play(players.get(p), key)) >= 2:
+        return None
+    cands = callup_candidates(
+        roster, players, want_pitcher=False, position=key, allowed=allowed,
+        position_only=True, exclude=exclude,
+    )
+    if cands:
+        return cands[0]
+    covering = sum(
+        1 for p in present if set(positions_of(players.get(p))) & set(group)
+    )
+    if covering > len(group):
+        return None
+    for pos in group[1:]:
+        cands = callup_candidates(
+            roster, players, want_pitcher=False, position=pos, allowed=allowed,
+            position_only=True, exclude=exclude,
+        )
+        if cands:
+            return cands[0]
     return None
 
 
@@ -344,10 +498,14 @@ def _option_surplus_pitcher(
     return True
 
 
-def _best_callup(roster, players, *, want_pitcher, allowed, fallback_unrestricted=False):
-    cands = callup_candidates(roster, players, want_pitcher=want_pitcher, allowed=allowed)
+def _best_callup(
+    roster, players, *, want_pitcher, allowed, fallback_unrestricted=False, exclude=()
+):
+    cands = callup_candidates(
+        roster, players, want_pitcher=want_pitcher, allowed=allowed, exclude=exclude
+    )
     if not cands and fallback_unrestricted and allowed is not None:
-        cands = callup_candidates(roster, players, want_pitcher=want_pitcher)
+        cands = callup_candidates(roster, players, want_pitcher=want_pitcher, exclude=exclude)
     return cands[0] if cands else None
 
 
@@ -410,6 +568,7 @@ def maintain_cpu_active_roster(
     allowed: Optional[Callable[[str, str], bool]] = None,
     pitcher_cap: Optional[int] = None,
     option_allowed: Optional[Callable[[str], bool]] = None,
+    protect: Iterable[str] = (),
 ) -> List[Move]:
     """Keep a CPU club's active roster legal, full and balanced.
 
@@ -438,25 +597,98 @@ def maintain_cpu_active_roster(
     option is optioned anyway (a :class:`ForcedMove`) -- nobody else ever is,
     so a club whose surplus is out of options stays over the size cap. CPU
     clubs only -- an owner's roster is the owner's. Mutates ``roster``.
+
+    Step 0 keeps ``MIN_ACTIVE_CATCHERS`` (two) catchers active (Release 3,
+    owner decision 10). A club with none healthy calls one up as before. A
+    club with one -- a day-to-day catcher still on the active roster counts;
+    only one on the injured list is missing -- calls up a catcher from its
+    own minors and, when the roster is full, options its weakest non-catcher
+    position player (one the option rules allow), so the 13 / 13 shape holds.
+    That player is never the last who can play a required position, the
+    club's only spare SS / CF, a player covering for a teammate still on the
+    injured list, or one in ``protect``. No catcher in the organisation, or
+    nobody who may go down, means no move. A third healthy primary-C catcher
+    is optioned (one who only lists C elsewhere is not counted). A day-to-day
+    player on the active roster counts as present at his positions and is
+    never the one optioned.
+
+    Step 6 carries a spare SS and CF (``SPARE_GROUPS``) from the club's own
+    minors, by the same rules, so live CPU clubs match the full auto-assign
+    shape.
     """
 
     moves: List[Move] = []
     players = players_by_id
     limit = pitcher_cap_for(cap) if pitcher_cap is None else int(pitcher_cap)
+    keep_out = {str(p) for p in protect or ()} | _injury_covers(team_id, roster)
+    sent_down: set = set()
 
-    # 0. a catcher: a club with none healthy on the active roster calls one up
-    if not _healthy_catchers(list(roster.act), players):
+    def _send(pid: str, *, forced: bool = False) -> None:
+        _option(roster, pid, moves, forced=forced)
+        sent_down.add(pid)
+
+    def _hitter_victim() -> Optional[str]:
+        return _weakest_non_catcher_hitter(
+            roster, players, option_allowed=option_allowed,
+            protect=keep_out | _protected_hitters(roster, players),
+        )
+
+    # 0. catchers: none healthy on the active roster is an emergency (any
+    # send-down makes room); a lone catcher gets a partner from the minors.
+    for _attempt in range(MIN_ACTIVE_CATCHERS):
+        catchers = _healthy_catchers(list(roster.act), players)
+        present = [p for p in roster.act if _is_catcher(players.get(p))]
+        if catchers and len(present) >= MIN_ACTIVE_CATCHERS:
+            break
         cands = callup_candidates(
             roster, players, want_pitcher=False, position="C",
             allowed=allowed, position_only=True,
         )
-        if cands:
+        if not cands:
+            break
+        if not catchers:
             if len(roster.act) >= cap:
                 victim = choose_send_down(roster, players, pitcher_cap=limit)
                 if victim is not None:
-                    _option(roster, victim, moves)
-            if len(roster.act) < cap:
-                _promote(roster, cands[0][0], cands[0][1], moves)
+                    _send(victim)
+        elif len(roster.act) >= min(cap, target_size):
+            victim = _hitter_victim()
+            if victim is None:
+                break
+            _send(victim)
+        if len(roster.act) >= cap:
+            break
+        _promote(roster, cands[0][0], cands[0][1], moves)
+
+    # 0b. a third healthy catcher goes down; the fill below replaces him with
+    # a hitter, never another catcher. Counted and trimmed among real
+    # (primary C) catchers only: a first baseman who also lists C is not a
+    # third catcher, so he never cost the club one of its two.
+    def _real_catchers() -> List[str]:
+        return [
+            p for p in _healthy_catchers(list(roster.act), players)
+            if _is_primary_catcher(players.get(p))
+        ]
+
+    while len(_real_catchers()) > MIN_ACTIVE_CATCHERS:
+        guarded = keep_out | _protected_hitters(roster, players)
+        pool = [
+            p for p in _real_catchers()
+            if p not in guarded and (option_allowed is None or option_allowed(p))
+        ]
+        if not pool:
+            break
+        _send(_weakest(pool, players))
+
+    def _fill_exclude() -> set:
+        # Nobody just sent down comes straight back, and no extra catcher.
+        out = set(sent_down)
+        if len(_healthy_catchers(list(roster.act), players)) >= MIN_ACTIVE_CATCHERS:
+            for level in ("aaa", "low"):
+                out.update(
+                    p for p in getattr(roster, level, []) or [] if _is_catcher(players.get(p))
+                )
+        return out
 
     # 1. repair a pitcher-heavy drift
     while len(_hitters(roster.act, players)) < HITTER_FLOOR:
@@ -467,7 +699,7 @@ def maintain_cpu_active_roster(
             arms = _pitchers(roster.act, players)
             if len(arms) <= PITCHER_KEEP:
                 break
-            _option(roster, _weakest(arms, players), moves)
+            _send(_weakest(arms, players))
         _promote(roster, pick[0], pick[1], moves)
 
     # 2. the pitcher limit
@@ -479,9 +711,14 @@ def maintain_cpu_active_roster(
     while len(roster.act) < target_size:
         arms_full = len(_pitchers(roster.act, players)) >= limit
         want_pitcher = len(_hitters(roster.act, players)) >= HITTER_TARGET and not arms_full
-        pick = _best_callup(roster, players, want_pitcher=want_pitcher, allowed=allowed)
+        skip = _fill_exclude()
+        pick = _best_callup(
+            roster, players, want_pitcher=want_pitcher, allowed=allowed, exclude=skip
+        )
         if pick is None and (want_pitcher or not arms_full):
-            pick = _best_callup(roster, players, want_pitcher=not want_pitcher, allowed=allowed)
+            pick = _best_callup(
+                roster, players, want_pitcher=not want_pitcher, allowed=allowed, exclude=skip
+            )
         if pick is None:
             break
         _promote(roster, pick[0], pick[1], moves)
@@ -498,13 +735,13 @@ def maintain_cpu_active_roster(
         catchers = _healthy_catchers(list(roster.act), players)
         surplus = [
             p for p in _hitters(roster.act, players)
-            if not (p in catchers and len(catchers) <= 1)
+            if not (p in catchers and len(catchers) <= MIN_ACTIVE_CATCHERS)
         ]
         if option_allowed is not None:
             surplus = [p for p in surplus if option_allowed(p)]
         if not surplus:
             break
-        _option(roster, _weakest(surplus, players), moves)
+        _send(_weakest(surplus, players))
         _promote(roster, pick[0], pick[1], moves)
 
     # 5. trim to the cap. When the option rules veto everyone, only a surplus
@@ -512,7 +749,8 @@ def maintain_cpu_active_roster(
     # the club stays over the size cap until a send-down is allowed.
     while len(roster.act) > cap:
         victim = choose_send_down(
-            roster, players, allowed=option_allowed, pitcher_cap=limit
+            roster, players, allowed=option_allowed, pitcher_cap=limit,
+            keep_catchers=MIN_ACTIVE_CATCHERS,
         )
         forced = False
         if victim is None and option_allowed is not None:
@@ -522,7 +760,34 @@ def maintain_cpu_active_roster(
                 forced = True
         if victim is None:
             break
-        _option(roster, victim, moves, forced=forced)
+        _send(victim, forced=forced)
+
+    # 6. a spare SS and CF from the club's own minors (Release 3): call one
+    # up and, on a full roster, option the weakest position player nobody
+    # needs (the step-0 rules). Nobody who may go down: no move.
+    for group in SPARE_GROUPS:
+        if len(roster.act) > cap:
+            break
+        pick = _spare_callup(roster, players, group, allowed=allowed, exclude=sent_down)
+        if pick is None:
+            continue
+        full = len(roster.act) >= min(cap, target_size)
+        origin = getattr(roster, pick[1])
+        slot = origin.index(pick[0])
+        _promote(roster, pick[0], pick[1], moves)
+        if not full:
+            continue
+        victim = _weakest_non_catcher_hitter(
+            roster, players, option_allowed=option_allowed,
+            protect=keep_out | _protected_hitters(roster, players) | {pick[0]},
+        )
+        if victim is None:
+            # Undo the call-up: the club keeps its shape.
+            moves.pop()
+            roster.act.remove(pick[0])
+            origin.insert(slot, pick[0])
+            continue
+        _send(victim)
     return moves
 
 
@@ -533,11 +798,15 @@ def record_roster_moves(
     *,
     details: str,
     news: bool = False,
+    season_date: Optional[str] = None,
 ) -> None:
     """Transaction-log (and optionally news) lines for automatic moves.
 
     The sim's injury call-ups and send-downs used to reach only the prospect
     event log, so owners browsing transactions never saw them.
+    ``season_date`` is the league date to log (default: the current sim
+    date, which lags inside a game: the league files move on only when the
+    sim call ends, and stay on the last regular-season date all postseason).
     """
 
     if not moves:
@@ -563,6 +832,7 @@ def record_roster_moves(
                 from_level=str(from_level).upper(),
                 to_level=str(to_level).upper(),
                 details=line,
+                season_date=season_date,
             )
         except Exception:
             pass

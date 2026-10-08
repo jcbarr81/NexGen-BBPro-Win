@@ -5,6 +5,8 @@ relief_outs_per_app,3.2,1,REPORT H1: MLB ~3.2 outs per relief outing
 relief_pitches_per_app,17.0,1,REPORT H1: MLB ~17 pitches per relief outing
 closer_ip_per_app,1.0,1,closers work about one inning per appearance (REPORT H1: engine 1.41-1.62)
 closer_top_ip_per_162,75.0,1,busiest MLB closers pitch ~70-80 IP (REPORT H1: engine top closer on pace for 134)
+closer_third_straight_day,0,0,"Release 3 bullpen rule (H1): a closer never pitches a third straight calendar day; season total, gated strict"
+emergency_apps_per_team_season,1.0,1,"Release 3 owner decision 7: a rested starter relieves only when the pen is empty, about once per club-season (gate bound, not an MLB value)"
 swing_rate_0_0,0.3104,0,statcast_counts_2023.csv swing_rate
 swing_rate_0_1,0.4881,0,statcast_counts_2023.csv swing_rate
 swing_rate_0_2,0.5136,0,statcast_counts_2023.csv swing_rate
@@ -80,9 +82,10 @@ late_inning_runs_ratio_7_9_vs_3_6,0.935,1,REPORT M19: innings 7-9 roughly 5-8% b
 late_close_ops_delta,-0.03,1,Late & Close OPS minus overall (-.02 to -.04)
 risp_ops_delta,0.015,1,RISP OPS minus overall; OBP +.015-.025 from IBB/HBP
 men_on_ops_delta,0.025,1,men-on OPS minus bases-empty OPS
-extra_half_runs,0.48,1,no automatic runner (~RE24 empty/0 out); with the 2020+ runner MLB is ~0.95
-ghost_runner_runs_per_extra_half,0.95,1,"runs per extra half with the automatic runner (2020+), 0.9-1.0"
-extra_half_p_score,0.27,1,no automatic runner (~runprob empty/0 out); with the runner ~0.62
+extra_half_runs,0.95,1,with the 2020+ automatic runner on 2nd (decision 11; on in the regular season since Release 3): MLB 0.9-1.0 runs per extra half
+extra_half_runs_no_runner,0.48,1,note: no automatic runner (~RE24 empty/0 out): postseason and leagues that switch the runner off
+extra_half_p_score,0.62,1,with the automatic runner (Release 3): ~62% of extra halves score
+extra_half_p_score_no_runner,0.27,1,note: no automatic runner (~runprob empty/0 out)
 extra_inning_game_share,0.085,0,share of games going to extras (pre- and post-2020 both ~8-9%)
 runs_on_inning_ending_plays,0,0,MLB rule 5.08(a): no run scores when the third out is a force or the batter-runner retired before first (REPORT L15)
 home_wpct,0.535,1,REPORT L1: MLB home edge ~+3-4 pp; pool seeds before reading

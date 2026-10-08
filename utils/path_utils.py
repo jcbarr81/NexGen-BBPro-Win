@@ -41,7 +41,11 @@ _MINIMAL_DATA_DIRS = (
     "MLB_avg",
     "parks",
 )
-_SEED_EXCLUDE_FILES = frozenset({_LEAGUE_REGISTRY_FILENAME, _ACTIVE_LEAGUE_FILENAME})
+# physics_usage.json is a league's own rest state (playbalance.usage_store); a
+# stray copy in the base data dir must never seed a new league.
+_SEED_EXCLUDE_FILES = frozenset(
+    {_LEAGUE_REGISTRY_FILENAME, _ACTIVE_LEAGUE_FILENAME, "physics_usage.json"}
+)
 
 
 class ActivePath:

@@ -5,6 +5,8 @@ from typing import Dict, List
 import math
 import random
 
+from utils.roster_rules import is_catcher
+
 from .models import BatterRatings
 from .config import TuningConfig
 
@@ -25,6 +27,23 @@ class DefenseRatings:
     outfield_right: float
 
 
+def _fallback_fielder(remaining: List[BatterRatings], pos: str) -> BatterRatings:
+    """Best fielder in ``remaining`` for ``pos`` when nobody was assigned it.
+
+    Release 3 (audit M16): players who list ``pos`` first. A catcher always
+    takes C when one is left, and a catcher is used elsewhere only when no
+    one else remains -- the old fallback took the best fielder anywhere, so
+    a shortstop could end up catching while the catcher played short.
+    """
+
+    eligible = [b for b in remaining if b.primary_position == pos or pos in b.other_positions]
+    if pos == "C":
+        pool = [b for b in remaining if is_catcher(b)] or remaining
+    else:
+        pool = eligible or [b for b in remaining if not is_catcher(b)] or remaining
+    return max(pool, key=lambda b: b.fielding)
+
+
 def build_default_defense(batters: List[BatterRatings]) -> Dict[str, BatterRatings]:
     """Assign fielders to positions based on primary/other positions."""
 
@@ -32,24 +51,12 @@ def build_default_defense(batters: List[BatterRatings]) -> Dict[str, BatterRatin
     remaining = batters[:]
     defense: Dict[str, BatterRatings] = {}
 
-    def select_for_pos(pos: str) -> BatterRatings | None:
-        candidates = [
-            b
-            for b in remaining
-            if b.primary_position == pos or pos in b.other_positions
-        ]
-        if not candidates:
-            return None
-        best = max(candidates, key=lambda b: b.fielding)
-        return best
-
     for pos in positions:
-        choice = select_for_pos(pos)
-        if choice is None and remaining:
-            choice = max(remaining, key=lambda b: b.fielding)
-        if choice:
-            defense[pos] = choice
-            remaining.remove(choice)
+        if not remaining:
+            break
+        choice = _fallback_fielder(remaining, pos)
+        defense[pos] = choice
+        remaining.remove(choice)
     return defense
 
 
@@ -78,7 +85,7 @@ def build_defense_from_lineup(
             continue
         if not remaining:
             break
-        choice = max(remaining, key=lambda b: b.fielding)
+        choice = _fallback_fielder(remaining, pos)
         defense[pos] = choice
         remaining.remove(choice)
     return defense

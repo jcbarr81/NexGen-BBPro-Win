@@ -33,22 +33,28 @@ def _make_pitcher(pid: str) -> Pitcher:
     )
 
 
-def test_apply_injury_events_caps_pitcher_dl(monkeypatch):
-    pitchers = [_make_pitcher(f"P{i}") for i in range(1, 5)]
+def test_apply_injury_events_never_caps_the_pitcher_il(monkeypatch):
+    """Release 3 (audit M15): every pitcher IL stint stands.
+
+    The old cap (MAX_PITCHERS_ON_DL, 5) turned the sixth stint into a
+    day-to-day knock, leaving a hurt pitcher free to pitch the next day.
+    """
+    pitchers = [_make_pitcher(f"P{i}") for i in range(1, 9)]
     players_store = {"players": list(pitchers)}
-    roster = Roster(team_id="TST", act=["P1", "P2", "P3", "P4"], aaa=[], low=[], dl=[], ir=[], dl_tiers={})
+    roster = Roster(
+        team_id="TST", act=[p.player_id for p in pitchers], aaa=[], low=[],
+        dl=[], ir=[], dl_tiers={},
+    )
 
     monkeypatch.setattr(game_runner, "load_players_from_csv", lambda _: list(players_store["players"]))
     monkeypatch.setattr(game_runner, "save_players", lambda players, __: players_store.__setitem__("players", list(players)))
     monkeypatch.setattr(game_runner, "load_roster", lambda team_id, roster_dir=None: roster)
     monkeypatch.setattr(game_runner, "save_roster", lambda team_id, updated: None)
-    monkeypatch.setattr(game_runner, "MAX_PITCHERS_ON_DL", 2)
-    monkeypatch.setattr(game_runner, "DAY_TO_DAY_MAX_DAYS", 3)
+    assert not hasattr(game_runner, "MAX_PITCHERS_ON_DL")
 
     events = [
-        {"team_id": "TST", "player_id": "P1", "dl_tier": "dl15", "days": 12, "description": "Elbow"},
-        {"team_id": "TST", "player_id": "P2", "dl_tier": "dl15", "days": 14, "description": "Shoulder"},
-        {"team_id": "TST", "player_id": "P3", "dl_tier": "dl15", "days": 10, "description": "Forearm"},
+        {"team_id": "TST", "player_id": f"P{i}", "dl_tier": "dl15", "days": 12, "description": "Elbow"}
+        for i in range(1, 8)
     ]
 
     game_runner._apply_injury_events(
@@ -58,11 +64,8 @@ def test_apply_injury_events_caps_pitcher_dl(monkeypatch):
         game_date="2025-04-01",
     )
 
-    assert {"P1", "P2"}.issubset(set(roster.dl))
-    assert "P3" not in roster.dl
-
-    players = players_store["players"]
-    day_to_day = next(p for p in players if p.player_id == "P3")
-    assert day_to_day.injured is True
-    assert (day_to_day.injury_description or "").endswith("(day-to-day)")
-    assert not day_to_day.injury_list
+    assert {f"P{i}" for i in range(1, 8)} == set(roster.dl)
+    assert all(e["dl_tier"] == "dl15" for e in events)
+    for player in players_store["players"][:7]:
+        assert player.injury_list == "il15"
+        assert "day-to-day" not in (player.injury_description or "")

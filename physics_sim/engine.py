@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Collection, Dict, Iterable, List, Set
 import random
 import re
 import zlib
 
+from .arm_injury import roll_post_game_injuries
 from .config import load_tuning, TuningConfig
 from .data_loader import load_players_by_id
 from .models import BatterRatings, PitcherRatings
@@ -32,6 +33,7 @@ from .physics import (
     miss_distance,
 )
 from .usage import UsageState, reliever_rest_days
+from .usage import batter_fatigue_threshold  # Release 3 item F
 from .team_data import (
     build_staff,
     build_bench,
@@ -44,6 +46,8 @@ from .team_data import (
 )
 from utils.path_utils import get_data_dir
 from utils.lineup_autofill import auto_fill_lineup_for_team
+from utils.staff_roles import canonical_relief_role
+from utils.position_fit import can_cover_similar
 from services.injury_simulator import InjurySimulator
 
 # Pitch-outcome classification sets (S1-09: module constants — these were
@@ -95,6 +99,27 @@ class PitcherState:
     rest_role: str = ""
     in_save_situation: bool = False
     entered_save_opp: bool = False
+    # Release 3 (H1). ``staff_role``/``rest_role`` hold the canonical usage
+    # role (SP/CL/SU/LR/MR); ``staff_slot`` keeps the staff-file label (MR2,
+    # RP, ...). ``hard_blocked`` marks a rule block -- third straight day or an
+    # appearance cap -- that even an empty bullpen may not override, unlike a
+    # plain rest flag. ``fallback``: entered while only rest-flagged.
+    # ``emergency``: a rested starter brought out of the pen.
+    staff_slot: str = ""
+    hard_blocked: bool = False
+    fallback: bool = False
+    emergency: bool = False
+    # Days in a row he pitched up to yesterday (0 = not yesterday).
+    prior_streak: int = 0
+    # An emergency starter's rest clock before the game, put back afterwards
+    # so the relief outing does not push his next start back.
+    starter_clock: tuple[int | None, int, int] | None = None
+    # A reserve arm's block, if any: "rest" (pitched inside
+    # ``emergency_starter_min_days`` and nothing else) or "debt" (too much
+    # fatigue debt). ``reserve_last_day`` is the later of his last start and
+    # his last emergency. Only the empty-pen last resort reads them.
+    reserve_block: str = ""
+    reserve_last_day: int | None = None
 
 
 @dataclass
@@ -249,9 +274,13 @@ class TeamPitchingState:
     bullpen: List[PitcherState]
     current: PitcherState
     lines: Dict[str, PitcherLine] = field(default_factory=dict)
+    # Release 3: today's other rotation arms, for a mop-up emergency only.
+    reserve: List[PitcherState] = field(default_factory=list)
 
     def all_pitchers(self) -> List[PitcherState]:
-        return [self.starter] + list(self.bullpen)
+        return [self.starter] + list(self.bullpen) + [
+            state for state in self.reserve if state.used
+        ]
 
 
 def _pitcher_usage_limits(
@@ -267,7 +296,10 @@ def _pitcher_usage_limits(
     limit_scale = tuning.get("fatigue_limit_endurance_scale", 0.0)
     fatigue_start = start_base + (endurance * start_scale)
     fatigue_limit = fatigue_start + limit_base + (endurance * limit_scale)
-    role = (role or "").upper()
+    role = (role or "").strip().upper()
+    if role and not role.startswith("SP"):
+        # MR1-MR5, RP, ... pitch like MR (they used to get starter windows).
+        role = canonical_relief_role(role)
     if role in {"CL", "SU", "MR"}:
         start_scale = tuning.get("reliever_fatigue_start_scale", 0.5)
         limit_scale = tuning.get("reliever_fatigue_limit_scale", 0.5)
@@ -304,6 +336,12 @@ def _pitcher_days_since_use(
     usage_state: UsageState | None,
     game_day: int | None,
 ) -> int | None:
+    """Calendar days since the pitcher last pitched, or ``None`` if unknown.
+
+    ``game_day`` is the rest clock, the calendar day (Release 3, decision 9),
+    so an off day between outings counts as a day of rest: a reliever who
+    pitched on day D and sits through an off day on D+1 reads 2 on D+2.
+    """
     if usage_state is None or game_day is None:
         return None
     workload = usage_state.workload_for(pitcher_id)
@@ -320,6 +358,11 @@ def _pitcher_is_rested(
     game_day: int | None,
     tuning: TuningConfig,
 ) -> bool:
+    """True when the pitcher has had his role's rest in calendar days.
+
+    Starters need ``starter_rest_days`` calendar days; relievers (CL
+    included) need the pitch-count table's full days off plus one.
+    """
     days_since = _pitcher_days_since_use(
         pitcher_id, usage_state=usage_state, game_day=game_day
     )
@@ -347,10 +390,10 @@ def _order_pitchers_for_game(
     ``forced_starter_id`` is the starter the season's rotation tracker already
     assigned. When given it wins outright: the tracker knows the whole season,
     while this function only sees one game. Without it the rotation slot comes
-    from ``game_day``, which is a counter that restarts at zero in every fresh
-    process — so a league simulated in weekly batches replayed
-    SP1, SP2, SP3, SP4, SP5, SP1, SP2 on every run and handed the top two slots
-    twice the starts of the other three (7.41.0).
+    from the usage state's ``game_index`` -- the count of game dates, so off
+    days do not skip a slot (Release 3) -- or, with no usage state, from
+    ``game_day``. (Before 7.41.0 ``game_day`` restarted at zero in every fresh
+    process, so weekly batches replayed SP1, SP2, SP3, SP4, SP5, SP1, SP2.)
     """
 
     if not pitchers:
@@ -381,7 +424,11 @@ def _order_pitchers_for_game(
     starters_sorted = sorted(starters, key=lambda item: _sp_sort_key(item[0]))
     rotation = [pitcher for _, pitcher in starters_sorted]
     start_index = 0
-    if game_day is not None:
+    if usage_state is not None and game_day is not None:
+        # game_day is a calendar day; a pure calendar slot would shift the
+        # rotation on every off day.
+        start_index = usage_state.game_index % len(rotation)
+    elif game_day is not None:
         start_index = game_day % len(rotation)
     chosen_index = start_index
 
@@ -490,6 +537,7 @@ def _pitcher_usage_summary(state: PitcherState) -> Dict[str, float | str]:
     return {
         "player_id": state.pitcher.player_id,
         "staff_role": state.staff_role,
+        "staff_slot": state.staff_slot,
         "pitches": state.pitches,
         "fatigue_start": round(state.fatigue_start, 1),
         "fatigue_limit": round(state.fatigue_limit, 1),
@@ -498,6 +546,10 @@ def _pitcher_usage_summary(state: PitcherState) -> Dict[str, float | str]:
         "usage_multiplier": round(state.usage_multiplier, 3),
         "fatigue_debt": round(state.debt, 1),
         "available": bool(state.available),
+        "hard_blocked": bool(state.hard_blocked),
+        "fallback": bool(state.fallback),
+        "emergency": bool(state.emergency),
+        "prior_streak": int(state.prior_streak),
     }
 
 
@@ -511,6 +563,8 @@ def _apply_usage_state(
         return
     workload = usage_state.workload_for(state.pitcher.player_id)
     state.debt = workload.fatigue_debt
+    if workload.last_used_day is not None and game_day - workload.last_used_day == 1:
+        state.prior_streak = max(1, workload.consecutive_days_used)
     if state.fatigue_limit <= 0:
         return
     ratio = max(0.0, state.debt / max(1.0, state.fatigue_limit))
@@ -522,7 +576,7 @@ def _apply_usage_state(
     state.fatigue_limit = max(
         state.fatigue_start + 5.0, state.fatigue_limit * (1.0 - ratio * limit_reduction)
     )
-    rest_role = state.rest_role or state.staff_role
+    rest_role = canonical_relief_role(state.rest_role or state.staff_role)
     availability_ratio = 1.0
     if rest_role == "CL":
         availability_ratio = tuning.get("closer_availability_ratio", 1.3)
@@ -541,6 +595,19 @@ def _apply_usage_state(
             rest_deficit = required_days - days_since
             scaled = rest_penalty * (rest_deficit / max(1.0, float(required_days)))
             state.pregame_penalty = max(state.pregame_penalty, scaled)
+    if is_starter and workload.emergency_day is not None:
+        # An emergency outing kept his turn (his start clock was put back,
+        # owner decision 7), but the arm still needs a reliever's rest from
+        # it: starting inside that window costs a short-rest penalty.
+        # Availability is left alone, so the turn stays his.
+        last_start = workload.last_used_day
+        if last_start is None or workload.emergency_day > last_start:
+            required = reliever_rest_days(workload.emergency_pitches, tuning) + 1
+            days_since = game_day - workload.emergency_day
+            if 0 <= days_since < required:
+                rest_penalty = tuning.get("short_rest_penalty", 0.35)
+                scaled = rest_penalty * ((required - days_since) / float(required))
+                state.pregame_penalty = max(state.pregame_penalty, scaled)
     if not is_starter:
         # S2-03: block the 3rd consecutive day for ALL relievers.
         max_consecutive = int(tuning.get("reliever_max_consecutive_days", 2.0))
@@ -548,12 +615,30 @@ def _apply_usage_state(
             if game_day - workload.last_used_day == 1:
                 if workload.consecutive_days_used >= max_consecutive:
                     state.available = False
+                    state.hard_blocked = True
+    # Season appearance caps, as a share of the game dates so far. They are
+    # keyed on ``UsageState.game_index`` -- the count of distinct dates with a
+    # game anywhere in the league, shared by every club -- not on the rest
+    # clock, so league-wide off days never loosen them. That equals a club's
+    # own games played only on a schedule where every club plays every game
+    # date (the harness's); a club's own off days loosen its cap slightly and
+    # doubleheaders tighten it. The closer has his own ratio; Release 3 adds
+    # one for every other reliever (owner decision Q3: 0.50, about 81 per 162).
     if rest_role == "CL":
         max_ratio = float(tuning.get("closer_max_appearances_ratio", 0.0))
-        if max_ratio > 0.0:
-            max_apps = max(1, int((game_day + 1) * max_ratio))
-            if workload.appearances >= max_apps:
-                state.available = False
+    elif not is_starter:
+        max_ratio = float(tuning.get("reliever_max_appearances_ratio", 0.0))
+    else:
+        max_ratio = 0.0
+    if max_ratio > 0.0:
+        # The floor keeps a pace cap from binding in the season's first week,
+        # when one outing would otherwise block an arm for days and leave whole
+        # bullpens hard-blocked.
+        floor = max(1, int(tuning.get("appearance_cap_min_apps", 1.0)))
+        max_apps = max(floor, int((usage_state.game_index + 1) * max_ratio))
+        if workload.appearances >= max_apps:
+            state.available = False
+            state.hard_blocked = True
 
 
 def _line_for_pitcher(
@@ -605,6 +690,13 @@ def _hook_aggression(score_diff: int, postseason: bool, tuning: TuningConfig) ->
     return aggression
 
 
+def _usage_role(pitcher_state: PitcherState) -> str:
+    """The canonical usage role of ``pitcher_state`` ("" when unlabelled)."""
+
+    role = (pitcher_state.staff_role or "").strip().upper()
+    return canonical_relief_role(role) if role else ""
+
+
 def _should_hook_pitcher(
     *,
     pitcher_state: PitcherState,
@@ -614,6 +706,40 @@ def _should_hook_pitcher(
     postseason: bool,
     tuning: TuningConfig,
 ) -> bool:
+    return (
+        _hook_reason(
+            pitcher_state=pitcher_state,
+            line=line,
+            lineup_size=lineup_size,
+            score_diff=score_diff,
+            postseason=postseason,
+            tuning=tuning,
+        )
+        is not None
+    )
+
+
+def _hook_reason(
+    *,
+    pitcher_state: PitcherState,
+    line: PitcherLine,
+    lineup_size: int,
+    score_diff: int,
+    postseason: bool,
+    tuning: TuningConfig,
+    hard_only: bool = False,
+    mop_up: bool = False,
+) -> str | None:
+    """Why the pitcher should come out now, or ``None`` to leave him in.
+
+    ``"outs_cap"`` (a reliever's outs limit), ``"pitch_cap"`` (his fatigue
+    window, with the late-inning shutout/one-hit bonuses), ``"fatigue"``
+    (``hard_only`` only: penalty at ``hook_fatigue_penalty``) or ``"score"``
+    (the performance hook). ``hard_only`` -- the inning-start check -- skips
+    the performance hook. ``mop_up`` suspends the outs cap: every reliever
+    has been used, so the one in the game finishes it.
+    """
+
     innings_pitched = line.outs / 3.0
     achievement_inning = tuning.get("achievement_inning_threshold", 7.0)
     perfect = _is_perfect(line)
@@ -621,12 +747,12 @@ def _should_hook_pitcher(
 
     if innings_pitched >= achievement_inning:
         if perfect and pitcher_state.pitches <= tuning.get("perfect_pitch_limit", 170.0):
-            return False
+            return None
         if no_hit and pitcher_state.pitches <= tuning.get("nohit_pitch_limit", 160.0):
-            return False
+            return None
 
-    role = (pitcher_state.staff_role or "").upper()
-    if role in {"CL", "SU", "MR", "LR"}:
+    role = _usage_role(pitcher_state)
+    if role in {"CL", "SU", "MR", "LR"} and not mop_up:
         if role == "CL":
             max_outs = int(tuning.get("closer_max_outs", 3.0))
         elif role == "SU":
@@ -636,7 +762,7 @@ def _should_hook_pitcher(
         else:
             max_outs = int(tuning.get("long_reliever_max_outs", 9.0))
         if max_outs > 0 and line.outs >= max_outs:
-            return True
+            return "outs_cap"
 
     pitch_cap = pitcher_state.fatigue_limit
     if innings_pitched >= achievement_inning:
@@ -645,7 +771,11 @@ def _should_hook_pitcher(
         if _is_one_hit(line):
             pitch_cap += tuning.get("one_hit_pitch_bonus", 8.0)
     if pitcher_state.pitches >= pitch_cap:
-        return True
+        return "pitch_cap"
+    if hard_only:
+        if pitcher_state.last_penalty >= tuning.get("hook_fatigue_penalty", 0.6):
+            return "fatigue"
+        return None
 
     hook_score = 0.0
     if line.runs >= tuning.get("hook_runs_allowed", 5.5):
@@ -693,7 +823,33 @@ def _should_hook_pitcher(
         if perfect:
             leash_bonus += tuning.get("leash_perfect_bonus", 0.8)
 
-    return hook_score - leash_bonus >= tuning.get("hook_threshold", 1.6)
+    if hook_score - leash_bonus >= tuning.get("hook_threshold", 1.6):
+        return "score"
+    return None
+
+
+def _forced_hook(
+    reason: str | None, pitcher_state: PitcherState, tuning: TuningConfig
+) -> bool:
+    """True when the pitcher must come out even if only tired arms are left.
+
+    A pitch-cap or fatigue hook forces; so does any hook on an arm already at
+    the hard fatigue penalty. An outs-cap or performance hook never does.
+    """
+
+    if reason in {"pitch_cap", "fatigue"}:
+        return True
+    if reason is None:
+        return False
+    return pitcher_state.last_penalty >= tuning.get("hook_fatigue_penalty", 0.6)
+
+
+def _bullpen_exhausted(team_state: TeamPitchingState, tuning: TuningConfig) -> bool:
+    """Every bullpen arm has pitched (the ``mop_up`` knob turns this on)."""
+
+    if tuning.get("mop_up", 0.0) <= 0.0:
+        return False
+    return bool(team_state.bullpen) and all(p.used for p in team_state.bullpen)
 
 
 def _reliever_score(
@@ -706,7 +862,7 @@ def _reliever_score(
     stuff = (pitcher.control + pitcher.movement + pitcher.arm) / 3.0
     endurance = pitcher.endurance
     freshness = 1.0 - min(0.7, pitcher_state.pregame_penalty)
-    role = (pitcher_state.staff_role or "").upper()
+    role = _usage_role(pitcher_state)
     if leverage == "high":
         score = stuff * 1.1 + endurance * 0.1
         if score_diff > 0:
@@ -774,13 +930,37 @@ def _select_reliever(
     is_home_defense: bool = False,
     upcoming_batters: List[BatterRatings] | None = None,
     tuning: TuningConfig | None = None,
+    forced: bool = False,
+    must_replace: bool = False,
 ) -> PitcherState:
+    """Pick the next pitcher, or return ``team_state.current`` to stay put.
+
+    Only rested, unused arms are candidates. When there are none, a ``forced``
+    change (the pitcher is spent or hurt) falls back -- with the
+    ``bullpen_fallback`` knob on -- to the freshest unused reliever who is only
+    rest-flagged: never the closer, never a hard-blocked arm (third straight
+    day, appearance cap). Failing that, with ``mop_up`` on, a rested starter
+    from ``team_state.reserve``, then the last-resort tier (see
+    :func:`_forced_fallback`). Otherwise the current pitcher stays in.
+
+    Before ``closer_inning_min``, with no save chance and no tied late entry,
+    a closer who is the only candidate left is treated as no candidate: the
+    pen's other arms (or the pitcher in the game) take the innings instead of
+    burning him in the middle innings. ``must_replace`` (an injury) reaches
+    the last resort straight away.
+    """
+
+    forced = forced or must_replace
     candidates = [
         pitcher
         for pitcher in team_state.bullpen
         if pitcher.available and not pitcher.used
     ]
     if not candidates:
+        if forced and tuning is not None:
+            return _forced_fallback(
+                team_state, leverage, score_diff, tuning, must_replace=must_replace
+            )
         return team_state.current
     closer_inning = int((tuning.get("closer_inning_min", 9.0) if tuning else 9.0))
     tied_road_inning = int(
@@ -803,6 +983,13 @@ def _select_reliever(
         ]
         if non_cl:
             candidates = non_cl
+        elif inning < closer_inning:
+            # Only the closer is left and nothing calls for him yet.
+            if forced and tuning is not None:
+                return _forced_fallback(
+                    team_state, leverage, score_diff, tuning, must_replace=must_replace
+                )
+            return team_state.current
     if save_chance or tied_closer_ok:
         closers: list[PitcherState] = []
         if inning >= closer_inning:
@@ -829,6 +1016,247 @@ def _select_reliever(
         return base + matchup * tuning.get("bullpen_platoon_weight", 2.0)
 
     return max(candidates, key=score)
+
+
+def _least_worn(
+    arms: List[PitcherState], leverage: str, score_diff: int
+) -> PitcherState:
+    """Least worn first, then the usual leverage fit."""
+
+    return min(
+        arms,
+        key=lambda c: (
+            round(c.pregame_penalty, 3),
+            -_reliever_score(c, leverage, score_diff=score_diff),
+        ),
+    )
+
+
+def _emergency_rank(item: tuple[int, PitcherState]) -> tuple[int, float, int]:
+    """Sort key for the reserve: furthest from his next turn first.
+
+    In a five-man rotation the arm who pitched most recently (and still two or
+    more days ago -- the reserve's availability rule) has the longest wait to
+    his next start, so he is the one to spend. Then less fatigue debt, then
+    the later rotation slot.
+    """
+
+    index, state = item
+    last_day = state.starter_clock[0] if state.starter_clock else None
+    return (
+        last_day if last_day is not None else -(10**9),
+        -state.debt,
+        index,
+    )
+
+
+def _forced_fallback(
+    team_state: TeamPitchingState,
+    leverage: str,
+    score_diff: int,
+    tuning: TuningConfig,
+    *,
+    must_replace: bool = False,
+) -> PitcherState:
+    """The arm for a forced change when no rested, unused reliever is left.
+
+    In order:
+
+    1. the least-worn rest-flagged reliever (never the closer, never a
+       hard-blocked arm);
+    2. a rested starter from the reserve (``mop_up``) -- at most one such
+       emergency arm per club per game: once one has pitched, a forced change
+       goes on down this list instead;
+    3. the last-resort tier, once the pitcher in the game is
+       ``bullpen_last_resort_margin`` pitches past his fatigue limit or must
+       come out (``must_replace``: he is hurt). It takes a legal arm before it
+       breaks a rule block: an available unused arm (the rested closer held
+       back before the 9th), then a closer who is only rest-flagged, then the
+       least-worn hard-blocked non-closer, then the hard-blocked closer;
+    4. with the whole pen used, a reserve arm (:func:`_reserve_last_resort`).
+
+    Otherwise the current pitcher stays in.
+    """
+
+    fallback_on = tuning.get("bullpen_fallback", 0.0) > 0.0
+    if fallback_on:
+        tired = [
+            pitcher
+            for pitcher in team_state.bullpen
+            if not pitcher.used
+            and not pitcher.hard_blocked
+            and _usage_role(pitcher) != "CL"
+        ]
+        if tired:
+            choice = _least_worn(tired, leverage, score_diff)
+            choice.fallback = True
+            return choice
+    emergency_used = any(p.used for p in team_state.reserve)
+    if tuning.get("mop_up", 0.0) > 0.0 and not emergency_used:
+        rested = [
+            (index, p)
+            for index, p in enumerate(team_state.reserve)
+            if p.available and not p.used
+        ]
+        if rested:
+            choice = max(rested, key=_emergency_rank)[1]
+            choice.emergency = True
+            return choice
+    current = team_state.current
+    margin = tuning.get("bullpen_last_resort_margin", 20.0)
+    spent = margin >= 0.0 and current.pitches >= current.fatigue_limit + margin
+    if not (fallback_on and (must_replace or spent)):
+        return current
+    unused = [p for p in team_state.bullpen if not p.used and p is not current]
+    tiers = (
+        [p for p in unused if p.available],
+        [p for p in unused if not p.hard_blocked and _usage_role(p) == "CL"],
+        [p for p in unused if p.hard_blocked and _usage_role(p) != "CL"],
+        [p for p in unused if p.hard_blocked and _usage_role(p) == "CL"],
+    )
+    for group in tiers:
+        if group:
+            choice = _least_worn(group, leverage, score_diff)
+            choice.fallback = not choice.available
+            return choice
+    choice = _reserve_last_resort(
+        team_state,
+        must_replace=must_replace,
+        mop_up=float(tuning.get("mop_up", 0.0)) > 0.0,
+    )
+    if choice is not None:
+        choice.emergency = True
+        return choice
+    return current
+
+
+def _reserve_last_resort(
+    team_state: TeamPitchingState, *, must_replace: bool, mop_up: bool = True
+) -> PitcherState | None:
+    """A reserve arm for a pitcher who must come out with the pen used up.
+
+    The arm who fails only the rest-day rule (``reserve_block == "rest"``),
+    least recently used first. A spent pitcher gets one only while no
+    emergency arm has pitched today (one per club per game). A hurt one is
+    replaced by anyone left on the staff: a rested arm the one-emergency rule
+    kept out first, a debt-blocked arm last. With ``mop_up`` off (the switch
+    for bringing starters out of the pen) only a hurt pitcher is replaced.
+    """
+
+    if not must_replace and (not mop_up or any(p.used for p in team_state.reserve)):
+        return None
+    unused = [
+        (index, p)
+        for index, p in enumerate(team_state.reserve)
+        if not p.used and p is not team_state.current
+    ]
+
+    def least_recent(item: tuple[int, PitcherState]) -> tuple[int, float, int]:
+        index, state = item
+        last = state.reserve_last_day
+        return (last if last is not None else -(10**9), state.debt, index)
+
+    rested = [item for item in unused if item[1].available]
+    rest_only = [
+        item
+        for item in unused
+        if not item[1].available and item[1].reserve_block == "rest"
+    ]
+    worn = [
+        item
+        for item in unused
+        if not item[1].available and item[1].reserve_block != "rest"
+    ]
+    if rested:
+        # A rested arm always goes before one short of his rest days.
+        return max(rested, key=_emergency_rank)[1]
+    if rest_only:
+        return min(rest_only, key=least_recent)[1]
+    if must_replace and worn:
+        return min(worn, key=least_recent)[1]
+    return None
+
+
+def _inning_start_hook(
+    *,
+    pitching_state: TeamPitchingState,
+    defense_state: LineupState,
+    offense_state: LineupState,
+    batter_index: int,
+    inning: int,
+    defense_score: int,
+    offense_score: int,
+    defense_team: str,
+    bases: BaseState,
+    lineup_size: int,
+    postseason: bool,
+    tuning: TuningConfig,
+    exclude_ids: Collection[str] | None = None,
+) -> None:
+    """Release 3: change pitchers between innings when the rules say so.
+
+    The in-game hook only runs after a plate appearance that leaves the inning
+    open, so a pitcher who ended an inning at his outs or pitch cap used to
+    start the next one. Here, before the first pitch of a half, a pitcher who
+    has already faced a batter comes out on a hard reason only -- outs cap,
+    pitch cap or the hard fatigue penalty, never the performance hook.
+    """
+
+    current = pitching_state.current
+    line = _line_for_pitcher(pitching_state, current, inning)
+    if line.batters_faced <= 0:
+        return
+    score_diff = defense_score - offense_score
+    reason = _hook_reason(
+        pitcher_state=current,
+        line=line,
+        lineup_size=lineup_size,
+        score_diff=score_diff,
+        postseason=postseason,
+        tuning=tuning,
+        hard_only=True,
+        mop_up=_bullpen_exhausted(pitching_state, tuning),
+    )
+    if reason is None:
+        return
+    # A closer or setup man at his outs cap does not start another inning
+    # just because only tired arms are left: the change is forced, so the
+    # fallback arm comes in (in the PA loop the same cap stays a soft hook).
+    forced = _forced_hook(reason, current, tuning) or (
+        reason == "outs_cap" and _usage_role(current) in {"CL", "SU"}
+    )
+    next_pitcher = _select_reliever(
+        pitching_state,
+        _leverage_type(inning, score_diff, tuning),
+        inning=inning,
+        score_diff=score_diff,
+        is_home_defense=(defense_team == "home"),
+        upcoming_batters=_upcoming_batters(offense_state, batter_index, count=3),
+        tuning=tuning,
+        forced=forced,
+    )
+    if next_pitcher is current:
+        return
+    _pitcher_exit_stats(
+        pitcher_state=current,
+        line=line,
+        defense_score=defense_score,
+        offense_score=offense_score,
+        game_finished=False,
+    )
+    _pitcher_enter_stats(
+        pitching_state=pitching_state,
+        pitcher_state=next_pitcher,
+        lineup_state=defense_state,
+        inning=inning,
+        score_diff=score_diff,
+        defense_score=defense_score,
+        offense_score=offense_score,
+        bases=bases,
+        postseason=postseason,
+        tuning=tuning,
+        exclude_ids=exclude_ids,
+    )
 
 
 def _leverage_type(inning: int, score_diff: int, tuning: TuningConfig) -> str:
@@ -925,7 +1353,15 @@ def _pitcher_enter_stats(
     bases: BaseState,
     postseason: bool,
     tuning: TuningConfig,
+    exclude_ids: Collection[str] | None = None,
 ) -> PitcherLine:
+    """Bring ``pitcher_state`` in and open his line.
+
+    Runners on base are charged to him as inherited runners, except any whose
+    ids are in ``exclude_ids`` (Release 3: the extra-inning automatic runner,
+    who belongs to no pitcher).
+    """
+
     _enter_pitcher(
         pitching_state,
         pitcher_state,
@@ -936,8 +1372,11 @@ def _pitcher_enter_stats(
     )
     line = _line_for_pitcher(pitching_state, pitcher_state, inning)
     _fielding_line(lineup_state, pitcher_state.pitcher.player_id)
+    excluded = exclude_ids or ()
     inherited = sum(
-        1 for runner in (bases.first, bases.second, bases.third) if runner is not None
+        1
+        for runner in (bases.first, bases.second, bases.third)
+        if runner is not None and runner.player_id not in excluded
     )
     if inherited:
         line.ir += inherited
@@ -958,36 +1397,49 @@ def _build_team_pitching_state(
     postseason: bool,
     roles_by_id: Dict[str, str] | None = None,
 ) -> TeamPitchingState:
+    """Build one club's game staff from ``pitchers`` (starter first).
+
+    Every label is canonicalised (:func:`canonical_relief_role`), so MR1-MR5,
+    RP and an unlabelled arm all pitch as MR; the raw label is kept in
+    ``staff_slot``. The starter always works under starter limits -- a spot
+    starter from the pen is not held to a reliever's outs cap -- while keeping
+    his own rest rules. Today's other rotation arms sit out, held in
+    ``reserve`` for a mop-up emergency.
+    """
+
     if not pitchers:
         raise ValueError("At least one pitcher is required to simulate a game.")
-    starter_role = ""
-    if roles_by_id is not None:
-        starter_role = roles_by_id.get(pitchers[0].player_id, "")
-    if not starter_role:
-        starter_role = pitchers[0].preferred_role or pitchers[0].role
-    starter_limits = _pitcher_usage_limits(
-        pitchers[0],
-        tuning,
-        role=starter_role,
-    )
+
+    def _slot(pitcher: PitcherRatings) -> str:
+        slot = ""
+        if roles_by_id is not None:
+            slot = roles_by_id.get(pitcher.player_id, "")
+        if not slot:
+            slot = pitcher.preferred_role or pitcher.role
+        return (slot or "").strip().upper()
+
+    starter_slot = _slot(pitchers[0])
+    starter_limits = _pitcher_usage_limits(pitchers[0], tuning, role="SP")
     starter_state = PitcherState(
         pitcher=pitchers[0],
         fatigue_start=starter_limits[0],
         fatigue_limit=starter_limits[1],
-        staff_role=starter_role,
-        rest_role=starter_role,
+        staff_role="SP",
+        rest_role=canonical_relief_role(starter_slot),
+        staff_slot=starter_slot,
     )
     _apply_usage_state(starter_state, usage_state, game_day, tuning)
     bullpen: list[PitcherState] = []
+    reserve: list[PitcherState] = []
     for pitcher in pitchers[1:]:
-        staff_role = ""
-        if roles_by_id is not None:
-            staff_role = roles_by_id.get(pitcher.player_id, "")
-        if not staff_role:
-            staff_role = pitcher.preferred_role or pitcher.role
-        if staff_role.upper().startswith("SP"):
+        staff_slot = _slot(pitcher)
+        if staff_slot.startswith("SP"):
+            if tuning.get("mop_up", 0.0) > 0.0:
+                reserve.append(
+                    _reserve_state(pitcher, staff_slot, usage_state, game_day, tuning)
+                )
             continue
-        bullpen_role = staff_role
+        bullpen_role = canonical_relief_role(staff_slot)
         fatigue_start, fatigue_limit = _pitcher_usage_limits(
             pitcher,
             tuning,
@@ -998,17 +1450,15 @@ def _build_team_pitching_state(
             fatigue_start=fatigue_start,
             fatigue_limit=fatigue_limit,
             staff_role=bullpen_role,
-            rest_role=staff_role,
+            rest_role=bullpen_role,
+            staff_slot=staff_slot,
         )
         _apply_usage_state(reliever_state, usage_state, game_day, tuning)
         bullpen.append(reliever_state)
     if not bullpen:
+        reserve = []
         for pitcher in pitchers[1:]:
-            staff_role = ""
-            if roles_by_id is not None:
-                staff_role = roles_by_id.get(pitcher.player_id, "")
-            if not staff_role:
-                staff_role = pitcher.preferred_role or pitcher.role
+            staff_slot = _slot(pitcher)
             fatigue_start, fatigue_limit = _pitcher_usage_limits(
                 pitcher,
                 tuning,
@@ -1019,7 +1469,8 @@ def _build_team_pitching_state(
                 fatigue_start=fatigue_start,
                 fatigue_limit=fatigue_limit,
                 staff_role="LR",
-                rest_role=staff_role,
+                rest_role=canonical_relief_role(staff_slot),
+                staff_slot=staff_slot,
             )
             _apply_usage_state(reliever_state, usage_state, game_day, tuning)
             bullpen.append(reliever_state)
@@ -1027,12 +1478,111 @@ def _build_team_pitching_state(
         starter=starter_state,
         bullpen=bullpen,
         current=starter_state,
+        reserve=reserve,
     )
     starter_state.used = True
     starter_state.usage_multiplier = _usage_multiplier(
         inning=1, score_diff=0, postseason=postseason, tuning=tuning
     )
     return team_state
+
+
+def _reserve_state(
+    pitcher: PitcherRatings,
+    staff_slot: str,
+    usage_state: UsageState | None,
+    game_day: int | None,
+    tuning: TuningConfig,
+) -> PitcherState:
+    """A rotation arm who is not starting today, held for a mop-up emergency.
+
+    He is eligible once ``emergency_starter_min_days`` or more days have
+    passed since he last pitched -- his last start or his last emergency,
+    whichever is later, so no starter is used in two emergencies inside that
+    window -- and he is not carrying too much fatigue debt (owner decision
+    Q6). The outing is relief: his pitch cap is ``emergency_max_pitches``.
+    His rest clock is remembered so the outing can be put down as relief.
+    """
+
+    fatigue_start, fatigue_limit = _pitcher_usage_limits(pitcher, tuning, role="SP")
+    state = PitcherState(
+        pitcher=pitcher,
+        fatigue_start=fatigue_start,
+        fatigue_limit=fatigue_limit,
+        staff_role="SP",
+        rest_role="SP",
+        staff_slot=staff_slot,
+    )
+    _apply_usage_state(state, usage_state, game_day, tuning)
+    state.available = True
+    if usage_state is not None and game_day is not None:
+        workload = usage_state.workload_for(pitcher.player_id)
+        min_days = int(tuning.get("emergency_starter_min_days", 2.0))
+        last_days = [
+            day
+            for day in (workload.last_used_day, workload.emergency_day)
+            if day is not None
+        ]
+        if last_days:
+            state.reserve_last_day = max(last_days)
+        if last_days and game_day - max(last_days) < min_days:
+            state.available = False
+            state.reserve_block = "rest"
+        ratio = workload.fatigue_debt / max(1.0, fatigue_limit)
+        if ratio > 1.0:
+            state.available = False
+            state.reserve_block = "debt"
+        # Debt still costs him; the starter's short-rest penalty does not
+        # apply to a relief outing.
+        state.pregame_penalty = min(
+            0.9, ratio * tuning.get("fatigue_debt_penalty_scale", 0.6)
+        )
+        state.starter_clock = (
+            workload.last_used_day,
+            workload.last_pitches,
+            workload.consecutive_days_used,
+        )
+    ceiling = float(tuning.get("emergency_max_pitches", 0.0))
+    if ceiling > 0.0 and state.fatigue_limit > ceiling:
+        # A relief ceiling: he tires through the last ~third of it and his
+        # pitch cap forces him out at it, like any other reliever.
+        state.fatigue_limit = max(10.0, ceiling)
+        state.fatigue_start = min(state.fatigue_start, state.fatigue_limit * 2.0 / 3.0)
+    return state
+
+
+def _restore_emergency_clocks(
+    staffs: List[TeamPitchingState],
+    usage_state: UsageState | None,
+    tuning: TuningConfig | None = None,
+) -> None:
+    """Settle an emergency starter's rest clock after the game.
+
+    Runs after the outings are recorded. An emergency outing is relief and
+    never pushes his next start back, however long it ran (owner decision 7):
+    his start clock is always put back. The outing stays on his workload as
+    ``emergency_day``/``emergency_pitches`` (it adds fatigue debt and an
+    appearance too), which blocks a second emergency for
+    ``emergency_starter_min_days`` and costs his next start a short-rest
+    penalty when it comes inside a reliever's rest from the outing.
+    ``tuning`` is accepted for the callers; nothing here reads it.
+    """
+
+    if usage_state is None:
+        return
+    for staff in staffs:
+        for state in staff.reserve:
+            if not state.used or state.pitches <= 0 or state.starter_clock is None:
+                continue
+            workload = usage_state.workload_for(state.pitcher.player_id)
+            # record_outing has just stamped today's day on the workload.
+            workload.emergency_day = workload.last_used_day
+            workload.emergency_pitches = int(state.pitches)
+            (
+                workload.last_used_day,
+                workload.last_pitches,
+                workload.consecutive_days_used,
+            ) = state.starter_clock
 
 
 def _pitcher_line_summary(line: PitcherLine) -> Dict[str, float | str]:
@@ -2562,13 +3112,14 @@ def _resolve_ground_out(
             bases.second = None
             events.append("tp")
             return runs, outs_added, events, scored
+    # Audit L15: the runner on 3rd's chance to score is rolled here, as it
+    # always was (so the RNG stream is unchanged), but the run only counts if
+    # the play does not end the inning as a double play (rule 5.08(a)).
+    third_scores = False
     if bases.third and outs < 2:
         prob = tuning.get("ground_rbi_prob", 0.12)
         prob += (bases.third.speed - 50.0) / 400.0
-        if random.random() < prob:
-            runs += 1
-            scored.append(bases.third)
-            bases.third = None
+        third_scores = random.random() < prob
     if bases.first and outs < 2:
         dp_prob = double_play_probability(
             runner_speed=bases.first.speed,
@@ -2580,7 +3131,16 @@ def _resolve_ground_out(
             outs_added = 2
             bases.first = None
             events.append("dp")
+            if third_scores and outs + outs_added < 3:
+                runs += 1
+                scored.append(bases.third)
+                bases.third = None
             return runs, outs_added, events, scored
+    if third_scores:
+        runs += 1
+        scored.append(bases.third)
+        bases.third = None
+    if bases.first and outs < 2:
         force_prob = tuning.get("fielder_choice_force_prob", 0.55)
         force_prob += (infield_range - 50.0) / 200.0
         force_prob += (turn_arm - 50.0) / 320.0
@@ -2593,8 +3153,14 @@ def _resolve_ground_out(
                 bases.first.speed, turn_arm, tuning, extra=0.05
             )
             if random.random() < prob:
-                bases.second = bases.first
-                bases.first = None
+                # Audit M8: never overwrite an occupied base. The runner on
+                # 2nd moves up if 3rd is open; with both taken, R1 holds.
+                if bases.second is not None and bases.third is None:
+                    bases.third = bases.second
+                    bases.second = None
+                if bases.second is None:
+                    bases.second = bases.first
+                    bases.first = None
     return runs, outs_added, events, scored
 
 
@@ -3225,8 +3791,7 @@ def _batter_fatigue_penalty(
     if usage_state is None or game_day is None:
         return 0.0
     workload = usage_state.batter_workload_for(batter.player_id)
-    threshold = tuning.get("batter_fatigue_threshold_base", 35.0)
-    threshold += batter.durability * tuning.get("batter_fatigue_threshold_scale", 0.45)
+    threshold = batter_fatigue_threshold(batter.durability, tuning)
     if threshold <= 0.0:
         return 0.0
     over = max(0.0, workload.fatigue_debt - threshold)
@@ -3242,15 +3807,43 @@ def _apply_batter_fatigue(
     usage_state: UsageState | None,
     game_day: int | None,
     tuning: TuningConfig,
+    blocked_ids: Iterable[str] = (),
 ) -> List[BatterRatings]:
+    """Tired batters play worse: a copy of each with lowered ratings.
+
+    ``blocked_ids`` are regulars the pre-game rest could not sit (see
+    :func:`_apply_rest_days`, ``could_not_rest``): their penalty is capped at
+    ``batter_blocked_rest_penalty_cap``. The full penalty is for a club that
+    chose not to rest him. One of them who is worn down (over the penalty
+    threshold, so he plays a little worse today) has his load eased: he
+    recovers ``batter_blocked_rest_relief`` of debt, after today's penalty is
+    priced. So a regular nobody can rest wears down, plays a few games a
+    little worse, recovers and wears down again -- a small cost, never none
+    (the relief used to keep him just under the rest trigger, so he never
+    reached the penalty at all). Each tired copy carries ``fatigue_penalty`` and
+    ``fatigue_level`` (the penalty over ``batter_fatigue_penalty_cap``, 0 to
+    1): the scale the post-game fatigue injury roll reads
+    (``physics_sim.arm_injury.batter_fatigue_level``), so the extra injury
+    risk follows the penalty he actually played with.
+    """
     if usage_state is None or game_day is None:
         return list(batters)
 
+    blocked = {str(pid) for pid in blocked_ids or ()}
+    blocked_cap = tuning.get("batter_blocked_rest_penalty_cap", 0.06)
+    full_cap = tuning.get("batter_fatigue_penalty_cap", 0.35)
+    relief = max(0.0, tuning.get("batter_blocked_rest_relief", 12.0))
     adjusted: List[BatterRatings] = []
     for batter in batters:
         penalty = _batter_fatigue_penalty(
             batter, usage_state=usage_state, game_day=game_day, tuning=tuning
         )
+        if batter.player_id in blocked:
+            penalty = min(penalty, max(0.0, blocked_cap))
+            if penalty > 0.0 and relief > 0.0:
+                # Worn down and nobody can spell him: his load is eased.
+                wl = usage_state.batter_workload_for(batter.player_id)
+                wl.fatigue_debt = max(0.0, wl.fatigue_debt - relief)
         if penalty <= 0.0:
             adjusted.append(batter)
             continue
@@ -3272,6 +3865,8 @@ def _apply_batter_fatigue(
             arm=clamp(batter.arm * defense_scale),
         )
         setattr(updated, "fatigue_penalty", penalty)
+        level = penalty / full_cap if full_cap > 0.0 else 1.0
+        setattr(updated, "fatigue_level", min(1.0, max(0.0, level)))
         adjusted.append(updated)
     return adjusted
 
@@ -3343,6 +3938,7 @@ def _maybe_pitcher_overuse_injury(
         is_home_defense=(team == "home"),
         upcoming_batters=upcoming_batters,
         tuning=tuning,
+        must_replace=True,
     )
     if next_pitcher is not pitcher_state:
         line = _line_for_pitcher(pitching_state, pitcher_state, inning)
@@ -3577,6 +4173,25 @@ def simulate_matchup_from_files(
     return result
 
 
+def _rest_bench_value(b: BatterRatings, opposing_starter: PitcherRatings | None) -> float:
+    if opposing_starter is not None:
+        return _batter_offense_score(b, opposing_starter)
+    return b.contact * 0.55 + b.power * 0.45
+
+
+def _rest_is_rested(
+    b: BatterRatings, usage_state: UsageState, threshold_ratio: float, tuning: TuningConfig
+) -> bool:
+    wl = usage_state.batter_workload_for(b.player_id)
+    return wl.fatigue_debt < threshold_ratio * batter_fatigue_threshold(b.durability, tuning)
+
+
+def _listed_at(b: BatterRatings, pos: str) -> bool:
+    primary = (b.primary_position or "").upper()
+    others = {str(x).upper() for x in (b.other_positions or [])}
+    return pos == primary or pos in others
+
+
 def _best_rest_replacement(
     bench: List[BatterRatings],
     pos: str,
@@ -3586,33 +4201,117 @@ def _best_rest_replacement(
     threshold_ratio: float,
     tuning: TuningConfig,
 ) -> BatterRatings | None:
+    """Tier 1: the best rested bench player listed at ``pos`` (anyone at DH;
+    only a catcher at C)."""
+
     def eligible(b: BatterRatings) -> bool:
         if pos in {"", "DH"}:
             return True
-        primary = (b.primary_position or "").upper()
-        others = {str(x).upper() for x in (b.other_positions or [])}
-        if pos == "C":
-            return primary == "C" or "C" in others  # never emergency-catch
-        return pos == primary or pos in others
-
-    def rested(b: BatterRatings) -> bool:
-        wl = usage_state.batter_workload_for(b.player_id)
-        threshold = (
-            tuning.get("batter_fatigue_threshold_base", 35.0)
-            + b.durability * tuning.get("batter_fatigue_threshold_scale", 0.45)
-        )
-        return wl.fatigue_debt < threshold_ratio * threshold
+        return _listed_at(b, pos)  # at C: a real catcher, never an emergency one
 
     # Sort by player_id so ties break deterministically regardless of the bench
     # list order (build_bench iterates a set → order varies by PYTHONHASHSEED).
     candidates = sorted(
-        (b for b in bench if eligible(b) and rested(b)), key=lambda b: b.player_id
+        (
+            b for b in bench
+            if eligible(b) and _rest_is_rested(b, usage_state, threshold_ratio, tuning)
+        ),
+        key=lambda b: b.player_id,
     )
     if not candidates:
         return None
-    if opposing_starter is not None:
-        return max(candidates, key=lambda b: _batter_offense_score(b, opposing_starter))
-    return max(candidates, key=lambda b: b.contact * 0.55 + b.power * 0.45)
+    return max(candidates, key=lambda b: _rest_bench_value(b, opposing_starter))
+
+
+def _chain_rest_replacement(
+    lineup: List[BatterRatings],
+    bench: List[BatterRatings],
+    positions: Dict[str, str],
+    idx: int,
+    pos: str,
+    *,
+    opposing_starter: PitcherRatings | None,
+    usage_state: UsageState,
+    threshold_ratio: float,
+    tuning: TuningConfig,
+) -> tuple[BatterRatings, BatterRatings, str] | None:
+    """Tier 2, a one-swap chain: a lineup teammate listed at ``pos`` moves
+    over and a rested bench player listed at the teammate's spot takes it
+    (anyone at DH). Nobody plays out of position, and a catcher never leaves
+    C -- but the DH, or anyone else, who can catch may move behind the plate.
+    Returns ``(teammate, bench player, teammate's old position)``."""
+
+    return _rest_swap(
+        lineup, bench, positions, idx, pos,
+        can_move=lambda mate: _listed_at(mate, pos),
+        opposing_starter=opposing_starter, usage_state=usage_state,
+        threshold_ratio=threshold_ratio, tuning=tuning,
+    )
+
+
+def _rest_swap(
+    lineup: List[BatterRatings],
+    bench: List[BatterRatings],
+    positions: Dict[str, str],
+    idx: int,
+    pos: str,
+    *,
+    can_move,
+    opposing_starter: PitcherRatings | None,
+    usage_state: UsageState,
+    threshold_ratio: float,
+    tuning: TuningConfig,
+) -> tuple[BatterRatings, BatterRatings, str] | None:
+    """A teammate for whom ``can_move`` holds moves to ``pos``; the best
+    rested bench player listed at his spot (anyone at DH) takes it. Never a
+    catcher out from behind the plate."""
+
+    options: list[tuple[float, str, BatterRatings, BatterRatings, str]] = []
+    for j, mate in enumerate(lineup):
+        if j == idx:
+            continue
+        spot = (positions.get(mate.player_id) or mate.primary_position or "").upper()
+        if spot in {"C", pos} or not can_move(mate):
+            continue
+        filler = _best_rest_replacement(
+            bench, spot, opposing_starter=opposing_starter, usage_state=usage_state,
+            threshold_ratio=threshold_ratio, tuning=tuning,
+        )
+        if filler is not None:
+            options.append(
+                (_rest_bench_value(filler, opposing_starter), filler.player_id, mate, filler, spot)
+            )
+    if not options:
+        return None
+    best = max(options, key=lambda o: (o[0], o[1]))
+    return best[2], best[3], best[4]
+
+
+def _similar_rest_replacement(
+    bench: List[BatterRatings],
+    pos: str,
+    *,
+    opposing_starter: PitcherRatings | None,
+    usage_state: UsageState,
+    threshold_ratio: float,
+    tuning: TuningConfig,
+) -> BatterRatings | None:
+    """Tier 3: the best rested bench player from a similar position (owner
+    decision 9: LF/RF, CF to a corner, SS to 2B/3B, any infielder to 1B --
+    ``utils.position_fit.REST_SIMILAR_SOURCES``). Never at C, SS or CF; he
+    fields there out of position."""
+
+    candidates = sorted(
+        (
+            b for b in bench
+            if can_cover_similar(b, pos)
+            and _rest_is_rested(b, usage_state, threshold_ratio, tuning)
+        ),
+        key=lambda b: b.player_id,
+    )
+    if not candidates:
+        return None
+    return max(candidates, key=lambda b: _rest_bench_value(b, opposing_starter))
 
 
 def _apply_rest_days(
@@ -3624,27 +4323,74 @@ def _apply_rest_days(
     usage_state: UsageState | None,
     game_day: int | None,
     tuning: TuningConfig,
+    allow_similar: bool = True,
+    report: Dict[str, int] | None = None,
+    could_not_rest: Set[str] | None = None,
 ) -> tuple[List[BatterRatings], List[BatterRatings], Dict[str, str]]:
     """Bench fatigued / overworked starters before the game (S2-05). In-memory
-    only; lineup files are never rewritten. Returns (lineup, bench, positions)."""
-    if usage_state is None or game_day is None or not bench:
+    only; lineup files are never rewritten. Returns (lineup, bench, positions).
+
+    A starter is due a rest when his fatigue reaches the rest trigger
+    (``batter_rest_fatigue_ratio`` of the penalty threshold) or his streak of
+    consecutive games reaches the limit (a catcher rests on his 4th straight
+    game, Release 3). The rest is HARD when his debt reaches
+    ``batter_rest_hard_ratio`` of the threshold, or the streak is
+    ``batter_rest_hard_streak_extra`` games past the limit (a scheduled rest
+    that kept finding nobody). Substitutes, in tiers (Release 3, audit M16 /
+    owner decision 9):
+
+    1. a rested bench player listed at the position (anyone at DH; at C only
+       a catcher);
+    2. a one-swap chain -- a teammate listed at the position moves over, a
+       bench player listed at his spot takes it;
+    3. on a hard rest only, and only when ``allow_similar`` (CPU clubs
+       always; an owner's per-team setting): a bench player from a similar
+       position -- or a teammate from one (the DH-ing shortstop to second)
+       with the bench covering his spot -- at most
+       ``batter_rest_similar_max`` (1) per team per game.
+
+    Never a non-catcher at C. Nobody found: he plays (a blocked rest; once
+    he is worn down :func:`_apply_batter_fatigue` eases his load). At most
+    ``batter_rest_max_swaps`` rests per team per game.
+    ``report``, when given, counts ``due`` (every due rest), ``rests``,
+    ``chain``, ``similar``, ``blocked``, ``blocked_c`` and ``capped`` (due
+    past the swap cap).
+
+    ``could_not_rest``, when given, collects the starters who play although
+    the engine would have rested them -- blocked for lack of a legal
+    substitute, past the swap cap, or held by the min-gap guard -- so their
+    in-game penalty is capped low (:func:`_apply_batter_fatigue`). Not a
+    rest the owner's own setting blocked: with similar-position substitutes
+    switched off while one was on the bench, he plays with the full penalty.
+    """
+    kept = could_not_rest if could_not_rest is not None else set()
+    if usage_state is None or game_day is None:
+        return lineup, bench, positions
+    if not bench:
+        # Nobody to rest anyone with: every tired starter is a blocked rest.
+        ratio = tuning.get("batter_rest_fatigue_ratio", 0.85)
+        for starter in lineup:
+            wl = usage_state.batter_workload_for(starter.player_id)
+            if wl.fatigue_debt >= ratio * batter_fatigue_threshold(starter.durability, tuning):
+                kept.add(starter.player_id)
         return lineup, bench, positions
     lineup = list(lineup)
     bench = list(bench)
     positions = dict(positions)
+    tally = report if report is not None else {}
     max_swaps = int(tuning.get("batter_rest_max_swaps", 2.0))
+    max_similar = int(tuning.get("batter_rest_similar_max", 1.0))
+    hard_extra = tuning.get("batter_rest_hard_streak_extra", 3.0)
     ratio = tuning.get("batter_rest_fatigue_ratio", 0.85)
     hard_ratio = tuning.get("batter_rest_hard_ratio", 1.2)
     min_gap = tuning.get("batter_rest_min_gap_days", 5.0)
-    swaps = 0
-    for idx, starter in enumerate(list(lineup)):
-        if swaps >= max_swaps:
-            break
+    # Who is due, most urgent first: catchers (their rest is the scarce
+    # one), then the most tired. A fixed batting-order scan let the top of
+    # the order use up the swaps, so the catcher batting ninth rarely sat.
+    due: list[tuple[tuple, int, BatterRatings, bool]] = []
+    for idx, starter in enumerate(lineup):
         wl = usage_state.batter_workload_for(starter.player_id)
-        threshold = (
-            tuning.get("batter_fatigue_threshold_base", 35.0)
-            + starter.durability * tuning.get("batter_fatigue_threshold_scale", 0.45)
-        )
+        threshold = batter_fatigue_threshold(starter.durability, tuning)
         pos = (positions.get(starter.player_id) or starter.primary_position or "").upper()
         limit_key = (
             "batter_rest_consecutive_limit_catcher"
@@ -3653,27 +4399,108 @@ def _apply_rest_days(
         )
         limit = tuning.get(limit_key, 3.0 if pos == "C" else 9.0)
         fatigued = wl.fatigue_debt >= ratio * threshold
-        overworked = wl.consecutive_days_used >= limit
+        # His team's games in a row (a team off day doesn't end the run); the
+        # calendar count can only be shorter, so the longer of the two.
+        streak = max(wl.consecutive_days_used, getattr(wl, "games_in_a_row", 0))
+        overworked = streak >= limit
         if not (fatigued or overworked):
             continue
         recently_rested = (
             wl.last_rest_day is not None and (game_day - wl.last_rest_day) < min_gap
         )
         if recently_rested and wl.fatigue_debt < hard_ratio * threshold:
+            if fatigued:
+                kept.add(starter.player_id)  # the min-gap guard holds him
             continue
-        replacement = _best_rest_replacement(
-            bench, pos, opposing_starter=opposing_starter, usage_state=usage_state,
+        # Hard: real fatigue (the ratio that also overrides the min-gap
+        # guard), or a scheduled rest long overdue -- not any fatigue rest.
+        hard = (
+            wl.fatigue_debt >= hard_ratio * threshold
+            or streak >= limit + hard_extra
+        )
+        urgency = wl.fatigue_debt / threshold if threshold > 0 else 0.0
+        key = (pos != "C", -urgency, -(streak - limit), idx)
+        due.append((key, idx, starter, hard))
+        tally["due"] = tally.get("due", 0) + 1
+    due.sort(key=lambda item: item[0])
+    swaps = 0
+    similar_used = 0
+    for _key, idx, starter, hard in due:
+        if lineup[idx].player_id != starter.player_id:
+            continue  # already moved by an earlier swap
+        if swaps >= max_swaps:
+            tally["capped"] = tally.get("capped", 0) + 1
+            kept.add(starter.player_id)
+            continue
+        wl = usage_state.batter_workload_for(starter.player_id)
+        pos = (positions.get(starter.player_id) or starter.primary_position or "").upper()
+        search = dict(
+            opposing_starter=opposing_starter, usage_state=usage_state,
             threshold_ratio=ratio, tuning=tuning,
         )
+        mate: BatterRatings | None = None
+        mate_spot = ""
+        kind = "rests"
+        replacement = _best_rest_replacement(bench, pos, **search)
+        if replacement is None and pos not in {"", "DH"}:
+            chain = _chain_rest_replacement(lineup, bench, positions, idx, pos, **search)
+            if chain is not None:
+                mate, replacement, mate_spot = chain
+                kind = "chain"
+        if (
+            replacement is None
+            and hard
+            and allow_similar
+            and similar_used < max_similar
+            and pos not in {"", "DH", "C"}
+        ):
+            replacement = _similar_rest_replacement(bench, pos, **search)
+            if replacement is None:
+                # A teammate from a similar position (the DH-ing shortstop
+                # to second) moves over; the bench covers his spot.
+                chain = _rest_swap(
+                    lineup, bench, positions, idx, pos,
+                    can_move=lambda m: can_cover_similar(m, pos), **search,
+                )
+                if chain is not None:
+                    mate, replacement, mate_spot = chain
+            if replacement is not None:
+                kind = "similar"
+                similar_used += 1
         if replacement is None:
+            tally["blocked"] = tally.get("blocked", 0) + 1
+            if pos == "C":
+                tally["blocked_c"] = tally.get("blocked_c", 0) + 1
+            owner_choice = (
+                hard
+                and not allow_similar
+                and pos not in {"", "DH", "C"}
+                and (
+                    _similar_rest_replacement(bench, pos, **search) is not None
+                    or _rest_swap(
+                        lineup, bench, positions, idx, pos,
+                        can_move=lambda m: can_cover_similar(m, pos), **search,
+                    ) is not None
+                )
+            )
+            if owner_choice:
+                continue  # his owner switched the substitute off: full penalty
+            kept.add(starter.player_id)
             continue
         bench.remove(replacement)
         lineup[idx] = replacement  # inherits the batting slot
         positions.pop(starter.player_id, None)
-        positions[replacement.player_id] = pos  # inherits the defensive position
+        if mate is not None:
+            positions[mate.player_id] = pos  # the teammate slides over
+            positions[replacement.player_id] = mate_spot
+        else:
+            positions[replacement.player_id] = pos  # inherits the defensive position
         wl.last_rest_day = game_day
         wl.rests += 1
         swaps += 1
+        tally["rests"] = tally.get("rests", 0) + 1
+        if kind != "rests":
+            tally[kind] = tally.get(kind, 0) + 1
     return lineup, bench, positions
 
 
@@ -3699,12 +4526,21 @@ def simulate_game(
     away_starter_id: str | None = None,
     home_starter_id: str | None = None,
     postseason: bool = False,
+    away_rest_policy: Dict[str, bool] | None = None,
+    home_rest_policy: Dict[str, bool] | None = None,
 ) -> GameResult:
     """Very early stub of the physics-based game simulation.
 
     This will be expanded to handle full rosters, substitutions, defense, and
     realistic fatigue/usage. It currently supports a starter + bullpen and
     optional multi-game usage tracking.
+
+    ``away_rest_policy`` / ``home_rest_policy`` (Release 3, owner decisions 8
+    and 9) carry the owner's per-team settings, keyed as
+    ``services.team_play_settings``: ``auto_rest_days`` (False: no automatic
+    rest days -- the saved lineup plays, tired or not) and
+    ``rest_subs_similar_positions`` (False: no similar-position rest
+    substitutes). Missing keys or ``None`` mean on, as for every CPU club.
     """
 
     rng = random.Random(seed)
@@ -3808,6 +4644,9 @@ def simulate_game(
     if not away_pitchers or not home_pitchers:
         raise ValueError("Both teams must have at least one pitcher.")
 
+    # Release 3: pre-game rest / fatigue tallies per side (GameResult metadata
+    # "bench_usage"; scripts/kpi_extras.py reads them).
+    bench_usage: Dict[str, Dict[str, int]] = {"away": {}, "home": {}}
     if usage_state is not None and game_day is not None:
         usage_pitchers = list(away_pitchers) + list(home_pitchers)
         usage_batters = (
@@ -3825,28 +4664,49 @@ def simulate_game(
 
         # S2-05: bench fatigued/overworked starters (recovery already applied, so
         # debt is current) before the in-game fatigue penalty is computed.
-        away_lineup, away_bench, away_positions = _apply_rest_days(
-            list(away_lineup), list(away_bench), dict(away_positions),
-            opposing_starter=home_pitchers[0] if home_pitchers else None,
-            usage_state=usage_state, game_day=game_day, tuning=tuning,
-        )
-        home_lineup, home_bench, home_positions = _apply_rest_days(
-            list(home_lineup), list(home_bench), dict(home_positions),
-            opposing_starter=away_pitchers[0] if away_pitchers else None,
-            usage_state=usage_state, game_day=game_day, tuning=tuning,
-        )
+        # Release 3: an owner may turn automatic rest days, or the
+        # similar-position substitutes, off for his team.
+        # A regular the engine could not rest plays only a little tired; one
+        # his owner chose not to rest (Auto rest days off) carries the full
+        # penalty (owner decision 9 / Q14).
+        away_policy = away_rest_policy or {}
+        home_policy = home_rest_policy or {}
+        away_unrested: Set[str] = set()
+        home_unrested: Set[str] = set()
+        if away_policy.get("auto_rest_days", True) is not False:
+            away_lineup, away_bench, away_positions = _apply_rest_days(
+                list(away_lineup), list(away_bench), dict(away_positions),
+                opposing_starter=home_pitchers[0] if home_pitchers else None,
+                usage_state=usage_state, game_day=game_day, tuning=tuning,
+                allow_similar=away_policy.get("rest_subs_similar_positions", True)
+                is not False,
+                report=bench_usage["away"],
+                could_not_rest=away_unrested,
+            )
+        if home_policy.get("auto_rest_days", True) is not False:
+            home_lineup, home_bench, home_positions = _apply_rest_days(
+                list(home_lineup), list(home_bench), dict(home_positions),
+                opposing_starter=away_pitchers[0] if away_pitchers else None,
+                usage_state=usage_state, game_day=game_day, tuning=tuning,
+                allow_similar=home_policy.get("rest_subs_similar_positions", True)
+                is not False,
+                report=bench_usage["home"],
+                could_not_rest=home_unrested,
+            )
 
         away_lineup = _apply_batter_fatigue(
             list(away_lineup),
             usage_state=usage_state,
             game_day=game_day,
             tuning=tuning,
+            blocked_ids=away_unrested,
         )
         home_lineup = _apply_batter_fatigue(
             list(home_lineup),
             usage_state=usage_state,
             game_day=game_day,
             tuning=tuning,
+            blocked_ids=home_unrested,
         )
         away_bench = _apply_batter_fatigue(
             list(away_bench),
@@ -3860,6 +4720,27 @@ def simulate_game(
             game_day=game_day,
             tuning=tuning,
         )
+        for side, side_lineup in (("away", away_lineup), ("home", home_lineup)):
+            bench_usage[side]["starters"] = len(side_lineup)
+            bench_usage[side]["starters_tired"] = sum(
+                1 for b in side_lineup if getattr(b, "fatigue_penalty", 0.0) > 0.0
+            )
+
+    # Release 3: who started where, for the post-game fatigue charge (a
+    # catcher's game costs more than a DH's; a substitute's costs little).
+    starter_positions = {
+        b.player_id: (positions.get(b.player_id) or b.primary_position or "")
+        for side_lineup, positions in (
+            (away_lineup, away_positions), (home_lineup, home_positions)
+        )
+        for b in side_lineup
+    }
+    # Everyone who could appear today: a player hurt mid-game leaves the
+    # lineup without returning to the bench, and must still be charged.
+    game_batters = {
+        b.player_id: b
+        for b in list(away_lineup) + list(away_bench) + list(home_lineup) + list(home_bench)
+    }
 
     away_pitchers = _order_pitchers_for_game(
         list(away_pitchers),
@@ -3956,6 +4837,10 @@ def simulate_game(
         half_inning_runs = 0
         runner_pitchers: dict[str, PitcherLine] = {}
         unearned_runners: set[str] = set()
+        # Release 3: ids of extra-inning automatic runners placed this half.
+        # An inning-start pitching change passes it as exclude_ids, so the
+        # entering pitcher is not charged with an inherited runner.
+        auto_runner_ids: set[str] = set()
         unearned_outs = 0
         if batting_team == "away":
             offense_score = score_away
@@ -3984,14 +4869,22 @@ def simulate_game(
         )
         walkoff = False
 
-        if (
+        # Decision 11: the automatic runner on 2nd from the 10th, in the
+        # regular season only (a league may turn it off). Past the safety
+        # guard (``max_innings``) every game gets one, postseason and opt-out
+        # leagues included, so no game runs on toward the hard stop. He is the
+        # batter before the half's leadoff man, and his run is unearned.
+        regular_runner = (
             tuning.get("extra_innings_runner", 0.0) > 0.5
+            and not postseason
             and inning >= int(tuning.get("extra_innings_runner_start", 10.0))
-            and lineup
-        ):
+        )
+        sudden_death = inning > int(tuning.get("max_innings", 30.0))
+        if lineup and (regular_runner or sudden_death):
             ghost = lineup[(batter_index - 1) % len(lineup)]
             bases.second = ghost
             unearned_runners.add(ghost.player_id)
+            auto_runner_ids.add(ghost.player_id)
 
         if inning >= 9:
             lead = defense_score - offense_score
@@ -4019,25 +4912,19 @@ def simulate_game(
                         for offset in range(min(3, len(lineup)))
                     ]
                     leverage = _leverage_type(inning, lead, tuning)
-                    closer_candidates = [
+                    # Release 3: a closer flagged unavailable (rest, third
+                    # straight day, appearance cap) is no longer brought in
+                    # anyway; the save goes to the pen (SU first).
+                    available_closers = [
                         pitcher
                         for pitcher in pitching_state.bullpen
                         if (pitcher.staff_role or "").upper() == "CL"
                         and not pitcher.used
-                    ]
-                    available_closers = [
-                        pitcher for pitcher in closer_candidates if pitcher.available
+                        and pitcher.available
                     ]
                     if available_closers:
                         next_pitcher = max(
                             available_closers,
-                            key=lambda candidate: _reliever_score(
-                                candidate, leverage, score_diff=lead
-                            ),
-                        )
-                    elif closer_candidates:
-                        next_pitcher = max(
-                            closer_candidates,
                             key=lambda candidate: _reliever_score(
                                 candidate, leverage, score_diff=lead
                             ),
@@ -4074,7 +4961,27 @@ def simulate_game(
                             bases=bases,
                             postseason=postseason,
                             tuning=tuning,
+                            exclude_ids=auto_runner_ids,
                         )
+
+        if tuning.get("inning_start_hook", 0.0) > 0.0:
+            _inning_start_hook(
+                pitching_state=pitching_state,
+                defense_state=defense_state,
+                offense_state=offense_state,
+                batter_index=batter_index,
+                inning=inning,
+                defense_score=defense_score,
+                offense_score=offense_score,
+                defense_team=defense_team,
+                bases=bases,
+                lineup_size=lineup_size,
+                postseason=postseason,
+                tuning=tuning,
+                exclude_ids=auto_runner_ids,
+            )
+
+        # R3: end of inning-start pitching changes
 
         def record_runs(
             runs_scored: int,
@@ -4267,6 +5174,12 @@ def simulate_game(
                     pitch_log[-1]["runner_event"] = f"{existing_event}+{pinch_event}"
                 else:
                     pitch_log[-1]["runner_event"] = pinch_event
+
+        # R3: first PA of half
+        # The automatic runner is charged to whoever pitches to the half's
+        # first batter: the loop below maps every runner on base to the
+        # current pitcher's line on each PA (setdefault), and his run is
+        # scored unearned through ``unearned_runners``.
         while outs < 3:
             pitcher_state = pitching_state.current
             line = _line_for_pitcher(pitching_state, pitcher_state, inning)
@@ -5694,14 +6607,16 @@ def simulate_game(
                 postseason=postseason,
             ):
                 continue
-            if _should_hook_pitcher(
+            hook_reason = _hook_reason(
                 pitcher_state=pitching_state.current,
                 line=line,
                 lineup_size=lineup_size,
                 score_diff=score_diff,
                 postseason=postseason,
                 tuning=tuning,
-            ):
+                mop_up=_bullpen_exhausted(pitching_state, tuning),
+            )
+            if hook_reason is not None:
                 leverage = _leverage_type(inning, score_diff, tuning)
                 next_pitcher = _select_reliever(
                     pitching_state,
@@ -5711,6 +6626,7 @@ def simulate_game(
                     is_home_defense=(defense_team == "home"),
                     upcoming_batters=upcoming,
                     tuning=tuning,
+                    forced=_forced_hook(hook_reason, pitching_state.current, tuning),
                 )
                 if next_pitcher is not pitching_state.current:
                     _pitcher_exit_stats(
@@ -5735,7 +6651,13 @@ def simulate_game(
         finalize_half_inning()
         return outs, batter_index
 
-    max_innings = int(tuning.get("max_innings", 18.0))
+    # Decision 11: no ties. Past ``max_innings`` (the safety guard) the
+    # sudden-death runner applies; the hard stop is the only way a game can
+    # still end tied, and ``inning`` is always the last inning played.
+    hard_stop = max(
+        int(tuning.get("max_innings", 30.0)),
+        int(tuning.get("max_innings_hard_stop", 60.0)),
+    )
     inning = 1
     ended_in_tie = False
     while True:
@@ -5761,10 +6683,10 @@ def simulate_game(
         )
         if inning >= 9 and score_home != score_away:
             break
-        inning += 1
-        if inning > max_innings:
+        if inning >= hard_stop:
             ended_in_tie = True
             break
+        inning += 1
 
     final_home = home_staff.current
     final_away = away_staff.current
@@ -5832,6 +6754,25 @@ def simulate_game(
             ):
                 away_line.sv += 1
 
+    # R3: post-game hazards
+    # Arm and fatigue injuries are rolled here, after the last pitch and on
+    # their own random streams, so they never change the game; rest days are
+    # read before the usage loop below records today's outings.
+    injury_events.extend(
+        roll_post_game_injuries(
+            seed=seed,
+            tuning=tuning,
+            usage_state=usage_state,
+            game_day=game_day,
+            staffs={"away": away_staff, "home": home_staff},
+            lineups={"away": away_state, "home": home_state},
+            batters={
+                "away": list(away_lineup) + list(away_bench),
+                "home": list(home_lineup) + list(home_bench),
+            },
+            injured_players=injured_players,
+        )
+    )
     if usage_state is not None and game_day is not None:
         for state in away_staff.all_pitchers() + home_staff.all_pitchers():
             if state.pitches > 0:
@@ -5842,7 +6783,8 @@ def simulate_game(
                     multiplier=state.usage_multiplier,
                     tuning=tuning,
                 )
-        batter_lookup: dict[str, BatterRatings] = {
+        batter_lookup: dict[str, BatterRatings] = dict(game_batters)
+        batter_lookup.update({
             batter.player_id: batter
             for batter in (
                 list(away_state.lineup)
@@ -5850,7 +6792,7 @@ def simulate_game(
                 + list(home_state.lineup)
                 + list(home_state.bench)
             )
-        }
+        })
         batter_ids = set(away_state.batting_lines.keys())
         batter_ids.update(home_state.batting_lines.keys())
         batter_ids.update(away_state.fielding_lines.keys())
@@ -5869,9 +6811,13 @@ def simulate_game(
                 day=game_day,
                 durability=batter.durability,
                 tuning=tuning,
+                position=starter_positions.get(player_id),
+                started=player_id in starter_positions,
             )
 
     _flush_tto()  # S2-07: capture the final PA's split.
+
+    _restore_emergency_clocks([away_staff, home_staff], usage_state, tuning)
     return GameResult(
         totals=totals,
         pitch_log=pitch_log,
@@ -5917,5 +6863,6 @@ def simulate_game(
                 "home": len(home_state.bench),
             },
             "injury_events": injury_events,
+            "bench_usage": bench_usage,
         },
     )

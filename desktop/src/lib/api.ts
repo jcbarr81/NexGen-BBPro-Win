@@ -437,6 +437,11 @@ export interface CommissionerSettings {
     max_banked_credits: number;
     auto_spend_cap: number;
   };
+  /** Game rules (decision 11). Changes apply from the next game played. */
+  rules: {
+    /** Automatic runner on 2nd from the 10th inning, regular season only. */
+    extra_innings_runner: boolean;
+  };
   strategy: {
     default_profile: string | null;
     teams: Record<string, string>;
@@ -1510,12 +1515,38 @@ export interface TeamSettings {
     source: string;
   };
   auto_reassign: { enabled: boolean; source: string };
+  /** Owner game-day play settings (services/team_play_settings.py). */
+  play: TeamPlaySettings;
   options: {
     strategies: StrategyOption[];
     default_strategy: string;
     ballparks: string[];
   };
 }
+
+/** Keys of the per-team owner play settings (Release 3). */
+export type TeamPlaySettingKey =
+  | "auto_rest_days"
+  | "rest_subs_similar_positions"
+  | "il_auto_activate_15"
+  | "il_auto_activate_60";
+
+export interface TeamPlaySettings {
+  /** Resolved values: the owner's choices over the defaults. */
+  settings: Record<TeamPlaySettingKey, boolean>;
+  /** What each setting is when the owner has not chosen. */
+  defaults: Record<TeamPlaySettingKey, boolean>;
+  /** Only the owner's explicit choices. */
+  overrides: Partial<Record<TeamPlaySettingKey, boolean>>;
+  keys: TeamPlaySettingKey[];
+  /** false = CPU-run club (settings ignored); null = ownership unknown. */
+  owner_managed: boolean | null;
+}
+
+/** true/false sets a choice; "default" clears it. */
+export type TeamPlaySettingsPatch = Partial<
+  Record<TeamPlaySettingKey, boolean | "default">
+>;
 
 export interface TeamSettingsPatch {
   primary_color?: string;
@@ -2205,6 +2236,11 @@ export const api = {
       method: "PUT",
       body: payload,
     }),
+  saveCommishRules: (payload: CommissionerSettings["rules"]) =>
+    apiRequest<CommissionerSettings>("/commissioner/settings/rules", {
+      method: "PUT",
+      body: payload,
+    }),
   notificationSchema: () =>
     apiRequest<{ categories: NotificationCategory[] }>("/notifications/schema"),
   notificationSettings: (teamId: string) =>
@@ -2553,6 +2589,11 @@ export const api = {
       method: "PUT",
       body: payload,
     }),
+  saveTeamPlaySettings: (teamId: string, settings: TeamPlaySettingsPatch) =>
+    apiRequest<TeamPlaySettings>(
+      `/teams/${encodeURIComponent(teamId)}/settings/play`,
+      { method: "PUT", body: { settings } },
+    ),
   getTraining: (teamId: string) =>
     apiRequest<TrainingFocus>(`/teams/${encodeURIComponent(teamId)}/training`),
   saveTraining: (

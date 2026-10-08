@@ -298,6 +298,13 @@ def roster_compliance_endpoint(team_id: str) -> Dict[str, Any]:
         pitcher_cap=caps["act_pitchers"],
     )
     payload = result.to_dict()
+    # Release 3 (decision 10): one catcher is advisory, never blocking --
+    # ``ok`` and ``errors`` (what the sim gate reads) are untouched.
+    from services.roster_validation import validate_catcher_depth
+
+    payload["warnings"] = list(payload.get("warnings") or []) + list(
+        validate_catcher_depth(levels.get("act", []), players).warnings
+    )
     counts: Dict[str, int] = {
         level: len(levels.get(level, [])) for level in ("act", "aaa", "low", "dl", "ir")
     }

@@ -161,11 +161,11 @@ def test_create_league_rosters_pass_sim_gate_validation(tmp_path):
 
 
 def test_create_league_writes_editor_valid_pitching_staffs(tmp_path):
-    """New leagues get the Pitching auto-fill's 11 slots (SP1-5, LR, MR1-3,
-    SU, CL), which pass the editor's validation; the 12th and 13th active
-    pitchers stay unlisted."""
+    """New leagues get the Pitching auto-fill's 11 required slots (SP1-5, LR,
+    MR1-3, SU, CL) plus the optional MR4/MR5 for the 12th and 13th active
+    pitchers, and the staff passes the editor's validation."""
 
-    from services.roster_validation import PITCHING_ROLES, validate_pitching_staff
+    from services.roster_validation import ALL_STAFF_ROLES, validate_pitching_staff
 
     random.seed(3)
     divisions = {"East": [("CityA", "Cats"), ("CityB", "Dogs")]}
@@ -194,12 +194,13 @@ def test_create_league_writes_editor_valid_pitching_staffs(tmp_path):
                 {"player_id": pid, "role": role}
                 for pid, role in csv.reader(f)
             ]
-        assert sorted(e["role"] for e in staff) == sorted(PITCHING_ROLES)
+        assert sorted(e["role"] for e in staff) == sorted(ALL_STAFF_ROLES)
         result = validate_pitching_staff(staff=staff, players=players, active_ids=act)
         assert result.ok, f"{t.team_id}: {result.errors}"
+        assert result.warnings == []
         act_pitchers = [pid for pid in act if players[pid]["is_pitcher"]]
         unlisted = set(act_pitchers) - {e["player_id"] for e in staff}
-        assert len(unlisted) == MAX_ACTIVE_PITCHERS - len(PITCHING_ROLES)
+        assert len(unlisted) == max(0, MAX_ACTIVE_PITCHERS - len(ALL_STAFF_ROLES))
 
 
 def test_compliance_guard_rejects_a_14th_active_pitcher():

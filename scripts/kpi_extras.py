@@ -9,8 +9,10 @@ late-inning scoring (M19), the LHP gap (H7), team talent spread (M17) and the
 missing situational KPIs (L18). This module measures them from the per-game
 results the harness already produces.
 
-Nothing here is gated. ``physics_sim_season_kpis.py`` writes the result to
-the JSON under ``report_only`` and prints it; ``--strict`` never looks at it.
+``physics_sim_season_kpis.py`` writes the result to the JSON under
+``report_only`` and prints it. ``--strict`` ignores it, except for the keys
+promoted to strict gates after the engine release that fixed them (Release
+3: ``STRICT_EXTRAS_TARGETS`` there, copied into the gated ``metrics``).
 Promote a metric to a gate only after the engine release that fixes it.
 
 Base-out state (L18) is read from the first ``pitch_log`` entry of each plate
@@ -238,6 +240,8 @@ class ReportOnlyKpis:
         # usage
         self.usage: Counter = Counter()
         self.closer_outs_by_pid: Counter = Counter()
+        # Release 3 bullpen usage (H1): relief outs/apps by canonical role.
+        self.relief_by_role: dict[str, Counter] = defaultdict(Counter)
         # discipline
         self.count_pitches: Counter = Counter()
         self.count_swings: Counter = Counter()
@@ -371,6 +375,8 @@ class ReportOnlyKpis:
                 fc["po"] += _int(line.get("po"))
                 fc["a"] += _int(line.get("a"))
 
+        self._add_bullpen_usage(meta, log)
+
         score = meta.get("score") or {}
         s_away, s_home = _int(score.get("away")), _int(score.get("home"))
         if s_home != s_away and not meta.get("ended_in_tie"):
@@ -414,6 +420,52 @@ class ReportOnlyKpis:
         if pas and pas[0].state is not None:
             self.logged_games += 1
             self._add_base_out(pas, inning_runs, s_away, s_home)
+        self._add_bench(meta, teams)
+
+    def _add_bullpen_usage(
+        self, meta: dict[str, Any], log: list[dict[str, Any]] | None = None
+    ) -> None:
+        """Release 3 (H1) bullpen tallies from the engine's ``pitcher_usage``.
+
+        Relief outings only (same rule as the usage block: no start). The
+        role is the engine's canonical ``staff_role``; ``prior_streak`` is how
+        many days in a row the arm had pitched up to yesterday, so a closer
+        outing with ``prior_streak >= 2`` is a third straight day. With a
+        pitch log, a closer whose first pitch came before the 7th is an early
+        entry.
+        """
+        first_inning: dict[str, int] = {}
+        for entry in log or []:
+            pid = str(entry.get("pitcher_id") or "")
+            if pid and pid not in first_inning and "inning" in entry:
+                first_inning[pid] = _int(entry.get("inning"))
+        for side in ("away", "home"):
+            usage = {
+                str(u.get("player_id", "")): u
+                for u in (meta.get("pitcher_usage") or {}).get(side, []) or []
+            }
+            emergencies = 0
+            for line in (meta.get("pitcher_lines") or {}).get(side, []) or []:
+                pid = str(line.get("player_id", ""))
+                if not pid or _int(line.get("gs")) >= 1:
+                    continue
+                u = usage.get(pid) or {}
+                role = str(u.get("staff_role") or "").upper() or "?"
+                rc = self.relief_by_role[role]
+                rc["apps"] += 1
+                rc["outs"] += _int(line.get("outs"))
+                self.usage["relief_fallback"] += bool(u.get("fallback"))
+                self.usage["relief_emergency"] += bool(u.get("emergency"))
+                emergencies += bool(u.get("emergency"))
+                if role == "CL" and _int(u.get("prior_streak")) >= 2:
+                    self.usage["closer_third_straight_day"] += 1
+                if role == "CL" and pid in first_inning:
+                    self.usage["closer_logged_apps"] += 1
+                    self.usage["closer_before_7th"] += first_inning[pid] < 7
+            # Release 3 second fix round: club-games with an emergency arm,
+            # and with more than one (the engine allows one, bar an injury).
+            self.usage["emergency_team_games"] += emergencies > 0
+            self.usage["emergency_multi_games"] += emergencies > 1
 
     def _add_pitch_level(
         self, log: list[dict[str, Any]], starters: set[str], game_index: int
@@ -633,6 +685,29 @@ class ReportOnlyKpis:
             if self.closer_outs_by_pid
             else None
         )
+        # Release 3 bullpen usage (H1). closer_third_straight_day and
+        # emergency_starter_relief_apps are season totals (target 0 and about
+        # one per club); the fallback share is rest-flagged relief entries.
+        metrics["closer_third_straight_day"] = u["closer_third_straight_day"]
+        metrics["emergency_starter_relief_apps"] = u["relief_emergency"]
+        metrics["bullpen_fallback_share"] = _ratio(u["relief_fallback"], u["relief"])
+        # Release 3 second fix round: emergency outings per club per 162
+        # (owner target: about one) and club-games with two or more.
+        n_clubs = len(self.team_def)
+        metrics["emergency_apps_per_team_season"] = (
+            u["relief_emergency"] * 162.0 / gpt / n_clubs if n_clubs else None
+        )
+        metrics["emergency_multi_games"] = u["emergency_multi_games"]
+        metrics["closer_entries_before_7th_share"] = _ratio(
+            u["closer_before_7th"], u["closer_logged_apps"]
+        )
+        tables["relief_outs_per_app_by_role"] = {
+            role: {"apps": c["apps"], "outs_per_app": _ratio(c["outs"], c["apps"])}
+            for role, c in sorted(self.relief_by_role.items())
+        }
+        for role in ("CL", "SU", "MR", "LR"):
+            c = self.relief_by_role.get(role) or Counter()
+            metrics[f"relief_outs_per_app_{role.lower()}"] = _ratio(c["outs"], c["apps"])
 
         # Plate discipline (M1).
         swing = {}
@@ -776,6 +851,7 @@ class ReportOnlyKpis:
                 else "partial" if self.logged_games else "absent"
             ),
         }
+        self._bench_metrics(metrics, tables, gpt)
         return {"metrics": metrics, "tables": tables, "coverage": coverage}
 
     def _situational(
@@ -900,6 +976,60 @@ class ReportOnlyKpis:
         return out
 
 
+    # -- Release 3 item F (audit M16): bench, rest days, batter fatigue.
+    # Reads the engine's per-side "bench_usage" metadata (pre-game rest
+    # tallies) plus the batting lines already accumulated above.
+    def _add_bench(self, meta: dict[str, Any], teams: dict[str, str]) -> None:
+        tally = getattr(self, "bench_tally", None)
+        if tally is None:
+            tally = self.bench_tally = Counter()
+            self.bench_logged_games = 0
+        usage = meta.get("bench_usage")
+        if not isinstance(usage, dict):
+            return
+        self.bench_logged_games += 1
+        for side in teams:
+            for key, value in (usage.get(side) or {}).items():
+                tally[key] += _int(value)
+
+    def _bench_metrics(
+        self, metrics: dict[str, Any], tables: dict[str, Any], gpt: int
+    ) -> None:
+        tally = getattr(self, "bench_tally", Counter())
+        logged = getattr(self, "bench_logged_games", 0)
+        teams = {t for t in self.batter_team.values() if t}
+        n_teams = len(teams)
+        per_team = (162.0 / gpt / n_teams) if (n_teams and gpt) else None
+
+        def season(key: str) -> float | None:
+            return tally[key] * per_team if (logged and per_team) else None
+
+        metrics["bench_rests_per_team_season"] = season("rests")
+        metrics["bench_chain_subs_per_team_season"] = season("chain")
+        metrics["bench_similar_subs_per_team_season"] = season("similar")
+        # League totals per 162-game season (the V4 targets: < 500 / < 50).
+        scale = 162.0 / gpt if gpt else 1.0
+        metrics["bench_rests_blocked_field_per_162"] = (
+            (tally["blocked"] - tally["blocked_c"]) * scale if logged else None
+        )
+        metrics["bench_rests_blocked_c_per_162"] = tally["blocked_c"] * scale if logged else None
+        metrics["fatigue_tired_starter_share"] = (
+            _ratio(tally["starters_tired"], tally["starters"]) if logged else None
+        )
+        everyday = sum(1 for c in self.batters.values() if c["gs"] >= gpt)
+        metrics["hitters_starting_every_game"] = everyday if self.games else None
+        c_starts: dict[str, list[int]] = defaultdict(list)
+        for pid, c in self.batters.items():
+            team = self.batter_team.get(pid)
+            if team and self.primary_pos.get(pid) == "C":
+                c_starts[team].append(c["gs"])
+        tops = [max(v) for v in c_starts.values() if v]
+        metrics["starting_c_max_starts_per_162"] = (
+            max(tops) * 162.0 / gpt if (tops and gpt) else None
+        )
+        tables["bench_usage_totals"] = dict(tally)
+
+
 def _diff(a: float | None, b: float | None) -> float | None:
     return (a - b) if (a is not None and b is not None) else None
 
@@ -985,7 +1115,10 @@ def attach_reference(report: dict[str, Any], reference: dict[str, dict[str, Any]
 def format_report(report: dict[str, Any]) -> str:
     metrics = report.get("metrics", {})
     reference = report.get("reference", {})
-    lines = ["Report-only KPIs (never gated; audit Release 2)"]
+    lines = [
+        "Report-only KPIs (audit Release 2; --strict gates only the"
+        " promoted keys)"
+    ]
     coverage = report.get("coverage") or {}
     if coverage:
         lines.append(

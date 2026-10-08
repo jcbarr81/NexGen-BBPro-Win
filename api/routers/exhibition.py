@@ -62,16 +62,23 @@ async def simulate_exhibition(
             detail=f"Exhibition engine unavailable: {exc}",
         ) from exc
 
+    from services.injury_settings import suppress_injuries
+
     data_dir = get_data_dir()
     try:
-        home_state, away_state, box, html, meta = await asyncio.to_thread(
-            run_single_game,
-            home_id,
-            away_id,
-            players_file=str(data_dir / "players.csv"),
-            roster_dir=str(data_dir / "rosters"),
-            lineup_dir=str(data_dir / "lineups"),
-        )
+        # An exhibition is not part of the season: nobody may come out of it
+        # on the injured list. suppress_injuries is per request (a context
+        # variable that to_thread carries into the worker), so a season sim
+        # running at the same time keeps its injuries.
+        with suppress_injuries():
+            home_state, away_state, box, html, meta = await asyncio.to_thread(
+                run_single_game,
+                home_id,
+                away_id,
+                players_file=str(data_dir / "players.csv"),
+                roster_dir=str(data_dir / "rosters"),
+                lineup_dir=str(data_dir / "lineups"),
+            )
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import os
 import random
+import re
 from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -37,55 +38,38 @@ from services.decision_explanations import (
     should_persist_decision_logs,
 )
 from utils.news_logger import log_news_event
-from utils.pitcher_role import get_role
 from utils.path_utils import get_data_dir, resolve_app_path
 from utils.park_utils import park_lookup_name_for_team
 from playbalance.parallel_day import active_journal
 
 LineupEntry = Tuple[str, str]
 
-MAX_PITCHERS_ON_DL = int(os.getenv("PB_MAX_PITCHERS_ON_DL", "5") or 5)
 DAY_TO_DAY_MAX_DAYS = int(os.getenv("PB_DAY_TO_DAY_MAX_DAYS", "5") or 5)
-_PHYSICS_USAGE_STATE = None
-_PHYSICS_USAGE_DAY_MAP: Dict[str, int] = {}
-_PHYSICS_USAGE_YEAR: Optional[int] = None
-_PHYSICS_USAGE_LAST_DATE: Optional[str] = None
-_PHYSICS_USAGE_LEAGUE_KEY: Optional[str] = None
 
 
 def _physics_usage_context(
     date_token: str | None,
 ) -> tuple[object | None, int | None]:
-    if not date_token:
-        return None, None
-    global _PHYSICS_USAGE_STATE
-    global _PHYSICS_USAGE_DAY_MAP
-    global _PHYSICS_USAGE_YEAR
-    global _PHYSICS_USAGE_LAST_DATE
-    global _PHYSICS_USAGE_LEAGUE_KEY
-    league_key = str(get_data_dir().resolve(strict=False))
-    try:
-        year = int(str(date_token).split("-")[0])
-    except Exception:
-        year = None
-    reset = _PHYSICS_USAGE_STATE is None
-    if _PHYSICS_USAGE_LEAGUE_KEY not in (None, league_key):
-        reset = True
-    if year is not None and _PHYSICS_USAGE_YEAR not in (None, year):
-        reset = True
-    if _PHYSICS_USAGE_LAST_DATE and date_token < _PHYSICS_USAGE_LAST_DATE:
-        reset = True
-    if reset:
-        from physics_sim.usage import UsageState
+    """Return the active league's persisted rest state and day for a game date.
 
-        _PHYSICS_USAGE_STATE = UsageState()
-        _PHYSICS_USAGE_DAY_MAP = {}
-        _PHYSICS_USAGE_YEAR = year
-        _PHYSICS_USAGE_LEAGUE_KEY = league_key
-    if date_token not in _PHYSICS_USAGE_DAY_MAP:
-        _PHYSICS_USAGE_DAY_MAP[date_token] = len(_PHYSICS_USAGE_DAY_MAP)
-    _PHYSICS_USAGE_LAST_DATE = date_token
-    return _PHYSICS_USAGE_STATE, _PHYSICS_USAGE_DAY_MAP[date_token]
+    Release 3 (audit M18): the state lives in ``playbalance.usage_store``, per
+    league and on disk, instead of in this module's globals, so it survives a
+    new process.
+    """
+    from playbalance import usage_store
+
+    return usage_store.context(date_token)
+
+
+def _extra_innings_runner_enabled() -> bool:
+    """The active league's automatic-runner setting (default on)."""
+
+    try:
+        from utils.league_settings import extra_innings_runner_enabled
+
+        return extra_innings_runner_enabled()
+    except Exception:
+        return True
 
 
 def _resolve_game_engine(engine: str | None) -> str:
@@ -527,23 +511,141 @@ def _sanitize_lineup(
     roster_dir: str = "data/rosters",
     lineup_dir: str | Path = "data/lineups",
 ) -> Sequence[LineupEntry]:
-    """Return a valid 9-player lineup and persist it to disk.
+    """Return a valid 9-player lineup for a game whose saved one is broken.
 
-    Ignores ``desired`` when regenerating to ensure the final lineup reflects
-    the current active roster.
+    The auto-fill builds the replacement from the current active roster
+    (``desired`` only identifies which saved file it came from).
+
+    * CPU clubs: both lineup files are regenerated, as always.
+    * Owner teams (Release 3, owner decision 11) -- and every team when
+      ownership can't be read: only the saved file(s) that are actually
+      broken (vs LHP and/or vs RHP: a player not on the active roster, a
+      duplicate, not nine players) are rewritten; a good file stays
+      byte-identical, and the owner gets a news item naming the file. When
+      ``desired`` matches no broken file (it didn't come from disk), nothing
+      is written and the replacement is used for this game only.
     """
     try:
         load_roster.cache_clear()
     except Exception:
         pass
-    lineup = auto_fill_lineup_for_team(
-        team_id,
-        players_file=players_file,
-        roster_dir=roster_dir,
-        lineup_dir=lineup_dir,
+    fill = dict(
+        players_file=players_file, roster_dir=roster_dir, lineup_dir=lineup_dir
     )
-    # Provide as sequence of (pid, position)
-    return list(lineup)
+    if _team_is_cpu(team_id):
+        return list(auto_fill_lineup_for_team(team_id, **fill))
+
+    pool = _game_hitter_ids(team_id, players_file=players_file, roster_dir=roster_dir)
+    wanted = [(str(pid), str(pos)) for pid, pos in (desired or [])]
+    broken: list[str] = []
+    source: str | None = None
+    for vs in ("lhp", "rhp"):
+        saved = _load_saved_lineup(team_id, vs, lineup_dir=lineup_dir)
+        if saved is None:
+            continue
+        if not _lineup_fits_pool(saved, pool):
+            broken.append(vs)
+        if source is None and [(str(a), str(b)) for a, b in saved] == wanted:
+            source = vs
+    rewritten: dict[str, list[LineupEntry]] = {}
+    for vs in broken:
+        rewritten[vs] = list(auto_fill_lineup_for_team(team_id, vs=vs, **fill))
+    if broken:
+        _notify_lineup_rewritten(team_id, broken)
+    if source in rewritten:
+        return rewritten[source]
+    return list(auto_fill_lineup_for_team(team_id, persist=False, **fill))
+
+
+def _team_rest_policy(team_id: str) -> dict[str, bool]:
+    """The engine's per-team rest policy (Release 3, owner decisions 8 and 9).
+
+    CPU clubs always get automatic rest days and similar-position rest
+    substitutes (``{}``: the engine's defaults), whatever a settings file
+    says. Any other club -- an owner's, or every club when ``users.txt``
+    can't be read -- uses ``services.team_play_settings``, whose defaults are
+    both on, so an owner who never changed anything plays as before.
+    """
+
+    try:
+        from services.team_play_settings import (
+            AUTO_REST_DAYS,
+            REST_SUBS_SIMILAR_POSITIONS,
+            load_team_play_settings,
+        )
+    except Exception:  # pragma: no cover - defensive
+        return {}
+    if _team_is_cpu(team_id):
+        return {}
+    try:
+        settings = load_team_play_settings(team_id)
+    except Exception:
+        return {}
+    return {
+        AUTO_REST_DAYS: bool(settings.get(AUTO_REST_DAYS, True)),
+        REST_SUBS_SIMILAR_POSITIONS: bool(settings.get(REST_SUBS_SIMILAR_POSITIONS, True)),
+    }
+
+
+def _team_is_cpu(team_id: str) -> bool:
+    """True only when ownership is readable and no human owns ``team_id``."""
+
+    try:
+        from services.team_ownership import human_owned_team_ids_strict
+
+        human = human_owned_team_ids_strict()
+    except Exception:
+        return False
+    return human is not None and str(team_id or "").upper() not in human
+
+
+def _game_hitter_ids(
+    team_id: str, *, players_file: str, roster_dir: str | Path
+) -> set[str]:
+    """The position players a game can use for ``team_id`` (what
+    :func:`apply_lineup` accepts): the default state's lineup and bench."""
+
+    try:
+        state = build_default_game_state(
+            team_id, players_file=players_file, roster_dir=str(roster_dir), teams_file=""
+        )
+    except Exception:
+        return set()
+    return {p.player_id for p in list(state.lineup) + list(state.bench)}
+
+
+def _lineup_fits_pool(rows: Sequence[LineupEntry], pool: set[str]) -> bool:
+    """Whether a saved lineup would pass :func:`apply_lineup` against ``pool``."""
+
+    ids = [str(pid) for pid, _pos in rows]
+    return len(ids) == 9 and len(set(ids)) == 9 and all(pid in pool for pid in ids)
+
+
+def _notify_lineup_rewritten(team_id: str, rewritten: Sequence[str]) -> None:
+    """Tell the owner which saved lineup(s) auto-fill rebuilt."""
+
+    hands = [("LHP" if vs == "lhp" else "RHP") for vs in rewritten]
+    which = " and ".join(f"vs {hand}" for hand in hands)
+    kept = [hand for hand in ("LHP", "RHP") if hand not in hands]
+    tail = f" Your vs {kept[0]} lineup was not changed." if kept else ""
+    message = (
+        f"{team_id}: auto-fill rebuilt your saved lineup {which} -- it no "
+        f"longer matched the active roster (a player not active, a "
+        f"duplicate, or not nine players). Review it on the Lineups page."
+        f"{tail}"
+    )
+    jr = active_journal()
+    if jr is not None:
+        # S1-10: a parallel-day worker captures the item; the parent logs it
+        # in serial game order (replay_game_journal).
+        jr.news_events.append(
+            {"event": message, "category": "lineup", "team_id": team_id}
+        )
+        return
+    try:
+        log_news_event(message, category="lineup", team_id=team_id)
+    except Exception:
+        pass
 
 
 def _player_for_boxscore(
@@ -1045,6 +1147,58 @@ def _assigned_starter_id(state: TeamState) -> str | None:
     return None
 
 
+def _physics_pitcher_roles(
+    state: TeamState, rotation: Sequence[str] | None = None
+) -> dict[str, str]:
+    """The role each of ``state``'s arms pitches under in the physics engine.
+
+    The staff labels are the ones the default game state set from the staff
+    file (``assigned_pitching_role``). The rotation is ``rotation`` -- the
+    recovery tracker's five, which handed out today's start -- when given,
+    otherwise the SP1-SP5 the labels carry; both come from
+    :func:`utils.rotation.staff_rotation` on the same roster and staff file.
+    :func:`utils.rotation.game_staff_roles` turns them into the game's map, so
+    an unlabelled arm is a middle reliever. The stored ``role`` column ("RP"
+    for every pitcher in an older league) is never read. Nothing is written
+    back to the player objects.
+    """
+
+    from utils.rotation import game_staff_roles
+
+    ids: list[str] = []
+    labels: dict[str, str] = {}
+    for pitcher in state.pitchers:
+        pid = getattr(pitcher, "player_id", None)
+        if not pid or pid in labels:
+            continue
+        ids.append(str(pid))
+        labels[str(pid)] = (
+            str(getattr(pitcher, "assigned_pitching_role", "") or "").strip().upper()
+        )
+    tracked = [str(pid) for pid in (rotation or []) if str(pid) in labels]
+    if tracked:
+        return game_staff_roles(labels, ids, tracked)
+    labelled = sorted(
+        (pid for pid in ids if re.fullmatch(r"SP\d+", labels[pid])),
+        key=lambda pid: int(labels[pid][2:]),
+    )
+    return game_staff_roles(labels, ids, labelled)
+
+
+def _tracker_rotation(
+    tracker: PitcherRecoveryTracker | None, team_id: str
+) -> list[str]:
+    """The recovery tracker's current five for ``team_id`` ([] if unknown)."""
+
+    if tracker is None:
+        return []
+    try:
+        entry = (tracker.data.get("teams") or {}).get(team_id) or {}
+        return [str(pid) for pid in entry.get("rotation") or [] if pid]
+    except Exception:
+        return []
+
+
 def _run_physics_game(
     *,
     home_id: str,
@@ -1058,6 +1212,7 @@ def _run_physics_game(
     tracker: PitcherRecoveryTracker | None,
     players_lookup: Mapping[str, object],
     persist_stats: bool,
+    postseason: bool = False,
 ) -> tuple[TeamState, TeamState, dict[str, object], str, dict[str, object]]:
     from physics_sim.data_loader import load_players_by_id
     from physics_sim.engine import simulate_game
@@ -1110,22 +1265,8 @@ def _run_physics_game(
     if not away_pitchers or not home_pitchers:
         raise ValueError("Physics sim requires pitching staffs for both teams")
 
-    away_roles: dict[str, str] = {}
-    for pitcher in away_state.pitchers:
-        role = str(
-            getattr(pitcher, "assigned_pitching_role", "")
-            or getattr(pitcher, "role", "")
-            or ""
-        )
-        away_roles[pitcher.player_id] = role
-    home_roles: dict[str, str] = {}
-    for pitcher in home_state.pitchers:
-        role = str(
-            getattr(pitcher, "assigned_pitching_role", "")
-            or getattr(pitcher, "role", "")
-            or ""
-        )
-        home_roles[pitcher.player_id] = role
+    away_roles = _physics_pitcher_roles(away_state, _tracker_rotation(tracker, away_id))
+    home_roles = _physics_pitcher_roles(home_state, _tracker_rotation(tracker, home_id))
 
     # Audit L13: real-park data only for an explicitly chosen park; a
     # generated name that collides with a real one gets the generic park.
@@ -1133,8 +1274,8 @@ def _run_physics_game(
 
     jr = active_journal()
     if jr is not None and jr.usage_in is not None:
-        # S1-10 (audit row 9): the worker's module-global usage state is
-        # empty/stale; seed a private UsageState from the payload the parent
+        # S1-10 (audit row 9): a worker never touches the league's usage
+        # store; seed a private UsageState from the payload the parent
         # captured so fatigue-driven outcomes match serial.
         from playbalance.parallel_day import usage_payload_to_state
 
@@ -1152,8 +1293,12 @@ def _run_physics_game(
         tuning_overrides.update(get_injury_tuning_overrides())
     except Exception:
         pass
-    if not tuning_overrides:
-        tuning_overrides = None
+    # Decision 11: the league's automatic-runner rule, written last so it
+    # wins over any stored physics override. The engine already skips the
+    # runner in postseason games.
+    tuning_overrides["extra_innings_runner"] = (
+        1.0 if _extra_innings_runner_enabled() else 0.0
+    )
 
     result = simulate_game(
         away_lineup=away_lineup,
@@ -1171,11 +1316,15 @@ def _run_physics_game(
         tuning_overrides=tuning_overrides,
         usage_state=usage_state,
         game_day=game_day,
+        postseason=postseason,
         # The rotation tracker already decided who starts, weighing the whole
         # season's rest. Tell the engine, or it re-picks a slot from `game_day`
         # -- a counter that restarts at zero each process (7.41.0).
         away_starter_id=_assigned_starter_id(away_state),
         home_starter_id=_assigned_starter_id(home_state),
+        # Release 3 item F: owners' auto-rest / similar-position settings.
+        away_rest_policy=_team_rest_policy(away_id),
+        home_rest_policy=_team_rest_policy(home_id),
     )
 
     if jr is not None and usage_state is not None:
@@ -1184,6 +1333,12 @@ def _run_physics_game(
         from playbalance.parallel_day import usage_state_to_payload
 
         jr.usage_out = usage_state_to_payload(usage_state, game_day)
+    elif usage_state is not None:
+        # Release 3 (M18): persist the league's rest state (now, or once at
+        # the end of the sim day's deferred_saves block).
+        from playbalance import usage_store
+
+        usage_store.mark_dirty()
 
     payload = serialize_game_result(result)
     metadata = (
@@ -1314,8 +1469,15 @@ def _run_physics_game(
                 if player is None:
                     continue
                 pitches = int(line.get("pitches", 0) or 0)
+                # A starter's relief outing (the Release 3 emergency arm) is
+                # recorded so his next start is not pushed back.
                 output.append(
-                    SimpleNamespace(player=player, pitches_thrown=pitches, simulated_pitches=0)
+                    SimpleNamespace(
+                        player=player,
+                        pitches_thrown=pitches,
+                        simulated_pitches=0,
+                        relief_outing=int(line.get("gs", 0) or 0) < 1,
+                    )
                 )
             return output
 
@@ -1361,8 +1523,13 @@ def run_single_game(
     game_date: str | date | None = None,
     seed: int | None = None,
     engine: str | None = None,
+    postseason: bool = False,
 ) -> tuple[TeamState, TeamState, dict[str, object], str, dict[str, object]]:
-    """Simulate a single game and return team states, box score, HTML and metadata."""
+    """Simulate a single game and return team states, box score, HTML and metadata.
+
+    ``postseason`` marks a playoff game: no automatic runner in extra innings
+    and the engine's postseason bullpen hooks (physics engine only).
+    """
 
     engine_name = _resolve_game_engine(engine)
     date_token = _normalize_game_date(game_date)
@@ -1483,6 +1650,7 @@ def run_single_game(
             tracker=tracker,
             players_lookup=players_lookup,
             persist_stats=persist_stats,
+            postseason=postseason,
         )
 
     cfg, _ = load_tuned_playbalance_config()
@@ -1613,19 +1781,7 @@ def _apply_injury_events(
     players = list(load_players_from_csv(players_file))
     player_map = {p.player_id: p for p in players}
     team_rosters: Dict[str, object] = {}
-    pitcher_dl_counts: Dict[str, int] = {}
     changed_players = False
-
-    def _is_pitcher(player) -> bool:
-        if player is None:
-            return False
-        if getattr(player, "is_pitcher", False):
-            return True
-        return get_role(player) in {"SP", "RP"}
-
-    def _pitchers_on_dl(roster, team_id: str) -> int:
-        player_ids = getattr(roster, "dl", []) or []
-        return sum(1 for pid in player_ids if _is_pitcher(player_map.get(pid)))
 
     for event in events:
         team_id = event.get("team_id")
@@ -1640,7 +1796,6 @@ def _apply_injury_events(
         if roster is None:
             roster = load_roster(team_id_str, roster_dir=roster_dir)
             team_rosters[team_id_str] = roster
-            pitcher_dl_counts[team_id_str] = _pitchers_on_dl(roster, team_id_str)
         dl_tier = str(event.get("dl_tier") or "").lower()
         if dl_tier in {"dl45", "45", "45-day", "45 day"}:
             dl_tier = "ir"
@@ -1684,29 +1839,10 @@ def _apply_injury_events(
         eligible = injury_date + timedelta(days=max(days, 0))
         player.injury_eligible_date = eligible.isoformat()
 
-        if (
-            _is_pitcher(player)
-            and dl_tier
-            and dl_tier != "none"
-            and MAX_PITCHERS_ON_DL > 0
-        ):
-            current = pitcher_dl_counts.get(team_id_str, 0)
-            if current >= MAX_PITCHERS_ON_DL:
-                # Convert to a short day-to-day injury when the DL is saturated.
-                dl_tier = "none"
-                event["dl_tier"] = "none"
-                days = max(1, min(days or DAY_TO_DAY_MAX_DAYS, DAY_TO_DAY_MAX_DAYS))
-                player.injury_minimum_days = days
-                eligible = injury_date + timedelta(days=days)
-                player.injury_eligible_date = eligible.isoformat()
-                description = f"{description} (day-to-day)"
-                event["description"] = description
-                player.injury_description = description
-                player.injury_list = None
-                player.return_date = None
-            else:
-                pitcher_dl_counts[team_id_str] = current + 1
-
+        # Release 3 (audit M15): there is no cap on pitchers on the injured
+        # list. The old cap (MAX_PITCHERS_ON_DL, 5) turned a sixth pitcher's
+        # IL stint into a day-to-day knock, which left a hurt arm free to
+        # pitch the next day.
         if dl_tier and dl_tier != "none":
             # Pass the SIM date. Without it the placement stamped date.today()
             # over the sim dates set just above, so an injured list ran on the
@@ -1777,12 +1913,14 @@ def simulate_game_scores(
     engine: str | None = None,
     home_starter: str | None = None,
     away_starter: str | None = None,
+    postseason: bool = False,
 ) -> tuple[int, int, str, dict[str, object]]:
     """Return the final score, rendered HTML and metadata for a matchup.
 
     ``home_starter`` / ``away_starter`` let a caller pin the starting pitchers
     (S1-10: the parallel-day parent pre-assigns them so ``next_index`` advances
-    exactly once per team, in serial order, before dispatch).
+    exactly once per team, in serial order, before dispatch). ``postseason``
+    marks a playoff game (see :func:`run_single_game`).
     """
 
     data_dir = get_data_dir()
@@ -1821,6 +1959,7 @@ def simulate_game_scores(
         engine=engine,
         home_starter=home_starter,
         away_starter=away_starter,
+        postseason=postseason,
     )
     return home_state.runs, away_state.runs, html, meta
 
@@ -1862,6 +2001,20 @@ def replay_game_journal(
             with path.open("a", encoding="utf-8") as handle:
                 for text in bullpen_logs:
                     handle.write(text)
+        except Exception:
+            pass
+
+    # (a2) news written during state prep (lineup rewrites), before this
+    #      game's injury news, as a serial game logs them.
+    for item in journal.get("news_events") or []:
+        if not isinstance(item, Mapping):
+            continue
+        try:
+            log_news_event(
+                str(item.get("event") or ""),
+                category=item.get("category"),
+                team_id=item.get("team_id"),
+            )
         except Exception:
             pass
 
@@ -1946,7 +2099,12 @@ def replay_game_journal(
                         pass
                 pitches = int(line.get("pitches", 0) or 0)
                 output.append(
-                    SimpleNamespace(player=player, pitches_thrown=pitches, simulated_pitches=0)
+                    SimpleNamespace(
+                        player=player,
+                        pitches_thrown=pitches,
+                        simulated_pitches=0,
+                        relief_outing=int(line.get("gs", 0) or 0) < 1,
+                    )
                 )
             return output
 

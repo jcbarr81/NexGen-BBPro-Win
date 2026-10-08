@@ -27,8 +27,11 @@ from utils.team_loader import load_teams
 REPO = Path(__file__).resolve().parents[1]
 FIXTURE = REPO / "data" / "calibration_league"
 SCRIPT = REPO / "scripts" / "generate_league_fixture.py"
+# The 11 required slots plus the optional MR4/MR5 (Release 3, Q7): a 13-arm
+# active staff is fully slotted.
 AUTOFILL_SLOTS = sorted(
-    ["SP1", "SP2", "SP3", "SP4", "SP5", "LR", "CL", "SU", "MR1", "MR2", "MR3"]
+    ["SP1", "SP2", "SP3", "SP4", "SP5", "LR", "CL", "SU", "MR1", "MR2", "MR3",
+     "MR4", "MR5"]
 )
 
 
@@ -94,8 +97,8 @@ def test_rosters_are_real_selections_with_autofill_staffs():
         assert len(act) == ACTIVE_ROSTER_SIZE
         assert sum(counts_as_pitcher(players[pid]) for pid in act) == MAX_ACTIVE_PITCHERS
 
-        # The Pitching auto-fill's 11 rows, MR1-MR3 labels included (H1); the
-        # 12th and 13th active pitchers stay unlisted.
+        # The Pitching auto-fill's rows, MR1-MR3 labels included (H1), and
+        # MR4/MR5 for the 12th and 13th active pitchers.
         staff = _plain(FIXTURE / "rosters" / f"{tid}_pitching.csv")
         assert sorted(role for _, role in staff) == AUTOFILL_SLOTS
         assert all(pid in act for pid, _ in staff)

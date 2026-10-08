@@ -301,9 +301,16 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "passed_ball_rate": 0.0025,
     "missed_pitch_loc_scale": 0.6,
     "k_in_dirt_rate": 0.02,
-    "extra_innings_runner": 0.0,
+    # Decision 11 (Release 3): the automatic runner on 2nd from the 10th, in
+    # the regular season only. A league can turn it off (league_settings
+    # ``extra_innings_runner``; game_runner writes this key last). Past
+    # ``max_innings`` (a safety guard, no longer a tie cap) every game gets a
+    # sudden-death runner; the hard stop is the only point at which a game
+    # may still end tied.
+    "extra_innings_runner": 1.0,
     "extra_innings_runner_start": 10.0,
-    "max_innings": 18.0,
+    "max_innings": 30.0,
+    "max_innings_hard_stop": 60.0,
     # Outcomes
     "hr_scale": 0.925,
     "double_distance_scale": 0.70,
@@ -392,10 +399,54 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "setup_max_outs": 3.0,
     "middle_reliever_max_outs": 4.0,
     "long_reliever_max_outs": 6.0,
-    "batter_daily_recovery_base": 6.0,
-    "batter_daily_recovery_durability_scale": 0.05,
+    # Release 3 bullpen usage (item B, audit H1). The pieces only work as a
+    # set (each one alone breaks a different usage target):
+    # - inning_start_hook: between innings, a pitcher at his outs/pitch cap or
+    #   the hard fatigue penalty comes out (the PA-loop hook never ran there).
+    # - bullpen_fallback: a forced change with no rested arm takes the freshest
+    #   rest-flagged reliever -- never the closer, never a hard-blocked arm --
+    #   instead of leaving the spent pitcher in.
+    # - mop_up: with every reliever used, the outs cap is suspended and a
+    #   forced change may bring in a starter rested emergency_starter_min_days
+    #   or more since his last start or emergency (owner decision Q6).
+    # - reliever_max_appearances_ratio mirrors closer_max_appearances_ratio for
+    #   every other reliever (owner decision Q3: 0.50, about 81 per 162).
+    "inning_start_hook": 1.0,
+    "bullpen_fallback": 1.0,
+    "mop_up": 1.0,
+    "emergency_starter_min_days": 2.0,
+    "reliever_max_appearances_ratio": 0.50,
+    # Release 3 fix round (item B review): the emergency starter's outing is
+    # relief, so it has a relief ceiling -- his pitch cap forces him out at
+    # emergency_max_pitches. It never moves his next start, however long it
+    # ran (owner decision 7; engine and tracker alike), and a club uses at
+    # most one emergency arm per game.
+    "emergency_max_pitches": 45.0,
+    # Last resort for a forced change with nobody left: once the pitcher is
+    # this many pitches past his fatigue limit (or hurt), an unused arm who
+    # breaks no rule comes in (the rested closer included), then the
+    # least-worn hard-blocked non-closer, then the hard-blocked closer; with
+    # the pen used up, a reserve starter who fails only the rest-day rule.
+    "bullpen_last_resort_margin": 20.0,
+    # Both appearance caps (closer and reliever) never fall below this many
+    # appearances, so they cannot bind in the first days of a season.
+    "appearance_cap_min_apps": 3.0,
+    # Release 3 (item F, audit M16): batter fatigue that accrues. Each calendar
+    # day recovers base + scale * durability (4.9 at durability 50) -- less
+    # than a game costs -- and a game day on the bench recovers the rest-day
+    # bonus on top, so a regular builds debt and a day off clears it. Under
+    # item A's calendar-day clock (off days recover the base too) a durability
+    # 50 regular's debt peaks near the rest trigger; the streak limit below
+    # does most of the resting (re-measured on the integrated branch).
+    "batter_daily_recovery_base": 2.9,
+    "batter_daily_recovery_durability_scale": 0.04,
+    "batter_rest_day_recovery_bonus": 10.0,
+    # Game cost by the position he started at; a substitute pays the sub cost.
     "batter_fatigue_game_cost": 6.0,
     "batter_fatigue_durability_scale": 0.02,
+    "batter_fatigue_game_cost_catcher": 9.0,
+    "batter_fatigue_game_cost_dh": 5.0,
+    "batter_fatigue_game_cost_sub": 1.5,
     "batter_fatigue_threshold_base": 35.0,
     "batter_fatigue_threshold_scale": 0.45,
     "batter_fatigue_penalty_scale": 0.5,
@@ -408,10 +459,39 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # S2-05: fatigue-aware pre-game position-player rest.
     "batter_rest_fatigue_ratio": 0.85,       # rest when debt >= ratio * in-game penalty threshold
     "batter_rest_hard_ratio": 1.20,          # overrides the min-gap guard
-    "batter_rest_consecutive_limit": 9.0,    # non-catchers: rest on the 10th consecutive game day
-    "batter_rest_consecutive_limit_catcher": 2.0,  # catchers: rest on the 3rd
+    # Release 3: the streak counts his team's games in a row (a team off day
+    # does not break it; physics_sim/usage.py). Fatigue rests a tired regular;
+    # the streak limit gives every regular a day off (rest on the 19th
+    # straight game: about 8 a season, starters ~150 GS on data/calibration).
+    # It was 13 when the streak counted calendar days, which the weekly off
+    # day reset, so it never fired under the calendar clock. Catchers rest on
+    # the 4th straight game (was the 3rd).
+    "batter_rest_consecutive_limit": 18.0,
+    "batter_rest_consecutive_limit_catcher": 3.0,
     "batter_rest_min_gap_days": 3.0,         # don't force-rest the same player again within 3 game days
     "batter_rest_max_swaps": 2.0,            # per team per game
+    # Release 3 (owner decision 9): similar-position rest substitutes only on
+    # a hard rest (debt at batter_rest_hard_ratio of the threshold, or the
+    # streak this many games past the limit), at most this many per team per
+    # game.
+    "batter_rest_hard_streak_extra": 3.0,
+    "batter_rest_similar_max": 1.0,
+    # Release 3 fix (owner decision 9 / Q14): the full fatigue penalty is the
+    # cost of CHOOSING not to rest a player (Auto rest days off, or similar
+    # substitutes switched off when one was there). A regular the engine
+    # cannot rest -- nobody on the bench may take his position, the swap cap,
+    # the min-gap guard -- plays at most this penalty (offense x0.95 at
+    # 0.06), so a thin roster loses rest days but not a quarter of its
+    # regulars' bats. Once he is worn down (over the penalty threshold, so he
+    # plays a little worse that day) the manager eases his load: he recovers
+    # this much debt, and wears down again a few games later. On the 7.46.0
+    # one-catcher fixture a lone catcher plays about one game in four a
+    # little worse (mean penalty 0.018; 2.7% of lineup slots league-wide).
+    # (Second fix round: the relief was 6.0 on every blocked fatigue rest
+    # from the 0.85 trigger, which held him just under the threshold -- no
+    # cost at all.)
+    "batter_blocked_rest_penalty_cap": 0.06,
+    "batter_blocked_rest_relief": 12.0,
     # Park/environment
     "park_size_scale": 1.0,
     "park_factor_scale": 0.0,
@@ -486,6 +566,43 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "injury_overuse_scale": 0.19,
     "injury_swing_scale": 1.02,
     "injury_error_scale": 2.0,
+    # Release 3 pitcher arm-injury hazard (item E; physics_sim/arm_injury.py),
+    # rolled once per appearance after the game on its own RNG.
+    # Per appearance: level * (base + per_pitch * pitches)
+    #   * exp(-durability_k * (durability - durability_center) / 10)
+    #   * (1 + rest penalty) * (1 + pitch_ramp * max(0, pitches - ramp_start) / 10)
+    # with level = injury_rate_scale / rate_reference. Rest penalties apply to a
+    # reliever on 0 calendar days' rest or a starter on fewer than
+    # starter_short_rest_days. The durability centre is the league's ACT
+    # pitcher mean, supplied per season by services/injury_settings.
+    # Calibrated with scripts/injury_rate_kpi.py to ~3/4 of MLB (owner,
+    # 2026-10-07): 9-10 pitcher IL stints per team-season, overuse included.
+    # Re-checked on the final Release 3 engine (seed means; static on
+    # data/calibration s1-3 / game_runner on data/calibration_league s1-2,
+    # persistent == daily): pitcher IL 9.59 / 9.50, SP share .399 / .412,
+    # days after floor 42.4 / 47.6, IL60 share .292 / .296, durability
+    # ratio 2.01 / n/a (that fixture's durability is flat 50). All in band,
+    # so the values were kept.
+    "pitcher_arm_enabled": 1.0,
+    "pitcher_arm_base": 0.0075,
+    "pitcher_arm_per_pitch": 0.00013,
+    "pitcher_arm_durability_k": 0.25,
+    "pitcher_arm_durability_center": 50.0,
+    "pitcher_arm_reliever_rest_penalty": 0.5,
+    "pitcher_arm_starter_short_rest_penalty": 0.5,
+    "pitcher_arm_starter_short_rest_days": 4.0,
+    "pitcher_arm_pitch_ramp": 0.15,
+    "pitcher_arm_pitch_ramp_start": 100.0,
+    "pitcher_arm_rate_reference": 0.1,
+    "pitcher_arm_major_share": 0.30,
+    # Owner Q14: a position player who plays tired risks a small post-game
+    # injury: level * base * fatigue, fatigue in [0, 1] (the in-game penalty
+    # over its cap). Severity: major / moderate shares, the rest minor
+    # (day-to-day). Small on purpose -- no injury-riddled seasons.
+    "batter_fatigue_injury_enabled": 1.0,
+    "batter_fatigue_injury_base": 0.008,
+    "batter_fatigue_injury_moderate_share": 0.45,
+    "batter_fatigue_injury_major_share": 0.05,
     # S2-01: sized so the league platoon-split KPI lands in its 20-32 wOBA-point
     # band (2.0 produced ~46 pts). Tune these three together.
     "handedness_contact_bonus": 1.8,

@@ -213,10 +213,10 @@ def _build_pitching_staff(players: List[dict]) -> List[tuple[str, str]]:
 
     Uses the Pitching auto-fill (``utils.pitching_autofill``), the same rows
     the editor's Auto-Fill and ``/pitching/autofill`` write: SP1-5, LR, CL,
-    SU, MR1-MR3. A new league therefore starts with a staff the editor's own
-    validation accepts. The creator used to write plain "MR" rows and two
-    "SU" rows, which the editor rejects. Active pitchers beyond the 11 slots
-    (the 12th and 13th arms) stay unlisted and pitch as extra relievers.
+    SU, MR1-MR3, then the optional MR4/MR5 for the 12th and 13th active arms.
+    A new league therefore starts with a staff the editor's own validation
+    accepts and every active pitcher slotted. The creator used to write plain
+    "MR" rows and two "SU" rows, which the editor rejects.
     """
 
     from utils.pitching_autofill import autofill_pitching_staff
@@ -463,7 +463,14 @@ def create_league(
             players.append(_ensure_unique_id(data))
         if ensure_positions:
             positions = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"]
-            for pos in positions:
+            # Release 3: a second catcher and a spare SS and CF, so a club
+            # can rest its regulars (owner decision 10; the generator used to
+            # leave some organisations one catcher in 51). The spares are
+            # utility players who also list the neighbouring positions.
+            spares = {"C": [], "SS": ["2B", "3B"], "CF": ["LF", "RF"]}
+            if num_hitters >= len(positions) + len(spares):
+                positions += list(spares)
+            for index, pos in enumerate(positions):
                 data = generate_player(
                     is_pitcher=False,
                     age_range=age_range,
@@ -471,6 +478,11 @@ def create_league(
                     rating_profile=profile,
                 )
                 data["is_pitcher"] = False
+                if index >= 8 and spares.get(pos):
+                    others = [p for p in list(data.get("other_positions") or []) if p]
+                    data["other_positions"] = others + [
+                        p for p in spares[pos] if p not in others and p != pos
+                    ]
                 players.append(_ensure_unique_id(data))
             remaining = num_hitters - len(positions)
         else:

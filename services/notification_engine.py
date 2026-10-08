@@ -24,7 +24,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from services.notification_settings import NotificationSettings
 from services.standings_repository import load_standings
@@ -644,12 +644,73 @@ def _detect_roster_spot_open(
     ]
 
 
+def _validator_players_map() -> Dict[str, Dict[str, Any]]:
+    """players.csv as the plain mappings the shared validators read."""
+
+    from utils.player_loader import load_players_from_csv
+
+    players_list = load_players_from_csv("data/players.csv")
+    return {
+        getattr(p, "player_id", ""): {
+            "first_name": getattr(p, "first_name", ""),
+            "last_name": getattr(p, "last_name", ""),
+            "primary_position": getattr(p, "primary_position", ""),
+            "other_positions": getattr(p, "other_positions", []),
+            "is_pitcher": getattr(p, "is_pitcher", False),
+        }
+        for p in players_list
+    }
+
+
+def _read_staff_rows(team_id: str) -> List[Dict[str, str]]:
+    """The team's saved ``{team}_pitching.csv`` as validator rows."""
+
+    import csv
+
+    path = get_data_dir() / "rosters" / f"{team_id}_pitching.csv"
+    rows: List[Dict[str, str]] = []
+    if not path.exists():
+        return rows
+    with path.open("r", encoding="utf-8", newline="") as fh:
+        for row in csv.reader(fh):
+            if len(row) >= 2:
+                rows.append({"player_id": row[0].strip(), "role": row[1].strip().upper()})
+    return rows
+
+
+def _first_report(
+    state: Dict[str, Any], key: str, errors: Sequence[str]
+) -> bool:
+    """Record ``errors`` under ``key``; True when they differ from the last report.
+
+    The validators run on several sim days in a row, so each problem is
+    reported once per distinct set of errors rather than every day: an owner
+    who opted into stop-the-sim is paused once, and a fix clears the record
+    so the same problem showing up again later notifies again.
+    """
+
+    signature = "\n".join(errors) if errors else None
+    previous = state.get(key)
+    if signature is None:
+        state.pop(key, None)
+    else:
+        state[key] = signature
+    return signature is not None and signature != previous
+
+
 def _detect_lineup_validity(
     team_id: str,
     settings: NotificationSettings,
     sim_date: Optional[str],
 ) -> List[NotificationEvent]:
-    """Run the lineup + pitching validators against the saved files."""
+    """Run the lineup, pitching-staff and roster-cap validators on saved files.
+
+    Read-only on the roster: it is read without ``load_roster`` (which writes
+    a placeholder roster when the file is missing). The pitching staff is
+    checked against the ACTIVE roster, so a slot held by a pitcher who went
+    on the injured list or was sent down reads as an empty slot. Each problem
+    is reported once per distinct error set (see :func:`_first_report`).
+    """
 
     rule_lineup = settings.rule("lineup_invalid")
     rule_pitching = settings.rule("pitching_staff_invalid")
@@ -667,24 +728,17 @@ def _detect_lineup_validity(
             validate_lineup,
             validate_pitching_staff,
         )
-        from utils.roster_loader import load_roster
         from utils.lineup_loader import load_lineup
-        from utils.player_loader import load_players_from_csv
     except Exception:
         return []
 
     try:
-        players_list = load_players_from_csv("data/players.csv")
-        players_map = {
-            getattr(p, "player_id", ""): {
-                "primary_position": getattr(p, "primary_position", ""),
-                "other_positions": getattr(p, "other_positions", []),
-                "is_pitcher": getattr(p, "is_pitcher", False),
-            }
-            for p in players_list
-        }
+        players_map = _validator_players_map()
     except Exception:
         players_map = {}
+
+    state = _load_detector_state(team_id)
+    state_before = dict(state)
 
     if rule_lineup.enabled and rule_lineup.notify:
         for vs in ("lhp", "rhp"):
@@ -702,64 +756,51 @@ def _detect_lineup_validity(
                 result = validate_lineup(lineup_rows=rows, players=players_map, vs=vs)
             except Exception:
                 continue
-            if not result.ok:
-                events.append(
-                    NotificationEvent(
-                        rule_id="lineup_invalid",
-                        severity="warning",
-                        title=f"Lineup invalid (vs {vs.upper()})",
-                        message="; ".join(result.errors[:3]) or "Lineup has errors.",
-                        sim_date=sim_date,
-                        payload={"team_id": team_id, "vs": vs, "errors": list(result.errors)},
-                        stop_sim=bool(rule_lineup.stop_sim),
-                    )
+            errors = [] if result.ok else list(result.errors)
+            if not _first_report(state, f"lineup_invalid:{vs}", errors):
+                continue
+            events.append(
+                NotificationEvent(
+                    rule_id="lineup_invalid",
+                    severity="warning",
+                    title=f"Lineup invalid (vs {vs.upper()})",
+                    message="; ".join(errors[:3]) or "Lineup has errors.",
+                    sim_date=sim_date,
+                    payload={"team_id": team_id, "vs": vs, "errors": errors},
+                    stop_sim=bool(rule_lineup.stop_sim),
                 )
+            )
 
     if rule_pitching.enabled and rule_pitching.notify:
         try:
-            pitching_path = get_data_dir() / "rosters" / f"{team_id}_pitching.csv"
-            staff_rows = []
-            if pitching_path.exists():
-                import csv
-                with pitching_path.open("r", encoding="utf-8", newline="") as fh:
-                    for row in csv.reader(fh):
-                        if len(row) >= 2:
-                            staff_rows.append({"player_id": row[0].strip(), "role": row[1].strip().upper()})
-            try:
-                roster_obj = load_roster(team_id)
-                roster_ids = (
-                    list(roster_obj.act)
-                    + list(roster_obj.aaa)
-                    + list(roster_obj.low)
-                    + list(roster_obj.dl)
-                    + list(roster_obj.ir)
+            roster = _read_team_roster(team_id)
+            if roster is not None:
+                result = validate_pitching_staff(
+                    staff=_read_staff_rows(team_id),
+                    players=players_map,
+                    active_ids=list(roster.act),
                 )
-            except Exception:
-                roster_ids = []
-            result = validate_pitching_staff(
-                staff=staff_rows,
-                players=players_map,
-                roster_ids=roster_ids,
-            )
-            if not result.ok:
-                events.append(
-                    NotificationEvent(
-                        rule_id="pitching_staff_invalid",
-                        severity="warning",
-                        title="Pitching staff incomplete",
-                        message="; ".join(result.errors[:3]) or "Pitching staff has errors.",
-                        sim_date=sim_date,
-                        payload={"team_id": team_id, "errors": list(result.errors)},
-                        stop_sim=bool(rule_pitching.stop_sim),
+                errors = [] if result.ok else list(result.errors)
+                if _first_report(state, "pitching_staff_invalid", errors):
+                    events.append(
+                        NotificationEvent(
+                            rule_id="pitching_staff_invalid",
+                            severity="warning",
+                            title="Pitching staff has an empty slot",
+                            message="; ".join(errors[:3])
+                            or "Pitching staff has errors.",
+                            sim_date=sim_date,
+                            payload={"team_id": team_id, "errors": errors},
+                            stop_sim=bool(rule_pitching.stop_sim),
+                        )
                     )
-                )
         except Exception:
             pass
 
     if rule_cap.enabled and rule_cap.notify:
         try:
             cap_errors = _roster_cap_errors(team_id, players_map, sim_date)
-            if cap_errors:
+            if _first_report(state, "roster_cap_violation", cap_errors):
                 events.append(
                     NotificationEvent(
                         rule_id="roster_cap_violation",
@@ -768,13 +809,36 @@ def _detect_lineup_validity(
                         message="; ".join(cap_errors),
                         sim_date=sim_date,
                         payload={"team_id": team_id, "errors": cap_errors},
-                        stop_sim=bool(rule_cap.stop_sim),
+                        # Only the active roster and the pitcher limit pause
+                        # the sim; AAA/LOW overflow is often deliberate (auto-
+                        # assign parks unseatable players there) -- notify only.
+                        stop_sim=bool(rule_cap.stop_sim)
+                        and any(e.startswith("Active roster") for e in cap_errors),
                     )
                 )
         except Exception:
             pass
 
+    if state != state_before:
+        _save_detector_state(team_id, state)
     return events
+
+
+def _has_team_roster_news(team_id: str, news_lines: Iterable[Mapping[str, Any]]) -> bool:
+    """True when today's news holds an injury or transaction line for the team.
+
+    Untagged lines count too: several injury writers log without a team tag.
+    """
+
+    team = team_id.upper()
+    for line in news_lines:
+        category = (line.get("category") or "").lower()
+        if category not in {"injury", "transaction"}:
+            continue
+        line_team = (line.get("team_id") or "").upper()
+        if not line_team or line_team == team:
+            return True
+    return False
 
 
 def _rule_title(rule_id: str) -> str:
@@ -786,7 +850,7 @@ def _rule_title(rule_id: str) -> str:
         "injury_season_ending": "Season-ending injury",
         "injury_returned": "Player returned from injury",
         "lineup_invalid": "Lineup invalid",
-        "pitching_staff_invalid": "Pitching staff incomplete",
+        "pitching_staff_invalid": "Pitching staff has an empty slot",
         "roster_cap_violation": "Roster cap violation",
         "roster_spot_open": "Active roster spot open",
         "win_streak": "Win streak",
@@ -820,12 +884,16 @@ def detect_events(
     sim_date: Optional[str] = None,
     new_phase: Optional[str] = None,
     run_lineup_validators: bool = False,
+    validate_on_roster_news: bool = False,
 ) -> List[NotificationEvent]:
     """Run every detector and return events whose rule is enabled.
 
-    ``run_lineup_validators`` is opt-in because the validators load
-    every player file, so we don't want to run them every day. The
-    season runner triggers them on phase transitions instead.
+    The lineup / pitching-staff / roster-cap validators read players.csv, so
+    they are opt-in rather than daily: ``run_lineup_validators`` runs them
+    (the season runner asks on the first day of a sim and on a phase change),
+    and ``validate_on_roster_news`` also runs them on a day whose news holds
+    an injury or transaction line for this team -- the days a staff slot or a
+    lineup spot can empty.
     """
 
     new_news = _read_news_tail(pre_state.news_size)
@@ -837,7 +905,9 @@ def detect_events(
     events.extend(_detect_finance_payroll_over(team_id, settings, pre_state, new_phase, sim_date))
     events.extend(_detect_finance_negative_net(team_id, settings, pre_state, new_phase, sim_date))
     events.extend(_detect_roster_spot_open(team_id, settings, sim_date))
-    if run_lineup_validators:
+    if run_lineup_validators or (
+        validate_on_roster_news and _has_team_roster_news(team_id, new_news)
+    ):
         events.extend(_detect_lineup_validity(team_id, settings, sim_date))
     return events
 

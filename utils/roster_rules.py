@@ -25,7 +25,9 @@ __all__ = [
     "ORG_LIMIT",
     "ACT_HITTER_TARGET",
     "BASE_LEVEL_CAPS",
+    "MIN_ACTIVE_CATCHERS",
     "counts_as_pitcher",
+    "is_catcher",
 ]
 
 ACTIVE_ROSTER_SIZE = 26
@@ -41,6 +43,9 @@ ORG_LIMIT = ACTIVE_ROSTER_SIZE + AAA_CAP + LOW_CAP
 ACT_HITTER_TARGET = ACTIVE_ROSTER_SIZE - MAX_ACTIVE_PITCHERS
 
 BASE_LEVEL_CAPS = {"act": ACTIVE_ROSTER_SIZE, "aaa": AAA_CAP, "low": LOW_CAP}
+# Catchers a CPU club carries on the active roster (Release 3, owner
+# decision 10). Owner teams with fewer get a non-blocking warning only.
+MIN_ACTIVE_CATCHERS = 2
 
 _TRUE = {"1", "true", "yes", "t", "y"}
 _PITCHER_POSITIONS = {"P", "SP", "RP"}
@@ -72,3 +77,48 @@ def counts_as_pitcher(player: Any) -> bool:
         return True
     primary = str(_field(player, "primary_position") or "").strip().upper()
     return primary in _PITCHER_POSITIONS
+
+
+def _position_tokens(value: Any) -> list[str]:
+    """Positions in an ``other_positions`` value, upper-cased.
+
+    Accepts a list, a ``|``/``,``/``/``-separated string or a Python list
+    literal (``"['C', '1B']"``), as older players.csv rows hold.
+    """
+
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip().strip("[]")
+        for sep in ("|", "/"):
+            text = text.replace(sep, ",")
+        items = text.split(",")
+    else:
+        try:
+            items = list(value)
+        except TypeError:
+            items = [value]
+    out: list[str] = []
+    for item in items:
+        token = str(item or "").strip().strip("'\"").strip().upper()
+        if token:
+            out.append(token)
+    return out
+
+
+def is_catcher(player: Any) -> bool:
+    """True when ``player`` can catch: a position player whose primary
+    position is C or who lists C among ``other_positions``.
+
+    The one catcher predicate (Release 3): CPU roster upkeep, auto-assign,
+    the lineup auto-fill and the engine's defence fallback all use it, so a
+    utility player who lists C counts the same everywhere. Pitchers never
+    count.
+    """
+
+    if player is None or counts_as_pitcher(player):
+        return False
+    primary = str(_field(player, "primary_position") or "").strip().upper()
+    if primary == "C":
+        return True
+    return "C" in _position_tokens(_field(player, "other_positions"))

@@ -37,6 +37,7 @@ from services.notification_engine import (
 )
 from services.notification_settings import load_notification_settings
 from utils.path_utils import get_data_dir
+from utils.sim_date import sim_date_scope
 
 from ..security import CurrentIdentity, require_bearer
 
@@ -716,6 +717,20 @@ def _human_team_ids() -> List[str]:
         return []
 
 
+def _team_readiness_notes(team_id: str) -> List[str]:
+    """Non-blocking readiness notes for an owner's team (Release 3): today
+    only "fewer than two catchers" (owner decision 10). Never stops a sim."""
+    try:
+        from api.routers.validation import load_players_map, load_team_levels
+        from services.roster_validation import validate_catcher_depth
+
+        levels = load_team_levels(team_id)
+        result = validate_catcher_depth(levels.get("act", []), load_players_map())
+    except Exception:
+        return []
+    return [f"{team_id}: {msg}" for msg in result.warnings]
+
+
 def _league_readiness(*, include_lineups: bool = True) -> Dict[str, Any]:
     """Per-human-team readiness for advancing the season: legal roster, lineups
     set/legal, and Opening-Day solvency. Multi-owner is commissioner-driven, so
@@ -727,7 +742,13 @@ def _league_readiness(*, include_lineups: bool = True) -> Dict[str, Any]:
         if include_lineups:
             issues += _team_lineup_issues(tid)
         issues += _team_solvency_issues(tid)
-        teams.append({"team_id": tid, "ready": not issues, "issues": issues})
+        teams.append({
+            "team_id": tid,
+            "ready": not issues,
+            "issues": issues,
+            # Advisory only (never affects ``ready``): Release 3 decision 10.
+            "notes": _team_readiness_notes(tid),
+        })
     return {
         "teams": teams,
         "all_ready": all(t["ready"] for t in teams),
@@ -748,10 +769,30 @@ def _simulate_n(
 
     Mirrors the full post-day flow from PyQt's
     ``ui/season_progress_window._simulate_day`` — running games is only
-    step 1. After each batch of sim days we also run finance cadence
-    updates, CPU trade proposals, and DL/injury recovery, then log a
-    recap. Without these post-day hooks the sim produces box scores but
+    step 1. Without the post-day hooks the sim produces box scores but
     leaves the economic and roster-management side of the league frozen.
+    The per-day and per-call steps (see ``_run_day_automations`` and
+    ``_run_call_automations``):
+
+    * before every date's games: the depth charts (a CPU club's is rebuilt
+      from that day's roster) and the roster prep;
+    * after EVERY played date, inside the day loop: the injured lists
+      (activations, owner team play settings honoured), the monthly CPU
+      call-up check and the FA negotiation day. These change who plays the
+      next day, so they must not wait for the end of the call -- a healed
+      player used to sit until then (up to 29 days on "Sim month"), and a
+      league's games depended on how its days were batched;
+    * once per call, after the results are persisted: the owner finance
+      cadence (it walks the call's dates itself) and the CPU trade proposal
+      cycle (minutes per run; it scales its odds by the number of days).
+
+    With the game seeds fixed, the games, the injured-list moves and the
+    persisted league state are then the same however the days are split
+    into calls. The CPU trade cycle is the exception: it runs once per call
+    with its own unseeded generator, so a CPU-CPU trade can land on a
+    different day. The per-game seeds themselves come from an unseeded
+    generator in each new process (``SeasonSimulator._seed_rng``), so two
+    live runs only match when those are pinned (tests do).
 
     If the simulator hits the configured ``draft_date`` we stop early
     and set ``draft_blocked=True`` so the UI can prompt the commissioner
@@ -795,10 +836,6 @@ def _simulate_n(
             "draft_blocked": draft_blocked,
             "sim_stopped_reason": "phase_blocked",
         }
-
-    # Every club needs a depth chart: injury coverage reads it first (audit
-    # decision 14). Creates one only where none exists; never overwrites.
-    _ensure_depth_charts()
 
     # Roster-compliance gate. Refuse to advance the calendar while the
     # owner's team isn't carrying a legal roster — most often this
@@ -847,6 +884,7 @@ def _simulate_n(
     # the next ``_begin_sim_progress`` call resets it.
     playable = max(0, min(n, len(simulator.dates) - simulator._index))
     _begin_sim_progress(playable)
+    day_automations: Dict[str, Any] = {}
 
     # Count only days that actually played games: a date whose games were all
     # finished earlier (a resumed partial day from an older build) advances the
@@ -905,10 +943,19 @@ def _simulate_n(
             except Exception:
                 pre_state = None
 
-        # Rosters first, in this process (not inside parallel game workers):
-        # every club playing today can field nine, and CPU clubs are full,
-        # balanced and under the cap (audit H9 / decision 14).
-        _prepare_rosters_for_date(simulator, target_date)
+        # Every club needs a depth chart: injury coverage reads it first
+        # (audit decision 14). A missing one is created; a CPU club's is
+        # rebuilt from today's roster -- before every date, not once per
+        # call, so a call-up or a return reaches it the same day however the
+        # days are batched. A chart a person saved is never touched.
+        # Then the rosters, in this process (not inside parallel game
+        # workers): every club playing today can field nine, and CPU clubs
+        # are full, balanced and under the cap (audit H9 / decision 14).
+        # Both on today's league date: the league files still hold the
+        # call's first day.
+        with sim_date_scope(target_date):
+            _ensure_depth_charts()
+            _prepare_rosters_for_date(simulator, target_date)
         try:
             games_played = simulator.simulate_next_day()
         except Exception as exc:  # pragma: no cover - defensive
@@ -925,16 +972,35 @@ def _simulate_n(
         played_dates.append(target_date)
         _bump_sim_progress()
 
+        # The per-day automations (injured lists, monthly call-ups, FA
+        # negotiations), before tomorrow's roster prep and before the
+        # notification check below, so the owner hears about a return the
+        # day it happens.
+        _merge_day_automations(
+            day_automations,
+            _run_day_automations(
+                target_date, next_date=_next_game_date(simulator)
+            ),
+        )
+
         if notif_settings is not None and team_id and pre_state is not None:
             try:
                 post_phase = getattr(manager, "phase", None)
                 post_phase_str = post_phase.name if post_phase is not None else None
+                # Lineup / staff / roster-cap checks (Release 3, owner
+                # decision Q8): on the first day of every sim, on a phase
+                # change, and on any day with injury or transaction news for
+                # the team. Each problem is reported once, not every day.
                 day_events = detect_events(
                     team_id,
                     notif_settings,
                     pre_state,
                     sim_date=target_date,
                     new_phase=post_phase_str,
+                    run_lineup_validators=(
+                        days_done == 1 or post_phase != pre_phase
+                    ),
+                    validate_on_roster_news=True,
                 )
             except Exception:
                 day_events = []
@@ -959,12 +1025,13 @@ def _simulate_n(
     if played_dates or partial_dates:
         _persist_post_sim_state(simulator, played_dates, partial_dates=partial_dates)
 
-    # Post-day automations. Only run these if we actually played days —
+    # Once-per-call automations. Only run these if we actually played days —
     # a no-op sim (draft pause, empty schedule, etc.) shouldn't trigger
-    # finance settlement or trade offers.
+    # finance settlement or trade offers. The per-day ones already ran.
     automations: Dict[str, Any] = {}
     if played_dates:
-        automations = _run_daily_automations(played_dates)
+        automations = _run_call_automations(played_dates)
+        automations.update(day_automations)
 
     result: Dict[str, Any] = {
         "played_dates": played_dates,
@@ -1021,7 +1088,7 @@ def _prepare_rosters_for_date(simulator: SeasonSimulator, date: str) -> None:
     """
 
     try:
-        from services.injury_manager import _promotion_allowed
+        from services.injury_manager import _option_allowed, _promotion_allowed
         from services.roster_fill import (
             apply_prospect_bookkeeping,
             ensure_fieldable_roster,
@@ -1067,6 +1134,7 @@ def _prepare_rosters_for_date(simulator: SeasonSimulator, date: str) -> None:
                 maintain_cpu_active_roster(
                     team_id, roster, players,
                     target_size=ACTIVE_ROSTER_SIZE, cap=cap, allowed=allowed,
+                    option_allowed=_option_allowed(team_id),
                 )
                 if cpu
                 else []
@@ -1267,12 +1335,156 @@ def _persist_post_sim_state(
         pass
 
 
-def _run_daily_automations(played_dates: List[str]) -> Dict[str, Any]:
-    """Run the same post-day service cycle PyQt's season window runs:
-    owner finance cadence, CPU trade proposal cycle, and DL/injury
-    recovery. Each block is wrapped so a single misbehaving service
-    can't block the others or roll back the game results we just
-    persisted."""
+def _next_game_date(simulator: SeasonSimulator) -> Optional[str]:
+    """The next date in the simulator's calendar with a game still to play.
+
+    That is the league's current sim date once the dates played so far are
+    persisted (``utils.sim_date.get_current_sim_date``); None at the end of
+    the schedule.
+    """
+
+    pending = {
+        str(game.get("date", ""))
+        for game in simulator.schedule
+        if not str(game.get("result", "") or "").strip()
+    }
+    for date in simulator.dates[simulator._index:]:
+        if str(date) in pending:
+            return str(date)
+    return None
+
+
+def _run_day_automations(
+    played_date: str, *, next_date: Optional[str] = None
+) -> Dict[str, Any]:
+    """The post-day steps that run after EVERY played date.
+
+    Injured lists, the monthly CPU call-up check and the FA negotiation day:
+    each can change who plays the next day, so ``_simulate_n`` runs them
+    inside its day loop, after the date's games and before the next date's
+    roster prep. ``next_date`` is the next date with games (None at the end
+    of the schedule): a stint that is over by then ends now, so the player is
+    back for that game -- the date a one-day call has always used, as the
+    league's sim date moves to the next game date once the day is saved.
+    Every step runs on that league date (``sim_date_scope``), since the
+    league files still hold the call's first day until the call ends. Each
+    step is wrapped so one failing service can't block the others.
+    """
+
+    summary: Dict[str, Any] = {}
+    il_date = str(next_date or played_date)
+
+    with sim_date_scope(il_date):
+        try:
+            from services.dl_automation import process_disabled_lists
+
+            # A CPU club activates everyone due; an owner's club follows the
+            # owner's team play settings (services.team_play_settings).
+            dl_summary = process_disabled_lists(
+                today=il_date,
+                days_elapsed=1,
+                auto_activate=True,
+            )
+            summary["dl_updates"] = {
+                "activated": len(getattr(dl_summary, "activated", []) or []),
+                "alerts": len(getattr(dl_summary, "alerts", []) or []),
+                "blocked": len(getattr(dl_summary, "blocked", []) or []),
+                "lineup_restored": len(
+                    getattr(dl_summary, "lineup_restored", []) or []
+                ),
+            }
+        except Exception as exc:  # pragma: no cover - defensive
+            summary["dl_updates_error"] = str(exc)
+
+        try:
+            from services.inseason_callups import run_monthly_callups
+
+            # Once a month, on the first played date of the month.
+            summary["callups"] = run_monthly_callups(
+                played_dates=[played_date], data_dir=get_data_dir()
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            summary["callups_error"] = str(exc)
+
+        # FA negotiation windows (#12): advance each open negotiation one day
+        # per played date -- CPU teams bid, blow-away offers win early,
+        # deadlines resolve and sign the winner. Runs in the parent (post-day),
+        # so it doesn't touch the parallel game sim.
+        try:
+            from services import fa_negotiations
+            from services.free_agency import finalize_fa_signing
+            from utils.player_loader import load_players_from_csv
+            from utils.team_loader import load_teams
+
+            data_dir = get_data_dir()
+            players_by_id = {
+                str(getattr(p, "player_id", "")): p
+                for p in load_players_from_csv(str(data_dir / "players.csv"))
+            }
+            try:
+                teams = load_teams()
+            except Exception:
+                teams = []
+
+            def _sign(*, team_id, player_id, offer, player) -> bool:
+                return finalize_fa_signing(
+                    team_id,
+                    player_id,
+                    level=str(offer.get("level", "ACT")),
+                    years=int(offer.get("years", 1) or 1),
+                    annual_salary=int(offer.get("annual_salary", 0) or 0),
+                    signing_bonus=int(offer.get("signing_bonus", 0) or 0),
+                    player=player,
+                    data_dir=data_dir,
+                )
+
+            res = fa_negotiations.process_negotiations(
+                played_date,
+                data_dir=data_dir,
+                sign_fn=_sign,
+                players_by_id=players_by_id,
+                teams=teams,
+            )
+            summary["fa_negotiations"] = {
+                "cpu_offers": int(res.get("cpu_offers", 0) or 0),
+                "signed": len(res.get("signed", []) or []),
+                "no_deal": len(res.get("no_deal", []) or []),
+            }
+        except Exception as exc:  # pragma: no cover - defensive
+            summary["fa_negotiations_error"] = str(exc)
+
+    return summary
+
+
+def _merge_day_automations(total: Dict[str, Any], day: Dict[str, Any]) -> None:
+    """Fold one date's ``_run_day_automations`` summary into the call's."""
+
+    for key in ("dl_updates", "fa_negotiations"):
+        counts = day.get(key)
+        if not isinstance(counts, dict):
+            continue
+        bucket = total.setdefault(key, {})
+        for name, value in counts.items():
+            bucket[name] = int(bucket.get(name, 0) or 0) + int(value or 0)
+    callups = day.get("callups")
+    if isinstance(callups, dict) and (
+        "callups" not in total or callups.get("reason") != "already_ran"
+    ):
+        # The month's actual check, not the "already ran" days after it.
+        total["callups"] = callups
+    for key, value in day.items():
+        if key.endswith("_error"):
+            total[key] = value
+
+
+def _run_call_automations(played_dates: List[str]) -> Dict[str, Any]:
+    """The post-day steps that run once per sim call, after it is saved.
+
+    The owner finance cadence walks the call's dates itself, and the CPU
+    trade proposal cycle takes minutes per run and scales its odds by the
+    number of days. Each block is wrapped so a single misbehaving service
+    can't block the others or roll back the game results just persisted.
+    """
 
     summary: Dict[str, Any] = {}
 
@@ -1295,81 +1507,36 @@ def _run_daily_automations(played_dates: List[str]) -> Dict[str, Any]:
     except Exception as exc:  # pragma: no cover - defensive
         summary["cpu_trades_error"] = str(exc)
 
-    try:
-        from services.dl_automation import process_disabled_lists
-
-        dl_summary = process_disabled_lists(
-            today=None,  # defaults to current sim date
-            days_elapsed=len(played_dates),
-            auto_activate=True,
-        )
-        summary["dl_updates"] = {
-            "activated": len(getattr(dl_summary, "activated", []) or []),
-            "alerts": len(getattr(dl_summary, "alerts", []) or []),
-            "blocked": len(getattr(dl_summary, "blocked", []) or []),
-            "lineup_restored": len(getattr(dl_summary, "lineup_restored", []) or []),
-        }
-    except Exception as exc:  # pragma: no cover - defensive
-        summary["dl_updates_error"] = str(exc)
-
-    try:
-        from services.inseason_callups import run_monthly_callups
-
-        summary["callups"] = run_monthly_callups(
-            played_dates=played_dates, data_dir=get_data_dir()
-        )
-    except Exception as exc:  # pragma: no cover - defensive
-        summary["callups_error"] = str(exc)
-
-    # FA negotiation windows (#12): advance each open negotiation one day per
-    # played date — CPU teams bid, blow-away offers win early, deadlines resolve
-    # and sign the winner. Runs in the parent (post-day), so it doesn't touch the
-    # parallel game sim.
-    try:
-        from services import fa_negotiations
-        from services.free_agency import finalize_fa_signing
-        from utils.player_loader import load_players_from_csv
-        from utils.team_loader import load_teams
-
-        data_dir = get_data_dir()
-        players_by_id = {
-            str(getattr(p, "player_id", "")): p
-            for p in load_players_from_csv(str(data_dir / "players.csv"))
-        }
-        try:
-            teams = load_teams()
-        except Exception:
-            teams = []
-
-        def _sign(*, team_id, player_id, offer, player) -> bool:
-            return finalize_fa_signing(
-                team_id,
-                player_id,
-                level=str(offer.get("level", "ACT")),
-                years=int(offer.get("years", 1) or 1),
-                annual_salary=int(offer.get("annual_salary", 0) or 0),
-                signing_bonus=int(offer.get("signing_bonus", 0) or 0),
-                player=player,
-                data_dir=data_dir,
-            )
-
-        neg_summary = {"cpu_offers": 0, "signed": 0, "no_deal": 0}
-        for played_date in played_dates:
-            res = fa_negotiations.process_negotiations(
-                played_date,
-                data_dir=data_dir,
-                sign_fn=_sign,
-                players_by_id=players_by_id,
-                teams=teams,
-            )
-            neg_summary["cpu_offers"] += int(res.get("cpu_offers", 0) or 0)
-            neg_summary["signed"] += len(res.get("signed", []) or [])
-            neg_summary["no_deal"] += len(res.get("no_deal", []) or [])
-        summary["fa_negotiations"] = neg_summary
-    except Exception as exc:  # pragma: no cover - defensive
-        summary["fa_negotiations_error"] = str(exc)
-
     return summary
+
+
+def _run_daily_automations(played_dates: List[str]) -> Dict[str, Any]:
+    """The whole post-day cycle for dates already played and saved.
+
+    For callers without a live simulator (tools, tests): the per-day steps for
+    each date in order -- each injured-list step on the following date in the
+    list, the last on the league's current sim date -- then the once-per-call
+    steps. ``_simulate_n`` runs the two halves itself.
+    """
+
+    dates = [str(d) for d in played_dates]
+    summary: Dict[str, Any] = {}
+    for index, played_date in enumerate(dates):
+        if index + 1 < len(dates):
+            next_date: Optional[str] = dates[index + 1]
+        else:
+            try:
+                from utils.sim_date import get_current_sim_date
+
+                next_date = get_current_sim_date() or None
+            except Exception:  # pragma: no cover - defensive
+                next_date = None
+        _merge_day_automations(
+            summary, _run_day_automations(played_date, next_date=next_date)
+        )
+    automations = _run_call_automations(dates) if dates else {}
+    automations.update(summary)
+    return automations
 
 
 # ---------------------------------------------------------------------------
@@ -2514,13 +2681,26 @@ def _cpu_activate_eligible() -> List[str]:
 
     Runs with ``force_auto_activate`` so it ignores the league's
     ``auto_activate_il`` setting: this IS the fallback for owners who left that
-    off and then stopped showing up.
+    off and then stopped showing up. It never overrides an owner's own
+    per-team choice (owner decision Q11): an owner who turned 15-day
+    activation off keeps his players listed, the 60-day list always follows
+    the owner's 60-day choice, and nobody moves when ownership can't be read
+    (``services.dl_automation.process_disabled_lists``).
     """
 
     try:
         from services.dl_automation import process_disabled_lists
 
-        summary = process_disabled_lists(force_auto_activate=True)
+        # The fallback is for owners who stopped showing up: only clubs the
+        # readiness check lists as not ready. An engaged owner's players
+        # follow his own (or the default) setting.
+        try:
+            unready = list(_league_readiness()["unready"])
+        except Exception:
+            unready = []
+        summary = process_disabled_lists(
+            force_auto_activate=True, force_teams=unready
+        )
         return list(getattr(summary, "activated", []) or [])
     except Exception:  # pragma: no cover - defensive
         return []
@@ -3162,12 +3342,160 @@ def season_action_items(
             }
         )
 
+    # 5. Injured-list returns (Release 3, owner decision Q11): players healthy
+    # again but waiting on the owner -- parked in the minors because the
+    # active roster was full ("ready - make room"), or still on a list the
+    # owner activates by hand. Read-only: the automation never moves anyone
+    # else on an owner's roster to make room.
+    items.extend(_il_return_action_items(team_id))
+
     return {
         "team_id": team_id,
         "items": items,
         "count": len(items),
         "deadline": deadline,
     }
+
+
+def _il_return_action_items(team_id: str) -> List[Dict[str, Any]]:
+    """Season-page items for an owner's healthy injured-list returners."""
+
+    out: List[Dict[str, Any]] = []
+    try:
+        from services.dl_automation import players_awaiting_room
+        from services.injury_manager import (
+            disabled_list_days_remaining,
+            disabled_list_label,
+        )
+        from utils.player_loader import load_players_from_csv
+
+        from .validation import load_team_levels
+
+        levels = load_team_levels(team_id)
+        parked = players_awaiting_room(team_id, levels=levels)
+        listed = list(levels.get("dl", []) or []) + list(levels.get("ir", []) or [])
+        players: Dict[str, Any] = {}
+        if parked or listed:
+            players = {
+                str(p.player_id): p
+                for p in load_players_from_csv(get_data_dir() / "players.csv")
+            }
+    except Exception:
+        return out
+
+    def _name(pid: str) -> str:
+        p = players.get(pid)
+        name = f"{getattr(p, 'first_name', '')} {getattr(p, 'last_name', '')}".strip()
+        return name or pid
+
+    if parked:
+        names = [_name(str(e.get("player_id"))) for e in parked]
+        n = len(names)
+        where = sorted({str(e.get("level") or "aaa").upper() for e in parked})
+        # Why he is waiting, as the automation recorded it: a full active
+        # roster, or an open spot with the staff already at the pitcher limit.
+        reasons = {str(e.get("reason") or "active_full") for e in parked}
+        caps = [e.get("pitcher_cap") for e in parked if e.get("pitcher_cap")]
+        try:
+            from utils.roster_loader import active_pitcher_cap
+
+            pitcher_cap = int(caps[0]) if caps else active_pitcher_cap()
+        except Exception:
+            pitcher_cap = 13
+        staff_full = f"your pitching staff was at the {pitcher_cap}-pitcher limit"
+        if reasons == {"pitcher_cap"}:
+            why = f"because {staff_full}"
+        elif "pitcher_cap" in reasons:
+            why = f"because your active roster was full or {staff_full}"
+        else:
+            why = "because your active roster was full"
+        out.append(
+            {
+                "kind": "il_return_needs_room",
+                "severity": "action",
+                "title": (
+                    f"{names[0]} is healthy — make room to bring him up"
+                    if n == 1
+                    else f"{n} players are healthy — make room to bring them up"
+                ),
+                "detail": (
+                    f"Back from the injured list and waiting in {'/'.join(where)} "
+                    f"{why}: {', '.join(names[:4])}. "
+                    "Option or release someone, then promote him on the Roster page."
+                ),
+                "count": n,
+                "href": "/roster",
+            }
+        )
+
+    # A list the owner runs by hand vs one on automatic activation: a player
+    # still listed after his stint on an automatic list was blocked -- no
+    # room in the active roster, AAA or Low-A -- so pointing the owner to the
+    # setting he already turned on would be wrong.
+    def _auto_list(list_level: str) -> bool:
+        try:
+            from services.team_play_settings import (
+                IL_AUTO_ACTIVATE_15,
+                IL_AUTO_ACTIVATE_60,
+                get_team_play_setting,
+            )
+
+            key = IL_AUTO_ACTIVATE_60 if list_level == "ir" else IL_AUTO_ACTIVATE_15
+            return bool(get_team_play_setting(team_id, key, data_dir=get_data_dir()))
+        except Exception:
+            return False
+
+    ir_ids = set(levels.get("ir", []) or [])
+    manual: List[str] = []
+    blocked: List[str] = []
+    for pid in listed:
+        player = players.get(pid)
+        if player is None:
+            continue
+        try:
+            remaining = disabled_list_days_remaining(player)
+        except Exception:
+            continue
+        if remaining is not None and remaining <= 0:
+            label = disabled_list_label(getattr(player, "injury_list", "")) or "IL"
+            entry = f"{_name(pid)} ({label})"
+            if _auto_list("ir" if pid in ir_ids else "dl"):
+                blocked.append(entry)
+            else:
+                manual.append(entry)
+    ready = manual + blocked
+    if ready:
+        n = len(ready)
+        details: List[str] = []
+        if manual:
+            details.append(
+                f"Their minimum stint is over: {', '.join(manual[:4])}. "
+                "Activate them on the Injuries page, or turn on automatic "
+                "activation in your team settings."
+            )
+        if blocked:
+            details.append(
+                "Automatic activation is on, but there is no room for "
+                f"{', '.join(blocked[:4])}: your active roster (or, for a "
+                "pitcher, your staff) and AAA are full, and Low-A is full or "
+                "he is too old for it. Option or release someone, then "
+                "activate him on the Injuries page."
+            )
+        out.append(
+            {
+                "kind": "il_return_ready",
+                "severity": "action",
+                "title": (
+                    f"{ready[0]} can come off the injured list"
+                    if n == 1
+                    else f"{n} players can come off the injured list"
+                ),
+                "detail": " ".join(details),
+                "count": n,
+                "href": "/injuries",
+            }
+        )
+    return out
 
 
 @router.post("/preseason/training-camp")
@@ -3550,12 +3878,14 @@ def _ensure_playoff_bracket() -> Optional[Dict[str, Any]]:
     except Exception:
         return None
 
-    # Skip if a bracket already exists for the current year.
+    # Skip if a bracket already exists for the current year. A year-0 or
+    # round-less bracket is a placeholder (once: the wizard's
+    # playoffs_config.json parsed as one), not a seeded postseason — rebuild.
     try:
         existing = _pf.load_bracket()
     except Exception:
         existing = None
-    if existing is not None:
+    if existing is not None and not _pf.bracket_is_empty(existing):
         return {"reused_existing": True}
 
     try:

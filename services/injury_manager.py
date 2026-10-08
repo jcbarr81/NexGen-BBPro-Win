@@ -308,6 +308,9 @@ def place_on_injury_list(
                 [(coverage.promoted_id, coverage.promoted_from or "aaa", "act")],
                 players,
                 details=f"Called up to cover the injured {_name(player)}",
+                # The date he got hurt -- the game's date, which the league
+                # files don't hold yet (mid-call, and all postseason).
+                season_date=today.isoformat(),
             )
         except Exception:
             pass
@@ -588,6 +591,7 @@ def recover_from_injury(
             record_roster_moves,
         )
         from utils.roster_loader import active_pitcher_cap, active_roster_cap
+        from utils.roster_rules import MIN_ACTIVE_CATCHERS
 
         players = _players_map(players_by_id, player)
         cap = active_roster_cap()
@@ -630,9 +634,11 @@ def recover_from_injury(
             ):
                 break
         while len(roster.act) > cap:
+            # Two catchers are protected on a CPU club only (owner decision
+            # 10); an owner's second catcher is his call.
             down = choose_send_down(
                 roster, players, exclude={player.player_id}, allowed=option_ok,
-                pitcher_cap=arm_cap,
+                pitcher_cap=arm_cap, keep_catchers=MIN_ACTIVE_CATCHERS if cpu else 1,
             )
             if down is None:
                 break
