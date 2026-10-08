@@ -577,6 +577,12 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # pitcher mean, supplied per season by services/injury_settings.
     # Calibrated with scripts/injury_rate_kpi.py to ~3/4 of MLB (owner,
     # 2026-10-07): 9-10 pitcher IL stints per team-season, overuse included.
+    # Re-checked on the final Release 3 engine (seed means; static on
+    # data/calibration s1-3 / game_runner on data/calibration_league s1-2,
+    # persistent == daily): pitcher IL 9.59 / 9.50, SP share .399 / .412,
+    # days after floor 42.4 / 47.6, IL60 share .292 / .296, durability
+    # ratio 2.01 / n/a (that fixture's durability is flat 50). All in band,
+    # so the values were kept.
     "pitcher_arm_enabled": 1.0,
     "pitcher_arm_base": 0.0075,
     "pitcher_arm_per_pitch": 0.00013,
