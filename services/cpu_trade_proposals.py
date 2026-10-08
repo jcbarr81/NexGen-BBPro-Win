@@ -833,6 +833,17 @@ def _run_cpu_cpu_pass(
         cpu_cpu_last[str(final.to_team).strip().upper()] = iso
         executions.append(iso)
         _apply_roster_swap(rosters_by_team, final)
+        # A pitcher-for-hitter deal leaves one club at 14 active pitchers and
+        # the other at 12; get both legal now rather than saving that shape
+        # until each club's next game-day upkeep.
+        _cpu_roster_upkeep_after_trade(
+            final,
+            cpu_teams=cpu_teams,
+            players_by_id=players_by_id,
+            rosters_by_team=rosters_by_team,
+            current_date=current_date,
+            data_dir=data_dir,
+        )
         signature = _offer_package_signature(final)
         if signature:
             blocked_packages.add(signature)
@@ -863,6 +874,74 @@ def _run_cpu_cpu_pass(
         break  # one execution per cycle run (D4)
 
     return _result()
+
+
+def _cpu_roster_upkeep_after_trade(
+    trade: Trade,
+    *,
+    cpu_teams: Sequence[str],
+    players_by_id: Mapping[str, object],
+    rosters_by_team: Mapping[str, object],
+    current_date: date,
+    data_dir: Path,
+) -> dict[str, int]:
+    """Run the CPU active-roster upkeep for both clubs of an executed trade.
+
+    Arrivals land on the active roster, so a pitcher-for-hitter deal saved
+    one club with 14 active pitchers (13 is the limit) and its partner with
+    12. This is the same ``maintain_cpu_active_roster`` the daily upkeep runs
+    -- the club's own minors only, option rules honoured, every move a
+    recorded transaction -- applied straight after the commit. CPU clubs
+    only: a club missing from ``cpu_teams`` (the strict ownership read) is
+    never touched. Best effort; returns the move count per club.
+    """
+
+    from services.injury_manager import _option_allowed, _promotion_allowed
+    from services.roster_fill import (
+        apply_prospect_bookkeeping,
+        maintain_cpu_active_roster,
+        record_roster_moves,
+    )
+    from utils.roster_loader import (
+        ACTIVE_ROSTER_SIZE,
+        active_roster_cap,
+        save_roster,
+    )
+
+    cpu_ids = {str(t or "").strip().upper() for t in cpu_teams}
+    roster_dir = Path(data_dir) / "rosters"
+    cap = active_roster_cap(current_date.isoformat())
+    summary: dict[str, int] = {}
+    for raw in (trade.from_team, trade.to_team):
+        team_id = str(raw or "").strip().upper()
+        if not team_id or team_id not in cpu_ids:
+            continue
+        if not (roster_dir / f"{team_id}.csv").exists():
+            continue
+        try:
+            roster = load_roster(team_id, roster_dir=roster_dir)
+            moves = maintain_cpu_active_roster(
+                team_id, roster, players_by_id,
+                target_size=ACTIVE_ROSTER_SIZE, cap=cap,
+                allowed=_promotion_allowed(team_id),
+                option_allowed=_option_allowed(team_id),
+            )
+            if moves:
+                save_roster(team_id, roster, roster_dir=roster_dir)
+                record_roster_moves(
+                    team_id, moves, players_by_id,
+                    details="CPU roster upkeep after trade",
+                )
+                apply_prospect_bookkeeping(team_id, moves)
+        except Exception:
+            continue
+        summary[team_id] = len(moves)
+        cached = rosters_by_team.get(team_id)
+        for level in ("act", "aaa", "low"):
+            group = getattr(cached, level, None)
+            if isinstance(group, list):
+                group[:] = list(getattr(roster, level, []) or [])
+    return summary
 
 
 def _apply_roster_swap(rosters_by_team: Mapping[str, object], trade: Trade) -> None:

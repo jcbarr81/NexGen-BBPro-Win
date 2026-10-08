@@ -11,6 +11,7 @@ import functools
 import hashlib
 import inspect
 import json
+import re
 from datetime import date as _date
 from datetime import timedelta as _timedelta
 from pathlib import Path
@@ -275,6 +276,29 @@ class PlayoffBracket:
         return br
 
 
+# Bracket documents are ``playoffs.json`` or ``playoffs_<year>.json``. A plain
+# ``playoffs_*.json`` glob also matched the league wizard's
+# ``playoffs_config.json`` (the playoff *format*), which parsed as an empty
+# year-0 bracket and masked the missing real one.
+_BRACKET_FILE_RE = re.compile(r"^playoffs_(\d+)\.json$")
+
+
+def bracket_is_empty(bracket: Optional["PlayoffBracket"]) -> bool:
+    """True when ``bracket`` is missing or has nothing to play.
+
+    A bracket with year 0 or no rounds is a placeholder (or a non-bracket
+    document parsed as one), never a seeded postseason.
+    """
+
+    if bracket is None:
+        return True
+    try:
+        year = int(getattr(bracket, "year", 0) or 0)
+    except (TypeError, ValueError):
+        year = 0
+    return year <= 0 or not list(getattr(bracket, "rounds", None) or [])
+
+
 def _bracket_path(year: int | None = None) -> Path:
     base = get_data_dir()
     if year:
@@ -325,7 +349,10 @@ def load_bracket(path: Optional[Path] = None, *, year: Optional[int] = None) -> 
                 candidates.append(_bracket_path(inferred_year))
         base = get_data_dir()
         try:
-            matches = list(base.glob("playoffs_*.json"))
+            matches = [
+                p for p in base.glob("playoffs_*.json")
+                if _BRACKET_FILE_RE.match(p.name)
+            ]
         except Exception:
             matches = []
         if year is None and matches:
@@ -1663,6 +1690,7 @@ __all__ = [
     "PlayoffBracket",
     "save_bracket",
     "load_bracket",
+    "bracket_is_empty",
     "generate_bracket",
     "simulate_series",
     "simulate_playoffs",

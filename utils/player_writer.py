@@ -1,6 +1,7 @@
 import csv
 from models.player import Player
 from models.pitcher import Pitcher
+from utils.atomic_write import atomic_text_writer
 
 def save_players_to_csv(players, file_path):
     fieldnames = [
@@ -20,7 +21,9 @@ def save_players_to_csv(players, file_path):
         "pitcher_archetype", "hitter_archetype",
     ]
 
-    with open(file_path, mode="w", newline="") as csvfile:
+    # Atomic: a parallel-day worker reading players.csv must never see a
+    # half-written file (a cut on a row boundary silently drops players).
+    with atomic_text_writer(file_path, newline="") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
 
