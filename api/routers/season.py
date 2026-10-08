@@ -771,9 +771,11 @@ def _simulate_n(
     ``ui/season_progress_window._simulate_day`` — running games is only
     step 1. Without the post-day hooks the sim produces box scores but
     leaves the economic and roster-management side of the league frozen.
-    They run at two cadences (see ``_run_day_automations`` and
+    The per-day and per-call steps (see ``_run_day_automations`` and
     ``_run_call_automations``):
 
+    * before every date's games: the depth charts (a CPU club's is rebuilt
+      from that day's roster) and the roster prep;
     * after EVERY played date, inside the day loop: the injured lists
       (activations, owner team play settings honoured), the monthly CPU
       call-up check and the FA negotiation day. These change who plays the
@@ -834,10 +836,6 @@ def _simulate_n(
             "draft_blocked": draft_blocked,
             "sim_stopped_reason": "phase_blocked",
         }
-
-    # Every club needs a depth chart: injury coverage reads it first (audit
-    # decision 14). Creates one only where none exists; never overwrites.
-    _ensure_depth_charts()
 
     # Roster-compliance gate. Refuse to advance the calendar while the
     # owner's team isn't carrying a legal roster — most often this
@@ -945,11 +943,18 @@ def _simulate_n(
             except Exception:
                 pre_state = None
 
-        # Rosters first, in this process (not inside parallel game workers):
-        # every club playing today can field nine, and CPU clubs are full,
-        # balanced and under the cap (audit H9 / decision 14). On today's
-        # league date: the league files still hold the call's first day.
+        # Every club needs a depth chart: injury coverage reads it first
+        # (audit decision 14). A missing one is created; a CPU club's is
+        # rebuilt from today's roster -- before every date, not once per
+        # call, so a call-up or a return reaches it the same day however the
+        # days are batched. A chart a person saved is never touched.
+        # Then the rosters, in this process (not inside parallel game
+        # workers): every club playing today can field nine, and CPU clubs
+        # are full, balanced and under the cap (audit H9 / decision 14).
+        # Both on today's league date: the league files still hold the
+        # call's first day.
         with sim_date_scope(target_date):
+            _ensure_depth_charts()
             _prepare_rosters_for_date(simulator, target_date)
         try:
             games_played = simulator.simulate_next_day()

@@ -8,7 +8,9 @@ time, a week at a time or a month at a time played different games from the
 first activation on (164-169 of 525 games differed in the live run).
 
 The injured-list step (with the monthly call-up check and the FA negotiation
-day) now runs after every played date, inside the day loop. These tests sim
+day) now runs after every played date, inside the day loop, and a CPU club's
+depth chart is rebuilt before every date rather than when a call starts (a
+call-up or a return changed it mid-call only in batched runs). These tests sim
 one small league through the PRODUCT path -- ``_build_manager_and_simulator``
 + ``_simulate_n``, league files on disk, every call after a simulated fresh
 process -- as one 10-day call, ten 1-day calls and a 7+3 split, with injured
@@ -80,8 +82,18 @@ def _schedule(team_ids: list[str]) -> list[dict[str, str]]:
     return rows
 
 
-def _injure(data: Path, team_id: str, start: str) -> str:
-    """Put one of *team_id*'s active regulars on the 10-day list on *start*."""
+_HITTING = ("ch", "ph", "sp", "eye", "gf", "pl", "vl", "sc", "fa", "arm")
+
+
+def _injure(data: Path, team_id: str, start: str, *, star_call_up: bool = False) -> str:
+    """Put one of *team_id*'s active regulars on the 10-day list on *start*.
+
+    ``star_call_up`` (a CPU club) first makes an AAA hitter a better player
+    at the same position, so he is the one called up to cover and tops the
+    position's depth chart while the regular is listed -- until the regular
+    comes back and he goes down again. The CPU depth chart then changes in
+    the middle of the run.
+    """
 
     from services.injury_manager import place_on_injury_list
     from services.players_repository import save_players
@@ -99,11 +111,22 @@ def _injure(data: Path, team_id: str, start: str) -> str:
         if str(getattr(by_id[pid], "primary_position", "")).upper() in {"SS", "CF", "2B"}
     )
     player = by_id[pid]
+    star = None
+    if star_call_up:
+        star = next(
+            p for p in roster.aaa if not getattr(by_id[p], "is_pitcher", False)
+        )
+        by_id[star].primary_position = player.primary_position
+        by_id[star].other_positions = []
+        for key in _HITTING:
+            setattr(by_id[star], key, min(99, int(getattr(player, key, 50) or 50) + 15))
     player.injury_description = "Hamstring strain"
     player.injury_minimum_days = 10
     place_on_injury_list(
         player, roster, "il10", today=date.fromisoformat(start), players_by_id=by_id
     )
+    if star is not None:
+        assert star in roster.act, "the better AAA player covers for him"
     save_roster(team_id, roster)
     save_players(players, data / "players.csv")
     load_roster.cache_clear()
@@ -193,7 +216,7 @@ def _run_league(tmp_path: Path, monkeypatch, calls: tuple[int, ...]) -> dict[str
         save_team_play_settings(owner_auto, {"il_auto_activate_15": True})
         save_team_play_settings(owner_manual, {"il_auto_activate_15": False})
         injured = {
-            "cpu": _injure(data, cpu, INJURIES["cpu"]),
+            "cpu": _injure(data, cpu, INJURIES["cpu"], star_call_up=True),
             "owner_auto": _injure(data, owner_auto, INJURIES["owner_auto"]),
             "owner_manual": _injure(data, owner_manual, INJURIES["owner_manual"]),
         }
@@ -305,6 +328,11 @@ def test_one_day_and_weekly_calls_match_one_multi_day_call(tmp_path, monkeypatch
     ), activations
     final = _levels(month["state"], teams["cpu"])
     assert injured["cpu"] in final.get("ACT", [])
+    # A CPU club's depth chart is rebuilt before every date, in the 10-day
+    # call too: back from the list, the regular tops his position again
+    # (it was rebuilt only when a call started).
+    chart = json.loads(month["state"][f"depth_charts/{teams['cpu']}.json"])
+    assert any(ids[:1] == [injured["cpu"]] for ids in chart.values()), chart
     assert injured["owner_auto"] in _levels(month["state"], teams["owner_auto"]).get("ACT", [])
     # The owner who activates by hand keeps his player listed, every day.
     manual = _levels(month["state"], teams["owner_manual"])
