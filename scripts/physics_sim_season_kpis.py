@@ -93,9 +93,13 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     # list, report-only first).
     "qualified_hitter_k_pct_sd": 0.015,
     # S2-01: league platoon split (opposite-hand minus same-hand wOBA). Target
-    # supplied via evaluate_tolerances targets= in main (0.026, pass band
-    # 0.020-0.032) — no benchmark CSV row.
-    "platoon_gap_woba": 0.006,
+    # supplied via evaluate_tolerances targets= in main (0.026) — no
+    # benchmark CSV row. Widened 0.006 -> 0.009 (pass band 0.017-0.035):
+    # temporary (owner decision Q2, 2026-10-07): RNG-fragile until the
+    # Release 5 platoon retune (H7); restore 0.006 then. Release 3 moved no
+    # platoon mechanism (6-seed mean .0307 vs .0310 before); seed 1 rerolled
+    # to .0334 against the old .032 ceiling.
+    "platoon_gap_woba": 0.009,
     # S3: the ratings must drive the outcomes they name. League aggregates sat
     # on target for months while Contact, not Power, produced the home runs
     # (HR vs PH r = 0.08). Targets live in RATING_OUTCOME_TARGETS below. The
@@ -129,6 +133,31 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     "reliever_b2b_share": 0.06,
     # S2-07: pass-3 minus pass-1 league OPS gap (times-through-order penalty).
     "tto_ops_gap": 0.025,
+    # Release 3 (plan section 4): report-only kpi_extras metrics promoted to
+    # strict now that the engine fix for each has landed. The value comes from
+    # the report-only block (see _promote_extras_metrics) and the target from
+    # STRICT_EXTRAS_TARGETS; a promoted metric that was not computed FAILS.
+    # Rule 5.08(a) (audit L15): no run scores when the third out is a force or
+    # the batter-runner is retired before first. A season total; exactly 0.
+    "runs_on_inning_ending_plays": 0.0,
+    # H1 bullpen usage: relief outings of 60+ pitches, 0.01 +/- 0.01 (band
+    # 0-2%). Calibration seeds 1/2/3 read .0017/.0008/.0023 (7.46.0: ~1.7%).
+    "relief_60plus_pct": 0.01,
+    # H1: a closer never pitches a third straight calendar day. A season
+    # total; exactly 0 (seeds 1-3: 0/0/0; 7.46.0: 290-338). Only the
+    # injury/empty-pen last-resort tier may still pick a blocked closer.
+    "closer_third_straight_day": 0.0,
+    # starts_120plus_pct and closer_ip_per_app stay report-only for one more
+    # release (plan section 4).
+}
+
+# Targets of the promoted kpi_extras gates (bands in DEFAULT_TOLERANCES).
+# Rule and usage bounds rather than MLB league averages, so they are not in
+# the benchmark CSV; each matches its row in mlb_report_only_reference.csv.
+STRICT_EXTRAS_TARGETS: dict[str, float] = {
+    "runs_on_inning_ending_plays": 0.0,
+    "relief_60plus_pct": 0.01,
+    "closer_third_straight_day": 0.0,
 }
 
 
@@ -680,6 +709,42 @@ def evaluate_tolerances(
                 }
             )
     return failures
+
+
+def _promote_extras_metrics(
+    summary: dict[str, object],
+    tolerances: dict[str, float],
+) -> list[dict[str, object]]:
+    """Copy the promoted kpi_extras metrics into ``summary["metrics"]``.
+
+    Release 3: the keys of STRICT_EXTRAS_TARGETS are computed by kpi_extras
+    (``summary["report_only"]["metrics"]``) but gated strictly. Returns one
+    failure row per promoted gate whose metric was not computed (the extras
+    raised, or no game carried base-out logging): a strict gate must not
+    pass by being skipped. ``value`` is NaN there, so readers that format
+    it as a float keep working.
+    """
+    metrics = summary.setdefault("metrics", {})
+    extras = (summary.get("report_only") or {}).get("metrics") or {}
+    missing: list[dict[str, object]] = []
+    for key, target in STRICT_EXTRAS_TARGETS.items():
+        value = extras.get(key)
+        if isinstance(value, (int, float)):
+            metrics[key] = float(value)
+            continue
+        metrics.pop(key, None)
+        if key in tolerances:
+            missing.append(
+                {
+                    "metric": key,
+                    "value": float("nan"),
+                    "target": target,
+                    "delta": float("nan"),
+                    "tolerance": tolerances[key],
+                    "reason": "not computed (extras error or no base-out logging)",
+                }
+            )
+    return missing
 
 
 # Targets for the S3 rating->outcome gates (bands in DEFAULT_TOLERANCES).
@@ -1641,15 +1706,19 @@ def main() -> None:
         BASE_DIR / "data" / "MLB_avg" / "mlb_league_benchmarks_2025_filled.csv"
     )
     tolerances = _load_tolerances(args.tolerances)
+    # Release 3: promoted kpi_extras gates join the strict metrics here.
+    not_computed = _promote_extras_metrics(summary, tolerances)
     failures = evaluate_tolerances(
         metrics=summary.get("metrics", {}),
         benchmarks=benchmarks,
         tolerances=tolerances,
         targets={
-            "platoon_gap_woba": 0.026,  # S2-01 pass band 0.020-0.032
+            # S2-01; band 0.017-0.035 while the Release 3 widening lasts.
+            "platoon_gap_woba": 0.026,
             **RATING_OUTCOME_TARGETS,  # S3
+            **STRICT_EXTRAS_TARGETS,  # Release 3 promotions
         },
-    )
+    ) + not_computed
     summary["tolerances"] = tolerances
     summary["tolerance_failures"] = failures
     summary["tolerance_ok"] = not failures

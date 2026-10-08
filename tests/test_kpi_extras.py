@@ -337,17 +337,24 @@ def test_reference_csv_covers_known_metrics():
         .finalize(ref)["metrics"]
     )
     produced |= {"matchup_k_log5_max_abs_resid", "matchup_hr_log5_max_abs_resid_logit"}
-    notes = {"re24_env_scale_2023_24", "ghost_runner_runs_per_extra_half"}
+    notes = {
+        "re24_env_scale_2023_24",
+        "extra_half_runs_no_runner",
+        "extra_half_p_score_no_runner",
+    }
     assert set(keys) - notes <= produced
     assert ref["runs_on_inning_ending_plays"]["value"] == 0
 
 
 def test_report_only_keys_are_never_gated():
+    # Only the keys promoted on purpose (Release 3) overlap the strict gates.
     produced = set(
         kx.ReportOnlyKpis(players_path=Path("missing.csv"), games_per_team=162)
         .finalize({})["metrics"]
     )
-    assert not produced & set(kpis.DEFAULT_TOLERANCES)
+    promoted = set(kpis.STRICT_EXTRAS_TARGETS)
+    assert promoted <= produced
+    assert produced & set(kpis.DEFAULT_TOLERANCES) == promoted
     assert not produced & set(kpis.RATING_OUTCOME_TARGETS)
 
 

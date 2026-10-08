@@ -1,5 +1,10 @@
+import math
 from collections import Counter
 
+import pytest
+
+from scripts import kpi_extras
+from scripts import physics_sim_season_kpis as kpis
 from scripts.physics_sim_season_kpis import (
     _build_rating_splits,
     _decile_groups,
@@ -67,3 +72,106 @@ def test_build_rating_splits_returns_expected_keys() -> None:
     assert "contact" in splits["batters"]
     assert "power" in splits["batters"]
     assert "control" in splits["pitchers"]
+
+
+# --- Release 3 strict-gate changes (plan section 4) -------------------------
+
+
+def test_platoon_gap_widening_is_the_documented_temporary_value() -> None:
+    # Owner decision Q2 (2026-10-07): 0.006 -> 0.009 until the Release 5
+    # platoon retune (H7); restore 0.006 then.
+    tol = kpis.DEFAULT_TOLERANCES["platoon_gap_woba"]
+    assert tol == pytest.approx(0.009)
+    failures = evaluate_tolerances(
+        metrics={"platoon_gap_woba": 0.0334},
+        benchmarks={},
+        tolerances={"platoon_gap_woba": tol},
+        targets={"platoon_gap_woba": 0.026},
+    )
+    assert not failures
+
+
+def test_promoted_extras_are_strict_with_matching_reference_rows() -> None:
+    promoted = kpis.STRICT_EXTRAS_TARGETS
+    assert set(promoted) == {
+        "runs_on_inning_ending_plays",
+        "relief_60plus_pct",
+        "closer_third_straight_day",
+    }
+    assert kpis.DEFAULT_TOLERANCES["runs_on_inning_ending_plays"] == 0.0
+    assert kpis.DEFAULT_TOLERANCES["closer_third_straight_day"] == 0.0
+    assert kpis.DEFAULT_TOLERANCES["relief_60plus_pct"] == pytest.approx(0.01)
+    assert not set(promoted) & set(kpis.REPORT_ONLY_TOLERANCES)
+    reference = kpi_extras.load_reference()
+    for key, target in promoted.items():
+        assert reference[key]["value"] == pytest.approx(target)
+    # Kept report-only for one more release.
+    for key in ("starts_120plus_pct", "closer_ip_per_app"):
+        assert key not in kpis.DEFAULT_TOLERANCES
+
+
+def _summary(extras: dict) -> dict:
+    return {"metrics": {"k_pct": 0.22}, "report_only": {"metrics": extras}}
+
+
+def test_promote_extras_copies_values_into_strict_metrics() -> None:
+    summary = _summary(
+        {
+            "runs_on_inning_ending_plays": 0,
+            "relief_60plus_pct": 0.004,
+            "closer_third_straight_day": 0,
+            "starts_120plus_pct": 0.5,
+        }
+    )
+    missing = kpis._promote_extras_metrics(summary, kpis.DEFAULT_TOLERANCES)
+    assert missing == []
+    metrics = summary["metrics"]
+    assert metrics["runs_on_inning_ending_plays"] == 0.0
+    assert metrics["relief_60plus_pct"] == pytest.approx(0.004)
+    assert "starts_120plus_pct" not in metrics  # still report-only
+    failures = evaluate_tolerances(
+        metrics=metrics,
+        benchmarks={},
+        tolerances=kpis.DEFAULT_TOLERANCES,
+        targets=kpis.STRICT_EXTRAS_TARGETS,
+    )
+    assert failures == []
+
+
+@pytest.mark.parametrize(
+    "key, value",
+    [
+        ("runs_on_inning_ending_plays", 1),
+        ("closer_third_straight_day", 1),
+        ("relief_60plus_pct", 0.021),
+    ],
+)
+def test_promoted_extras_fail_strict_off_target(key: str, value: float) -> None:
+    extras = {
+        "runs_on_inning_ending_plays": 0,
+        "relief_60plus_pct": 0.01,
+        "closer_third_straight_day": 0,
+    }
+    extras[key] = value
+    summary = _summary(extras)
+    kpis._promote_extras_metrics(summary, kpis.DEFAULT_TOLERANCES)
+    failures = evaluate_tolerances(
+        metrics=summary["metrics"],
+        benchmarks={},
+        tolerances=kpis.DEFAULT_TOLERANCES,
+        targets=kpis.STRICT_EXTRAS_TARGETS,
+    )
+    assert [f["metric"] for f in failures] == [key]
+
+
+def test_promoted_extra_that_was_not_computed_fails_strict() -> None:
+    # The extras raised, so no report-only metrics: the strict gate must not
+    # pass by being skipped.
+    summary = {"metrics": {}, "report_only": {"metrics": {}, "error": "boom"}}
+    missing = kpis._promote_extras_metrics(summary, kpis.DEFAULT_TOLERANCES)
+    assert {row["metric"] for row in missing} == set(kpis.STRICT_EXTRAS_TARGETS)
+    assert all(math.isnan(row["value"]) for row in missing)
+    # The CI failure annotation formats value with :.4f.
+    assert f"{missing[0]['value']:.4f}" == "nan"
+    # A gate absent from the tolerances in use is not reported.
+    assert kpis._promote_extras_metrics(summary, {}) == []

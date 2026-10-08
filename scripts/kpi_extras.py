@@ -9,8 +9,10 @@ late-inning scoring (M19), the LHP gap (H7), team talent spread (M17) and the
 missing situational KPIs (L18). This module measures them from the per-game
 results the harness already produces.
 
-Nothing here is gated. ``physics_sim_season_kpis.py`` writes the result to
-the JSON under ``report_only`` and prints it; ``--strict`` never looks at it.
+``physics_sim_season_kpis.py`` writes the result to the JSON under
+``report_only`` and prints it. ``--strict`` ignores it, except for the keys
+promoted to strict gates after the engine release that fixed them (Release
+3: ``STRICT_EXTRAS_TARGETS`` there, copied into the gated ``metrics``).
 Promote a metric to a gate only after the engine release that fixes it.
 
 Base-out state (L18) is read from the first ``pitch_log`` entry of each plate
@@ -1113,7 +1115,10 @@ def attach_reference(report: dict[str, Any], reference: dict[str, dict[str, Any]
 def format_report(report: dict[str, Any]) -> str:
     metrics = report.get("metrics", {})
     reference = report.get("reference", {})
-    lines = ["Report-only KPIs (never gated; audit Release 2)"]
+    lines = [
+        "Report-only KPIs (audit Release 2; --strict gates only the"
+        " promoted keys)"
+    ]
     coverage = report.get("coverage") or {}
     if coverage:
         lines.append(

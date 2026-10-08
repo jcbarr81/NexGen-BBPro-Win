@@ -492,9 +492,12 @@ def _alb_act():
     return [line.split(",")[0] for line in rows.splitlines() if line.endswith(",ACT")]
 
 
+# The 11 required rows of ALB's staff in the committed fixture (regenerated
+# for Release 3; its MR4/MR5, P3017 and P6599, stay unlisted here). Update
+# the ids if the fixture is regenerated again.
 ALB_STAFF = [
     ("P8336", "SP1"), ("P1179", "SP2"), ("P4355", "SP3"), ("P9046", "SP4"),
-    ("P1173", "SP5"), ("P6186", "LR"), ("P3083", "CL"), ("P1156", "SU"),
+    ("P1173", "SP5"), ("P8580", "LR"), ("P1187", "CL"), ("P1156", "SU"),
     ("P1195", "MR1"), ("P2088", "MR2"), ("P6912", "MR3"),
 ]
 
@@ -558,13 +561,13 @@ def test_one_rotation_on_a_thin_staff_without_sp5(tmp_path, monkeypatch):
     MR1-3, LR. lineup_loader labelled the setup man (endurance 27) SP5 while
     the tracker started the long man (endurance 45)."""
     staff = [row for row in ALB_STAFF if row[1].startswith("SP") and row[1] != "SP5"]
-    staff += [("P3083", "CL"), ("P1156", "SU"), ("P1195", "MR1"), ("P2088", "MR2"),
-              ("P6912", "MR3"), ("P6186", "LR")]
+    staff += [("P1187", "CL"), ("P1156", "SU"), ("P1195", "MR1"), ("P2088", "MR2"),
+              ("P6912", "MR3"), ("P8580", "LR")]
     act = [pid for pid in _alb_act() if pid != "P1173"]
     players, rosters = _write_league(tmp_path, monkeypatch, staff_rows=staff, act_ids=act)
     rotation = _assert_one_rotation(tmp_path, players, rosters)
-    assert rotation[-1] == "P6186"
-    assert "P1156" not in rotation and "P3083" not in rotation
+    assert rotation[-1] == "P8580"
+    assert "P1156" not in rotation and "P1187" not in rotation
 
 
 def test_one_rotation_when_a_stronger_starter_arrives(tmp_path, monkeypatch):
