@@ -114,6 +114,12 @@ class PitcherState:
     # An emergency starter's rest clock before the game, put back afterwards
     # so the relief outing does not push his next start back.
     starter_clock: tuple[int | None, int, int] | None = None
+    # A reserve arm's block, if any: "rest" (pitched inside
+    # ``emergency_starter_min_days`` and nothing else) or "debt" (too much
+    # fatigue debt). ``reserve_last_day`` is the later of his last start and
+    # his last emergency. Only the empty-pen last resort reads them.
+    reserve_block: str = ""
+    reserve_last_day: int | None = None
 
 
 @dataclass
@@ -590,10 +596,10 @@ def _apply_usage_state(
             scaled = rest_penalty * (rest_deficit / max(1.0, float(required_days)))
             state.pregame_penalty = max(state.pregame_penalty, scaled)
     if is_starter and workload.emergency_day is not None:
-        # A short emergency outing kept his turn (his start clock was put
-        # back), but the arm still needs a reliever's rest from it: starting
-        # inside that window costs a short-rest penalty. Availability is left
-        # alone, so the turn stays his.
+        # An emergency outing kept his turn (his start clock was put back,
+        # owner decision 7), but the arm still needs a reliever's rest from
+        # it: starting inside that window costs a short-rest penalty.
+        # Availability is left alone, so the turn stays his.
         last_start = workload.last_used_day
         if last_start is None or workload.emergency_day > last_start:
             required = reliever_rest_days(workload.emergency_pitches, tuning) + 1
@@ -1054,12 +1060,22 @@ def _forced_fallback(
 ) -> PitcherState:
     """The arm for a forced change when no rested, unused reliever is left.
 
-    In order: the least-worn rest-flagged reliever (never the closer, never a
-    hard-blocked arm); a rested starter from the reserve (``mop_up``); and,
-    once the pitcher in the game is ``bullpen_last_resort_margin`` pitches
-    past his fatigue limit or must come out (``must_replace``: he is hurt),
-    the least-worn hard-blocked non-closer, then the closer. Otherwise the
-    current pitcher stays in.
+    In order:
+
+    1. the least-worn rest-flagged reliever (never the closer, never a
+       hard-blocked arm);
+    2. a rested starter from the reserve (``mop_up``) -- at most one such
+       emergency arm per club per game: once one has pitched, a forced change
+       goes on down this list instead;
+    3. the last-resort tier, once the pitcher in the game is
+       ``bullpen_last_resort_margin`` pitches past his fatigue limit or must
+       come out (``must_replace``: he is hurt). It takes a legal arm before it
+       breaks a rule block: an available unused arm (the rested closer held
+       back before the 9th), then a closer who is only rest-flagged, then the
+       least-worn hard-blocked non-closer, then the hard-blocked closer;
+    4. with the whole pen used, a reserve arm (:func:`_reserve_last_resort`).
+
+    Otherwise the current pitcher stays in.
     """
 
     fallback_on = tuning.get("bullpen_fallback", 0.0) > 0.0
@@ -1075,7 +1091,8 @@ def _forced_fallback(
             choice = _least_worn(tired, leverage, score_diff)
             choice.fallback = True
             return choice
-    if tuning.get("mop_up", 0.0) > 0.0:
+    emergency_used = any(p.used for p in team_state.reserve)
+    if tuning.get("mop_up", 0.0) > 0.0 and not emergency_used:
         rested = [
             (index, p)
             for index, p in enumerate(team_state.reserve)
@@ -1088,16 +1105,70 @@ def _forced_fallback(
     current = team_state.current
     margin = tuning.get("bullpen_last_resort_margin", 20.0)
     spent = margin >= 0.0 and current.pitches >= current.fatigue_limit + margin
-    if fallback_on and (must_replace or spent):
-        unused = [p for p in team_state.bullpen if not p.used and p is not current]
-        blocked = [p for p in unused if _usage_role(p) != "CL"]
-        closers = [p for p in unused if _usage_role(p) == "CL"]
-        for group in (blocked, closers):
-            if group:
-                choice = _least_worn(group, leverage, score_diff)
-                choice.fallback = True
-                return choice
+    if not (fallback_on and (must_replace or spent)):
+        return current
+    unused = [p for p in team_state.bullpen if not p.used and p is not current]
+    tiers = (
+        [p for p in unused if p.available],
+        [p for p in unused if not p.hard_blocked and _usage_role(p) == "CL"],
+        [p for p in unused if p.hard_blocked and _usage_role(p) != "CL"],
+        [p for p in unused if p.hard_blocked and _usage_role(p) == "CL"],
+    )
+    for group in tiers:
+        if group:
+            choice = _least_worn(group, leverage, score_diff)
+            choice.fallback = not choice.available
+            return choice
+    choice = _reserve_last_resort(team_state, must_replace=must_replace)
+    if choice is not None:
+        choice.emergency = True
+        return choice
     return current
+
+
+def _reserve_last_resort(
+    team_state: TeamPitchingState, *, must_replace: bool
+) -> PitcherState | None:
+    """A reserve arm for a pitcher who must come out with the pen used up.
+
+    The arm who fails only the rest-day rule (``reserve_block == "rest"``),
+    least recently used first. A spent pitcher gets one only while no
+    emergency arm has pitched today (one per club per game). A hurt one is
+    replaced by anyone left on the staff: a rested arm the one-emergency rule
+    kept out first, a debt-blocked arm last.
+    """
+
+    if not must_replace and any(p.used for p in team_state.reserve):
+        return None
+    unused = [
+        (index, p)
+        for index, p in enumerate(team_state.reserve)
+        if not p.used and p is not team_state.current
+    ]
+
+    def least_recent(item: tuple[int, PitcherState]) -> tuple[int, float, int]:
+        index, state = item
+        last = state.reserve_last_day
+        return (last if last is not None else -(10**9), state.debt, index)
+
+    rested = [item for item in unused if item[1].available]
+    rest_only = [
+        item
+        for item in unused
+        if not item[1].available and item[1].reserve_block == "rest"
+    ]
+    worn = [
+        item
+        for item in unused
+        if not item[1].available and item[1].reserve_block != "rest"
+    ]
+    if must_replace and rested:
+        return max(rested, key=_emergency_rank)[1]
+    if rest_only:
+        return min(rest_only, key=least_recent)[1]
+    if must_replace and worn:
+        return min(worn, key=least_recent)[1]
+    return None
 
 
 def _inning_start_hook(
@@ -1424,7 +1495,7 @@ def _reserve_state(
     whichever is later, so no starter is used in two emergencies inside that
     window -- and he is not carrying too much fatigue debt (owner decision
     Q6). The outing is relief: his pitch cap is ``emergency_max_pitches``.
-    His rest clock is remembered so a short outing can be put down as relief.
+    His rest clock is remembered so the outing can be put down as relief.
     """
 
     fatigue_start, fatigue_limit = _pitcher_usage_limits(pitcher, tuning, role="SP")
@@ -1446,11 +1517,15 @@ def _reserve_state(
             for day in (workload.last_used_day, workload.emergency_day)
             if day is not None
         ]
+        if last_days:
+            state.reserve_last_day = max(last_days)
         if last_days and game_day - max(last_days) < min_days:
             state.available = False
+            state.reserve_block = "rest"
         ratio = workload.fatigue_debt / max(1.0, fatigue_limit)
         if ratio > 1.0:
             state.available = False
+            state.reserve_block = "debt"
         # Debt still costs him; the starter's short-rest penalty does not
         # apply to a relief outing.
         state.pregame_penalty = min(
@@ -1477,19 +1552,18 @@ def _restore_emergency_clocks(
 ) -> None:
     """Settle an emergency starter's rest clock after the game.
 
-    Runs after the outings are recorded. The outing is always kept on his
-    workload as ``emergency_day``/``emergency_pitches`` (it adds fatigue debt
-    and an appearance too). A short one -- ``emergency_keep_turn_pitches`` or
-    fewer -- is relief: his start clock is put back so his next turn stays
-    where it was (owner decision Q6). A longer one stays on his start clock,
-    so his next start waits a starter's rest from it.
+    Runs after the outings are recorded. An emergency outing is relief and
+    never pushes his next start back, however long it ran (owner decision 7):
+    his start clock is always put back. The outing stays on his workload as
+    ``emergency_day``/``emergency_pitches`` (it adds fatigue debt and an
+    appearance too), which blocks a second emergency for
+    ``emergency_starter_min_days`` and costs his next start a short-rest
+    penalty when it comes inside a reliever's rest from the outing.
+    ``tuning`` is accepted for the callers; nothing here reads it.
     """
 
     if usage_state is None:
         return
-    keep_turn = (
-        tuning.get("emergency_keep_turn_pitches", 35.0) if tuning is not None else 35.0
-    )
     for staff in staffs:
         for state in staff.reserve:
             if not state.used or state.pitches <= 0 or state.starter_clock is None:
@@ -1498,8 +1572,6 @@ def _restore_emergency_clocks(
             # record_outing has just stamped today's day on the workload.
             workload.emergency_day = workload.last_used_day
             workload.emergency_pitches = int(state.pitches)
-            if state.pitches > keep_turn:
-                continue
             (
                 workload.last_used_day,
                 workload.last_pitches,

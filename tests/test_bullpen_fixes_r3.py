@@ -6,7 +6,8 @@ Regressions from the item-B reviews:
   ``emergency_pitches``), blocks a second emergency for two days and costs his
   next start a short-rest penalty;
 * the emergency arm is the reserve furthest from his next turn and pitches
-  under a relief ceiling; a long outing moves his turn (engine and tracker);
+  under a relief ceiling; no outing moves his turn (owner decision 7, second
+  fix round -- engine and tracker);
 * the closer is not brought into a non-save game before the 9th just because
   he is the last arm standing;
 * a forced change with a fully blocked pen has a last-resort tier, and an
@@ -20,14 +21,13 @@ from __future__ import annotations
 
 import csv
 import shutil
-from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 import physics_sim.engine as eng
-from physics_sim.config import DEFAULT_TUNING, load_tuning
+from physics_sim.config import load_tuning
 from physics_sim.engine import (
     BaseState,
     LineupState,
@@ -112,11 +112,12 @@ def test_a_short_emergency_keeps_his_turn_but_is_recorded():
     assert (wl.emergency_day, wl.emergency_pitches) == (10, 18)
 
 
-def test_a_long_emergency_counts_on_his_start_clock():
+def test_a_long_emergency_keeps_his_turn_too():
+    """Owner decision 7: the outing is relief however long it ran."""
     usage = UsageState(current_day=10, game_index=10)
     _started(usage, "r", 7)
     wl = _emergency_game(usage, 10, 40)
-    assert (wl.last_used_day, wl.last_pitches) == (10, 40)
+    assert (wl.last_used_day, wl.last_pitches) == (7, 92)
     assert (wl.emergency_day, wl.emergency_pitches) == (10, 40)
 
 
@@ -183,12 +184,6 @@ def test_the_emergency_arm_pitches_under_a_relief_ceiling():
     assert reason == "pitch_cap" and eng._forced_hook(reason, reserve, tuning)
 
 
-def test_keep_turn_threshold_matches_the_tracker():
-    from utils.rotation import EMERGENCY_KEEP_TURN_PITCHES
-
-    assert DEFAULT_TUNING["emergency_keep_turn_pitches"] == EMERGENCY_KEEP_TURN_PITCHES
-
-
 def _calibration_staffs():
     staff = {}
     for team in ("CAL01", "CAL02"):
@@ -235,17 +230,28 @@ def _pen_on_third_day(day, *, reserve_rested):
 
 @pytest.mark.parametrize("seed", range(8))
 def test_emergency_outings_stop_at_their_ceiling(seed):
-    """Emergency outings ran to 90-103 pitches with no relief ceiling."""
+    """Emergency outings ran to 90-103 pitches with no relief ceiling.
+
+    Second fix round: a club uses one emergency arm per game, so at his cap
+    he stays on until the last-resort margin (then a hard-blocked reliever
+    takes over) instead of handing the ball to a second starter.
+    """
     day = 200
     usage = _seeded_usage(day, _pen_on_third_day(day, reserve_rested=True))
     result = _game(seed, usage, day)
-    cap = load_tuning().get("emergency_max_pitches")
+    tuning = load_tuning()
+    ceiling = (
+        tuning.get("emergency_max_pitches") + tuning.get("bullpen_last_resort_margin")
+    )
     for side in ("away", "home"):
         usage_rows = {u["player_id"]: u for u in result.metadata["pitcher_usage"][side]}
+        emergencies = 0
         for line in result.metadata["pitcher_lines"][side]:
             if usage_rows[line["player_id"]]["emergency"]:
+                emergencies += 1
                 # The hook runs after each plate appearance: one PA of slack.
-                assert line["pitches"] <= cap + 12, line
+                assert line["pitches"] <= ceiling + 12, line
+        assert emergencies <= 1, side
 
 
 # ------------------------------- 3. the closer before the 9th, non-save game
@@ -280,7 +286,12 @@ def test_the_closer_still_closes_a_save_in_the_ninth():
 @pytest.mark.parametrize("seed", range(10))
 def test_with_every_other_reliever_blocked_the_closer_waits(seed):
     """Branch probe: CL entries before the 7th were 9.2% of his outings
-    (base 3.1%) because the cap and hard blocks left him the only arm."""
+    (base 3.1%) because the cap and hard blocks left him the only arm.
+
+    Second fix round: the one early entry left is the last resort -- the
+    pitcher he relieves is ``bullpen_last_resort_margin`` past his limit (or
+    hurt), and the rested closer comes before a third-straight-day arm.
+    """
     day = 200
     usage = _seeded_usage(day, _pen_on_third_day(day, reserve_rested=False))
     closers = set()
@@ -290,14 +301,26 @@ def test_with_every_other_reliever_blocked_the_closer_waits(seed):
             wl = usage.workload_for(pid)
             wl.last_used_day, wl.consecutive_days_used, wl.fatigue_debt = day - 4, 1, 0.0
     result = _game(seed, usage, day)
-    first_inning = {}
+    margin = load_tuning().get("bullpen_last_resort_margin")
+    rows, side_of = {}, {}
+    for side in ("away", "home"):
+        for row in result.metadata["pitcher_usage"][side]:
+            rows[row["player_id"]] = row
+            side_of[row["player_id"]] = side
+    hurt = {e.get("pitcher_id") for e in result.metadata.get("injury_events") or []}
+    first_inning, order = {}, []
     for entry in result.pitch_log:
         pid = entry.get("pitcher_id")
-        if pid and "inning" in entry:
-            first_inning.setdefault(pid, int(entry["inning"]))
+        if pid and "inning" in entry and pid not in first_inning:
+            first_inning[pid] = int(entry["inning"])
+            order.append(pid)
     for pid in closers:
-        if pid in first_inning:
-            assert first_inning[pid] >= 7, (pid, first_inning[pid])
+        if pid in first_inning and first_inning[pid] < 7:
+            mates = [p for p in order[: order.index(pid)] if side_of[p] == side_of[pid]]
+            prev = rows[mates[-1]]
+            # His final count: nobody he relieved came back in.
+            spent = prev["pitches"] >= prev["fatigue_limit"] + margin
+            assert spent or prev["player_id"] in hurt, (pid, first_inning[pid], prev)
 
 
 # ------------------------------------------- 4. the last-resort tier
@@ -604,14 +627,10 @@ def _record(tracker, players, rosters, day, pitches, relief):
     return _parse_date(tracker.data["teams"]["ALB"]["pitchers"]["ZZ-SP"]["available_on"])
 
 
-def test_tracker_a_long_emergency_moves_his_turn(tmp_path, monkeypatch):
-    from utils.pitcher_recovery import _parse_date
-
+def test_tracker_a_long_emergency_keeps_his_turn(tmp_path, monkeypatch):
     tracker, players, rosters = _tracker_with_starter(tmp_path, monkeypatch)
     turn = _record(tracker, players, rosters, "2025-04-01", 95, False)
-    after = _record(tracker, players, rosters, "2025-04-04", 40, True)
-    assert after > turn
-    assert after >= _parse_date("2025-04-04") + timedelta(days=2)
+    assert _record(tracker, players, rosters, "2025-04-04", 40, True) == turn
 
 
 def test_tracker_a_short_emergency_keeps_his_turn(tmp_path, monkeypatch):

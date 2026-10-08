@@ -16,7 +16,6 @@ from utils.roster_loader import load_roster
 # The rotation builder moved to utils.rotation (Release 3); re-exported here
 # so existing callers and tests keep importing it from the tracker module.
 from utils.rotation import (  # noqa: F401
-    EMERGENCY_KEEP_TURN_PITCHES,
     ROTATION_SLOTS,
     _is_relief_role,
     _spot_start_rank,
@@ -889,16 +888,13 @@ class PitcherRecoveryTracker:
             available_on = date_obj + timedelta(days=rest_days)
             stored_status = pitchers.get(pid, {})
             if role == "SP" and bool(getattr(state, "relief_outing", False)):
-                # Release 3 (owner decision Q6): a rested starter who came out
-                # of the pen in an emergency keeps his turn when the outing
-                # was short (a bullpen session's worth). A longer one is work
-                # on his arm: his next start waits the starter's rest for it,
-                # never sooner than the turn he already had.
+                # Release 3 (owner decision 7): a rested starter who came out
+                # of the pen in an emergency keeps his turn, however long the
+                # outing ran -- it counts as relief. The arm cost lands on his
+                # next start as the engine's short-rest penalty (its usage
+                # state keeps the outing), not on this clock.
                 stored_on = _parse_date(stored_status.get("available_on"))
-                if pitches <= EMERGENCY_KEEP_TURN_PITCHES:
-                    available_on = max(stored_on, date_obj + timedelta(days=1))
-                else:
-                    available_on = max(stored_on, available_on)
+                available_on = max(stored_on, date_obj + timedelta(days=1))
             prior_recent: list[dict] = []
             for recent_entry in stored_status.get("recent", []):
                 if isinstance(recent_entry, dict):
