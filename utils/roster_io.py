@@ -4,6 +4,7 @@ import csv
 from pathlib import Path
 
 from models.roster import Roster
+from utils.atomic_write import atomic_text_writer
 
 # Tier names that belong on the 60-day level. Every other injured-list tier
 # (MLB's 7/10/15-day lists, and the legacy "dl15") shares the short-list level,
@@ -61,8 +62,8 @@ def read_roster_csv(path: str | Path, team_id: str) -> Roster:
 def write_roster_csv(roster: Roster, path: str | Path) -> None:
     """Write roster data to the provided CSV path."""
     file_path = Path(path)
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    with file_path.open(mode="w", newline="") as handle:
+    # Atomic (temp file + os.replace): readers never see a half-written roster.
+    with atomic_text_writer(file_path, newline="") as handle:
         writer = csv.writer(handle)
         for level, group in [
             ("ACT", roster.act),

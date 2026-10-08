@@ -170,7 +170,9 @@ def _run_playoff_sim(mode: str) -> Dict[str, Any]:
     from playbalance import playoffs as _pf
 
     bracket = _pf.load_bracket()
-    if bracket is None:
+    # An empty (year-0 / round-less) bracket has nothing to play; simulating
+    # it used to report ``changed: true`` without playing a single game.
+    if _pf.bracket_is_empty(bracket):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(

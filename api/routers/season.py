@@ -3740,12 +3740,14 @@ def _ensure_playoff_bracket() -> Optional[Dict[str, Any]]:
     except Exception:
         return None
 
-    # Skip if a bracket already exists for the current year.
+    # Skip if a bracket already exists for the current year. A year-0 or
+    # round-less bracket is a placeholder (once: the wizard's
+    # playoffs_config.json parsed as one), not a seeded postseason — rebuild.
     try:
         existing = _pf.load_bracket()
     except Exception:
         existing = None
-    if existing is not None:
+    if existing is not None and not _pf.bracket_is_empty(existing):
         return {"reused_existing": True}
 
     try:
