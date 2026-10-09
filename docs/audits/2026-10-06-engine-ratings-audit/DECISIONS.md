@@ -242,3 +242,36 @@ calendar days (game-date version report-only); MR4/MR5 are optional staff
 slots and existing staff files are left alone; a documented temporary
 `platoon_gap_woba` widening (0.006 -> 0.009, expiring in Release 5) only if
 the final branch fails it.
+
+## Release 4 owner decisions (2026-10-09)
+
+Taken after the Release 4 design pass (running game: steals, WP/PB, hit
+advances, tag-ups, ground outs, double plays, batter speed). The full plan is
+`RELEASE4_PLAN.md` in this folder. 4a ships as **7.48.0** (MINOR: visibly
+different stats and a rebased admin slider).
+
+1. **4b becomes the default in its own release once it is green.** The
+   measured 4b design moves runs about 0 to +0.1 R/G (not the -0.3 the audit
+   assumed), so it ships as 7.49.0 as soon as the r4b profile passes the
+   strict gates on calibration seeds 1-4 and the league running gate set. If
+   a random-stream-sensitive gate (corr_avg_contact, platoon, tto) flakes, or
+   OPS exceeds .730, the flip waits for Release 5 as originally planned.
+2. **The new running game reaches live leagues at deploy,** mid-season,
+   announced with a news post (as the Release 3 automatic runner was). The
+   2026 stats stand as played (decision 1).
+3. **Speed tiers as designed:** a 50 steals about 6 a season, a 70 about 24,
+   an 85 "burner" about 45 (best seasons 60-68); burners hit about 10 triples
+   per 600 PA.
+4. **No per-team running strategy yet.** One league-wide rule (infield in
+   from the 7th inning, fewer than 2 outs, fielding team tied or ahead by up
+   to 2); per-team "baserunning aggressiveness" and "infield in" owner
+   settings are backlog.
+
+Taken as recommended (technical): the Steal Frequency slider is rebased so
+1.0 = MLB (default 3.0 -> 1.0, range 0.25-3.0) and any stored override is
+divided by 3 once (no live league had one on 2026-10-09); speed is read
+relative to the league's ACT-hitter mean for frequency terms (steal attempts,
+infield hits, batter GIDP, ground-out R3) and raw for race-against-a-throw
+terms until the general decision-2 re-centring; WP/PB are recorded only when
+a runner advances (rule 9.13); the dropped-third-strike eligibility and
+volume fixes ship in 4a.
