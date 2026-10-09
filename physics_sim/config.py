@@ -272,10 +272,16 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "tag_up_second_extra": 0.05,
     "ground_rbi_prob": 0.25,
     "fielder_choice_force_prob": 0.55,
-    "steal_attempt_rate_first": 0.045,
-    "steal_attempt_rate_second": 0.015,
-    "steal_attempt_rate_home": 0.002,
-    "double_steal_rate": 0.003,
+    # Release 4 (H2): per-pitch attempt rates for a league-average runner at
+    # steal_freq_scale 1.0 (= MLB volume, about .73 SB per team-game). The
+    # speed curve (engine._steal_speed_factor) multiplies them; the double
+    # steal rate is read for the runner on 2nd.
+    "steal_attempt_rate_first": 0.0328,
+    "steal_attempt_rate_second": 0.00728,
+    "steal_attempt_rate_home": 0.00073,
+    "double_steal_rate": 0.00218,
+    # Retired in Release 4 (success is the steal_success_* logit block);
+    # still registered so a stored override keeps loading.
     "steal_success_base": 0.80,
     "steal_home_success_scale": 0.6,
     "steal_count_favorable": 1.25,
@@ -297,10 +303,13 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "lead_ball_bonus": 1.0,
     "lead_two_strike_penalty": 1.0,
     "lead_two_out_penalty": 1.0,
-    "wild_pitch_rate": 0.0035,
-    "passed_ball_rate": 0.0025,
+    # Release 4 (M10): per live pitch with runners on, before the rating
+    # terms in engine._missed_pitch_rates; a ball only counts as a WP/PB
+    # when a runner advances (rule 9.13). k_in_dirt_rate is per third strike.
+    "wild_pitch_rate": 0.0097,
+    "passed_ball_rate": 0.00155,
     "missed_pitch_loc_scale": 0.6,
-    "k_in_dirt_rate": 0.02,
+    "k_in_dirt_rate": 0.0112,
     # Decision 11 (Release 3): the automatic runner on 2nd from the 10th, in
     # the regular season only. A league can turn it off (league_settings
     # ``extra_innings_runner``; game_runner writes this key last). Past
@@ -505,7 +514,10 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "arm_strength_scale": 1.0,
     "error_rate_scale": 1.0,
     "speed_scale": 1.0,
-    "steal_freq_scale": 3.0,
+    # Release 4: rebased so 1.0 = MLB (was 3.0); the admin slider runs
+    # 0.25-3.0 and a stored pre-rebase override is divided by 3 once
+    # (services/physics_tuning_settings).
+    "steal_freq_scale": 1.0,
     "advancement_aggression_scale": 1.6,
     "extra_base_out_base": 0.06,
     "extra_base_out_scale": 1.0,
@@ -675,6 +687,41 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # engine._centred_speed so a fast or slow league keeps MLB's overall
     # rates; race-against-a-throw terms keep reading raw ``sp - 50``.
     "hitter_speed_center": 50.0,
+    # Release 4 (W1): wild pitches, passed balls and the dropped third strike
+    # (audit M10). Rating terms are exponential, e^((50 - rating) / k), with
+    # ratings clipped to [20, 95]: control drives WPs, catcher fielding drives
+    # PBs (and a little of the WPs, as blocking). Each per-pitch rate is
+    # capped at missed_pitch_rate_cap.
+    "wild_pitch_control_k": 40.0,
+    "wild_pitch_block_k": 80.0,
+    "passed_ball_fa_k": 25.0,
+    "missed_pitch_rate_cap": 0.05,
+    "k_in_dirt_control_k": 40.0,
+    "k_in_dirt_fa_k": 60.0,
+    # An eligible batter (1st open or two outs) beats the throw on a dropped
+    # third strike with clamp(base + (sp - 50) / speed_div
+    # - (catcher arm - 50) / arm_div, min, max); raw speed, a race.
+    "k_reach_base": 0.85,
+    "k_reach_speed_div": 200.0,
+    "k_reach_arm_div": 300.0,
+    "k_reach_min": 0.5,
+    "k_reach_max": 0.98,
+    # Release 4 (W1): stolen bases (audit H2). Attempts: a logistic curve on
+    # the centred speed, 1 / (1 + e^(-(x - mid) / width)), normalised to 1.0
+    # at the league average. Success: a logistic on raw ratings, logit =
+    # base + speed * (sp - 50) / 10 - hold/arm/catcher terms * (r - 50) / 10,
+    # clamped to [floor, cap]. The lead_* knobs above are cosmetic (they only
+    # feed the "lead" stat).
+    "steal_speed_mid": 75.0,
+    "steal_speed_width": 12.0,
+    "steal_success_logit_base": 1.50,
+    "steal_success_speed_logit": 0.30,
+    "steal_success_hold_logit": 0.21,
+    "steal_success_parm_logit": 0.17,
+    "steal_success_carm_logit": 0.24,
+    "steal_success_cfa_logit": 0.19,
+    "steal_success_cap": 0.97,
+    "steal_success_floor": 0.05,
 }
 
 
