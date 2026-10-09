@@ -237,7 +237,7 @@ def test_no_steal_on_a_foul_in_twenty_games():
 @functools.lru_cache(maxsize=None)
 def _double_steal_games():
     overrides = {"double_steal_rate": 2.0, "steal_success_logit_base": -1.0}
-    return tuple(_play(seed, overrides) for seed in range(1, 9))
+    return tuple(_play(seed, overrides) for seed in range(1, 13))
 
 
 def test_adv2_is_never_a_stolen_base():
