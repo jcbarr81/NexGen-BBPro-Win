@@ -97,6 +97,14 @@ def test_promoted_extras_are_strict_with_matching_reference_rows() -> None:
         "runs_on_inning_ending_plays",
         "relief_60plus_pct",
         "closer_third_straight_day",
+        # Release 4 (W1 pitch events).
+        "wp_per_team_game",
+        "pb_per_team_game",
+        "steal_events_on_foul",
+        "wp_pb_on_foul",
+        "wp_pb_bases_empty",
+        "double_steal_two_out_plays",
+        "illegal_k_reach",
     }
     assert kpis.DEFAULT_TOLERANCES["runs_on_inning_ending_plays"] == 0.0
     assert kpis.DEFAULT_TOLERANCES["closer_third_straight_day"] == 0.0
@@ -114,9 +122,14 @@ def _summary(extras: dict) -> dict:
     return {"metrics": {"k_pct": 0.22}, "report_only": {"metrics": extras}}
 
 
+# Every promoted extra on its target (the zero gates at 0).
+ON_TARGET = dict(kpis.STRICT_EXTRAS_TARGETS)
+
+
 def test_promote_extras_copies_values_into_strict_metrics() -> None:
     summary = _summary(
         {
+            **ON_TARGET,
             "runs_on_inning_ending_plays": 0,
             "relief_60plus_pct": 0.004,
             "closer_third_straight_day": 0,
@@ -144,14 +157,20 @@ def test_promote_extras_copies_values_into_strict_metrics() -> None:
         ("runs_on_inning_ending_plays", 1),
         ("closer_third_straight_day", 1),
         ("relief_60plus_pct", 0.021),
+        # Release 4: WP .25-.41, PB .02-.08 and the zero gates.
+        ("wp_per_team_game", 0.42),
+        ("wp_per_team_game", 0.24),
+        ("pb_per_team_game", 0.09),
+        ("pb_per_team_game", 0.01),
+        ("steal_events_on_foul", 1),
+        ("wp_pb_on_foul", 1),
+        ("wp_pb_bases_empty", 1),
+        ("double_steal_two_out_plays", 1),
+        ("illegal_k_reach", 1),
     ],
 )
 def test_promoted_extras_fail_strict_off_target(key: str, value: float) -> None:
-    extras = {
-        "runs_on_inning_ending_plays": 0,
-        "relief_60plus_pct": 0.01,
-        "closer_third_straight_day": 0,
-    }
+    extras = dict(ON_TARGET)
     extras[key] = value
     summary = _summary(extras)
     kpis._promote_extras_metrics(summary, kpis.DEFAULT_TOLERANCES)
