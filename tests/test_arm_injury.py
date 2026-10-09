@@ -85,10 +85,17 @@ def test_hazards_never_change_the_game(seed):
 
 
 def test_same_seed_same_injuries():
-    a = _game(21, pitcher_arm_base=0.2)
-    b = _game(21, pitcher_arm_base=0.2)
-    assert a.metadata["injury_events"] == b.metadata["injury_events"]
-    assert any(e["trigger"] == "pitcher_arm" for e in a.metadata["injury_events"])
+    # Several seeds, so the check does not hinge on one game's pitch counts
+    # (the game stream moves whenever the engine changes on purpose).
+    arm_events = 0
+    for seed in range(21, 27):
+        a = _game(seed, pitcher_arm_base=0.2)
+        b = _game(seed, pitcher_arm_base=0.2)
+        assert a.metadata["injury_events"] == b.metadata["injury_events"]
+        arm_events += sum(
+            e["trigger"] == "pitcher_arm" for e in a.metadata["injury_events"]
+        )
+    assert arm_events > 0
 
 
 def test_arm_event_schema():
