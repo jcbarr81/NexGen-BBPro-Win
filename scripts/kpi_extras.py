@@ -235,6 +235,8 @@ class ReportOnlyKpis:
         # Release 4 (W0): hitter speed for the running-game tier tables.
         self.sp: dict[str, float] = {}
         self._load_players(Path(players_path))
+        # Release 4 (W1): pitcher control, for the wild-pitch response check.
+        self.control = _load_pitcher_control(Path(players_path))
         self.lineup_pos = _load_lineup_positions(lineup_dir) if lineup_dir else {}
 
         self.games = 0
@@ -427,6 +429,7 @@ class ReportOnlyKpis:
             self.logged_games += 1
             self._add_base_out(pas, inning_runs, s_away, s_home)
         self._add_bench(meta, teams)
+        self._add_running_w1(totals, log, meta)  # Release 4 (W1)
 
     def _add_bullpen_usage(
         self, meta: dict[str, Any], log: list[dict[str, Any]] | None = None
@@ -858,6 +861,7 @@ class ReportOnlyKpis:
             ),
         }
         self._bench_metrics(metrics, tables, gpt)
+        self._running_w1_metrics(metrics, tables, gpt)  # Release 4 (W1)
         return {"metrics": metrics, "tables": tables, "coverage": coverage}
 
     def _situational(
@@ -1034,6 +1038,217 @@ class ReportOnlyKpis:
             max(tops) * 162.0 / gpt if (tops and gpt) else None
         )
         tables["bench_usage_totals"] = dict(tally)
+
+    # -- Release 4 (W1): steals, wild pitches, passed balls, dropped third
+    # strikes (audit H2, M10). Report-only; Release 4 W4 promotes the gates.
+    # The zero checks read the engine's per-entry ``event_bases`` /
+    # ``event_outs`` (the bases and outs before the play); a log without them
+    # leaves those checks None ("not logged").
+    def _add_running_w1(
+        self,
+        totals: dict[str, Any],
+        log: list[dict[str, Any]],
+        meta: dict[str, Any],
+    ) -> None:
+        run = getattr(self, "running_w1", None)
+        if run is None:
+            run = self.running_w1 = Counter()
+            self.steal_by_pid: dict[str, Counter] = defaultdict(Counter)
+            self.wp_by_pitcher: dict[str, Counter] = defaultdict(Counter)
+            self.pb_by_catcher: dict[str, Counter] = defaultdict(Counter)
+        for key in ("sb", "cs", "po", "pocs", "k_reach", "balk"):
+            run[key] += _int(totals.get(key))
+        for entry in log:
+            tokens = _event_tokens(entry)
+            if not tokens:
+                continue
+            logged = "event_bases" in entry
+            mask = _int(entry.get("event_bases")) & 7
+            foul = entry.get("outcome") == "foul"
+            steal = {t for t in tokens if t[:2] in ("sb", "cs")}
+            missed = tokens & {"wp", "pb"}
+            if steal:
+                run["steal_entries"] += 1
+                run["steal_logged"] += logged
+                run["steal_on_foul"] += foul
+                cs = sum(1 for t in steal if t.startswith("cs"))
+                run["double_steal_plays"] += len(steal) >= 2 or "adv2" in tokens
+                run["double_steal_two_out"] += cs >= 2
+                run["steal_third_attempts"] += sum(1 for t in steal if t.endswith("3"))
+                run["steal_attempt_events"] += len(steal)
+                run["adv2"] += "adv2" in tokens
+            if missed:
+                run["wp_pb_entries"] += 1
+                run["wp_pb_logged"] += logged
+                run["wp_pb_on_foul"] += foul
+                run["wp_pb_bases_empty"] += logged and mask == 0
+            if tokens & {"k_wp", "k_pb"}:
+                run["k_event_logged"] += logged
+                if entry.get("k_reached") and logged:
+                    illegal = (mask & 1) and _int(entry.get("event_outs")) < 2
+                    run["illegal_k_reach"] += bool(illegal)
+        for side in ("away", "home"):
+            for line in (meta.get("batting_lines") or {}).get(side, []) or []:
+                pid = str(line.get("player_id", ""))
+                c = self.steal_by_pid[pid]
+                for key in ("sb", "cs", "b1", "bb", "hbp"):
+                    c[key] += _int(line.get(key))
+            for line in (meta.get("pitcher_lines") or {}).get(side, []) or []:
+                pid = str(line.get("player_id", ""))
+                c = self.wp_by_pitcher[pid]
+                c["wp"] += _int(line.get("wp"))
+                c["outs"] += _int(line.get("outs"))
+            for line in (meta.get("fielding_lines") or {}).get(side, []) or []:
+                pid = str(line.get("player_id", ""))
+                if self.primary_pos.get(pid) != "C" or _int(line.get("gs")) < 1:
+                    continue
+                c = self.pb_by_catcher[pid]
+                c["gs"] += 1
+                c["pb"] += _int(line.get("pb"))
+
+    def _running_w1_metrics(
+        self, metrics: dict[str, Any], tables: dict[str, Any], gpt: int
+    ) -> None:
+        run = getattr(self, "running_w1", Counter())
+        team_games = self.games * 2
+        sba = run["sb"] + run["cs"]
+        metrics["cs_per_team_game"] = _ratio(run["cs"], team_games)
+        metrics["pickoffs_per_team_game"] = _ratio(run["po"], team_games)
+        metrics["k_reach_per_team_game"] = _ratio(run["k_reach"], team_games)
+
+        # Zero checks: None when the log carries no event_bases at all.
+        def zero_check(key: str, entries: str, logged: str) -> int | None:
+            if not self.games:
+                return None
+            if run[entries] and not run[logged]:
+                return None
+            return run[key]
+
+        metrics["steal_events_on_foul"] = (
+            run["steal_on_foul"] if self.games else None
+        )
+        metrics["wp_pb_on_foul"] = run["wp_pb_on_foul"] if self.games else None
+        metrics["wp_pb_bases_empty"] = zero_check(
+            "wp_pb_bases_empty", "wp_pb_entries", "wp_pb_logged"
+        )
+        metrics["double_steal_two_out_plays"] = (
+            run["double_steal_two_out"] if self.games else None
+        )
+        metrics["illegal_k_reach"] = (
+            None if (run["k_reach"] and not run["k_event_logged"])
+            else (run["illegal_k_reach"] if self.games else None)
+        )
+        metrics["steal_third_share"] = _ratio(
+            run["steal_third_attempts"], run["steal_attempt_events"]
+        )
+        tables["running_w1_counts"] = dict(run)
+
+        # Per-player steal volume: attempts per time on first (1B+BB+HBP).
+        rows = getattr(self, "steal_by_pid", {})
+        tof_all = sum(c["b1"] + c["bb"] + c["hbp"] for c in rows.values())
+        metrics["sba_per_tof"] = _ratio(sba, tof_all)
+        tiers: dict[str, Counter] = defaultdict(Counter)
+        xs: list[float] = []
+        ys: list[float] = []
+        min_tof = max(20, round(100 * gpt / 162))
+        scale = 162.0 / gpt if gpt else 1.0
+        sb_season: dict[str, float] = {}
+        for pid, c in rows.items():
+            sp = self.sp.get(pid)
+            tof = c["b1"] + c["bb"] + c["hbp"]
+            att = c["sb"] + c["cs"]
+            if c["sb"]:
+                sb_season[pid] = c["sb"] * scale
+            if sp is None:
+                continue
+            t = tiers[_steal_speed_tier(sp)]
+            t["tof"] += tof
+            t["att"] += att
+            t["sb"] += c["sb"]
+            t["players"] += 1
+            if tof >= min_tof:
+                xs.append(sp)
+                ys.append(att / tof)
+        tier_table = {}
+        for name in STEAL_SPEED_TIERS:
+            t = tiers.get(name) or Counter()
+            att_rate = _ratio(t["att"], t["tof"])
+            sb_pct = _ratio(t["sb"], t["att"])
+            key = name.replace("-", "_").replace("+", "plus").replace("<", "lt")
+            metrics[f"sba_per_tof_sp_{key}"] = att_rate
+            metrics[f"sb_pct_sp_{key}"] = sb_pct
+            tier_table[name] = {
+                "players": t["players"], "tof": t["tof"], "att": t["att"],
+                "sb": t["sb"], "att_per_tof": att_rate, "sb_pct": sb_pct,
+            }
+        tables["steal_by_speed_tier"] = tier_table
+        mid = tiers.get("47-53") or Counter()
+        fast = tiers.get("68-77") or Counter()
+        mid_rate = _ratio(mid["att"], mid["tof"])
+        fast_rate = _ratio(fast["att"], fast["tof"])
+        metrics["steal_tier_ratio"] = (
+            fast_rate / mid_rate if (fast_rate is not None and mid_rate) else None
+        )
+        metrics["corr_speed_steal_att"] = _pearson(xs, ys) if len(xs) >= 10 else None
+        metrics["sb40_count"] = (
+            sum(1 for v in sb_season.values() if v >= 40.0) if self.games else None
+        )
+        metrics["sb_leader"] = max(sb_season.values()) if sb_season else None
+        tables["sb_leaders_per_162"] = [
+            {"player_id": pid, "sp": self.sp.get(pid), "sb": round(v, 1)}
+            for pid, v in sorted(sb_season.items(), key=lambda kv: -kv[1])[:10]
+        ]
+
+        # Missed-pitch rating response (M10): pitcher control vs WP/9 and
+        # catcher fielding vs PB per game, among regulars.
+        control = getattr(self, "control", {})
+        min_outs = 3 * max(10, round(60 * gpt / 162))
+        px, py = [], []
+        for pid, c in getattr(self, "wp_by_pitcher", {}).items():
+            if c["outs"] >= min_outs and pid in control:
+                px.append(control[pid])
+                py.append(27.0 * c["wp"] / c["outs"])
+        metrics["corr_control_wp9"] = _pearson(px, py) if len(px) >= 10 else None
+        min_gs = max(5, round(40 * gpt / 162))
+        cx, cy = [], []
+        for pid, c in getattr(self, "pb_by_catcher", {}).items():
+            if c["gs"] >= min_gs and pid in self.fa:
+                cx.append(self.fa[pid])
+                cy.append(c["pb"] / c["gs"])
+        metrics["corr_catcher_fa_pb"] = _pearson(cx, cy) if len(cx) >= 5 else None
+
+
+# Release 4 (W1): raw-speed tiers for the steal tables (the plan's tiers;
+# 47-53 is the "50", 68-77 the "fast 70", 78-89 the "burner 85").
+STEAL_SPEED_TIERS = (
+    "<40", "40-46", "47-53", "54-61", "62-67", "68-77", "78-89", "90+"
+)
+
+
+def _steal_speed_tier(sp: float) -> str:
+    for upper, name in (
+        (40, "<40"), (47, "40-46"), (54, "47-53"), (62, "54-61"),
+        (68, "62-67"), (78, "68-77"), (90, "78-89"),
+    ):
+        if sp < upper:
+            return name
+    return "90+"
+
+
+def _load_pitcher_control(path: Path) -> dict[str, float]:
+    control: dict[str, float] = {}
+    if not path.exists():
+        return control
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            pid = str(row.get("player_id") or "")
+            if not pid or str(row.get("is_pitcher", "")).strip() not in {"1", "True", "true"}:
+                continue
+            try:
+                control[pid] = float(row.get("control") or "")
+            except ValueError:
+                pass
+    return control
 
 
 def _diff(a: float | None, b: float | None) -> float | None:

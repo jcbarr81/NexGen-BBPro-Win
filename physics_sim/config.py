@@ -297,10 +297,13 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "lead_ball_bonus": 1.0,
     "lead_two_strike_penalty": 1.0,
     "lead_two_out_penalty": 1.0,
-    "wild_pitch_rate": 0.0035,
-    "passed_ball_rate": 0.0025,
+    # Release 4 (M10): per live pitch with runners on, before the rating
+    # terms in engine._missed_pitch_rates; a ball only counts as a WP/PB
+    # when a runner advances (rule 9.13). k_in_dirt_rate is per third strike.
+    "wild_pitch_rate": 0.0097,
+    "passed_ball_rate": 0.00155,
     "missed_pitch_loc_scale": 0.6,
-    "k_in_dirt_rate": 0.02,
+    "k_in_dirt_rate": 0.0112,
     # Decision 11 (Release 3): the automatic runner on 2nd from the 10th, in
     # the regular season only. A league can turn it off (league_settings
     # ``extra_innings_runner``; game_runner writes this key last). Past
@@ -675,6 +678,25 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # engine._centred_speed so a fast or slow league keeps MLB's overall
     # rates; race-against-a-throw terms keep reading raw ``sp - 50``.
     "hitter_speed_center": 50.0,
+    # Release 4 (W1): wild pitches, passed balls and the dropped third strike
+    # (audit M10). Rating terms are exponential, e^((50 - rating) / k), with
+    # ratings clipped to [20, 95]: control drives WPs, catcher fielding drives
+    # PBs (and a little of the WPs, as blocking). Each per-pitch rate is
+    # capped at missed_pitch_rate_cap.
+    "wild_pitch_control_k": 40.0,
+    "wild_pitch_block_k": 80.0,
+    "passed_ball_fa_k": 25.0,
+    "missed_pitch_rate_cap": 0.05,
+    "k_in_dirt_control_k": 40.0,
+    "k_in_dirt_fa_k": 60.0,
+    # An eligible batter (1st open or two outs) beats the throw on a dropped
+    # third strike with clamp(base + (sp - 50) / speed_div
+    # - (catcher arm - 50) / arm_div, min, max); raw speed, a race.
+    "k_reach_base": 0.85,
+    "k_reach_speed_div": 200.0,
+    "k_reach_arm_div": 300.0,
+    "k_reach_min": 0.5,
+    "k_reach_max": 0.98,
 }
 
 
