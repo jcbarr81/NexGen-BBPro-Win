@@ -32,11 +32,11 @@ starter_woba_delta_91_105,0.015,1,REPORT H10 target: +10 to +20 wOBA points with
 tto_pass2_woba_delta,0.01,1,REPORT L14: MLB pass 2 ~+10 wOBA points over pass 1 (within pitcher)
 tto_pass3_woba_delta,0.025,1,REPORT H10/L14 target: pass 3 minus pass 1 +20 to +30 wOBA points
 first_to_third_on_single_pct,0.28,1,MLB runner from 1st reaches 3rd on a single ~27-30%
-sf_per_pa,0.0067,0,Teams_last5years.csv 2021-24 SF / (AB+BB+HBP+SF)
+sf_per_pa,0.0068,0,"Teams_last5years.csv 2023-24 (pitch-clock rules) SF / (AB+BB+HBP+SF), .0067/.0069 (2021-24 .0067); Release 4 4b gate .0068 +/- .0010"
 gidp_per_opp,0.105,1,"REPORT M8: GIDP per opportunity (runner on 1st, <2 out) MLB ~.10-.11"
 e_per_team_game,0.53,0,Teams_last5years.csv 2021-24 E / G
-wp_per_team_game,0.33,1,REPORT M10
-pb_per_team_game,0.05,1,REPORT M10
+wp_per_team_game,0.33,1,"REPORT M10: MLB ~.33 WP per team-game; strict .33 +/- .08 since Release 4"
+pb_per_team_game,0.05,1,"REPORT M10: MLB ~.05 PB per team-game; strict .05 +/- .03 since Release 4"
 team_der_mean,0.69,0,defensive_efficiency in mlb_league_benchmarks_2025_filled.csv
 team_der_sd,0.011,1,REPORT M22 / DECISIONS 12: team DER sd ~0.010-0.012
 re24_empty_0,0.481,0,FanGraphs RE24 2010-15 (Tango); run env ~4.24 R/G; x1.06 for 2023-24
@@ -98,3 +98,21 @@ backup_c_starts_mean_per_162,35.0,1,spec S2-05 target 35+ backup-catcher starts
 backup_c_starts_min_per_162,35.0,1,spec S2-05 target 35+ backup-catcher starts
 team_wpct_sd,0.083,0,Teams_last5years.csv 2021-24 observed W% sd
 team_true_wpct_sd,0.073,1,Teams_last5years.csv 2021-24 observed minus binomial (REPORT M17: 0.065-0.080)
+sba_per_tof,0.103,0,"Teams_last5years.csv 2023-24 (SB+CS) / (1B+BB+HBP): steal attempts per time on first (Release 4 plan: MLB .099-.107)"
+cs_per_team_game,0.19,0,"Teams_last5years.csv 2023-24 CS / G, .178/.198"
+k_reach_per_team_game,0.06,1,"dropped-third-strike reaches per team-game ~.06 (Release 4 plan, approx.; a Retrosheet pull for an exact row is queued); report-only"
+steal_events_on_foul,0,0,"rule: no stolen base or caught stealing on a foul ball (Release 4 W1); season total, gated strict"
+wp_pb_on_foul,0,0,"rule: no wild pitch or passed ball on a foul ball (Release 4 W1); season total, gated strict"
+wp_pb_bases_empty,0,0,"rule 9.13: a WP/PB needs a runner who advances; none with the bases empty (pitch path; a dropped third strike is not one); season total, gated strict"
+double_steal_two_out_plays,0,0,"at most one runner is thrown out on a double steal (Release 4 W1); season total, gated strict"
+illegal_k_reach,0,0,"rule 5.05(a)(2): no dropped-third-strike reach with 1st occupied and fewer than two out; season total, gated strict"
+xbt_logged_rate,0.40,1,"MLB XBT% ~.40 (Baseball-Reference extra bases taken); same chances as extra_base_advance_rate; 4b gate .40 +/- .05"
+xbt_thrown_out_per_opp,0.025,1,"runners thrown out per XBT chance ~.02-.03 (REPORT M7; Release 4 plan target .015-.035)"
+r1_first_to_third_on_single_pct,0.28,1,"MLB runner from 1st reaches 3rd on a single ~27-30% (Release 4 plan section C)"
+r2_scores_on_single_pct,0.60,1,"MLB runner from 2nd scores on a single ~60% (Release 4 plan section C)"
+r1_scores_on_double_pct,0.42,1,"MLB runner from 1st scores on a double ~40-45% (Release 4 plan section C)"
+forced_r3_scores_on_single_pct,0.99,1,"a runner on 3rd scores on a single ~99% (Release 4 plan section C)"
+tagup_score_rate,0.75,1,"runner on 3rd with fewer than two out scores on an outfield fly ~72-78% (Release 4 plan section E)"
+tagup_out_per_send,0.03,1,"runners thrown out per tag-up send from 3rd ~2-4% (Release 4 plan section E)"
+corr_control_wp9,-0.15,1,"gate bound, not an MLB value: pitcher control vs WP/9 among regulars should be <= -.15 (REPORT M10; Release 4 plan section B); report-only"
+corr_catcher_fa_pb,-0.4,1,"gate bound, not an MLB value: catcher fielding vs PB per start should be <= -.4 (REPORT M10; Release 4 plan section B); report-only"
