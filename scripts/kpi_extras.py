@@ -1437,10 +1437,16 @@ class ReportOnlyKpis:
                         bool(tag3.get("infield")),
                     )
                 )
+                if not tag3.get("infield"):
+                    oip.tag3_short += bool(tag3.get("short"))
             tag2 = entry.get("tag2")
             if isinstance(tag2, dict) and not tag2.get("infield"):
                 oip.tag2["opp"] += 1
                 oip.tag2["adv"] += tag2.get("result") == "adv"
+                if tag2.get("dist") is not None:
+                    band = oip.tag2_by_dist[_carry_band(float(tag2["dist"]))]
+                    band["opp"] += 1
+                    band["adv"] += tag2.get("result") == "adv"
             go3 = entry.get("go3")
             if isinstance(go3, dict):
                 oip.logged = True
@@ -1472,7 +1478,18 @@ class ReportOnlyKpis:
         .72-.78 on outfield flies, thrown out per send .02-.04, r(tag, arm)
         <= -.08, r(tag, sp) >= +.07, fastest / slowest GIDP per opportunity
         quintile ~.5 (.40-.60 on the tier fixture). The RE24 cells (3rd only,
-        1st and 3rd) are the existing ``re24_*`` / ``runprob_*`` rows."""
+        1st and 3rd) are the existing ``re24_*`` / ``runprob_*`` rows.
+
+        The tag-up rows are final results: a runner thrown out whose out a
+        throwing error reverses (``e_th``) counts as scoring, so
+        ``tagup_out_per_send`` is outs that stood per send. The race itself
+        is ``tagup_race_out_per_send``: every send the throw beat, before
+        any error, per send (the engine's ``p_out``; the .02-.04 target is
+        for the final row). ``tagup_short_share`` is the share of outfield
+        chances on flies under ``tag_up_min_carry_ft`` (pop-ups: nobody tags
+        under ``tag_up_model`` 1). ``r2_tagup_adv_rate`` is R2 taking 3rd
+        per chance (3rd open, inning alive after the tag-up race);
+        ``tables["r2_tagup_by_carry"]`` splits it by engine carry."""
         oip = self._oip()
         metrics["dp_air"] = oip.dp_air if self.games else None
         metrics["dp_air_per_team_game"] = _ratio(oip.dp_air, team_games)
@@ -1491,6 +1508,12 @@ class ReportOnlyKpis:
         metrics["tagup_out_rate"] = _ratio(counts["out"], n_of) if logged else None
         metrics["tagup_send_rate"] = _ratio(sends, n_of) if logged else None
         metrics["tagup_out_per_send"] = _ratio(counts["out"], sends) if logged else None
+        metrics["tagup_race_out_per_send"] = (
+            _ratio(counts["out"] + counts["error"], sends) if logged else None
+        )
+        metrics["tagup_short_share"] = (
+            _ratio(oip.tag3_short, n_of) if logged else None
+        )
         metrics["tagup_infield_share"] = (
             _ratio(len(infield), len(oip.tag3)) if logged else None
         )
@@ -1501,6 +1524,12 @@ class ReportOnlyKpis:
         metrics["r2_tagup_adv_rate"] = (
             _ratio(oip.tag2["adv"], oip.tag2["opp"]) if logged else None
         )
+        carry = {}
+        for band in CARRY_BANDS:
+            c = oip.tag2_by_dist.get(band)
+            if c:
+                carry[band] = {"n": c["opp"], "adv": _ratio(c["adv"], c["opp"])}
+        tables["r2_tagup_by_carry"] = carry
         scored = [1.0 if r[2] in ("score", "error") else 0.0 for r in of]
         metrics["r_tagup_score_arm"] = _pearson([r[1] for r in of], scored)
         with_sp = [(r[0], s) for r, s in zip(of, scored) if r[0] is not None]
@@ -1642,6 +1671,17 @@ def _tier_order(tier: str) -> int:
     return SPEED_TIERS.index(tier) if tier in SPEED_TIERS else len(SPEED_TIERS)
 
 
+# Engine-carry bands (ft) for the R2 tag-up table.
+CARRY_BANDS = ("<150", "150-199", "200-249", "250-299", "300+")
+
+
+def _carry_band(dist: float) -> str:
+    for upper, name in zip((150, 200, 250, 300), CARRY_BANDS):
+        if dist < upper:
+            return name
+    return CARRY_BANDS[-1]
+
+
 class _OutsInPlay:
     """Release 4 (W3) accumulator for ``ReportOnlyKpis._add_outs_in_play``."""
 
@@ -1652,6 +1692,9 @@ class _OutsInPlay:
         # (runner sp or None, thrower arm, result, infield) per R3 chance.
         self.tag3: list[tuple[float | None, float, str, bool]] = []
         self.tag2: Counter = Counter()
+        # R2 chances (opp / adv) by engine-carry band (``_carry_band``).
+        self.tag2_by_dist: dict[str, Counter] = defaultdict(Counter)
+        self.tag3_short = 0
         self.go3: dict[tuple[int, int], Counter] = defaultdict(Counter)
         self.gidp_by_batter: dict[str, Counter] = defaultdict(Counter)
 
