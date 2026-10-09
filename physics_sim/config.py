@@ -759,6 +759,9 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # so do bunt hits. 0 = off (every hit's runners advance on the
     # outfielder who picks it up). Not in the 4b profile: at 85 mph it took
     # calibration XBT to .35 (floor .37) and 1st-to-3rd to .20 (MLB .28).
+    # Deliberately separate from the M6 ``infield_hit_ev_lo``/``_hi`` ramp
+    # above (accepted by the owner/integrator): that ramp decides whether a
+    # ground ball is a hit; this cut decides how the runners move once it is.
     "infield_single_ev_max": 0.0,
     # Release 4 (W3): outs in play -- tag-ups, the runner on 3rd on ground
     # outs, double plays (audit M6 DP half, M7, M8). Two structural switches

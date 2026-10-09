@@ -80,8 +80,16 @@ def test_every_pa_logs_its_start_state_once(seed):
         seed=seed,
     )
     starts = [e for e in result.pitch_log if e.get("pa_start")]
-    # One tagged entry per plate appearance, IBB and bunt PAs included.
-    assert len(starts) == result.totals["pa"]
+    # One tagged entry per plate appearance, IBB and bunt PAs included. A PA
+    # cut short by a third out on the bases (or a walk-off) mid-PA logs its
+    # start but has no result and is not charged (rule 5.04(a)(2)).
+    begins = [i for i, e in enumerate(result.pitch_log) if e.get("pa_start")]
+    ends = begins[1:] + [len(result.pitch_log)]
+    cut_short = sum(
+        1 for i, j in zip(begins, ends)
+        if not any(e.get("pa_result") for e in result.pitch_log[i:j])
+    )
+    assert len(starts) - cut_short == result.totals["pa"]
     for entry in starts:
         assert PA_START_KEYS <= set(entry)
         assert entry["half"] in {"top", "bottom"}

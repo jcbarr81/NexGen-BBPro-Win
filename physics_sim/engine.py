@@ -2049,6 +2049,23 @@ def _attempt_extra_base(
     return "advance"
 
 
+def _note_hit_rule(rule_log: dict[str, int] | None, key: str) -> None:
+    if rule_log is not None:
+        rule_log[key] = rule_log.get(key, 0) + 1
+
+
+def _park_runner(bases: BaseState, runner: BatterRatings, base: int) -> None:
+    """Put ``runner`` on ``base`` or, if it is taken, the nearest free base
+    behind it (then ahead of it). For runners the hit-advance rules stop
+    short; after a third out only the LOB count reads where they stand."""
+    slots = ("first", "second", "third")
+    order = list(range(base, 0, -1)) + list(range(base + 1, 4))
+    for target in order:
+        if getattr(bases, slots[target - 1]) is None:
+            setattr(bases, slots[target - 1], runner)
+            return
+
+
 def _advance_on_hit(
     *,
     bases: BaseState,
@@ -2058,6 +2075,7 @@ def _advance_on_hit(
     tuning: TuningConfig,
     outs: int = 0,
     infield_hit: bool = False,
+    rule_log: dict[str, int] | None = None,
 ) -> tuple[int, int, list[str], list[BatterRatings], list[BatterRatings]]:
     """Move the runners on a hit; return (runs, outs added, events, scored,
     runners saved by a throwing error).
@@ -2067,7 +2085,26 @@ def _advance_on_hit(
     ``xbt_two_out_extra`` (running on contact). ``infield_hit`` marks an
     infield single: every runner moves up exactly one base and nobody tries
     for more (Release 4 W2; the caller decides, from
-    ``infield_single_ev_max``). The defaults reproduce 7.47.0.
+    ``infield_single_ev_max``).
+
+    Rule 5.08(a) (Release 4 F1). Runners are played lead first, so a runner
+    who scored did so ahead of any runner put out behind him:
+      * once ``outs`` plus the outs on the play reach three the inning is
+        over: no trailing runner moves up or tries for a base (he is left
+        on base for LOB), so a play never makes more than three outs;
+      * a third out on a FORCE play voids every run on the play. On a hit
+        the only force at the plate is the runner from 3rd with the bases
+        loaded, and he is the lead runner, so nobody has scored yet;
+      * a third out on a TAG play (a runner who was not forced to that
+        base, e.g. the runner from 2nd thrown out at home) keeps the runs
+        of the runners who scored ahead of him (a timing play);
+      * once a runner is thrown out at home the runners behind him do not
+        try to score: they stop at 3rd. On a double the runner from 2nd
+        still has to run when a runner from 1st is behind him (the batter
+        takes 2nd and the runner from 1st needs 3rd).
+    The batter-runner is never put out on a hit. ``rule_log`` (optional)
+    counts the runners these rules stopped: ``cut`` (the inning was over)
+    and ``held`` (a lead runner was out at home).
     """
     runs = 0
     outs_added = 0
@@ -2100,6 +2137,7 @@ def _advance_on_hit(
         bases.first = None
         bases.second = batter
         bases.third = None
+        home_out = False
 
         if runner_third:
             result = _attempt_extra_base(
@@ -2113,6 +2151,7 @@ def _advance_on_hit(
             if result == "out":
                 outs_added += 1
                 events.append("oobH")
+                home_out = True
             elif result == "error":
                 runs += 1
                 scored.append(runner_third)
@@ -2123,50 +2162,65 @@ def _advance_on_hit(
                 scored.append(runner_third)
 
         if runner_second:
-            result = _attempt_extra_base(
-                runner=runner_second,
-                defense_arm=defense_arm,
-                tuning=tuning,
-                attempt_extra=0.15,
-                out_extra=0.02,
-                force=True,
-            )
-            if result == "out":
-                outs_added += 1
-                events.append("oobH")
-            elif result == "error":
-                runs += 1
-                scored.append(runner_second)
-                error_advances.append(runner_second)
-                events.append("e_th")
+            if outs + outs_added >= 3:
+                _park_runner(bases, runner_second, 3)
+                _note_hit_rule(rule_log, "cut")
+            elif home_out and runner_first is None:
+                bases.third = runner_second
+                _note_hit_rule(rule_log, "held")
             else:
-                runs += 1
-                scored.append(runner_second)
+                result = _attempt_extra_base(
+                    runner=runner_second,
+                    defense_arm=defense_arm,
+                    tuning=tuning,
+                    attempt_extra=0.15,
+                    out_extra=0.02,
+                    force=True,
+                )
+                if result == "out":
+                    outs_added += 1
+                    events.append("oobH")
+                    home_out = True
+                elif result == "error":
+                    runs += 1
+                    scored.append(runner_second)
+                    error_advances.append(runner_second)
+                    events.append("e_th")
+                else:
+                    runs += 1
+                    scored.append(runner_second)
 
         if runner_first:
-            result = _attempt_extra_base(
-                runner=runner_first,
-                defense_arm=defense_arm,
-                tuning=tuning,
-                attempt_extra=(
-                    tuning.get("xbt_double_r1_extra", -0.05) + two_out_extra
-                ),
-                out_extra=0.12,
-                force=False,
-            )
-            if result == "advance":
-                runs += 1
-                scored.append(runner_first)
-            elif result == "error":
-                runs += 1
-                scored.append(runner_first)
-                error_advances.append(runner_first)
-                events.append("e_th")
-            elif result == "out":
-                outs_added += 1
-                events.append("oobH")
+            if outs + outs_added >= 3:
+                _park_runner(bases, runner_first, 3)
+                _note_hit_rule(rule_log, "cut")
+            elif home_out:
+                _park_runner(bases, runner_first, 3)
+                _note_hit_rule(rule_log, "held")
             else:
-                bases.third = runner_first
+                result = _attempt_extra_base(
+                    runner=runner_first,
+                    defense_arm=defense_arm,
+                    tuning=tuning,
+                    attempt_extra=(
+                        tuning.get("xbt_double_r1_extra", -0.05) + two_out_extra
+                    ),
+                    out_extra=0.12,
+                    force=False,
+                )
+                if result == "advance":
+                    runs += 1
+                    scored.append(runner_first)
+                elif result == "error":
+                    runs += 1
+                    scored.append(runner_first)
+                    error_advances.append(runner_first)
+                    events.append("e_th")
+                elif result == "out":
+                    outs_added += 1
+                    events.append("oobH")
+                else:
+                    bases.third = runner_first
         return runs, outs_added, events, scored, error_advances
 
     # Single
@@ -2187,6 +2241,7 @@ def _advance_on_hit(
         bases.second = runner_first
         return runs, outs_added, events, scored, error_advances
 
+    home_out = False
     if runner_third:
         result = _attempt_extra_base(
             runner=runner_third,
@@ -2199,6 +2254,7 @@ def _advance_on_hit(
         if result == "out":
             outs_added += 1
             events.append("oobH")
+            home_out = True
         elif result == "error":
             runs += 1
             scored.append(runner_third)
@@ -2209,32 +2265,40 @@ def _advance_on_hit(
             scored.append(runner_third)
 
     if runner_second:
-        result = _attempt_extra_base(
-            runner=runner_second,
-            defense_arm=defense_arm,
-            tuning=tuning,
-            attempt_extra=(
-                tuning.get("xbt_single_r2_extra", 0.15) + two_out_extra
-            ),
-            out_extra=0.05,
-            force=False,
-        )
-        if result == "advance":
-            runs += 1
-            scored.append(runner_second)
-        elif result == "error":
-            runs += 1
-            scored.append(runner_second)
-            error_advances.append(runner_second)
-            events.append("e_th")
-        elif result == "out":
-            outs_added += 1
-            events.append("oobH")
-        else:
+        if outs + outs_added >= 3:
             bases.third = runner_second
+            _note_hit_rule(rule_log, "cut")
+        elif home_out:
+            bases.third = runner_second
+            _note_hit_rule(rule_log, "held")
+        else:
+            result = _attempt_extra_base(
+                runner=runner_second,
+                defense_arm=defense_arm,
+                tuning=tuning,
+                attempt_extra=(
+                    tuning.get("xbt_single_r2_extra", 0.15) + two_out_extra
+                ),
+                out_extra=0.05,
+                force=False,
+            )
+            if result == "advance":
+                runs += 1
+                scored.append(runner_second)
+            elif result == "error":
+                runs += 1
+                scored.append(runner_second)
+                error_advances.append(runner_second)
+                events.append("e_th")
+            elif result == "out":
+                outs_added += 1
+                events.append("oobH")
+                home_out = True
+            else:
+                bases.third = runner_second
 
     if runner_first:
-        if bases.third is None:
+        if bases.third is None and outs + outs_added < 3:
             result = _attempt_extra_base(
                 runner=runner_first,
                 defense_arm=defense_arm,
@@ -2248,7 +2312,13 @@ def _advance_on_hit(
             elif result == "error":
                 error_advances.append(runner_first)
                 events.append("e_th")
-                if random.random() < tuning.get("throw_error_extra_base_chance", 0.35):
+                # After an out at home he does not try to score on the throw.
+                if home_out:
+                    bases.third = runner_first
+                    _note_hit_rule(rule_log, "held")
+                elif random.random() < tuning.get(
+                    "throw_error_extra_base_chance", 0.35
+                ):
                     runs += 1
                     scored.append(runner_first)
                 else:
@@ -2259,6 +2329,9 @@ def _advance_on_hit(
             else:
                 bases.second = runner_first
         else:
+            if bases.third is None:
+                # 3rd was open, but the play's third out ended the inning.
+                _note_hit_rule(rule_log, "cut")
             bases.second = runner_first
     return runs, outs_added, events, scored, error_advances
 
@@ -2511,13 +2584,22 @@ def _advance_on_error(
     batter: BatterRatings,
     defense_arm: float,
     tuning: TuningConfig,
+    outs: int = 0,
+    rule_log: dict[str, int] | None = None,
 ) -> tuple[int, int, list[str], list[BatterRatings], list[BatterRatings]]:
+    """Runners on a batter safe on an error move as on a single.
+
+    Release 4 F1: ``outs`` is the live out count, so the rule 5.08(a) cut
+    and the two-out running extra (4b) apply here too.
+    """
     return _advance_on_hit(
         bases=bases,
         batter=batter,
         hit_type="single",
         defense_arm=defense_arm,
         tuning=tuning,
+        outs=outs,
+        rule_log=rule_log,
     )
 
 
@@ -5315,6 +5397,10 @@ def simulate_game(
     score_home = 0
     inning_runs_away: List[int] = []
     inning_runs_home: List[int] = []
+    # Release 4 F1: outs recorded in each half-inning (never more than 3),
+    # for the KPI harness's zero gate.
+    inning_outs_away: List[int] = []
+    inning_outs_home: List[int] = []
 
     # Basic lineup/defense selection for a two-team matchup.
     if away_lineup is None or home_lineup is None:
@@ -5854,9 +5940,11 @@ def simulate_game(
             if batting_team == "away":
                 totals["lob_away"] += lob
                 inning_runs_away.append(half_inning_runs)
+                inning_outs_away.append(outs)
             else:
                 totals["lob_home"] += lob
                 inning_runs_home.append(half_inning_runs)
+                inning_outs_home.append(outs)
 
         def post_at_bat(pitcher_state: PitcherState) -> None:
             if walkoff or outs >= 3 or not pitch_log:
@@ -6623,6 +6711,7 @@ def simulate_game(
                             before_ids = _base_runner_ids(bases)
                             xbt_first, xbt_second = bases.first, bases.second
                             runners_before = (bases.first, bases.second, bases.third)
+                            hit_rule: dict[str, int] = {}
                             (
                                 runs_scored,
                                 outs_added,
@@ -6637,6 +6726,7 @@ def simulate_game(
                                 tuning=tuning,
                                 outs=outs,
                                 infield_hit=advance_infield,
+                                rule_log=hit_rule,
                             )
                             _tally_extra_bases_taken(
                                 totals,
@@ -6682,6 +6772,12 @@ def simulate_game(
                             )
                             if hit_adv:
                                 pitch_log[-1]["hit_adv"] = hit_adv
+                                # Release 4 F1: the live out count (a steal
+                                # or pickoff earlier in the PA can change it
+                                # from the PA-start state).
+                                pitch_log[-1]["hit_outs"] = outs
+                            if hit_rule:
+                                pitch_log[-1]["hit_rule"] = hit_rule
                             if advance_infield:
                                 pitch_log[-1]["infield_hit"] = True
                             record_runs(runs_scored, line, scored)
@@ -6791,6 +6887,8 @@ def simulate_game(
                                 pitch_log[-1]["error_on"] = out_type
                                 pitch_log[-1].update(res.__dict__)
                                 before_ids = _base_runner_ids(bases)
+                                runners_before = (bases.first, bases.second, bases.third)
+                                hit_rule = {}
                                 (
                                     runs_scored,
                                     outs_added,
@@ -6802,7 +6900,23 @@ def simulate_game(
                                     batter=batter,
                                     defense_arm=error_arm,
                                     tuning=tuning,
+                                    outs=outs,
+                                    rule_log=hit_rule,
                                 )
+                                # Release 4 F1: the same runner rows and live
+                                # out count as a hit, for the rule 5.08(a)
+                                # KPI (the hit-advance tables read hits only).
+                                roe_adv = _hit_advance_log(
+                                    runners_before,
+                                    bases=bases,
+                                    scored=scored,
+                                    error_advances=error_advances,
+                                )
+                                if roe_adv:
+                                    pitch_log[-1]["hit_adv"] = roe_adv
+                                    pitch_log[-1]["hit_outs"] = outs
+                                if hit_rule:
+                                    pitch_log[-1]["hit_rule"] = hit_rule
                                 _reconcile_runner_pitchers(
                                     runner_pitchers,
                                     before_ids=before_ids,
@@ -7728,6 +7842,10 @@ def simulate_game(
             "inning_runs": {
                 "away": inning_runs_away,
                 "home": inning_runs_home,
+            },
+            "inning_outs": {
+                "away": inning_outs_away,
+                "home": inning_outs_home,
             },
             "ended_in_tie": ended_in_tie,
             "innings": inning,
