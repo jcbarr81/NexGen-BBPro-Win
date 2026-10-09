@@ -277,9 +277,11 @@ def test_centred_speed():
     assert engine._centred_speed(70.0, tuning) == pytest.approx(65.59)
 
 
-def test_centre_in_tuning_leaves_a_game_identical():
-    # Since Release 4 W1 the steal-attempt curve reads the centre, so only
-    # the default centre (50) is a no-op; the W1 steal tests cover the shift.
+def test_centre_moves_only_the_centred_terms():
+    # Since Release 4 W1 the steal-attempt curve reads the centre. With the
+    # steal attempt rate at zero, a different centre must leave the game
+    # byte-identical: no other 4a term (race-against-the-throw speed terms
+    # read raw speed) and no 4b term at its default may read it.
     def play(overrides):
         return engine.simulate_matchup_from_files(
             away_team="CAL01",
@@ -290,12 +292,33 @@ def test_centre_in_tuning_leaves_a_game_identical():
             tuning_overrides=overrides,
         )
 
-    base = play(None)
-    centred = play({"hitter_speed_center": 50.0})
-    assert centred.totals == base.totals
-    assert json.dumps(centred.pitch_log, sort_keys=True, default=str) == json.dumps(
-        base.pitch_log, sort_keys=True, default=str
-    )
+    base = play({"steal_freq_scale": 0.0})
+    for centre in (40.0, 62.5):
+        centred = play({"steal_freq_scale": 0.0, "hitter_speed_center": centre})
+        assert centred.totals == base.totals
+        assert json.dumps(centred.pitch_log, sort_keys=True, default=str) == json.dumps(
+            base.pitch_log, sort_keys=True, default=str
+        )
+    # And with steals on, the centre does move steal decisions: a league
+    # centred at 40 reads every runner as faster and attempts more steals.
+    def attempts(overrides):
+        return sum(
+            play_seed(seed, overrides).totals.get(key, 0)
+            for seed in range(1, 6)
+            for key in ("sb", "cs")
+        )
+
+    def play_seed(seed, overrides):
+        return engine.simulate_matchup_from_files(
+            away_team="CAL01",
+            home_team="CAL02",
+            players_path=CALIBRATION / "players.csv",
+            base_dir=CALIBRATION,
+            seed=seed,
+            tuning_overrides=overrides,
+        )
+
+    assert attempts({"hitter_speed_center": 40.0}) > attempts(None)
 
 
 # --- live callers ------------------------------------------------------------

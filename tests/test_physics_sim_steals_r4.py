@@ -137,6 +137,22 @@ def test_attempt_rate_uses_the_curve():
     assert rate(70.0) == pytest.approx(0.0328 * _factor(70.0))
 
 
+def test_rare_attempts_keep_the_speed_curve_and_the_slider():
+    """Steals of home sit far below the old 0.001 floor: slower runners and
+    a low slider setting must still lower the rate, not hit a flat floor."""
+    home = DEFAULT_TUNING["steal_attempt_rate_home"]
+
+    def rate(sp, scale=1.0):
+        tuning = load_tuning(overrides={"steal_freq_scale": scale})
+        return engine._steal_attempt_rate(
+            speed=sp, base_rate=home, pitcher_hold=50.0, pitcher_arm=50.0,
+            catcher_arm=50.0, catcher_fielding=50.0, tuning=tuning,
+        )
+
+    assert 0.0 < rate(30.0) < rate(40.0) < rate(50.0) < rate(60.0)
+    assert rate(50.0, scale=0.25) == pytest.approx(rate(50.0) * 0.25)
+
+
 # --- success curve --------------------------------------------------------------
 
 

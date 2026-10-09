@@ -70,7 +70,7 @@ class _Script:
         return len(self._draws)
 
 
-def _d3k(monkeypatch, bases, outs, draws, *, speed=50.0, overrides=None):
+def _d3k(monkeypatch, bases, outs, draws, *, speed=50.0, overrides=None, full=False):
     script = _Script(draws)
     monkeypatch.setattr(engine, "random", script)
     result = engine._resolve_dropped_third_strike(
@@ -86,7 +86,8 @@ def _d3k(monkeypatch, bases, outs, draws, *, speed=50.0, overrides=None):
         zone_top=3.5,
     )
     assert script.left == 0, "scripted draws left over"
-    return result
+    assert len(result) == 6
+    return result if full else result[:5]
 
 
 # --- knobs --------------------------------------------------------------------
@@ -200,6 +201,20 @@ def test_d3k_eligible_batter_reaches_with_probability_p(monkeypatch):
     # Thrown out and nobody moved: no WP/PB is charged.
     assert not reached and outs_added == 1 and event is None
     assert bases.first is None
+
+
+def test_d3k_throw_out_is_flagged_for_1b_putout_credit(monkeypatch):
+    # Eligible and thrown out: 1B putout + C assist (rule 9.09(a)(2)).
+    result = _d3k(monkeypatch, BaseState(), 0, [0.0, 0.0, 0.999], full=True)
+    assert result[0] is False and result[1] == 1 and result[5] is True
+    # Not eligible (R1, 0 out): the strikeout itself, the catcher's putout.
+    result = _d3k(
+        monkeypatch, BaseState(first=_batter("R1")), 0, [0.0, 0.0, 0.0], full=True
+    )
+    assert result[1] == 1 and result[5] is False
+    # The K roll missed: an ordinary strikeout.
+    result = _d3k(monkeypatch, BaseState(), 0, [0.999], full=True)
+    assert result[1] == 1 and result[5] is False
 
 
 def test_d3k_two_outs_with_r1_is_eligible(monkeypatch):
@@ -395,4 +410,60 @@ def test_walk_off_missed_pitch_ends_the_game(monkeypatch):
             endings += 1
             assert not last.get("pa_result")
             assert score["home"] == score["away"] + 1
+            # The cut-short PA is not charged: every PA has a result.
+            _assert_every_pa_has_a_result(game)
     assert endings >= 2
+
+
+def _assert_every_pa_has_a_result(game):
+    t = game.totals
+    assert t["pa"] == t["ab"] + t["bb"] + t["hbp"] + t["sf"] + t["sh"] + t["ci"]
+
+
+def test_inning_ending_caught_stealing_charges_no_pa():
+    """The third out on the bases ends the PA: no PA is charged and the
+    batter leads off his team's next inning (rule 5.04(a)(2))."""
+    overrides = {"steal_freq_scale": 3.0, "steal_success_logit_base": -1.0}
+    checked = 0
+    for seed in range(1, 9):
+        game = _play(seed, overrides)
+        _assert_every_pa_has_a_result(game)
+        half = None
+        pending = {}  # half -> batter whose PA the third out cut short
+        for entry in game.pitch_log:
+            if entry.get("pa_start") and entry.get("half"):
+                half = entry["half"]
+                if half in pending:
+                    assert entry["batter_id"] == pending.pop(half)
+                    checked += 1
+            event = str(entry.get("runner_event") or "")
+            if event.startswith("cs") and entry.get("event_outs") == 2:
+                pending[half] = entry["batter_id"]
+    assert checked >= 3
+
+
+def test_reach_on_a_dropped_third_strike_passed_ball_is_unearned():
+    """Rule 9.16(a): a batter who reaches on a third-strike passed ball
+    scores an unearned run; the same reach on a wild pitch stays earned.
+    Errors and the automatic runner are off, so nothing else is unearned."""
+    clean = {
+        "k_in_dirt_rate": 0.5,
+        "error_rate_scale": 0.0,
+        "throw_error_scale": 0.0,
+        "extra_innings_runner": 0.0,
+    }
+
+    def unearned(overrides):
+        gap = reaches = 0
+        for seed in range(1, 9):
+            game = _play(seed, {**clean, **overrides})
+            for side in game.metadata["pitcher_lines"].values():
+                gap += sum(int(pl["r"]) - int(pl["er"]) for pl in side)
+            reaches += sum(1 for e in game.pitch_log if e.get("k_reached"))
+        return gap, reaches
+
+    pb_gap, pb_reaches = unearned({"wild_pitch_rate": 0.0, "passed_ball_rate": 0.02})
+    wp_gap, wp_reaches = unearned({"wild_pitch_rate": 0.02, "passed_ball_rate": 0.0})
+    assert pb_reaches > 0 and wp_reaches > 0
+    assert pb_gap > 0
+    assert wp_gap == 0

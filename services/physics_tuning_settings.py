@@ -114,10 +114,11 @@ def _write_atomic(path: Path, payload: Dict[str, Any]) -> None:
     # and the one-time migration below may write it from inside a sim.
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}.{threading.get_ident()}")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     try:
+        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         os.replace(tmp, path)
-    except OSError:
+    except BaseException:
+        # Never leave a partial temp file for the working-copy sync to push.
         tmp.unlink(missing_ok=True)
         raise
 

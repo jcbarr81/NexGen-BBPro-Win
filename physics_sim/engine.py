@@ -2749,7 +2749,10 @@ def _steal_attempt_rate(
     fielding_adj = (catcher_fielding - 50.0) / 260.0
     fielding_adj *= tuning.get("steal_catcher_fielding_deterrent", 1.0)
     attempt *= 1.0 - fielding_adj
-    return max(0.001, min(0.25, attempt))
+    # No floor: the rebased home and double-steal rates sit below the old
+    # 0.001 floor, which flattened the speed curve for slower runners.
+    # Every deterrent factor stays positive for ratings up to 99.
+    return max(0.0, min(0.25, attempt))
 
 
 def _steal_context_multiplier(
@@ -3049,11 +3052,11 @@ def _missed_pitch_rates(
     cfa = max(20.0, min(95.0, catcher_fielding))
     cap = tuning.get("missed_pitch_rate_cap", 0.05)
     wp = tuning.get("wild_pitch_rate", 0.0097)
-    wp *= math.exp((50.0 - ctl) / tuning.get("wild_pitch_control_k", 40.0))
-    wp *= math.exp((50.0 - cfa) / tuning.get("wild_pitch_block_k", 80.0))
+    wp *= math.exp((50.0 - ctl) / max(1.0, tuning.get("wild_pitch_control_k", 40.0)))
+    wp *= math.exp((50.0 - cfa) / max(1.0, tuning.get("wild_pitch_block_k", 80.0)))
     wp *= 1.0 + miss
     pb = tuning.get("passed_ball_rate", 0.00155)
-    pb *= math.exp((50.0 - cfa) / tuning.get("passed_ball_fa_k", 25.0))
+    pb *= math.exp((50.0 - cfa) / max(1.0, tuning.get("passed_ball_fa_k", 25.0)))
     pb *= 1.0 + miss
     return max(0.0, min(cap, wp)), max(0.0, min(cap, pb))
 
@@ -3133,8 +3136,13 @@ def _resolve_dropped_third_strike(
     location: tuple[float, float],
     zone_bottom: float,
     zone_top: float,
-) -> tuple[bool, int, int, str | None, list[BatterRatings]]:
-    """Strike three that gets away: ``(reached, outs_added, runs, wp/pb, scored)``.
+) -> tuple[bool, int, int, str | None, list[BatterRatings], bool]:
+    """Strike three that gets away.
+
+    Returns ``(reached, outs_added, runs, wp/pb, scored, thrown_out)``;
+    ``thrown_out`` marks an eligible batter retired by the catcher's throw to
+    1st, which is the 1B's putout and the catcher's assist (rule 9.09(a)(2))
+    rather than the strikeout's unassisted putout.
 
     Release 4 (M10):
     - The batter may run only with 1st base open or two outs (rule
@@ -3153,10 +3161,10 @@ def _resolve_dropped_third_strike(
     cfa = max(20.0, min(95.0, catcher_fielding))
     k_rate = tuning.get("k_in_dirt_rate", 0.0112)
     k_rate *= 1.0 + miss
-    k_rate *= math.exp((50.0 - ctl) / tuning.get("k_in_dirt_control_k", 40.0))
-    k_rate *= math.exp((50.0 - cfa) / tuning.get("k_in_dirt_fa_k", 60.0))
+    k_rate *= math.exp((50.0 - ctl) / max(1.0, tuning.get("k_in_dirt_control_k", 40.0)))
+    k_rate *= math.exp((50.0 - cfa) / max(1.0, tuning.get("k_in_dirt_fa_k", 60.0)))
     if random.random() >= k_rate:
-        return False, 1, 0, None, []
+        return False, 1, 0, None, [], False
 
     miss_event = _missed_pitch_type(
         location=location,
@@ -3182,14 +3190,14 @@ def _resolve_dropped_third_strike(
             scored.extend(walk_scored)
             reached = True
     if reached:
-        return True, 0, runs_scored, miss_event, scored
+        return True, 0, runs_scored, miss_event, scored, False
     if outs + 1 >= 3:
         # The batter-runner is the third out before reaching 1st: no run.
         bases.first, bases.second, bases.third = before
-        return False, 1, 0, None, []
+        return False, 1, 0, None, [], eligible
     if not advanced:
         miss_event = None
-    return False, 1, runs_scored, miss_event, scored
+    return False, 1, runs_scored, miss_event, scored, eligible
 
 
 def _resolve_ground_out(
@@ -5395,6 +5403,8 @@ def simulate_game(
             if batter_line.g == 0:
                 batter_line.g = 1
             line.batters_faced += 1
+            pa_line = line
+            pa_cut_short = False
             # S2-07: times-through-order pass for this PA (same count the hook
             # logic uses); flush the prior PA's split and snapshot this one.
             _pa_tto = _times_through_order(
@@ -5841,7 +5851,14 @@ def simulate_game(
                             "called" if called else "swinging"
                         )
                         before_ids = _base_runner_ids(bases)
-                        reached, outs_added, runs_scored, miss_event, scored = (
+                        (
+                            reached,
+                            outs_added,
+                            runs_scored,
+                            miss_event,
+                            scored,
+                            k_thrown_out,
+                        ) = (
                             _resolve_dropped_third_strike(
                                 bases=bases,
                                 outs=outs,
@@ -5875,6 +5892,13 @@ def simulate_game(
                             if catcher is not None:
                                 _fielding_line(defense_state, catcher.player_id).pb += 1
                             pitch_log[-1]["runner_event"] = "k_pb"
+                            if reached:
+                                # Reached on a passed ball: his run is
+                                # unearned and the strikeout counts as an out
+                                # when the inning is reconstructed (rule
+                                # 9.16(a)), as for a reach on an error.
+                                unearned_outs += 1
+                                unearned_runners.add(batter.player_id)
                         if reached:
                             line.inning_baserunners += 1
                         record_runs(runs_scored, line, scored)
@@ -5882,9 +5906,20 @@ def simulate_game(
                         line.outs += outs_added
                         if outs_added:
                             # M9: a strikeout is the catcher's unassisted
-                            # putout; the pitcher gets no assist for it.
+                            # putout; the pitcher gets no assist for it. A
+                            # batter thrown out after a dropped third strike
+                            # is the 1B's putout and the catcher's assist.
                             catcher = defense_map.get("C")
-                            if catcher is not None:
+                            first_base = defense_map.get("1B")
+                            if k_thrown_out and first_base is not None:
+                                _fielding_line(
+                                    defense_state, first_base.player_id
+                                ).po += outs_added
+                                if catcher is not None:
+                                    _fielding_line(
+                                        defense_state, catcher.player_id
+                                    ).a += 1
+                            elif catcher is not None:
                                 _fielding_line(
                                     defense_state, catcher.player_id
                                 ).po += outs_added
@@ -6718,7 +6753,16 @@ def simulate_game(
                     # A run that ends the game mid-PA (a walk-off WP, PB, balk
                     # or steal of home) ends it there.
                     if outs >= 3 or walkoff:
+                        pa_cut_short = True
                         break
+            if pa_cut_short:
+                # The third out on the bases or a walk-off run ended this PA
+                # before the batter finished it: no PA is charged, and he
+                # leads off the next inning (rule 5.04(a)(2)).
+                totals["pa"] -= 1
+                batter_line.pa -= 1
+                pa_line.batters_faced -= 1
+                batter_index -= 1
             if walkoff:
                 finalize_half_inning()
                 return outs, batter_index
