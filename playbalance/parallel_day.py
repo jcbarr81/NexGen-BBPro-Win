@@ -48,6 +48,9 @@ class GameJournal:
     """
 
     usage_in: Optional[Dict[str, Any]] = None  # set from payload before the game
+    # Release 4: the league's rating centres (``hitter_speed_center``) as the
+    # parent computed them before the fan-out; ``None`` = look them up here.
+    rating_centers: Optional[Dict[str, float]] = None
     stats_players: Dict[str, dict] = field(default_factory=dict)
     stats_teams: Dict[str, dict] = field(default_factory=dict)
     injury_events: List[dict] = field(default_factory=list)
@@ -250,8 +253,13 @@ def build_payload(
     data_root: str,
     league_id: Optional[str],
     usage_in: Dict[str, Any],
+    rating_centers: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
-    """Assemble the JSON-safe payload dict submitted to :func:`simulate_game_job`."""
+    """Assemble the JSON-safe payload dict submitted to :func:`simulate_game_job`.
+
+    ``rating_centers`` is the parent's ``get_rating_center_overrides()`` for
+    the day (Release 4); ``None`` leaves the worker to look it up itself.
+    """
 
     return {
         "schema": JOURNAL_SCHEMA,
@@ -264,6 +272,9 @@ def build_payload(
         "data_root": data_root,
         "league_id": league_id,
         "usage_in": usage_in,
+        "rating_centers": (
+            dict(rating_centers) if rating_centers is not None else None
+        ),
     }
 
 
@@ -310,7 +321,10 @@ def simulate_game_job(payload: Dict[str, Any]) -> Dict[str, Any]:
         if game_runner._resolve_game_engine(None) != "physics":
             raise RuntimeError("parallel_day requires the physics engine (D2)")
 
-        journal = GameJournal(usage_in=payload["usage_in"])
+        journal = GameJournal(
+            usage_in=payload["usage_in"],
+            rating_centers=payload.get("rating_centers"),
+        )
         with tracker.suppressed_saves(), journal_capture(journal):
             home_runs, away_runs, html, meta = game_runner.simulate_game_scores(
                 payload["home"],

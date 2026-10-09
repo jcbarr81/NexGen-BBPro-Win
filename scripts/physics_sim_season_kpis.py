@@ -20,7 +20,8 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(BASE_DIR))
 
 from playbalance.schedule_generator import generate_mlb_schedule
-from physics_sim.engine import simulate_matchup_from_files
+from physics_sim.config import DEFAULT_TUNING
+from physics_sim.engine import _resolve_data_root, simulate_matchup_from_files
 from physics_sim.usage import UsageState, calendar_day
 from scripts import kpi_extras
 from utils.team_loader import load_teams
@@ -188,6 +189,17 @@ REPORT_ONLY_TOLERANCES: dict[str, float] = {
     # M7: XBT% (Baseball-Reference definition, counted by the engine; see
     # physics_sim.engine._tally_extra_bases_taken). Calibration ~0.67-0.69.
     "extra_base_advance_rate": 0.05,
+}
+
+# Release 4 (W0): named subsets of the strict gates. ``--gate-set NAME``
+# limits what fails ``--strict`` to GATE_SETS[NAME]; every other gate is still
+# evaluated and written to the JSON. A listed metric that has no tolerance or
+# was not computed fails, so a set cannot pass by skipping a gate. "running"
+# lets calibration_league (the speed-tier fixture) gate the running game while
+# its offence gates stay report-only. It is an empty placeholder until W4
+# (Release 4 integration) fills it with the running-game keys.
+GATE_SETS: dict[str, list[str]] = {
+    "running": [],
 }
 
 # Metric keys that were renamed; a --tolerances override using the old name
@@ -1090,6 +1102,110 @@ def _format_report_only(rows: list[dict[str, object]]) -> str:
     return "\n".join(lines)
 
 
+# --- Release 4 (W0): rating centres, tuning profiles, gate sets -------------
+
+
+def fixture_hitter_speed_center(
+    players_path: Path, base_dir: Path | None = None
+) -> float | None:
+    """Mean ``sp`` of the fixture's ACT hitters (decision 2).
+
+    The KPI run's stand-in for ``services.league_rating_centers``: the same
+    ACT-only, pitchers-excluded mean, read from the fixture's rosters and
+    ``players_path``, never written anywhere (data/calibration ~47.7,
+    data/calibration_league ~54.4).
+    """
+    from services.league_rating_centers import active_hitter_mean_speed
+
+    return active_hitter_mean_speed(
+        _resolve_data_root(base_dir), players_path=players_path
+    )
+
+
+def with_rating_centers(
+    tuning_overrides: dict[str, float] | None,
+    players_path: Path,
+    base_dir: Path | None = None,
+) -> dict[str, float]:
+    """``tuning_overrides`` plus the fixture's ``hitter_speed_center``.
+
+    An explicit ``hitter_speed_center`` in ``tuning_overrides`` wins, so a
+    profile can pin the centre for an experiment.
+    """
+    merged: dict[str, float] = {}
+    center = fixture_hitter_speed_center(players_path, base_dir)
+    if center is not None:
+        merged["hitter_speed_center"] = center
+    merged.update(tuning_overrides or {})
+    return merged
+
+
+def load_tuning_overrides_file(path: Path) -> dict[str, float]:
+    """Read a ``--tuning-overrides`` JSON dict, rejecting unknown keys.
+
+    ``TuningConfig.from_overrides`` silently drops a key that is not in
+    DEFAULT_TUNING, so a typo would run the baseline while claiming to test a
+    profile. Every key must be registered and every value numeric.
+    """
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"--tuning-overrides {path}: cannot read JSON ({exc})") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"--tuning-overrides {path}: expected a JSON object of knobs")
+    unknown = sorted(key for key in payload if key not in DEFAULT_TUNING)
+    if unknown:
+        raise ValueError(
+            f"--tuning-overrides {path}: unknown tuning key(s) {', '.join(unknown)}; "
+            "register them in physics_sim/config.py DEFAULT_TUNING"
+        )
+    overrides: dict[str, float] = {}
+    for key, value in payload.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(
+                f"--tuning-overrides {path}: {key} must be a number, got {value!r}"
+            )
+        overrides[key] = float(value)
+    return overrides
+
+
+def gate_set_failures(
+    name: str,
+    *,
+    metrics: dict[str, float],
+    tolerances: dict[str, float],
+    failures: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """The strict failures that count under ``--gate-set name``.
+
+    The failures among GATE_SETS[name], plus one row per listed metric that
+    has no tolerance or no value: a gate that was not evaluated must not pass.
+    """
+    keys = GATE_SETS[name]
+    selected = [row for row in failures if row.get("metric") in keys]
+    failed = {row.get("metric") for row in selected}
+    for key in keys:
+        if key in failed:
+            continue
+        if key not in tolerances:
+            reason = "listed in the gate set but has no tolerance"
+        elif metrics.get(key) is None:
+            reason = "listed in the gate set but not computed"
+        else:
+            continue
+        selected.append(
+            {
+                "metric": key,
+                "value": float("nan"),
+                "target": float("nan"),
+                "delta": float("nan"),
+                "tolerance": tolerances.get(key, float("nan")),
+                "reason": reason,
+            }
+        )
+    return selected
+
+
 def run_sim(
     games_per_team: int,
     seed: int,
@@ -1101,6 +1217,10 @@ def run_sim(
     teams = _team_ids(teams_csv)
     parks_by_team = _team_parks(teams_csv)
     schedule = _season_schedule(teams, games_per_team)
+    # Release 4 (decision 2): the engine reads speed against the league's ACT
+    # hitter mean, which a live league gets from services.league_rating_centers.
+    requested_overrides = dict(tuning_overrides or {})
+    tuning_overrides = with_rating_centers(requested_overrides, players_path, base_dir)
 
     usage_state = UsageState()
     totals = Counter()
@@ -1367,6 +1487,10 @@ def run_sim(
         "teams": len(teams),
         "games": len(schedule),
         "seed": seed,
+        # Release 4: the speed centre the engine saw (None = the 50.0 default)
+        # and the overrides asked for (--tuning-overrides, park switch).
+        "hitter_speed_center": tuning_overrides.get("hitter_speed_center"),
+        "tuning_overrides": requested_overrides,
     }
     summary["team_stats"] = {}
     for team_id in teams:
@@ -1664,6 +1788,25 @@ def main() -> None:
             "league. Use with --players <base-dir>/players.csv."
         ),
     )
+    parser.add_argument(
+        "--tuning-overrides",
+        type=Path,
+        default=None,
+        help=(
+            "JSON object of engine tuning knobs merged over DEFAULT_TUNING for "
+            "this run (e.g. scripts/kpi_profiles/r4b.json). Keys not in "
+            "DEFAULT_TUNING are rejected."
+        ),
+    )
+    parser.add_argument(
+        "--gate-set",
+        choices=sorted(GATE_SETS),
+        default=None,
+        help=(
+            "Limit --strict to the named subset of gates (GATE_SETS); the "
+            "others are still evaluated and written to the JSON."
+        ),
+    )
     args = parser.parse_args()
 
     players_path = args.players
@@ -1679,8 +1822,13 @@ def main() -> None:
             _ensure_team_files(team.team_id, players_path=players_path, base_dir=BASE_DIR)
 
     tuning_overrides = None
+    if args.tuning_overrides is not None:
+        try:
+            tuning_overrides = load_tuning_overrides_file(args.tuning_overrides)
+        except ValueError as exc:
+            parser.error(str(exc))
     if args.disable_park_factors:
-        tuning_overrides = {"park_factor_scale": 0.0}
+        tuning_overrides = {**(tuning_overrides or {}), "park_factor_scale": 0.0}
     summary = run_sim(args.games, args.seed, players_path, tuning_overrides, base_dir)
     report_only = summary["report_only"]
     if args.matchup_grid_pa > 0:
@@ -1722,6 +1870,27 @@ def main() -> None:
     summary["tolerances"] = tolerances
     summary["tolerance_failures"] = failures
     summary["tolerance_ok"] = not failures
+    strict_failures = failures
+    if args.gate_set is not None:
+        # Release 4: only the named set fails --strict; the full list above
+        # stays in the JSON for reading.
+        strict_failures = gate_set_failures(
+            args.gate_set,
+            metrics=summary.get("metrics", {}),
+            tolerances=tolerances,
+            failures=failures,
+        )
+        summary["gate_set"] = {
+            "name": args.gate_set,
+            "metrics": list(GATE_SETS[args.gate_set]),
+            "failures": strict_failures,
+            "ok": not strict_failures,
+        }
+        if not GATE_SETS[args.gate_set]:
+            print(
+                f"gate set {args.gate_set!r} is empty: --strict checks nothing",
+                file=sys.stderr,
+            )
     # Audit Release 2: corrected/new gates the engine is known to miss. Written
     # to the JSON and printed (stderr, so stdout stays pure JSON), never strict.
     report_only = evaluate_report_only(
@@ -1740,7 +1909,7 @@ def main() -> None:
     else:
         print(payload)
     print(_format_report_only(report_only), file=sys.stderr)
-    if args.strict and failures:
+    if args.strict and strict_failures:
         raise SystemExit(2)
 
 

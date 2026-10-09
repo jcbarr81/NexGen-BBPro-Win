@@ -43,6 +43,31 @@ _MAX_SPEED_MS = 2000
 _MIN_SPEED_MS = 0
 
 
+def _league_tuning_overrides() -> Dict[str, Any]:
+    """The tuning a league game gets: stored overrides, injuries, centres.
+
+    The same getters ``playbalance.game_runner`` layers, in the same order,
+    so a watched game reads speed against the league's own mean (Release 4,
+    decision 2) instead of the engine's absolute default.
+    """
+
+    from services.injury_settings import get_injury_tuning_overrides
+    from services.league_rating_centers import get_rating_center_overrides
+    from services.physics_tuning_settings import get_physics_tuning_overrides
+
+    overrides: Dict[str, Any] = {}
+    for getter in (
+        get_physics_tuning_overrides,
+        get_injury_tuning_overrides,
+        get_rating_center_overrides,
+    ):
+        try:
+            overrides.update(getter())
+        except Exception as exc:  # pragma: no cover - defensive
+            _LOGGER.warning("watch-a-game tuning getter failed: %s", exc)
+    return overrides
+
+
 async def _send(ws: WebSocket, payload: Dict[str, Any]) -> None:
     try:
         await ws.send_text(json.dumps(payload, default=str))
@@ -127,6 +152,7 @@ async def sim_socket(websocket: WebSocket, game_id: str) -> None:
                 away_team=away,
                 home_team=home,
                 seed=seed,
+                tuning_overrides=await asyncio.to_thread(_league_tuning_overrides),
             )
         except Exception as exc:
             await _send(

@@ -1955,10 +1955,36 @@ def _advance_on_walk(
     return runs, scored
 
 
-def _advance_prob(speed: float, arm: float, tuning: TuningConfig, extra: float = 0.0) -> float:
+def _advance_prob(
+    speed: float,
+    arm: float,
+    tuning: TuningConfig,
+    extra: float = 0.0,
+    scale: float | None = None,
+) -> float:
+    """Chance a runner tries (and makes) an extra base.
+
+    ``scale`` multiplies the raw chance; ``None`` keeps the global
+    ``advancement_aggression_scale``. Release 4 callers pass their own scale
+    (hit advances, the tag from 2nd) instead of cutting the global one.
+    """
     base = 0.45 + (speed - 50.0) / 200.0 - (arm - 50.0) / 250.0 + extra
-    base *= tuning.get("advancement_aggression_scale", 1.0)
+    if scale is None:
+        scale = tuning.get("advancement_aggression_scale", 1.0)
+    base *= scale
     return max(0.05, min(0.95, base))
+
+
+def _centred_speed(sp: float, tuning: TuningConfig) -> float:
+    """``sp`` re-expressed so the league's ACT-hitter mean reads as 50.
+
+    Release 4 (audit decision 2): terms added to a league-calibrated rate
+    (steal attempts, infield hits, the batter-speed DP and ground-out terms)
+    read speed through this, so ``_centred_speed(sp) - 50`` is the gap from
+    the league's own average. ``hitter_speed_center`` defaults to 50.0, where
+    it changes nothing.
+    """
+    return sp - tuning.get("hitter_speed_center", 50.0) + 50.0
 
 
 def _out_on_base_prob(

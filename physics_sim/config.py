@@ -668,6 +668,13 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "leash_one_hit_bonus": 0.3,
     "leash_nohit_bonus": 0.6,
     "leash_perfect_bonus": 0.8,
+    # Release 4 (W0): the league's mean ACT-hitter speed (audit decision 2).
+    # Supplied per season by services/league_rating_centers (game_runner,
+    # parallel-day workers, watch-a-game) and by the KPI harness from its
+    # fixture's ACT hitters. Frequency terms read speed against it through
+    # engine._centred_speed so a fast or slow league keeps MLB's overall
+    # rates; race-against-a-throw terms keep reading raw ``sp - 50``.
+    "hitter_speed_center": 50.0,
 }
 
 

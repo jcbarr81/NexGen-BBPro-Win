@@ -232,6 +232,8 @@ class ReportOnlyKpis:
         self.throws: dict[str, str] = {}
         self.primary_pos: dict[str, str] = {}
         self.fa: dict[str, float] = {}
+        # Release 4 (W0): hitter speed for the running-game tier tables.
+        self.sp: dict[str, float] = {}
         self._load_players(Path(players_path))
         self.lineup_pos = _load_lineup_positions(lineup_dir) if lineup_dir else {}
 
@@ -301,6 +303,10 @@ class ReportOnlyKpis:
                 self.primary_pos[pid] = str(row.get("primary_position") or "").strip().upper()
                 try:
                     self.fa[pid] = float(row.get("fa") or "")
+                except ValueError:
+                    pass
+                try:
+                    self.sp[pid] = float(row.get("sp") or "")
                 except ValueError:
                     pass
 

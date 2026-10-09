@@ -25,16 +25,19 @@ def _remove_stray_usage_files(root: Path = _REPO_ROOT) -> None:
     A dated sim persists ``physics_usage.json`` (Release 3) in the league it
     ran against: the base data dir, or a tracked league folder such as
     ``data/leagues/cbl/data``. The file is untracked, so ``git checkout``
-    leaves it, and the next run would continue that stale rest state.
+    leaves it, and the next run would continue that stale rest state. The
+    season's rating centres (Release 4, ``rating_centers.json``) are the same
+    kind of per-league runtime file and go with it.
     """
     data = root / "data"
     if not data.is_dir():
         return
-    for path in data.rglob("physics_usage.json"):
-        try:
-            path.unlink()
-        except OSError:
-            pass
+    for name in ("physics_usage.json", "rating_centers.json"):
+        for path in data.rglob(name):
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
 
 def pytest_sessionstart(session):
@@ -99,6 +102,13 @@ def _reset_shared_state() -> None:
     if m is not None:
         try:
             m.clear_cache()
+        except Exception:
+            pass
+
+    m = sys.modules.get("services.league_rating_centers")
+    if m is not None:
+        try:
+            m.clear_rating_center_cache()
         except Exception:
             pass
 
