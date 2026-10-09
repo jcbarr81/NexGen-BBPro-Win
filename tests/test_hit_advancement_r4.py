@@ -247,9 +247,16 @@ def _state(bases):
 
 
 def test_default_knobs_reproduce_the_7470_advance_on_hit():
-    """2,000 random base states x 4 hit types: same outcome, same draws."""
+    """2,000 random base states x 4 hit types: same outcome, same draws.
+
+    Release 4 F1 changed the plays where rule 5.08(a) stops a runner (the
+    third out ended the inning, or a lead runner was out at home); the
+    function reports those in ``rule_log``. Every other play still matches
+    7.47.0 exactly, and the changed ones never make more than three outs.
+    """
     tuning = load_tuning()
     rng = random.Random(20261009)
+    same = changed = 0
     for i in range(2000):
         runners = [
             _batter(f"R{k}{i}", speed=rng.uniform(15, 99)) if rng.random() < p else None
@@ -267,13 +274,22 @@ def test_default_knobs_reproduce_the_7470_advance_on_hit():
                                          defense_arm=arm, tuning=tuning)
             old_next = random.random()
             random.seed(seed)
-            new = engine._advance_on_hit(bases=new_bases, batter=batter, hit_type=hit_type,
-                                         defense_arm=arm, tuning=tuning, outs=outs)
+            rule_log = {}
+            new = engine._advance_on_hit(
+                bases=new_bases, batter=batter, hit_type=hit_type,
+                defense_arm=arm, tuning=tuning, outs=outs, rule_log=rule_log,
+            )
             new_next = random.random()
+            assert outs + new[1] <= 3
+            if rule_log:
+                changed += 1
+                continue
+            same += 1
             assert new[:3] == old[:3], (i, hit_type)
             assert _ids(new[3]) == _ids(old[3]) and _ids(new[4]) == _ids(old[4])
             assert _state(new_bases) == _state(old_bases)
             assert new_next == old_next, "the draw count changed"
+    assert same > 7500 and changed > 20
 
 
 # --- 4b knobs ------------------------------------------------------------------
@@ -420,10 +436,15 @@ def test_infield_single_switch_is_off_by_default():
     kwargs = dict(ball_type="gb", hit_type="single", exit_velo=70.0)
     assert not engine._is_infield_single(tuning=default, **kwargs)
     assert engine._is_infield_single(tuning=on, **kwargs)
-    assert engine._is_infield_single(tuning=on, ball_type="gb", hit_type="single", exit_velo=85.0)
-    assert not engine._is_infield_single(tuning=on, ball_type="gb", hit_type="single", exit_velo=85.1)
-    assert not engine._is_infield_single(tuning=on, ball_type="ld", hit_type="single", exit_velo=70.0)
-    assert not engine._is_infield_single(tuning=on, ball_type="gb", hit_type="double", exit_velo=70.0)
+    def on_(ball_type, hit_type, exit_velo):
+        return engine._is_infield_single(
+            tuning=on, ball_type=ball_type, hit_type=hit_type, exit_velo=exit_velo
+        )
+
+    assert on_("gb", "single", 85.0)
+    assert not on_("gb", "single", 85.1)
+    assert not on_("ld", "single", 70.0)
+    assert not on_("gb", "double", 70.0)
 
 
 # --- L21 routing ---------------------------------------------------------------
@@ -694,7 +715,445 @@ def test_infield_hit_term_by_speed_and_exit_velocity():
     base90 = _out_prob(off, speed=centre + 30.0, ev=90.0)
     assert _out_prob(tuning, speed=centre + 30.0, ev=90.0) == pytest.approx(base90 - 0.06)
     for ev in (100.0, 110.0):
-        assert _out_prob(tuning, speed=centre + 30.0, ev=ev) == _out_prob(off, speed=centre + 30.0, ev=ev)
+        fast = centre + 30.0
+        assert _out_prob(tuning, speed=fast, ev=ev) == _out_prob(off, speed=fast, ev=ev)
     assert _out_prob(tuning, speed=centre + 30.0, ball_type="ld") == _out_prob(
         off, speed=centre + 30.0, ball_type="ld"
     )
+
+
+# --- Release 4 F1: rule 5.08(a) on hits ----------------------------------------
+# Scripted draws (``_Script``): a forced runner (3rd on a single, 2nd/3rd on a
+# double) draws [out?, error?]; any other runner [attempt?, out?, error?].
+# 0.0 beats every chance and 0.99 / 0.999 none, so:
+OUT_FORCED = [0.0, 0.99]
+SAFE_FORCED = [0.99]
+OUT = [0.0, 0.0, 0.99]
+SAFE = [0.0, 0.99]
+THROW_ERROR = [0.0, 0.0, 0.0]
+
+
+def _f1_play(monkeypatch, draws, *, hit_type, outs, first=None, second=None,
+             third=None, error=False):
+    """One scripted play; fails if it draws more or fewer numbers."""
+    script = _Script(draws)
+    monkeypatch.setattr(engine, "random", script)
+    bases = BaseState(first=first, second=second, third=third)
+    bat = _batter("BAT")
+    rule_log = {}
+    if error:
+        result = engine._advance_on_error(
+            bases=bases, batter=bat, defense_arm=50.0, tuning=load_tuning(),
+            outs=outs, rule_log=rule_log,
+        )
+    else:
+        result = engine._advance_on_hit(
+            bases=bases, batter=bat, hit_type=hit_type, defense_arm=50.0,
+            tuning=load_tuning(), outs=outs, rule_log=rule_log,
+        )
+    assert not script._draws, "the play drew fewer numbers than scripted"
+    runs, outs_added, events, scored, errors = result
+    return {
+        "runs": runs, "outs_added": outs_added, "events": events,
+        "scored": _ids(scored), "errors": _ids(errors), "rule": rule_log,
+        "bases": _state(bases), "bat": bat,
+    }
+
+
+def _runners():
+    return _batter("R1"), _batter("R2"), _batter("R3")
+
+
+def test_force_third_out_at_home_on_a_bases_loaded_single_scores_nobody(monkeypatch):
+    r1, r2, r3 = _runners()
+    play = _f1_play(monkeypatch, OUT_FORCED, hit_type="single", outs=2,
+                    first=r1, second=r2, third=r3)
+    assert (play["runs"], play["outs_added"], play["events"]) == (0, 1, ["oobH"])
+    assert play["scored"] == []
+    # Nobody behind him moved or drew: R2 is left at 3rd, R1 at 2nd.
+    assert play["bases"] == ("BAT", "R1", "R2")
+    assert play["rule"] == {"cut": 1}
+
+
+def test_force_third_out_at_home_on_a_bases_loaded_double_scores_nobody(monkeypatch):
+    r1, r2, r3 = _runners()
+    play = _f1_play(monkeypatch, OUT_FORCED, hit_type="double", outs=2,
+                    first=r1, second=r2, third=r3)
+    assert (play["runs"], play["outs_added"], play["scored"]) == (0, 1, [])
+    assert play["bases"] == ("R1", "BAT", "R2")  # left on base (LOB 3)
+    assert play["rule"] == {"cut": 2}
+
+
+def test_tag_third_out_at_home_keeps_the_run_that_scored_ahead(monkeypatch):
+    # Two out, single: R3 scores, R2 is thrown out at home (not forced
+    # there: a tag play). R3 crossed first, so his run counts; R1, behind
+    # the third out, does not try for 3rd.
+    r1, r2, r3 = _runners()
+    play = _f1_play(monkeypatch, SAFE_FORCED + OUT, hit_type="single", outs=2,
+                    first=r1, second=r2, third=r3)
+    assert (play["runs"], play["outs_added"], play["scored"]) == (1, 1, ["R3"])
+    assert play["bases"] == ("BAT", "R1", None)
+    assert play["rule"] == {"cut": 1}
+
+
+def test_tag_third_out_at_third_keeps_both_runs_ahead(monkeypatch):
+    r1, r2, r3 = _runners()
+    play = _f1_play(monkeypatch, SAFE_FORCED + SAFE + OUT, hit_type="single",
+                    outs=2, first=r1, second=r2, third=r3)
+    assert (play["runs"], play["outs_added"], play["events"]) == (2, 1, ["oob3"])
+    assert play["scored"] == ["R3", "R2"]
+    assert play["rule"] == {}
+
+
+def test_tag_third_out_on_a_double_keeps_the_lead_run(monkeypatch):
+    # R2 is forced only to 3rd on a double, so his out at the plate is a
+    # tag play: R3's run (ahead of him) counts, R1 stops where he is.
+    r1, r2, r3 = _runners()
+    play = _f1_play(monkeypatch, SAFE_FORCED + OUT_FORCED, hit_type="double",
+                    outs=2, first=r1, second=r2, third=r3)
+    assert (play["runs"], play["outs_added"], play["scored"]) == (1, 1, ["R3"])
+    assert play["bases"] == (None, "BAT", "R1")
+    assert play["rule"] == {"cut": 1}
+
+
+def test_runner_holds_at_third_after_the_lead_runner_is_out_at_home(monkeypatch):
+    _r1, r2, r3 = _runners()
+    play = _f1_play(monkeypatch, OUT_FORCED, hit_type="single", outs=0,
+                    second=r2, third=r3)
+    assert (play["runs"], play["outs_added"], play["events"]) == (0, 1, ["oobH"])
+    assert play["bases"] == ("BAT", None, "R2")
+    assert play["rule"] == {"held": 1}
+    play = _f1_play(monkeypatch, OUT_FORCED, hit_type="double", outs=1,
+                    second=r2, third=r3)
+    assert (play["runs"], play["outs_added"]) == (0, 1)
+    assert play["bases"] == (None, "BAT", "R2")
+    assert play["rule"] == {"held": 1}
+
+
+def test_double_runner_from_first_stops_at_third_after_an_out_at_home(monkeypatch):
+    # With R1 behind him R2 still has to run on a double (the batter takes
+    # 2nd and R1 needs 3rd); R1 does not try to score.
+    r1, r2, r3 = _runners()
+    play = _f1_play(monkeypatch, OUT_FORCED + SAFE_FORCED, hit_type="double",
+                    outs=1, first=r1, second=r2, third=r3)
+    assert (play["runs"], play["outs_added"], play["scored"]) == (1, 1, ["R2"])
+    assert play["bases"] == (None, "BAT", "R1")
+    assert play["rule"] == {"held": 1}
+    # Behind R2 (or R3) out at home on a double, R1 draws nothing either.
+    for lead in ({"second": r2}, {"third": r3}):
+        play = _f1_play(monkeypatch, OUT_FORCED, hit_type="double", outs=0,
+                        first=r1, **lead)
+        assert play["outs_added"] == 1 and play["runs"] == 0
+        assert play["bases"] == (None, "BAT", "R1") and play["rule"] == {"held": 1}
+
+
+def test_runner_does_not_score_on_a_throw_after_an_out_at_home(monkeypatch):
+    # R2 out at home; R1 makes 3rd on a throwing error but does not try to
+    # score on it (no extra-base draw).
+    r1, r2, _r3 = _runners()
+    play = _f1_play(monkeypatch, OUT + THROW_ERROR, hit_type="single", outs=0,
+                    first=r1, second=r2)
+    assert play["runs"] == 0 and play["events"] == ["oobH", "e_th"]
+    assert play["errors"] == ["R1"] and play["bases"] == ("BAT", None, "R1")
+    assert play["rule"] == {"held": 1}
+
+
+def test_reach_on_error_uses_the_live_outs(monkeypatch):
+    # Two out, ROE: R3 out at home ends the inning; R2 does not draw. With
+    # outs dropped (the 7.47.0 call) R2 would draw and could score.
+    _r1, r2, r3 = _runners()
+    play = _f1_play(monkeypatch, OUT_FORCED, hit_type="single", outs=2,
+                    second=r2, third=r3, error=True)
+    assert (play["runs"], play["outs_added"], play["scored"]) == (0, 1, [])
+    assert play["rule"] == {"cut": 1}
+    # The 4b two-out extra reaches the ROE runner from 2nd too.
+    seen = []
+
+    def attempt(**kw):
+        seen.append((kw["runner"].player_id, kw["attempt_extra"]))
+        return "hold"
+
+    monkeypatch.setattr(engine, "_attempt_extra_base", attempt)
+    tuning = load_tuning({"xbt_two_out_extra": 0.2})
+    for outs in (1, 2):
+        engine._advance_on_error(
+            bases=BaseState(second=_batter("R2")), batter=_batter("BAT"),
+            defense_arm=50.0, tuning=tuning, outs=outs,
+        )
+    assert [round(x, 6) for _pid, x in seen] == [0.15, 0.35]
+
+
+def _third_out_violations(rows, outs, hit_type):
+    """Runs that break rule 5.08(a) on one play (the KPI's reading)."""
+    out_rows = sorted((r for r in rows if r[2] == 0), key=lambda r: -r[1])
+    if outs + len(out_rows) < 3:
+        return 0
+    start = out_rows[2 - outs][1]
+    out_base = 3 if (hit_type == "single" and start == 1) else 4
+    occupied = {r[1] for r in rows}
+    forced = out_base == start + 1 and all(b in occupied for b in range(1, start))
+    return sum(1 for r in rows if r[2] == 4 and (forced or r[1] < start))
+
+
+def test_random_plays_never_break_rule_508a():
+    tuning = load_tuning({"extra_base_out_base": 0.45})
+    rng = random.Random(5081)
+    third_outs = 0
+    for i in range(6000):
+        runners = [
+            _batter(f"R{k}{i}", speed=rng.uniform(15, 99)) if rng.random() < p else None
+            for k, p in ((1, 0.7), (2, 0.6), (3, 0.5))
+        ]
+        outs = rng.randrange(3)
+        hit_type = rng.choice(("single", "double"))
+        bases = BaseState(first=runners[0], second=runners[1], third=runners[2])
+        random.seed(rng.randrange(1 << 30))
+        runs, outs_added, _ev, scored, errors = engine._advance_on_hit(
+            bases=bases, batter=_batter(f"B{i}"), hit_type=hit_type,
+            defense_arm=rng.uniform(15, 99), tuning=tuning, outs=outs,
+        )
+        assert outs + outs_added <= 3
+        assert runs == len(scored)
+        rows = engine._hit_advance_log(
+            tuple(runners), bases=bases, scored=scored, error_advances=errors
+        )
+        assert sum(1 for r in rows if r[2] == 0) == outs_added
+        assert _third_out_violations(rows, outs, hit_type) == 0
+        third_outs += outs + outs_added == 3 and outs_added > 0
+    assert third_outs > 300
+
+
+def _season_games(overrides, seeds):
+    for seed in seeds:
+        yield engine.simulate_matchup_from_files(
+            away_team="CAL01", home_team="CAL02", base_dir=CALIBRATION,
+            players_path=CALIBRATION / "players.csv", seed=seed,
+            tuning_overrides=overrides,
+        )
+
+
+def test_game_level_outs_and_runs_are_conserved():
+    """Seeded games with many runners thrown out: no half-inning records
+    more than three outs, pitcher outs match, and no run scores on a force
+    third out or behind a tag third out (rule 5.08(a))."""
+    from scripts.kpi_extras import ReportOnlyKpis
+
+    acc = ReportOnlyKpis(players_path=CALIBRATION / "players.csv", games_per_team=40)
+    halves = 0
+    for result in _season_games({"extra_base_out_base": 0.45}, range(1, 41)):
+        meta = result.metadata
+        for side, other in (("away", "home"), ("home", "away")):
+            per_half = meta["inning_outs"][side]
+            assert len(per_half) == len(meta["inning_runs"][side])
+            assert all(outs <= 3 for outs in per_half), per_half
+            halves += len(per_half)
+            pitched = sum(int(line["outs"]) for line in meta["pitcher_lines"][other])
+            assert pitched == sum(per_half)
+        for entry in result.pitch_log:
+            rows = entry.get("hit_adv")
+            if not rows:
+                continue
+            assert entry["hit_outs"] in (0, 1, 2)
+            kind = "double" if entry.get("pa_result") == "2b" else "single"
+            assert _third_out_violations(rows, entry["hit_outs"], kind) == 0
+        acc.add_game(result, away="CAL01", home="CAL02")
+    report = acc.finalize()
+    m, t = report["metrics"], report["tables"]
+    counts = t["hit_play_rule_counts"]
+    assert halves > 700
+    assert counts["hit_plays"] > 20, counts  # hits that made the 3rd out
+    assert counts["hit_force_third_outs"] >= 1, counts
+    assert counts["hit_runs"] == 0 and counts["hit_plays_over_three_outs"] == 0
+    assert m["runs_on_inning_ending_plays"] == 0
+    assert m["half_innings_over_three_outs"] == 0
+    assert m["hit_rule_plays"] > 0
+
+
+def test_kpi_runs_on_inning_ending_hits(tmp_path):
+    from scripts.kpi_extras import ReportOnlyKpis, split_plate_appearances
+
+    acc = ReportOnlyKpis(players_path=tmp_path / "missing.csv", games_per_team=1)
+
+    def pa(token, rows, hit_outs, outs_before=0):
+        return {
+            "pa_start": True, "inning": 1, "half": "top", "outs_before": outs_before,
+            "bases_before": 7, "bat_score_before": 0, "fld_score_before": 0,
+            "batter_id": "BAT", "pitcher_id": "P", "pa_result": token,
+            "ball_type": "ld", "hit_adv": rows, "hit_outs": hit_outs,
+        }
+
+    log = [
+        # Force third out (bases loaded, R3 out at home) with a run: 1 bad.
+        pa("1b", [["A", 1, 2, 0], ["B", 2, 4, 0], ["C", 3, 0, 0]], 2),
+        # Tag third out at home; the lead runner scored ahead: fine.
+        pa("1b", [["B", 2, 0, 0], ["C", 3, 4, 0]], 2),
+        # Tag third out; a TRAILING runner scored: 1 bad.
+        pa("2b", [["A", 1, 4, 0], ["B", 2, 0, 0]], 2),
+        # Two outs on a play that started with two out: over three.
+        pa("roe", [["A", 1, 0, 0], ["B", 2, 0, 0]], 2),
+        # Not the third out (the live count is 0, though the PA began at 1).
+        pa("1b", [["A", 1, 0, 0], ["C", 3, 4, 0]], 0, outs_before=1),
+    ]
+    meta = {"inning_outs": {"away": [3, 3, 4], "home": [3, 2]}}
+    acc._add_hit_play_rules(split_plate_appearances(log), meta)
+    metrics, tables = {}, {}
+    acc._hit_play_rule_metrics(metrics, tables)
+    counts = tables["hit_play_rule_counts"]
+    assert counts["hit_plays"] == 4
+    assert counts["hit_force_third_outs"] == 1
+    assert counts["hit_runs"] == 2
+    assert counts["hit_plays_over_three_outs"] == 1
+    assert acc.ending["runs"] == 2 and acc.ending["hit_plays"] == 4
+    assert metrics["half_innings_over_three_outs"] == 1
+    # Older logs (no inning_outs) leave the zero check unmeasured.
+    fresh = ReportOnlyKpis(players_path=tmp_path / "missing.csv", games_per_team=1)
+    fresh._add_hit_play_rules([], {})
+    metrics = {}
+    fresh._hit_play_rule_metrics(metrics, {})
+    assert metrics["half_innings_over_three_outs"] is None
+
+
+def test_kpi_hit_rows_use_live_outs_and_skip_blocked_runners(tmp_path):
+    from scripts.kpi_extras import ReportOnlyKpis, split_plate_appearances
+
+    acc = ReportOnlyKpis(players_path=tmp_path / "missing.csv", games_per_team=1)
+
+    def pa(outs_before, rows, **extra):
+        return {
+            "pa_start": True, "inning": 1, "half": "top", "outs_before": outs_before,
+            "bases_before": 3, "bat_score_before": 0, "fld_score_before": 0,
+            "batter_id": "BAT", "pitcher_id": "P", "pa_result": "1b",
+            "ball_type": "ld", "hit_adv": rows, **extra,
+        }
+
+    log = [
+        # A caught stealing earlier in the PA made it two out: the live count
+        # files the runner from 2nd under 2 out.
+        pa(1, [["X", 2, 4, 0]], hit_outs=2),
+        # Older log (no hit_outs): the PA-start count.
+        pa(1, [["Y", 2, 4, 0]]),
+        # R1 blocked (R2 held at 3rd): not a first-to-third chance.
+        pa(0, [["Z", 1, 2, 0], ["W", 2, 3, 0]], hit_outs=0),
+        # R1 with 3rd open goes first to third.
+        pa(0, [["V", 1, 3, 0]], hit_outs=0),
+    ]
+    acc._add_hit_speed(split_plate_appearances(log))
+    metrics, tables = {}, {}
+    acc._hit_speed_metrics(metrics, tables, 1)
+    sit = tables["hit_advance_by_situation"]
+    assert sit["s_r2|2out"]["n"] == 1 and sit["s_r2|01out"]["n"] == 2
+    assert sit["s_r1"]["n"] == 1
+    assert metrics["r1_first_to_third_on_single_pct"] == 1.0
+    assert acc.hit_adv_tier["all"]["opp"] == 4  # X, Y, W (s_r2) and V (s_r1)
+
+
+# --- F1 game-level wiring ---------------------------------------------------------
+
+
+def _wired_games(monkeypatch, overrides=None, seeds=range(1, 41)):
+    """Calibration games recording what the hit path hands its helpers.
+
+    ``ctx`` marks a batted-ball hit from ``_maybe_upgrade_hit`` (only the hit
+    path calls it) until its ``_hit_advance_log``; a reach on error sets
+    ``roe`` around ``_advance_on_error``.
+    """
+    rec = {"throw": [], "assist": [], "hit_outs": [], "roe_outs": [], "speed": []}
+    ctx = {"hit": None, "roe": False}
+    orig = {
+        name: getattr(engine, name)
+        for name in (
+            "_maybe_upgrade_hit", "_advance_on_hit", "_advance_on_error",
+            "_hit_advance_log", "_credit_outs_on_base", "_credit_throw_error",
+            "out_probability",
+        )
+    }
+
+    def effective_pos(kw, infield_play):
+        # What the helper credits: the given position, else re-derived.
+        if kw.get("fielder_pos") is not None:
+            return kw["fielder_pos"]
+        return engine._fielder_position_for_ball(
+            ball_type=kw.get("ball_type") or "fb", spray_angle=kw.get("spray_angle"),
+            batter_side=kw["batter_side"], tuning=kw["tuning"], infield_play=infield_play,
+        )
+
+    def upgrade(**kw):
+        ctx["hit"] = kw["ball_type"]
+        return orig["_maybe_upgrade_hit"](**kw)
+
+    def advance(**kw):
+        if ctx["roe"]:
+            rec["roe_outs"].append(kw.get("outs", 0))
+        elif ctx["hit"] is not None:
+            rec["hit_outs"].append(kw.get("outs", 0))
+        return orig["_advance_on_hit"](**kw)
+
+    def on_error(**kw):
+        ctx["roe"] = True
+        try:
+            return orig["_advance_on_error"](**kw)
+        finally:
+            ctx["roe"] = False
+
+    def hit_log(*args, **kw):
+        ctx["hit"] = None
+        return orig["_hit_advance_log"](*args, **kw)
+
+    def credit(**kw):
+        if ctx["hit"] == "gb" and {"oobH", "oob3"} & set(kw["events"]):
+            rec["assist"].append(effective_pos(kw, kw["ball_type"] == "gb"))
+        return orig["_credit_outs_on_base"](**kw)
+
+    def throw(**kw):
+        if ctx["hit"] == "gb":
+            rec["throw"].append(effective_pos(kw, kw["infield_play"]))
+        return orig["_credit_throw_error"](**kw)
+
+    def out_prob(**kw):
+        rec["speed"].append(kw.get("batter_speed"))
+        return orig["out_probability"](**kw)
+
+    for name, fn in (
+        ("_maybe_upgrade_hit", upgrade), ("_advance_on_hit", advance),
+        ("_advance_on_error", on_error), ("_hit_advance_log", hit_log),
+        ("_credit_outs_on_base", credit), ("_credit_throw_error", throw),
+        ("out_probability", out_prob),
+    ):
+        monkeypatch.setattr(engine, name, fn)
+    results = list(_season_games(overrides, seeds))
+    return rec, results
+
+
+def test_ground_ball_hit_throws_are_credited_to_an_outfielder(monkeypatch):
+    # More throws (and half of them wild), so 40 games give a real sample.
+    monkeypatch.setattr(engine, "_throw_error_probability", lambda arm, tuning: 0.5)
+    rec, _ = _wired_games(monkeypatch, overrides={"extra_base_out_base": 0.45})
+    assert len(rec["throw"]) >= 10, rec["throw"]
+    assert len(rec["assist"]) >= 10, rec["assist"]
+    assert all(pos in OUTFIELD for pos in rec["throw"]), rec["throw"]
+    assert all(pos in OUTFIELD for pos in rec["assist"]), rec["assist"]
+
+
+def test_hit_and_roe_paths_pass_the_live_outs(monkeypatch):
+    rec, results = _wired_games(monkeypatch)
+    for key in ("hit_outs", "roe_outs"):
+        seen = set(rec[key])
+        assert {1, 2} <= seen, (key, sorted(seen))
+    # ... and the hit's log entry carries that count.
+    logged = {
+        e["hit_outs"] for r in results for e in r.pitch_log if e.get("hit_adv")
+    }
+    assert logged == {0, 1, 2}
+
+
+def test_out_probability_receives_the_batter_speed(monkeypatch):
+    rec, _ = _wired_games(monkeypatch, seeds=range(1, 6))
+    speeds = rec["speed"]
+    assert speeds and all(s is not None for s in speeds)
+    fixture = set()
+    with (CALIBRATION / "players.csv").open(encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh):
+            if row.get("sp"):
+                fixture.add(float(row["sp"]))
+    assert len(set(speeds)) >= 10
+    assert set(speeds) <= fixture

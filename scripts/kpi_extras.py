@@ -432,6 +432,7 @@ class ReportOnlyKpis:
         self._add_pitch_level(log, starters, game_index)
         self._add_pa_level(pas, starters)
         self._add_hit_speed(pas)
+        self._add_hit_play_rules(pas, meta)  # Release 4 F1
         if pas and pas[0].state is not None:
             self.logged_games += 1
             self._add_base_out(pas, inning_runs, s_away, s_home)
@@ -871,6 +872,7 @@ class ReportOnlyKpis:
         self._bench_metrics(metrics, tables, gpt)
         self._running_w1_metrics(metrics, tables, gpt)  # Release 4 (W1)
         self._hit_speed_metrics(metrics, tables, gpt)
+        self._hit_play_rule_metrics(metrics, tables)  # Release 4 F1
         self._outs_in_play_metrics(metrics, tables, team_games)
         return {"metrics": metrics, "tables": tables, "coverage": coverage}
 
@@ -922,7 +924,9 @@ class ReportOnlyKpis:
         )
         tables["late_close_pa"] = sum(self.situ["late_close"].values())
         # Rule 5.08(a): no run scores on a third out made by the batter before
-        # he reaches first or by a force (L15). Must be 0.
+        # he reaches first or by a force (L15). Must be 0. Release 4 F1 adds
+        # hits and reaches on error whose play made the third out on the
+        # bases (_add_hit_play_rules), including runs after a tag third out.
         metrics["runs_on_inning_ending_plays"] = self.ending["runs"]
         tables["inning_ending_plays"] = dict(self.ending)
         tables["inning_ending_examples"] = list(self.ending_examples)
@@ -1235,7 +1239,10 @@ class ReportOnlyKpis:
         balls, as the M6 study measured it). Runner rows come from the
         engine's ``hit_adv`` log on the hit's entry, ``[runner id, start,
         end, error]`` with end 4 = scored and 0 = out; older logs have none
-        and only feed the batter half.
+        and only feed the batter half. The 0-1 out / 2 out split reads the
+        live out count the engine logs with the rows (``hit_outs``, Release 4
+        F1: a steal or pickoff earlier in the PA can change it), falling back
+        to the PA-start state for older logs.
         """
         for pa in pas:
             token = pa.token
@@ -1259,19 +1266,38 @@ class ReportOnlyKpis:
                 bat["infield_1b"] += bool(last.get("infield_hit"))
             rows = last.get("hit_adv")
             if rows and token in ("1b", "2b"):
-                outs = pa.state[2] if pa.state is not None else None
+                outs = last.get("hit_outs")
+                if outs is None and pa.state is not None:
+                    outs = pa.state[2]
                 self._add_hit_adv_rows(token, rows, outs)
 
-    def _add_hit_adv_rows(self, token: str, rows: list[Any], outs: int | None) -> None:
+    def _add_hit_adv_rows(
+        self, token: str, rows: list[Any], outs: int | None
+    ) -> None:
+        """One hit's runner rows into the situation and speed-tier tables.
+
+        Opportunities are the engine's (``_tally_extra_bases_taken``, B-Ref
+        XBT%): the runner from 2nd on a single, the runner from 1st on a
+        double, and the runner from 1st on a single only when 3rd was open
+        for him. A runner from 1st whose lead runner held at 3rd is BLOCKED:
+        he is left out of the ``s_r1`` rows and of
+        ``r1_first_to_third_on_single_pct`` as well as the tiers, so that
+        rate is first-to-3rd per chance (the plan's .29 target). The forced
+        rows (``s_r3``, ``d_r2``, ``d_r3``) are reported but are not XBT
+        chances.
+        """
         kind = "s" if token == "1b" else "d"
-        # The runner from 1st on a single has an XBT chance only when the
-        # lead runner did not stop at 3rd (B-Ref; as the engine counts it).
-        blocked = any(_int(r[1]) == 2 and _int(r[2]) == 3 for r in rows if len(r) >= 4)
+        blocked = any(
+            _int(r[1]) == 2 and _int(r[2]) == 3 for r in rows if len(r) >= 4
+        )
         for row in rows:
             if len(row) < 4:
                 continue
-            pid, start, end, error = str(row[0]), _int(row[1]), _int(row[2]), _int(row[3])
+            pid, start = str(row[0]), _int(row[1])
+            end, error = _int(row[2]), _int(row[3])
             if start not in (1, 2, 3):
+                continue
+            if kind == "s" and start == 1 and blocked:
                 continue
             # "Taken": the extra base on an XBT chance; a forced runner (3rd
             # on a single, 2nd/3rd on a double) "takes" it by scoring.
@@ -1279,14 +1305,14 @@ class ReportOnlyKpis:
             taken = taken and not error
             out = end == 0
             situation = f"{kind}_r{start}"
-            for key in (situation, f"{situation}|{'2' if outs == 2 else '01'}out"):
+            split = f"{situation}|{'2' if outs == 2 else '01'}out"
+            for key in (situation, split):
                 c = self.hit_adv_sit[key]
                 c["n"] += 1
                 c["taken"] += taken
                 c["out"] += out
                 c["error"] += error
-            xbt_chance = situation in ("s_r2", "d_r1") or (situation == "s_r1" and not blocked)
-            if not xbt_chance:
+            if situation not in ("s_r1", "s_r2", "d_r1"):
                 continue
             for key in (_speed_tier(self.sp.get(pid)), "all"):
                 c = self.hit_adv_tier[key]
@@ -1322,12 +1348,18 @@ class ReportOnlyKpis:
                 "xbt": _ratio(c["taken"], c["opp"]),
                 "out_per_opp": _ratio(c["out"], c["opp"]),
             }
-            for tier, c in sorted(self.hit_adv_tier.items(), key=lambda kv: _tier_order(kv[0]))
+            for tier, c in sorted(
+                self.hit_adv_tier.items(), key=lambda kv: _tier_order(kv[0])
+            )
         }
         allc = self.hit_adv_tier.get("all", Counter())
         # Same chances as the engine's extra_base_advance_rate (a cross-check).
-        metrics["xbt_logged_rate"] = _ratio(allc["taken"], allc["opp"]) if logged else None
-        metrics["xbt_thrown_out_per_opp"] = _ratio(allc["out"], allc["opp"]) if logged else None
+        metrics["xbt_logged_rate"] = (
+            _ratio(allc["taken"], allc["opp"]) if logged else None
+        )
+        metrics["xbt_thrown_out_per_opp"] = (
+            _ratio(allc["out"], allc["opp"]) if logged else None
+        )
         metrics["r1_first_to_third_on_single_pct"] = rate("s_r1", "taken")
         metrics["r2_scores_on_single_pct"] = rate("s_r2", "taken")
         metrics["r2_scores_on_single_01out_pct"] = rate("s_r2|01out", "taken")
@@ -1335,7 +1367,9 @@ class ReportOnlyKpis:
         metrics["r1_scores_on_double_pct"] = rate("d_r1", "taken")
         metrics["forced_r3_scores_on_single_pct"] = rate("s_r3", "taken")
         metrics["forced_r2_scores_on_double_pct"] = rate("d_r2", "taken")
-        for tier, name in (("<40", "lt40"), ("50-59", "50_59"), ("70-84", "70_84"), ("85+", "85plus")):
+        for tier, name in (
+            ("<40", "lt40"), ("50-59", "50_59"), ("70-84", "70_84"), ("85+", "85plus"),
+        ):
             c = self.hit_adv_tier.get(tier)
             metrics[f"xbt_rate_sp{name}"] = _ratio(c["taken"], c["opp"]) if c else None
 
@@ -1402,6 +1436,111 @@ class ReportOnlyKpis:
         q_babip = [_ratio(q["h"], q["bip"]) for q in quint]
         tables["babip_by_speed_quintile"] = q_babip
         metrics["babip_fast_minus_slow_quintile"] = _diff(q_babip[4], q_babip[0])
+
+    # -- Release 4 F1: rule 5.08(a) on hits, and outs per half-inning
+    def _add_hit_play_rules(
+        self, pas: list[PlateAppearance], meta: dict[str, Any]
+    ) -> None:
+        """Hits (and reaches on error) whose play made the third out.
+
+        Reads the engine's ``hit_adv`` rows and ``hit_outs`` (the live out
+        count; older logs fall back to the PA-start state when nothing moved
+        mid-PA). Runners are played lead first, so the k-th out of the play
+        is the k-th out row in lead-first order. On a hit the engine throws
+        out the runner from 1st on a single at 3rd and every other runner at
+        the plate. That out is a FORCE when the runner was forced to that
+        very base (every base behind him occupied); the runner from 3rd with
+        the bases loaded is the only one on a hit. Rule 5.08(a):
+          * third out on a force: no run on the play counts;
+          * third out on a tag: runners trailing the out runner must not
+            score (only lead runners who scored ahead of him count).
+        Runs that break either rule go into ``runs_on_inning_ending_plays``
+        (with the ground-out and strikeout plays). A play that records more
+        than three outs is counted too. ``inning_outs`` metadata (outs per
+        half-inning) feeds ``half_innings_over_three_outs``.
+        """
+        rule = getattr(self, "hit_rule", None)
+        if rule is None:
+            rule = self.hit_rule = Counter()
+        inning_outs = meta.get("inning_outs")
+        if isinstance(inning_outs, dict):
+            rule["halves_logged"] += 1
+            for side in ("away", "home"):
+                for outs in inning_outs.get(side) or []:
+                    rule["halves"] += 1
+                    rule["halves_over_three"] += _int(outs) > 3
+        for pa in pas:
+            token = pa.token
+            if token not in ("1b", "2b", "roe"):
+                continue
+            last = pa.last
+            note = last.get("hit_rule")
+            if isinstance(note, dict) and note:
+                rule["rule_plays"] += 1
+                rule["rule_cut_runners"] += _int(note.get("cut"))
+                rule["rule_held_runners"] += _int(note.get("held"))
+            rows = [r for r in (last.get("hit_adv") or []) if len(r) >= 4]
+            if not rows:
+                continue
+            outs_before = last.get("hit_outs")
+            if outs_before is None:
+                if pa.state is None or pa.mid_event:
+                    continue
+                outs_before = pa.state[2]
+            outs_before = _int(outs_before)
+            if outs_before > 2:
+                continue
+            out_rows = sorted(
+                (r for r in rows if _int(r[2]) == 0),
+                key=lambda r: -_int(r[1]),
+            )
+            if outs_before + len(out_rows) < 3:
+                continue
+            rule["hit_plays"] += 1
+            rule["hit_plays_over_three_outs"] += outs_before + len(out_rows) > 3
+            third = out_rows[2 - outs_before]
+            start = _int(third[1])
+            out_base = 3 if (token != "2b" and start == 1) else 4
+            occupied = {_int(r[1]) for r in rows}
+            forced = out_base == start + 1 and all(
+                b in occupied for b in range(1, start)
+            )
+            bad = sum(
+                1 for r in rows
+                if _int(r[2]) == 4 and (forced or _int(r[1]) < start)
+            )
+            rule["hit_force_third_outs"] += forced
+            rule["hit_runs"] += bad
+            self.ending["plays"] += 1
+            self.ending["hit_plays"] += 1
+            self.ending["runs"] += bad
+            if bad > 0:
+                self.ending["plays_with_runs"] += 1
+                if len(self.ending_examples) < 5:
+                    self.ending_examples.append(
+                        {
+                            "outs_before": outs_before,
+                            "result": token,
+                            "hit_adv": rows,
+                            "force": forced,
+                            "runs": bad,
+                        }
+                    )
+
+    def _hit_play_rule_metrics(
+        self, metrics: dict[str, Any], tables: dict[str, Any]
+    ) -> None:
+        """Zero check: no half-inning records more than three outs (report
+        only; None when no game carried ``inning_outs``). Also the plays
+        where the engine's rule 5.08(a) handling stopped a runner."""
+        rule = getattr(self, "hit_rule", Counter())
+        metrics["half_innings_over_three_outs"] = (
+            rule["halves_over_three"] if rule["halves_logged"] else None
+        )
+        # Plays (hits and reaches on error) on which the rule stopped a
+        # runner, over the whole run (one season in the harness).
+        metrics["hit_rule_plays"] = rule["rule_plays"] if self.games else None
+        tables["hit_play_rule_counts"] = dict(rule)
 
     # -- Release 4 (W3): outs in play (audit M6 DP half, M7, M8) ------------
     def _oip(self) -> "_OutsInPlay":
