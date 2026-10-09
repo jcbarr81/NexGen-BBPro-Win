@@ -249,6 +249,8 @@ def test_centred_speed():
 
 
 def test_centre_in_tuning_leaves_a_game_identical():
+    # Since Release 4 W1 the steal-attempt curve reads the centre, so only
+    # the default centre (50) is a no-op; the W1 steal tests cover the shift.
     def play(overrides):
         return engine.simulate_matchup_from_files(
             away_team="CAL01",
@@ -260,7 +262,7 @@ def test_centre_in_tuning_leaves_a_game_identical():
         )
 
     base = play(None)
-    centred = play({"hitter_speed_center": 47.72})
+    centred = play({"hitter_speed_center": 50.0})
     assert centred.totals == base.totals
     assert json.dumps(centred.pitch_log, sort_keys=True, default=str) == json.dumps(
         base.pitch_log, sort_keys=True, default=str

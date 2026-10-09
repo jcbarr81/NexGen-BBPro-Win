@@ -264,11 +264,17 @@ _TUNING_SECTIONS: List[Tuple[str, List[TuningSliderSpec]]] = [
             TuningSliderSpec(
                 key="steal_freq_scale",
                 label="Steal Frequency",
-                description="Steal attempt frequency scaling.",
-                min_value=1.0,
-                max_value=5.0,
-                step=0.1,
-                fmt="{:.1f}",
+                description=(
+                    "Steal attempt frequency. 1.0 = MLB volume (about 0.73 "
+                    "steals per team per game); 0.5 halves it, 2.0 doubles "
+                    "it. Fast runners always try far more often than slow "
+                    "ones. (Earlier versions ran 1-5 with 3.0 as normal; "
+                    "a saved setting was converted.)"
+                ),
+                min_value=0.25,
+                max_value=3.0,
+                step=0.05,
+                fmt="{:.2f}",
             ),
         ],
     ),

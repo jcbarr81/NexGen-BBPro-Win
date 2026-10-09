@@ -1083,6 +1083,7 @@ class ReportOnlyKpis:
                 run["wp_pb_on_foul"] += foul
                 run["wp_pb_bases_empty"] += logged and mask == 0
             if tokens & {"k_wp", "k_pb"}:
+                run["k_event_entries"] += 1
                 run["k_event_logged"] += logged
                 if entry.get("k_reached") and logged:
                     illegal = (mask & 1) and _int(entry.get("event_outs")) < 2
@@ -1134,9 +1135,8 @@ class ReportOnlyKpis:
         metrics["double_steal_two_out_plays"] = (
             run["double_steal_two_out"] if self.games else None
         )
-        metrics["illegal_k_reach"] = (
-            None if (run["k_reach"] and not run["k_event_logged"])
-            else (run["illegal_k_reach"] if self.games else None)
+        metrics["illegal_k_reach"] = zero_check(
+            "illegal_k_reach", "k_event_entries", "k_event_logged"
         )
         metrics["steal_third_share"] = _ratio(
             run["steal_third_attempts"], run["steal_attempt_events"]

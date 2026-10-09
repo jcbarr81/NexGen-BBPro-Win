@@ -364,16 +364,35 @@ def test_swinging_k_reach_registers_the_responsible_pitcher(monkeypatch):
     assert "swinging_strike" in checked and "strike" in checked
 
 
-def test_walk_off_missed_pitch_ends_the_game():
-    """A mid-PA walk-off run ends the game on that pitch (by one run)."""
+def test_walk_off_missed_pitch_ends_the_game(monkeypatch):
+    """A mid-PA walk-off run ends the game on that pitch, by one run.
+
+    Scripted: every live pitch with runners on in a tied bottom of the 9th
+    or later is a wild pitch, so the runners are walked home one base at a
+    time and the first run is a walk-off.
+    """
+    original = engine._missed_pitch_type
+
+    def scripted(**kwargs):
+        if kwargs.get("force"):
+            return original(**kwargs)
+        caller = sys._getframe(1).f_locals
+        if (
+            caller["batting_team"] == "home"
+            and caller["inning"] >= 9
+            and caller["score_home"] == caller["score_away"]
+        ):
+            return "wp"
+        return None
+
+    monkeypatch.setattr(engine, "_missed_pitch_type", scripted)
     endings = 0
-    overrides = {"wild_pitch_rate": 0.05, "passed_ball_rate": 0.05}
-    for seed in range(1, 41):
-        game = _play(seed, overrides)
+    for seed in range(1, 61):
+        game = _play(seed)
         last = game.pitch_log[-1]
-        tokens = set(str(last.get("runner_event") or "").split("+"))
-        if tokens & {"wp", "pb"} and not last.get("pa_result"):
+        score = game.metadata["score"]
+        if last.get("runner_event") == "wp" and score["home"] > score["away"]:
             endings += 1
-            score = game.metadata["score"]
+            assert not last.get("pa_result")
             assert score["home"] == score["away"] + 1
-    assert endings >= 1
+    assert endings >= 2

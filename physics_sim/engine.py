@@ -2710,6 +2710,25 @@ def _pickoff_caught_stealing(
     return random.random() < rate
 
 
+def _steal_speed_factor(speed: float, tuning: TuningConfig) -> float:
+    """Release 4 (H2): how much more often a runner tries to steal than the
+    league's average runner.
+
+    A logistic curve on the centred speed (``_centred_speed``: the league's
+    ACT-hitter mean reads as 50, audit decision 2), normalised to 1.0 at 50:
+    about 0.46 at 40, 2.0 at 60, 3.6 at 70, 6.3 at 85 and under 8 at 99. It
+    replaced a linear ``0.5 + (sp - 50) / 60`` on raw speed, which gave a
+    fast runner too little edge and a fast league far too many attempts.
+    """
+    mid = tuning.get("steal_speed_mid", 75.0)
+    width = max(0.5, tuning.get("steal_speed_width", 12.0))
+
+    def curve(x: float) -> float:
+        return 1.0 / (1.0 + math.exp(-(x - mid) / width))
+
+    return curve(_centred_speed(speed, tuning)) / curve(50.0)
+
+
 def _steal_attempt_rate(
     *,
     speed: float,
@@ -2721,7 +2740,7 @@ def _steal_attempt_rate(
     tuning: TuningConfig,
 ) -> float:
     attempt = base_rate * tuning.get("steal_freq_scale", 1.0)
-    attempt *= 0.5 + (speed - 50.0) / 60.0
+    attempt *= _steal_speed_factor(speed, tuning)
     attempt *= 1.0 - (pitcher_hold - 50.0) / 180.0
     pitcher_adj = (pitcher_arm - 50.0) / 260.0
     pitcher_adj *= tuning.get("steal_pitcher_arm_deterrent", 1.0)
@@ -2773,17 +2792,35 @@ def _steal_success_prob(
     catcher_fielding: float,
     tuning: TuningConfig,
 ) -> float:
-    base = tuning.get("steal_success_base", 0.72)
-    base += (speed - 50.0) / 150.0
-    base -= (pitcher_hold - 50.0) / 250.0
-    pitcher_adj = (pitcher_arm - 50.0) / 300.0
-    pitcher_adj *= tuning.get("steal_pitcher_arm_success", 1.0)
-    base -= pitcher_adj
-    base -= (catcher_arm - 50.0) / 220.0
-    fielding_adj = (catcher_fielding - 50.0) / 280.0
-    fielding_adj *= tuning.get("steal_catcher_fielding_success", 1.0)
-    base -= fielding_adj
-    return max(0.1, min(0.95, base))
+    """Release 4 (H2): chance a steal attempt is safe.
+
+    A logistic curve on the raw ratings (a race against the throw, so raw
+    ``sp - 50``): .82 with everything at 50, .89 at sp 70 and .93 at 85, so
+    the gain flattens toward the top instead of hitting the old linear
+    curve's .95 cap at sp 72.5. Pitcher hold and arm and catcher arm and
+    fielding each lower it; the two legacy ``steal_*_success`` scales still
+    multiply their slopes. ``steal_success_base`` is retired (kept
+    registered so stored overrides load).
+    """
+    logit = tuning.get("steal_success_logit_base", 1.50)
+    logit += (speed - 50.0) / 10.0 * tuning.get("steal_success_speed_logit", 0.30)
+    logit -= (pitcher_hold - 50.0) / 10.0 * tuning.get("steal_success_hold_logit", 0.21)
+    logit -= (
+        (pitcher_arm - 50.0) / 10.0
+        * tuning.get("steal_success_parm_logit", 0.17)
+        * tuning.get("steal_pitcher_arm_success", 1.0)
+    )
+    logit -= (catcher_arm - 50.0) / 10.0 * tuning.get("steal_success_carm_logit", 0.24)
+    logit -= (
+        (catcher_fielding - 50.0) / 10.0
+        * tuning.get("steal_success_cfa_logit", 0.19)
+        * tuning.get("steal_catcher_fielding_success", 1.0)
+    )
+    prob = 1.0 / (1.0 + math.exp(-logit))
+    return max(
+        tuning.get("steal_success_floor", 0.05),
+        min(tuning.get("steal_success_cap", 0.97), prob),
+    )
 
 
 def _attempt_steal(
@@ -2848,11 +2885,24 @@ def _attempt_steal(
             return events, outs_added, runs_scored, scored
 
     if bases.first and bases.second and not bases.third:
-        double_rate = tuning.get("double_steal_rate", 0.003)
-        double_rate *= tuning.get("steal_freq_scale", 1.0)
+        # Release 4 (H2): the lead runner decides a double steal, on the same
+        # speed curve and deterrents as any steal, and the catcher makes one
+        # throw, to 3rd. The old version drew two independent throws, so a
+        # double steal could cost two outs. If R2 is caught, R1 still takes
+        # 2nd ("adv2", no SB: rule 9.07(d)); at most one out.
+        double_rate = _steal_attempt_rate(
+            speed=bases.second.speed,
+            base_rate=tuning.get("double_steal_rate", 0.00218),
+            pitcher_hold=pitcher_hold,
+            pitcher_arm=pitcher_arm,
+            catcher_arm=catcher_arm,
+            catcher_fielding=catcher_fielding,
+            tuning=tuning,
+        )
         double_rate *= context_mult
         if random.random() < double_rate:
             runner_second = bases.second
+            runner_first = bases.first
             success = _steal_success_prob(
                 speed=runner_second.speed,
                 pitcher_hold=pitcher_hold,
@@ -2861,31 +2911,16 @@ def _attempt_steal(
                 catcher_fielding=catcher_fielding,
                 tuning=tuning,
             )
+            bases.second = runner_first
+            bases.first = None
             if random.random() < success:
                 bases.third = runner_second
-                bases.second = None
                 events.append((runner_second, "sb3"))
-            else:
-                bases.second = None
-                outs_added += 1
-                events.append((runner_second, "cs3"))
-            runner_first = bases.first
-            success = _steal_success_prob(
-                speed=runner_first.speed,
-                pitcher_hold=pitcher_hold,
-                pitcher_arm=pitcher_arm,
-                catcher_arm=catcher_arm,
-                catcher_fielding=catcher_fielding,
-                tuning=tuning,
-            )
-            if random.random() < success:
-                bases.second = runner_first
-                bases.first = None
                 events.append((runner_first, "sb2"))
             else:
-                bases.first = None
                 outs_added += 1
-                events.append((runner_first, "cs2"))
+                events.append((runner_second, "cs3"))
+                events.append((runner_first, "adv2"))
             return events, outs_added, runs_scored, scored
 
     if bases.second and not bases.third:
@@ -6602,7 +6637,7 @@ def simulate_game(
                                 )
                                 if injury_event:
                                     pitch_log[-1]["injury"] = injury_event
-                        else:
+                        elif live_pitch:
                             events, outs_added, runs_scored, scored = _attempt_steal(
                                 bases=bases,
                                 pitcher_hold=pitcher.hold_runner,
