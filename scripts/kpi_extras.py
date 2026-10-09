@@ -285,6 +285,12 @@ class ReportOnlyKpis:
         self.gidp: Counter = Counter()
         self.ending: Counter = Counter()
         self.ending_examples: list[dict[str, Any]] = []
+        # Release 4 (W2): hit advancement by runner speed and situation (from
+        # the engine's ``hit_adv`` rows) and batted-ball results by batter
+        # speed (triples, BABIP, ground-ball hits).
+        self.hit_adv_sit: dict[str, Counter] = defaultdict(Counter)
+        self.hit_adv_tier: dict[str, Counter] = defaultdict(Counter)
+        self.speed_bat: dict[str, Counter] = defaultdict(Counter)
 
     # -- setup
     def _load_players(self, path: Path) -> None:
@@ -425,6 +431,7 @@ class ReportOnlyKpis:
         pas = split_plate_appearances(log)
         self._add_pitch_level(log, starters, game_index)
         self._add_pa_level(pas, starters)
+        self._add_hit_speed(pas)
         if pas and pas[0].state is not None:
             self.logged_games += 1
             self._add_base_out(pas, inning_runs, s_away, s_home)
@@ -862,6 +869,7 @@ class ReportOnlyKpis:
         }
         self._bench_metrics(metrics, tables, gpt)
         self._running_w1_metrics(metrics, tables, gpt)  # Release 4 (W1)
+        self._hit_speed_metrics(metrics, tables, gpt)
         return {"metrics": metrics, "tables": tables, "coverage": coverage}
 
     def _situational(
@@ -1217,6 +1225,182 @@ class ReportOnlyKpis:
                 cy.append(c["pb"] / c["gs"])
         metrics["corr_catcher_fa_pb"] = _pearson(cx, cy) if len(cx) >= 5 else None
 
+    # -- Release 4 (W2): balls that fall for hits
+    def _add_hit_speed(self, pas: list[PlateAppearance]) -> None:
+        """Per-batter batted-ball results and per-runner hit advances.
+
+        Batted balls in play exclude home runs and bunts (BABIP over swung
+        balls, as the M6 study measured it). Runner rows come from the
+        engine's ``hit_adv`` log on the hit's entry, ``[runner id, start,
+        end, error]`` with end 4 = scored and 0 = out; older logs have none
+        and only feed the batter half.
+        """
+        for pa in pas:
+            token = pa.token
+            if not token:
+                continue
+            last = pa.last
+            bat = self.speed_bat[pa.batter_id]
+            bat["pa"] += 1
+            bat["b3"] += token == "3b"
+            bunt = last.get("outcome") == "bunt" or token == "sh"
+            ball_type = last.get("ball_type")
+            if ball_type and token != "hr" and not bunt:
+                hit = token in ("1b", "2b", "3b")
+                bat["bip"] += 1
+                bat["h"] += hit
+                if ball_type == "gb":
+                    bat["gb"] += 1
+                    bat["gb_h"] += hit
+            if token == "1b":
+                bat["b1"] += 1
+                bat["infield_1b"] += bool(last.get("infield_hit"))
+            rows = last.get("hit_adv")
+            if rows and token in ("1b", "2b"):
+                outs = pa.state[2] if pa.state is not None else None
+                self._add_hit_adv_rows(token, rows, outs)
+
+    def _add_hit_adv_rows(self, token: str, rows: list[Any], outs: int | None) -> None:
+        kind = "s" if token == "1b" else "d"
+        # The runner from 1st on a single has an XBT chance only when the
+        # lead runner did not stop at 3rd (B-Ref; as the engine counts it).
+        blocked = any(_int(r[1]) == 2 and _int(r[2]) == 3 for r in rows if len(r) >= 4)
+        for row in rows:
+            if len(row) < 4:
+                continue
+            pid, start, end, error = str(row[0]), _int(row[1]), _int(row[2]), _int(row[3])
+            if start not in (1, 2, 3):
+                continue
+            # "Taken": the extra base on an XBT chance; a forced runner (3rd
+            # on a single, 2nd/3rd on a double) "takes" it by scoring.
+            taken = (end >= 3) if (kind == "s" and start == 1) else (end == 4)
+            taken = taken and not error
+            out = end == 0
+            situation = f"{kind}_r{start}"
+            for key in (situation, f"{situation}|{'2' if outs == 2 else '01'}out"):
+                c = self.hit_adv_sit[key]
+                c["n"] += 1
+                c["taken"] += taken
+                c["out"] += out
+                c["error"] += error
+            xbt_chance = situation in ("s_r2", "d_r1") or (situation == "s_r1" and not blocked)
+            if not xbt_chance:
+                continue
+            for key in (_speed_tier(self.sp.get(pid)), "all"):
+                c = self.hit_adv_tier[key]
+                c["opp"] += 1
+                c["taken"] += taken
+                c["out"] += out
+
+    def _hit_speed_metrics(
+        self, metrics: dict[str, Any], tables: dict[str, Any], gpt: int
+    ) -> None:
+        """XBT and thrown-out rates by runner speed and situation, triples,
+        BABIP and ground-ball hits by batter speed (Release 4, W2). Report
+        only; MLB rows from the Release 4 plan, sections C and D."""
+        sit = self.hit_adv_sit
+        logged = bool(self.hit_adv_tier.get("all", Counter())["opp"])
+
+        def rate(key: str, field: str) -> float | None:
+            c = sit.get(key)
+            return _ratio(c[field], c["n"]) if c else None
+
+        tables["hit_advance_by_situation"] = {
+            key: {
+                "n": c["n"],
+                "taken": _ratio(c["taken"], c["n"]),
+                "out": _ratio(c["out"], c["n"]),
+                "error": _ratio(c["error"], c["n"]),
+            }
+            for key, c in sorted(sit.items())
+        }
+        tables["xbt_by_speed_tier"] = {
+            tier: {
+                "opp": c["opp"],
+                "xbt": _ratio(c["taken"], c["opp"]),
+                "out_per_opp": _ratio(c["out"], c["opp"]),
+            }
+            for tier, c in sorted(self.hit_adv_tier.items(), key=lambda kv: _tier_order(kv[0]))
+        }
+        allc = self.hit_adv_tier.get("all", Counter())
+        # Same chances as the engine's extra_base_advance_rate (a cross-check).
+        metrics["xbt_logged_rate"] = _ratio(allc["taken"], allc["opp"]) if logged else None
+        metrics["xbt_thrown_out_per_opp"] = _ratio(allc["out"], allc["opp"]) if logged else None
+        metrics["r1_first_to_third_on_single_pct"] = rate("s_r1", "taken")
+        metrics["r2_scores_on_single_pct"] = rate("s_r2", "taken")
+        metrics["r2_scores_on_single_01out_pct"] = rate("s_r2|01out", "taken")
+        metrics["r2_scores_on_single_2out_pct"] = rate("s_r2|2out", "taken")
+        metrics["r1_scores_on_double_pct"] = rate("d_r1", "taken")
+        metrics["forced_r3_scores_on_single_pct"] = rate("s_r3", "taken")
+        metrics["forced_r2_scores_on_double_pct"] = rate("d_r2", "taken")
+        for tier, name in (("<40", "lt40"), ("50-59", "50_59"), ("70-84", "70_84"), ("85+", "85plus")):
+            c = self.hit_adv_tier.get(tier)
+            metrics[f"xbt_rate_sp{name}"] = _ratio(c["taken"], c["opp"]) if c else None
+
+        # Batter speed: triples, BABIP and ground-ball hits by tier.
+        by_tier: dict[str, Counter] = defaultdict(Counter)
+        rows: list[tuple[float, Counter]] = []
+        for pid, c in self.speed_bat.items():
+            sp = self.sp.get(pid)
+            if sp is None:
+                continue
+            by_tier[_speed_tier(sp)].update(c)
+            rows.append((sp, c))
+        tables["batting_by_speed_tier"] = {
+            tier: {
+                "pa": c["pa"],
+                "b3_per_600pa": _ratio(600.0 * c["b3"], c["pa"]),
+                "babip": _ratio(c["h"], c["bip"]),
+                "gb_hit_rate": _ratio(c["gb_h"], c["gb"]),
+                "infield_1b_share": _ratio(c["infield_1b"], c["b1"]),
+            }
+            for tier, c in sorted(by_tier.items(), key=lambda kv: _tier_order(kv[0]))
+        }
+        mid = by_tier.get("50-59", Counter())
+        mid_rate = _ratio(mid["b3"], mid["pa"])
+        for tier, name in (("70-84", "70_84"), ("85+", "85plus")):
+            c = by_tier.get(tier)
+            rate_t = _ratio(c["b3"], c["pa"]) if c else None
+            metrics[f"triple_rate_ratio_sp{name}_vs_50_59"] = (
+                rate_t / mid_rate if (rate_t is not None and mid_rate) else None
+            )
+            metrics[f"triples_per_600pa_sp{name}"] = (
+                _ratio(600.0 * c["b3"], c["pa"]) if c else None
+            )
+        total = Counter()
+        for _sp, c in rows:
+            total.update(c)
+        metrics["gb_hit_rate"] = _ratio(total["gb_h"], total["gb"])
+        metrics["infield_single_share"] = _ratio(total["infield_1b"], total["b1"])
+        # BIP-weighted least-squares BABIP slope per 10 sp (players with 50+
+        # balls in play): the calibration fixture's speed gate (plan D).
+        sel = [(sp, c) for sp, c in rows if c["bip"] >= 50]
+        weight = sum(c["bip"] for _sp, c in sel)
+        if len(sel) >= 3 and weight:
+            mx = sum(sp * c["bip"] for sp, c in sel) / weight
+            my = sum(c["h"] for _sp, c in sel) / weight
+            num = sum(c["bip"] * (sp - mx) * (c["h"] / c["bip"] - my) for sp, c in sel)
+            den = sum(c["bip"] * (sp - mx) ** 2 for sp, c in sel)
+            metrics["babip_speed_slope_per10"] = 10.0 * num / den if den else None
+        else:
+            metrics["babip_speed_slope_per10"] = None
+        min_pa = max(50, round(300 * gpt / 162))
+        regs = [(sp, c["h"] / c["bip"]) for sp, c in rows if c["pa"] >= min_pa and c["bip"]]
+        metrics["r_sp_babip"] = _pearson([a for a, _ in regs], [b for _, b in regs])
+        tables["r_sp_babip_min_pa"] = min_pa
+        # PA-weighted speed quintiles: fastest minus slowest BABIP.
+        srt = sorted(rows, key=lambda r: r[0])
+        total_pa = sum(c["pa"] for _sp, c in srt)
+        quint = [Counter() for _ in range(5)]
+        acc = 0
+        for sp, c in srt:
+            if total_pa:
+                quint[min(4, int(5 * (acc + c["pa"] / 2) / total_pa))].update(c)
+            acc += c["pa"]
+        q_babip = [_ratio(q["h"], q["bip"]) for q in quint]
+        tables["babip_by_speed_quintile"] = q_babip
+        metrics["babip_fast_minus_slow_quintile"] = _diff(q_babip[4], q_babip[0])
+
 
 # Release 4 (W1): raw-speed tiers for the steal tables (the plan's tiers;
 # 47-53 is the "50", 68-77 the "fast 70", 78-89 the "burner 85").
@@ -1249,6 +1433,30 @@ def _load_pitcher_control(path: Path) -> dict[str, float]:
             except ValueError:
                 pass
     return control
+
+
+SPEED_TIERS = ("<40", "40-49", "50-59", "60-69", "70-84", "85+")
+
+
+def _speed_tier(sp: float | None) -> str:
+    """Release 4 runner/batter speed tier (the plan's per-tier tables)."""
+    if sp is None:
+        return "unknown"
+    if sp < 40:
+        return "<40"
+    if sp < 50:
+        return "40-49"
+    if sp < 60:
+        return "50-59"
+    if sp < 70:
+        return "60-69"
+    if sp < 85:
+        return "70-84"
+    return "85+"
+
+
+def _tier_order(tier: str) -> int:
+    return SPEED_TIERS.index(tier) if tier in SPEED_TIERS else len(SPEED_TIERS)
 
 
 def _diff(a: float | None, b: float | None) -> float | None:

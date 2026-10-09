@@ -1,1 +1,10 @@
-{}
+{
+  "hit_advance_aggression_scale": 1.0,
+  "hit_advance_out_scale": 0.45,
+  "xbt_single_r1_extra": -0.17,
+  "xbt_single_r2_extra": 0.06,
+  "xbt_double_r1_extra": -0.13,
+  "xbt_two_out_extra": 0.22,
+  "forced_runner_out_scale": 0.25,
+  "infield_hit_speed_scale": 0.04
+}

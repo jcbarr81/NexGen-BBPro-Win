@@ -1989,12 +1989,19 @@ def _centred_speed(sp: float, tuning: TuningConfig) -> float:
 
 
 def _out_on_base_prob(
-    speed: float, arm: float, tuning: TuningConfig, extra: float = 0.0
+    speed: float,
+    arm: float,
+    tuning: TuningConfig,
+    extra: float = 0.0,
+    scale: float = 1.0,
 ) -> float:
     base = tuning.get("extra_base_out_base", 0.08) + extra
     base += (arm - 50.0) / 200.0
     base -= (speed - 50.0) / 240.0
     base *= tuning.get("extra_base_out_scale", 1.0)
+    # Release 4 (W2): hit advances pass ``hit_advance_out_scale``. Applied
+    # before the clamp; 1.0 is exact, so the default changes nothing.
+    base *= scale
     return max(0.01, min(0.55, base))
 
 
@@ -2015,14 +2022,26 @@ def _attempt_extra_base(
     out_extra: float = 0.0,
     force: bool = False,
 ) -> str:
+    # Release 4 (W2): hit advances read their own knobs. The defaults equal
+    # the global scale and 1.0, so the draws and outcomes match 7.47.0.
     attempt_prob = _advance_prob(
-        runner.speed, defense_arm, tuning, extra=attempt_extra
+        runner.speed,
+        defense_arm,
+        tuning,
+        extra=attempt_extra,
+        scale=tuning.get("hit_advance_aggression_scale", 1.6),
     )
     if not force and random.random() >= attempt_prob:
         return "hold"
     out_prob = _out_on_base_prob(
-        runner.speed, defense_arm, tuning, extra=out_extra
+        runner.speed,
+        defense_arm,
+        tuning,
+        extra=out_extra,
+        scale=tuning.get("hit_advance_out_scale", 1.0),
     )
+    if force:
+        out_prob *= tuning.get("forced_runner_out_scale", 1.0)
     if random.random() < out_prob:
         if random.random() < _throw_error_probability(defense_arm, tuning):
             return "error"
@@ -2037,9 +2056,22 @@ def _advance_on_hit(
     hit_type: str,
     defense_arm: float,
     tuning: TuningConfig,
+    outs: int = 0,
+    infield_hit: bool = False,
 ) -> tuple[int, int, list[str], list[BatterRatings], list[BatterRatings]]:
+    """Move the runners on a hit; return (runs, outs added, events, scored,
+    runners saved by a throwing error).
+
+    ``outs`` is the out count before the play: with two out the runner on
+    2nd on a single and the runner on 1st on a double get
+    ``xbt_two_out_extra`` (running on contact). ``infield_hit`` marks an
+    infield single: every runner moves up exactly one base and nobody tries
+    for more (Release 4 W2; the caller decides, from
+    ``infield_single_ev_max``). The defaults reproduce 7.47.0.
+    """
     runs = 0
-    outs = 0
+    outs_added = 0
+    two_out_extra = tuning.get("xbt_two_out_extra", 0.0) if outs >= 2 else 0.0
     events: list[str] = []
     scored: list[BatterRatings] = []
     error_advances: list[BatterRatings] = []
@@ -2050,7 +2082,7 @@ def _advance_on_hit(
         scored.append(batter)
         runs = len(scored)
         bases.first = bases.second = bases.third = None
-        return runs, outs, events, scored, error_advances
+        return runs, outs_added, events, scored, error_advances
 
     if hit_type == "triple":
         scored.extend(
@@ -2059,7 +2091,7 @@ def _advance_on_hit(
         runs = len(scored)
         bases.first = bases.second = None
         bases.third = batter
-        return runs, outs, events, scored, error_advances
+        return runs, outs_added, events, scored, error_advances
 
     if hit_type == "double":
         runner_first = bases.first
@@ -2079,7 +2111,7 @@ def _advance_on_hit(
                 force=True,
             )
             if result == "out":
-                outs += 1
+                outs_added += 1
                 events.append("oobH")
             elif result == "error":
                 runs += 1
@@ -2100,7 +2132,7 @@ def _advance_on_hit(
                 force=True,
             )
             if result == "out":
-                outs += 1
+                outs_added += 1
                 events.append("oobH")
             elif result == "error":
                 runs += 1
@@ -2116,7 +2148,9 @@ def _advance_on_hit(
                 runner=runner_first,
                 defense_arm=defense_arm,
                 tuning=tuning,
-                attempt_extra=-0.05,
+                attempt_extra=(
+                    tuning.get("xbt_double_r1_extra", -0.05) + two_out_extra
+                ),
                 out_extra=0.12,
                 force=False,
             )
@@ -2129,11 +2163,11 @@ def _advance_on_hit(
                 error_advances.append(runner_first)
                 events.append("e_th")
             elif result == "out":
-                outs += 1
+                outs_added += 1
                 events.append("oobH")
             else:
                 bases.third = runner_first
-        return runs, outs, events, scored, error_advances
+        return runs, outs_added, events, scored, error_advances
 
     # Single
     runner_first = bases.first
@@ -2142,6 +2176,16 @@ def _advance_on_hit(
     bases.first = batter
     bases.second = None
     bases.third = None
+
+    if infield_hit:
+        # An infield single: the ball never left the infield, so each runner
+        # takes the one base the batter's single gives him. No draws.
+        if runner_third:
+            runs += 1
+            scored.append(runner_third)
+        bases.third = runner_second
+        bases.second = runner_first
+        return runs, outs_added, events, scored, error_advances
 
     if runner_third:
         result = _attempt_extra_base(
@@ -2153,7 +2197,7 @@ def _advance_on_hit(
             force=True,
         )
         if result == "out":
-            outs += 1
+            outs_added += 1
             events.append("oobH")
         elif result == "error":
             runs += 1
@@ -2169,7 +2213,9 @@ def _advance_on_hit(
             runner=runner_second,
             defense_arm=defense_arm,
             tuning=tuning,
-            attempt_extra=0.15,
+            attempt_extra=(
+                tuning.get("xbt_single_r2_extra", 0.15) + two_out_extra
+            ),
             out_extra=0.05,
             force=False,
         )
@@ -2182,7 +2228,7 @@ def _advance_on_hit(
             error_advances.append(runner_second)
             events.append("e_th")
         elif result == "out":
-            outs += 1
+            outs_added += 1
             events.append("oobH")
         else:
             bases.third = runner_second
@@ -2193,7 +2239,7 @@ def _advance_on_hit(
                 runner=runner_first,
                 defense_arm=defense_arm,
                 tuning=tuning,
-                attempt_extra=0.05,
+                attempt_extra=tuning.get("xbt_single_r1_extra", 0.05),
                 out_extra=0.08,
                 force=False,
             )
@@ -2208,13 +2254,13 @@ def _advance_on_hit(
                 else:
                     bases.third = runner_first
             elif result == "out":
-                outs += 1
+                outs_added += 1
                 events.append("oob3")
             else:
                 bases.second = runner_first
         else:
             bases.second = runner_first
-    return runs, outs, events, scored, error_advances
+    return runs, outs_added, events, scored, error_advances
 
 
 def _maybe_upgrade_hit(
@@ -2257,21 +2303,32 @@ def _credit_outs_on_base(
     spray_angle: float | None,
     batter_side: str,
     tuning: TuningConfig,
+    fielder_pos: str | None = None,
 ) -> None:
+    """Credit runners thrown out on a hit: an assist to the fielder who threw
+    and a putout at the plate (``oobH``) or third (``oob3``).
+
+    ``fielder_pos`` is the fielder the runners advanced on (Release 4 L21:
+    the hit path passes the outfielder who picked up a ground-ball single).
+    Without it the position is re-derived from the ball, as before.
+    """
     if not events:
         return
     out_events = [event for event in events if event in {"oobH", "oob3"}]
     if not out_events:
         return
-    infield_play = ball_type == "gb"
+    if fielder_pos is None:
+        infield_play = ball_type == "gb"
+        fielder_pos = _fielder_position_for_ball(
+            ball_type=ball_type or "fb",
+            spray_angle=spray_angle,
+            batter_side=batter_side,
+            tuning=tuning,
+            infield_play=infield_play,
+        )
+    else:
+        infield_play = fielder_pos in _INFIELD_THROW_POSITIONS
     fallback = ["SS", "2B", "3B", "1B"] if infield_play else ["CF", "LF", "RF"]
-    fielder_pos = _fielder_position_for_ball(
-        ball_type=ball_type or "fb",
-        spray_angle=spray_angle,
-        batter_side=batter_side,
-        tuning=tuning,
-        infield_play=infield_play,
-    )
     _, assist_fielder = _find_fielder(
         defense_map, fielder_pos, fallback_positions=fallback
     )
@@ -2396,15 +2453,17 @@ def _credit_throw_error(
     batter_side: str,
     infield_play: bool,
     tuning: TuningConfig,
+    fielder_pos: str | None = None,
 ) -> None:
     fallback = ["SS", "2B", "3B", "1B"] if infield_play else ["CF", "LF", "RF"]
-    fielder_pos = _fielder_position_for_ball(
-        ball_type=ball_type or "fb",
-        spray_angle=spray_angle,
-        batter_side=batter_side,
-        tuning=tuning,
-        infield_play=infield_play,
-    )
+    if fielder_pos is None:
+        fielder_pos = _fielder_position_for_ball(
+            ball_type=ball_type or "fb",
+            spray_angle=spray_angle,
+            batter_side=batter_side,
+            tuning=tuning,
+            infield_play=infield_play,
+        )
     _, fielder = _find_fielder(
         defense_map, fielder_pos, fallback_positions=fallback
     )
@@ -2550,6 +2609,80 @@ def _fielder_position_for_ball(
     if infield_play:
         return _infield_pos_for_spray(spray_dir)
     return _outfield_pos_for_spray(spray_dir, tuning)
+
+
+_INFIELD_THROW_POSITIONS = frozenset({"1B", "2B", "3B", "SS"})
+
+
+def _hit_advance_position(
+    *,
+    spray_angle: float | None,
+    batter_side: str,
+    tuning: TuningConfig,
+    infield_hit: bool = False,
+) -> str:
+    """The fielder whose arm the runners test on a hit (audit L21).
+
+    A ground-ball single goes through the infield, so the runners advance on
+    the outfielder who picks it up, not on the infielder it got past (37-38%
+    of hit-advance rolls used an infielder's arm through 7.47.0). Only an
+    infield single (``infield_hit``) stays with the infielder.
+    """
+    spray_dir = _spray_dir(spray_angle or 0.0, batter_side)
+    if infield_hit:
+        return _infield_pos_for_spray(spray_dir)
+    return _outfield_pos_for_spray(spray_dir, tuning)
+
+
+def _is_infield_single(
+    *,
+    ball_type: str | None,
+    hit_type: str | None,
+    exit_velo: float | None,
+    tuning: TuningConfig,
+) -> bool:
+    """A soft ground-ball single that never left the infield (Release 4b).
+
+    Off while ``infield_single_ev_max`` is 0 (the default).
+    """
+    ev_max = tuning.get("infield_single_ev_max", 0.0)
+    if ev_max <= 0.0 or ball_type != "gb" or (hit_type or "single") != "single":
+        return False
+    return float(exit_velo if exit_velo is not None else 90.0) <= ev_max
+
+
+def _hit_advance_log(
+    runners_before: tuple[BatterRatings | None, ...],
+    *,
+    bases: BaseState,
+    scored: list[BatterRatings],
+    error_advances: list[BatterRatings],
+) -> list[list[Any]]:
+    """Where each runner on base before a hit ended up, for the KPI harness.
+
+    One ``[player_id, start, end, error]`` row per runner: ``start`` 1-3,
+    ``end`` 1-3, 4 = scored, 0 = out on the play; ``error`` 1 when a
+    throwing error saved him. Logging only (Release 4 W2 tier tables): it
+    draws nothing and changes nothing. The pitch log has no runner ids
+    otherwise, so XBT by runner speed could not be measured.
+    """
+    rows: list[list[Any]] = []
+    for start, runner in enumerate(runners_before, start=1):
+        if runner is None:
+            continue
+        if any(other is runner for other in scored):
+            end = 4
+        elif bases.third is runner:
+            end = 3
+        elif bases.second is runner:
+            end = 2
+        elif bases.first is runner:
+            end = 1
+        else:
+            end = 0
+        error = int(any(other is runner for other in error_advances))
+        rows.append([runner.player_id, start, end, error])
+    return rows
 
 
 def _find_fielder(
@@ -3767,6 +3900,10 @@ def _resolve_bunt(
             hit_type="single",
             defense_arm=defense.arm,
             tuning=tuning,
+            outs=outs,
+            # Release 4b: a bunt single is an infield single, so with the
+            # infield-single switch on the runners move up one base.
+            infield_hit=tuning.get("infield_single_ev_max", 0.0) > 0.0,
         )
         runs += runs_scored
         outs_added += outs_added_hit
@@ -5239,6 +5376,7 @@ def simulate_game(
             infield_play: bool,
             error_on: str,
             log_entry: dict[str, Any] | None = None,
+            fielder_pos: str | None = None,
         ) -> None:
             nonlocal unearned_outs
             if not error_runners:
@@ -5258,6 +5396,7 @@ def simulate_game(
                     batter_side=batter_side,
                     infield_play=infield_play,
                     tuning=tuning,
+                    fielder_pos=fielder_pos,
                 )
             entry = log_entry
             if entry is None and pitch_log:
@@ -6001,6 +6140,7 @@ def simulate_game(
                             pull_tendency=batter.pull_tendency,
                             defense=defense_ratings,
                             tuning=tuning,
+                            batter_speed=batter.speed,
                         )
                         hit_prob = (1.0 - out_prob) * tuning.get("babip_scale", 1.0)
                         hit_prob = max(0.02, min(0.95, hit_prob))
@@ -6011,14 +6151,23 @@ def simulate_game(
                             line.inning_baserunners += 1
                             line.consecutive_hits += 1
                             batter_line.h += 1
-                            advance_infield = ball_type == "gb"
-                            advance_pos = _fielder_position_for_ball(
+                            # Release 4 (L21): runners advance on the
+                            # outfielder who picks the ball up, including on
+                            # a ground-ball single; only an infield single
+                            # (4b, off by default) stays with the infielder.
+                            advance_infield = _is_infield_single(
                                 ball_type=ball_type,
+                                hit_type=hit_type,
+                                exit_velo=res.exit_velo or 90.0,
+                                tuning=tuning,
+                            )
+                            advance_primary = _hit_advance_position(
                                 spray_angle=res.spray_angle,
                                 batter_side=batter_hand,
                                 tuning=tuning,
-                                infield_play=advance_infield,
+                                infield_hit=advance_infield,
                             )
+                            advance_pos = advance_primary
                             advance_fallback = (
                                 ["SS", "2B", "3B", "1B"]
                                 if advance_infield
@@ -6062,6 +6211,7 @@ def simulate_game(
                                 totals["b1"] += 1
                             before_ids = _base_runner_ids(bases)
                             xbt_first, xbt_second = bases.first, bases.second
+                            runners_before = (bases.first, bases.second, bases.third)
                             (
                                 runs_scored,
                                 outs_added,
@@ -6074,6 +6224,8 @@ def simulate_game(
                                 hit_type=resolved_hit,
                                 defense_arm=advance_arm,
                                 tuning=tuning,
+                                outs=outs,
+                                infield_hit=advance_infield,
                             )
                             _tally_extra_bases_taken(
                                 totals,
@@ -6100,15 +6252,27 @@ def simulate_game(
                                 spray_angle=res.spray_angle,
                                 batter_side=batter_hand,
                                 tuning=tuning,
+                                fielder_pos=advance_primary,
                             )
                             apply_advance_errors(
                                 error_runners=error_advances,
                                 ball_type=ball_type,
                                 spray_angle=res.spray_angle,
                                 batter_side=batter_hand,
-                                infield_play=ball_type == "gb",
+                                infield_play=advance_infield,
                                 error_on="advance",
+                                fielder_pos=advance_primary,
                             )
+                            hit_adv = _hit_advance_log(
+                                runners_before,
+                                bases=bases,
+                                scored=scored,
+                                error_advances=error_advances,
+                            )
+                            if hit_adv:
+                                pitch_log[-1]["hit_adv"] = hit_adv
+                            if advance_infield:
+                                pitch_log[-1]["infield_hit"] = True
                             record_runs(runs_scored, line, scored)
                             if scored:
                                 rbi_runs = rbi_credit(scored, error_advances)

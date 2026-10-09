@@ -1061,7 +1061,14 @@ def resolve_batted_ball(
     double_scale = tuning.get("double_distance_scale", 1.0)
     triple_scale = tuning.get("triple_distance_scale", 1.0)
     double_speed = 1.0 - speed_norm * tuning.get("double_speed_scale", 0.0)
-    triple_speed = 1.0 - speed_norm * tuning.get("triple_speed_scale", 0.0)
+    # Release 4 (T3): the triple slope has a slow and a fast side. A fast
+    # scale below 0 inherits the slow one (the old symmetric line).
+    triple_speed_scale = tuning.get("triple_speed_scale", 0.0)
+    if speed_norm > 0.0:
+        fast_scale = tuning.get("triple_speed_scale_fast", -1.0)
+        if fast_scale >= 0.0:
+            triple_speed_scale = fast_scale
+    triple_speed = 1.0 - speed_norm * triple_speed_scale
     double_gap = 1.0 - gap_norm * tuning.get("double_gap_scale", 0.0)
     double_threshold = (
         park.stadium.double_distance(angle)
