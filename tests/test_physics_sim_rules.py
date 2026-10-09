@@ -51,9 +51,14 @@ class _Script:
         return self._draws.pop(0)
 
 
-def _ground_out(monkeypatch, bases: BaseState, outs: int, draws):
+# Release 4 (W3): the structural switch for the rewritten ground out. The
+# tests without it pin the 7.47.0 path (ground_out_model 0, the default).
+GROUND_OUT_V1 = {"ground_out_model": 1.0}
+
+
+def _ground_out(monkeypatch, bases: BaseState, outs: int, draws, overrides=None):
     monkeypatch.setattr(engine, "random", _Script(draws))
-    tuning = load_tuning()
+    tuning = load_tuning(overrides)
     defense = _defense()
     return _resolve_ground_out(
         bases=bases,
@@ -115,6 +120,26 @@ def test_draw_sequence_is_unchanged(monkeypatch):
     assert script._draws == []
 
 
+def test_draw_sequence_model_1(monkeypatch):
+    """ground_out_model 1: DP first, then R3 (no flat pre-DP roll), then the
+    force; the forced R1 always moves up, so there is no advance roll."""
+    bases = BaseState(first=_batter("R1"), third=_batter("R3"))
+    script = _Script([0.99, 0.99, 0.99])
+    monkeypatch.setattr(engine, "random", script)
+    tuning = load_tuning(GROUND_OUT_V1)
+    defense = _defense()
+    runs, outs_added, events, scored = _resolve_ground_out(
+        bases=bases, outs=0, batter=_batter("BAT"), defense_map=defense,
+        defense_ratings=compute_defense_ratings(defense, tuning),
+        spray_angle=0.0, batter_side="R", tuning=tuning,
+    )
+    # dp, R3, force
+    assert script._draws == []
+    assert (runs, outs_added, events) == (0, 1, [])
+    assert bases.first is None and bases.second.player_id == "R1"
+    assert bases.third.player_id == "R3"
+
+
 # --- M8 -----------------------------------------------------------------------
 
 
@@ -137,6 +162,20 @@ def test_bases_loaded_runner_on_first_holds(monkeypatch):
     assert [bases.first.player_id, bases.second.player_id, bases.third.player_id] == [
         "R1", "R2", "R3",
     ]
+
+
+def test_bases_loaded_runners_move_up_model_1(monkeypatch):
+    """ground_out_model 1: R3 is forced home and every runner moves up."""
+    r1, r2, r3 = _batter("R1"), _batter("R2"), _batter("R3")
+    bases = BaseState(first=r1, second=r2, third=r3)
+    # No triple play, no DP, no play at home, batter out at 1st.
+    runs, outs_added, events, scored = _ground_out(
+        monkeypatch, bases, 0, [0.99, 0.99, 0.99, 0.99], GROUND_OUT_V1
+    )
+    assert (runs, outs_added, events) == (1, 1, [])
+    assert [r.player_id for r in scored] == ["R3"]
+    assert bases.first is None
+    assert [bases.second.player_id, bases.third.player_id] == ["R1", "R2"]
 
 
 def test_ground_outs_conserve_runners():

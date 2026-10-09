@@ -675,6 +675,64 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # engine._centred_speed so a fast or slow league keeps MLB's overall
     # rates; race-against-a-throw terms keep reading raw ``sp - 50``.
     "hitter_speed_center": 50.0,
+    # Release 4 (W3): outs in play -- tag-ups, the runner on 3rd on ground
+    # outs, double plays (audit M6 DP half, M7, M8). Two structural switches
+    # pick the 7.47.0 code path at 0; the 4b values live in
+    # scripts/kpi_profiles/r4b.json until the 4b flip copies them here.
+    "tag_up_model": 0.0,
+    "ground_out_model": 0.0,
+    # Tag-up time race (tag_up_model 1, engine._tag_up_race). Runner home
+    # from 3rd: run_base - (sp - 50) * run_speed seconds. Throw: release +
+    # carry * carry_k / (velo + (arm - 50) * arm_k), minus hang_k per second
+    # of drag-free hang time short of hang_ref (a short fly is caught on the
+    # move). The runner goes with Phi((margin - send_margin [- 0out]) /
+    # send_sd) and, once sent, is out with max(floor, Phi(-margin / out_sd)).
+    # Calibrated to engine carry (drag-free x .75); refit in Release 6.
+    "tag_up_run_base": 3.55,
+    "tag_up_run_speed": 0.012,
+    "tag_up_throw_velo": 110.0,
+    "tag_up_throw_arm": 1.0,
+    "tag_up_release": 2.0,
+    "tag_up_carry_k": 1.2,
+    "tag_up_hang_k": 0.15,
+    "tag_up_hang_ref": 3.0,
+    "tag_up_send_margin": 0.20,
+    "tag_up_send_margin_0out": 0.10,
+    "tag_up_send_sd": 0.25,
+    "tag_up_out_sd": 0.30,
+    "tag_up_out_floor": 0.005,
+    # The tag from 2nd to 3rd keeps its _advance_prob roll with its own
+    # scale (the global advancement_aggression_scale is never cut).
+    "tag_up_second_scale": 1.6,
+    # Ground outs (ground_out_model 1, engine._resolve_ground_out_v2).
+    # DP turned with nobody out: R3 scores dp_r3_score + (sp - 50) * speed.
+    "ground_out_dp_r3_score": 0.90,
+    "ground_out_dp_r3_speed": 0.0025,
+    # No DP, 3rd not forced: R3 scores base (0 / 1 out) + infield-in adj +
+    # speed * (centred sp - 50).
+    "ground_out_r3_score_0out": 0.45,
+    "ground_out_r3_score_1out": 0.55,
+    "ground_out_r3_infield_in_adj": -0.25,
+    "ground_out_r3_speed": 0.004,
+    # Bases loaded, no DP: the defence plays at home (fielder's choice, C
+    # putout) with these chances; otherwise the forced runner scores.
+    "ground_out_home_play_in": 0.50,
+    "ground_out_home_play_back": 0.05,
+    # Productive out: an unforced R2 takes 3rd on a ball to the right side
+    # (1B/2B) or the left side, + (sp - 50) * speed.
+    "productive_out_right": 0.75,
+    "productive_out_left": 0.35,
+    "productive_out_speed": 0.004,
+    # League-wide infield in (owner decision: no per-team setting yet): R3,
+    # fewer than 2 outs, inning >= min_inning and the fielding team tied or
+    # ahead by at most max_lead.
+    "infield_in_min_inning": 7.0,
+    "infield_in_max_lead": 2.0,
+    # DP chance (fielding.double_play_probability): the raw chance times
+    # exp(-k * (batter sp - hitter_speed_center) / 10), capped at
+    # double_play_max. k 0 and the 0.45 cap are the 7.47.0 behaviour.
+    "double_play_batter_speed_k": 0.0,
+    "double_play_max": 0.45,
 }
 
 
