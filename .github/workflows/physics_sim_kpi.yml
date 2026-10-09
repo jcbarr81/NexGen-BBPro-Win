@@ -191,12 +191,19 @@ jobs:
           PYTHONHASHSEED: "0"
         run: |
           mkdir -p tmp
-          python scripts/physics_sim_season_kpis.py \
-              --games 162 \
-              --seed 1 \
-              --base-dir data/calibration_league \
-              --players data/calibration_league/players.csv \
-              --output tmp/physics_kpis_league_fixture.json
+          # The running-game step above simulates this exact season (same
+          # fixture, seed and tuning; --gate-set only filters failures), so
+          # reuse its report instead of re-simulating it.
+          if [ -f tmp/physics_kpis_league_running.json ]; then
+            cp tmp/physics_kpis_league_running.json tmp/physics_kpis_league_fixture.json
+          else
+            python scripts/physics_sim_season_kpis.py \
+                --games 162 \
+                --seed 1 \
+                --base-dir data/calibration_league \
+                --players data/calibration_league/players.csv \
+                --output tmp/physics_kpis_league_fixture.json
+          fi
           python -c "import json; d=json.load(open('tmp/physics_kpis_league_fixture.json')); m=d['metrics']; f=d.get('tolerance_failures', []); print(f\"::notice title=League-like fixture (report-only)::R/G {m['runs_per_team_game']:.2f}, AVG/OBP/SLG {m['avg']:.3f}/{m['obp']:.3f}/{m['slg']:.3f}; {len(f)} gates out of tolerance: {', '.join(x['metric'] for x in f) or 'none'}\")"
       - name: Upload league-like fixture KPI report
         if: ${{ !cancelled() }}
