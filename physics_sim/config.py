@@ -316,13 +316,19 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "double_distance_scale": 0.70,
     "triple_distance_scale": 0.96,
     "double_speed_scale": 0.18,
-    "triple_speed_scale": 0.28,
+    # Release 4 (W2, "T3"): the triple threshold's speed slope is split. This
+    # is the slow side (sp below 50 lengthens the threshold); the fast side
+    # reads ``triple_speed_scale_fast`` (-1 = inherit this value). Was one
+    # symmetric .28: burners tripled about twice MLB's rate and nobody
+    # below sp ~37 could triple at all.
+    "triple_speed_scale": 0.15,
+    "triple_speed_scale_fast": 0.12,
     "double_gap_scale": 0.45,
     "stretch_double_base": 0.02,
     "stretch_double_speed_scale": 0.18,
     "stretch_double_arm_scale": 0.7,
     "stretch_triple_base": 0.006,
-    "stretch_triple_speed_scale": 0.12,
+    "stretch_triple_speed_scale": 0.10,
     "stretch_triple_arm_scale": 0.9,
     "babip_scale": 0.925,
     "walk_scale": 0.83,
@@ -675,6 +681,38 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # engine._centred_speed so a fast or slow league keeps MLB's overall
     # rates; race-against-a-throw terms keep reading raw ``sp - 50``.
     "hitter_speed_center": 50.0,
+    # Release 4 (W2): runner advancement on hits (audit M7 / L21). The
+    # defaults reproduce 7.47.0 exactly; the Release 4b values live in
+    # scripts/kpi_profiles/r4b.json until the 4b flip copies them here.
+    # Hit advances read their own aggression scale so the global
+    # ``advancement_aggression_scale`` (WP/PB advances, tag-ups) never moves.
+    "hit_advance_aggression_scale": 1.6,
+    # Multiplies the thrown-out chance of a runner trying for an extra base.
+    "hit_advance_out_scale": 1.0,
+    # Situation extras on the attempt chance: runner on 1st on a single
+    # (1st to 3rd), runner on 2nd on a single (scores), runner on 1st on a
+    # double (scores). ``xbt_two_out_extra`` is added to the last two with
+    # two out (running on contact).
+    "xbt_single_r1_extra": 0.05,
+    "xbt_single_r2_extra": 0.15,
+    "xbt_double_r1_extra": -0.05,
+    "xbt_two_out_extra": 0.0,
+    # Multiplies the thrown-out chance of a forced runner (R3 on a single,
+    # R2/R3 on a double), who today is thrown out 5-8% of the time.
+    "forced_runner_out_scale": 1.0,
+    # Batter speed on ground balls (M6): out chance minus
+    # scale * w * (sp - hitter_speed_center) / 10, where w ramps from 1 at
+    # ``infield_hit_ev_lo`` mph down to 0 at ``infield_hit_ev_hi``. 0 = off
+    # (no extra draws, so games are unchanged).
+    "infield_hit_speed_scale": 0.0,
+    "infield_hit_ev_lo": 80.0,
+    "infield_hit_ev_hi": 100.0,
+    # Ground-ball singles at or below this exit velocity are infield singles:
+    # runners move exactly one base, on the infielder's arm and credit, and
+    # so do bunt hits. 0 = off (every hit's runners advance on the
+    # outfielder who picks it up). Not in the 4b profile: at 85 mph it took
+    # calibration XBT to .35 (floor .37) and 1st-to-3rd to .20 (MLB .28).
+    "infield_single_ev_max": 0.0,
 }
 
 
