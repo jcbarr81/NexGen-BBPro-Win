@@ -3786,7 +3786,9 @@ def _resolve_ground_out(
         arm_values.append(adjusted_arm_rating(oneb_fielder, tuning))
     if arm_values:
         turn_arm = sum(arm_values) / len(arm_values)
-    if bases.first and bases.second and outs < 2:
+    # A triple play needs three outs left: with one out a ground ball can
+    # end the inning only as a double play (it used to record a 4th out).
+    if bases.first and bases.second and outs == 0:
         tp_prob = tuning.get("triple_play_base", 0.0008)
         tp_prob += (infield_range - 50.0) / 900.0
         tp_prob -= (bases.first.speed - 50.0) / 800.0
