@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import random
 import re
 import shutil
@@ -1169,19 +1170,29 @@ def load_tuning_overrides_file(path: Path) -> dict[str, float]:
     return overrides
 
 
+def _is_finite_number(value: object) -> bool:
+    try:
+        return value is not None and math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
 def gate_set_failures(
     name: str,
     *,
     metrics: dict[str, float],
     tolerances: dict[str, float],
     failures: list[dict[str, object]],
+    references: Iterable[str] | None = None,
 ) -> list[dict[str, object]]:
     """The strict failures that count under ``--gate-set name``.
 
     The failures among GATE_SETS[name], plus one row per listed metric that
-    has no tolerance or no value: a gate that was not evaluated must not pass.
+    has no tolerance, no benchmark or target (``references``, when given),
+    or no finite value: a gate that was not evaluated must not pass.
     """
     keys = GATE_SETS[name]
+    referenced = set(references) if references is not None else None
     selected = [row for row in failures if row.get("metric") in keys]
     failed = {row.get("metric") for row in selected}
     for key in keys:
@@ -1189,7 +1200,9 @@ def gate_set_failures(
             continue
         if key not in tolerances:
             reason = "listed in the gate set but has no tolerance"
-        elif metrics.get(key) is None:
+        elif referenced is not None and key not in referenced:
+            reason = "listed in the gate set but has no benchmark or target"
+        elif not _is_finite_number(metrics.get(key)):
             reason = "listed in the gate set but not computed"
         else:
             continue
@@ -1856,16 +1869,17 @@ def main() -> None:
     tolerances = _load_tolerances(args.tolerances)
     # Release 3: promoted kpi_extras gates join the strict metrics here.
     not_computed = _promote_extras_metrics(summary, tolerances)
+    targets = {
+        # S2-01; band 0.017-0.035 while the Release 3 widening lasts.
+        "platoon_gap_woba": 0.026,
+        **RATING_OUTCOME_TARGETS,  # S3
+        **STRICT_EXTRAS_TARGETS,  # Release 3 promotions
+    }
     failures = evaluate_tolerances(
         metrics=summary.get("metrics", {}),
         benchmarks=benchmarks,
         tolerances=tolerances,
-        targets={
-            # S2-01; band 0.017-0.035 while the Release 3 widening lasts.
-            "platoon_gap_woba": 0.026,
-            **RATING_OUTCOME_TARGETS,  # S3
-            **STRICT_EXTRAS_TARGETS,  # Release 3 promotions
-        },
+        targets=targets,
     ) + not_computed
     summary["tolerances"] = tolerances
     summary["tolerance_failures"] = failures
@@ -1879,6 +1893,7 @@ def main() -> None:
             metrics=summary.get("metrics", {}),
             tolerances=tolerances,
             failures=failures,
+            references=set(benchmarks) | set(targets),
         )
         summary["gate_set"] = {
             "name": args.gate_set,

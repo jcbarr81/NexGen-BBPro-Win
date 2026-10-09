@@ -57,8 +57,10 @@ HITTER_SPEED_CENTER_KEY = "hitter_speed_center"
 _KEEP_SEASONS = 5
 # The season key ``_season_key`` returns when the league has no schedule
 # (between a rollover and the next schedule, or a directory that is not the
-# active league). Such a value is computed fresh and never stored, so it can
-# not pin a stale centre onto a later season that also lacks a date.
+# active league). Such a value is kept in the process cache only -- so serial
+# and parallel games in one run see the same number even if an injury
+# reshuffles an ACT roster mid-day -- and never written to the file, so it
+# can not pin a stale centre onto a later season that also lacks a date.
 _UNKNOWN_SEASON = "default"
 
 # (league dir, season, key) -> centre; the file is the source of truth.
@@ -73,15 +75,18 @@ def clear_rating_center_cache() -> None:
         _CENTER_CACHE.clear()
 
 
-def get_rating_center_overrides() -> Dict[str, float]:
+def get_rating_center_overrides(*, store: bool = True) -> Dict[str, float]:
     """Tuning overrides carrying the current league's rating centres.
 
     ``{"hitter_speed_center": x}``, or ``{}`` when the league has no ACT
-    hitters to average (the engine then keeps the 50.0 default).
+    hitters to average (the engine then keeps the 50.0 default). ``store``
+    False is for games that are not part of the season (watch-a-game): they
+    read a stored centre but never fix one, so a preseason replay cannot pin
+    the season's centre from training-camp rosters.
     """
 
     try:
-        center = league_hitter_speed_center()
+        center = league_hitter_speed_center(store=store)
     except Exception:  # pragma: no cover - defensive; a game must still run
         center = None
     if center is None:
@@ -92,23 +97,30 @@ def get_rating_center_overrides() -> Dict[str, float]:
 def league_hitter_speed_center(
     data_dir: Path | str | None = None,
     season: str | int | None = None,
+    *,
+    store: bool = True,
 ) -> Optional[float]:
     """Mean speed of the league's ACT hitters, fixed per season.
 
     Computed the first time a season asks for it and stored in
     ``<league>/rating_centers.json`` (decision 2: "computed once per
-    season"). ``None`` when the league has no ACT hitters to average.
+    season"). ``None`` when the league has no ACT hitters to average. With
+    ``store`` False a stored or cached value is returned as usual, but a
+    missing one is computed live and neither cached nor written.
     """
 
     base = Path(data_dir) if data_dir is not None else get_data_dir()
     season_key = str(season) if season is not None else _season_key(base)
-    if season_key == _UNKNOWN_SEASON:
-        return active_hitter_mean_speed(base)
     cache_key = (str(base.resolve(strict=False)), season_key, HITTER_SPEED_CENTER_KEY)
     with _CENTER_LOCK:
         cached = _CENTER_CACHE.get(cache_key)
         if cached is not None:
             return cached
+        if season_key == _UNKNOWN_SEASON:
+            value = active_hitter_mean_speed(base)
+            if value is not None and store:
+                _CENTER_CACHE[cache_key] = value
+            return value
         path = base / RATING_CENTERS_FILENAME
         payload = _read_json(path)
         seasons = payload.get("seasons")
@@ -124,8 +136,8 @@ def league_hitter_speed_center(
             value = None
         if value is None:
             value = active_hitter_mean_speed(base)
-            if value is None:
-                return None
+            if value is None or not store:
+                return value
             seasons[season_key] = {**entry, HITTER_SPEED_CENTER_KEY: value}
             keep = sorted(seasons)[-_KEEP_SEASONS:]
             _write_json_atomic(

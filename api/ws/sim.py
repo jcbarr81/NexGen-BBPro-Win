@@ -59,7 +59,8 @@ def _league_tuning_overrides() -> Dict[str, Any]:
     for getter in (
         get_physics_tuning_overrides,
         get_injury_tuning_overrides,
-        get_rating_center_overrides,
+        # A replay is not a season game: read the stored centre, never fix it.
+        lambda: get_rating_center_overrides(store=False),
     ):
         try:
             overrides.update(getter())

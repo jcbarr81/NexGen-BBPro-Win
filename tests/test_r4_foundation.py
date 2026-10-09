@@ -161,14 +161,43 @@ def test_file_keeps_the_last_five_seasons(tmp_path):
     assert sorted(stored["seasons"]) == [str(y) for y in range(2023, 2028)]
 
 
-def test_unknown_season_is_computed_but_never_stored(tmp_path):
-    # Not the active league (and so no sim date): the value is live, never
-    # pinned onto a later season that also lacks a date.
+def test_unknown_season_is_cached_in_process_but_never_stored(tmp_path):
+    # Not the active league (and so no sim date): never written to the file,
+    # so it cannot pin a later season that also lacks a date -- but held in
+    # the process cache, so a mid-day roster change (an injury) cannot give
+    # serial games a different centre than the parallel parent computed.
     base = _small_league(tmp_path / "league")
     assert centers.league_hitter_speed_center(base) == 50.0
     assert not (base / centers.RATING_CENTERS_FILENAME).exists()
     _set_speed(base, "H1", "80")
+    assert centers.league_hitter_speed_center(base) == 50.0
+    centers.clear_rating_center_cache()
     assert centers.league_hitter_speed_center(base) == pytest.approx(56.67)
+    assert not (base / centers.RATING_CENTERS_FILENAME).exists()
+
+
+def test_store_false_reads_but_never_fixes_the_centre(tmp_path):
+    # Watch-a-game: a missing centre is computed live, not cached or written.
+    base = _small_league(tmp_path / "league")
+    assert centers.league_hitter_speed_center(base, season="2026", store=False) == 50.0
+    assert not (base / centers.RATING_CENTERS_FILENAME).exists()
+    _set_speed(base, "H1", "80")
+    assert centers.league_hitter_speed_center(
+        base, season="2026", store=False
+    ) == pytest.approx(56.67)
+    # Once the season fixes it, a replay reads the stored value.
+    assert centers.league_hitter_speed_center(base, season="2026") == pytest.approx(56.67)
+    _set_speed(base, "H1", "50")
+    assert centers.league_hitter_speed_center(
+        base, season="2026", store=False
+    ) == pytest.approx(56.67)
+
+
+def test_runtime_centre_files_are_never_seeded_into_new_leagues():
+    import utils.path_utils as path_utils
+
+    assert "rating_centers.json" in path_utils._SEED_EXCLUDE_FILES
+    assert "pitcher_durability_center.json" in path_utils._SEED_EXCLUDE_FILES
 
 
 @pytest.fixture
@@ -544,6 +573,19 @@ def test_gate_sets(kpis, monkeypatch):
     monkeypatch.setitem(kpis.GATE_SETS, "test", ["untoleranced"])
     picked = kpis.gate_set_failures("test", metrics={}, tolerances={}, failures=[])
     assert "no tolerance" in picked[0]["reason"]
+
+    # A tolerance with no benchmark or target, or a NaN value, is not a pass.
+    monkeypatch.setitem(kpis.GATE_SETS, "test", ["nobench", "nanm", "ok"])
+    picked = kpis.gate_set_failures(
+        "test",
+        metrics={"nobench": 5.0, "nanm": float("nan"), "ok": 1.0},
+        tolerances={"nobench": 1.0, "nanm": 1.0, "ok": 1.0},
+        failures=[],
+        references={"nanm", "ok"},
+    )
+    assert [row["metric"] for row in picked] == ["nobench", "nanm"]
+    assert "no benchmark or target" in picked[0]["reason"]
+    assert "not computed" in picked[1]["reason"]
 
 
 def test_kpi_extras_loads_speed(tmp_path):
