@@ -577,6 +577,7 @@ const RUNNER_EVENT_LABELS: Record<string, string> = {
   dp: "double play",
   tag_dp: "thrown out tagging up (DP)",
   fc_home: "force at home",
+  dp_home: "home to first",
 };
 
 function runnerEventLabel(event: string): string {

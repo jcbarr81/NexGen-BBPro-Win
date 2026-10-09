@@ -2376,6 +2376,40 @@ def _credit_ground_double_play(
             oneb_line.dp += 1
 
 
+def _credit_home_to_first_double_play(
+    *,
+    defense_state: LineupState,
+    defense_map: Dict[str, BatterRatings],
+    primary_fielder: BatterRatings | None,
+    oneb_fielder: BatterRatings | None,
+) -> None:
+    """Credit a home-to-first double play (6-2-3, 4-2-3, 3-2-3...).
+
+    Release 4 (``ground_out_model`` 1): with the bases loaded the fielder
+    throws home for the force (his assist), the catcher takes it (putout)
+    and relays to first (his assist), and first base takes the second out
+    (putout). Each fielder in the play gets one DP; a 1B who started it is
+    credited the assist and the putout but a single DP.
+    """
+    lines = []
+    if primary_fielder is not None:
+        primary_line = _fielding_line(defense_state, primary_fielder.player_id)
+        primary_line.a += 1
+        lines.append(primary_line)
+    catcher = defense_map.get("C")
+    if catcher is not None:
+        catcher_line = _fielding_line(defense_state, catcher.player_id)
+        catcher_line.po += 1
+        catcher_line.a += 1
+        lines.append(catcher_line)
+    if oneb_fielder is not None:
+        oneb_line = _fielding_line(defense_state, oneb_fielder.player_id)
+        oneb_line.po += 1
+        lines.append(oneb_line)
+    for line in {id(line): line for line in lines}.values():
+        line.dp += 1
+
+
 def _credit_bunt_out(
     *,
     defense_state: LineupState,
@@ -2552,20 +2586,22 @@ def _advance_on_air_out_v2(
 ) -> tuple[int, int, bool, list[BatterRatings], BatterRatings | None]:
     """Release 4 tag-ups (``tag_up_model`` 1; audit M7).
 
-    - A liner caught on the infield freezes the runners: nobody tags and no
-      number is drawn.
+    - A liner caught on the infield, or a short pop-up caught under
+      ``tag_up_min_carry_ft`` of carry, freezes the runners: nobody tags and
+      no number is drawn.
     - The runner on 3rd races the throw (``_tag_up_race``): he holds, scores
       (a sacrifice fly) or is thrown out at home. Draws: send, then the play.
     - The runner on 2nd tags to an open 3rd with the old ``_advance_prob``
       roll at ``tag_up_second_scale``, unless the play already ended the
-      inning.
+      inning or the ball is too shallow: when his own race home would send
+      him with under ``tag_up_second_min_send`` he holds without a draw.
     """
     runs = 0
     extra_outs = 0
     sac_fly = False
     scored: list[BatterRatings] = []
     tag_out_runner: BatterRatings | None = None
-    if outs >= 2 or infield_play:
+    if outs >= 2 or infield_play or _tag_up_short_fly(distance, tuning):
         return runs, extra_outs, sac_fly, scored, tag_out_runner
     if bases.third:
         p_send, p_out, _margin = _tag_up_race(
@@ -2586,7 +2622,20 @@ def _advance_on_air_out_v2(
                 scored.append(bases.third)
                 sac_fly = True
             bases.third = None
-    if bases.second and bases.third is None and outs + 1 + extra_outs < 3:
+    if (
+        bases.second
+        and bases.third is None
+        and outs + 1 + extra_outs < 3
+        and _tag_up_second_can_go(
+            runner=bases.second,
+            arm=thrower_arm,
+            distance=distance,
+            exit_velo=exit_velo,
+            launch_angle=launch_angle,
+            outs=outs,
+            tuning=tuning,
+        )
+    ):
         prob = _advance_prob(
             bases.second.speed,
             thrower_arm,
@@ -2598,6 +2647,42 @@ def _advance_on_air_out_v2(
             bases.third = bases.second
             bases.second = None
     return runs, extra_outs, sac_fly, scored, tag_out_runner
+
+
+def _tag_up_short_fly(distance: float | None, tuning: TuningConfig) -> bool:
+    """A fly caught under ``tag_up_min_carry_ft`` of engine carry (a pop-up
+    an infielder or a charging outfielder takes): nobody tags under
+    ``tag_up_model`` 1. A missing distance is never short (the 250 ft
+    fallback in ``_advance_on_air_out``)."""
+    if distance is None:
+        return False
+    return float(distance) < tuning.get("tag_up_min_carry_ft", 150.0)
+
+
+def _tag_up_second_can_go(
+    *,
+    runner: BatterRatings,
+    arm: float,
+    distance: float,
+    exit_velo: float,
+    launch_angle: float,
+    outs: int,
+    tuning: TuningConfig,
+) -> bool:
+    """Depth gate for the tag from 2nd (``tag_up_model`` 1). The runner on
+    2nd only rolls when the same ball would send him home from 3rd with at
+    least ``tag_up_second_min_send``: on a fly too shallow for anyone to
+    score he stays put. No draw."""
+    p_send, _p_out, _margin = _tag_up_race(
+        speed=runner.speed,
+        arm=arm,
+        distance=distance,
+        exit_velo=exit_velo,
+        launch_angle=launch_angle,
+        outs=outs,
+        tuning=tuning,
+    )
+    return p_send >= tuning.get("tag_up_second_min_send", 0.05)
 
 
 def _advance_on_air_out(
@@ -2618,6 +2703,8 @@ def _advance_on_air_out(
     draw per runner; the batted-ball arguments are ignored). 1 is the
     Release 4 time race in ``_advance_on_air_out_v2``. ``ball_type`` is
     accepted for the play record; only the infield flag changes the play.
+    The batted-ball values come straight from the pitch result; a missing
+    one falls back here (and only here) to a 250 ft, 90 mph, 30 degree fly.
     """
     if tuning.get("tag_up_model", 0.0) >= 0.5:
         return _advance_on_air_out_v2(
@@ -3508,7 +3595,10 @@ def _ground_out_runners_v2(
 
     - DP turned: with nobody out R3 scores with ``ground_out_dp_r3_score``
       + (sp - 50) * ``ground_out_dp_r3_speed``; with one out the DP ends the
-      inning and nobody scores (L15). A forced R2 takes an open 3rd.
+      inning and nobody scores (L15). A forced R2 takes an open 3rd. With
+      the bases loaded and nobody out, an R3 who does not score was forced
+      out at home: a home-to-first DP (``dp`` + ``dp_home``), the batter out
+      at 1st, R2 to 3rd and R1 to 2nd.
     - No DP, bases loaded: R3 is forced and scores unless the defence plays
       at home (``ground_out_home_play_in`` with the infield in, ``_back``
       otherwise): a fielder's choice at home (``fc_home``), the batter safe
@@ -3544,6 +3634,7 @@ def _ground_out_runners_v2(
         )
         if random.random() < dp_prob:
             outs_added = 2
+            runner_first = bases.first
             bases.first = None
             events.append("dp")
             if outs + outs_added < 3:
@@ -3556,6 +3647,14 @@ def _ground_out_runners_v2(
                         runs += 1
                         scored.append(bases.third)
                         bases.third = None
+                    elif bases.second:
+                        # Bases loaded and R3 does not score: R3 was forced,
+                        # so this is a home-to-first DP. R3 is out at home,
+                        # the batter at 1st; R2 and R1 move up a base.
+                        bases.third = bases.second
+                        bases.second = runner_first
+                        events.append("dp_home")
+                        return runs, outs_added, events, scored
                 if bases.second and bases.third is None:
                     bases.third = bases.second
                     bases.second = None
@@ -6862,6 +6961,13 @@ def simulate_game(
                                             if oneb_id not in used_tp:
                                                 oneb_line.tp += 1
                                                 used_tp.add(oneb_id)
+                                    elif "dp_home" in events:
+                                        _credit_home_to_first_double_play(
+                                            defense_state=defense_state,
+                                            defense_map=defense_map,
+                                            primary_fielder=primary_fielder,
+                                            oneb_fielder=oneb_fielder,
+                                        )
                                     elif "dp" in events:
                                         _credit_ground_double_play(
                                             defense_state=defense_state,
@@ -6973,11 +7079,14 @@ def simulate_game(
                                         thrower_arm=thrower_arm,
                                         tuning=tuning,
                                         distance=res.distance,
-                                        exit_velo=res.exit_velo or 90.0,
-                                        launch_angle=res.launch_angle or 12.0,
+                                        exit_velo=res.exit_velo,
+                                        launch_angle=res.launch_angle,
                                         ball_type=ball_type,
                                         infield_play=infield_play,
                                     )
+                                    # The tag-up play itself, before any
+                                    # throwing error reverses an out.
+                                    race_outs = extra_outs
                                     air_events: list[str] = []
                                     if (
                                         tag_out_runner is not None
@@ -7036,9 +7145,12 @@ def simulate_game(
                                             if tag_dp:
                                                 catcher_line.dp += 1
                                     outs_added = 1 + extra_outs
+                                    # Release 4 (W3) play records for the KPI
+                                    # harness; no draws. ``short`` is a fly
+                                    # under tag_up_min_carry_ft (model 1:
+                                    # nobody tags), flagged under both models.
+                                    short_fly = _tag_up_short_fly(res.distance, tuning)
                                     if tag_runner3 is not None:
-                                        # Release 4 (W3) play records for the
-                                        # KPI harness; no draws.
                                         if tag_runner3 in scored:
                                             tag_result = (
                                                 "error" if "e_th" in air_events else "score"
@@ -7055,22 +7167,30 @@ def simulate_game(
                                             "pos": pos,
                                             "arm": round(float(thrower_arm), 1),
                                             "infield": bool(infield_play),
+                                            "short": short_fly,
                                             "dist": round(float(res.distance or 0.0), 1),
                                             "outs": outs,
                                             "result": tag_result,
                                         }
+                                    # R2's chance: 3rd open after R3's play
+                                    # and the inning still alive after the
+                                    # tag-up race itself -- a throw-out that
+                                    # made the 3rd out came before R2's roll,
+                                    # even if a throwing error then undid it.
                                     if (
                                         tag_runner2 is not None
                                         and (
                                             tag_runner3 is None
                                             or bases.third is not tag_runner3
                                         )
-                                        and outs + outs_added < 3
+                                        and outs + 1 + race_outs < 3
                                     ):
                                         pitch_log[-1]["tag2"] = {
                                             "runner": tag_runner2.player_id,
                                             "arm": round(float(thrower_arm), 1),
                                             "infield": bool(infield_play),
+                                            "short": short_fly,
+                                            "dist": round(float(res.distance or 0.0), 1),
                                             "outs": outs,
                                             "result": (
                                                 "adv" if bases.third is tag_runner2 else "hold"

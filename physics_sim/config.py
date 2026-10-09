@@ -786,11 +786,18 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "tag_up_send_sd": 0.25,
     "tag_up_out_sd": 0.30,
     "tag_up_out_floor": 0.005,
+    # A fly caught under this much engine carry (ft) is a pop-up: nobody
+    # tags and no number is drawn, as on an infield liner. Model 0 ignores it.
+    "tag_up_min_carry_ft": 150.0,
     # The tag from 2nd to 3rd keeps its _advance_prob roll with its own
-    # scale (the global advancement_aggression_scale is never cut).
+    # scale (the global advancement_aggression_scale is never cut), but only
+    # on a ball deep enough that the same race home would send him with at
+    # least second_min_send; shallower, he holds without a draw.
     "tag_up_second_scale": 1.6,
-    # Ground outs (ground_out_model 1, engine._resolve_ground_out_v2).
-    # DP turned with nobody out: R3 scores dp_r3_score + (sp - 50) * speed.
+    "tag_up_second_min_send": 0.05,
+    # Ground outs (ground_out_model 1, engine._ground_out_runners_v2).
+    # DP turned with nobody out: R3 scores dp_r3_score + (sp - 50) * speed;
+    # with the bases loaded the rest are home-to-first DPs (R3 forced out).
     "ground_out_dp_r3_score": 0.90,
     "ground_out_dp_r3_speed": 0.0025,
     # No DP, 3rd not forced: R3 scores base (0 / 1 out) + infield-in adj +

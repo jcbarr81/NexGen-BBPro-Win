@@ -1,16 +1,19 @@
 """Release 4 W3: outs in play (audit M6 DP half, M7, M8).
 
-- Tag-ups (``tag_up_model`` 1): an infield liner freezes the runners with no
-  draw; the runner on 3rd races the throw and holds, scores or is thrown out;
-  a throw-out is a ``tag_dp`` (fly out + tag), never a GIDP.
+- Tag-ups (``tag_up_model`` 1): an infield liner or a short pop-up freezes
+  the runners with no draw; the runner on 3rd races the throw and holds,
+  scores or is thrown out; a throw-out is a ``tag_dp`` (fly out + tag), never
+  a GIDP; the runner on 2nd only rolls on a ball deep enough to send him.
 - Ground outs (``ground_out_model`` 1): triple play, then DP, then R3. A
-  0-out DP scores R3, a 1-out DP does not (L15); with the bases loaded R3 is
+  0-out DP scores R3, a 1-out DP does not (L15); a 0-out bases-loaded DP
+  that does not score R3 is a home-to-first DP; with the bases loaded R3 is
   forced home unless the infield plays in; forced runners always move up;
   an unforced R2 takes 3rd on a productive out.
 - DP: ``double_play_probability(..., batter_speed=)`` with the multiplicative
   batter-speed factor and the ``double_play_max`` cap.
 - With both switches at 0 every game is byte-identical to the 7.47.0 code
-  (frozen copies of the legacy functions below).
+  (frozen copies of the legacy functions below), and pinned per-seed digests
+  catch a change at the call sites the frozen copies cannot see.
 """
 
 from __future__ import annotations
@@ -52,6 +55,8 @@ W3_KNOBS = {
     "tag_up_out_sd": 0.35,
     "tag_up_out_floor": 0.01,
     "tag_up_second_scale": 1.4,
+    "tag_up_min_carry_ft": 140.0,
+    "tag_up_second_min_send": 0.08,
     "ground_out_dp_r3_score": 0.85,
     "ground_out_dp_r3_speed": 0.003,
     "ground_out_r3_score_0out": 0.4,
@@ -128,6 +133,12 @@ def test_r4b_profile_carries_the_w3_values():
     assert profile["double_play_batter_speed_k"] == pytest.approx(0.20)
     assert profile["double_play_max"] == pytest.approx(0.60)
     assert profile["tag_up_second_scale"] == pytest.approx(1.6)
+    # F2 retune on the full bundle (W0-W3): a slightly bolder send and a
+    # higher out floor put tag-up score / out per send in .72-.78 / .02-.04.
+    assert profile["tag_up_send_margin"] == pytest.approx(0.17)
+    assert profile["tag_up_out_floor"] == pytest.approx(0.008)
+    assert profile["tag_up_min_carry_ft"] == pytest.approx(150.0)
+    assert profile["tag_up_second_min_send"] == pytest.approx(0.05)
 
 
 # --- double play probability ---------------------------------------------------
@@ -789,3 +800,297 @@ def test_kpi_extras_does_not_count_tag_dp_as_gidp():
     assert report["metrics"]["dp_air"] == 1
     assert report["metrics"]["tag_dp_events"] == 1
     assert report["metrics"]["tagup_out_rate"] == 1.0
+
+
+# --- review fixes (F2) ---------------------------------------------------------
+
+
+def test_short_pop_up_freezes_the_runners_without_a_draw(monkeypatch):
+    r2, r3 = _batter("R2", speed=90.0), _batter("R3", speed=90.0)
+    bases = BaseState(second=r2, third=r3)
+    (runs, extra, sf, scored, out_runner), _ = _air_out(
+        monkeypatch, bases, 0, [], distance=149.0, launch_angle=60.0
+    )
+    assert (runs, extra, sf, scored, out_runner) == (0, 0, False, [], None)
+    assert bases.third is r3 and bases.second is r2
+    # At the knob the race is on again (send drawn), and the knob moves it.
+    bases = BaseState(third=r3)
+    _, script = _air_out(monkeypatch, bases, 0, [0.0, 0.999], distance=150.0)
+    assert script._draws == [] and bases.third is None
+    bases = BaseState(third=r3)
+    _air_out(
+        monkeypatch, bases, 0, [], distance=150.0,
+        overrides={"tag_up_min_carry_ft": 160.0},
+    )
+    assert bases.third is r3
+
+
+def test_legacy_model_ignores_the_min_carry(monkeypatch):
+    bases = BaseState(third=_batter("R3"))
+    monkeypatch.setattr(engine, "random", _Script([0.0]))
+    runs, *_ = _advance_on_air_out(
+        bases=bases, outs=0, thrower_arm=50.0, tuning=load_tuning(),
+        distance=60.0, exit_velo=70.0, launch_angle=70.0, ball_type="fb",
+    )
+    assert runs == 1
+
+
+def test_runner_on_second_holds_without_a_draw_when_too_shallow(monkeypatch):
+    # sp 30 against a 70 arm at 160 ft, nobody out: his race home would send
+    # him well under .05 of the time, so he does not roll at all.
+    r2 = _batter("R2", speed=30.0)
+    p_send = engine._tag_up_race(
+        speed=30.0, arm=70.0, distance=160.0, exit_velo=95.0, launch_angle=30.0,
+        outs=0, tuning=load_tuning(V1),
+    )[0]
+    assert p_send < 0.05
+    bases = BaseState(second=r2)
+    _air_out(monkeypatch, bases, 0, [], distance=160.0, arm=70.0)
+    assert bases.second is r2 and bases.third is None
+    # Deep enough: the old roll at tag_up_second_scale, one draw.
+    bases = BaseState(second=r2)
+    _, script = _air_out(monkeypatch, bases, 0, [0.0], distance=300.0, arm=70.0)
+    assert bases.third is r2 and script._draws == []
+    # The gate is a knob.
+    bases = BaseState(second=r2)
+    _, script = _air_out(
+        monkeypatch, bases, 0, [0.0], distance=160.0, arm=70.0,
+        overrides={"tag_up_second_min_send": 0.0},
+    )
+    assert bases.third is r2 and script._draws == []
+
+
+def test_missing_ball_values_fall_back_in_one_place(monkeypatch):
+    seen = {}
+    real_race = engine._tag_up_race
+
+    def race_spy(**kw):
+        seen.update(kw)
+        return real_race(**kw)
+
+    monkeypatch.setattr(engine, "_tag_up_race", race_spy)
+    bases = BaseState(third=_batter("R3"))
+    _air_out(
+        monkeypatch, bases, 1, [0.0, 0.999], distance=None, exit_velo=None,
+        launch_angle=None,
+    )
+    assert (seen["distance"], seen["exit_velo"], seen["launch_angle"]) == (
+        250.0, 90.0, 30.0
+    )
+
+
+def test_bases_loaded_nobody_out_dp_without_the_run_is_home_to_first(monkeypatch):
+    r1, r2, r3 = _batter("R1"), _batter("R2"), _batter("R3")
+    bases = BaseState(first=r1, second=r2, third=r3)
+    # No TP, DP turned, R3's .90 run chance missed: he was forced at home.
+    (runs, outs_added, events, scored), script = _ground_out(
+        monkeypatch, bases, 0, [0.99, 0.0, 0.95]
+    )
+    assert (runs, outs_added, events, scored) == (0, 2, ["dp", "dp_home"], [])
+    assert (bases.first, bases.second, bases.third) == (None, r1, r2)
+    assert script._draws == []
+    # R3 scores: the usual 6-4-3, R2 to 3rd, nobody on 1st or 2nd.
+    bases = BaseState(first=r1, second=r2, third=r3)
+    (runs, outs_added, events, scored), _ = _ground_out(
+        monkeypatch, bases, 0, [0.99, 0.0, 0.0]
+    )
+    assert (runs, events, scored) == (1, ["dp"], [r3])
+    assert (bases.first, bases.second, bases.third) == (None, None, r2)
+    # Not loaded (1st and 3rd): R3 is not forced and simply holds.
+    bases = BaseState(first=r1, third=r3)
+    (runs, outs_added, events, _), _ = _ground_out(monkeypatch, bases, 0, [0.0, 0.95])
+    assert (runs, events) == (0, ["dp"])
+    assert (bases.first, bases.second, bases.third) == (None, None, r3)
+    # The runners who leave the bases are R3 and the batter: R1 and R2 keep
+    # their responsible pitchers.
+    pitchers = {"R1": "p1", "R2": "p2", "R3": "p3"}
+    bases = BaseState(first=r1, second=r2, third=r3)
+    before = engine._base_runner_ids(bases)
+    _ground_out(monkeypatch, bases, 0, [0.99, 0.0, 0.95])
+    engine._reconcile_runner_pitchers(
+        pitchers, before_ids=before, bases=bases, scored=[]
+    )
+    assert pitchers == {"R1": "p1", "R2": "p2"}
+
+
+def test_home_to_first_dp_credits():
+    from physics_sim.engine import LineupState
+
+    defense = _defense()
+    for primary_pos in ("SS", "1B"):
+        state = LineupState(lineup=[], positions={})
+        engine._credit_home_to_first_double_play(
+            defense_state=state, defense_map=defense,
+            primary_fielder=defense[primary_pos], oneb_fielder=defense["1B"],
+        )
+        lines = {
+            pid: (line.po, line.a, line.dp)
+            for pid, line in state.fielding_lines.items()
+        }
+        if primary_pos == "SS":
+            assert lines == {"FSS": (0, 1, 1), "FC": (1, 1, 1), "F1B": (1, 0, 1)}
+        else:  # 3-2-3: the 1B starts it and takes the relay
+            assert lines == {"FC": (1, 1, 1), "F1B": (1, 1, 1)}
+        assert sum(po for po, _a, _dp in lines.values()) == 2
+
+
+def test_home_to_first_dp_in_games(monkeypatch):
+    """Profile games where every DP chance is turned and R3 never scores on
+    one, so 0-out bases-loaded ground outs become home-to-first DPs."""
+    from scripts.physics_sim_season_kpis import load_tuning_overrides_file
+
+    profile = load_tuning_overrides_file(PROFILE)
+    monkeypatch.setattr(engine, "double_play_probability", lambda **_: 1.0)
+    overrides = {**profile, "ground_out_dp_r3_score": -1.0}
+    seen = 0
+    for seed in range(1, 61):
+        result = _play(seed, overrides)
+        log = result.pitch_log
+        gidp_tokens = 0
+        for i, entry in enumerate(log):
+            tokens = str(entry.get("runner_event") or "").split("+")
+            gidp_tokens += entry.get("pa_result") == "out" and "dp" in tokens
+            if "dp_home" not in tokens:
+                continue
+            seen += 1
+            assert "dp" in tokens
+            assert entry["go3"]["dp"] and not entry["go3"]["scored"]
+            assert entry["go3"]["bases"] == 7 and entry["go3"]["outs"] == 0
+            nxt = next(e for e in log[i + 1:] if e.get("pa_start"))
+            # Two out, runners on 2nd and 3rd (R1 and R2 moved up a base).
+            assert (nxt["outs_before"], nxt["bases_before"]) == (2, 6)
+        assert result.totals["gidp"] == gidp_tokens
+        for side in ("away", "home"):
+            # Every out has exactly one putout.
+            po = sum(
+                int(line["po"]) for line in result.metadata["fielding_lines"][side]
+            )
+            outs = sum(
+                int(line["outs"]) for line in result.metadata["pitcher_lines"][side]
+            )
+            assert po == outs, (seed, side)
+    assert seen, "no home-to-first DP in 60 games"
+
+
+def test_tag2_record_only_when_r2_had_a_chance(profile_games):
+    seen = 0
+    for result in profile_games:
+        for entry in result.pitch_log:
+            tag2 = entry.get("tag2")
+            tag3 = entry.get("tag3")
+            if tag3 and tag3["outs"] == 1 and tag3["result"] in ("out", "error"):
+                # The throw-out was the 3rd out before R2's roll; an e_th
+                # that later undoes it does not give him one.
+                assert tag2 is None
+            if tag2 is not None:
+                seen += 1
+                assert {"dist", "short", "infield"} <= set(tag2)
+    assert seen
+
+
+def test_air_out_call_site_passes_the_ball_straight_through(monkeypatch):
+    calls = []
+    real = engine._advance_on_air_out
+
+    def spy(**kw):
+        calls.append((kw["distance"], kw["exit_velo"], kw["launch_angle"]))
+        return real(**kw)
+
+    monkeypatch.setattr(engine, "_advance_on_air_out", spy)
+    result = _play(3, V1)
+    in_play = {
+        (e.get("distance"), e.get("exit_velo"), e.get("launch_angle"))
+        for e in result.pitch_log
+        if e.get("out_type") in ("flyout", "lineout")
+    }
+    assert calls and set(calls) <= in_play
+
+
+# Model-0 guard: sha256 of the canonical JSON (floats rounded to 6 places) of
+# totals + pitch_log with the W3 play records (tag3 / tag2 / go3) and
+# ``dp_air`` stripped, for CAL01 at CAL02 at the branch defaults. The frozen
+# legacy copies above only stand in for the two helpers; these pins also
+# catch a change at the air-out / ground-out call sites (an extra draw, a
+# changed credit). RE-BASELINE whenever the 4a (default) stream changes on
+# purpose: run this file and copy the "got" digests from the failure message
+# into PINNED_DIGESTS. Baseline: release-4 af31c436d (W0-W3 merged).
+PINNED_DIGESTS = {
+    1: "d0aac6a7b1eac19b108f11f8cfca83e455ded43186a479f17b5420e2e9d82b26",
+    2: "ebb72edd901fa4a5a4cb8172d37e0e93a819cd250387f8261c9f63faf5c22172",
+    3: "3e2ad090a2e0edd9ea23bd9b9cb5a897312735501f91d6c4690f58a3fbd56d67",
+    4: "4576d39c430f38cf25c31194cde5c9fdd4856622f6761e9f0910f5f537d1aaf2",
+    5: "63cf5dd4b3d2f49d47491209194d21dee656b82e5d1dbfe588ac99b65e07d2e5",
+    6: "936500f3c124a9c6308712b93b834302fb37e2aaa2729ea91f903d1b2eb7c717",
+}
+W3_RECORDS = ("tag3", "tag2", "go3")
+
+
+def _canon(value):
+    if isinstance(value, float):
+        return round(value, 6)
+    if isinstance(value, dict):
+        return {str(k): _canon(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canon(v) for v in value]
+    return value
+
+
+def _model0_digest(result) -> str:
+    log = [
+        {k: v for k, v in entry.items() if k not in W3_RECORDS}
+        for entry in result.pitch_log
+    ]
+    totals = {k: v for k, v in result.totals.items() if k != "dp_air"}
+    blob = json.dumps(
+        _canon({"pitch_log": log, "totals": totals}), sort_keys=True, default=str
+    )
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def test_switches_off_games_match_the_pinned_digests():
+    results = {seed: _play(seed) for seed in PINNED_DIGESTS}
+    got = {seed: _model0_digest(r) for seed, r in results.items()}
+    assert got == PINNED_DIGESTS, f"got {got}"
+    # The pinned games reach both call sites with a runner on 3rd.
+    records = Counter(
+        key for r in results.values() for e in r.pitch_log for key in W3_RECORDS
+        if key in e
+    )
+    assert records["tag3"] and records["tag2"] and records["go3"], records
+
+
+def test_kpi_extras_race_outs_and_final_outs():
+    from types import SimpleNamespace
+
+    from scripts.kpi_extras import ReportOnlyKpis
+
+    def play(result, dist=250.0, short=False):
+        return {
+            "pa_start": True, "inning": 1, "half": "top", "outs_before": 0,
+            "bases_before": 6, "bat_score_before": 0, "fld_score_before": 0,
+            "batter_id": "B1", "pitcher_id": "P1", "pitch_type": "fb",
+            "count": "0-0", "pa_result": "out", "ball_type": "fb",
+            "tag3": {"runner": "R3", "arm": 50.0, "infield": False,
+                     "short": short, "dist": dist, "result": result, "outs": 0},
+            "tag2": {"runner": "R2", "arm": 50.0, "infield": False,
+                     "short": short, "dist": dist, "outs": 0,
+                     "result": "adv" if result == "score" else "hold"},
+        }
+
+    log = [play("score"), play("error"), play("out"), play("hold", 120.0, True)]
+    result = SimpleNamespace(
+        metadata={"inning_runs": {"away": [0], "home": [0]},
+                  "score": {"away": 0, "home": 0}},
+        totals={"dp_air": 1}, pitch_log=log,
+    )
+    kpis = ReportOnlyKpis(players_path=CALIBRATION / "players.csv", games_per_team=1)
+    kpis.add_game(result, away="A", home="H")
+    report = kpis.finalize(reference={})
+    metrics = report["metrics"]
+    assert metrics["tagup_out_per_send"] == pytest.approx(1 / 3)
+    assert metrics["tagup_race_out_per_send"] == pytest.approx(2 / 3)
+    assert metrics["tagup_score_rate"] == pytest.approx(0.5)
+    assert metrics["tagup_short_share"] == pytest.approx(0.25)
+    carry = report["tables"]["r2_tagup_by_carry"]
+    assert carry["<150"] == {"n": 1, "adv": 0.0}
+    assert carry["250-299"] == {"n": 3, "adv": pytest.approx(1 / 3)}
