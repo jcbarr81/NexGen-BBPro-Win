@@ -389,9 +389,10 @@ def test_draw_order_triple_play_then_dp_then_r3(monkeypatch):
 def test_bases_loaded_runner_on_third_is_forced_home(monkeypatch):
     r1, r2, r3 = _batter("R1"), _batter("R2"), _batter("R3")
     bases = BaseState(first=r1, second=r2, third=r3)
-    # No TP, no DP, no play at home (infield back .05), batter out at 1st.
+    # One out (no TP roll): no DP, no play at home (infield back .05),
+    # batter out at 1st.
     (runs, outs_added, events, scored), script = _ground_out(
-        monkeypatch, bases, 1, [0.99, 0.99, 0.06, 0.99]
+        monkeypatch, bases, 1, [0.99, 0.06, 0.99]
     )
     assert (runs, outs_added, events, scored) == (1, 1, [], [r3])
     assert (bases.first, bases.second, bases.third) == (None, r1, r2)
@@ -477,9 +478,10 @@ def test_productive_out_moves_an_unforced_runner_on_second(monkeypatch, primary,
 def test_runner_on_first_always_moves_up(monkeypatch):
     r1, r2 = _batter("R1"), _batter("R2")
     bases = BaseState(first=r1, second=r2)
-    # No TP, no DP, batter out at 1st: both forced runners move up.
+    # One out (no TP roll): no DP, batter out at 1st: both forced runners
+    # move up.
     (runs, outs_added, events, _), script = _ground_out(
-        monkeypatch, bases, 1, [0.99, 0.99, 0.99]
+        monkeypatch, bases, 1, [0.99, 0.99]
     )
     assert (runs, outs_added, events) == (0, 1, [])
     assert (bases.first, bases.second, bases.third) == (None, r1, r2)
@@ -487,7 +489,7 @@ def test_runner_on_first_always_moves_up(monkeypatch):
     # Force at 2nd instead: the batter is on 1st and R2 still moves up.
     bat = _batter("BAT")
     bases = BaseState(first=r1, second=r2)
-    _ground_out(monkeypatch, bases, 1, [0.99, 0.99, 0.0], batter=bat)
+    _ground_out(monkeypatch, bases, 1, [0.99, 0.0], batter=bat)
     assert (bases.first, bases.second, bases.third) == (bat, None, r2)
 
 
@@ -1013,14 +1015,15 @@ def test_air_out_call_site_passes_the_ball_straight_through(monkeypatch):
 # catch a change at the air-out / ground-out call sites (an extra draw, a
 # changed credit). RE-BASELINE whenever the 4a (default) stream changes on
 # purpose: run this file and copy the "got" digests from the failure message
-# into PINNED_DIGESTS. Baseline: release-4 af31c436d (W0-W3 merged).
+# into PINNED_DIGESTS. Baseline: release-4 after F1-F3 and the one-out
+# triple-play fix (7.48.0); totals, pitch log and game metadata.
 PINNED_DIGESTS = {
-    1: "d0aac6a7b1eac19b108f11f8cfca83e455ded43186a479f17b5420e2e9d82b26",
-    2: "ebb72edd901fa4a5a4cb8172d37e0e93a819cd250387f8261c9f63faf5c22172",
-    3: "3e2ad090a2e0edd9ea23bd9b9cb5a897312735501f91d6c4690f58a3fbd56d67",
-    4: "4576d39c430f38cf25c31194cde5c9fdd4856622f6761e9f0910f5f537d1aaf2",
-    5: "63cf5dd4b3d2f49d47491209194d21dee656b82e5d1dbfe588ac99b65e07d2e5",
-    6: "936500f3c124a9c6308712b93b834302fb37e2aaa2729ea91f903d1b2eb7c717",
+    1: "1fe9bd9b05a5acf0f3ae81b23f009dcbc1bde85aac0e729f6072db7feccf50e8",
+    2: "14d6c883ef9b473fde472d7de26428fa58950a182ef9ab4a1fb6a583347932c9",
+    3: "dea1e05a584b83063addacf681df00a9cd9d983f899e4bb3adc459ca7577f51c",
+    4: "0bd33487f7b648fa7ab9f9c23959c1cdcbe09b3f6b630d8284269cb89d9668af",
+    5: "af3731f978bf7ef06a0e1af5d914b3523f9735930238ad4ec9cbf13c28cfc226",
+    6: "69a5dabf2a40ec2da47ab25909e3729d43931aceb5b41d708d53fd714bdd59f8",
 }
 W3_RECORDS = ("tag3", "tag2", "go3")
 
@@ -1041,8 +1044,13 @@ def _model0_digest(result) -> str:
         for entry in result.pitch_log
     ]
     totals = {k: v for k, v in result.totals.items() if k != "dp_air"}
+    # The metadata carries every per-player credit (fielding, batting and
+    # pitcher lines: PO/A/DP, RBI, GIDP, earned runs), so a changed credit at
+    # a call site changes the digest too.
     blob = json.dumps(
-        _canon({"pitch_log": log, "totals": totals}), sort_keys=True, default=str
+        _canon({"pitch_log": log, "totals": totals, "meta": result.metadata}),
+        sort_keys=True,
+        default=str,
     )
     return hashlib.sha256(blob.encode()).hexdigest()
 

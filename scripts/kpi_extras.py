@@ -1574,6 +1574,7 @@ class ReportOnlyKpis:
                         float(tag3.get("arm") or 50.0),
                         str(tag3.get("result") or "hold"),
                         bool(tag3.get("infield")),
+                        bool(tag3.get("short")),
                     )
                 )
                 if not tag3.get("infield"):
@@ -1626,7 +1627,8 @@ class ReportOnlyKpis:
         any error, per send (the engine's ``p_out``; the .02-.04 target is
         for the final row). ``tagup_short_share`` is the share of outfield
         chances on flies under ``tag_up_min_carry_ft`` (pop-ups: nobody tags
-        under ``tag_up_model`` 1). ``r2_tagup_adv_rate`` is R2 taking 3rd
+        under ``tag_up_model`` 1); ``r_tagup_score_arm`` / ``_sp`` leave
+        those out. ``r2_tagup_adv_rate`` is R2 taking 3rd
         per chance (3rd open, inning alive after the tag-up race);
         ``tables["r2_tagup_by_carry"]`` splits it by engine carry."""
         oip = self._oip()
@@ -1669,9 +1671,12 @@ class ReportOnlyKpis:
             if c:
                 carry[band] = {"n": c["opp"], "adv": _ratio(c["adv"], c["opp"])}
         tables["r2_tagup_by_carry"] = carry
-        scored = [1.0 if r[2] in ("score", "error") else 0.0 for r in of]
-        metrics["r_tagup_score_arm"] = _pearson([r[1] for r in of], scored)
-        with_sp = [(r[0], s) for r, s in zip(of, scored) if r[0] is not None]
+        # The correlations use the chances where the race actually runs:
+        # short pop-ups freeze every runner whatever his speed or the arm.
+        raced = [r for r in of if not r[4]]
+        scored = [1.0 if r[2] in ("score", "error") else 0.0 for r in raced]
+        metrics["r_tagup_score_arm"] = _pearson([r[1] for r in raced], scored)
+        with_sp = [(r[0], s) for r, s in zip(raced, scored) if r[0] is not None]
         metrics["r_tagup_score_sp"] = _pearson(
             [sp for sp, _ in with_sp], [s for _, s in with_sp]
         )

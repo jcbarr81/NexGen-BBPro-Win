@@ -192,7 +192,7 @@ jobs:
         run: |
           mkdir -p tmp
           # The running-game step above simulates this exact season (same
-          # fixture, seed and tuning; --gate-set only filters failures), so
+          # fixture, seed and tuning; a gate set only filters failures), so
           # reuse its report instead of re-simulating it.
           if [ -f tmp/physics_kpis_league_running.json ]; then
             cp tmp/physics_kpis_league_running.json tmp/physics_kpis_league_fixture.json
