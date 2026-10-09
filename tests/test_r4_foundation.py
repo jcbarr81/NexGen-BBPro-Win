@@ -451,15 +451,22 @@ def test_watch_a_game_layers_the_league_getters(monkeypatch):
         "services.injury_settings.get_injury_tuning_overrides",
         lambda: {"injuries_enabled": 0.0},
     )
+    calls = []
+
+    def centres(*, store=True):
+        calls.append(store)
+        return {"hitter_speed_center": 54.41}
+
     monkeypatch.setattr(
-        "services.league_rating_centers.get_rating_center_overrides",
-        lambda: {"hitter_speed_center": 54.41},
+        "services.league_rating_centers.get_rating_center_overrides", centres
     )
     assert ws_sim._league_tuning_overrides() == {
         "hr_scale": 1.0,
         "injuries_enabled": 0.0,
         "hitter_speed_center": 54.41,
     }
+    # A replay reads the season's centre but never fixes it.
+    assert calls == [False]
 
 
 # --- KPI harness ---------------------------------------------------------------
