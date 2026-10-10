@@ -475,6 +475,23 @@ def test_pickoffs_ignore_the_battery_centres(monkeypatch):
     assert pickoff(load_tuning(overrides={k: 80.0 for k in BATTERY_KEYS})) == (
         pickoff(load_tuning())
     )
+    # The scripted draws above always succeed, so also compare the helpers'
+    # probabilities directly: neither may read the battery centres.
+    centred = load_tuning(overrides={k: 80.0 for k in BATTERY_KEYS})
+    plain = load_tuning()
+
+    def rates(tuning):
+        return (
+            engine._pickoff_attempt_rate(
+                speed=80.0, base_rate=0.01, pitcher_hold=70.0, tuning=tuning
+            ),
+            engine._pickoff_success_prob(
+                speed=80.0, pitcher_hold=70.0, pitcher_arm=70.0, defense_arm=60.0,
+                tuning=tuning,
+            ),
+        )
+
+    assert rates(centred) == rates(plain)
 
 
 def _play(seed, overrides=None):
