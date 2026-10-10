@@ -3255,16 +3255,19 @@ def _steal_success_prob(
 ) -> float:
     """Release 4 (H2): chance a steal attempt is safe.
 
-    A logistic curve on the runner's raw speed (a race against the throw,
-    so raw ``sp - 50``), so the gain flattens toward the top instead of
-    hitting the old linear curve's .95 cap at sp 72.5. Pitcher hold and arm
-    and catcher arm and fielding each lower it; they read against the
-    league's ACT battery means (``_centred_rating``, F4), so the league's
-    success rate does not move with how its batteries happen to be rated.
+    A logistic curve on the runner's speed, so the gain flattens toward the
+    top instead of hitting the old linear curve's .95 cap at sp 72.5.
+    Speed reads against the league's ACT hitter mean (``_centred_speed``)
+    and pitcher hold and arm and catcher arm and fielding against the
+    league's ACT battery means (``_centred_rating``, F4), so a league's
+    success rate does not move with how fast its runners or how strong its
+    batteries happen to be rated (decision 2); within a league a faster
+    runner or a weaker battery still wins more races.
     The two legacy ``steal_*_success`` scales still multiply their slopes.
     ``steal_success_base`` is retired (kept registered so stored overrides
     load).
     """
+    speed = _centred_speed(speed, tuning)
     pitcher_hold = _centred_rating(pitcher_hold, "pitcher_hold_center", tuning)
     pitcher_arm = _centred_rating(pitcher_arm, "pitcher_arm_center", tuning)
     catcher_arm = _centred_rating(catcher_arm, "catcher_arm_center", tuning)
