@@ -377,10 +377,14 @@ def test_steal_success_at_the_centre_reads_as_fifty():
     assert success(load_tuning(), 58.0, 61.0, 57.0, 55.0) < success(
         load_tuning(), 50.0, 50.0, 50.0, 50.0
     )
-    # The runner's speed is a race term: raw, whatever the speed centre.
+    # The runner's speed reads against the league's hitter mean too: a 70 in
+    # a league centred at 60 succeeds like a 60 in a league centred at 50.
     fast_league = load_tuning(overrides={"hitter_speed_center": 60.0})
     assert success(fast_league, 50.0, 50.0, 50.0, 50.0, 70.0) == pytest.approx(
-        success(load_tuning(), 50.0, 50.0, 50.0, 50.0, 70.0)
+        success(load_tuning(), 50.0, 50.0, 50.0, 50.0, 60.0)
+    )
+    assert success(fast_league, 50.0, 50.0, 50.0, 50.0, 70.0) < success(
+        load_tuning(), 50.0, 50.0, 50.0, 50.0, 70.0
     )
 
 
