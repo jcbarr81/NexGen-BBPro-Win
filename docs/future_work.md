@@ -1267,3 +1267,13 @@ count, so an RNG-reshuffling change can trip it -- re-check seeds 1 and 2.
   a race to 3rd would make it depth- and arm-aware.
 - CI runtime: the KPI workflow now runs 3 strict seasons (timeout 90 min);
   trim if it becomes a bottleneck.
+- The runner-advance roll on a wild pitch / passed ball (_advance_on_missed_pitch
+  -> _advance_prob) still reads the catcher's arm raw, so live leagues (catcher
+  arm ~50 vs fixtures ~55) record ~3% more WP/PB (live .36-.38 vs fixtures
+  .30-.33; target .33). Centre the arm there only (hit advances stay raw).
+- league_rating_centers: a centre whose group is empty (no ACT catcher) is
+  retried from the CSVs on every game; cache a per-season "nothing to
+  average" marker.
+- Live-path check (fresh 30-team league, 28 days) before the speed-centred
+  steal success: SB/G .83, SB% .83, WP .365, PB .050. Re-measure on alpha
+  after deploy.
