@@ -29,6 +29,7 @@ from utils.team_loader import load_teams
 from services.injury_manager import place_on_injury_list
 from services.injury_history import record_injury_event
 from services.injury_settings import get_injury_tuning_overrides
+from services.league_rating_centers import get_rating_center_overrides
 from services.physics_tuning_settings import get_physics_tuning_overrides
 from services.decision_explanations import (
     append_decision_log,
@@ -1293,6 +1294,18 @@ def _run_physics_game(
         tuning_overrides.update(get_injury_tuning_overrides())
     except Exception:
         pass
+    # Release 4 (decision 2): the league's rating centres, written after the
+    # stored overrides so the season's measured centre wins. A parallel-day
+    # worker uses the value its parent computed before the fan-out, so every
+    # game of the day reads the same centre.
+    worker_centers = getattr(jr, "rating_centers", None) if jr is not None else None
+    if worker_centers is not None:
+        tuning_overrides.update(worker_centers)
+    else:
+        try:
+            tuning_overrides.update(get_rating_center_overrides())
+        except Exception:
+            pass
     # Decision 11: the league's automatic-runner rule, written last so it
     # wins over any stored physics override. The engine already skips the
     # runner in postseason games.

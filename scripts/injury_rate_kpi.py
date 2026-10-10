@@ -451,6 +451,15 @@ def measure(games_per_team: int, seed: int, players_path: Path, base_dir: Path |
         center = active_pitcher_mean_durability(Path(base_dir))
         if center is not None:
             tuning_overrides = {"pitcher_arm_durability_center": center}
+        # Release 4: the speed and battery centres, as
+        # services.league_rating_centers gives the live path.
+        from services.league_rating_centers import active_rating_centers
+
+        rating_centers = active_rating_centers(
+            Path(base_dir), players_path=players_path
+        )
+        if rating_centers:
+            tuning_overrides = {**(tuning_overrides or {}), **rating_centers}
 
     usage_state = UsageState()
     rng = random.Random(seed)

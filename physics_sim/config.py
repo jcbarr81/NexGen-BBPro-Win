@@ -272,10 +272,17 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "tag_up_second_extra": 0.05,
     "ground_rbi_prob": 0.25,
     "fielder_choice_force_prob": 0.55,
-    "steal_attempt_rate_first": 0.045,
-    "steal_attempt_rate_second": 0.015,
-    "steal_attempt_rate_home": 0.002,
-    "double_steal_rate": 0.003,
+    # Release 4 (H2): per-pitch attempt rates for a league-average runner at
+    # steal_freq_scale 1.0 (= MLB volume, about .73 SB per team-game). The
+    # speed curve (engine._steal_speed_factor) multiplies them; the double
+    # steal rate is read for the runner on 2nd. Calibrated with the battery
+    # read against the league's ACT means (F4: rates x0.95 from W1).
+    "steal_attempt_rate_first": 0.0312,
+    "steal_attempt_rate_second": 0.00692,
+    "steal_attempt_rate_home": 0.00069,
+    "double_steal_rate": 0.00207,
+    # Retired in Release 4 (success is the steal_success_* logit block);
+    # still registered so a stored override keeps loading.
     "steal_success_base": 0.80,
     "steal_home_success_scale": 0.6,
     "steal_count_favorable": 1.25,
@@ -297,10 +304,15 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "lead_ball_bonus": 1.0,
     "lead_two_strike_penalty": 1.0,
     "lead_two_out_penalty": 1.0,
-    "wild_pitch_rate": 0.0035,
-    "passed_ball_rate": 0.0025,
+    # Release 4 (M10): per live pitch with runners on, before the rating
+    # terms in engine._missed_pitch_rates; a ball only counts as a WP/PB
+    # when a runner advances (rule 9.13). k_in_dirt_rate is per third strike.
+    # F4 calibrated all three with control and catcher fa read against the
+    # league's ACT means (they were 0.0097 / 0.00155 / 0.0112 on raw ratings).
+    "wild_pitch_rate": 0.0080,
+    "passed_ball_rate": 0.00122,
     "missed_pitch_loc_scale": 0.6,
-    "k_in_dirt_rate": 0.02,
+    "k_in_dirt_rate": 0.0101,
     # Decision 11 (Release 3): the automatic runner on 2nd from the 10th, in
     # the regular season only. A league can turn it off (league_settings
     # ``extra_innings_runner``; game_runner writes this key last). Past
@@ -316,13 +328,19 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "double_distance_scale": 0.70,
     "triple_distance_scale": 0.96,
     "double_speed_scale": 0.18,
-    "triple_speed_scale": 0.28,
+    # Release 4 (W2, "T3"): the triple threshold's speed slope is split. This
+    # is the slow side (sp below 50 lengthens the threshold); the fast side
+    # reads ``triple_speed_scale_fast`` (-1 = inherit this value). Was one
+    # symmetric .28: burners tripled about twice MLB's rate and nobody
+    # below sp ~37 could triple at all.
+    "triple_speed_scale": 0.15,
+    "triple_speed_scale_fast": 0.12,
     "double_gap_scale": 0.45,
     "stretch_double_base": 0.02,
     "stretch_double_speed_scale": 0.18,
     "stretch_double_arm_scale": 0.7,
     "stretch_triple_base": 0.006,
-    "stretch_triple_speed_scale": 0.12,
+    "stretch_triple_speed_scale": 0.10,
     "stretch_triple_arm_scale": 0.9,
     "babip_scale": 0.925,
     "walk_scale": 0.83,
@@ -505,7 +523,10 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "arm_strength_scale": 1.0,
     "error_rate_scale": 1.0,
     "speed_scale": 1.0,
-    "steal_freq_scale": 3.0,
+    # Release 4: rebased so 1.0 = MLB (was 3.0); the admin slider runs
+    # 0.25-3.0 and a stored pre-rebase override is divided by 3 once
+    # (services/physics_tuning_settings).
+    "steal_freq_scale": 1.0,
     "advancement_aggression_scale": 1.6,
     "extra_base_out_base": 0.06,
     "extra_base_out_scale": 1.0,
@@ -668,6 +689,162 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "leash_one_hit_bonus": 0.3,
     "leash_nohit_bonus": 0.6,
     "leash_perfect_bonus": 0.8,
+    # Release 4 (W0): the league's mean ACT-hitter speed (audit decision 2).
+    # Supplied per season by services/league_rating_centers (game_runner,
+    # parallel-day workers, watch-a-game) and by the KPI harness from its
+    # fixture's ACT hitters. Frequency terms read speed against it through
+    # engine._centred_speed so a fast or slow league keeps MLB's overall
+    # rates; race-against-a-throw terms keep reading raw ``sp - 50``.
+    "hitter_speed_center": 50.0,
+    # Release 4 (F4): the battery centres, from the same source -- the mean
+    # control, hold_runner and arm of the ACT pitchers and the mean arm and
+    # fa of the ACT catchers. Only the W1 running-game terms read them
+    # (engine._centred_rating): the steal attempt deterrents and success
+    # logit, the WP/PB rates, the dropped-third-strike rate and the D3K
+    # throw to 1st. Pickoffs, hit advances, tag-ups and fielding stay raw.
+    "pitcher_control_center": 50.0,
+    "pitcher_hold_center": 50.0,
+    "pitcher_arm_center": 50.0,
+    "catcher_arm_center": 50.0,
+    "catcher_fa_center": 50.0,
+    # Release 4 (W1): wild pitches, passed balls and the dropped third strike
+    # (audit M10). Rating terms are exponential, e^((50 - rating) / k), on the
+    # rating centred on the league's ACT mean (F4) and clipped to [20, 95]:
+    # control drives WPs, catcher fielding drives PBs (and a little of the
+    # WPs, as blocking). Each per-pitch rate is capped at
+    # missed_pitch_rate_cap.
+    "wild_pitch_control_k": 40.0,
+    "wild_pitch_block_k": 80.0,
+    "passed_ball_fa_k": 25.0,
+    "missed_pitch_rate_cap": 0.05,
+    "k_in_dirt_control_k": 40.0,
+    "k_in_dirt_fa_k": 60.0,
+    # An eligible batter (1st open or two outs) beats the throw on a dropped
+    # third strike with clamp(base + (sp - 50) / speed_div
+    # - (catcher arm - 50) / arm_div, min, max); raw speed, a race.
+    "k_reach_base": 0.85,
+    "k_reach_speed_div": 200.0,
+    "k_reach_arm_div": 300.0,
+    "k_reach_min": 0.5,
+    "k_reach_max": 0.98,
+    # Release 4 (W1): stolen bases (audit H2). Attempts: a logistic curve on
+    # the centred speed, 1 / (1 + e^(-(x - mid) / width)), normalised to 1.0
+    # at the league average. Success: a logistic, logit = base + speed *
+    # (sp - 50) / 10 - hold/arm/catcher terms * (r - centre) / 10, clamped to
+    # [floor, cap]; the runner's speed is raw (a race), the battery reads
+    # against the league's ACT means (F4: the base was 1.50 when the
+    # fixtures' 51-60 batteries counted as deterrents). The lead_* knobs
+    # above are cosmetic (they only feed the "lead" stat).
+    "steal_speed_mid": 75.0,
+    "steal_speed_width": 12.0,
+    "steal_success_logit_base": 1.11,
+    "steal_success_speed_logit": 0.30,
+    "steal_success_hold_logit": 0.21,
+    "steal_success_parm_logit": 0.17,
+    "steal_success_carm_logit": 0.24,
+    "steal_success_cfa_logit": 0.19,
+    "steal_success_cap": 0.97,
+    "steal_success_floor": 0.05,
+    # Release 4 (W2): runner advancement on hits (audit M7 / L21). The
+    # defaults reproduce 7.47.0 exactly; the Release 4b values live in
+    # scripts/kpi_profiles/r4b.json until the 4b flip copies them here.
+    # Hit advances read their own aggression scale so the global
+    # ``advancement_aggression_scale`` (WP/PB advances, tag-ups) never moves.
+    "hit_advance_aggression_scale": 1.6,
+    # Multiplies the thrown-out chance of a runner trying for an extra base.
+    "hit_advance_out_scale": 1.0,
+    # Situation extras on the attempt chance: runner on 1st on a single
+    # (1st to 3rd), runner on 2nd on a single (scores), runner on 1st on a
+    # double (scores). ``xbt_two_out_extra`` is added to the last two with
+    # two out (running on contact).
+    "xbt_single_r1_extra": 0.05,
+    "xbt_single_r2_extra": 0.15,
+    "xbt_double_r1_extra": -0.05,
+    "xbt_two_out_extra": 0.0,
+    # Multiplies the thrown-out chance of a forced runner (R3 on a single,
+    # R2/R3 on a double), who today is thrown out 5-8% of the time.
+    "forced_runner_out_scale": 1.0,
+    # Batter speed on ground balls (M6): out chance minus
+    # scale * w * (sp - hitter_speed_center) / 10, where w ramps from 1 at
+    # ``infield_hit_ev_lo`` mph down to 0 at ``infield_hit_ev_hi``. 0 = off
+    # (no extra draws, so games are unchanged).
+    "infield_hit_speed_scale": 0.0,
+    "infield_hit_ev_lo": 80.0,
+    "infield_hit_ev_hi": 100.0,
+    # Ground-ball singles at or below this exit velocity are infield singles:
+    # runners move exactly one base, on the infielder's arm and credit, and
+    # so do bunt hits. 0 = off (every hit's runners advance on the
+    # outfielder who picks it up). Not in the 4b profile: at 85 mph it took
+    # calibration XBT to .35 (floor .37) and 1st-to-3rd to .20 (MLB .28).
+    # Deliberately separate from the M6 ``infield_hit_ev_lo``/``_hi`` ramp
+    # above (accepted by the owner/integrator): that ramp decides whether a
+    # ground ball is a hit; this cut decides how the runners move once it is.
+    "infield_single_ev_max": 0.0,
+    # Release 4 (W3): outs in play -- tag-ups, the runner on 3rd on ground
+    # outs, double plays (audit M6 DP half, M7, M8). Two structural switches
+    # pick the 7.47.0 code path at 0; the 4b values live in
+    # scripts/kpi_profiles/r4b.json until the 4b flip copies them here.
+    "tag_up_model": 0.0,
+    "ground_out_model": 0.0,
+    # Tag-up time race (tag_up_model 1, engine._tag_up_race). Runner home
+    # from 3rd: run_base - (sp - 50) * run_speed seconds. Throw: release +
+    # carry * carry_k / (velo + (arm - 50) * arm_k), minus hang_k per second
+    # of drag-free hang time short of hang_ref (a short fly is caught on the
+    # move). The runner goes with Phi((margin - send_margin [- 0out]) /
+    # send_sd) and, once sent, is out with max(floor, Phi(-margin / out_sd)).
+    # Calibrated to engine carry (drag-free x .75); refit in Release 6.
+    "tag_up_run_base": 3.55,
+    "tag_up_run_speed": 0.012,
+    "tag_up_throw_velo": 110.0,
+    "tag_up_throw_arm": 1.0,
+    "tag_up_release": 2.0,
+    "tag_up_carry_k": 1.2,
+    "tag_up_hang_k": 0.15,
+    "tag_up_hang_ref": 3.0,
+    "tag_up_send_margin": 0.20,
+    "tag_up_send_margin_0out": 0.10,
+    "tag_up_send_sd": 0.25,
+    "tag_up_out_sd": 0.30,
+    "tag_up_out_floor": 0.005,
+    # A fly caught under this much engine carry (ft) is a pop-up: nobody
+    # tags and no number is drawn, as on an infield liner. Model 0 ignores it.
+    "tag_up_min_carry_ft": 150.0,
+    # The tag from 2nd to 3rd keeps its _advance_prob roll with its own
+    # scale (the global advancement_aggression_scale is never cut), but only
+    # on a ball deep enough that the same race home would send him with at
+    # least second_min_send; shallower, he holds without a draw.
+    "tag_up_second_scale": 1.6,
+    "tag_up_second_min_send": 0.05,
+    # Ground outs (ground_out_model 1, engine._ground_out_runners_v2).
+    # DP turned with nobody out: R3 scores dp_r3_score + (sp - 50) * speed;
+    # with the bases loaded the rest are home-to-first DPs (R3 forced out).
+    "ground_out_dp_r3_score": 0.90,
+    "ground_out_dp_r3_speed": 0.0025,
+    # No DP, 3rd not forced: R3 scores base (0 / 1 out) + infield-in adj +
+    # speed * (centred sp - 50).
+    "ground_out_r3_score_0out": 0.45,
+    "ground_out_r3_score_1out": 0.55,
+    "ground_out_r3_infield_in_adj": -0.25,
+    "ground_out_r3_speed": 0.004,
+    # Bases loaded, no DP: the defence plays at home (fielder's choice, C
+    # putout) with these chances; otherwise the forced runner scores.
+    "ground_out_home_play_in": 0.50,
+    "ground_out_home_play_back": 0.05,
+    # Productive out: an unforced R2 takes 3rd on a ball to the right side
+    # (1B/2B) or the left side, + (sp - 50) * speed.
+    "productive_out_right": 0.75,
+    "productive_out_left": 0.35,
+    "productive_out_speed": 0.004,
+    # League-wide infield in (owner decision: no per-team setting yet): R3,
+    # fewer than 2 outs, inning >= min_inning and the fielding team tied or
+    # ahead by at most max_lead.
+    "infield_in_min_inning": 7.0,
+    "infield_in_max_lead": 2.0,
+    # DP chance (fielding.double_play_probability): the raw chance times
+    # exp(-k * (batter sp - hitter_speed_center) / 10), capped at
+    # double_play_max. k 0 and the 0.45 cap are the 7.47.0 behaviour.
+    "double_play_batter_speed_k": 0.0,
+    "double_play_max": 0.45,
 }
 
 

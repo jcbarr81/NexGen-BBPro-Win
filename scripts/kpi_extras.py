@@ -232,7 +232,11 @@ class ReportOnlyKpis:
         self.throws: dict[str, str] = {}
         self.primary_pos: dict[str, str] = {}
         self.fa: dict[str, float] = {}
+        # Release 4 (W0): hitter speed for the running-game tier tables.
+        self.sp: dict[str, float] = {}
         self._load_players(Path(players_path))
+        # Release 4 (W1): pitcher control, for the wild-pitch response check.
+        self.control = _load_pitcher_control(Path(players_path))
         self.lineup_pos = _load_lineup_positions(lineup_dir) if lineup_dir else {}
 
         self.games = 0
@@ -281,6 +285,12 @@ class ReportOnlyKpis:
         self.gidp: Counter = Counter()
         self.ending: Counter = Counter()
         self.ending_examples: list[dict[str, Any]] = []
+        # Release 4 (W2): hit advancement by runner speed and situation (from
+        # the engine's ``hit_adv`` rows) and batted-ball results by batter
+        # speed (triples, BABIP, ground-ball hits).
+        self.hit_adv_sit: dict[str, Counter] = defaultdict(Counter)
+        self.hit_adv_tier: dict[str, Counter] = defaultdict(Counter)
+        self.speed_bat: dict[str, Counter] = defaultdict(Counter)
 
     # -- setup
     def _load_players(self, path: Path) -> None:
@@ -301,6 +311,10 @@ class ReportOnlyKpis:
                 self.primary_pos[pid] = str(row.get("primary_position") or "").strip().upper()
                 try:
                     self.fa[pid] = float(row.get("fa") or "")
+                except ValueError:
+                    pass
+                try:
+                    self.sp[pid] = float(row.get("sp") or "")
                 except ValueError:
                     pass
 
@@ -417,10 +431,14 @@ class ReportOnlyKpis:
         pas = split_plate_appearances(log)
         self._add_pitch_level(log, starters, game_index)
         self._add_pa_level(pas, starters)
+        self._add_hit_speed(pas)
+        self._add_hit_play_rules(pas, meta)  # Release 4 F1
         if pas and pas[0].state is not None:
             self.logged_games += 1
             self._add_base_out(pas, inning_runs, s_away, s_home)
         self._add_bench(meta, teams)
+        self._add_running_w1(totals, log, meta)  # Release 4 (W1)
+        self._add_outs_in_play(log, pas, totals)
 
     def _add_bullpen_usage(
         self, meta: dict[str, Any], log: list[dict[str, Any]] | None = None
@@ -852,6 +870,10 @@ class ReportOnlyKpis:
             ),
         }
         self._bench_metrics(metrics, tables, gpt)
+        self._running_w1_metrics(metrics, tables, gpt)  # Release 4 (W1)
+        self._hit_speed_metrics(metrics, tables, gpt)
+        self._hit_play_rule_metrics(metrics, tables)  # Release 4 F1
+        self._outs_in_play_metrics(metrics, tables, team_games)
         return {"metrics": metrics, "tables": tables, "coverage": coverage}
 
     def _situational(
@@ -902,7 +924,9 @@ class ReportOnlyKpis:
         )
         tables["late_close_pa"] = sum(self.situ["late_close"].values())
         # Rule 5.08(a): no run scores on a third out made by the batter before
-        # he reaches first or by a force (L15). Must be 0.
+        # he reaches first or by a force (L15). Must be 0. Release 4 F1 adds
+        # hits and reaches on error whose play made the third out on the
+        # bases (_add_hit_play_rules), including runs after a tag third out.
         metrics["runs_on_inning_ending_plays"] = self.ending["runs"]
         tables["inning_ending_plays"] = dict(self.ending)
         tables["inning_ending_examples"] = list(self.ending_examples)
@@ -1028,6 +1052,795 @@ class ReportOnlyKpis:
             max(tops) * 162.0 / gpt if (tops and gpt) else None
         )
         tables["bench_usage_totals"] = dict(tally)
+
+    # -- Release 4 (W1): steals, wild pitches, passed balls, dropped third
+    # strikes (audit H2, M10). Report-only; Release 4 W4 promotes the gates.
+    # The zero checks read the engine's per-entry ``event_bases`` /
+    # ``event_outs`` (the bases and outs before the play); a log without them
+    # leaves those checks None ("not logged").
+    def _add_running_w1(
+        self,
+        totals: dict[str, Any],
+        log: list[dict[str, Any]],
+        meta: dict[str, Any],
+    ) -> None:
+        run = getattr(self, "running_w1", None)
+        if run is None:
+            run = self.running_w1 = Counter()
+            self.steal_by_pid: dict[str, Counter] = defaultdict(Counter)
+            self.wp_by_pitcher: dict[str, Counter] = defaultdict(Counter)
+            self.pb_by_catcher: dict[str, Counter] = defaultdict(Counter)
+        for key in ("sb", "cs", "po", "pocs", "k_reach", "balk"):
+            run[key] += _int(totals.get(key))
+        for entry in log:
+            tokens = _event_tokens(entry)
+            if not tokens:
+                continue
+            logged = "event_bases" in entry
+            mask = _int(entry.get("event_bases")) & 7
+            foul = entry.get("outcome") == "foul"
+            steal = {t for t in tokens if t[:2] in ("sb", "cs")}
+            missed = tokens & {"wp", "pb"}
+            if steal:
+                run["steal_entries"] += 1
+                run["steal_logged"] += logged
+                run["steal_on_foul"] += foul
+                cs = sum(1 for t in steal if t.startswith("cs"))
+                run["double_steal_plays"] += len(steal) >= 2 or "adv2" in tokens
+                run["double_steal_two_out"] += cs >= 2
+                run["steal_third_attempts"] += sum(1 for t in steal if t.endswith("3"))
+                run["steal_attempt_events"] += len(steal)
+                run["adv2"] += "adv2" in tokens
+            if missed:
+                run["wp_pb_entries"] += 1
+                run["wp_pb_logged"] += logged
+                run["wp_pb_on_foul"] += foul
+                run["wp_pb_bases_empty"] += logged and mask == 0
+            if tokens & {"k_wp", "k_pb"}:
+                run["k_event_entries"] += 1
+                run["k_event_logged"] += logged
+                if entry.get("k_reached") and logged:
+                    illegal = (mask & 1) and _int(entry.get("event_outs")) < 2
+                    run["illegal_k_reach"] += bool(illegal)
+        for side in ("away", "home"):
+            for line in (meta.get("batting_lines") or {}).get(side, []) or []:
+                pid = str(line.get("player_id", ""))
+                c = self.steal_by_pid[pid]
+                for key in ("sb", "cs", "b1", "bb", "hbp"):
+                    c[key] += _int(line.get(key))
+            for line in (meta.get("pitcher_lines") or {}).get(side, []) or []:
+                pid = str(line.get("player_id", ""))
+                c = self.wp_by_pitcher[pid]
+                c["wp"] += _int(line.get("wp"))
+                c["outs"] += _int(line.get("outs"))
+            for line in (meta.get("fielding_lines") or {}).get(side, []) or []:
+                pid = str(line.get("player_id", ""))
+                if self.primary_pos.get(pid) != "C" or _int(line.get("gs")) < 1:
+                    continue
+                c = self.pb_by_catcher[pid]
+                c["gs"] += 1
+                c["pb"] += _int(line.get("pb"))
+
+    def _running_w1_metrics(
+        self, metrics: dict[str, Any], tables: dict[str, Any], gpt: int
+    ) -> None:
+        run = getattr(self, "running_w1", Counter())
+        team_games = self.games * 2
+        sba = run["sb"] + run["cs"]
+        metrics["cs_per_team_game"] = _ratio(run["cs"], team_games)
+        metrics["pickoffs_per_team_game"] = _ratio(run["po"], team_games)
+        metrics["k_reach_per_team_game"] = _ratio(run["k_reach"], team_games)
+
+        # Zero checks: None when the log carries no event_bases at all.
+        def zero_check(key: str, entries: str, logged: str) -> int | None:
+            if not self.games:
+                return None
+            if run[entries] and not run[logged]:
+                return None
+            return run[key]
+
+        metrics["steal_events_on_foul"] = (
+            run["steal_on_foul"] if self.games else None
+        )
+        metrics["wp_pb_on_foul"] = run["wp_pb_on_foul"] if self.games else None
+        metrics["wp_pb_bases_empty"] = zero_check(
+            "wp_pb_bases_empty", "wp_pb_entries", "wp_pb_logged"
+        )
+        metrics["double_steal_two_out_plays"] = (
+            run["double_steal_two_out"] if self.games else None
+        )
+        metrics["illegal_k_reach"] = zero_check(
+            "illegal_k_reach", "k_event_entries", "k_event_logged"
+        )
+        metrics["steal_third_share"] = _ratio(
+            run["steal_third_attempts"], run["steal_attempt_events"]
+        )
+        tables["running_w1_counts"] = dict(run)
+
+        # Per-player steal volume: attempts per time on first (1B+BB+HBP).
+        rows = getattr(self, "steal_by_pid", {})
+        tof_all = sum(c["b1"] + c["bb"] + c["hbp"] for c in rows.values())
+        metrics["sba_per_tof"] = _ratio(sba, tof_all)
+        tiers: dict[str, Counter] = defaultdict(Counter)
+        xs: list[float] = []
+        ys: list[float] = []
+        min_tof = max(20, round(100 * gpt / 162))
+        scale = 162.0 / gpt if gpt else 1.0
+        sb_season: dict[str, float] = {}
+        for pid, c in rows.items():
+            sp = self.sp.get(pid)
+            tof = c["b1"] + c["bb"] + c["hbp"]
+            att = c["sb"] + c["cs"]
+            if c["sb"]:
+                sb_season[pid] = c["sb"] * scale
+            if sp is None:
+                continue
+            t = tiers[_steal_speed_tier(sp)]
+            t["tof"] += tof
+            t["att"] += att
+            t["sb"] += c["sb"]
+            t["players"] += 1
+            if tof >= min_tof:
+                xs.append(sp)
+                ys.append(att / tof)
+        tier_table = {}
+        for name in STEAL_SPEED_TIERS:
+            t = tiers.get(name) or Counter()
+            att_rate = _ratio(t["att"], t["tof"])
+            sb_pct = _ratio(t["sb"], t["att"])
+            key = name.replace("-", "_").replace("+", "plus").replace("<", "lt")
+            metrics[f"sba_per_tof_sp_{key}"] = att_rate
+            metrics[f"sb_pct_sp_{key}"] = sb_pct
+            tier_table[name] = {
+                "players": t["players"], "tof": t["tof"], "att": t["att"],
+                "sb": t["sb"], "att_per_tof": att_rate, "sb_pct": sb_pct,
+            }
+        tables["steal_by_speed_tier"] = tier_table
+        mid = tiers.get("47-53") or Counter()
+        fast = tiers.get("68-77") or Counter()
+        mid_rate = _ratio(mid["att"], mid["tof"])
+        fast_rate = _ratio(fast["att"], fast["tof"])
+        metrics["steal_tier_ratio"] = (
+            fast_rate / mid_rate if (fast_rate is not None and mid_rate) else None
+        )
+        metrics["corr_speed_steal_att"] = _pearson(xs, ys) if len(xs) >= 10 else None
+        metrics["sb40_count"] = (
+            sum(1 for v in sb_season.values() if v >= 40.0) if self.games else None
+        )
+        metrics["sb_leader"] = max(sb_season.values()) if sb_season else None
+        tables["sb_leaders_per_162"] = [
+            {"player_id": pid, "sp": self.sp.get(pid), "sb": round(v, 1)}
+            for pid, v in sorted(sb_season.items(), key=lambda kv: -kv[1])[:10]
+        ]
+
+        # Missed-pitch rating response (M10): pitcher control vs WP/9 and
+        # catcher fielding vs PB per game, among regulars.
+        control = getattr(self, "control", {})
+        min_outs = 3 * max(10, round(60 * gpt / 162))
+        px, py = [], []
+        for pid, c in getattr(self, "wp_by_pitcher", {}).items():
+            if c["outs"] >= min_outs and pid in control:
+                px.append(control[pid])
+                py.append(27.0 * c["wp"] / c["outs"])
+        metrics["corr_control_wp9"] = _pearson(px, py) if len(px) >= 10 else None
+        min_gs = max(5, round(40 * gpt / 162))
+        cx, cy = [], []
+        for pid, c in getattr(self, "pb_by_catcher", {}).items():
+            if c["gs"] >= min_gs and pid in self.fa:
+                cx.append(self.fa[pid])
+                cy.append(c["pb"] / c["gs"])
+        metrics["corr_catcher_fa_pb"] = _pearson(cx, cy) if len(cx) >= 5 else None
+
+    # -- Release 4 (W2): balls that fall for hits
+    def _add_hit_speed(self, pas: list[PlateAppearance]) -> None:
+        """Per-batter batted-ball results and per-runner hit advances.
+
+        Batted balls in play exclude home runs and bunts (BABIP over swung
+        balls, as the M6 study measured it). Runner rows come from the
+        engine's ``hit_adv`` log on the hit's entry, ``[runner id, start,
+        end, error]`` with end 4 = scored and 0 = out; older logs have none
+        and only feed the batter half. The 0-1 out / 2 out split reads the
+        live out count the engine logs with the rows (``hit_outs``, Release 4
+        F1: a steal or pickoff earlier in the PA can change it), falling back
+        to the PA-start state for older logs.
+        """
+        for pa in pas:
+            token = pa.token
+            if not token:
+                continue
+            last = pa.last
+            bat = self.speed_bat[pa.batter_id]
+            bat["pa"] += 1
+            bat["b3"] += token == "3b"
+            bunt = last.get("outcome") == "bunt" or token == "sh"
+            ball_type = last.get("ball_type")
+            if ball_type and token != "hr" and not bunt:
+                hit = token in ("1b", "2b", "3b")
+                bat["bip"] += 1
+                bat["h"] += hit
+                if ball_type == "gb":
+                    bat["gb"] += 1
+                    bat["gb_h"] += hit
+            if token == "1b":
+                bat["b1"] += 1
+                bat["infield_1b"] += bool(last.get("infield_hit"))
+            rows = last.get("hit_adv")
+            if rows and token in ("1b", "2b"):
+                outs = last.get("hit_outs")
+                if outs is None and pa.state is not None:
+                    outs = pa.state[2]
+                self._add_hit_adv_rows(token, rows, outs)
+
+    def _add_hit_adv_rows(
+        self, token: str, rows: list[Any], outs: int | None
+    ) -> None:
+        """One hit's runner rows into the situation and speed-tier tables.
+
+        Opportunities are the engine's (``_tally_extra_bases_taken``, B-Ref
+        XBT%): the runner from 2nd on a single, the runner from 1st on a
+        double, and the runner from 1st on a single only when 3rd was open
+        for him. A runner from 1st whose lead runner held at 3rd is BLOCKED:
+        he is left out of the ``s_r1`` rows and of
+        ``r1_first_to_third_on_single_pct`` as well as the tiers, so that
+        rate is first-to-3rd per chance (the plan's .29 target). The forced
+        rows (``s_r3``, ``d_r2``, ``d_r3``) are reported but are not XBT
+        chances.
+        """
+        kind = "s" if token == "1b" else "d"
+        blocked = any(
+            _int(r[1]) == 2 and _int(r[2]) == 3 for r in rows if len(r) >= 4
+        )
+        for row in rows:
+            if len(row) < 4:
+                continue
+            pid, start = str(row[0]), _int(row[1])
+            end, error = _int(row[2]), _int(row[3])
+            if start not in (1, 2, 3):
+                continue
+            if kind == "s" and start == 1 and blocked:
+                continue
+            # "Taken": the extra base on an XBT chance; a forced runner (3rd
+            # on a single, 2nd/3rd on a double) "takes" it by scoring.
+            taken = (end >= 3) if (kind == "s" and start == 1) else (end == 4)
+            taken = taken and not error
+            out = end == 0
+            situation = f"{kind}_r{start}"
+            split = f"{situation}|{'2' if outs == 2 else '01'}out"
+            for key in (situation, split):
+                c = self.hit_adv_sit[key]
+                c["n"] += 1
+                c["taken"] += taken
+                c["out"] += out
+                c["error"] += error
+            if situation not in ("s_r1", "s_r2", "d_r1"):
+                continue
+            for key in (_speed_tier(self.sp.get(pid)), "all"):
+                c = self.hit_adv_tier[key]
+                c["opp"] += 1
+                c["taken"] += taken
+                c["out"] += out
+
+    def _hit_speed_metrics(
+        self, metrics: dict[str, Any], tables: dict[str, Any], gpt: int
+    ) -> None:
+        """XBT and thrown-out rates by runner speed and situation, triples,
+        BABIP and ground-ball hits by batter speed (Release 4, W2). Report
+        only; MLB rows from the Release 4 plan, sections C and D."""
+        sit = self.hit_adv_sit
+        logged = bool(self.hit_adv_tier.get("all", Counter())["opp"])
+
+        def rate(key: str, field: str) -> float | None:
+            c = sit.get(key)
+            return _ratio(c[field], c["n"]) if c else None
+
+        tables["hit_advance_by_situation"] = {
+            key: {
+                "n": c["n"],
+                "taken": _ratio(c["taken"], c["n"]),
+                "out": _ratio(c["out"], c["n"]),
+                "error": _ratio(c["error"], c["n"]),
+            }
+            for key, c in sorted(sit.items())
+        }
+        tables["xbt_by_speed_tier"] = {
+            tier: {
+                "opp": c["opp"],
+                "xbt": _ratio(c["taken"], c["opp"]),
+                "out_per_opp": _ratio(c["out"], c["opp"]),
+            }
+            for tier, c in sorted(
+                self.hit_adv_tier.items(), key=lambda kv: _tier_order(kv[0])
+            )
+        }
+        allc = self.hit_adv_tier.get("all", Counter())
+        # Same chances as the engine's extra_base_advance_rate (a cross-check).
+        metrics["xbt_logged_rate"] = (
+            _ratio(allc["taken"], allc["opp"]) if logged else None
+        )
+        metrics["xbt_thrown_out_per_opp"] = (
+            _ratio(allc["out"], allc["opp"]) if logged else None
+        )
+        metrics["r1_first_to_third_on_single_pct"] = rate("s_r1", "taken")
+        metrics["r2_scores_on_single_pct"] = rate("s_r2", "taken")
+        metrics["r2_scores_on_single_01out_pct"] = rate("s_r2|01out", "taken")
+        metrics["r2_scores_on_single_2out_pct"] = rate("s_r2|2out", "taken")
+        metrics["r1_scores_on_double_pct"] = rate("d_r1", "taken")
+        metrics["forced_r3_scores_on_single_pct"] = rate("s_r3", "taken")
+        metrics["forced_r2_scores_on_double_pct"] = rate("d_r2", "taken")
+        for tier, name in (
+            ("<40", "lt40"), ("50-59", "50_59"), ("70-84", "70_84"), ("85+", "85plus"),
+        ):
+            c = self.hit_adv_tier.get(tier)
+            metrics[f"xbt_rate_sp{name}"] = _ratio(c["taken"], c["opp"]) if c else None
+
+        # Batter speed: triples, BABIP and ground-ball hits by tier.
+        by_tier: dict[str, Counter] = defaultdict(Counter)
+        rows: list[tuple[float, Counter]] = []
+        for pid, c in self.speed_bat.items():
+            sp = self.sp.get(pid)
+            if sp is None:
+                continue
+            by_tier[_speed_tier(sp)].update(c)
+            rows.append((sp, c))
+        tables["batting_by_speed_tier"] = {
+            tier: {
+                "pa": c["pa"],
+                "b3_per_600pa": _ratio(600.0 * c["b3"], c["pa"]),
+                "babip": _ratio(c["h"], c["bip"]),
+                "gb_hit_rate": _ratio(c["gb_h"], c["gb"]),
+                "infield_1b_share": _ratio(c["infield_1b"], c["b1"]),
+            }
+            for tier, c in sorted(by_tier.items(), key=lambda kv: _tier_order(kv[0]))
+        }
+        mid = by_tier.get("50-59", Counter())
+        mid_rate = _ratio(mid["b3"], mid["pa"])
+        for tier, name in (("70-84", "70_84"), ("85+", "85plus")):
+            c = by_tier.get(tier)
+            rate_t = _ratio(c["b3"], c["pa"]) if c else None
+            metrics[f"triple_rate_ratio_sp{name}_vs_50_59"] = (
+                rate_t / mid_rate if (rate_t is not None and mid_rate) else None
+            )
+            metrics[f"triples_per_600pa_sp{name}"] = (
+                _ratio(600.0 * c["b3"], c["pa"]) if c else None
+            )
+        total = Counter()
+        for _sp, c in rows:
+            total.update(c)
+        metrics["gb_hit_rate"] = _ratio(total["gb_h"], total["gb"])
+        metrics["infield_single_share"] = _ratio(total["infield_1b"], total["b1"])
+        # BIP-weighted least-squares BABIP slope per 10 sp (players with 50+
+        # balls in play): the calibration fixture's speed gate (plan D).
+        sel = [(sp, c) for sp, c in rows if c["bip"] >= 50]
+        weight = sum(c["bip"] for _sp, c in sel)
+        if len(sel) >= 3 and weight:
+            mx = sum(sp * c["bip"] for sp, c in sel) / weight
+            my = sum(c["h"] for _sp, c in sel) / weight
+            num = sum(c["bip"] * (sp - mx) * (c["h"] / c["bip"] - my) for sp, c in sel)
+            den = sum(c["bip"] * (sp - mx) ** 2 for sp, c in sel)
+            metrics["babip_speed_slope_per10"] = 10.0 * num / den if den else None
+        else:
+            metrics["babip_speed_slope_per10"] = None
+        min_pa = max(50, round(300 * gpt / 162))
+        regs = [(sp, c["h"] / c["bip"]) for sp, c in rows if c["pa"] >= min_pa and c["bip"]]
+        metrics["r_sp_babip"] = _pearson([a for a, _ in regs], [b for _, b in regs])
+        tables["r_sp_babip_min_pa"] = min_pa
+        # PA-weighted speed quintiles: fastest minus slowest BABIP.
+        srt = sorted(rows, key=lambda r: r[0])
+        total_pa = sum(c["pa"] for _sp, c in srt)
+        quint = [Counter() for _ in range(5)]
+        acc = 0
+        for sp, c in srt:
+            if total_pa:
+                quint[min(4, int(5 * (acc + c["pa"] / 2) / total_pa))].update(c)
+            acc += c["pa"]
+        q_babip = [_ratio(q["h"], q["bip"]) for q in quint]
+        tables["babip_by_speed_quintile"] = q_babip
+        metrics["babip_fast_minus_slow_quintile"] = _diff(q_babip[4], q_babip[0])
+
+    # -- Release 4 F1: rule 5.08(a) on hits, and outs per half-inning
+    def _add_hit_play_rules(
+        self, pas: list[PlateAppearance], meta: dict[str, Any]
+    ) -> None:
+        """Hits (and reaches on error) whose play made the third out.
+
+        Reads the engine's ``hit_adv`` rows and ``hit_outs`` (the live out
+        count; older logs fall back to the PA-start state when nothing moved
+        mid-PA). Runners are played lead first, so the k-th out of the play
+        is the k-th out row in lead-first order. On a hit the engine throws
+        out the runner from 1st on a single at 3rd and every other runner at
+        the plate. That out is a FORCE when the runner was forced to that
+        very base (every base behind him occupied); the runner from 3rd with
+        the bases loaded is the only one on a hit. Rule 5.08(a):
+          * third out on a force: no run on the play counts;
+          * third out on a tag: runners trailing the out runner must not
+            score (only lead runners who scored ahead of him count).
+        Runs that break either rule go into ``runs_on_inning_ending_plays``
+        (with the ground-out and strikeout plays). A play that records more
+        than three outs is counted too. ``inning_outs`` metadata (outs per
+        half-inning) feeds ``half_innings_over_three_outs``.
+        """
+        rule = getattr(self, "hit_rule", None)
+        if rule is None:
+            rule = self.hit_rule = Counter()
+        inning_outs = meta.get("inning_outs")
+        if isinstance(inning_outs, dict):
+            rule["halves_logged"] += 1
+            for side in ("away", "home"):
+                for outs in inning_outs.get(side) or []:
+                    rule["halves"] += 1
+                    rule["halves_over_three"] += _int(outs) > 3
+        for pa in pas:
+            token = pa.token
+            if token not in ("1b", "2b", "roe"):
+                continue
+            last = pa.last
+            note = last.get("hit_rule")
+            if isinstance(note, dict) and note:
+                rule["rule_plays"] += 1
+                rule["rule_cut_runners"] += _int(note.get("cut"))
+                rule["rule_held_runners"] += _int(note.get("held"))
+            rows = [r for r in (last.get("hit_adv") or []) if len(r) >= 4]
+            if not rows:
+                continue
+            outs_before = last.get("hit_outs")
+            if outs_before is None:
+                if pa.state is None or pa.mid_event:
+                    continue
+                outs_before = pa.state[2]
+            outs_before = _int(outs_before)
+            if outs_before > 2:
+                continue
+            out_rows = sorted(
+                (r for r in rows if _int(r[2]) == 0),
+                key=lambda r: -_int(r[1]),
+            )
+            if outs_before + len(out_rows) < 3:
+                continue
+            rule["hit_plays"] += 1
+            rule["hit_plays_over_three_outs"] += outs_before + len(out_rows) > 3
+            third = out_rows[2 - outs_before]
+            start = _int(third[1])
+            out_base = 3 if (token != "2b" and start == 1) else 4
+            occupied = {_int(r[1]) for r in rows}
+            forced = out_base == start + 1 and all(
+                b in occupied for b in range(1, start)
+            )
+            bad = sum(
+                1 for r in rows
+                if _int(r[2]) == 4 and (forced or _int(r[1]) < start)
+            )
+            rule["hit_force_third_outs"] += forced
+            rule["hit_runs"] += bad
+            self.ending["plays"] += 1
+            self.ending["hit_plays"] += 1
+            self.ending["runs"] += bad
+            if bad > 0:
+                self.ending["plays_with_runs"] += 1
+                if len(self.ending_examples) < 5:
+                    self.ending_examples.append(
+                        {
+                            "outs_before": outs_before,
+                            "result": token,
+                            "hit_adv": rows,
+                            "force": forced,
+                            "runs": bad,
+                        }
+                    )
+
+    def _hit_play_rule_metrics(
+        self, metrics: dict[str, Any], tables: dict[str, Any]
+    ) -> None:
+        """Zero check: no half-inning records more than three outs (report
+        only; None when no game carried ``inning_outs``). Also the plays
+        where the engine's rule 5.08(a) handling stopped a runner."""
+        rule = getattr(self, "hit_rule", Counter())
+        metrics["half_innings_over_three_outs"] = (
+            rule["halves_over_three"] if rule["halves_logged"] else None
+        )
+        # Plays (hits and reaches on error) on which the rule stopped a
+        # runner, over the whole run (one season in the harness).
+        metrics["hit_rule_plays"] = rule["rule_plays"] if self.games else None
+        tables["hit_play_rule_counts"] = dict(rule)
+
+    # -- Release 4 (W3): outs in play (audit M6 DP half, M7, M8) ------------
+    def _oip(self) -> "_OutsInPlay":
+        state = getattr(self, "oip", None)
+        if state is None:
+            state = self.oip = _OutsInPlay()
+        return state
+
+    def _add_outs_in_play(
+        self,
+        log: list[dict[str, Any]],
+        pas: list[PlateAppearance],
+        totals: dict[str, Any],
+    ) -> None:
+        """Tag-ups, ground outs with a runner on 3rd and GIDP by batter speed.
+
+        Reads the engine's play records (``tag3`` / ``tag2`` / ``go3`` on the
+        play's pitch_log entry, Release 4) and the ``tag_dp`` token. A log
+        without them (older engine) only feeds the GIDP-by-speed table.
+        """
+        oip = self._oip()
+        oip.dp_air += _int(totals.get("dp_air"))
+        for entry in log:
+            tag3 = entry.get("tag3")
+            if isinstance(tag3, dict):
+                oip.logged = True
+                sp = self.sp.get(str(tag3.get("runner", "")))
+                oip.tag3.append(
+                    (
+                        sp,
+                        float(tag3.get("arm") or 50.0),
+                        str(tag3.get("result") or "hold"),
+                        bool(tag3.get("infield")),
+                        bool(tag3.get("short")),
+                    )
+                )
+                if not tag3.get("infield"):
+                    oip.tag3_short += bool(tag3.get("short"))
+            tag2 = entry.get("tag2")
+            if isinstance(tag2, dict) and not tag2.get("infield"):
+                oip.tag2["opp"] += 1
+                oip.tag2["adv"] += tag2.get("result") == "adv"
+                if tag2.get("dist") is not None:
+                    band = oip.tag2_by_dist[_carry_band(float(tag2["dist"]))]
+                    band["opp"] += 1
+                    band["adv"] += tag2.get("result") == "adv"
+            go3 = entry.get("go3")
+            if isinstance(go3, dict):
+                oip.logged = True
+                key = (_int(go3.get("bases")) & 7, _int(go3.get("outs")))
+                cell = oip.go3[key]
+                cell["n"] += 1
+                cell["scored"] += bool(go3.get("scored"))
+                cell["dp"] += bool(go3.get("dp"))
+            if "tag_dp" in _event_tokens(entry):
+                oip.tag_dp += 1
+        for pa in pas:
+            if not pa.token:
+                continue
+            row = oip.gidp_by_batter[pa.batter_id]
+            row["pa"] += 1
+            if pa.state is None:
+                continue
+            outs, mask = pa.state[2], pa.state[3]
+            if outs < 2 and mask & 1:
+                row["opp"] += 1
+                tokens = _event_tokens(pa.last)
+                if pa.token == "out" and ("dp" in tokens or "tp" in tokens):
+                    row["gidp"] += 1
+
+    def _outs_in_play_metrics(
+        self, metrics: dict[str, Any], tables: dict[str, Any], team_games: int
+    ) -> None:
+        """Report-only W3 rows. Targets (plan section E): tag-up score rate
+        .72-.78 on outfield flies, thrown out per send .02-.04, r(tag, arm)
+        <= -.08, r(tag, sp) >= +.07, fastest / slowest GIDP per opportunity
+        quintile ~.5 (.40-.60 on the tier fixture). The RE24 cells (3rd only,
+        1st and 3rd) are the existing ``re24_*`` / ``runprob_*`` rows.
+
+        The tag-up rows are final results: a runner thrown out whose out a
+        throwing error reverses (``e_th``) counts as scoring, so
+        ``tagup_out_per_send`` is outs that stood per send. The race itself
+        is ``tagup_race_out_per_send``: every send the throw beat, before
+        any error, per send (the engine's ``p_out``; the .02-.04 target is
+        for the final row). ``tagup_short_share`` is the share of outfield
+        chances on flies under ``tag_up_min_carry_ft`` (pop-ups: nobody tags
+        under ``tag_up_model`` 1); ``r_tagup_score_arm`` / ``_sp`` leave
+        those out. ``r2_tagup_adv_rate`` is R2 taking 3rd
+        per chance (3rd open, inning alive after the tag-up race);
+        ``tables["r2_tagup_by_carry"]`` splits it by engine carry."""
+        oip = self._oip()
+        metrics["dp_air"] = oip.dp_air if self.games else None
+        metrics["dp_air_per_team_game"] = _ratio(oip.dp_air, team_games)
+        metrics["tag_dp_events"] = oip.tag_dp if self.games else None
+        of = [row for row in oip.tag3 if not row[3]]
+        infield = [row for row in oip.tag3 if row[3]]
+        counts = Counter(row[2] for row in of)
+        sends = counts["score"] + counts["error"] + counts["out"]
+        n_of = len(of)
+        logged = oip.logged
+        metrics["tagup_r3_opps"] = n_of if logged else None
+        metrics["tagup_score_rate"] = (
+            _ratio(counts["score"] + counts["error"], n_of) if logged else None
+        )
+        metrics["tagup_hold_rate"] = _ratio(counts["hold"], n_of) if logged else None
+        metrics["tagup_out_rate"] = _ratio(counts["out"], n_of) if logged else None
+        metrics["tagup_send_rate"] = _ratio(sends, n_of) if logged else None
+        metrics["tagup_out_per_send"] = _ratio(counts["out"], sends) if logged else None
+        metrics["tagup_race_out_per_send"] = (
+            _ratio(counts["out"] + counts["error"], sends) if logged else None
+        )
+        metrics["tagup_short_share"] = (
+            _ratio(oip.tag3_short, n_of) if logged else None
+        )
+        metrics["tagup_infield_share"] = (
+            _ratio(len(infield), len(oip.tag3)) if logged else None
+        )
+        metrics["tagup_infield_score_rate"] = (
+            _ratio(sum(r[2] in ("score", "error") for r in infield), len(infield))
+            if logged else None
+        )
+        metrics["r2_tagup_adv_rate"] = (
+            _ratio(oip.tag2["adv"], oip.tag2["opp"]) if logged else None
+        )
+        carry = {}
+        for band in CARRY_BANDS:
+            c = oip.tag2_by_dist.get(band)
+            if c:
+                carry[band] = {"n": c["opp"], "adv": _ratio(c["adv"], c["opp"])}
+        tables["r2_tagup_by_carry"] = carry
+        # The correlations use the chances where the race actually runs:
+        # short pop-ups freeze every runner whatever his speed or the arm.
+        raced = [r for r in of if not r[4]]
+        scored = [1.0 if r[2] in ("score", "error") else 0.0 for r in raced]
+        metrics["r_tagup_score_arm"] = _pearson([r[1] for r in raced], scored)
+        with_sp = [(r[0], s) for r, s in zip(raced, scored) if r[0] is not None]
+        metrics["r_tagup_score_sp"] = _pearson(
+            [sp for sp, _ in with_sp], [s for _, s in with_sp]
+        )
+
+        def tier_table(rows, bucket):
+            table: dict[str, Counter] = defaultdict(Counter)
+            for row in rows:
+                key = bucket(row)
+                if key is not None:
+                    table[key][row[2]] += 1
+            out = {}
+            for key, c in sorted(table.items()):
+                n = sum(c.values())
+                out[key] = {
+                    "n": n,
+                    "score": _ratio(c["score"] + c["error"], n),
+                    "hold": _ratio(c["hold"], n),
+                    "out": _ratio(c["out"], n),
+                }
+            return out
+
+        def sp_tier(row):
+            sp = row[0]
+            if sp is None:
+                return None
+            return "<45" if sp < 45 else "45-59" if sp < 60 else "60-74" if sp < 75 else "75+"
+
+        def arm_tier(row):
+            arm = row[1]
+            return "<45" if arm < 45 else "45-55" if arm < 55 else "55+"
+
+        tables["tagup_by_speed_tier"] = tier_table(of, sp_tier)
+        tables["tagup_by_arm_tier"] = tier_table(of, arm_tier)
+        tables["tagup_counts"] = {"outfield": dict(counts), "infield": len(infield)}
+
+        go3 = {}
+        for (mask, outs), c in sorted(oip.go3.items()):
+            name = BASE_NAMES.get(mask, str(mask))
+            go3[f"{name}_{outs}"] = {
+                "n": c["n"],
+                "r3_scored": _ratio(c["scored"], c["n"]),
+                "dp": _ratio(c["dp"], c["n"]),
+            }
+        tables["ground_out_r3"] = go3
+        for mask in (4, 5, 6, 7):
+            for outs in (0, 1):
+                c = oip.go3.get((mask, outs))
+                metrics[f"go_r3_scores_{BASE_NAMES[mask]}_{outs}"] = (
+                    _ratio(c["scored"], c["n"]) if (logged and c) else None
+                )
+
+        # GIDP per opportunity by PA-weighted batter-speed quintile (M6).
+        rows = sorted(
+            (self.sp[pid], c)
+            for pid, c in oip.gidp_by_batter.items()
+            if pid in self.sp and c["pa"]
+        )
+        total_pa = sum(c["pa"] for _sp, c in rows)
+        quint = [Counter() for _ in range(5)]
+        acc = 0
+        for sp, c in rows:
+            q = min(4, int(5 * (acc + c["pa"] / 2) / total_pa))
+            quint[q].update(c)
+            quint[q]["sp_x_pa"] += sp * c["pa"]
+            acc += c["pa"]
+        table = []
+        for q in quint:
+            table.append(
+                {
+                    "mean_sp": _ratio(q["sp_x_pa"], q["pa"]),
+                    "opp": q["opp"],
+                    "gidp_per_opp": _ratio(q["gidp"], q["opp"]),
+                }
+            )
+        tables["gidp_by_batter_speed_quintile"] = table
+        for i, row in enumerate(table, start=1):
+            metrics[f"gidp_per_opp_speed_q{i}"] = row["gidp_per_opp"]
+        slow, fast = table[0]["gidp_per_opp"], table[4]["gidp_per_opp"]
+        metrics["gidp_fast_slow_ratio"] = (fast / slow) if (slow and fast is not None) else None
+
+
+# Release 4 (W1): raw-speed tiers for the steal tables (the plan's tiers;
+# 47-53 is the "50", 68-77 the "fast 70", 78-89 the "burner 85").
+STEAL_SPEED_TIERS = (
+    "<40", "40-46", "47-53", "54-61", "62-67", "68-77", "78-89", "90+"
+)
+
+
+def _steal_speed_tier(sp: float) -> str:
+    for upper, name in (
+        (40, "<40"), (47, "40-46"), (54, "47-53"), (62, "54-61"),
+        (68, "62-67"), (78, "68-77"), (90, "78-89"),
+    ):
+        if sp < upper:
+            return name
+    return "90+"
+
+
+def _load_pitcher_control(path: Path) -> dict[str, float]:
+    control: dict[str, float] = {}
+    if not path.exists():
+        return control
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            pid = str(row.get("player_id") or "")
+            if not pid or str(row.get("is_pitcher", "")).strip() not in {"1", "True", "true"}:
+                continue
+            try:
+                control[pid] = float(row.get("control") or "")
+            except ValueError:
+                pass
+    return control
+
+
+SPEED_TIERS = ("<40", "40-49", "50-59", "60-69", "70-84", "85+")
+
+
+def _speed_tier(sp: float | None) -> str:
+    """Release 4 runner/batter speed tier (the plan's per-tier tables)."""
+    if sp is None:
+        return "unknown"
+    if sp < 40:
+        return "<40"
+    if sp < 50:
+        return "40-49"
+    if sp < 60:
+        return "50-59"
+    if sp < 70:
+        return "60-69"
+    if sp < 85:
+        return "70-84"
+    return "85+"
+
+
+def _tier_order(tier: str) -> int:
+    return SPEED_TIERS.index(tier) if tier in SPEED_TIERS else len(SPEED_TIERS)
+
+
+# Engine-carry bands (ft) for the R2 tag-up table.
+CARRY_BANDS = ("<150", "150-199", "200-249", "250-299", "300+")
+
+
+def _carry_band(dist: float) -> str:
+    for upper, name in zip((150, 200, 250, 300), CARRY_BANDS):
+        if dist < upper:
+            return name
+    return CARRY_BANDS[-1]
+
+
+class _OutsInPlay:
+    """Release 4 (W3) accumulator for ``ReportOnlyKpis._add_outs_in_play``."""
+
+    def __init__(self) -> None:
+        self.logged = False
+        self.dp_air = 0
+        self.tag_dp = 0
+        # (runner sp or None, thrower arm, result, infield) per R3 chance.
+        self.tag3: list[tuple[float | None, float, str, bool]] = []
+        self.tag2: Counter = Counter()
+        # R2 chances (opp / adv) by engine-carry band (``_carry_band``).
+        self.tag2_by_dist: dict[str, Counter] = defaultdict(Counter)
+        self.tag3_short = 0
+        self.go3: dict[tuple[int, int], Counter] = defaultdict(Counter)
+        self.gidp_by_batter: dict[str, Counter] = defaultdict(Counter)
 
 
 def _diff(a: float | None, b: float | None) -> float | None:

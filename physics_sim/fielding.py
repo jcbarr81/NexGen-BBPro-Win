@@ -172,6 +172,7 @@ def out_probability(
     pull_tendency: float | None = None,
     defense: DefenseRatings,
     tuning: TuningConfig,
+    batter_speed: float | None = None,
 ) -> float:
     def _spray_dir(angle: float, side: str) -> float:
         spray = float(angle)
@@ -237,6 +238,20 @@ def out_probability(
                 else tuning.get("shift_ld_boost", 0.015)
             )
             out_prob += boost * intensity * align
+    if ball_type == "gb" and batter_speed is not None:
+        # Release 4 (M6): a fast batter beats out softer grounders. Speed is
+        # read against the league's ACT-hitter mean (decision 2), so the
+        # league's BABIP stays put while the fast and slow split apart. The
+        # weight ramps from 1 on weak contact to 0 on hard-hit balls. Scale 0
+        # (the default) leaves the out chance untouched.
+        scale = tuning.get("infield_hit_speed_scale", 0.0)
+        if scale:
+            ev_lo = tuning.get("infield_hit_ev_lo", 80.0)
+            ev_hi = tuning.get("infield_hit_ev_hi", 100.0)
+            span = max(1e-6, ev_hi - ev_lo)
+            weight = max(0.0, min(1.0, (ev_hi - exit_velo) / span))
+            centre = tuning.get("hitter_speed_center", 50.0)
+            out_prob -= scale * weight * (float(batter_speed) - centre) / 10.0
     return max(0.02, min(0.98, out_prob))
 
 
@@ -246,7 +261,16 @@ def double_play_probability(
     infield_range: float,
     turn_arm: float,
     tuning: TuningConfig,
+    batter_speed: float | None = None,
 ) -> float:
+    """Chance a ground ball with a runner on 1st becomes a double play.
+
+    Release 4 (M6): with ``batter_speed`` the chance is multiplied by
+    ``exp(-k * (sp - hitter_speed_center) / 10)`` (k =
+    ``double_play_batter_speed_k``), so a burner beats the relay and a slow
+    batter is doubled up more, around the league's own mean. The result is
+    capped at ``double_play_max``. ``None`` or k 0 leaves the old value.
+    """
     base = tuning.get("double_play_base", 0.14)
     range_adj = (infield_range - 50.0) / 230.0
     range_adj *= tuning.get("double_play_range_scale", 1.0)
@@ -255,7 +279,12 @@ def double_play_probability(
     speed_adj = (runner_speed - 50.0) / 220.0
     speed_adj *= tuning.get("double_play_speed_scale", 1.0)
     prob = base + range_adj + arm_adj - speed_adj
-    return max(0.03, min(0.45, prob))
+    if batter_speed is not None:
+        k = tuning.get("double_play_batter_speed_k", 0.0)
+        if k:
+            gap = float(batter_speed) - tuning.get("hitter_speed_center", 50.0)
+            prob *= math.exp(-k * gap / 10.0)
+    return max(0.03, min(tuning.get("double_play_max", 0.45), prob))
 
 
 def select_out_type(ball_type: str, launch_angle: float) -> tuple[str, bool]:

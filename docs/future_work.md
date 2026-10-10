@@ -1231,3 +1231,49 @@ count, so an RNG-reshuffling change can trip it -- re-check seeds 1 and 2.
 - Live-path reliever back-to-back share (~0.11-0.12) and April pitcher IL pace
   (8.0-9.1) sit at the low end of the targets; re-check on a full live season.
 
+
+## 62. Release 4 follow-ups (7.48.0)
+
+- Flip 4b to the default (7.49.0): copy scripts/kpi_profiles/r4b.json into
+  DEFAULT_TUNING once it stays strict-green on calibration seeds 1-4 and the
+  league running gate set. Under r4b steal volume drops ~6% (calibration s1
+  SBA/PA .0208, SB/G .622 -- just above the floors): scale the four steal base
+  rates x1.04-1.06 together, then add sba_per_pa / sb_per_team_game to
+  GATE_SETS['r4b'].
+- Per-team running strategy (owner decision 4): "baserunning aggressiveness"
+  (0.6x / 1.0x / 1.5x) and "play the infield in" owner settings on the Game
+  Day settings page, with a guide. Today one league-wide rule applies.
+- The infield-single subset (infield_single_ev_max, off) took XBT to .35 at
+  85 mph; revisit with a lower EV or with the Release 6 batted-ball model. It
+  is deliberately separate from the M6 infield-hit ramp (infield_hit_ev_lo/hi).
+- RE24: runners on 1st and 3rd with 0 out stays ~9-11% low and 2nd and 3rd
+  with 1 out ~10% low under r4b; 3rd only / 0 out is -5.1%. Needs a
+  base-out transition-matrix diagnostic; keep the RE cells report-only.
+- Tag-ups: r(tag, sp) is weak on data/calibration (no speed tiers); gate it
+  on calibration_league only. Refit the tag-up knobs when Release 6 adds
+  drag-based carry.
+- Rebuild data/calibration with tiered speeds (it tops out at 67) so the
+  speed-tier gates can run on the regression fixture too.
+- Batter thrown out stretching a hit; bunting for a hit by speed.
+- PB-aided runs are unearned only for the dropped-third-strike reach; a run
+  that scores because of a passed ball (rule 9.16(a)) is still earned.
+- Re-fit passed_ball_rate when catcher fa is re-centred (decision 2 general
+  re-centring); PB rises ~22% then.
+- K-reach reference (.06/team-game) is approximate; pull an exact MLB rate
+  from Retrosheet and consider gating it.
+- corr(catcher fa, PB/G) misses -.4 on some calibration seeds; keep it
+  report-only or retune passed_ball_fa_k.
+- Under r4b the R2 tag to 3rd uses the old roll beyond the short-fly gate;
+  a race to 3rd would make it depth- and arm-aware.
+- CI runtime: the KPI workflow now runs 3 strict seasons (timeout 90 min);
+  trim if it becomes a bottleneck.
+- The runner-advance roll on a wild pitch / passed ball (_advance_on_missed_pitch
+  -> _advance_prob) still reads the catcher's arm raw, so live leagues (catcher
+  arm ~50 vs fixtures ~55) record ~3% more WP/PB (live .36-.38 vs fixtures
+  .30-.33; target .33). Centre the arm there only (hit advances stay raw).
+- league_rating_centers: a centre whose group is empty (no ACT catcher) is
+  retried from the CSVs on every game; cache a per-season "nothing to
+  average" marker.
+- Live-path check (fresh 30-team league, 28 days) before the speed-centred
+  steal success: SB/G .83, SB% .83, WP .365, PB .050. Re-measure on alpha
+  after deploy.

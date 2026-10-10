@@ -43,8 +43,15 @@ _MINIMAL_DATA_DIRS = (
 )
 # physics_usage.json is a league's own rest state (playbalance.usage_store); a
 # stray copy in the base data dir must never seed a new league.
+# Per-league runtime state that must never be copied into a new league.
 _SEED_EXCLUDE_FILES = frozenset(
-    {_LEAGUE_REGISTRY_FILENAME, _ACTIVE_LEAGUE_FILENAME, "physics_usage.json"}
+    {
+        _LEAGUE_REGISTRY_FILENAME,
+        _ACTIVE_LEAGUE_FILENAME,
+        "physics_usage.json",
+        "rating_centers.json",
+        "pitcher_durability_center.json",
+    }
 )
 
 

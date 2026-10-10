@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Collection, Dict, Iterable, List, Set
+import math
 import random
 import re
 import zlib
@@ -1955,19 +1956,63 @@ def _advance_on_walk(
     return runs, scored
 
 
-def _advance_prob(speed: float, arm: float, tuning: TuningConfig, extra: float = 0.0) -> float:
+def _advance_prob(
+    speed: float,
+    arm: float,
+    tuning: TuningConfig,
+    extra: float = 0.0,
+    scale: float | None = None,
+) -> float:
+    """Chance a runner tries (and makes) an extra base.
+
+    ``scale`` multiplies the raw chance; ``None`` keeps the global
+    ``advancement_aggression_scale``. Release 4 callers pass their own scale
+    (hit advances, the tag from 2nd) instead of cutting the global one.
+    """
     base = 0.45 + (speed - 50.0) / 200.0 - (arm - 50.0) / 250.0 + extra
-    base *= tuning.get("advancement_aggression_scale", 1.0)
+    if scale is None:
+        scale = tuning.get("advancement_aggression_scale", 1.0)
+    base *= scale
     return max(0.05, min(0.95, base))
 
 
+def _centred_speed(sp: float, tuning: TuningConfig) -> float:
+    """``sp`` re-expressed so the league's ACT-hitter mean reads as 50.
+
+    Release 4 (audit decision 2): terms added to a league-calibrated rate
+    (steal attempts, infield hits, the batter-speed DP and ground-out terms)
+    read speed through this, so ``_centred_speed(sp) - 50`` is the gap from
+    the league's own average. ``hitter_speed_center`` defaults to 50.0, where
+    it changes nothing.
+    """
+    return _centred_rating(sp, "hitter_speed_center", tuning)
+
+
+def _centred_rating(value: float, key: str, tuning: TuningConfig) -> float:
+    """``value`` re-expressed so the league mean held in ``key`` reads as 50.
+
+    Release 4 (audit decision 2): ``key`` is a rating-centre tuning key
+    (``services.league_rating_centers``), e.g. ``pitcher_control_center``
+    or ``catcher_fa_center``. Every centre defaults to 50.0, where this
+    changes nothing.
+    """
+    return value - tuning.get(key, 50.0) + 50.0
+
+
 def _out_on_base_prob(
-    speed: float, arm: float, tuning: TuningConfig, extra: float = 0.0
+    speed: float,
+    arm: float,
+    tuning: TuningConfig,
+    extra: float = 0.0,
+    scale: float = 1.0,
 ) -> float:
     base = tuning.get("extra_base_out_base", 0.08) + extra
     base += (arm - 50.0) / 200.0
     base -= (speed - 50.0) / 240.0
     base *= tuning.get("extra_base_out_scale", 1.0)
+    # Release 4 (W2): hit advances pass ``hit_advance_out_scale``. Applied
+    # before the clamp; 1.0 is exact, so the default changes nothing.
+    base *= scale
     return max(0.01, min(0.55, base))
 
 
@@ -1988,19 +2033,48 @@ def _attempt_extra_base(
     out_extra: float = 0.0,
     force: bool = False,
 ) -> str:
+    # Release 4 (W2): hit advances read their own knobs. The defaults equal
+    # the global scale and 1.0, so the draws and outcomes match 7.47.0.
     attempt_prob = _advance_prob(
-        runner.speed, defense_arm, tuning, extra=attempt_extra
+        runner.speed,
+        defense_arm,
+        tuning,
+        extra=attempt_extra,
+        scale=tuning.get("hit_advance_aggression_scale", 1.6),
     )
     if not force and random.random() >= attempt_prob:
         return "hold"
     out_prob = _out_on_base_prob(
-        runner.speed, defense_arm, tuning, extra=out_extra
+        runner.speed,
+        defense_arm,
+        tuning,
+        extra=out_extra,
+        scale=tuning.get("hit_advance_out_scale", 1.0),
     )
+    if force:
+        out_prob *= tuning.get("forced_runner_out_scale", 1.0)
     if random.random() < out_prob:
         if random.random() < _throw_error_probability(defense_arm, tuning):
             return "error"
         return "out"
     return "advance"
+
+
+def _note_hit_rule(rule_log: dict[str, int] | None, key: str) -> None:
+    if rule_log is not None:
+        rule_log[key] = rule_log.get(key, 0) + 1
+
+
+def _park_runner(bases: BaseState, runner: BatterRatings, base: int) -> None:
+    """Put ``runner`` on ``base`` or, if it is taken, the nearest free base
+    behind it (then ahead of it). For runners the hit-advance rules stop
+    short; after a third out only the LOB count reads where they stand."""
+    slots = ("first", "second", "third")
+    order = list(range(base, 0, -1)) + list(range(base + 1, 4))
+    for target in order:
+        if getattr(bases, slots[target - 1]) is None:
+            setattr(bases, slots[target - 1], runner)
+            return
 
 
 def _advance_on_hit(
@@ -2010,9 +2084,42 @@ def _advance_on_hit(
     hit_type: str,
     defense_arm: float,
     tuning: TuningConfig,
+    outs: int = 0,
+    infield_hit: bool = False,
+    rule_log: dict[str, int] | None = None,
 ) -> tuple[int, int, list[str], list[BatterRatings], list[BatterRatings]]:
+    """Move the runners on a hit; return (runs, outs added, events, scored,
+    runners saved by a throwing error).
+
+    ``outs`` is the out count before the play: with two out the runner on
+    2nd on a single and the runner on 1st on a double get
+    ``xbt_two_out_extra`` (running on contact). ``infield_hit`` marks an
+    infield single: every runner moves up exactly one base and nobody tries
+    for more (Release 4 W2; the caller decides, from
+    ``infield_single_ev_max``).
+
+    Rule 5.08(a) (Release 4 F1). Runners are played lead first, so a runner
+    who scored did so ahead of any runner put out behind him:
+      * once ``outs`` plus the outs on the play reach three the inning is
+        over: no trailing runner moves up or tries for a base (he is left
+        on base for LOB), so a play never makes more than three outs;
+      * a third out on a FORCE play voids every run on the play. On a hit
+        the only force at the plate is the runner from 3rd with the bases
+        loaded, and he is the lead runner, so nobody has scored yet;
+      * a third out on a TAG play (a runner who was not forced to that
+        base, e.g. the runner from 2nd thrown out at home) keeps the runs
+        of the runners who scored ahead of him (a timing play);
+      * once a runner is thrown out at home the runners behind him do not
+        try to score: they stop at 3rd. On a double the runner from 2nd
+        still has to run when a runner from 1st is behind him (the batter
+        takes 2nd and the runner from 1st needs 3rd).
+    The batter-runner is never put out on a hit. ``rule_log`` (optional)
+    counts the runners these rules stopped: ``cut`` (the inning was over)
+    and ``held`` (a lead runner was out at home).
+    """
     runs = 0
-    outs = 0
+    outs_added = 0
+    two_out_extra = tuning.get("xbt_two_out_extra", 0.0) if outs >= 2 else 0.0
     events: list[str] = []
     scored: list[BatterRatings] = []
     error_advances: list[BatterRatings] = []
@@ -2023,7 +2130,7 @@ def _advance_on_hit(
         scored.append(batter)
         runs = len(scored)
         bases.first = bases.second = bases.third = None
-        return runs, outs, events, scored, error_advances
+        return runs, outs_added, events, scored, error_advances
 
     if hit_type == "triple":
         scored.extend(
@@ -2032,7 +2139,7 @@ def _advance_on_hit(
         runs = len(scored)
         bases.first = bases.second = None
         bases.third = batter
-        return runs, outs, events, scored, error_advances
+        return runs, outs_added, events, scored, error_advances
 
     if hit_type == "double":
         runner_first = bases.first
@@ -2041,6 +2148,7 @@ def _advance_on_hit(
         bases.first = None
         bases.second = batter
         bases.third = None
+        home_out = False
 
         if runner_third:
             result = _attempt_extra_base(
@@ -2052,8 +2160,9 @@ def _advance_on_hit(
                 force=True,
             )
             if result == "out":
-                outs += 1
+                outs_added += 1
                 events.append("oobH")
+                home_out = True
             elif result == "error":
                 runs += 1
                 scored.append(runner_third)
@@ -2064,49 +2173,66 @@ def _advance_on_hit(
                 scored.append(runner_third)
 
         if runner_second:
-            result = _attempt_extra_base(
-                runner=runner_second,
-                defense_arm=defense_arm,
-                tuning=tuning,
-                attempt_extra=0.15,
-                out_extra=0.02,
-                force=True,
-            )
-            if result == "out":
-                outs += 1
-                events.append("oobH")
-            elif result == "error":
-                runs += 1
-                scored.append(runner_second)
-                error_advances.append(runner_second)
-                events.append("e_th")
+            if outs + outs_added >= 3:
+                _park_runner(bases, runner_second, 3)
+                _note_hit_rule(rule_log, "cut")
+            elif home_out and runner_first is None:
+                bases.third = runner_second
+                _note_hit_rule(rule_log, "held")
             else:
-                runs += 1
-                scored.append(runner_second)
+                result = _attempt_extra_base(
+                    runner=runner_second,
+                    defense_arm=defense_arm,
+                    tuning=tuning,
+                    attempt_extra=0.15,
+                    out_extra=0.02,
+                    force=True,
+                )
+                if result == "out":
+                    outs_added += 1
+                    events.append("oobH")
+                    home_out = True
+                elif result == "error":
+                    runs += 1
+                    scored.append(runner_second)
+                    error_advances.append(runner_second)
+                    events.append("e_th")
+                else:
+                    runs += 1
+                    scored.append(runner_second)
 
         if runner_first:
-            result = _attempt_extra_base(
-                runner=runner_first,
-                defense_arm=defense_arm,
-                tuning=tuning,
-                attempt_extra=-0.05,
-                out_extra=0.12,
-                force=False,
-            )
-            if result == "advance":
-                runs += 1
-                scored.append(runner_first)
-            elif result == "error":
-                runs += 1
-                scored.append(runner_first)
-                error_advances.append(runner_first)
-                events.append("e_th")
-            elif result == "out":
-                outs += 1
-                events.append("oobH")
+            if outs + outs_added >= 3:
+                _park_runner(bases, runner_first, 3)
+                _note_hit_rule(rule_log, "cut")
+            elif home_out:
+                _park_runner(bases, runner_first, 3)
+                _note_hit_rule(rule_log, "held")
             else:
-                bases.third = runner_first
-        return runs, outs, events, scored, error_advances
+                result = _attempt_extra_base(
+                    runner=runner_first,
+                    defense_arm=defense_arm,
+                    tuning=tuning,
+                    attempt_extra=(
+                        tuning.get("xbt_double_r1_extra", -0.05) + two_out_extra
+                    ),
+                    out_extra=0.12,
+                    force=False,
+                )
+                if result == "advance":
+                    runs += 1
+                    scored.append(runner_first)
+                elif result == "error":
+                    runs += 1
+                    scored.append(runner_first)
+                    error_advances.append(runner_first)
+                    events.append("e_th")
+                elif result == "out":
+                    outs_added += 1
+                    events.append("oobH")
+                else:
+                    bases.third = runner_first
+        return runs, outs_added, events, scored, error_advances
 
     # Single
     runner_first = bases.first
@@ -2116,6 +2242,17 @@ def _advance_on_hit(
     bases.second = None
     bases.third = None
 
+    if infield_hit:
+        # An infield single: the ball never left the infield, so each runner
+        # takes the one base the batter's single gives him. No draws.
+        if runner_third:
+            runs += 1
+            scored.append(runner_third)
+        bases.third = runner_second
+        bases.second = runner_first
+        return runs, outs_added, events, scored, error_advances
+
+    home_out = False
     if runner_third:
         result = _attempt_extra_base(
             runner=runner_third,
@@ -2126,8 +2263,9 @@ def _advance_on_hit(
             force=True,
         )
         if result == "out":
-            outs += 1
+            outs_added += 1
             events.append("oobH")
+            home_out = True
         elif result == "error":
             runs += 1
             scored.append(runner_third)
@@ -2138,35 +2276,45 @@ def _advance_on_hit(
             scored.append(runner_third)
 
     if runner_second:
-        result = _attempt_extra_base(
-            runner=runner_second,
-            defense_arm=defense_arm,
-            tuning=tuning,
-            attempt_extra=0.15,
-            out_extra=0.05,
-            force=False,
-        )
-        if result == "advance":
-            runs += 1
-            scored.append(runner_second)
-        elif result == "error":
-            runs += 1
-            scored.append(runner_second)
-            error_advances.append(runner_second)
-            events.append("e_th")
-        elif result == "out":
-            outs += 1
-            events.append("oobH")
-        else:
+        if outs + outs_added >= 3:
             bases.third = runner_second
+            _note_hit_rule(rule_log, "cut")
+        elif home_out:
+            bases.third = runner_second
+            _note_hit_rule(rule_log, "held")
+        else:
+            result = _attempt_extra_base(
+                runner=runner_second,
+                defense_arm=defense_arm,
+                tuning=tuning,
+                attempt_extra=(
+                    tuning.get("xbt_single_r2_extra", 0.15) + two_out_extra
+                ),
+                out_extra=0.05,
+                force=False,
+            )
+            if result == "advance":
+                runs += 1
+                scored.append(runner_second)
+            elif result == "error":
+                runs += 1
+                scored.append(runner_second)
+                error_advances.append(runner_second)
+                events.append("e_th")
+            elif result == "out":
+                outs_added += 1
+                events.append("oobH")
+                home_out = True
+            else:
+                bases.third = runner_second
 
     if runner_first:
-        if bases.third is None:
+        if bases.third is None and outs + outs_added < 3:
             result = _attempt_extra_base(
                 runner=runner_first,
                 defense_arm=defense_arm,
                 tuning=tuning,
-                attempt_extra=0.05,
+                attempt_extra=tuning.get("xbt_single_r1_extra", 0.05),
                 out_extra=0.08,
                 force=False,
             )
@@ -2175,19 +2323,28 @@ def _advance_on_hit(
             elif result == "error":
                 error_advances.append(runner_first)
                 events.append("e_th")
-                if random.random() < tuning.get("throw_error_extra_base_chance", 0.35):
+                # After an out at home he does not try to score on the throw.
+                if home_out:
+                    bases.third = runner_first
+                    _note_hit_rule(rule_log, "held")
+                elif random.random() < tuning.get(
+                    "throw_error_extra_base_chance", 0.35
+                ):
                     runs += 1
                     scored.append(runner_first)
                 else:
                     bases.third = runner_first
             elif result == "out":
-                outs += 1
+                outs_added += 1
                 events.append("oob3")
             else:
                 bases.second = runner_first
         else:
+            if bases.third is None:
+                # 3rd was open, but the play's third out ended the inning.
+                _note_hit_rule(rule_log, "cut")
             bases.second = runner_first
-    return runs, outs, events, scored, error_advances
+    return runs, outs_added, events, scored, error_advances
 
 
 def _maybe_upgrade_hit(
@@ -2230,21 +2387,32 @@ def _credit_outs_on_base(
     spray_angle: float | None,
     batter_side: str,
     tuning: TuningConfig,
+    fielder_pos: str | None = None,
 ) -> None:
+    """Credit runners thrown out on a hit: an assist to the fielder who threw
+    and a putout at the plate (``oobH``) or third (``oob3``).
+
+    ``fielder_pos`` is the fielder the runners advanced on (Release 4 L21:
+    the hit path passes the outfielder who picked up a ground-ball single).
+    Without it the position is re-derived from the ball, as before.
+    """
     if not events:
         return
     out_events = [event for event in events if event in {"oobH", "oob3"}]
     if not out_events:
         return
-    infield_play = ball_type == "gb"
+    if fielder_pos is None:
+        infield_play = ball_type == "gb"
+        fielder_pos = _fielder_position_for_ball(
+            ball_type=ball_type or "fb",
+            spray_angle=spray_angle,
+            batter_side=batter_side,
+            tuning=tuning,
+            infield_play=infield_play,
+        )
+    else:
+        infield_play = fielder_pos in _INFIELD_THROW_POSITIONS
     fallback = ["SS", "2B", "3B", "1B"] if infield_play else ["CF", "LF", "RF"]
-    fielder_pos = _fielder_position_for_ball(
-        ball_type=ball_type or "fb",
-        spray_angle=spray_angle,
-        batter_side=batter_side,
-        tuning=tuning,
-        infield_play=infield_play,
-    )
     _, assist_fielder = _find_fielder(
         defense_map, fielder_pos, fallback_positions=fallback
     )
@@ -2290,6 +2458,40 @@ def _credit_ground_double_play(
         oneb_line.po += 1
         if oneb_fielder is not primary_fielder:
             oneb_line.dp += 1
+
+
+def _credit_home_to_first_double_play(
+    *,
+    defense_state: LineupState,
+    defense_map: Dict[str, BatterRatings],
+    primary_fielder: BatterRatings | None,
+    oneb_fielder: BatterRatings | None,
+) -> None:
+    """Credit a home-to-first double play (6-2-3, 4-2-3, 3-2-3...).
+
+    Release 4 (``ground_out_model`` 1): with the bases loaded the fielder
+    throws home for the force (his assist), the catcher takes it (putout)
+    and relays to first (his assist), and first base takes the second out
+    (putout). Each fielder in the play gets one DP; a 1B who started it is
+    credited the assist and the putout but a single DP.
+    """
+    lines = []
+    if primary_fielder is not None:
+        primary_line = _fielding_line(defense_state, primary_fielder.player_id)
+        primary_line.a += 1
+        lines.append(primary_line)
+    catcher = defense_map.get("C")
+    if catcher is not None:
+        catcher_line = _fielding_line(defense_state, catcher.player_id)
+        catcher_line.po += 1
+        catcher_line.a += 1
+        lines.append(catcher_line)
+    if oneb_fielder is not None:
+        oneb_line = _fielding_line(defense_state, oneb_fielder.player_id)
+        oneb_line.po += 1
+        lines.append(oneb_line)
+    for line in {id(line): line for line in lines}.values():
+        line.dp += 1
 
 
 def _credit_bunt_out(
@@ -2369,15 +2571,17 @@ def _credit_throw_error(
     batter_side: str,
     infield_play: bool,
     tuning: TuningConfig,
+    fielder_pos: str | None = None,
 ) -> None:
     fallback = ["SS", "2B", "3B", "1B"] if infield_play else ["CF", "LF", "RF"]
-    fielder_pos = _fielder_position_for_ball(
-        ball_type=ball_type or "fb",
-        spray_angle=spray_angle,
-        batter_side=batter_side,
-        tuning=tuning,
-        infield_play=infield_play,
-    )
+    if fielder_pos is None:
+        fielder_pos = _fielder_position_for_ball(
+            ball_type=ball_type or "fb",
+            spray_angle=spray_angle,
+            batter_side=batter_side,
+            tuning=tuning,
+            infield_play=infield_play,
+        )
     _, fielder = _find_fielder(
         defense_map, fielder_pos, fallback_positions=fallback
     )
@@ -2391,14 +2595,187 @@ def _advance_on_error(
     batter: BatterRatings,
     defense_arm: float,
     tuning: TuningConfig,
+    outs: int = 0,
+    rule_log: dict[str, int] | None = None,
 ) -> tuple[int, int, list[str], list[BatterRatings], list[BatterRatings]]:
+    """Runners on a batter safe on an error move as on a single.
+
+    Release 4 F1: ``outs`` is the live out count, so the rule 5.08(a) cut
+    and the two-out running extra (4b) apply here too.
+    """
     return _advance_on_hit(
         bases=bases,
         batter=batter,
         hit_type="single",
         defense_arm=defense_arm,
         tuning=tuning,
+        outs=outs,
+        rule_log=rule_log,
     )
+
+
+def _phi(x: float) -> float:
+    """Standard normal CDF."""
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _tag_up_race(
+    *,
+    speed: float,
+    arm: float,
+    distance: float,
+    exit_velo: float,
+    launch_angle: float,
+    outs: int,
+    tuning: TuningConfig,
+) -> tuple[float, float, float]:
+    """Release 4 (M7) tag-up from 3rd as a time race: (p_send, p_out, margin).
+
+    The runner needs ``tag_up_run_base - (sp - 50) * tag_up_run_speed``
+    seconds to get home; the ball needs a release plus the carry over the
+    thrower's velocity, less a little when the fly hung under
+    ``tag_up_hang_ref`` seconds (drag-free hang time: the fielder catches a
+    short fly on the move). ``margin`` is throw time minus run time. The
+    runner is sent with ``Phi((margin - send_margin) / send_sd)`` (a more
+    cautious margin with nobody out) and, once sent, is out with
+    ``max(floor, Phi(-margin / out_sd))``. Speed and arm are raw
+    (``rating - 50``): this is a race against a throw (plan rule 2).
+    """
+    t_run = tuning.get("tag_up_run_base", 3.55) - (speed - 50.0) * tuning.get(
+        "tag_up_run_speed", 0.012
+    )
+    velo = tuning.get("tag_up_throw_velo", 110.0) + (arm - 50.0) * tuning.get(
+        "tag_up_throw_arm", 1.0
+    )
+    velo = max(40.0, velo)
+    la = math.radians(max(1.0, min(60.0, launch_angle)))
+    hang = 2.0 * exit_velo * 1.467 * math.sin(la) / 32.17
+    t_throw = tuning.get("tag_up_release", 2.0)
+    t_throw += distance * tuning.get("tag_up_carry_k", 1.2) / velo
+    t_throw -= tuning.get("tag_up_hang_k", 0.15) * max(
+        0.0, tuning.get("tag_up_hang_ref", 3.0) - hang
+    )
+    margin = t_throw - t_run
+    send_margin = tuning.get("tag_up_send_margin", 0.20)
+    if outs == 0:
+        send_margin += tuning.get("tag_up_send_margin_0out", 0.10)
+    send_sd = max(1e-6, tuning.get("tag_up_send_sd", 0.25))
+    out_sd = max(1e-6, tuning.get("tag_up_out_sd", 0.30))
+    p_send = _phi((margin - send_margin) / send_sd)
+    p_out = max(tuning.get("tag_up_out_floor", 0.005), _phi(-margin / out_sd))
+    return p_send, min(1.0, p_out), margin
+
+
+def _advance_on_air_out_v2(
+    *,
+    bases: BaseState,
+    outs: int,
+    thrower_arm: float,
+    tuning: TuningConfig,
+    distance: float,
+    exit_velo: float,
+    launch_angle: float,
+    infield_play: bool,
+) -> tuple[int, int, bool, list[BatterRatings], BatterRatings | None]:
+    """Release 4 tag-ups (``tag_up_model`` 1; audit M7).
+
+    - A liner caught on the infield, or a short pop-up caught under
+      ``tag_up_min_carry_ft`` of carry, freezes the runners: nobody tags and
+      no number is drawn.
+    - The runner on 3rd races the throw (``_tag_up_race``): he holds, scores
+      (a sacrifice fly) or is thrown out at home. Draws: send, then the play.
+    - The runner on 2nd tags to an open 3rd with the old ``_advance_prob``
+      roll at ``tag_up_second_scale``, unless the play already ended the
+      inning or the ball is too shallow: when his own race home would send
+      him with under ``tag_up_second_min_send`` he holds without a draw.
+    """
+    runs = 0
+    extra_outs = 0
+    sac_fly = False
+    scored: list[BatterRatings] = []
+    tag_out_runner: BatterRatings | None = None
+    if outs >= 2 or infield_play or _tag_up_short_fly(distance, tuning):
+        return runs, extra_outs, sac_fly, scored, tag_out_runner
+    if bases.third:
+        p_send, p_out, _margin = _tag_up_race(
+            speed=bases.third.speed,
+            arm=thrower_arm,
+            distance=distance,
+            exit_velo=exit_velo,
+            launch_angle=launch_angle,
+            outs=outs,
+            tuning=tuning,
+        )
+        if random.random() < p_send:
+            if random.random() < p_out:
+                extra_outs += 1
+                tag_out_runner = bases.third
+            else:
+                runs += 1
+                scored.append(bases.third)
+                sac_fly = True
+            bases.third = None
+    if (
+        bases.second
+        and bases.third is None
+        and outs + 1 + extra_outs < 3
+        and _tag_up_second_can_go(
+            runner=bases.second,
+            arm=thrower_arm,
+            distance=distance,
+            exit_velo=exit_velo,
+            launch_angle=launch_angle,
+            outs=outs,
+            tuning=tuning,
+        )
+    ):
+        prob = _advance_prob(
+            bases.second.speed,
+            thrower_arm,
+            tuning,
+            extra=tuning.get("tag_up_second_extra", 0.05),
+            scale=tuning.get("tag_up_second_scale", 1.6),
+        )
+        if random.random() < prob:
+            bases.third = bases.second
+            bases.second = None
+    return runs, extra_outs, sac_fly, scored, tag_out_runner
+
+
+def _tag_up_short_fly(distance: float | None, tuning: TuningConfig) -> bool:
+    """A fly caught under ``tag_up_min_carry_ft`` of engine carry (a pop-up
+    an infielder or a charging outfielder takes): nobody tags under
+    ``tag_up_model`` 1. A missing distance is never short (the 250 ft
+    fallback in ``_advance_on_air_out``)."""
+    if distance is None:
+        return False
+    return float(distance) < tuning.get("tag_up_min_carry_ft", 150.0)
+
+
+def _tag_up_second_can_go(
+    *,
+    runner: BatterRatings,
+    arm: float,
+    distance: float,
+    exit_velo: float,
+    launch_angle: float,
+    outs: int,
+    tuning: TuningConfig,
+) -> bool:
+    """Depth gate for the tag from 2nd (``tag_up_model`` 1). The runner on
+    2nd only rolls when the same ball would send him home from 3rd with at
+    least ``tag_up_second_min_send``: on a fly too shallow for anyone to
+    score he stays put. No draw."""
+    p_send, _p_out, _margin = _tag_up_race(
+        speed=runner.speed,
+        arm=arm,
+        distance=distance,
+        exit_velo=exit_velo,
+        launch_angle=launch_angle,
+        outs=outs,
+        tuning=tuning,
+    )
+    return p_send >= tuning.get("tag_up_second_min_send", 0.05)
 
 
 def _advance_on_air_out(
@@ -2407,7 +2784,32 @@ def _advance_on_air_out(
     outs: int,
     thrower_arm: float,
     tuning: TuningConfig,
+    distance: float | None = None,
+    exit_velo: float | None = None,
+    launch_angle: float | None = None,
+    ball_type: str | None = None,
+    infield_play: bool = False,
 ) -> tuple[int, int, bool, list[BatterRatings], BatterRatings | None]:
+    """Runners tag up on a caught fly or liner.
+
+    ``tag_up_model`` 0 is the 7.47.0 roll (one combined attempt-and-success
+    draw per runner; the batted-ball arguments are ignored). 1 is the
+    Release 4 time race in ``_advance_on_air_out_v2``. ``ball_type`` is
+    accepted for the play record; only the infield flag changes the play.
+    The batted-ball values come straight from the pitch result; a missing
+    one falls back here (and only here) to a 250 ft, 90 mph, 30 degree fly.
+    """
+    if tuning.get("tag_up_model", 0.0) >= 0.5:
+        return _advance_on_air_out_v2(
+            bases=bases,
+            outs=outs,
+            thrower_arm=thrower_arm,
+            tuning=tuning,
+            distance=250.0 if distance is None else float(distance),
+            exit_velo=90.0 if exit_velo is None else float(exit_velo),
+            launch_angle=30.0 if launch_angle is None else float(launch_angle),
+            infield_play=bool(infield_play),
+        )
     runs = 0
     extra_outs = 0
     sac_fly = False
@@ -2523,6 +2925,80 @@ def _fielder_position_for_ball(
     if infield_play:
         return _infield_pos_for_spray(spray_dir)
     return _outfield_pos_for_spray(spray_dir, tuning)
+
+
+_INFIELD_THROW_POSITIONS = frozenset({"1B", "2B", "3B", "SS"})
+
+
+def _hit_advance_position(
+    *,
+    spray_angle: float | None,
+    batter_side: str,
+    tuning: TuningConfig,
+    infield_hit: bool = False,
+) -> str:
+    """The fielder whose arm the runners test on a hit (audit L21).
+
+    A ground-ball single goes through the infield, so the runners advance on
+    the outfielder who picks it up, not on the infielder it got past (37-38%
+    of hit-advance rolls used an infielder's arm through 7.47.0). Only an
+    infield single (``infield_hit``) stays with the infielder.
+    """
+    spray_dir = _spray_dir(spray_angle or 0.0, batter_side)
+    if infield_hit:
+        return _infield_pos_for_spray(spray_dir)
+    return _outfield_pos_for_spray(spray_dir, tuning)
+
+
+def _is_infield_single(
+    *,
+    ball_type: str | None,
+    hit_type: str | None,
+    exit_velo: float | None,
+    tuning: TuningConfig,
+) -> bool:
+    """A soft ground-ball single that never left the infield (Release 4b).
+
+    Off while ``infield_single_ev_max`` is 0 (the default).
+    """
+    ev_max = tuning.get("infield_single_ev_max", 0.0)
+    if ev_max <= 0.0 or ball_type != "gb" or (hit_type or "single") != "single":
+        return False
+    return float(exit_velo if exit_velo is not None else 90.0) <= ev_max
+
+
+def _hit_advance_log(
+    runners_before: tuple[BatterRatings | None, ...],
+    *,
+    bases: BaseState,
+    scored: list[BatterRatings],
+    error_advances: list[BatterRatings],
+) -> list[list[Any]]:
+    """Where each runner on base before a hit ended up, for the KPI harness.
+
+    One ``[player_id, start, end, error]`` row per runner: ``start`` 1-3,
+    ``end`` 1-3, 4 = scored, 0 = out on the play; ``error`` 1 when a
+    throwing error saved him. Logging only (Release 4 W2 tier tables): it
+    draws nothing and changes nothing. The pitch log has no runner ids
+    otherwise, so XBT by runner speed could not be measured.
+    """
+    rows: list[list[Any]] = []
+    for start, runner in enumerate(runners_before, start=1):
+        if runner is None:
+            continue
+        if any(other is runner for other in scored):
+            end = 4
+        elif bases.third is runner:
+            end = 3
+        elif bases.second is runner:
+            end = 2
+        elif bases.first is runner:
+            end = 1
+        else:
+            end = 0
+        error = int(any(other is runner for other in error_advances))
+        rows.append([runner.player_id, start, end, error])
+    return rows
 
 
 def _find_fielder(
@@ -2683,6 +3159,25 @@ def _pickoff_caught_stealing(
     return random.random() < rate
 
 
+def _steal_speed_factor(speed: float, tuning: TuningConfig) -> float:
+    """Release 4 (H2): how much more often a runner tries to steal than the
+    league's average runner.
+
+    A logistic curve on the centred speed (``_centred_speed``: the league's
+    ACT-hitter mean reads as 50, audit decision 2), normalised to 1.0 at 50:
+    about 0.46 at 40, 2.0 at 60, 3.6 at 70, 6.3 at 85 and under 8 at 99. It
+    replaced a linear ``0.5 + (sp - 50) / 60`` on raw speed, which gave a
+    fast runner too little edge and a fast league far too many attempts.
+    """
+    mid = tuning.get("steal_speed_mid", 75.0)
+    width = max(0.5, tuning.get("steal_speed_width", 12.0))
+
+    def curve(x: float) -> float:
+        return 1.0 / (1.0 + math.exp(-(x - mid) / width))
+
+    return curve(_centred_speed(speed, tuning)) / curve(50.0)
+
+
 def _steal_attempt_rate(
     *,
     speed: float,
@@ -2693,8 +3188,17 @@ def _steal_attempt_rate(
     catcher_fielding: float,
     tuning: TuningConfig,
 ) -> float:
+    # Release 4 (F4, decision 2): the battery deterrents read each rating
+    # against the league's ACT mean, so a league whose batteries average 50
+    # attempts as often as the fixtures, whose batteries sit at 51-60.
+    pitcher_hold = _centred_rating(pitcher_hold, "pitcher_hold_center", tuning)
+    pitcher_arm = _centred_rating(pitcher_arm, "pitcher_arm_center", tuning)
+    catcher_arm = _centred_rating(catcher_arm, "catcher_arm_center", tuning)
+    catcher_fielding = _centred_rating(
+        catcher_fielding, "catcher_fa_center", tuning
+    )
     attempt = base_rate * tuning.get("steal_freq_scale", 1.0)
-    attempt *= 0.5 + (speed - 50.0) / 60.0
+    attempt *= _steal_speed_factor(speed, tuning)
     attempt *= 1.0 - (pitcher_hold - 50.0) / 180.0
     pitcher_adj = (pitcher_arm - 50.0) / 260.0
     pitcher_adj *= tuning.get("steal_pitcher_arm_deterrent", 1.0)
@@ -2703,7 +3207,10 @@ def _steal_attempt_rate(
     fielding_adj = (catcher_fielding - 50.0) / 260.0
     fielding_adj *= tuning.get("steal_catcher_fielding_deterrent", 1.0)
     attempt *= 1.0 - fielding_adj
-    return max(0.001, min(0.25, attempt))
+    # No floor: the rebased home and double-steal rates sit below the old
+    # 0.001 floor, which flattened the speed curve for slower runners.
+    # Every deterrent factor stays positive for ratings up to 99.
+    return max(0.0, min(0.25, attempt))
 
 
 def _steal_context_multiplier(
@@ -2746,17 +3253,46 @@ def _steal_success_prob(
     catcher_fielding: float,
     tuning: TuningConfig,
 ) -> float:
-    base = tuning.get("steal_success_base", 0.72)
-    base += (speed - 50.0) / 150.0
-    base -= (pitcher_hold - 50.0) / 250.0
-    pitcher_adj = (pitcher_arm - 50.0) / 300.0
-    pitcher_adj *= tuning.get("steal_pitcher_arm_success", 1.0)
-    base -= pitcher_adj
-    base -= (catcher_arm - 50.0) / 220.0
-    fielding_adj = (catcher_fielding - 50.0) / 280.0
-    fielding_adj *= tuning.get("steal_catcher_fielding_success", 1.0)
-    base -= fielding_adj
-    return max(0.1, min(0.95, base))
+    """Release 4 (H2): chance a steal attempt is safe.
+
+    A logistic curve on the runner's speed, so the gain flattens toward the
+    top instead of hitting the old linear curve's .95 cap at sp 72.5.
+    Speed reads against the league's ACT hitter mean (``_centred_speed``)
+    and pitcher hold and arm and catcher arm and fielding against the
+    league's ACT battery means (``_centred_rating``, F4), so a league's
+    success rate does not move with how fast its runners or how strong its
+    batteries happen to be rated (decision 2); within a league a faster
+    runner or a weaker battery still wins more races.
+    The two legacy ``steal_*_success`` scales still multiply their slopes.
+    ``steal_success_base`` is retired (kept registered so stored overrides
+    load).
+    """
+    speed = _centred_speed(speed, tuning)
+    pitcher_hold = _centred_rating(pitcher_hold, "pitcher_hold_center", tuning)
+    pitcher_arm = _centred_rating(pitcher_arm, "pitcher_arm_center", tuning)
+    catcher_arm = _centred_rating(catcher_arm, "catcher_arm_center", tuning)
+    catcher_fielding = _centred_rating(
+        catcher_fielding, "catcher_fa_center", tuning
+    )
+    logit = tuning.get("steal_success_logit_base", 1.11)
+    logit += (speed - 50.0) / 10.0 * tuning.get("steal_success_speed_logit", 0.30)
+    logit -= (pitcher_hold - 50.0) / 10.0 * tuning.get("steal_success_hold_logit", 0.21)
+    logit -= (
+        (pitcher_arm - 50.0) / 10.0
+        * tuning.get("steal_success_parm_logit", 0.17)
+        * tuning.get("steal_pitcher_arm_success", 1.0)
+    )
+    logit -= (catcher_arm - 50.0) / 10.0 * tuning.get("steal_success_carm_logit", 0.24)
+    logit -= (
+        (catcher_fielding - 50.0) / 10.0
+        * tuning.get("steal_success_cfa_logit", 0.19)
+        * tuning.get("steal_catcher_fielding_success", 1.0)
+    )
+    prob = 1.0 / (1.0 + math.exp(-logit))
+    return max(
+        tuning.get("steal_success_floor", 0.05),
+        min(tuning.get("steal_success_cap", 0.97), prob),
+    )
 
 
 def _attempt_steal(
@@ -2821,11 +3357,24 @@ def _attempt_steal(
             return events, outs_added, runs_scored, scored
 
     if bases.first and bases.second and not bases.third:
-        double_rate = tuning.get("double_steal_rate", 0.003)
-        double_rate *= tuning.get("steal_freq_scale", 1.0)
+        # Release 4 (H2): the lead runner decides a double steal, on the same
+        # speed curve and deterrents as any steal, and the catcher makes one
+        # throw, to 3rd. The old version drew two independent throws, so a
+        # double steal could cost two outs. If R2 is caught, R1 still takes
+        # 2nd ("adv2", no SB: rule 9.07(d)); at most one out.
+        double_rate = _steal_attempt_rate(
+            speed=bases.second.speed,
+            base_rate=tuning.get("double_steal_rate", 0.00207),
+            pitcher_hold=pitcher_hold,
+            pitcher_arm=pitcher_arm,
+            catcher_arm=catcher_arm,
+            catcher_fielding=catcher_fielding,
+            tuning=tuning,
+        )
         double_rate *= context_mult
         if random.random() < double_rate:
             runner_second = bases.second
+            runner_first = bases.first
             success = _steal_success_prob(
                 speed=runner_second.speed,
                 pitcher_hold=pitcher_hold,
@@ -2834,31 +3383,16 @@ def _attempt_steal(
                 catcher_fielding=catcher_fielding,
                 tuning=tuning,
             )
+            bases.second = runner_first
+            bases.first = None
             if random.random() < success:
                 bases.third = runner_second
-                bases.second = None
                 events.append((runner_second, "sb3"))
-            else:
-                bases.second = None
-                outs_added += 1
-                events.append((runner_second, "cs3"))
-            runner_first = bases.first
-            success = _steal_success_prob(
-                speed=runner_first.speed,
-                pitcher_hold=pitcher_hold,
-                pitcher_arm=pitcher_arm,
-                catcher_arm=catcher_arm,
-                catcher_fielding=catcher_fielding,
-                tuning=tuning,
-            )
-            if random.random() < success:
-                bases.second = runner_first
-                bases.first = None
                 events.append((runner_first, "sb2"))
             else:
-                bases.first = None
                 outs_added += 1
-                events.append((runner_first, "cs2"))
+                events.append((runner_second, "cs3"))
+                events.append((runner_first, "adv2"))
             return events, outs_added, runs_scored, scored
 
     if bases.second and not bases.third:
@@ -2930,9 +3464,16 @@ def _advance_on_missed_pitch(
     bases: BaseState,
     catcher_arm: float,
     tuning: TuningConfig,
-) -> tuple[int, list[BatterRatings]]:
+) -> tuple[int, list[BatterRatings], int]:
+    """Move runners on a ball that got by the catcher.
+
+    Returns ``(runs, scored, bases_advanced)``. Release 4 (rule 9.13): a
+    missed pitch only counts as a WP/PB when a runner advances, so callers
+    treat ``bases_advanced == 0`` as a blocked ball and record nothing.
+    """
     runs = 0
     scored: list[BatterRatings] = []
+    advanced = 0
     if bases.third:
         prob = _advance_prob(
             bases.third.speed, catcher_arm, tuning, extra=0.20
@@ -2941,6 +3482,7 @@ def _advance_on_missed_pitch(
             runs += 1
             scored.append(bases.third)
             bases.third = None
+            advanced += 1
     if bases.second and bases.third is None:
         prob = _advance_prob(
             bases.second.speed, catcher_arm, tuning, extra=0.10
@@ -2948,6 +3490,7 @@ def _advance_on_missed_pitch(
         if random.random() < prob:
             bases.third = bases.second
             bases.second = None
+            advanced += 1
     if bases.first and bases.second is None:
         prob = _advance_prob(
             bases.first.speed, catcher_arm, tuning, extra=0.05
@@ -2955,7 +3498,55 @@ def _advance_on_missed_pitch(
         if random.random() < prob:
             bases.second = bases.first
             bases.first = None
-    return runs, scored
+            advanced += 1
+    return runs, scored, advanced
+
+
+def _missed_pitch_rates(
+    pitcher_control: float,
+    catcher_fielding: float,
+    miss: float,
+    tuning: TuningConfig,
+) -> tuple[float, float]:
+    """Per-pitch (wild pitch, passed ball) chances for one live pitch.
+
+    Release 4 (M10): the old linear terms moved a 30-control pitcher only
+    1.09x off a 70; exponential terms give e^((50 - rating) / k), so with
+    the default k a 30-control pitcher throws e (2.7x) as many WPs as a 70
+    and a 30-fa catcher allows e^1.6 (5x) as many PBs. The catcher's
+    fielding also blocks some would-be wild pitches. ``miss`` is the
+    scaled distance outside the zone. Both ratings read against the
+    league's ACT means (``_centred_rating``, F4) before the clip.
+    """
+    ctl = _clipped_battery(pitcher_control, "pitcher_control_center", tuning)
+    cfa = _clipped_battery(catcher_fielding, "catcher_fa_center", tuning)
+    cap = tuning.get("missed_pitch_rate_cap", 0.05)
+    wp = tuning.get("wild_pitch_rate", 0.0080)
+    wp *= math.exp((50.0 - ctl) / max(1.0, tuning.get("wild_pitch_control_k", 40.0)))
+    wp *= math.exp((50.0 - cfa) / max(1.0, tuning.get("wild_pitch_block_k", 80.0)))
+    wp *= 1.0 + miss
+    pb = tuning.get("passed_ball_rate", 0.00122)
+    pb *= math.exp((50.0 - cfa) / max(1.0, tuning.get("passed_ball_fa_k", 25.0)))
+    pb *= 1.0 + miss
+    return max(0.0, min(cap, wp)), max(0.0, min(cap, pb))
+
+
+def _clipped_battery(value: float, key: str, tuning: TuningConfig) -> float:
+    """A centred battery rating clipped to [20, 95] for the e^(...) terms."""
+    return max(20.0, min(95.0, _centred_rating(value, key, tuning)))
+
+
+def _scaled_miss(
+    *,
+    location: tuple[float, float],
+    zone_bottom: float,
+    zone_top: float,
+    tuning: TuningConfig,
+) -> float:
+    miss = miss_distance(
+        location=location, zone_bottom=zone_bottom, zone_top=zone_top, tuning=tuning
+    )
+    return miss * tuning.get("missed_pitch_loc_scale", 0.6)
 
 
 def _missed_pitch_type(
@@ -2968,17 +3559,17 @@ def _missed_pitch_type(
     tuning: TuningConfig,
     force: bool = False,
 ) -> str | None:
-    miss_scale = tuning.get("missed_pitch_loc_scale", 0.6)
-    miss = miss_distance(
+    """Roll whether a pitch gets by the catcher: "wp", "pb" or None.
+
+    With ``force`` (a dropped third strike) the ball is already loose and
+    only the WP/PB split is drawn, in proportion to the two rates.
+    """
+    miss = _scaled_miss(
         location=location, zone_bottom=zone_bottom, zone_top=zone_top, tuning=tuning
     )
-    miss *= miss_scale
-    wp_rate = tuning.get("wild_pitch_rate", 0.0035)
-    wp_rate *= 1.0 + (50.0 - pitcher_control) / 120.0
-    wp_rate *= 1.0 + miss
-    pb_rate = tuning.get("passed_ball_rate", 0.0025)
-    pb_rate *= 1.0 + (50.0 - catcher_fielding) / 100.0
-    pb_rate *= 1.0 + miss
+    wp_rate, pb_rate = _missed_pitch_rates(
+        pitcher_control, catcher_fielding, miss, tuning
+    )
     total = wp_rate + pb_rate
     if total <= 0:
         return "wp" if force else None
@@ -2993,6 +3584,23 @@ def _missed_pitch_type(
     return None
 
 
+def _k_reach_prob(
+    *, batter_speed: float, catcher_arm: float, tuning: TuningConfig
+) -> float:
+    """Chance an eligible batter beats the throw on a dropped third strike.
+
+    Raw speed (a race against the catcher's throw): .85 at 50, .95 at 70.
+    The catcher's arm reads against the league's ACT catcher mean (F4).
+    """
+    catcher_arm = _centred_rating(catcher_arm, "catcher_arm_center", tuning)
+    prob = tuning.get("k_reach_base", 0.85)
+    prob += (batter_speed - 50.0) / tuning.get("k_reach_speed_div", 200.0)
+    prob -= (catcher_arm - 50.0) / tuning.get("k_reach_arm_div", 300.0)
+    return max(
+        tuning.get("k_reach_min", 0.5), min(tuning.get("k_reach_max", 0.98), prob)
+    )
+
+
 def _resolve_dropped_third_strike(
     *,
     bases: BaseState,
@@ -3005,17 +3613,35 @@ def _resolve_dropped_third_strike(
     location: tuple[float, float],
     zone_bottom: float,
     zone_top: float,
-) -> tuple[bool, int, int, str | None, list[BatterRatings]]:
-    k_rate = tuning.get("k_in_dirt_rate", 0.02)
-    miss = miss_distance(
+) -> tuple[bool, int, int, str | None, list[BatterRatings], bool]:
+    """Strike three that gets away.
+
+    Returns ``(reached, outs_added, runs, wp/pb, scored, thrown_out)``;
+    ``thrown_out`` marks an eligible batter retired by the catcher's throw to
+    1st, which is the 1B's putout and the catcher's assist (rule 9.09(a)(2))
+    rather than the strikeout's unassisted putout.
+
+    Release 4 (M10):
+    - The batter may run only with 1st base open or two outs (rule
+      5.05(a)(2)), judged BEFORE the loose ball moves anyone. The old check
+      ran after the runners moved, so R1 taking 2nd let the batter reach.
+    - An eligible batter is not automatically safe (``_k_reach_prob``).
+    - The WP/PB is recorded only when the batter reached or a runner moved.
+    - A batter thrown out for the third out scores nobody (rule 5.08(a)):
+      the runners are put back and no WP/PB is charged.
+    """
+    eligible = bases.first is None or outs >= 2
+    miss = _scaled_miss(
         location=location, zone_bottom=zone_bottom, zone_top=zone_top, tuning=tuning
     )
-    miss *= tuning.get("missed_pitch_loc_scale", 0.6)
+    ctl = _clipped_battery(pitcher_control, "pitcher_control_center", tuning)
+    cfa = _clipped_battery(catcher_fielding, "catcher_fa_center", tuning)
+    k_rate = tuning.get("k_in_dirt_rate", 0.0101)
     k_rate *= 1.0 + miss
-    k_rate *= 1.0 + (50.0 - pitcher_control) / 150.0
-    k_rate *= 1.0 + (50.0 - catcher_fielding) / 140.0
+    k_rate *= math.exp((50.0 - ctl) / max(1.0, tuning.get("k_in_dirt_control_k", 40.0)))
+    k_rate *= math.exp((50.0 - cfa) / max(1.0, tuning.get("k_in_dirt_fa_k", 60.0)))
     if random.random() >= k_rate:
-        return False, 1, 0, None, []
+        return False, 1, 0, None, [], False
 
     miss_event = _missed_pitch_type(
         location=location,
@@ -3026,19 +3652,191 @@ def _resolve_dropped_third_strike(
         tuning=tuning,
         force=True,
     )
-    runs_scored, scored = _advance_on_missed_pitch(
+    before = (bases.first, bases.second, bases.third)
+    runs_scored, scored, advanced = _advance_on_missed_pitch(
         bases=bases, catcher_arm=catcher_arm, tuning=tuning
     )
-    eligible = bases.first is None or outs >= 2
-    outs_added = 1
     reached = False
     if eligible:
-        walk_runs, walk_scored = _advance_on_walk(bases, batter)
-        runs_scored += walk_runs
-        scored.extend(walk_scored)
-        outs_added = 0
-        reached = True
-    return reached, outs_added, runs_scored, miss_event, scored
+        reach = _k_reach_prob(
+            batter_speed=batter.speed, catcher_arm=catcher_arm, tuning=tuning
+        )
+        if random.random() < reach:
+            walk_runs, walk_scored = _advance_on_walk(bases, batter)
+            runs_scored += walk_runs
+            scored.extend(walk_scored)
+            reached = True
+    if reached:
+        return True, 0, runs_scored, miss_event, scored, False
+    if outs + 1 >= 3:
+        # The batter-runner is the third out before reaching 1st: no run.
+        bases.first, bases.second, bases.third = before
+        return False, 1, 0, None, [], eligible
+    if not advanced:
+        miss_event = None
+    return False, 1, runs_scored, miss_event, scored, eligible
+
+
+def _infield_in(
+    *,
+    bases: BaseState,
+    outs: int,
+    inning: int,
+    fielding_lead: int,
+    tuning: TuningConfig,
+) -> bool:
+    """Release 4 league-wide infield-in rule (owner decision 6a).
+
+    The infield plays in to cut off the run from 3rd with fewer than 2 outs
+    from ``infield_in_min_inning`` on, when the fielding team is tied or
+    ahead by at most ``infield_in_max_lead``. No per-team setting yet.
+    """
+    if bases.third is None or outs >= 2:
+        return False
+    if inning < tuning.get("infield_in_min_inning", 7.0):
+        return False
+    return 0 <= fielding_lead <= tuning.get("infield_in_max_lead", 2.0)
+
+
+def _ground_out_runners_v2(
+    *,
+    bases: BaseState,
+    outs: int,
+    batter: BatterRatings,
+    infield_range: float,
+    turn_arm: float,
+    primary_pos: str | None,
+    inning: int,
+    fielding_lead: int,
+    tuning: TuningConfig,
+) -> tuple[int, int, list[str], list[BatterRatings]]:
+    """Release 4 ground out after the triple-play roll (``ground_out_model`` 1).
+
+    Audit M8. Order: double play, then the runner on 3rd, then the rest.
+
+    - DP turned: with nobody out R3 scores with ``ground_out_dp_r3_score``
+      + (sp - 50) * ``ground_out_dp_r3_speed``; with one out the DP ends the
+      inning and nobody scores (L15). A forced R2 takes an open 3rd. With
+      the bases loaded and nobody out, an R3 who does not score was forced
+      out at home: a home-to-first DP (``dp`` + ``dp_home``), the batter out
+      at 1st, R2 to 3rd and R1 to 2nd.
+    - No DP, bases loaded: R3 is forced and scores unless the defence plays
+      at home (``ground_out_home_play_in`` with the infield in, ``_back``
+      otherwise): a fielder's choice at home (``fc_home``), the batter safe
+      at 1st and everyone moving up.
+    - No DP, 3rd not forced: R3 scores with ``ground_out_r3_score_0out`` /
+      ``_1out``, plus the infield-in adjustment, plus
+      ``ground_out_r3_speed`` per centred speed point.
+    - An unforced R2 (1st empty) takes an open 3rd on a productive out:
+      ``productive_out_right`` on balls to 1B/2B, ``_left`` otherwise,
+      + (sp - 50) * ``productive_out_speed``.
+    - Forced runners always advance: with R1 either the lead runner is
+      forced at 2nd (``fc``) or the batter is out at 1st and everyone moves
+      up. R1 is never left on 1st.
+    """
+    runs = 0
+    outs_added = 1
+    events: list[str] = []
+    scored: list[BatterRatings] = []
+    infield_in = _infield_in(
+        bases=bases,
+        outs=outs,
+        inning=inning,
+        fielding_lead=fielding_lead,
+        tuning=tuning,
+    )
+    if bases.first and outs < 2:
+        dp_prob = double_play_probability(
+            runner_speed=bases.first.speed,
+            infield_range=infield_range,
+            turn_arm=turn_arm,
+            tuning=tuning,
+            batter_speed=batter.speed,
+        )
+        if random.random() < dp_prob:
+            outs_added = 2
+            runner_first = bases.first
+            bases.first = None
+            events.append("dp")
+            if outs + outs_added < 3:
+                if bases.third:
+                    score_prob = tuning.get("ground_out_dp_r3_score", 0.90)
+                    score_prob += (bases.third.speed - 50.0) * tuning.get(
+                        "ground_out_dp_r3_speed", 0.0025
+                    )
+                    if random.random() < score_prob:
+                        runs += 1
+                        scored.append(bases.third)
+                        bases.third = None
+                    elif bases.second:
+                        # Bases loaded and R3 does not score: R3 was forced,
+                        # so this is a home-to-first DP. R3 is out at home,
+                        # the batter at 1st; R2 and R1 move up a base.
+                        bases.third = bases.second
+                        bases.second = runner_first
+                        events.append("dp_home")
+                        return runs, outs_added, events, scored
+                if bases.second and bases.third is None:
+                    bases.third = bases.second
+                    bases.second = None
+            return runs, outs_added, events, scored
+    if bases.third and outs < 2:
+        if bases.first and bases.second:
+            if infield_in:
+                home_play = tuning.get("ground_out_home_play_in", 0.50)
+            else:
+                home_play = tuning.get("ground_out_home_play_back", 0.05)
+            if random.random() < home_play:
+                # Force at home: R3 out, the batter safe at 1st, all move up.
+                bases.third = bases.second
+                bases.second = bases.first
+                bases.first = batter
+                events.append("fc_home")
+                return runs, outs_added, events, scored
+            third_scores = True
+        else:
+            if outs == 0:
+                score_prob = tuning.get("ground_out_r3_score_0out", 0.45)
+            else:
+                score_prob = tuning.get("ground_out_r3_score_1out", 0.55)
+            if infield_in:
+                score_prob += tuning.get("ground_out_r3_infield_in_adj", -0.25)
+            score_prob += (
+                _centred_speed(bases.third.speed, tuning) - 50.0
+            ) * tuning.get("ground_out_r3_speed", 0.004)
+            third_scores = random.random() < score_prob
+        if third_scores:
+            runs += 1
+            scored.append(bases.third)
+            bases.third = None
+    if bases.second and not bases.first and bases.third is None and outs < 2:
+        if primary_pos in {"1B", "2B"}:
+            adv_prob = tuning.get("productive_out_right", 0.75)
+        else:
+            adv_prob = tuning.get("productive_out_left", 0.35)
+        adv_prob += (bases.second.speed - 50.0) * tuning.get(
+            "productive_out_speed", 0.004
+        )
+        if random.random() < adv_prob:
+            bases.third = bases.second
+            bases.second = None
+    if bases.first and outs < 2:
+        force_prob = tuning.get("fielder_choice_force_prob", 0.55)
+        force_prob += (infield_range - 50.0) / 200.0
+        force_prob += (turn_arm - 50.0) / 320.0
+        force_prob -= (bases.first.speed - 50.0) / 220.0
+        # R2 is forced too: he takes 3rd (open by now) either way.
+        if bases.second is not None and bases.third is None:
+            bases.third = bases.second
+            bases.second = None
+        if random.random() < force_prob:
+            # Lead runner forced at 2nd; the batter is safe at 1st.
+            bases.first = batter
+            events.append("fc")
+        else:
+            bases.second = bases.first
+            bases.first = None
+    return runs, outs_added, events, scored
 
 
 def _resolve_ground_out(
@@ -3051,7 +3849,16 @@ def _resolve_ground_out(
     spray_angle: float | None,
     batter_side: str,
     tuning: TuningConfig,
+    inning: int = 1,
+    fielding_lead: int = 0,
 ) -> tuple[int, int, list[str], list[BatterRatings]]:
+    """Resolve a ground-ball out with runners on.
+
+    ``ground_out_model`` 0 is the 7.47.0 play; 1 hands everything after the
+    triple-play roll to ``_ground_out_runners_v2`` (audit M8), which reads
+    ``inning`` and ``fielding_lead`` (fielding score minus batting score)
+    for the infield-in rule.
+    """
     runs = 0
     outs_added = 1
     events: list[str] = []
@@ -3100,7 +3907,9 @@ def _resolve_ground_out(
         arm_values.append(adjusted_arm_rating(oneb_fielder, tuning))
     if arm_values:
         turn_arm = sum(arm_values) / len(arm_values)
-    if bases.first and bases.second and outs < 2:
+    # A triple play needs three outs left: with one out a ground ball can
+    # end the inning only as a double play (it used to record a 4th out).
+    if bases.first and bases.second and outs == 0:
         tp_prob = tuning.get("triple_play_base", 0.0008)
         tp_prob += (infield_range - 50.0) / 900.0
         tp_prob -= (bases.first.speed - 50.0) / 800.0
@@ -3112,6 +3921,18 @@ def _resolve_ground_out(
             bases.second = None
             events.append("tp")
             return runs, outs_added, events, scored
+    if tuning.get("ground_out_model", 0.0) >= 0.5:
+        return _ground_out_runners_v2(
+            bases=bases,
+            outs=outs,
+            batter=batter,
+            infield_range=infield_range,
+            turn_arm=turn_arm,
+            primary_pos=primary_pos,
+            inning=inning,
+            fielding_lead=fielding_lead,
+            tuning=tuning,
+        )
     # Audit L15: the runner on 3rd's chance to score is rolled here, as it
     # always was (so the RNG stream is unchanged), but the run only counts if
     # the play does not end the inning as a double play (rule 5.08(a)).
@@ -3126,6 +3947,7 @@ def _resolve_ground_out(
             infield_range=infield_range,
             turn_arm=turn_arm,
             tuning=tuning,
+            batter_speed=batter.speed,
         )
         if random.random() < dp_prob:
             outs_added = 2
@@ -3608,6 +4430,10 @@ def _resolve_bunt(
             hit_type="single",
             defense_arm=defense.arm,
             tuning=tuning,
+            outs=outs,
+            # Release 4b: a bunt single is an infield single, so with the
+            # infield-single switch on the runners move up one base.
+            infield_hit=tuning.get("infield_single_ev_max", 0.0) > 0.0,
         )
         runs += runs_scored
         outs_added += outs_added_hit
@@ -4572,6 +5398,8 @@ def simulate_game(
         "fc": 0,
         "gidp": 0,
         "tp": 0,
+        # Release 4 (M7): runner thrown out at home on a tag-up (tag_dp).
+        "dp_air": 0,
         "sf": 0,
         "sh": 0,
         "sb": 0,
@@ -4600,12 +5428,18 @@ def simulate_game(
         "xbt_opp": 0,
         "xbt_taken": 0,
         "xbt_out": 0,
+        # Release 4 (M10): batters who reached on a dropped third strike.
+        "k_reach": 0,
     }
     pitch_log: List[Dict[str, Any]] = []
     score_away = 0
     score_home = 0
     inning_runs_away: List[int] = []
     inning_runs_home: List[int] = []
+    # Release 4 F1: outs recorded in each half-inning (never more than 3),
+    # for the KPI harness's zero gate.
+    inning_outs_away: List[int] = []
+    inning_outs_home: List[int] = []
 
     # Basic lineup/defense selection for a two-team matchup.
     if away_lineup is None or home_lineup is None:
@@ -5078,6 +5912,7 @@ def simulate_game(
             infield_play: bool,
             error_on: str,
             log_entry: dict[str, Any] | None = None,
+            fielder_pos: str | None = None,
         ) -> None:
             nonlocal unearned_outs
             if not error_runners:
@@ -5097,6 +5932,7 @@ def simulate_game(
                     batter_side=batter_side,
                     infield_play=infield_play,
                     tuning=tuning,
+                    fielder_pos=fielder_pos,
                 )
             entry = log_entry
             if entry is None and pitch_log:
@@ -5143,9 +5979,11 @@ def simulate_game(
             if batting_team == "away":
                 totals["lob_away"] += lob
                 inning_runs_away.append(half_inning_runs)
+                inning_outs_away.append(outs)
             else:
                 totals["lob_home"] += lob
                 inning_runs_home.append(half_inning_runs)
+                inning_outs_home.append(outs)
 
         def post_at_bat(pitcher_state: PitcherState) -> None:
             if walkoff or outs >= 3 or not pitch_log:
@@ -5242,6 +6080,8 @@ def simulate_game(
             if batter_line.g == 0:
                 batter_line.g = 1
             line.batters_faced += 1
+            pa_line = line
+            pa_cut_short = False
             # S2-07: times-through-order pass for this PA (same count the hook
             # logic uses); flush the prior PA's split and snapshot this one.
             _pa_tto = _times_through_order(
@@ -5505,6 +6345,11 @@ def simulate_game(
                     entry.update(pa_start_info)
                     pa_start_info = None
                 pitch_log.append(entry)
+                # Release 4 (W1): the bases and outs before this pitch's play,
+                # stamped on the entry when it ends with a runner_event (the
+                # KPI harness checks steals, WP/PB and K reaches against them).
+                event_bases = _bases_mask(bases)
+                event_outs = outs
                 batter_line.pitches += 1
                 is_strike = res.outcome in _STRIKE_OUTCOMES
                 is_ball = res.outcome in _BALL_OUTCOMES
@@ -5644,28 +6489,53 @@ def simulate_game(
                     if scored:
                         batter_line.rbi += len(scored)
                     at_bat_over = True
-                elif res.outcome == "strike":
-                    totals["called_strikes"] += 1
-                    pitch_log[-1]["called_strike"] = True
-                    pitch_log[-1]["called_strike_zone"] = (
-                        "in_zone" if res.in_zone else "out_of_zone"
-                    )
+                elif res.outcome in ("strike", "swinging_strike"):
+                    called = res.outcome == "strike"
+                    if called:
+                        totals["called_strikes"] += 1
+                        pitch_log[-1]["called_strike"] = True
+                        pitch_log[-1]["called_strike_zone"] = (
+                            "in_zone" if res.in_zone else "out_of_zone"
+                        )
+                    else:
+                        totals["swinging_strikes"] += 1
+                        pitch_log[-1]["swinging_strike"] = True
                     strikes += 1
                     if strikes >= 3:
+                        # Release 4 (M10): one strikeout finisher for the
+                        # called and swinging third strike. The swinging copy
+                        # never registered the batter in runner_pitchers on a
+                        # dropped-third-strike reach, so a run he later scored
+                        # after a pitching change was charged to the reliever.
                         totals["ab"] += 1
                         totals["k"] += 1
-                        totals["so_looking"] += 1
-                        totals["called_third_strikes"] += 1
                         line.strikeouts += 1
-                        line.so_looking += 1
                         line.consecutive_hits = 0
                         batter_line.ab += 1
                         batter_line.so += 1
-                        batter_line.so_looking += 1
+                        if called:
+                            totals["so_looking"] += 1
+                            totals["called_third_strikes"] += 1
+                            line.so_looking += 1
+                            batter_line.so_looking += 1
+                        else:
+                            totals["so_swinging"] += 1
+                            totals["swinging_third_strikes"] += 1
+                            line.so_swinging += 1
+                            batter_line.so_swinging += 1
                         pitch_log[-1]["strikeout"] = True
-                        pitch_log[-1]["strikeout_type"] = "called"
+                        pitch_log[-1]["strikeout_type"] = (
+                            "called" if called else "swinging"
+                        )
                         before_ids = _base_runner_ids(bases)
-                        reached, outs_added, runs_scored, miss_event, scored = (
+                        (
+                            reached,
+                            outs_added,
+                            runs_scored,
+                            miss_event,
+                            scored,
+                            k_thrown_out,
+                        ) = (
                             _resolve_dropped_third_strike(
                                 bases=bases,
                                 outs=outs,
@@ -5687,6 +6557,8 @@ def simulate_game(
                         )
                         if reached:
                             runner_pitchers[batter.player_id] = line
+                            totals["k_reach"] += 1
+                            pitch_log[-1]["k_reached"] = True
                         if miss_event == "wp":
                             totals["wp"] += 1
                             line.wp += 1
@@ -5697,6 +6569,13 @@ def simulate_game(
                             if catcher is not None:
                                 _fielding_line(defense_state, catcher.player_id).pb += 1
                             pitch_log[-1]["runner_event"] = "k_pb"
+                            if reached:
+                                # Reached on a passed ball: his run is
+                                # unearned and the strikeout counts as an out
+                                # when the inning is reconstructed (rule
+                                # 9.16(a)), as for a reach on an error.
+                                unearned_outs += 1
+                                unearned_runners.add(batter.player_id)
                         if reached:
                             line.inning_baserunners += 1
                         record_runs(runs_scored, line, scored)
@@ -5704,63 +6583,20 @@ def simulate_game(
                         line.outs += outs_added
                         if outs_added:
                             # M9: a strikeout is the catcher's unassisted
-                            # putout; the pitcher gets no assist for it.
+                            # putout; the pitcher gets no assist for it. A
+                            # batter thrown out after a dropped third strike
+                            # is the 1B's putout and the catcher's assist.
                             catcher = defense_map.get("C")
-                            if catcher is not None:
+                            first_base = defense_map.get("1B")
+                            if k_thrown_out and first_base is not None:
                                 _fielding_line(
-                                    defense_state, catcher.player_id
+                                    defense_state, first_base.player_id
                                 ).po += outs_added
-                        at_bat_over = True
-                elif res.outcome == "swinging_strike":
-                    totals["swinging_strikes"] += 1
-                    pitch_log[-1]["swinging_strike"] = True
-                    strikes += 1
-                    if strikes >= 3:
-                        totals["ab"] += 1
-                        totals["k"] += 1
-                        totals["so_swinging"] += 1
-                        totals["swinging_third_strikes"] += 1
-                        line.strikeouts += 1
-                        line.so_swinging += 1
-                        line.consecutive_hits = 0
-                        batter_line.ab += 1
-                        batter_line.so += 1
-                        batter_line.so_swinging += 1
-                        pitch_log[-1]["strikeout"] = True
-                        pitch_log[-1]["strikeout_type"] = "swinging"
-                        reached, outs_added, runs_scored, miss_event, scored = (
-                            _resolve_dropped_third_strike(
-                                bases=bases,
-                                outs=outs,
-                                batter=batter,
-                                pitcher_control=pitcher.control,
-                                catcher_fielding=catcher_fielding,
-                                catcher_arm=catcher_arm,
-                                tuning=tuning,
-                                location=res.location,
-                                zone_bottom=zone_bottom,
-                                zone_top=zone_top,
-                            )
-                        )
-                        if miss_event == "wp":
-                            totals["wp"] += 1
-                            line.wp += 1
-                            pitch_log[-1]["runner_event"] = "k_wp"
-                        elif miss_event == "pb":
-                            totals["pb"] += 1
-                            catcher = defense_map.get("C")
-                            if catcher is not None:
-                                _fielding_line(defense_state, catcher.player_id).pb += 1
-                            pitch_log[-1]["runner_event"] = "k_pb"
-                        if reached:
-                            line.inning_baserunners += 1
-                        record_runs(runs_scored, line, scored)
-                        outs += outs_added
-                        line.outs += outs_added
-                        if outs_added:
-                            # M9: catcher's unassisted putout, no pitcher assist.
-                            catcher = defense_map.get("C")
-                            if catcher is not None:
+                                if catcher is not None:
+                                    _fielding_line(
+                                        defense_state, catcher.player_id
+                                    ).a += 1
+                            elif catcher is not None:
                                 _fielding_line(
                                     defense_state, catcher.player_id
                                 ).po += outs_added
@@ -5842,6 +6678,7 @@ def simulate_game(
                             pull_tendency=batter.pull_tendency,
                             defense=defense_ratings,
                             tuning=tuning,
+                            batter_speed=batter.speed,
                         )
                         hit_prob = (1.0 - out_prob) * tuning.get("babip_scale", 1.0)
                         hit_prob = max(0.02, min(0.95, hit_prob))
@@ -5852,14 +6689,23 @@ def simulate_game(
                             line.inning_baserunners += 1
                             line.consecutive_hits += 1
                             batter_line.h += 1
-                            advance_infield = ball_type == "gb"
-                            advance_pos = _fielder_position_for_ball(
+                            # Release 4 (L21): runners advance on the
+                            # outfielder who picks the ball up, including on
+                            # a ground-ball single; only an infield single
+                            # (4b, off by default) stays with the infielder.
+                            advance_infield = _is_infield_single(
                                 ball_type=ball_type,
+                                hit_type=hit_type,
+                                exit_velo=res.exit_velo or 90.0,
+                                tuning=tuning,
+                            )
+                            advance_primary = _hit_advance_position(
                                 spray_angle=res.spray_angle,
                                 batter_side=batter_hand,
                                 tuning=tuning,
-                                infield_play=advance_infield,
+                                infield_hit=advance_infield,
                             )
+                            advance_pos = advance_primary
                             advance_fallback = (
                                 ["SS", "2B", "3B", "1B"]
                                 if advance_infield
@@ -5903,6 +6749,8 @@ def simulate_game(
                                 totals["b1"] += 1
                             before_ids = _base_runner_ids(bases)
                             xbt_first, xbt_second = bases.first, bases.second
+                            runners_before = (bases.first, bases.second, bases.third)
+                            hit_rule: dict[str, int] = {}
                             (
                                 runs_scored,
                                 outs_added,
@@ -5915,6 +6763,9 @@ def simulate_game(
                                 hit_type=resolved_hit,
                                 defense_arm=advance_arm,
                                 tuning=tuning,
+                                outs=outs,
+                                infield_hit=advance_infield,
+                                rule_log=hit_rule,
                             )
                             _tally_extra_bases_taken(
                                 totals,
@@ -5941,15 +6792,33 @@ def simulate_game(
                                 spray_angle=res.spray_angle,
                                 batter_side=batter_hand,
                                 tuning=tuning,
+                                fielder_pos=advance_primary,
                             )
                             apply_advance_errors(
                                 error_runners=error_advances,
                                 ball_type=ball_type,
                                 spray_angle=res.spray_angle,
                                 batter_side=batter_hand,
-                                infield_play=ball_type == "gb",
+                                infield_play=advance_infield,
                                 error_on="advance",
+                                fielder_pos=advance_primary,
                             )
+                            hit_adv = _hit_advance_log(
+                                runners_before,
+                                bases=bases,
+                                scored=scored,
+                                error_advances=error_advances,
+                            )
+                            if hit_adv:
+                                pitch_log[-1]["hit_adv"] = hit_adv
+                                # Release 4 F1: the live out count (a steal
+                                # or pickoff earlier in the PA can change it
+                                # from the PA-start state).
+                                pitch_log[-1]["hit_outs"] = outs
+                            if hit_rule:
+                                pitch_log[-1]["hit_rule"] = hit_rule
+                            if advance_infield:
+                                pitch_log[-1]["infield_hit"] = True
                             record_runs(runs_scored, line, scored)
                             if scored:
                                 rbi_runs = rbi_credit(scored, error_advances)
@@ -6057,6 +6926,8 @@ def simulate_game(
                                 pitch_log[-1]["error_on"] = out_type
                                 pitch_log[-1].update(res.__dict__)
                                 before_ids = _base_runner_ids(bases)
+                                runners_before = (bases.first, bases.second, bases.third)
+                                hit_rule = {}
                                 (
                                     runs_scored,
                                     outs_added,
@@ -6068,7 +6939,23 @@ def simulate_game(
                                     batter=batter,
                                     defense_arm=error_arm,
                                     tuning=tuning,
+                                    outs=outs,
+                                    rule_log=hit_rule,
                                 )
+                                # Release 4 F1: the same runner rows and live
+                                # out count as a hit, for the rule 5.08(a)
+                                # KPI (the hit-advance tables read hits only).
+                                roe_adv = _hit_advance_log(
+                                    runners_before,
+                                    bases=bases,
+                                    scored=scored,
+                                    error_advances=error_advances,
+                                )
+                                if roe_adv:
+                                    pitch_log[-1]["hit_adv"] = roe_adv
+                                    pitch_log[-1]["hit_outs"] = outs
+                                if hit_rule:
+                                    pitch_log[-1]["hit_rule"] = hit_rule
                                 _reconcile_runner_pitchers(
                                     runner_pitchers,
                                     before_ids=before_ids,
@@ -6111,6 +6998,12 @@ def simulate_game(
                                 )
                                 if out_type == "groundout":
                                     before_ids = _base_runner_ids(bases)
+                                    go_runner3 = bases.third
+                                    go_mask = _bases_mask(bases)
+                                    if batting_team == "away":
+                                        fielding_lead = score_home - score_away
+                                    else:
+                                        fielding_lead = score_away - score_home
                                     runs_scored, outs_added, events, scored = _resolve_ground_out(
                                         bases=bases,
                                         outs=outs,
@@ -6120,7 +7013,20 @@ def simulate_game(
                                         spray_angle=res.spray_angle,
                                         batter_side=batter_side,
                                         tuning=tuning,
+                                        inning=inning,
+                                        fielding_lead=fielding_lead,
                                     )
+                                    if go_runner3 is not None and outs < 2:
+                                        # Release 4 (W3) play record for the
+                                        # KPI harness; read by nothing in the
+                                        # engine, no draws.
+                                        pitch_log[-1]["go3"] = {
+                                            "runner": go_runner3.player_id,
+                                            "outs": outs,
+                                            "bases": go_mask,
+                                            "scored": go_runner3 in scored,
+                                            "dp": "dp" in events,
+                                        }
                                     _reconcile_runner_pitchers(
                                         runner_pitchers,
                                         before_ids=before_ids,
@@ -6210,6 +7116,13 @@ def simulate_game(
                                             if oneb_id not in used_tp:
                                                 oneb_line.tp += 1
                                                 used_tp.add(oneb_id)
+                                    elif "dp_home" in events:
+                                        _credit_home_to_first_double_play(
+                                            defense_state=defense_state,
+                                            defense_map=defense_map,
+                                            primary_fielder=primary_fielder,
+                                            oneb_fielder=oneb_fielder,
+                                        )
                                     elif "dp" in events:
                                         _credit_ground_double_play(
                                             defense_state=defense_state,
@@ -6218,6 +7131,18 @@ def simulate_game(
                                             primary_fielder=primary_fielder,
                                             oneb_fielder=oneb_fielder,
                                         )
+                                    elif "fc_home" in events:
+                                        # Release 4 (M8): force at home with
+                                        # the bases loaded, C takes the throw.
+                                        if primary_fielder is not None:
+                                            _fielding_line(
+                                                defense_state, primary_fielder.player_id
+                                            ).a += 1
+                                        catcher = defense_map.get("C")
+                                        if catcher is not None:
+                                            _fielding_line(
+                                                defense_state, catcher.player_id
+                                            ).po += 1
                                     elif "fc" in events:
                                         if primary_fielder is not None:
                                             _fielding_line(
@@ -6258,7 +7183,7 @@ def simulate_game(
                                         batter_line.gidp += 1
                                     if "tp" in events:
                                         totals["tp"] += 1
-                                    if "fc" in events:
+                                    if "fc" in events or "fc_home" in events:
                                         totals["fc"] += 1
                                         batter_line.fc += 1
                                         line.inning_baserunners += 1
@@ -6295,6 +7220,8 @@ def simulate_game(
                                         fallback_arm=defense_ratings.arm,
                                         tuning=tuning,
                                     )
+                                    tag_runner3 = bases.third if outs < 2 else None
+                                    tag_runner2 = bases.second if outs < 2 else None
                                     (
                                         runs_scored,
                                         extra_outs,
@@ -6306,7 +7233,15 @@ def simulate_game(
                                         outs=outs,
                                         thrower_arm=thrower_arm,
                                         tuning=tuning,
+                                        distance=res.distance,
+                                        exit_velo=res.exit_velo,
+                                        launch_angle=res.launch_angle,
+                                        ball_type=ball_type,
+                                        infield_play=infield_play,
                                     )
+                                    # The tag-up play itself, before any
+                                    # throwing error reverses an out.
+                                    race_outs = extra_outs
                                     air_events: list[str] = []
                                     if (
                                         tag_out_runner is not None
@@ -6338,18 +7273,84 @@ def simulate_game(
                                         _fielding_line(
                                             defense_state, fielder.player_id
                                         ).po += 1
+                                    # Release 4 (M7): with the tag-up model a
+                                    # runner thrown out at home is a double
+                                    # play (fly out + tag) -- not a GIDP.
+                                    tag_dp = bool(extra_outs) and (
+                                        tuning.get("tag_up_model", 0.0) >= 0.5
+                                    )
                                     if extra_outs:
                                         totals["oob"] += extra_outs
+                                        if tag_dp:
+                                            totals["dp_air"] += 1
+                                            air_events.append("tag_dp")
                                         if fielder is not None:
-                                            _fielding_line(
+                                            fielder_line = _fielding_line(
                                                 defense_state, fielder.player_id
-                                            ).a += extra_outs
+                                            )
+                                            fielder_line.a += extra_outs
+                                            if tag_dp:
+                                                fielder_line.dp += 1
                                         catcher = defense_map.get("C")
                                         if catcher is not None:
-                                            _fielding_line(
+                                            catcher_line = _fielding_line(
                                                 defense_state, catcher.player_id
-                                            ).po += extra_outs
+                                            )
+                                            catcher_line.po += extra_outs
+                                            if tag_dp:
+                                                catcher_line.dp += 1
                                     outs_added = 1 + extra_outs
+                                    # Release 4 (W3) play records for the KPI
+                                    # harness; no draws. ``short`` is a fly
+                                    # under tag_up_min_carry_ft (model 1:
+                                    # nobody tags), flagged under both models.
+                                    short_fly = _tag_up_short_fly(res.distance, tuning)
+                                    if tag_runner3 is not None:
+                                        if tag_runner3 in scored:
+                                            tag_result = (
+                                                "error" if "e_th" in air_events else "score"
+                                            )
+                                        elif extra_outs and tag_out_runner is tag_runner3:
+                                            tag_result = "out"
+                                        else:
+                                            tag_result = "hold"
+                                        pitch_log[-1]["tag3"] = {
+                                            "runner": tag_runner3.player_id,
+                                            "fielder": (
+                                                fielder.player_id if fielder is not None else None
+                                            ),
+                                            "pos": pos,
+                                            "arm": round(float(thrower_arm), 1),
+                                            "infield": bool(infield_play),
+                                            "short": short_fly,
+                                            "dist": round(float(res.distance or 0.0), 1),
+                                            "outs": outs,
+                                            "result": tag_result,
+                                        }
+                                    # R2's chance: 3rd open after R3's play
+                                    # and the inning still alive after the
+                                    # tag-up race itself -- a throw-out that
+                                    # made the 3rd out came before R2's roll,
+                                    # even if a throwing error then undid it.
+                                    if (
+                                        tag_runner2 is not None
+                                        and (
+                                            tag_runner3 is None
+                                            or bases.third is not tag_runner3
+                                        )
+                                        and outs + 1 + race_outs < 3
+                                    ):
+                                        pitch_log[-1]["tag2"] = {
+                                            "runner": tag_runner2.player_id,
+                                            "arm": round(float(thrower_arm), 1),
+                                            "infield": bool(infield_play),
+                                            "short": short_fly,
+                                            "dist": round(float(res.distance or 0.0), 1),
+                                            "outs": outs,
+                                            "result": (
+                                                "adv" if bases.third is tag_runner2 else "hold"
+                                            ),
+                                        }
                                     if sac_fly:
                                         totals["sf"] += 1
                                         batter_line.sf += 1
@@ -6370,6 +7371,9 @@ def simulate_game(
                 if at_bat_over:
                     sync_unearned_runners()
                     post_at_bat(pitcher_state)
+                    if entry.get("runner_event"):
+                        entry["event_bases"] = event_bases
+                        entry["event_outs"] = event_outs
                     break
 
                 runner_event = None
@@ -6389,6 +7393,10 @@ def simulate_game(
                         "po3": bases.third,
                         "poa3": bases.third,
                     }
+                    # Release 4: a foul ball is dead, so nothing below that
+                    # needs a live ball (a missed pitch, a steal) happens on
+                    # one. Balks and pickoffs may still follow a foul.
+                    live_pitch = res.outcome != "foul"
                     if bases.first or bases.second or bases.third:
                         balk_rate = tuning.get("balk_rate", 0.0004)
                         balk_rate *= 1.0 + (50.0 - pitcher.control) / 200.0
@@ -6398,108 +7406,67 @@ def simulate_game(
                             runs_scored, scored = _advance_on_balk(bases)
                             record_runs(runs_scored, line, scored)
                             runner_event = "balk"
-                    if runner_event is None:
-                        miss_event = _missed_pitch_type(
-                            location=res.location,
-                            pitcher_control=pitcher.control,
-                            catcher_fielding=catcher_fielding,
-                            zone_bottom=zone_bottom,
-                            zone_top=zone_top,
-                            tuning=tuning,
-                        )
-                        if miss_event:
-                            runner_event = miss_event
-                            if miss_event == "wp":
-                                totals["wp"] += 1
-                                line.wp += 1
-                            else:
-                                totals["pb"] += 1
-                                catcher = defense_map.get("C")
-                                if catcher is not None:
-                                    _fielding_line(defense_state, catcher.player_id).pb += 1
-                            runs_scored, scored = _advance_on_missed_pitch(
-                                bases=bases, catcher_arm=catcher_arm, tuning=tuning
-                            )
-                            record_runs(runs_scored, line, scored)
-                        else:
-                            (
-                                pickoff_event,
-                                pickoff_outs,
-                                pickoff_attempted,
-                            ) = _attempt_pickoff(
-                                bases=bases,
-                                pitcher_hold=pitcher.hold_runner,
-                                pitcher_arm=pitcher.arm,
-                                defense_arm=defense_ratings.arm,
+                        # Release 4 (M10): the missed-pitch roll used to run
+                        # with the bases empty and on fouls, and recorded a
+                        # WP/PB even when nobody moved. Now: runners on, live
+                        # ball, and a WP/PB only when a runner advances (rule
+                        # 9.13); a blocked ball falls through to the pickoff
+                        # and steal rolls as normal.
+                        if runner_event is None and live_pitch:
+                            miss_event = _missed_pitch_type(
+                                location=res.location,
+                                pitcher_control=pitcher.control,
+                                catcher_fielding=catcher_fielding,
+                                zone_bottom=zone_bottom,
+                                zone_top=zone_top,
                                 tuning=tuning,
                             )
-                            if pickoff_attempted:
-                                if pickoff_outs:
-                                    totals["po"] += pickoff_outs
-                                    outs += pickoff_outs
-                                    line.outs += pickoff_outs
-                                runner_event = pickoff_event
-                                runner = pickoff_refs.get(pickoff_event)
-                                if pickoff_event in {"po1", "po2", "po3"} and runner:
-                                    base_map = {
-                                        "po1": "first",
-                                        "po2": "second",
-                                        "po3": "third",
-                                    }
-                                    base_key = base_map.get(pickoff_event, "")
-                                    is_pocs = _pickoff_caught_stealing(
-                                        runner=runner,
-                                        base=base_key,
-                                        pitcher_hold=pitcher.hold_runner,
-                                        pitcher_arm=pitcher.arm,
-                                        catcher_arm=catcher_arm,
-                                        catcher_fielding=catcher_fielding,
-                                        balls=balls,
-                                        strikes=strikes,
-                                        outs=outs,
-                                        inning=inning,
-                                        score_diff=score_diff,
-                                        tuning=tuning,
-                                    )
-                                    if is_pocs:
-                                        _batter_line(offense_state, runner).pocs += 1
-                                        line.pocs += 1
+                            if miss_event:
+                                runs_scored, scored, advanced = _advance_on_missed_pitch(
+                                    bases=bases, catcher_arm=catcher_arm, tuning=tuning
+                                )
+                                if advanced:
+                                    runner_event = miss_event
+                                    if miss_event == "wp":
+                                        totals["wp"] += 1
+                                        line.wp += 1
                                     else:
-                                        _batter_line(offense_state, runner).po += 1
-                                        line.pk += 1
-                                        _fielding_line(
-                                            defense_state,
-                                            pitcher_state.pitcher.player_id,
-                                        ).pk += 1
-                                    pos_map = {"po1": "1B", "po2": "2B", "po3": "3B"}
-                                    pos = pos_map.get(pickoff_event)
-                                    if pos:
-                                        fielder = defense_map.get(pos)
-                                        if fielder is not None:
+                                        totals["pb"] += 1
+                                        catcher = defense_map.get("C")
+                                        if catcher is not None:
                                             _fielding_line(
-                                                defense_state, fielder.player_id
-                                            ).po += 1
-                                    runner_pitchers.pop(runner.player_id, None)
-                                    injury_event = _maybe_injure_player(
-                                        injury_sim=injury_sim,
-                                        injured_players=injured_players,
-                                        injury_events=injury_events,
-                                        player=runner,
-                                        trigger="collision",
-                                        context={"speed": runner.speed / 100.0},
-                                        inning=inning,
-                                        outs=outs,
-                                        team=batting_team,
-                                        pitcher_id=pitcher.player_id,
-                                        tuning=tuning,
-                                        lineup_state=offense_state,
-                                        runner_pitchers=runner_pitchers,
-                                    )
-                                    if injury_event:
-                                        pitch_log[-1]["injury"] = injury_event
-                            else:
-                                events, outs_added, runs_scored, scored = _attempt_steal(
-                                    bases=bases,
+                                                defense_state, catcher.player_id
+                                            ).pb += 1
+                                    record_runs(runs_scored, line, scored)
+                    if runner_event is None:
+                        (
+                            pickoff_event,
+                            pickoff_outs,
+                            pickoff_attempted,
+                        ) = _attempt_pickoff(
+                            bases=bases,
+                            pitcher_hold=pitcher.hold_runner,
+                            pitcher_arm=pitcher.arm,
+                            defense_arm=defense_ratings.arm,
+                            tuning=tuning,
+                        )
+                        if pickoff_attempted:
+                            if pickoff_outs:
+                                totals["po"] += pickoff_outs
+                                outs += pickoff_outs
+                                line.outs += pickoff_outs
+                            runner_event = pickoff_event
+                            runner = pickoff_refs.get(pickoff_event)
+                            if pickoff_event in {"po1", "po2", "po3"} and runner:
+                                base_map = {
+                                    "po1": "first",
+                                    "po2": "second",
+                                    "po3": "third",
+                                }
+                                base_key = base_map.get(pickoff_event, "")
+                                is_pocs = _pickoff_caught_stealing(
+                                    runner=runner,
+                                    base=base_key,
                                     pitcher_hold=pitcher.hold_runner,
                                     pitcher_arm=pitcher.arm,
                                     catcher_arm=catcher_arm,
@@ -6511,70 +7478,133 @@ def simulate_game(
                                     score_diff=score_diff,
                                     tuning=tuning,
                                 )
-                                if events:
-                                    catcher = defense_map.get("C")
-                                    catcher_line = (
-                                        _fielding_line(defense_state, catcher.player_id)
-                                        if catcher is not None
-                                        else None
-                                    )
-                                    for runner, event_code in events:
-                                        if event_code.startswith("sb"):
-                                            totals["sb"] += 1
-                                            _batter_line(offense_state, runner).sb += 1
-                                            if catcher_line is not None:
-                                                catcher_line.sba += 1
-                                        elif event_code.startswith("cs"):
-                                            totals["cs"] += 1
-                                            _batter_line(offense_state, runner).cs += 1
-                                            if catcher_line is not None:
-                                                catcher_line.sba += 1
-                                                catcher_line.cs += 1
-                                                catcher_line.a += 1
-                                            tagger = None
-                                            if event_code == "cs2":
-                                                tagger = defense_map.get("2B") or defense_map.get(
-                                                    "SS"
-                                                )
-                                            elif event_code == "cs3":
-                                                tagger = defense_map.get("3B")
-                                            elif event_code == "csh":
-                                                tagger = defense_map.get("C")
-                                            if tagger is not None:
-                                                _fielding_line(
-                                                    defense_state, tagger.player_id
-                                                ).po += 1
-                                            runner_pitchers.pop(runner.player_id, None)
-                                    if outs_added:
-                                        outs += outs_added
-                                        line.outs += outs_added
-                                    record_runs(runs_scored, line, scored)
-                                    runner_event = "+".join(event_code for _, event_code in events)
-                                    for runner, event_code in events:
-                                        if event_code.startswith("cs") or event_code == "csh":
-                                            injury_event = _maybe_injure_player(
-                                                injury_sim=injury_sim,
-                                                injured_players=injured_players,
-                                                injury_events=injury_events,
-                                                player=runner,
-                                                trigger="collision",
-                                                context={"speed": runner.speed / 100.0},
-                                                inning=inning,
-                                                outs=outs,
-                                                team=batting_team,
-                                                pitcher_id=pitcher.player_id,
-                                                tuning=tuning,
-                                                lineup_state=offense_state,
-                                                runner_pitchers=runner_pitchers,
+                                if is_pocs:
+                                    _batter_line(offense_state, runner).pocs += 1
+                                    line.pocs += 1
+                                else:
+                                    _batter_line(offense_state, runner).po += 1
+                                    line.pk += 1
+                                    _fielding_line(
+                                        defense_state,
+                                        pitcher_state.pitcher.player_id,
+                                    ).pk += 1
+                                pos_map = {"po1": "1B", "po2": "2B", "po3": "3B"}
+                                pos = pos_map.get(pickoff_event)
+                                if pos:
+                                    fielder = defense_map.get(pos)
+                                    if fielder is not None:
+                                        _fielding_line(
+                                            defense_state, fielder.player_id
+                                        ).po += 1
+                                runner_pitchers.pop(runner.player_id, None)
+                                injury_event = _maybe_injure_player(
+                                    injury_sim=injury_sim,
+                                    injured_players=injured_players,
+                                    injury_events=injury_events,
+                                    player=runner,
+                                    trigger="collision",
+                                    context={"speed": runner.speed / 100.0},
+                                    inning=inning,
+                                    outs=outs,
+                                    team=batting_team,
+                                    pitcher_id=pitcher.player_id,
+                                    tuning=tuning,
+                                    lineup_state=offense_state,
+                                    runner_pitchers=runner_pitchers,
+                                )
+                                if injury_event:
+                                    pitch_log[-1]["injury"] = injury_event
+                        elif live_pitch:
+                            events, outs_added, runs_scored, scored = _attempt_steal(
+                                bases=bases,
+                                pitcher_hold=pitcher.hold_runner,
+                                pitcher_arm=pitcher.arm,
+                                catcher_arm=catcher_arm,
+                                catcher_fielding=catcher_fielding,
+                                balls=balls,
+                                strikes=strikes,
+                                outs=outs,
+                                inning=inning,
+                                score_diff=score_diff,
+                                tuning=tuning,
+                            )
+                            if events:
+                                catcher = defense_map.get("C")
+                                catcher_line = (
+                                    _fielding_line(defense_state, catcher.player_id)
+                                    if catcher is not None
+                                    else None
+                                )
+                                for runner, event_code in events:
+                                    if event_code.startswith("sb"):
+                                        totals["sb"] += 1
+                                        _batter_line(offense_state, runner).sb += 1
+                                        if catcher_line is not None:
+                                            catcher_line.sba += 1
+                                    elif event_code.startswith("cs"):
+                                        totals["cs"] += 1
+                                        _batter_line(offense_state, runner).cs += 1
+                                        if catcher_line is not None:
+                                            catcher_line.sba += 1
+                                            catcher_line.cs += 1
+                                            catcher_line.a += 1
+                                        tagger = None
+                                        if event_code == "cs2":
+                                            tagger = defense_map.get("2B") or defense_map.get(
+                                                "SS"
                                             )
-                                            if injury_event:
-                                                pitch_log[-1]["injury"] = injury_event
+                                        elif event_code == "cs3":
+                                            tagger = defense_map.get("3B")
+                                        elif event_code == "csh":
+                                            tagger = defense_map.get("C")
+                                        if tagger is not None:
+                                            _fielding_line(
+                                                defense_state, tagger.player_id
+                                            ).po += 1
+                                        runner_pitchers.pop(runner.player_id, None)
+                                if outs_added:
+                                    outs += outs_added
+                                    line.outs += outs_added
+                                record_runs(runs_scored, line, scored)
+                                runner_event = "+".join(event_code for _, event_code in events)
+                                for runner, event_code in events:
+                                    if event_code.startswith("cs") or event_code == "csh":
+                                        injury_event = _maybe_injure_player(
+                                            injury_sim=injury_sim,
+                                            injured_players=injured_players,
+                                            injury_events=injury_events,
+                                            player=runner,
+                                            trigger="collision",
+                                            context={"speed": runner.speed / 100.0},
+                                            inning=inning,
+                                            outs=outs,
+                                            team=batting_team,
+                                            pitcher_id=pitcher.player_id,
+                                            tuning=tuning,
+                                            lineup_state=offense_state,
+                                            runner_pitchers=runner_pitchers,
+                                        )
+                                        if injury_event:
+                                            pitch_log[-1]["injury"] = injury_event
 
                 if runner_event:
                     pitch_log[-1]["runner_event"] = runner_event
+                    pitch_log[-1]["event_bases"] = event_bases
+                    pitch_log[-1]["event_outs"] = event_outs
                     sync_unearned_runners()
-                    if outs >= 3:
+                    # A run that ends the game mid-PA (a walk-off WP, PB, balk
+                    # or steal of home) ends it there.
+                    if outs >= 3 or walkoff:
+                        pa_cut_short = True
                         break
+            if pa_cut_short:
+                # The third out on the bases or a walk-off run ended this PA
+                # before the batter finished it: no PA is charged, and he
+                # leads off the next inning (rule 5.04(a)(2)).
+                totals["pa"] -= 1
+                batter_line.pa -= 1
+                pa_line.batters_faced -= 1
+                batter_index -= 1
             if walkoff:
                 finalize_half_inning()
                 return outs, batter_index
@@ -6851,6 +7881,10 @@ def simulate_game(
             "inning_runs": {
                 "away": inning_runs_away,
                 "home": inning_runs_home,
+            },
+            "inning_outs": {
+                "away": inning_outs_away,
+                "home": inning_outs_home,
             },
             "ended_in_tie": ended_in_tie,
             "innings": inning,

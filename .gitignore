@@ -135,6 +135,9 @@ data/special_events.json
 # stray inside a tracked league folder (data/leagues/*/data) must show in
 # git status and be removed by `git clean -fdq data/leagues`.
 data/physics_usage.json
+# Per-season league rating centres (Release 4, services/league_rating_centers.py),
+# same rule as above.
+data/rating_centers.json
 
 # Discord release-announcement webhook (secret, do not commit)
 scripts/.discord_webhook

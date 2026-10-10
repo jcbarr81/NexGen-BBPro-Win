@@ -430,6 +430,11 @@ class SeasonSimulator:
         data_root = str(get_data_root())
         league_id = get_active_league_id()
         usage_in = parallel_day.usage_state_to_payload(usage_state, game_day)
+        # Release 4 (decision 2): fix the league's rating centres here, once,
+        # so no two workers race to compute (and write) the season's value.
+        from services.league_rating_centers import get_rating_center_overrides
+
+        rating_centers = get_rating_center_overrides()
 
         payloads = []
         for game, seed, (home_starter, away_starter) in zip(games, seeds, assignments):
@@ -444,6 +449,7 @@ class SeasonSimulator:
                     data_root=data_root,
                     league_id=league_id,
                     usage_in=usage_in,
+                    rating_centers=rating_centers,
                 )
             )
 

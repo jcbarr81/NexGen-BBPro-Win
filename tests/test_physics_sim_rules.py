@@ -51,9 +51,14 @@ class _Script:
         return self._draws.pop(0)
 
 
-def _ground_out(monkeypatch, bases: BaseState, outs: int, draws):
+# Release 4 (W3): the structural switch for the rewritten ground out. The
+# tests without it pin the 7.47.0 path (ground_out_model 0, the default).
+GROUND_OUT_V1 = {"ground_out_model": 1.0}
+
+
+def _ground_out(monkeypatch, bases: BaseState, outs: int, draws, overrides=None):
     monkeypatch.setattr(engine, "random", _Script(draws))
-    tuning = load_tuning()
+    tuning = load_tuning(overrides)
     defense = _defense()
     return _resolve_ground_out(
         bases=bases,
@@ -115,14 +120,34 @@ def test_draw_sequence_is_unchanged(monkeypatch):
     assert script._draws == []
 
 
+def test_draw_sequence_model_1(monkeypatch):
+    """ground_out_model 1: DP first, then R3 (no flat pre-DP roll), then the
+    force; the forced R1 always moves up, so there is no advance roll."""
+    bases = BaseState(first=_batter("R1"), third=_batter("R3"))
+    script = _Script([0.99, 0.99, 0.99])
+    monkeypatch.setattr(engine, "random", script)
+    tuning = load_tuning(GROUND_OUT_V1)
+    defense = _defense()
+    runs, outs_added, events, scored = _resolve_ground_out(
+        bases=bases, outs=0, batter=_batter("BAT"), defense_map=defense,
+        defense_ratings=compute_defense_ratings(defense, tuning),
+        spray_angle=0.0, batter_side="R", tuning=tuning,
+    )
+    # dp, R3, force
+    assert script._draws == []
+    assert (runs, outs_added, events) == (0, 1, [])
+    assert bases.first is None and bases.second.player_id == "R1"
+    assert bases.third.player_id == "R3"
+
+
 # --- M8 -----------------------------------------------------------------------
 
 
 def test_runner_on_second_moves_up_instead_of_being_overwritten(monkeypatch):
     r1, r2 = _batter("R1"), _batter("R2")
     bases = BaseState(first=r1, second=r2)
-    # No triple play, no double play, no force, R1 advances.
-    runs, outs_added, events, _ = _ground_out(monkeypatch, bases, 1, [0.99, 0.99, 0.99, 0.0])
+    # One out: no triple-play roll. No double play, no force, R1 advances.
+    runs, outs_added, events, _ = _ground_out(monkeypatch, bases, 1, [0.99, 0.99, 0.0])
     assert (runs, outs_added, events) == (0, 1, [])
     assert bases.first is None
     assert bases.second.player_id == "R1"
@@ -137,6 +162,20 @@ def test_bases_loaded_runner_on_first_holds(monkeypatch):
     assert [bases.first.player_id, bases.second.player_id, bases.third.player_id] == [
         "R1", "R2", "R3",
     ]
+
+
+def test_bases_loaded_runners_move_up_model_1(monkeypatch):
+    """ground_out_model 1: R3 is forced home and every runner moves up."""
+    r1, r2, r3 = _batter("R1"), _batter("R2"), _batter("R3")
+    bases = BaseState(first=r1, second=r2, third=r3)
+    # No triple play, no DP, no play at home, batter out at 1st.
+    runs, outs_added, events, scored = _ground_out(
+        monkeypatch, bases, 0, [0.99, 0.99, 0.99, 0.99], GROUND_OUT_V1
+    )
+    assert (runs, outs_added, events) == (1, 1, [])
+    assert [r.player_id for r in scored] == ["R3"]
+    assert bases.first is None
+    assert [bases.second.player_id, bases.third.player_id] == ["R1", "R2"]
 
 
 def test_ground_outs_conserve_runners():
@@ -441,3 +480,20 @@ def test_simulate_game_scores_passes_the_postseason_flag(monkeypatch):
     assert seen["postseason"] is True
     gr.simulate_game_scores("H", "A", seed=1)
     assert seen["postseason"] is False
+
+
+def test_no_triple_play_with_one_out(monkeypatch):
+    """With one out a ground ball cannot be a triple play (a 4th out): the
+    triple-play roll is skipped and the play is at most an inning-ending DP,
+    on either ground-out model."""
+    for overrides in ({}, GROUND_OUT_V1):
+        tp = {"triple_play_base": 1.0, **overrides}
+        bases = BaseState(first=_batter("R1"), second=_batter("R2"))
+        _, outs_added, events, _ = _ground_out(monkeypatch, bases, 0, [0.0], tp)
+        assert events == ["tp"] and outs_added == 3
+        bases = BaseState(first=_batter("R1"), second=_batter("R2"))
+        _, outs_added, events, _ = _ground_out(
+            monkeypatch, bases, 1, [0.0] * 10, tp
+        )
+        assert "tp" not in events and "dp" in events
+        assert 1 + outs_added <= 3

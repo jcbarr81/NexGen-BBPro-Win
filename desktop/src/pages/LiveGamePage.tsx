@@ -549,10 +549,42 @@ function PitchRow({ pitch }: { pitch: SimPitchEvent }) {
         {d.zone ? ` · z${d.zone}` : ""}
       </span>
       <span className="ml-auto text-muted">
-        {d.runner_event ? `→ ${d.runner_event}` : ""}
+        {d.runner_event ? `→ ${runnerEventLabel(String(d.runner_event))}` : ""}
       </span>
     </li>
   );
+}
+
+// Engine runner_event tokens ("+"-joined) shown in plain words; an unknown
+// token is shown as-is.
+const RUNNER_EVENT_LABELS: Record<string, string> = {
+  sb2: "steals 2nd",
+  sb3: "steals 3rd",
+  sbh: "steals home",
+  cs2: "caught stealing 2nd",
+  cs3: "caught stealing 3rd",
+  csh: "caught stealing home",
+  adv2: "runner takes 2nd",
+  wp: "wild pitch",
+  pb: "passed ball",
+  k_wp: "strike three gets away (WP)",
+  k_pb: "strike three gets away (PB)",
+  bk: "balk",
+  po1: "picked off 1st",
+  po2: "picked off 2nd",
+  po3: "picked off 3rd",
+  pocs: "picked off stealing",
+  dp: "double play",
+  tag_dp: "thrown out tagging up (DP)",
+  fc_home: "force at home",
+  dp_home: "home to first",
+};
+
+function runnerEventLabel(event: string): string {
+  return event
+    .split("+")
+    .map((token) => RUNNER_EVENT_LABELS[token] ?? token)
+    .join(", ");
 }
 
 function TotalsCard({ totals }: { totals: Record<string, number> }) {

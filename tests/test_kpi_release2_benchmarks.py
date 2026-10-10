@@ -101,19 +101,27 @@ def test_hr30_is_strict_and_hr40_can_fail_low() -> None:
     assert bench["qualified_hr40_count"] - tol > 0
 
 
-def test_old_steal_volume_no_longer_fails_strict() -> None:
-    """The engine's ~0.050 SBA/PA is reported, not gated, until Release 4."""
+def test_old_steal_volume_fails_strict_again() -> None:
+    """Release 4: steal volume is strict again at the corrected MLB targets.
+
+    Release 2 reported the engine's ~0.050 SBA/PA without gating it; the
+    Release 4 engine steals at MLB rates, so the old volume fails strict.
+    """
     bench = kpis._load_benchmarks(BENCHMARKS)
     metrics = {"sba_per_pa": 0.050, "sb_per_team_game": 1.42}
-    assert not kpis.evaluate_tolerances(
+    failures = kpis.evaluate_tolerances(
         metrics=metrics, benchmarks=bench, tolerances=kpis.DEFAULT_TOLERANCES
+    )
+    assert {f["metric"] for f in failures} == {"sba_per_pa", "sb_per_team_game"}
+    ok = {"sba_per_pa": 0.0229, "sb_per_team_game": 0.67}
+    assert not kpis.evaluate_tolerances(
+        metrics=ok, benchmarks=bench, tolerances=kpis.DEFAULT_TOLERANCES
     )
     rows = kpis.evaluate_report_only(
         metrics=metrics, benchmarks=bench, tolerances=kpis.REPORT_ONLY_TOLERANCES
     )
     by_key = {row["metric"]: row for row in rows}
-    assert by_key["sba_per_pa"]["ok"] is False
-    assert by_key["sb_per_team_game"]["ok"] is False
+    assert "sba_per_pa" not in by_key
     # Metrics absent from this run are listed with ok=None, not dropped.
     assert by_key["hard_hit_pct"]["ok"] is None
     assert by_key["hard_hit_pct"]["value"] is None
@@ -150,8 +158,8 @@ def test_tolerance_overrides_reach_both_groups_and_old_k_sd_name(
     report = kpis._load_tolerances(path, kpis.REPORT_ONLY_TOLERANCES)
     assert strict["qualified_hitter_k_pct_sd"] == pytest.approx(0.02)
     assert "qualified_k_pct_sd" not in strict
-    assert "sba_per_pa" not in strict
-    assert report["sba_per_pa"] == pytest.approx(0.009)
+    assert strict["sba_per_pa"] == pytest.approx(0.009)
+    assert "sba_per_pa" not in report
     assert "bogus" not in strict and "bogus" not in report
     # No file -> the untouched defaults of the requested group.
     assert kpis._load_tolerances(None, kpis.REPORT_ONLY_TOLERANCES) == (

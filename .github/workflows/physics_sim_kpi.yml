@@ -12,6 +12,7 @@ on:
       - "models/**"
       - "scripts/physics_sim_season_kpis.py"
       - "scripts/kpi_extras.py"
+      - "scripts/kpi_profiles/**"
       - "scripts/generate_calibration_roster.py"
       - "data/calibration/**"
       - "data/calibration_league/**"
@@ -30,6 +31,7 @@ on:
       - "models/**"
       - "scripts/physics_sim_season_kpis.py"
       - "scripts/kpi_extras.py"
+      - "scripts/kpi_profiles/**"
       - "scripts/generate_calibration_roster.py"
       - "data/calibration/**"
       - "data/calibration_league/**"
@@ -41,7 +43,9 @@ on:
 jobs:
   physics-sim-kpis:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Four 162-game seasons in sequence (three strict, one report-only);
+    # was 45 for two.
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -88,26 +92,118 @@ jobs:
         with:
           name: physics-kpis
           path: tmp/physics_kpis.json
+      - name: Run KPI harness (strict running game, league-like fixture)
+        # Release 4. data/calibration_league is the speed-tier fixture (ACT
+        # mean sp 54.4, burners at 70+ and 85+), the only one that exercises
+        # the running game across the rating range. --gate-set running fails
+        # the job on the running-game gates only (steal volume and success,
+        # WP/PB, triples, the rule zero gates); its offence gates stay
+        # report-only, as in the last step. A listed gate that was not
+        # computed fails too. Runs even when the step above failed.
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONHASHSEED: "0"
+        run: |
+          mkdir -p tmp
+          set -o pipefail
+          if ! python scripts/physics_sim_season_kpis.py \
+              --games 162 \
+              --seed 1 \
+              --base-dir data/calibration_league \
+              --players data/calibration_league/players.csv \
+              --gate-set running \
+              --output tmp/physics_kpis_league_running.json \
+              --strict 2>&1 | tee tmp/kpi_league_running.log; then
+            # Annotate as above, from the gate set's own failure list.
+            {
+              if [ -f tmp/physics_kpis_league_running.json ]; then
+                python -c "import json; d=json.load(open('tmp/physics_kpis_league_running.json')); [print(f\"{f['metric']}: {f['value']:.4f} (target {f['target']} +/- {f['tolerance']}) {f.get('reason', '')}\") for f in d.get('gate_set', {}).get('failures', [])]"
+              fi
+              echo "--- last lines of output ---"
+              tail -n 40 tmp/kpi_league_running.log
+            } > tmp/kpi_league_running_failure.txt
+            msg=$(sed -e 's/%/%25/g' -e 's/\r//g' tmp/kpi_league_running_failure.txt | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=KPI running-game gates failed (league-like fixture)::${msg}"
+            exit 1
+          fi
+      - name: Upload league running-game KPI report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: physics-kpis-league-running
+          path: tmp/physics_kpis_league_running.json
+          if-no-files-found: warn
+      - name: Run KPI harness (strict 4b gates, r4b profile)
+        # Release 4. The 4b mechanics (W2 hit-advance values, W3 tag-ups,
+        # ground outs and double plays) stay off by default until 4b becomes
+        # the default (7.49.0). This step keeps that path from rotting: the
+        # calibration fixture with scripts/kpi_profiles/r4b.json, strict on
+        # GATE_SETS["r4b"] only (XBT, SF/PA, GIDP, rule 5.08(a), the DP rate,
+        # runs per game and the running game except steal volume, which the
+        # profile puts near its floor on seed 1). The 4b flip check (every
+        # strict gate on seeds 1-4, decision 1) is run by hand, not here.
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONHASHSEED: "0"
+        run: |
+          mkdir -p tmp
+          set -o pipefail
+          if ! python scripts/physics_sim_season_kpis.py \
+              --games 162 \
+              --seed 1 \
+              --base-dir data/calibration \
+              --players data/calibration/players.csv \
+              --tuning-overrides scripts/kpi_profiles/r4b.json \
+              --gate-set r4b \
+              --output tmp/physics_kpis_r4b.json \
+              --strict 2>&1 | tee tmp/kpi_r4b.log; then
+            # Annotate as above, from the gate set's own failure list.
+            {
+              if [ -f tmp/physics_kpis_r4b.json ]; then
+                python -c "import json; d=json.load(open('tmp/physics_kpis_r4b.json')); [print(f\"{f['metric']}: {f['value']:.4f} (target {f['target']} +/- {f['tolerance']}) {f.get('reason', '')}\") for f in d.get('gate_set', {}).get('failures', [])]"
+              fi
+              echo "--- last lines of output ---"
+              tail -n 40 tmp/kpi_r4b.log
+            } > tmp/kpi_r4b_failure.txt
+            msg=$(sed -e 's/%/%25/g' -e 's/\r//g' tmp/kpi_r4b_failure.txt | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=KPI 4b gates failed (r4b profile)::${msg}"
+            exit 1
+          fi
+      - name: Upload r4b profile KPI report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: physics-kpis-r4b
+          path: tmp/physics_kpis_r4b.json
+          if-no-files-found: warn
       - name: Run KPI harness (report-only, league-like fixture)
         # Audit 2026-10-06 H3 / Release 2. data/calibration_league is built by
         # scripts/generate_league_fixture.py from the product's own generator,
         # auto-assign and auto-fill, in generic parks -- what a real league
         # looks like. The current engine fails gates on it by design, so this
         # step is REPORT-ONLY: no --strict, never fails the job, and runs even
-        # when the strict step above failed. Promote it to a gate once the
-        # engine releases bring it inside tolerance.
+        # when the strict steps above failed. Promote it to a gate once the
+        # engine releases bring it inside tolerance (its running game already
+        # gates: the --gate-set running step above).
         if: ${{ !cancelled() }}
         continue-on-error: true
         env:
           PYTHONHASHSEED: "0"
         run: |
           mkdir -p tmp
-          python scripts/physics_sim_season_kpis.py \
-              --games 162 \
-              --seed 1 \
-              --base-dir data/calibration_league \
-              --players data/calibration_league/players.csv \
-              --output tmp/physics_kpis_league_fixture.json
+          # The running-game step above simulates this exact season (same
+          # fixture, seed and tuning; a gate set only filters failures), so
+          # reuse its report instead of re-simulating it.
+          if [ -f tmp/physics_kpis_league_running.json ]; then
+            cp tmp/physics_kpis_league_running.json tmp/physics_kpis_league_fixture.json
+          else
+            python scripts/physics_sim_season_kpis.py \
+                --games 162 \
+                --seed 1 \
+                --base-dir data/calibration_league \
+                --players data/calibration_league/players.csv \
+                --output tmp/physics_kpis_league_fixture.json
+          fi
           python -c "import json; d=json.load(open('tmp/physics_kpis_league_fixture.json')); m=d['metrics']; f=d.get('tolerance_failures', []); print(f\"::notice title=League-like fixture (report-only)::R/G {m['runs_per_team_game']:.2f}, AVG/OBP/SLG {m['avg']:.3f}/{m['obp']:.3f}/{m['slg']:.3f}; {len(f)} gates out of tolerance: {', '.join(x['metric'] for x in f) or 'none'}\")"
       - name: Upload league-like fixture KPI report
         if: ${{ !cancelled() }}
