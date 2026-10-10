@@ -220,9 +220,12 @@ def active_league(tmp_path, monkeypatch):
 
 
 def test_overrides_for_the_active_league(active_league):
-    assert centers.get_rating_center_overrides() == {"hitter_speed_center": 50.0}
+    # F4: the battery centres ride along; this league's pitchers and its
+    # catcher carry no battery columns, so every one of them reads 50.
+    expected = {key: 50.0 for key in centers.RATING_CENTER_KEYS}
+    assert centers.get_rating_center_overrides() == expected
     stored = json.loads((active_league / centers.RATING_CENTERS_FILENAME).read_text())
-    assert stored["seasons"] == {"2026": {"hitter_speed_center": 50.0}}
+    assert stored["seasons"] == {"2026": expected}
 
 
 def test_overrides_are_empty_without_act_hitters(active_league):
@@ -515,19 +518,19 @@ def test_harness_passes_the_fixture_centre(kpis, monkeypatch):
         raise _Captured
 
     monkeypatch.setattr(kpis, "simulate_matchup_from_files", fake_matchup)
+    # F4: the battery centres travel with the speed centre.
+    fixture = centers.active_rating_centers(CALIBRATION)
+    assert fixture["hitter_speed_center"] == pytest.approx(47.72)
     with pytest.raises(_Captured):
         kpis.run_sim(162, 1, CALIBRATION / "players.csv", None, CALIBRATION)
-    assert seen["tuning_overrides"] == {"hitter_speed_center": pytest.approx(47.72)}
+    assert seen["tuning_overrides"] == fixture
 
     seen.clear()
     with pytest.raises(_Captured):
         kpis.run_sim(
             162, 1, CALIBRATION / "players.csv", {"park_factor_scale": 0.0}, CALIBRATION
         )
-    assert seen["tuning_overrides"] == {
-        "hitter_speed_center": pytest.approx(47.72),
-        "park_factor_scale": 0.0,
-    }
+    assert seen["tuning_overrides"] == {**fixture, "park_factor_scale": 0.0}
 
 
 def test_explicit_centre_override_wins(kpis):
@@ -536,7 +539,11 @@ def test_explicit_centre_override_wins(kpis):
         CALIBRATION_LEAGUE / "players.csv",
         CALIBRATION_LEAGUE,
     )
-    assert merged == {"hitter_speed_center": 50.0}
+    assert merged["hitter_speed_center"] == 50.0
+    assert merged == {
+        **centers.active_rating_centers(CALIBRATION_LEAGUE),
+        "hitter_speed_center": 50.0,
+    }
 
 
 def test_tuning_overrides_file_rejects_unknown_keys(kpis, tmp_path):

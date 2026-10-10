@@ -1985,7 +1985,18 @@ def _centred_speed(sp: float, tuning: TuningConfig) -> float:
     the league's own average. ``hitter_speed_center`` defaults to 50.0, where
     it changes nothing.
     """
-    return sp - tuning.get("hitter_speed_center", 50.0) + 50.0
+    return _centred_rating(sp, "hitter_speed_center", tuning)
+
+
+def _centred_rating(value: float, key: str, tuning: TuningConfig) -> float:
+    """``value`` re-expressed so the league mean held in ``key`` reads as 50.
+
+    Release 4 (audit decision 2): ``key`` is a rating-centre tuning key
+    (``services.league_rating_centers``), e.g. ``pitcher_control_center``
+    or ``catcher_fa_center``. Every centre defaults to 50.0, where this
+    changes nothing.
+    """
+    return value - tuning.get(key, 50.0) + 50.0
 
 
 def _out_on_base_prob(
@@ -3177,6 +3188,15 @@ def _steal_attempt_rate(
     catcher_fielding: float,
     tuning: TuningConfig,
 ) -> float:
+    # Release 4 (F4, decision 2): the battery deterrents read each rating
+    # against the league's ACT mean, so a league whose batteries average 50
+    # attempts as often as the fixtures, whose batteries sit at 51-60.
+    pitcher_hold = _centred_rating(pitcher_hold, "pitcher_hold_center", tuning)
+    pitcher_arm = _centred_rating(pitcher_arm, "pitcher_arm_center", tuning)
+    catcher_arm = _centred_rating(catcher_arm, "catcher_arm_center", tuning)
+    catcher_fielding = _centred_rating(
+        catcher_fielding, "catcher_fa_center", tuning
+    )
     attempt = base_rate * tuning.get("steal_freq_scale", 1.0)
     attempt *= _steal_speed_factor(speed, tuning)
     attempt *= 1.0 - (pitcher_hold - 50.0) / 180.0
@@ -3235,15 +3255,23 @@ def _steal_success_prob(
 ) -> float:
     """Release 4 (H2): chance a steal attempt is safe.
 
-    A logistic curve on the raw ratings (a race against the throw, so raw
-    ``sp - 50``): .82 with everything at 50, .89 at sp 70 and .93 at 85, so
-    the gain flattens toward the top instead of hitting the old linear
-    curve's .95 cap at sp 72.5. Pitcher hold and arm and catcher arm and
-    fielding each lower it; the two legacy ``steal_*_success`` scales still
-    multiply their slopes. ``steal_success_base`` is retired (kept
-    registered so stored overrides load).
+    A logistic curve on the runner's raw speed (a race against the throw,
+    so raw ``sp - 50``), so the gain flattens toward the top instead of
+    hitting the old linear curve's .95 cap at sp 72.5. Pitcher hold and arm
+    and catcher arm and fielding each lower it; they read against the
+    league's ACT battery means (``_centred_rating``, F4), so the league's
+    success rate does not move with how its batteries happen to be rated.
+    The two legacy ``steal_*_success`` scales still multiply their slopes.
+    ``steal_success_base`` is retired (kept registered so stored overrides
+    load).
     """
-    logit = tuning.get("steal_success_logit_base", 1.50)
+    pitcher_hold = _centred_rating(pitcher_hold, "pitcher_hold_center", tuning)
+    pitcher_arm = _centred_rating(pitcher_arm, "pitcher_arm_center", tuning)
+    catcher_arm = _centred_rating(catcher_arm, "catcher_arm_center", tuning)
+    catcher_fielding = _centred_rating(
+        catcher_fielding, "catcher_fa_center", tuning
+    )
+    logit = tuning.get("steal_success_logit_base", 1.11)
     logit += (speed - 50.0) / 10.0 * tuning.get("steal_success_speed_logit", 0.30)
     logit -= (pitcher_hold - 50.0) / 10.0 * tuning.get("steal_success_hold_logit", 0.21)
     logit -= (
@@ -3333,7 +3361,7 @@ def _attempt_steal(
         # 2nd ("adv2", no SB: rule 9.07(d)); at most one out.
         double_rate = _steal_attempt_rate(
             speed=bases.second.speed,
-            base_rate=tuning.get("double_steal_rate", 0.00218),
+            base_rate=tuning.get("double_steal_rate", 0.00207),
             pitcher_hold=pitcher_hold,
             pitcher_arm=pitcher_arm,
             catcher_arm=catcher_arm,
@@ -3484,19 +3512,25 @@ def _missed_pitch_rates(
     the default k a 30-control pitcher throws e (2.7x) as many WPs as a 70
     and a 30-fa catcher allows e^1.6 (5x) as many PBs. The catcher's
     fielding also blocks some would-be wild pitches. ``miss`` is the
-    scaled distance outside the zone.
+    scaled distance outside the zone. Both ratings read against the
+    league's ACT means (``_centred_rating``, F4) before the clip.
     """
-    ctl = max(20.0, min(95.0, pitcher_control))
-    cfa = max(20.0, min(95.0, catcher_fielding))
+    ctl = _clipped_battery(pitcher_control, "pitcher_control_center", tuning)
+    cfa = _clipped_battery(catcher_fielding, "catcher_fa_center", tuning)
     cap = tuning.get("missed_pitch_rate_cap", 0.05)
-    wp = tuning.get("wild_pitch_rate", 0.0097)
+    wp = tuning.get("wild_pitch_rate", 0.0080)
     wp *= math.exp((50.0 - ctl) / max(1.0, tuning.get("wild_pitch_control_k", 40.0)))
     wp *= math.exp((50.0 - cfa) / max(1.0, tuning.get("wild_pitch_block_k", 80.0)))
     wp *= 1.0 + miss
-    pb = tuning.get("passed_ball_rate", 0.00155)
+    pb = tuning.get("passed_ball_rate", 0.00122)
     pb *= math.exp((50.0 - cfa) / max(1.0, tuning.get("passed_ball_fa_k", 25.0)))
     pb *= 1.0 + miss
     return max(0.0, min(cap, wp)), max(0.0, min(cap, pb))
+
+
+def _clipped_battery(value: float, key: str, tuning: TuningConfig) -> float:
+    """A centred battery rating clipped to [20, 95] for the e^(...) terms."""
+    return max(20.0, min(95.0, _centred_rating(value, key, tuning)))
 
 
 def _scaled_miss(
@@ -3553,7 +3587,9 @@ def _k_reach_prob(
     """Chance an eligible batter beats the throw on a dropped third strike.
 
     Raw speed (a race against the catcher's throw): .85 at 50, .95 at 70.
+    The catcher's arm reads against the league's ACT catcher mean (F4).
     """
+    catcher_arm = _centred_rating(catcher_arm, "catcher_arm_center", tuning)
     prob = tuning.get("k_reach_base", 0.85)
     prob += (batter_speed - 50.0) / tuning.get("k_reach_speed_div", 200.0)
     prob -= (catcher_arm - 50.0) / tuning.get("k_reach_arm_div", 300.0)
@@ -3595,9 +3631,9 @@ def _resolve_dropped_third_strike(
     miss = _scaled_miss(
         location=location, zone_bottom=zone_bottom, zone_top=zone_top, tuning=tuning
     )
-    ctl = max(20.0, min(95.0, pitcher_control))
-    cfa = max(20.0, min(95.0, catcher_fielding))
-    k_rate = tuning.get("k_in_dirt_rate", 0.0112)
+    ctl = _clipped_battery(pitcher_control, "pitcher_control_center", tuning)
+    cfa = _clipped_battery(catcher_fielding, "catcher_fa_center", tuning)
+    k_rate = tuning.get("k_in_dirt_rate", 0.0101)
     k_rate *= 1.0 + miss
     k_rate *= math.exp((50.0 - ctl) / max(1.0, tuning.get("k_in_dirt_control_k", 40.0)))
     k_rate *= math.exp((50.0 - cfa) / max(1.0, tuning.get("k_in_dirt_fa_k", 60.0)))

@@ -29,9 +29,10 @@ REPO = Path(__file__).resolve().parents[1]
 CALIBRATION = REPO / "data" / "calibration"
 
 W1_MISSED_PITCH_KNOBS = {
-    "wild_pitch_rate": 0.0097,
-    "passed_ball_rate": 0.00155,
-    "k_in_dirt_rate": 0.0112,
+    # F4 retune: the fixtures' batteries now read as ~50 (decision 2).
+    "wild_pitch_rate": 0.0080,
+    "passed_ball_rate": 0.00122,
+    "k_in_dirt_rate": 0.0101,
     "wild_pitch_control_k": 40.0,
     "wild_pitch_block_k": 80.0,
     "passed_ball_fa_k": 25.0,
@@ -112,7 +113,7 @@ def test_rate_helper_rating_ratios():
     _, pb70 = engine._missed_pitch_rates(50.0, 70.0, 0.0, tuning)
     assert pb30 / pb70 == pytest.approx(math.exp(1.6))
     wp, pb = engine._missed_pitch_rates(50.0, 50.0, 0.0, tuning)
-    assert wp == pytest.approx(0.0097) and pb == pytest.approx(0.00155)
+    assert wp == pytest.approx(0.0080) and pb == pytest.approx(0.00122)
 
 
 def test_rate_helper_clips_ratings_and_caps_rates():

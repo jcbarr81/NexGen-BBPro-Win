@@ -21,6 +21,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(BASE_DIR))
 
 from playbalance.schedule_generator import generate_mlb_schedule
+from services.league_rating_centers import RATING_CENTER_KEYS
 from physics_sim.config import DEFAULT_TUNING
 from physics_sim.engine import _resolve_data_root, simulate_matchup_from_files
 from physics_sim.usage import UsageState, calendar_day
@@ -1240,20 +1241,36 @@ def fixture_hitter_speed_center(
     )
 
 
+def fixture_rating_centers(
+    players_path: Path, base_dir: Path | None = None
+) -> dict[str, float]:
+    """Every rating centre of the fixture's ACT rosters (decision 2).
+
+    ``services.league_rating_centers.active_rating_centers`` over the
+    fixture: the hitter speed centre plus the F4 battery centres (ACT
+    pitchers' control / hold / arm, ACT catchers' arm / fa), never written
+    anywhere. data/calibration ~ control 51.3, hold 50.4, arm 55.8, catcher
+    arm 55.1, fa 54.7; data/calibration_league ~ 53.6, 51.3, 59.7, 56.3, 56.4.
+    """
+    from services.league_rating_centers import active_rating_centers
+
+    return active_rating_centers(
+        _resolve_data_root(base_dir), players_path=players_path
+    )
+
+
 def with_rating_centers(
     tuning_overrides: dict[str, float] | None,
     players_path: Path,
     base_dir: Path | None = None,
 ) -> dict[str, float]:
-    """``tuning_overrides`` plus the fixture's ``hitter_speed_center``.
+    """``tuning_overrides`` plus the fixture's rating centres.
 
-    An explicit ``hitter_speed_center`` in ``tuning_overrides`` wins, so a
-    profile can pin the centre for an experiment.
+    An explicit centre in ``tuning_overrides`` (``hitter_speed_center``,
+    ``catcher_fa_center``, ...) wins, so a profile can pin a centre for an
+    experiment.
     """
-    merged: dict[str, float] = {}
-    center = fixture_hitter_speed_center(players_path, base_dir)
-    if center is not None:
-        merged["hitter_speed_center"] = center
+    merged: dict[str, float] = dict(fixture_rating_centers(players_path, base_dir))
     merged.update(tuning_overrides or {})
     return merged
 
@@ -1365,8 +1382,9 @@ def run_sim(
     teams = _team_ids(teams_csv)
     parks_by_team = _team_parks(teams_csv)
     schedule = _season_schedule(teams, games_per_team)
-    # Release 4 (decision 2): the engine reads speed against the league's ACT
-    # hitter mean, which a live league gets from services.league_rating_centers.
+    # Release 4 (decision 2): the engine reads speed and the battery against
+    # the league's ACT means, which a live league gets from
+    # services.league_rating_centers.
     requested_overrides = dict(tuning_overrides or {})
     tuning_overrides = with_rating_centers(requested_overrides, players_path, base_dir)
 
@@ -1635,9 +1653,13 @@ def run_sim(
         "teams": len(teams),
         "games": len(schedule),
         "seed": seed,
-        # Release 4: the speed centre the engine saw (None = the 50.0 default)
-        # and the overrides asked for (--tuning-overrides, park switch).
+        # Release 4: the rating centres the engine saw (None = the 50.0
+        # default) and the overrides asked for (--tuning-overrides, park
+        # switch).
         "hitter_speed_center": tuning_overrides.get("hitter_speed_center"),
+        "rating_centers": {
+            key: tuning_overrides.get(key) for key in RATING_CENTER_KEYS
+        },
         "tuning_overrides": requested_overrides,
     }
     summary["team_stats"] = {}

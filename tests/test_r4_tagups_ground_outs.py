@@ -621,7 +621,10 @@ def _legacy_ground_out(*, bases, outs, batter, defense_map, defense_ratings,
             arm_values.append(E.adjusted_arm_rating(fielder, tuning))
     if arm_values:
         turn_arm = sum(arm_values) / len(arm_values)
-    if bases.first and bases.second and outs < 2:
+    # The one-out triple-play fix (it recorded a 4th out) is a rule fix in
+    # front of both models, so the frozen copy carries it too. Seeds 1-6
+    # first reached a one-out R1+R2 ground out after the F4 retune.
+    if bases.first and bases.second and outs == 0:
         tp_prob = tuning.get("triple_play_base", 0.0008)
         tp_prob += (infield_range - 50.0) / 900.0
         tp_prob -= (bases.first.speed - 50.0) / 800.0
@@ -1015,14 +1018,16 @@ def test_air_out_call_site_passes_the_ball_straight_through(monkeypatch):
 # catch a change at the air-out / ground-out call sites (an extra draw, a
 # changed credit). RE-BASELINE whenever the 4a (default) stream changes on
 # purpose: run this file and copy the "got" digests from the failure message
-# into PINNED_DIGESTS. Baseline: release-4 after F1-F3 and the one-out
-# triple-play fix (7.48.0); totals, pitch log and game metadata.
+# into PINNED_DIGESTS. Baseline: release-4 after F1-F3, the one-out
+# triple-play fix (7.48.0) and F4 (battery centres + the running-game
+# retune: steal attempt/success, WP/PB and dropped-third-strike rates);
+# totals, pitch log and game metadata.
 PINNED_DIGESTS = {
     1: "1fe9bd9b05a5acf0f3ae81b23f009dcbc1bde85aac0e729f6072db7feccf50e8",
     2: "14d6c883ef9b473fde472d7de26428fa58950a182ef9ab4a1fb6a583347932c9",
-    3: "dea1e05a584b83063addacf681df00a9cd9d983f899e4bb3adc459ca7577f51c",
-    4: "0bd33487f7b648fa7ab9f9c23959c1cdcbe09b3f6b630d8284269cb89d9668af",
-    5: "af3731f978bf7ef06a0e1af5d914b3523f9735930238ad4ec9cbf13c28cfc226",
+    3: "9bcf3a1288578972168a3c43925e78515fb65832d39337f330d2844041694548",
+    4: "fbe51dbc6d90cbf1bb1dc28346a5e2ad7cd16943d6ab788e193aac20203c1189",
+    5: "b49cc3399b894313cd3df008447cc6260e59bfcc1e1b7abb6217a11ffd5dec94",
     6: "69a5dabf2a40ec2da47ab25909e3729d43931aceb5b41d708d53fd714bdd59f8",
 }
 W3_RECORDS = ("tag3", "tag2", "go3")

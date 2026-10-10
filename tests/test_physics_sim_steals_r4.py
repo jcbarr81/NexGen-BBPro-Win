@@ -4,7 +4,8 @@
 - The attempt rate reads speed through a logistic curve centred on the
   league's ACT-hitter mean (``hitter_speed_center``), 1.0 for an average
   runner; the base rates were rebased so ``steal_freq_scale`` 1.0 = MLB.
-- Success is a saturating logistic curve on raw ratings.
+- Success is a saturating logistic curve on the runner's raw speed; the
+  battery ratings read against the league's ACT means (F4).
 - A double steal draws one throw, to 3rd: at most one out, and the trailing
   runner's advance on a caught lead runner ("adv2") is not a stolen base.
 - The Steal Frequency slider was rebased (1.0 = MLB, range 0.25-3.0); a
@@ -32,13 +33,14 @@ CALIBRATION = REPO / "data" / "calibration"
 
 W1_STEAL_KNOBS = {
     "steal_freq_scale": 1.0,
-    "steal_attempt_rate_first": 0.0328,
-    "steal_attempt_rate_second": 0.00728,
-    "steal_attempt_rate_home": 0.00073,
-    "double_steal_rate": 0.00218,
+    # F4 retune: the fixtures' batteries now read as ~50 (decision 2).
+    "steal_attempt_rate_first": 0.0312,
+    "steal_attempt_rate_second": 0.00692,
+    "steal_attempt_rate_home": 0.00069,
+    "double_steal_rate": 0.00207,
     "steal_speed_mid": 75.0,
     "steal_speed_width": 12.0,
-    "steal_success_logit_base": 1.50,
+    "steal_success_logit_base": 1.11,
     "steal_success_speed_logit": 0.30,
     "steal_success_hold_logit": 0.21,
     "steal_success_parm_logit": 0.17,
@@ -160,9 +162,12 @@ def test_success_is_monotone_and_saturating():
     values = [_success(sp) for sp in range(20, 100, 5)]
     assert values == sorted(values)
     assert _success(85.0) - _success(70.0) < _success(70.0) - _success(50.0)
-    assert 0.80 <= _success() <= 0.84
-    assert _success(70.0) == pytest.approx(0.89, abs=0.01)
-    assert _success(85.0) == pytest.approx(0.93, abs=0.01)
+    # F4: logit base 1.11 with every battery rating at the league centre
+    # (it was 1.50 on raw ratings, where the fixtures' batteries sat at
+    # 51-60 and pulled the average success down).
+    assert 0.73 <= _success() <= 0.77
+    assert _success(70.0) == pytest.approx(0.85, abs=0.01)
+    assert _success(85.0) == pytest.approx(0.90, abs=0.01)
     assert max(_success(99.0, 20.0, 20.0, 20.0, 20.0), _success(200.0)) <= 0.97
     assert _success(0.0, 99.0, 99.0, 99.0, 99.0) >= 0.05
 

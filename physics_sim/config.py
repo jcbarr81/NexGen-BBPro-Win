@@ -275,11 +275,12 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # Release 4 (H2): per-pitch attempt rates for a league-average runner at
     # steal_freq_scale 1.0 (= MLB volume, about .73 SB per team-game). The
     # speed curve (engine._steal_speed_factor) multiplies them; the double
-    # steal rate is read for the runner on 2nd.
-    "steal_attempt_rate_first": 0.0328,
-    "steal_attempt_rate_second": 0.00728,
-    "steal_attempt_rate_home": 0.00073,
-    "double_steal_rate": 0.00218,
+    # steal rate is read for the runner on 2nd. Calibrated with the battery
+    # read against the league's ACT means (F4: rates x0.95 from W1).
+    "steal_attempt_rate_first": 0.0312,
+    "steal_attempt_rate_second": 0.00692,
+    "steal_attempt_rate_home": 0.00069,
+    "double_steal_rate": 0.00207,
     # Retired in Release 4 (success is the steal_success_* logit block);
     # still registered so a stored override keeps loading.
     "steal_success_base": 0.80,
@@ -306,10 +307,12 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # Release 4 (M10): per live pitch with runners on, before the rating
     # terms in engine._missed_pitch_rates; a ball only counts as a WP/PB
     # when a runner advances (rule 9.13). k_in_dirt_rate is per third strike.
-    "wild_pitch_rate": 0.0097,
-    "passed_ball_rate": 0.00155,
+    # F4 calibrated all three with control and catcher fa read against the
+    # league's ACT means (they were 0.0097 / 0.00155 / 0.0112 on raw ratings).
+    "wild_pitch_rate": 0.0080,
+    "passed_ball_rate": 0.00122,
     "missed_pitch_loc_scale": 0.6,
-    "k_in_dirt_rate": 0.0112,
+    "k_in_dirt_rate": 0.0101,
     # Decision 11 (Release 3): the automatic runner on 2nd from the 10th, in
     # the regular season only. A league can turn it off (league_settings
     # ``extra_innings_runner``; game_runner writes this key last). Past
@@ -693,11 +696,23 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # engine._centred_speed so a fast or slow league keeps MLB's overall
     # rates; race-against-a-throw terms keep reading raw ``sp - 50``.
     "hitter_speed_center": 50.0,
+    # Release 4 (F4): the battery centres, from the same source -- the mean
+    # control, hold_runner and arm of the ACT pitchers and the mean arm and
+    # fa of the ACT catchers. Only the W1 running-game terms read them
+    # (engine._centred_rating): the steal attempt deterrents and success
+    # logit, the WP/PB rates, the dropped-third-strike rate and the D3K
+    # throw to 1st. Pickoffs, hit advances, tag-ups and fielding stay raw.
+    "pitcher_control_center": 50.0,
+    "pitcher_hold_center": 50.0,
+    "pitcher_arm_center": 50.0,
+    "catcher_arm_center": 50.0,
+    "catcher_fa_center": 50.0,
     # Release 4 (W1): wild pitches, passed balls and the dropped third strike
-    # (audit M10). Rating terms are exponential, e^((50 - rating) / k), with
-    # ratings clipped to [20, 95]: control drives WPs, catcher fielding drives
-    # PBs (and a little of the WPs, as blocking). Each per-pitch rate is
-    # capped at missed_pitch_rate_cap.
+    # (audit M10). Rating terms are exponential, e^((50 - rating) / k), on the
+    # rating centred on the league's ACT mean (F4) and clipped to [20, 95]:
+    # control drives WPs, catcher fielding drives PBs (and a little of the
+    # WPs, as blocking). Each per-pitch rate is capped at
+    # missed_pitch_rate_cap.
     "wild_pitch_control_k": 40.0,
     "wild_pitch_block_k": 80.0,
     "passed_ball_fa_k": 25.0,
@@ -714,13 +729,15 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "k_reach_max": 0.98,
     # Release 4 (W1): stolen bases (audit H2). Attempts: a logistic curve on
     # the centred speed, 1 / (1 + e^(-(x - mid) / width)), normalised to 1.0
-    # at the league average. Success: a logistic on raw ratings, logit =
-    # base + speed * (sp - 50) / 10 - hold/arm/catcher terms * (r - 50) / 10,
-    # clamped to [floor, cap]. The lead_* knobs above are cosmetic (they only
-    # feed the "lead" stat).
+    # at the league average. Success: a logistic, logit = base + speed *
+    # (sp - 50) / 10 - hold/arm/catcher terms * (r - centre) / 10, clamped to
+    # [floor, cap]; the runner's speed is raw (a race), the battery reads
+    # against the league's ACT means (F4: the base was 1.50 when the
+    # fixtures' 51-60 batteries counted as deterrents). The lead_* knobs
+    # above are cosmetic (they only feed the "lead" stat).
     "steal_speed_mid": 75.0,
     "steal_speed_width": 12.0,
-    "steal_success_logit_base": 1.50,
+    "steal_success_logit_base": 1.11,
     "steal_success_speed_logit": 0.30,
     "steal_success_hold_logit": 0.21,
     "steal_success_parm_logit": 0.17,
