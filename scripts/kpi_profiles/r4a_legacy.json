@@ -1,0 +1,21 @@
+{
+  "hit_advance_aggression_scale": 1.6,
+  "hit_advance_out_scale": 1.0,
+  "xbt_single_r1_extra": 0.05,
+  "xbt_single_r2_extra": 0.15,
+  "xbt_double_r1_extra": -0.05,
+  "xbt_two_out_extra": 0.0,
+  "forced_runner_out_scale": 1.0,
+  "infield_hit_speed_scale": 0.0,
+  "tag_up_model": 0,
+  "ground_out_model": 0,
+  "tag_up_send_margin": 0.2,
+  "tag_up_out_floor": 0.005,
+  "double_play_base": 0.32,
+  "double_play_batter_speed_k": 0.0,
+  "double_play_max": 0.45,
+  "steal_attempt_rate_first": 0.0312,
+  "steal_attempt_rate_second": 0.00692,
+  "steal_attempt_rate_home": 0.00069,
+  "double_steal_rate": 0.00207
+}

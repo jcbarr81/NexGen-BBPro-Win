@@ -176,11 +176,21 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     "wp_pb_bases_empty": 0.0,
     "double_steal_two_out_plays": 0.0,
     "illegal_k_reach": 0.0,
-    # Still report-only in 4a (never strict at the defaults): K reaches
-    # (k_reach_per_team_game; approximate until a Retrosheet row exists),
-    # corr_control_wp9, corr_catcher_fa_pb, the RE24 and run-probability
-    # cells and the tag-up rows (kpi_extras), and XBT / SF / GIDP, which
-    # gate under --gate-set r4b (R4B_TOLERANCES below).
+    # Release 4b (7.49.0; plan section 5): extra bases, sacrifice flies and
+    # ground-ball double plays, strict since the 4b models became the
+    # default. XBT .40 +/- .05 (benchmark CSV; MLB ~.40, Baseball-Reference
+    # XBT%; engine._tally_extra_bases_taken), SF/PA .0068 +/- .0010 (MLB
+    # 2023-24 SF / (AB+BB+HBP+SF), .0067/.0069) and GIDP per team-game
+    # .68 +/- .06 (benchmark CSV; audit M8). Calibration seeds 1-4 at
+    # 7.49.0: XBT .37-.38, SF/PA .0067-.0072, GIDP/G .68-.71 (7.48.0: .68,
+    # .0097, .57-.60).
+    "extra_base_advance_rate": 0.05,
+    "sf_per_pa": 0.001,
+    "gidp_per_team_game": 0.06,
+    # Still report-only (never strict): K reaches (k_reach_per_team_game;
+    # approximate until a Retrosheet row exists), corr_control_wp9,
+    # corr_catcher_fa_pb, the RE24 and run-probability cells and the
+    # tag-up rows (kpi_extras).
 }
 
 # Targets of the promoted kpi_extras gates (bands in DEFAULT_TOLERANCES).
@@ -198,6 +208,8 @@ STRICT_EXTRAS_TARGETS: dict[str, float] = {
     "wp_pb_bases_empty": 0.0,
     "double_steal_two_out_plays": 0.0,
     "illegal_k_reach": 0.0,
+    # Release 4b.
+    "sf_per_pa": 0.0068,
 }
 
 
@@ -210,7 +222,8 @@ STRICT_EXTRAS_TARGETS: dict[str, float] = {
 # batted-ball shape: Release 6). Targets are rows of the benchmark CSV.
 REPORT_ONLY_TOLERANCES: dict[str, float] = {
     # H2: sba_per_pa and sb_per_team_game moved to DEFAULT_TOLERANCES in
-    # Release 4 (the engine steals at MLB rates since 7.48.0).
+    # Release 4 (the engine steals at MLB rates since 7.48.0); M7 XBT and
+    # M8 GIDP followed with Release 4b (7.49.0).
     # M3: MLB 2021-24 had 3-5 qualified 40-HR hitters (~5 per the audit); the
     # old 2.5 +/- 5.0 gate could never fail low. 5 +/- 3 can (0 or 1 fails).
     # The fixture produces 2 on seeds 1 and 2: on the edge, and as a Poisson(2)
@@ -221,39 +234,6 @@ REPORT_ONLY_TOLERANCES: dict[str, float] = {
     "hard_hit_pct": 0.03,
     "barrel_pct": 0.015,
     "sweet_spot_pct": 0.03,
-    # M7: XBT% (Baseball-Reference definition, counted by the engine; see
-    # physics_sim.engine._tally_extra_bases_taken). Calibration ~0.67-0.69
-    # at the 4a defaults; strict under --gate-set r4b (R4B_TOLERANCES).
-    "extra_base_advance_rate": 0.05,
-    # M8: GIDP per team-game, MLB ~.68 (benchmark CSV row; approximate).
-    # Calibration ~.57-.60 at the 4a defaults, where the old double-play
-    # model still runs; strict under --gate-set r4b.
-    "gidp_per_team_game": 0.06,
-}
-
-# Release 4 (plan section 5): the 4b gates. They are the r4b profile's
-# targets (scripts/kpi_profiles/r4b.json: the W2 hit-advance values and the
-# W3 tag-up / ground-out switches), so they fail --strict only under
-# ``--gate-set r4b``, which adds them to the strict tolerances; at the 4a
-# defaults XBT and GIDP stay report-only rows (REPORT_ONLY_TOLERANCES) and
-# SF/PA a kpi_extras row. Move them into DEFAULT_TOLERANCES when 4b becomes
-# the default (decision 1: 7.49.0, once the profile is green on calibration
-# seeds 1-4 and the league running set). Calibration seeds 1-4 with the
-# profile at 7.48.0: XBT .377-.385, SF/PA .0068-.0071, GIDP/G .690-.700.
-R4B_TOLERANCES: dict[str, float] = {
-    # XBT .40 +/- .05 (benchmark CSV; MLB ~.40, Baseball-Reference XBT%).
-    "extra_base_advance_rate": 0.05,
-    # SF/PA .0068 +/- .0010: MLB 2023-24 SF / (AB+BB+HBP+SF), .0067/.0069.
-    "sf_per_pa": 0.001,
-    # GIDP per team-game .68 +/- .06 (benchmark CSV; audit M8).
-    "gidp_per_team_game": 0.06,
-}
-
-# Targets of 4b gates that are kpi_extras metrics (promoted into the strict
-# metrics like STRICT_EXTRAS_TARGETS, but only when their gate set runs). Each
-# matches its row in mlb_report_only_reference.csv.
-R4B_EXTRAS_TARGETS: dict[str, float] = {
-    "sf_per_pa": 0.0068,
 }
 
 # Release 4 (W0): named subsets of the strict gates. ``--gate-set NAME``
@@ -266,6 +246,10 @@ R4B_EXTRAS_TARGETS: dict[str, float] = {
 # 54.4, burners at 70+ and 85+) gate the running game while its offence
 # gates stay report-only. On it at 7.48.0 (seeds 1/2): SB% .806/.815, SBA/PA
 # .0254/.0256, SB/G .771/.786, WP .348/.343, PB .052/.053, 3B/G .179/.163.
+# XBT and SF/PA join the set with 7.49.0 (.42-.43 and .0069-.0073). GIDP
+# does not: the fixture's faster batters ground into fewer double plays
+# (.62-.64 per team-game against a .62 floor), so it gates on
+# data/calibration only.
 _RUNNING_GATES: list[str] = [
     "sb_pct",
     "sba_per_pa",
@@ -278,42 +262,21 @@ _RUNNING_GATES: list[str] = [
     "wp_per_team_game",
     "pb_per_team_game",
     "triples_per_team_game",
+    "extra_base_advance_rate",
+    "sf_per_pa",
 ]
 
-# "r4b" keeps the 4b path from rotting while it is off by default: CI runs
-# data/calibration seed 1 with --tuning-overrides scripts/kpi_profiles/r4b.json
-# --gate-set r4b. It is the 4b gates (R4B_TOLERANCES), the rule 5.08(a) gate
-# the W3 tag-up and ground-out code must keep at 0, the double-play rate,
-# runs per game and the running-game gates except steal volume. The profile
-# lowers steal volume ~6% (seeds 1-4: SBA/PA .0208-.0223, SB/G .622-.658;
-# seed 1 sits .0008 and .012 above the floors), so sba_per_pa and
-# sb_per_team_game would make this CI step flaky; they stay gated at the
-# defaults. The flip itself (decision 1) needs the full strict set, steal
-# volume included, green on calibration seeds 1-4 with the profile.
 GATE_SETS: dict[str, list[str]] = {
     "running": list(_RUNNING_GATES),
-    "r4b": [
-        *R4B_TOLERANCES,
-        *(
-            key
-            for key in _RUNNING_GATES
-            if key not in ("sba_per_pa", "sb_per_team_game")
-        ),
-        "runs_on_inning_ending_plays",
-        "bip_double_play_pct",
-        "runs_per_team_game",
-    ],
 }
 
-# Tolerances a gate set adds to the strict group when it runs (gates that are
-# not strict by default). Targets come from the benchmark CSV or
-# GATE_SET_EXTRAS_TARGETS.
-GATE_SET_TOLERANCES: dict[str, dict[str, float]] = {
-    "r4b": R4B_TOLERANCES,
-}
-GATE_SET_EXTRAS_TARGETS: dict[str, dict[str, float]] = {
-    "r4b": R4B_EXTRAS_TARGETS,
-}
+# Tolerances a gate set adds to the strict group when it runs: gates for a
+# feature that is built but still switched off, run with its tuning profile
+# (--tuning-overrides) until it becomes the default. Targets come from the
+# benchmark CSV or GATE_SET_EXTRAS_TARGETS. Release 4b used this as "r4b"
+# until 7.49.0 made it the default; empty since.
+GATE_SET_TOLERANCES: dict[str, dict[str, float]] = {}
+GATE_SET_EXTRAS_TARGETS: dict[str, dict[str, float]] = {}
 
 # Metric keys that were renamed; a --tolerances override using the old name
 # still applies to the new one instead of being silently dropped.
@@ -1313,7 +1276,7 @@ def _is_finite_number(value: object) -> bool:
 
 def strict_tolerances_for(gate_set: str | None) -> dict[str, float]:
     """The strict tolerances before any --tolerances override: the defaults
-    plus the gates ``gate_set`` adds (GATE_SET_TOLERANCES; the 4b gates)."""
+    plus the gates ``gate_set`` adds (GATE_SET_TOLERANCES)."""
     merged = dict(DEFAULT_TOLERANCES)
     if gate_set is not None:
         merged.update(GATE_SET_TOLERANCES.get(gate_set, {}))
@@ -1964,7 +1927,7 @@ def main() -> None:
         default=None,
         help=(
             "JSON object of engine tuning knobs merged over DEFAULT_TUNING for "
-            "this run (e.g. scripts/kpi_profiles/r4b.json). Keys not in "
+            "this run (e.g. scripts/kpi_profiles/r4a_legacy.json). Keys not in "
             "DEFAULT_TUNING are rejected."
         ),
     )

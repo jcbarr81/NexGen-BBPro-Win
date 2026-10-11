@@ -11,9 +11,12 @@
   an unforced R2 takes 3rd on a productive out.
 - DP: ``double_play_probability(..., batter_speed=)`` with the multiplicative
   batter-speed factor and the ``double_play_max`` cap.
-- With both switches at 0 every game is byte-identical to the 7.47.0 code
-  (frozen copies of the legacy functions below), and pinned per-seed digests
-  catch a change at the call sites the frozen copies cannot see.
+- Both models are the defaults since Release 4b (7.49.0). The 7.48.0 values
+  of every knob that flip changed live in ``scripts/kpi_profiles/
+  r4a_legacy.json`` (``LEGACY`` below): with it both switches are 0 and every
+  game is byte-identical to the 7.47.0 code (frozen copies of the legacy
+  functions below), and pinned per-seed digests catch a change at the call
+  sites the frozen copies cannot see.
 """
 
 from __future__ import annotations
@@ -36,7 +39,17 @@ from physics_sim.models import BatterRatings
 
 REPO = Path(__file__).resolve().parents[1]
 CALIBRATION = REPO / "data" / "calibration"
-PROFILE = REPO / "scripts" / "kpi_profiles" / "r4b.json"
+LEGACY_PROFILE = REPO / "scripts" / "kpi_profiles" / "r4a_legacy.json"
+# The 7.48.0 ("4a") value of every knob the Release 4b flip changed. As
+# tuning overrides it switches both models off and reproduces 7.48.0; the
+# tests of the old code paths pass it explicitly, everything else runs at
+# the defaults (the 4b models).
+LEGACY = {
+    key: float(value)
+    for key, value in json.loads(
+        LEGACY_PROFILE.read_text(encoding="utf-8")
+    ).items()
+}
 
 W3_KNOBS = {
     "tag_up_model": 1.0,
@@ -113,32 +126,56 @@ def test_w3_knobs_are_registered_and_round_trip():
     tuning = TuningConfig.from_overrides(overrides=W3_KNOBS)
     for key, value in W3_KNOBS.items():
         assert tuning.get(key) == pytest.approx(value), key
+    # The two switches are 1 at the defaults since 7.49.0, so the round trip
+    # above cannot tell a dropped override from the default: switch them off.
+    off = TuningConfig.from_overrides(overrides={key: 0.0 for key in V1})
+    for key in V1:
+        assert off.get(key) == 0.0, key
+    # Every other knob round-trips a value that is not its default.
+    for key, value in W3_KNOBS.items():
+        assert key in V1 or DEFAULT_TUNING[key] != value, key
 
 
-def test_defaults_are_the_legacy_path():
-    assert DEFAULT_TUNING["tag_up_model"] == 0.0
-    assert DEFAULT_TUNING["ground_out_model"] == 0.0
-    assert DEFAULT_TUNING["double_play_base"] == pytest.approx(0.32)
-    assert DEFAULT_TUNING["double_play_batter_speed_k"] == 0.0
-    assert DEFAULT_TUNING["double_play_max"] == pytest.approx(0.45)
+def test_defaults_are_the_release_4b_models():
+    assert DEFAULT_TUNING["tag_up_model"] == 1.0
+    assert DEFAULT_TUNING["ground_out_model"] == 1.0
+    assert DEFAULT_TUNING["double_play_base"] == pytest.approx(0.38)
+    assert DEFAULT_TUNING["double_play_batter_speed_k"] == pytest.approx(0.20)
+    assert DEFAULT_TUNING["double_play_max"] == pytest.approx(0.60)
+    tuning = load_tuning()
+    for key in V1:
+        assert tuning.get(key) == 1.0, key
 
 
-def test_r4b_profile_carries_the_w3_values():
+def test_legacy_profile_switches_the_models_off():
     from scripts.physics_sim_season_kpis import load_tuning_overrides_file
 
-    profile = load_tuning_overrides_file(PROFILE)
-    assert profile["tag_up_model"] == 1.0
-    assert profile["ground_out_model"] == 1.0
-    assert profile["double_play_base"] == pytest.approx(0.38)
-    assert profile["double_play_batter_speed_k"] == pytest.approx(0.20)
-    assert profile["double_play_max"] == pytest.approx(0.60)
-    assert profile["tag_up_second_scale"] == pytest.approx(1.6)
+    # The loader rejects an unregistered or non-numeric key, which
+    # ``TuningConfig.from_overrides`` would silently drop.
+    assert load_tuning_overrides_file(LEGACY_PROFILE) == LEGACY
+    tuning = load_tuning(LEGACY)
+    assert tuning.get("tag_up_model") == 0.0
+    assert tuning.get("ground_out_model") == 0.0
+    assert tuning.get("double_play_base") == pytest.approx(0.32)
+    assert tuning.get("double_play_batter_speed_k") == 0.0
+    assert tuning.get("double_play_max") == pytest.approx(0.45)
+    # It holds only what the flip changed: no key repeats its default.
+    for key, value in LEGACY.items():
+        assert DEFAULT_TUNING[key] != value, key
+
+
+def test_defaults_carry_the_w3_values():
+    """The W3 values of the retired r4b profile are the defaults now."""
+    assert DEFAULT_TUNING["tag_up_second_scale"] == pytest.approx(1.6)
     # F2 retune on the full bundle (W0-W3): a slightly bolder send and a
     # higher out floor put tag-up score / out per send in .72-.78 / .02-.04.
-    assert profile["tag_up_send_margin"] == pytest.approx(0.17)
-    assert profile["tag_up_out_floor"] == pytest.approx(0.008)
-    assert profile["tag_up_min_carry_ft"] == pytest.approx(150.0)
-    assert profile["tag_up_second_min_send"] == pytest.approx(0.05)
+    assert DEFAULT_TUNING["tag_up_send_margin"] == pytest.approx(0.17)
+    assert DEFAULT_TUNING["tag_up_out_floor"] == pytest.approx(0.008)
+    assert DEFAULT_TUNING["tag_up_min_carry_ft"] == pytest.approx(150.0)
+    assert DEFAULT_TUNING["tag_up_second_min_send"] == pytest.approx(0.05)
+    # The 7.48.0 values of the two retuned tag-up knobs are in the profile.
+    assert LEGACY["tag_up_send_margin"] == pytest.approx(0.20)
+    assert LEGACY["tag_up_out_floor"] == pytest.approx(0.005)
 
 
 # --- double play probability ---------------------------------------------------
@@ -156,8 +193,9 @@ def _old_dp(*, runner_speed, infield_range, turn_arm, tuning):
 
 
 @pytest.mark.parametrize("batter_speed", [None, 20.0, 50.0, 90.0])
-def test_dp_default_tuning_reproduces_the_old_value(batter_speed):
-    tuning = load_tuning()
+def test_dp_legacy_tuning_reproduces_the_old_value(batter_speed):
+    # 7.48.0 values: base .32, batter-speed k 0 (off) and the .45 cap.
+    tuning = load_tuning(LEGACY)
     rng = random.Random(7)
     for _ in range(200):
         kw = dict(
@@ -186,11 +224,15 @@ def test_dp_batter_speed_factor_is_multiplicative_and_centred():
 
 
 def test_dp_cap_is_a_knob():
+    # A raw chance well over every cap below (.85 at the legacy base).
     kw = dict(runner_speed=20.0, infield_range=90.0, turn_arm=90.0)
-    assert double_play_probability(**kw, tuning=load_tuning()) == pytest.approx(0.45)
     assert double_play_probability(
-        **kw, tuning=load_tuning({"double_play_max": 0.6})
-    ) == pytest.approx(0.6)
+        **kw, tuning=load_tuning(LEGACY)
+    ) == pytest.approx(0.45)  # 7.48.0
+    assert double_play_probability(**kw, tuning=load_tuning()) == pytest.approx(0.6)
+    assert double_play_probability(
+        **kw, tuning=load_tuning({"double_play_max": 0.7})
+    ) == pytest.approx(0.7)
 
 
 # --- tag-ups -------------------------------------------------------------------
@@ -225,7 +267,7 @@ def test_legacy_model_ignores_the_infield_flag(monkeypatch):
     bases = BaseState(third=_batter("R3"))
     monkeypatch.setattr(engine, "random", _Script([0.0]))
     runs, *_ = _advance_on_air_out(
-        bases=bases, outs=0, thrower_arm=50.0, tuning=load_tuning(),
+        bases=bases, outs=0, thrower_arm=50.0, tuning=load_tuning(LEGACY),
         distance=110.0, exit_velo=80.0, launch_angle=10.0, ball_type="ld",
         infield_play=True,
     )
@@ -269,7 +311,9 @@ def test_send_rate_rises_with_depth():
 
 def test_speed_and_arm_move_the_send_at_175_feet():
     base = _p_send(175.0)[0]
-    assert 0.6 <= base <= 0.85  # the plan's .74 at sp 50, arm 50
+    # The plan's .74 at sp 50, arm 50 with the .20 send margin; .78 at the
+    # F2 retune's .17 (the default).
+    assert 0.6 <= base <= 0.85
     assert _p_send(175.0, speed=85.0)[0] - base >= 0.20
     assert _p_send(175.0, arm=65.0)[0] <= base - 0.25
 
@@ -693,16 +737,17 @@ PRIMARY = _primary_positions()
 
 
 def test_switches_off_games_are_byte_identical_to_the_legacy_code(monkeypatch):
-    current = [_digest(_play(seed)) for seed in SEEDS]
+    # The switches are on at the defaults: the legacy profile turns them off.
+    current = [_digest(_play(seed, LEGACY)) for seed in SEEDS]
     monkeypatch.setattr(engine, "_advance_on_air_out", _legacy_air_out)
     monkeypatch.setattr(engine, "_resolve_ground_out", _legacy_ground_out)
-    legacy = [_digest(_play(seed)) for seed in SEEDS]
+    legacy = [_digest(_play(seed, LEGACY)) for seed in SEEDS]
     assert current == legacy
 
 
 def test_switches_off_games_have_no_w3_events():
     for seed in SEEDS:
-        result = _play(seed)
+        result = _play(seed, LEGACY)
         assert result.totals["dp_air"] == 0
         tokens = Counter()
         for entry in result.pitch_log:
@@ -711,22 +756,23 @@ def test_switches_off_games_have_no_w3_events():
 
 
 @pytest.fixture(scope="module")
-def profile_games():
-    from scripts.physics_sim_season_kpis import load_tuning_overrides_file
-
-    profile = load_tuning_overrides_file(PROFILE)
-    return [_play(seed, profile) for seed in range(1, 41)]
+def default_games():
+    """Forty games at the defaults: the Release 4b models since 7.49.0."""
+    return [_play(seed) for seed in range(1, 41)]
 
 
-def test_profile_changes_the_games(profile_games):
-    assert [_digest(r) for r in profile_games[:6]] != [_digest(_play(s)) for s in SEEDS]
+def test_legacy_profile_changes_the_games(default_games):
+    # The game metadata carries no tuning, so a digest only differs when the
+    # play does; every one of the six seeds plays out differently.
+    for seed, result in zip(SEEDS, default_games):
+        assert _digest(result) != _digest(_play(seed, LEGACY)), seed
 
 
-def test_tag_dp_credits(profile_games):
+def test_tag_dp_credits(default_games):
     """A runner thrown out at home on a tag-up is a DP for the fielder and the
     catcher, counted in ``dp_air``, and never a GIDP."""
     seen = 0
-    for result in profile_games:
+    for result in default_games:
         tag_dp = 0
         gidp_tokens = 0
         for entry in result.pitch_log:
@@ -762,18 +808,18 @@ def test_tag_dp_credits(profile_games):
     assert seen, "no tag-up throw-out in 40 games"
 
 
-def test_profile_games_score_no_run_on_an_inning_ending_play(profile_games):
+def test_default_games_score_no_run_on_an_inning_ending_play(default_games):
     from scripts.kpi_extras import ReportOnlyKpis
 
     kpis = ReportOnlyKpis(players_path=CALIBRATION / "players.csv", games_per_team=40)
-    for result in profile_games:
+    for result in default_games:
         kpis.add_game(result, away="CAL01", home="CAL02")
     report = kpis.finalize(reference={})
     metrics = report["metrics"]
     assert metrics["runs_on_inning_ending_plays"] == 0
     assert metrics["tagup_r3_opps"] > 0
     assert metrics["tagup_score_rate"] < 0.95  # the old engine scored ~.95
-    assert metrics["dp_air"] == sum(r.totals["dp_air"] for r in profile_games)
+    assert metrics["dp_air"] == sum(r.totals["dp_air"] for r in default_games)
     assert metrics["tag_dp_events"] == metrics["dp_air"]
 
 
@@ -834,7 +880,7 @@ def test_legacy_model_ignores_the_min_carry(monkeypatch):
     bases = BaseState(third=_batter("R3"))
     monkeypatch.setattr(engine, "random", _Script([0.0]))
     runs, *_ = _advance_on_air_out(
-        bases=bases, outs=0, thrower_arm=50.0, tuning=load_tuning(),
+        bases=bases, outs=0, thrower_arm=50.0, tuning=load_tuning(LEGACY),
         distance=60.0, exit_velo=70.0, launch_angle=70.0, ball_type="fb",
     )
     assert runs == 1
@@ -940,13 +986,11 @@ def test_home_to_first_dp_credits():
 
 
 def test_home_to_first_dp_in_games(monkeypatch):
-    """Profile games where every DP chance is turned and R3 never scores on
-    one, so 0-out bases-loaded ground outs become home-to-first DPs."""
-    from scripts.physics_sim_season_kpis import load_tuning_overrides_file
-
-    profile = load_tuning_overrides_file(PROFILE)
+    """Games at the defaults (``ground_out_model`` 1) where every DP chance
+    is turned and R3 never scores on one, so 0-out bases-loaded ground outs
+    become home-to-first DPs."""
     monkeypatch.setattr(engine, "double_play_probability", lambda **_: 1.0)
-    overrides = {**profile, "ground_out_dp_r3_score": -1.0}
+    overrides = {"ground_out_dp_r3_score": -1.0}
     seen = 0
     for seed in range(1, 61):
         result = _play(seed, overrides)
@@ -977,9 +1021,9 @@ def test_home_to_first_dp_in_games(monkeypatch):
     assert seen, "no home-to-first DP in 60 games"
 
 
-def test_tag2_record_only_when_r2_had_a_chance(profile_games):
+def test_tag2_record_only_when_r2_had_a_chance(default_games):
     seen = 0
-    for result in profile_games:
+    for result in default_games:
         for entry in result.pitch_log:
             tag2 = entry.get("tag2")
             tag3 = entry.get("tag3")
@@ -1013,15 +1057,19 @@ def test_air_out_call_site_passes_the_ball_straight_through(monkeypatch):
 
 # Model-0 guard: sha256 of the canonical JSON (floats rounded to 6 places) of
 # totals + pitch_log with the W3 play records (tag3 / tag2 / go3) and
-# ``dp_air`` stripped, for CAL01 at CAL02 at the branch defaults. The frozen
-# legacy copies above only stand in for the two helpers; these pins also
-# catch a change at the air-out / ground-out call sites (an extra draw, a
-# changed credit). RE-BASELINE whenever the 4a (default) stream changes on
-# purpose: run this file and copy the "got" digests from the failure message
-# into PINNED_DIGESTS. Baseline: release-4 after F1-F3, the one-out
-# triple-play fix (7.48.0) and F4 (battery centres + the running-game
-# retune: steal attempt/success, WP/PB and dropped-third-strike rates);
-# totals, pitch log and game metadata.
+# ``dp_air`` stripped, for CAL01 at CAL02 with the legacy profile (LEGACY:
+# both switches 0 and the 7.48.0 value of every knob Release 4b changed).
+# The frozen legacy copies above only stand in for the two helpers; these
+# pins also catch a change at the air-out / ground-out call sites (an extra
+# draw, a changed credit). RE-BASELINE whenever the legacy (4a) stream
+# changes on purpose: run this file and copy the "got" digests from the
+# failure message into PINNED_DIGESTS. Baseline: release-4 after F1-F3, the
+# one-out triple-play fix (7.48.0) and F4 (battery centres + the
+# running-game retune: steal attempt/success, WP/PB and dropped-third-strike
+# rates); totals, pitch log and game metadata. NOT re-baselined for the
+# Release 4b flip (7.49.0): these are the 7.48.0 default-tuning digests, and
+# the legacy profile reproduces them exactly, which is the check that
+# r4a_legacy.json holds every default the flip changed.
 PINNED_DIGESTS = {
     1: "1fe9bd9b05a5acf0f3ae81b23f009dcbc1bde85aac0e729f6072db7feccf50e8",
     2: "14d6c883ef9b473fde472d7de26428fa58950a182ef9ab4a1fb6a583347932c9",
@@ -1061,7 +1109,7 @@ def _model0_digest(result) -> str:
 
 
 def test_switches_off_games_match_the_pinned_digests():
-    results = {seed: _play(seed) for seed in PINNED_DIGESTS}
+    results = {seed: _play(seed, LEGACY) for seed in PINNED_DIGESTS}
     got = {seed: _model0_digest(r) for seed, r in results.items()}
     assert got == PINNED_DIGESTS, f"got {got}"
     # The pinned games reach both call sites with a runner on 3rd.

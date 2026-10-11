@@ -2,13 +2,14 @@
 
 - L21: runners on a ground-ball single advance on the outfielder who picks
   the ball up (his arm, his assist, his throwing error), not the infielder.
-- The hit-advance knobs reproduce 7.47.0 at their defaults (a frozen copy of
-  the old ``_advance_on_hit`` over random base states) and give MLB-like
-  rates with the 4b profile (scripts/kpi_profiles/r4b.json).
+- The hit-advance knobs give MLB-like rates at their defaults (the Release 4b
+  values since 7.49.0) and reproduce 7.47.0 with the legacy values in
+  scripts/kpi_profiles/r4a_legacy.json (a frozen copy of the old
+  ``_advance_on_hit`` over random base states).
 - Triples by tier ("T3"): the speed slope is split, so burners triple about
   twice as often as an average runner instead of nearly four times.
 - M6: the ground-ball out chance reads batter speed against the league's
-  ACT-hitter mean; at the default scale 0 nothing changes.
+  ACT-hitter mean; at scale 0 (the legacy value) nothing changes.
 """
 
 from __future__ import annotations
@@ -31,9 +32,24 @@ from physics_sim.physics import resolve_batted_ball
 REPO = Path(__file__).resolve().parents[1]
 CALIBRATION = REPO / "data" / "calibration"
 LEAGUE_FIXTURE = REPO / "data" / "calibration_league"
-R4B_PROFILE = REPO / "scripts" / "kpi_profiles" / "r4b.json"
+LEGACY_PROFILE = REPO / "scripts" / "kpi_profiles" / "r4a_legacy.json"
+# The 7.48.0 ("4a") value of every key Release 4b (7.49.0) changed. Passed as
+# tuning overrides it switches 4b back off.
+LEGACY = json.loads(LEGACY_PROFILE.read_text(encoding="utf-8"))
 
-W2_KEYS = {
+# W2 knobs Release 4b changed: the default since 7.49.0 ...
+W2_R4B = {
+    "hit_advance_aggression_scale": 1.0,
+    "hit_advance_out_scale": 0.45,
+    "xbt_single_r1_extra": -0.17,
+    "xbt_single_r2_extra": 0.06,
+    "xbt_double_r1_extra": -0.13,
+    "xbt_two_out_extra": 0.22,
+    "forced_runner_out_scale": 0.25,
+    "infield_hit_speed_scale": 0.036,
+}
+# ... and the 7.48.0 value the legacy profile has to hold.
+W2_LEGACY = {
     "hit_advance_aggression_scale": 1.6,
     "hit_advance_out_scale": 1.0,
     "xbt_single_r1_extra": 0.05,
@@ -41,12 +57,16 @@ W2_KEYS = {
     "xbt_double_r1_extra": -0.05,
     "xbt_two_out_extra": 0.0,
     "forced_runner_out_scale": 1.0,
-    "triple_speed_scale_fast": 0.12,
     "infield_hit_speed_scale": 0.0,
+}
+# W2 knobs 4b left alone.
+W2_UNCHANGED = {
+    "triple_speed_scale_fast": 0.12,
     "infield_hit_ev_lo": 80.0,
     "infield_hit_ev_hi": 100.0,
     "infield_single_ev_max": 0.0,
 }
+W2_KEYS = {**W2_R4B, **W2_UNCHANGED}
 INFIELD = {"1B", "2B", "3B", "SS"}
 OUTFIELD = {"LF", "CF", "RF"}
 
@@ -68,7 +88,8 @@ class _NoDraws:
 # --- knobs ---------------------------------------------------------------------
 
 
-def test_w2_knobs_are_registered_with_legacy_defaults():
+def test_w2_knobs_are_registered_with_the_r4b_defaults():
+    assert set(W2_R4B) == set(W2_LEGACY)
     for key, value in W2_KEYS.items():
         assert key in DEFAULT_TUNING, key
         assert DEFAULT_TUNING[key] == pytest.approx(value), key
@@ -85,13 +106,27 @@ def test_w2_knobs_round_trip_through_from_overrides():
         assert tuning.get(key) == pytest.approx(value), key
 
 
-def test_r4b_profile_keys_are_registered_and_numeric():
-    profile = json.loads(R4B_PROFILE.read_text(encoding="utf-8"))
-    assert profile, "the 4b profile is empty"
-    tuning = TuningConfig.from_overrides(overrides=profile)
-    for key, value in profile.items():
+def test_legacy_profile_keys_are_registered_numeric_and_not_the_default():
+    assert LEGACY, "the legacy (4a) profile is empty"
+    tuning = TuningConfig.from_overrides(overrides=LEGACY)
+    for key, value in LEGACY.items():
+        # from_overrides drops an unregistered key without a word.
         assert key in DEFAULT_TUNING, key
+        assert isinstance(value, (int, float)) and not isinstance(value, bool), key
         assert tuning.get(key) == pytest.approx(float(value)), key
+        # The profile lists what 4b changed: a value equal to the default
+        # would switch nothing back.
+        assert float(value) != pytest.approx(float(DEFAULT_TUNING[key])), key
+
+
+def test_legacy_profile_holds_the_7480_w2_values():
+    for key, value in W2_LEGACY.items():
+        assert key in LEGACY, key
+        assert LEGACY[key] == pytest.approx(value), key
+    assert not set(W2_UNCHANGED) & set(LEGACY)
+    tuning = load_tuning(LEGACY)
+    for key, value in {**W2_LEGACY, **W2_UNCHANGED}.items():
+        assert tuning.get(key) == pytest.approx(value), key
 
 
 # --- legacy equivalence --------------------------------------------------------
@@ -246,15 +281,17 @@ def _state(bases):
     return tuple(r.player_id if r else None for r in (bases.first, bases.second, bases.third))
 
 
-def test_default_knobs_reproduce_the_7470_advance_on_hit():
+def test_legacy_knobs_reproduce_the_7470_advance_on_hit():
     """2,000 random base states x 4 hit types: same outcome, same draws.
 
-    Release 4 F1 changed the plays where rule 5.08(a) stops a runner (the
-    third out ended the inning, or a lead runner was out at home); the
-    function reports those in ``rule_log``. Every other play still matches
-    7.47.0 exactly, and the changed ones never make more than three outs.
+    The knobs are the legacy (7.48.0) profile; the defaults are Release 4b
+    since 7.49.0 and no longer match. Release 4 F1 changed the plays where
+    rule 5.08(a) stops a runner (the third out ended the inning, or a lead
+    runner was out at home); the function reports those in ``rule_log``.
+    Every other play still matches 7.47.0 exactly, and the changed ones
+    never make more than three outs.
     """
-    tuning = load_tuning()
+    tuning = load_tuning(LEGACY)
     rng = random.Random(20261009)
     same = changed = 0
     for i in range(2000):
@@ -292,11 +329,7 @@ def test_default_knobs_reproduce_the_7470_advance_on_hit():
     assert same > 7500 and changed > 20
 
 
-# --- 4b knobs ------------------------------------------------------------------
-
-
-def _profile_tuning() -> TuningConfig:
-    return load_tuning(json.loads(R4B_PROFILE.read_text(encoding="utf-8")))
+# --- 4b knobs (the defaults since 7.49.0) ---------------------------------------
 
 
 def _fixture_speeds_and_of_arms() -> tuple[list[float], list[float]]:
@@ -338,8 +371,8 @@ def _situation_rates(tuning: TuningConfig, outs_mix=(0, 1, 2), n: int = 12000) -
     return rates
 
 
-def test_r4b_profile_lands_in_the_mlb_bands():
-    rates = _situation_rates(_profile_tuning())
+def test_r4b_defaults_land_in_the_mlb_bands():
+    rates = _situation_rates(load_tuning())
 
     def mean(situation, field, outs=(0, 1, 2)):
         return sum(rates[(situation, o)][field] for o in outs) / len(outs)
@@ -355,7 +388,7 @@ def test_r4b_profile_lands_in_the_mlb_bands():
 
 
 def test_two_out_extra_only_moves_the_running_on_contact_situations():
-    tuning = _profile_tuning()
+    tuning = load_tuning()
     assert tuning.get("xbt_two_out_extra") > 0.15
     rates = _situation_rates(tuning, outs_mix=(1, 2), n=6000)
     assert rates[("s_r2", 2)][0] > rates[("s_r2", 1)][0] + 0.1
@@ -376,8 +409,8 @@ def _p_taken(sp, arm, tuning, extra, out_extra):
 @pytest.mark.parametrize("extra_key,out_extra", [
     ("xbt_single_r1_extra", 0.08), ("xbt_single_r2_extra", 0.05), ("xbt_double_r1_extra", 0.12),
 ])
-def test_r4b_advances_are_monotone_and_unsaturated(extra_key, out_extra):
-    tuning = _profile_tuning()
+def test_r4b_default_advances_are_monotone_and_unsaturated(extra_key, out_extra):
+    tuning = load_tuning()
     extra = tuning.get(extra_key)
     attempt_50, _ = _p_taken(50.0, 50.0, tuning, extra, out_extra)
     assert 0.05 < attempt_50 < 0.95, "saturated at an average runner"
@@ -695,22 +728,35 @@ def _out_prob(tuning, *, speed, ev=80.0, ball_type="gb"):
 
 
 def test_out_probability_unchanged_at_scale_zero_centre_or_no_speed():
-    default = load_tuning({"hitter_speed_center": 47.7})
+    # Scale 0 is the legacy (7.48.0) value; the 4b default has the term on.
+    legacy = load_tuning({**LEGACY, "hitter_speed_center": 47.7})
+    assert legacy.get("infield_hit_speed_scale") == 0.0
     on = load_tuning({"infield_hit_speed_scale": 0.04, "hitter_speed_center": 47.7})
-    base = _out_prob(default, speed=None)
+    base = _out_prob(legacy, speed=None)
     for speed in (20.0, 47.7, 95.0):
-        assert _out_prob(default, speed=speed) == base
+        assert _out_prob(legacy, speed=speed) == base
     assert _out_prob(on, speed=None) == base
     assert _out_prob(on, speed=47.7) == base
+    # The defaults: the same at the centre or without a speed, and the fast
+    # and slow batters split around it.
+    default = load_tuning({"hitter_speed_center": 47.7})
+    assert _out_prob(default, speed=None) == base
+    assert _out_prob(default, speed=47.7) == base
+    assert _out_prob(default, speed=95.0) < base < _out_prob(default, speed=20.0)
 
 
 def test_infield_hit_term_by_speed_and_exit_velocity():
     centre = 54.4
     tuning = load_tuning({"infield_hit_speed_scale": 0.04, "hitter_speed_center": centre})
-    off = load_tuning({"hitter_speed_center": centre})
+    off = load_tuning({"infield_hit_speed_scale": 0.0, "hitter_speed_center": centre})
     base = _out_prob(off, speed=centre + 30.0)
     assert _out_prob(tuning, speed=centre + 30.0) == pytest.approx(base - 0.12)
     assert _out_prob(tuning, speed=centre - 30.0) == pytest.approx(base + 0.12)
+    # The 4b default scale gives the same term at its own size.
+    default = load_tuning({"hitter_speed_center": centre})
+    scale = default.get("infield_hit_speed_scale")
+    assert scale > 0.0
+    assert _out_prob(default, speed=centre + 30.0) == pytest.approx(base - 3.0 * scale)
     # Half weight at 90 mph, none at 100+ and on balls in the air.
     base90 = _out_prob(off, speed=centre + 30.0, ev=90.0)
     assert _out_prob(tuning, speed=centre + 30.0, ev=90.0) == pytest.approx(base90 - 0.06)
@@ -874,13 +920,24 @@ def test_reach_on_error_uses_the_live_outs(monkeypatch):
         return "hold"
 
     monkeypatch.setattr(engine, "_attempt_extra_base", attempt)
-    tuning = load_tuning({"xbt_two_out_extra": 0.2})
+    # At the defaults: xbt_single_r2_extra 0.06, plus xbt_two_out_extra 0.22
+    # with two out.
+    tuning = load_tuning()
     for outs in (1, 2):
         engine._advance_on_error(
             bases=BaseState(second=_batter("R2")), batter=_batter("BAT"),
             defense_arm=50.0, tuning=tuning, outs=outs,
         )
-    assert [round(x, 6) for _pid, x in seen] == [0.15, 0.35]
+    assert [round(x, 6) for _pid, x in seen] == [0.06, 0.28]
+    # The legacy profile has no two-out extra: 0.15 either way.
+    seen.clear()
+    tuning = load_tuning(LEGACY)
+    for outs in (1, 2):
+        engine._advance_on_error(
+            bases=BaseState(second=_batter("R2")), batter=_batter("BAT"),
+            defense_arm=50.0, tuning=tuning, outs=outs,
+        )
+    assert [round(x, 6) for _pid, x in seen] == [0.15, 0.15]
 
 
 def _third_out_violations(rows, outs, hit_type):
@@ -895,11 +952,16 @@ def _third_out_violations(rows, outs, hit_type):
     return sum(1 for r in rows if r[2] == 4 and (forced or r[1] < start))
 
 
-def test_random_plays_never_break_rule_508a():
-    tuning = load_tuning({"extra_base_out_base": 0.45})
+@pytest.mark.parametrize("profile", [{}, LEGACY], ids=["r4b", "legacy"])
+def test_random_plays_never_break_rule_508a(profile):
+    # The rule holds whatever the knobs, so both sets run. 8,000 plays, up
+    # from 6,000: at the 4b defaults fewer runners are thrown out (out scale
+    # 0.45, forced runners 0.25) and 6,000 plays gave 286 third outs, short
+    # of the 300 asked for below; 8,000 give 385 (legacy 1,550).
+    tuning = load_tuning({**profile, "extra_base_out_base": 0.45})
     rng = random.Random(5081)
     third_outs = 0
-    for i in range(6000):
+    for i in range(8000):
         runners = [
             _batter(f"R{k}{i}", speed=rng.uniform(15, 99)) if rng.random() < p else None
             for k, p in ((1, 0.7), (2, 0.6), (3, 0.5))
@@ -932,15 +994,34 @@ def _season_games(overrides, seeds):
         )
 
 
-def test_game_level_outs_and_runs_are_conserved():
+@pytest.mark.parametrize("overrides,seeds,min_force_third_outs", [
+    # The 4b defaults. Runners are thrown out on hits far less often than in
+    # 7.48.0 (out scale 0.45, forced runners 0.25), so 40 games give only 14
+    # hits that make the third out; 120 games give 39, over the 20 asked for
+    # below. A FORCE third out on a hit is rarer still (one in 320 games), so
+    # that count comes from the two cases underneath instead of from an
+    # 11-second run that would find exactly one.
+    pytest.param({}, range(1, 121), 0, id="r4b"),
+    # 4b with the two thrown-out scales put back to 1.0: the 4b out models
+    # (tag-ups, ground outs, double plays) with force third outs on hits.
+    pytest.param(
+        {"hit_advance_out_scale": 1.0, "forced_runner_out_scale": 1.0},
+        range(1, 41), 1, id="r4b-outs",
+    ),
+    # The 7.48.0 knobs and code paths (kept one release as a fallback).
+    pytest.param(LEGACY, range(1, 41), 1, id="legacy"),
+])
+def test_game_level_outs_and_runs_are_conserved(overrides, seeds, min_force_third_outs):
     """Seeded games with many runners thrown out: no half-inning records
     more than three outs, pitcher outs match, and no run scores on a force
-    third out or behind a tag third out (rule 5.08(a))."""
+    third out or behind a tag third out (rule 5.08(a)). The rule holds for
+    both models, so the games run at the defaults and at the legacy profile."""
     from scripts.kpi_extras import ReportOnlyKpis
 
-    acc = ReportOnlyKpis(players_path=CALIBRATION / "players.csv", games_per_team=40)
+    games = len(seeds)
+    acc = ReportOnlyKpis(players_path=CALIBRATION / "players.csv", games_per_team=games)
     halves = 0
-    for result in _season_games({"extra_base_out_base": 0.45}, range(1, 41)):
+    for result in _season_games({**overrides, "extra_base_out_base": 0.45}, seeds):
         meta = result.metadata
         for side, other in (("away", "home"), ("home", "away")):
             per_half = meta["inning_outs"][side]
@@ -960,9 +1041,9 @@ def test_game_level_outs_and_runs_are_conserved():
     report = acc.finalize()
     m, t = report["metrics"], report["tables"]
     counts = t["hit_play_rule_counts"]
-    assert halves > 700
+    assert halves > 17.5 * games  # 700 in 40 games
     assert counts["hit_plays"] > 20, counts  # hits that made the 3rd out
-    assert counts["hit_force_third_outs"] >= 1, counts
+    assert counts["hit_force_third_outs"] >= min_force_third_outs, counts
     assert counts["hit_runs"] == 0 and counts["hit_plays_over_three_outs"] == 0
     assert m["runs_on_inning_ending_plays"] == 0
     assert m["half_innings_over_three_outs"] == 0
@@ -1125,9 +1206,13 @@ def _wired_games(monkeypatch, overrides=None, seeds=range(1, 41)):
 
 
 def test_ground_ball_hit_throws_are_credited_to_an_outfielder(monkeypatch):
-    # More throws (and half of them wild), so 40 games give a real sample.
+    # More throws (and half of them wild) for a real sample. 160 games, up
+    # from 40: at the 4b defaults (hit_advance_out_scale 0.45) 40 games give
+    # only 4 throws and 4 assists on ground-ball hits; 160 give 16 and 20.
     monkeypatch.setattr(engine, "_throw_error_probability", lambda arm, tuning: 0.5)
-    rec, _ = _wired_games(monkeypatch, overrides={"extra_base_out_base": 0.45})
+    rec, _ = _wired_games(
+        monkeypatch, overrides={"extra_base_out_base": 0.45}, seeds=range(1, 161)
+    )
     assert len(rec["throw"]) >= 10, rec["throw"]
     assert len(rec["assist"]) >= 10, rec["assist"]
     assert all(pos in OUTFIELD for pos in rec["throw"]), rec["throw"]

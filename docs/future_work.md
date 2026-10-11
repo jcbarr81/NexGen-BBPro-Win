@@ -1234,12 +1234,20 @@ count, so an RNG-reshuffling change can trip it -- re-check seeds 1 and 2.
 
 ## 62. Release 4 follow-ups (7.48.0)
 
-- Flip 4b to the default (7.49.0): copy scripts/kpi_profiles/r4b.json into
-  DEFAULT_TUNING once it stays strict-green on calibration seeds 1-4 and the
-  league running gate set. Under r4b steal volume drops ~6% (calibration s1
-  SBA/PA .0208, SB/G .622 -- just above the floors): scale the four steal base
-  rates x1.04-1.06 together, then add sba_per_pa / sb_per_team_game to
-  GATE_SETS['r4b'].
+- DONE 7.49.0: 4b is the default (steal base rates x1.05). Follow-ups:
+  remove the 7.47.0 code paths behind tag_up_model / ground_out_model 0 and
+  scripts/kpi_profiles/r4a_legacy.json after one release; the engine's
+  inline tuning.get fallbacks for the hit-advance knobs still carry the
+  7.48.0 values (unreachable while the keys are registered).
+- platoon_gap_woba sits ~.031 against a .035 ceiling, so about one
+  calibration season in eight trips it (4b on or off: seed 2 at steal x1.025,
+  seed 8 at x1.05; 4a seeds 3 and 4 in earlier streams), sometimes with
+  corr_avg_contact. Release 5 owns the platoon fix and restores the 0.006
+  tolerance; until then a noisy-gate miss on a seed other than 1 is not a
+  regression signal on its own.
+- data/calibration_league GIDP is .62-.64 per team-game (floor .62) under
+  4b, so GIDP gates on data/calibration only; revisit when the league
+  fixture's offence is in tolerance.
 - Per-team running strategy (owner decision 4): "baserunning aggressiveness"
   (0.6x / 1.0x / 1.5x) and "play the infield in" owner settings on the Game
   Day settings page, with a guide. Today one league-wide rule applies.
@@ -1277,3 +1285,81 @@ count, so an RNG-reshuffling change can trip it -- re-check seeds 1 and 2.
 - Live-path check (fresh 30-team league, 28 days) before the speed-centred
   steal success: SB/G .83, SB% .83, WP .365, PB .050. Re-measure on alpha
   after deploy.
+
+## 63. Commissioner option: amateur draft in the preseason
+
+Requested by the owner, 2026-10-11.
+
+Today the amateur draft is fixed at the third Tuesday in July
+(`api/routers/season.py::_compute_draft_date`). The season switches to the
+AMATEUR_DRAFT phase on that date and every sim stops until the draft is
+finished, so a league with human owners stalls in mid-season.
+
+Add a league setting, changeable by the commissioner at any time from the
+league admin functions, that chooses when the draft runs:
+
+- **Mid-season** (today's behaviour, the default so nothing changes on
+  deploy).
+- **Preseason**: the draft runs in the preseason, so no regular-season sim
+  ever waits on it.
+
+Owner decisions (2026-10-11):
+
+1. **The preseason draft runs BEFORE spring training,** so the drafted
+   players get a training camp before their debut.
+2. **A change applies to the next draft.** If the commissioner changes the
+   setting while the regular season is being simulated, that season's draft
+   is not affected; the new timing takes effect on the following draft. A
+   season never gets two drafts or none.
+3. **Draft order is the reverse of the records of the last simulated
+   season.**
+4. **Drafted players go to LOW on every team.** CPU clubs then make their
+   own automated decisions if that puts them over a limit. Owner clubs must
+   make themselves compliant before the regular season begins (the existing
+   Opening Day readiness check); the CPU does not fix an owner's roster.
+   Existing policy still holds: no draft pick is released just for room.
+5. **Update the documentation:** the commissioner tutorial, the Draft guide
+   and the league admin help text.
+6. **A new league's first amateur draft comes after its first simulated
+   season.** With the preseason setting there is no draft in the first
+   preseason (there are no records to order by); the first one runs in the
+   second preseason.
+7. **The preseason draft keeps today's draft tools:** the pick clock and
+   auto-draft work exactly as they do for the mid-season draft ("Advance to
+   next owner", the commissioner's "Pick for TEAM" and "Auto-finish draft",
+   and the CPU picking for an owner whose clock runs out).
+
+Planned approach (owner approved, 2026-10-11):
+
+- **Reuse the AMATEUR_DRAFT phase** for the preseason draft, with a
+  remembered return phase (PRESEASON instead of REGULAR_SEASON). Everything
+  that keys off that phase then works unchanged: sims are blocked, the
+  auto-run tick only runs the pick clock, the Draft page unlocks, Discord
+  gets the on-the-clock posts, and the season resumes after the last pick.
+- **Flow:** OFFSEASON -> PRESEASON opens the draft automatically (setting is
+  "preseason" and the league has a completed season) -> draft -> back to
+  PRESEASON -> spring training -> Opening Day readiness check.
+- **While the draft runs,** auto-run does nothing but the pick clock; with
+  the clock at 0 the commissioner drives, as today.
+- **Guard 1:** spring training cannot run until the draft is finished (same
+  pattern as the "Run Spring Training first" block on Opening Day).
+- **Guard 2:** the Opening Day owner deadline cannot fire during the draft,
+  so the CPU never sets an owner's roster before the owner has his draftees.
+- **Pool and order in two steps.** At season rollover (start of the
+  offseason): generate the pool and lock the base order from the
+  just-finished season's records, so owners can scout all offseason. When
+  the draft opens: apply free-agent compensation and forfeited picks, which
+  depend on offseason signings.
+- **One draft per league year** is the "never two, never none" test. Drafts
+  are already filed by league year: a league switching to preseason holds
+  its July draft under this year and its first preseason draft under next
+  year; switching back, the July draft is skipped if that year's preseason
+  draft already happened.
+
+To confirm when building:
+
+- Training camp covers the whole organisation including LOW (a 30-team test
+  league processed 1,530 players, 51 per team), so draftees get their camp
+  with no extra work.
+- Exactly what the scheduled auto-run does today during PRESEASON, so the
+  deadline guard lands in the right place.

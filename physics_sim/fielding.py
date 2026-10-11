@@ -243,7 +243,7 @@ def out_probability(
         # read against the league's ACT-hitter mean (decision 2), so the
         # league's BABIP stays put while the fast and slow split apart. The
         # weight ramps from 1 on weak contact to 0 on hard-hit balls. Scale 0
-        # (the default) leaves the out chance untouched.
+        # (the 7.48.0 behaviour) leaves the out chance untouched.
         scale = tuning.get("infield_hit_speed_scale", 0.0)
         if scale:
             ev_lo = tuning.get("infield_hit_ev_lo", 80.0)
