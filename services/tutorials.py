@@ -90,11 +90,12 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Phase transitions",
                 "<p>Click <b>Advance Phase</b> to move on (Preseason → Regular Season → Amateur Draft mid-season → finish the schedule → Playoffs → Offseason). The button is only enabled when the phase is actually ready — the schedule is fully played, the draft is committed, or a champion has been crowned — so it never skips a stage. After the amateur draft commits, the regular season resumes automatically; you don't have to advance out of it.</p>"
-                "<p>If the commissioner has set the league to draft in the <b>preseason</b>, the order is different: advancing out of the Offseason opens the amateur draft straight away, before spring training. When the last pick is made the league returns to the Preseason, <b>Run Training Camp</b> unlocks, and the regular season then runs without a draft pause in July.</p>",
+                "<p>If the commissioner has set the league to draft in the <b>preseason</b>, the order is different: advancing out of the Offseason opens the amateur draft straight away, before spring training. When the last pick is made the league returns to the Preseason, spring training can be run (<b>Run Training Camp</b>), and that season is not paused for a draft in July.</p>"
+                "<p>While any amateur draft is open the season waits for it: no games are simulated, a scheduled run does not fire (a one-time deadline runs once the draft is over; a recurring one skips to its next slot), and free-agent signings and contract extensions are paused until the last pick.</p>",
             ),
             TutorialStep(
                 "Schedules generate automatically",
-                "<p>Each new season's schedule is created for you when you advance into the new year — no manual regeneration needed. The Season page shows the upcoming Draft Day and the next date to play.</p>",
+                "<p>Each new season's schedule is created for you when you advance into the new year — no manual regeneration needed. The Season page shows the next date to play and the <b>Draft Day</b> tile: the July date, <b>Preseason</b> when this year's draft is held before spring training, or <b>None this year</b> in a new preseason-draft league's first season.</p>",
             ),
             TutorialStep(
                 "Simulating the playoffs",
@@ -358,20 +359,22 @@ TUTORIALS: List[Tutorial] = [
                 "When the draft runs",
                 "<p>The commissioner chooses when the league drafts (see <b>Draft timing</b> below).</p>"
                 "<p><b>Mid-season (the default):</b> the amateur draft fires when the calendar reaches Draft Day, the third Tuesday in July — use <b>Sim to Draft</b> from the Season page to fast-forward to it. Once every pick is committed, the regular season resumes <b>automatically</b>; you don't advance out of the draft manually.</p>"
-                "<p><b>Preseason:</b> the draft opens as soon as the league moves from the Offseason into the new season, <b>before spring training</b>. Spring training and Opening Day wait until the last pick. The draft class then goes through training camp with everyone else, and the regular season is never paused for a draft.</p>",
+                "<p><b>Preseason:</b> the draft opens as soon as the league moves from the Offseason into the new season, <b>before spring training</b>. Spring training and Opening Day wait until the last pick. The draft class then goes through spring training with everyone else, and that season is not paused for a draft in July.</p>"
+                "<p>Either way, while the draft is open no games are simulated, scheduled runs wait, and free-agent signings and contract extensions are paused until the last pick.</p>",
             ),
             TutorialStep(
                 "Draft timing (commissioner)",
                 "<p>The <b>Amateur draft timing</b> card is on <b>Admin → Commissioner</b> and on the Draft page's <b>Admin</b> tab. Pick <b>Mid-season (July)</b> or <b>Preseason (before spring training)</b> and save. It can be changed at any time.</p>"
                 "<ul>"
-                "<li><b>A change applies to the next draft.</b> A regular season already under way keeps its July draft; the new timing starts with the draft after that. A league never holds two drafts in one season, and never skips one.</li>"
-                "<li>If you switch to Preseason while the league is in the Preseason and spring training has not been run, this year's draft opens as soon as you save.</li>"
-                "<li><b>Draft order</b> is the reverse of last season's records, either way.</li>"
-                "<li><b>A new league's first draft comes after its first completed season</b> — there is no draft in a brand-new league's first preseason.</li>"
+                "<li><b>A change applies to the next draft that has not been held.</b> A regular season already under way keeps its July draft; the new timing starts with the draft after that. A league never holds two drafts in one season.</li>"
+                "<li>If you switch to Preseason while the league is in the Preseason and spring training has <b>not</b> been run, this year's draft opens as soon as you save. If spring training has already run, this year's draft stays in July and the preseason draft starts next year.</li>"
+                "<li><b>Draft order</b> is the reverse of last season's records. (A mid-season league in its very first season has no last season, so that one July draft uses the standings on draft day.)</li>"
+                "<li><b>A new league that drafts in the preseason has no draft in its first season.</b> A preseason draft needs a completed season to set the order, so the first draft opens the following preseason, and that first season is not paused in July either. Switching back to Mid-season before July gives the season a July draft.</li>"
                 "<li>The pick clock, <b>Advance to next owner</b>, <b>Auto-finish draft</b> and <b>Pick for TEAM</b> work the same for both.</li>"
                 "<li>With a preseason draft, next year's draft class is generated when the season ends, so owners can scout it on the Draft page all offseason.</li>"
                 "</ul>"
-                "<p>Draft picks always go to <b>Low-A</b>. CPU clubs sort out their own roster limits; an owner whose club is over a limit must fix it before Opening Day (the readiness board shows who is not ready). Nobody is released just to make room for a draft pick.</p>",
+                "<p>Draft picks always go to <b>Low-A</b>. CPU clubs sort out their own roster limits; an owner whose club is over a limit must fix it before Opening Day (the readiness board shows who is not ready). Nobody is released just to make room for a draft pick.</p>"
+                "<p>Two things to know as commissioner: a finished draft stays finished (changing the number of rounds afterwards applies to next year), and <b>Reset to Opening Day</b> keeps a draft that was held in the preseason, because that draft came before Opening Day.</p>",
             ),
             TutorialStep(
                 "Live board",
@@ -574,8 +577,8 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Amateur draft timing",
-                "<p>The <b>Amateur draft timing</b> card on the Commissioner page sets when the league holds its amateur draft: <b>Mid-season (July)</b>, where the regular season pauses for it, or <b>Preseason (before spring training)</b>, where the draft opens as the new season begins and the draft class goes through training camp. A preseason draft means no simulation ever stops in mid-season to wait on the draft.</p>"
-                "<p>You can change it at any time. <b>It applies to the next draft:</b> a regular season already under way keeps its July draft, and a league never holds two drafts in one season. A new league's first draft always follows its first completed season. The draft order (reverse of last season's records), the pick clock and auto-draft are the same either way. The same card is on the Draft page's Admin tab.</p>",
+                "<p>The <b>Amateur draft timing</b> card on the Commissioner page sets when the league holds its amateur draft: <b>Mid-season (July)</b>, where the regular season pauses for it, or <b>Preseason (before spring training)</b>, where the draft opens as the new season begins and the draft class goes through training camp. In a year whose draft is held in the preseason, no simulation stops in mid-season to wait on the draft.</p>"
+                "<p>You can change it at any time. <b>It applies to the next draft that has not been held:</b> a regular season already under way keeps its July draft, and a league never holds two drafts in one season. Switched on in the Preseason before spring training has run, it opens this year's draft at once; after spring training, this year's draft stays in July. A brand-new league that drafts in the preseason has <b>no draft in its first season</b> (its first draft opens the following preseason). The pick clock and auto-draft are the same either way, and the card tells you what a change will do before you save. The same card is on the Draft page's Admin tab.</p>",
             ),
             TutorialStep(
                 "Strategy &amp; auto-reassign",

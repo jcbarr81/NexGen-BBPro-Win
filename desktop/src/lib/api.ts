@@ -1641,6 +1641,12 @@ export interface SeasonState {
   draft_timing?: DraftTiming;
   preseason_draft?: PreseasonDraftStatus;
   draft_return_phase?: "PRESEASON" | "REGULAR_SEASON" | null;
+  /** This year's draft was (or is being) held in the preseason, so
+   *  `draft_date` is not its draft day. Holds for the whole season. */
+  draft_held_in_preseason?: boolean;
+  /** This league year has no amateur draft: a new preseason-draft league's
+   *  first draft follows its first completed season. */
+  draft_skipped?: boolean;
   days_total: number;
   days_played: number;
   days_remaining: number;

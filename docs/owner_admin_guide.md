@@ -163,9 +163,11 @@ Administrators control league configuration and high-level operations.
   - A change takes effect from the next game played, even mid-season; games already played keep the rule they were played under.
 - **Amateur draft timing** (Admin -> Commissioner, and the Draft page's Admin tab): when the league holds its amateur draft.
   - **Mid-season (July)**, the default: the draft is held on the third Tuesday in July and the regular season pauses until the last pick.
-  - **Preseason (before spring training)**: the draft opens when the league advances from the Offseason into the new season. Spring training and Opening Day wait for the last pick, the draft class goes through training camp, and no regular-season sim ever stops for a draft.
-  - It can be changed at any time and **applies to the next draft**. A regular season already under way keeps its July draft. Switching to Preseason while the league is in the Preseason, before spring training has run, opens this year's draft at once. A league never holds two drafts in one season and never skips one.
-  - A new league's first draft always comes after its first completed season.
+  - **Preseason (before spring training)**: the draft opens when the league advances from the Offseason into the new season. Spring training and Opening Day wait for the last pick, the draft class goes through spring training, and that season is not paused for a draft in July.
+  - It can be changed at any time and **applies to the next draft that has not been held**. A regular season already under way keeps its July draft. Switching to Preseason while the league is in the Preseason, before spring training has run, opens this year's draft at once; after spring training has run, this year's draft stays in July. A league never holds two drafts in one season.
+  - **A new league that drafts in the preseason has no draft in its first season.** A preseason draft is ordered by the last completed season's records, so the first draft opens the following preseason and the first season is not paused in July. (Switching back to Mid-season before July gives that season a July draft. A mid-season league drafts in July of its first season as before, ordered by the standings on draft day.)
+  - While any draft is open no games are simulated, scheduled runs wait (a recurring run skips to its next slot), and free-agent signings and contract extensions are paused.
+  - A finished draft stays finished: changing the number of rounds afterwards applies to next year. **Reset to Opening Day** keeps a draft that was held in the preseason and is refused while one is open.
   - Draft order (reverse of last season's records), the pick clock and auto-draft are the same either way.
 
 ### Playoff Calendar
@@ -278,8 +280,8 @@ existing visual style and theme.
       application switches to the Amateur Draft phase and pauses to conduct
       the draft via the Draft Console. After committing results, the season
       resumes in the Regular Season phase. A league set to draft in the
-      preseason holds the draft before spring training instead and has no
-      July pause. See also: `docs/season_progress.md`.
+      preseason holds the draft before spring training instead; that season
+      has no July pause. See also: `docs/season_progress.md`.
   - Schedule Control: Regenerate Season Schedule, Reset to Opening Day.
   - Archives: League History.
 - League Settings page grouped into:

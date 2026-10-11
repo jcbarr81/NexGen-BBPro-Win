@@ -3911,7 +3911,7 @@ def preseason_training_camp(
     # due but was never opened (the setting was switched on after the league
     # entered the preseason, say), open it now rather than run camp past it.
     manager = SeasonManager()
-    _maybe_open_preseason_draft(manager)
+    opened = _maybe_open_preseason_draft(manager)
     if (
         manager.phase == SeasonPhase.AMATEUR_DRAFT
         and manager.phase_after_draft() == SeasonPhase.PRESEASON
@@ -3921,6 +3921,19 @@ def preseason_training_camp(
             detail=(
                 "The amateur draft comes before spring training. Finish the "
                 "draft on the Draft page, then run Training Camp."
+            ),
+        )
+    if opened.get("due") and opened.get("error"):
+        # Due, but it could not be set up. Say why rather than run camp past
+        # the draft; the commissioner can fix it, or move this year's draft
+        # to July by switching the draft timing to mid-season.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The amateur draft comes before spring training, but it could "
+                f"not be opened: {opened['error']} Fix that and try again, or "
+                "set the draft timing to mid-season (Admin, Commissioner) to "
+                "hold this year's draft in July instead."
             ),
         )
 

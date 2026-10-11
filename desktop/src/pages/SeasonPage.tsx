@@ -93,6 +93,16 @@ const PHASE_ORDER: SeasonPhase[] = [
   "OFFSEASON",
 ];
 
+// A league that drafts in the preseason holds the draft first, then spring
+// training (the rest of the preseason), then the season.
+const PHASE_ORDER_PRESEASON_DRAFT: SeasonPhase[] = [
+  "AMATEUR_DRAFT",
+  "PRESEASON",
+  "REGULAR_SEASON",
+  "PLAYOFFS",
+  "OFFSEASON",
+];
+
 export function SeasonPage() {
   const queryClient = useQueryClient();
   const [recent, setRecent] = useState<RecentJump[]>([]);
@@ -239,6 +249,7 @@ export function SeasonPage() {
             <ReadinessBoard
               readiness={readiness.data}
               phase={state.data.phase}
+              preseasonDraft={isPreseasonDraft(state.data)}
             />
           )}
           {canProgress && <InjuredListPolicyCard />}
@@ -402,7 +413,25 @@ function isPreseasonDraft(state: SeasonState): boolean {
  *  the July draft date is not a milestone any more. */
 function draftHeldInPreseason(state: SeasonState): boolean {
   return (
-    isPreseasonDraft(state) || state.preseason_draft?.reason === "completed"
+    !!state.draft_held_in_preseason ||
+    isPreseasonDraft(state) ||
+    state.preseason_draft?.reason === "completed"
+  );
+}
+
+/** True when this league year has no amateur draft at all: a new league that
+ *  drafts in the preseason holds its first draft after its first season. */
+function noDraftThisYear(state: SeasonState): boolean {
+  return !!state.draft_skipped;
+}
+
+/** True when the July draft date is still ahead as a milestone. */
+function julyDraftAhead(state: SeasonState): boolean {
+  return (
+    !!state.draft_date &&
+    !isDraftDone(state) &&
+    !draftHeldInPreseason(state) &&
+    !noDraftThisYear(state)
   );
 }
 
@@ -460,16 +489,17 @@ function buildNextStep(state: SeasonState): NextStep | null {
         return {
           title: "Preseason — the amateur draft comes first",
           body:
-            "This league holds its amateur draft before spring training. Open the Draft page to start it; training camp unlocks after the last pick.",
-          cta: { label: "Open Draft", to: "/draft" },
+            "This league holds its amateur draft before spring training, and this year's has not opened yet. The commissioner opens it by clicking Run Training Camp below; spring training itself runs after the last pick.",
         };
       }
       const draftNote =
         draft?.reason === "completed"
           ? " This year's amateur draft is done, so the draft class goes through camp with everyone else."
           : draft?.reason === "first_season"
-            ? " (A new league's first amateur draft comes after its first completed season.)"
-            : "";
+            ? " There is no amateur draft this year: this league drafts in the preseason, and a new league's first draft follows its first completed season."
+            : draft?.reason === "after_training_camp"
+              ? " Spring training has already run, so this year's amateur draft is held in July; the preseason draft starts next year."
+              : "";
       return {
         title: "Preseason — get the league ready to play",
         body: `Run spring training to mark every player as ready, review free agents, and confirm league-wide training focus. When you're done, click Advance Phase to start the Regular Season.${draftNote}`,
@@ -486,7 +516,7 @@ function buildNextStep(state: SeasonState): NextStep | null {
         };
       }
       const remaining = state.days_remaining ?? 0;
-      const draftDate = isDraftDone(state) ? null : state.draft_date;
+      const draftDate = julyDraftAhead(state) ? state.draft_date : null;
       const nextLabel = draftDate
         ? `Amateur Draft on ${formatDate(draftDate)}`
         : "the end of the schedule";
@@ -615,6 +645,15 @@ function NoScheduleBanner({ phase }: { phase: SeasonPhase }) {
 }
 
 function PhaseHeader({ state }: { state: SeasonState }) {
+  // The draft's place in the year follows where this year's draft is held.
+  const draftFirst =
+    draftHeldInPreseason(state) ||
+    (state.draft_timing === "preseason" &&
+      state.phase !== "REGULAR_SEASON" &&
+      state.phase !== "AMATEUR_DRAFT");
+  const phaseOrder = (
+    draftFirst ? PHASE_ORDER_PRESEASON_DRAFT : PHASE_ORDER
+  ).filter((p) => !(p === "AMATEUR_DRAFT" && noDraftThisYear(state)));
   return (
     <Card className="p-6">
       <div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
@@ -633,7 +672,7 @@ function PhaseHeader({ state }: { state: SeasonState }) {
         </div>
 
         <div className="flex items-center gap-2">
-          {PHASE_ORDER.map((p, i) => {
+          {phaseOrder.map((p, i) => {
             const active = p === state.phase;
             return (
               <div key={p} className="flex items-center gap-2">
@@ -647,7 +686,7 @@ function PhaseHeader({ state }: { state: SeasonState }) {
                 >
                   {PHASE_LABEL[p]}
                 </div>
-                {i < PHASE_ORDER.length - 1 && (
+                {i < phaseOrder.length - 1 && (
                   <ArrowRight className="h-3 w-3 text-muted" />
                 )}
               </div>
@@ -687,24 +726,32 @@ function MetricsRow({ state }: { state: SeasonState }) {
       <StatCard
         label="Draft Day"
         value={
-          draftHeldInPreseason(state)
-            ? "Preseason"
-            : state.draft_date
-              ? formatDate(state.draft_date)
-              : "—"
+          noDraftThisYear(state)
+            ? "None this year"
+            : draftHeldInPreseason(state)
+              ? "Preseason"
+              : state.draft_date
+                ? formatDate(state.draft_date)
+                : "—"
         }
         sub={
-          isPreseasonDraft(state)
-            ? "In progress"
-            : isDraftDone(state)
-              ? "Complete"
-              : state.draft_date
-                ? "Scheduled"
-                : undefined
+          noDraftThisYear(state)
+            ? "First draft: next preseason"
+            : isPreseasonDraft(state)
+              ? "In progress"
+              : isDraftDone(state)
+                ? "Complete"
+                : state.draft_date
+                  ? "Scheduled"
+                  : undefined
         }
         Icon={GraduationCap}
         tone={
-          isDraftDone(state) && !isPreseasonDraft(state) ? "success" : "neutral"
+          isDraftDone(state) &&
+          !isPreseasonDraft(state) &&
+          !noDraftThisYear(state)
+            ? "success"
+            : "neutral"
         }
       />
       <StatCard
@@ -797,7 +844,14 @@ function ActionsCard({
         <Button
           variant="outline"
           onClick={onSimToDraft}
-          disabled={simDisabled || !state.draft_date || isDraftDone(state)}
+          disabled={simDisabled || !julyDraftAhead(state)}
+          title={
+            noDraftThisYear(state)
+              ? "No amateur draft this year — the first one is held next preseason"
+              : draftHeldInPreseason(state)
+                ? "This year's amateur draft was held in the preseason"
+                : undefined
+          }
           className="w-full"
         >
           <GraduationCap className="h-4 w-4" /> To Draft
@@ -904,7 +958,16 @@ function PreseasonActionsCard({ state }: { state: SeasonState }) {
       setNotice(msg);
       toast.success(msg);
     },
-    onError: (err) => toast.error((err as Error).message),
+    onError: (err) => {
+      // In a league that drafts in the preseason this click can open the
+      // amateur draft instead of running camp: the phase has changed, so the
+      // page must catch up, and the reason stays on screen after the toast.
+      refreshSeasonState();
+      queryClient.invalidateQueries({ queryKey: ["draft-state"] });
+      const msg = (err as Error).message;
+      setNotice(msg);
+      toast.error(msg);
+    },
   });
 
   return (
@@ -953,15 +1016,13 @@ function PreseasonActionsCard({ state }: { state: SeasonState }) {
             <Button
               variant="ghost"
               onClick={() => trainingCamp.mutate()}
-              disabled={
-                trainingCamp.isPending || trainingCampDone || draftFirst
-              }
+              disabled={trainingCamp.isPending || trainingCampDone}
               className="justify-start"
               title={
                 trainingCampDone
                   ? "Training camp already completed for this preseason"
                   : draftFirst
-                    ? "The amateur draft comes before spring training — finish it on the Draft page first"
+                    ? "This league drafts before spring training: this opens the amateur draft first. Run it again after the last pick."
                     : "Runs spring training for every player"
               }
             >
@@ -1694,9 +1755,13 @@ function ProgressionSchedulePanel({ canEdit = false }: { canEdit?: boolean }) {
 function ReadinessBoard({
   readiness,
   phase,
+  preseasonDraft = false,
 }: {
   readiness?: SeasonReadiness;
   phase?: string;
+  /** The amateur draft is open before spring training: Opening Day is still
+   *  ahead, and draft picks are still arriving on every roster. */
+  preseasonDraft?: boolean;
 }) {
   const queryClient = useQueryClient();
 
@@ -1731,7 +1796,11 @@ function ReadinessBoard({
         <div>
           <CardTitle>Owner readiness</CardTitle>
           <CardDescription>
-            {readiness.all_ready
+            {preseasonDraft
+              ? readiness.all_ready
+                ? "All owners are ready so far. Draft picks are still arriving; Opening Day follows the draft and spring training."
+                : `${n} team${plural} not ready yet — owners have until Opening Day, after the draft and spring training, to get within their limits.`
+              : readiness.all_ready
               ? "All owners are ready — you can advance the season."
               : blocksOpeningDay
                 ? `${n} team${plural} not ready — Opening Day is blocked until fixed.`

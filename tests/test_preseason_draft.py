@@ -901,3 +901,17 @@ def test_the_tick_that_ends_the_draft_does_not_also_run_the_schedule(league, mon
     assert "draft" in out["considered"][0]["skipped"]
     # The deadline is still there for the next tick.
     assert S._read_schedule()["deadline"] == stale
+
+
+def test_training_camp_says_why_a_due_draft_could_not_open(league):
+    """It does not run camp past a draft that is due."""
+    _archive_2026(league)
+    _preseason_2027(league)
+    (league / "schedule.csv").unlink()
+    with pytest.raises(HTTPException) as exc:
+        S.preseason_training_camp(identity=ADMIN)
+    assert exc.value.status_code == 400
+    assert "could not be opened" in str(exc.value.detail)
+    assert "schedule" in str(exc.value.detail)
+    assert S._read_preseason_done().get("training_camp") is not True
+    assert SeasonManager().phase == SeasonPhase.PRESEASON

@@ -38,6 +38,7 @@ import {
   type DraftProspect,
   type DraftSelection,
   type DraftState,
+  type SeasonState,
   type Team,
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
@@ -82,6 +83,27 @@ export function DraftPage() {
     queryFn: () => api.draftResults(state.data?.year),
     enabled: !!state.data?.year,
   });
+  // Before this year's draft there is nothing to show for it: History then
+  // shows the last draft that was held. (In the offseason of a league that
+  // drafts in the preseason, "this year" is already the coming season.)
+  const noPicksYet =
+    !!state.data && !state.data.exists && (results.data?.picks?.length ?? 0) === 0;
+  const priorYear = state.data?.year ? state.data.year - 1 : undefined;
+  const priorResults = useQuery({
+    queryKey: ["draft-results", priorYear],
+    queryFn: () => api.draftResults(priorYear),
+    enabled: noPicksYet && !!priorYear && results.isSuccess,
+  });
+  const showPrior = noPicksYet && (priorResults.data?.picks?.length ?? 0) > 0;
+  const history = showPrior ? priorResults : results;
+  const historyYear = showPrior ? (priorYear ?? null) : (state.data?.year ?? null);
+  // Where the season stands: the wording here depends on whether the draft
+  // is held in the preseason, and on whether this year has one at all.
+  const season = useQuery({
+    queryKey: ["season-state"],
+    queryFn: () => api.seasonState(),
+    staleTime: 60_000,
+  });
   const teamsQ = useTeams();
   const teamById = useMemo(() => {
     const m = new Map<string, Team>();
@@ -94,7 +116,13 @@ export function DraftPage() {
       title="Draft"
       subtitle={
         state.data
-          ? `${state.data.year} · ${state.data.exists ? "In progress" : "No active draft"}`
+          ? `${state.data.year} · ${
+              !state.data.exists
+                ? "No active draft"
+                : state.data.draft_complete
+                  ? "Complete"
+                  : "In progress"
+            }`
           : "Loading…"
       }
     >
@@ -123,6 +151,7 @@ export function DraftPage() {
           <TabsContent value="now">
             <LiveDraftView
               state={state.data!}
+              season={season.data ?? null}
               myTeamId={myTeamId}
               teamById={teamById}
               isAdmin={isAdmin}
@@ -131,11 +160,11 @@ export function DraftPage() {
 
           <TabsContent value="history">
             <HistoryView
-              year={state.data?.year ?? null}
-              picks={results.data?.picks ?? []}
-              isLoading={results.isLoading}
-              isError={results.isError}
-              error={results.error}
+              year={historyYear}
+              picks={history.data?.picks ?? []}
+              isLoading={results.isLoading || priorResults.isLoading}
+              isError={history.isError}
+              error={history.error}
               myTeamId={myTeamId}
               teamById={teamById}
             />
@@ -154,11 +183,13 @@ export function DraftPage() {
 
 function LiveDraftView({
   state,
+  season,
   myTeamId,
   teamById,
   isAdmin,
 }: {
   state: DraftState;
+  season: SeasonState | null;
   myTeamId: string | null;
   teamById: Map<string, Team>;
   isAdmin: boolean;
@@ -238,17 +269,49 @@ function LiveDraftView({
   }, [state.selected]);
 
   if (!state.exists) {
+    const preseasonLeague = season?.draft_timing === "preseason";
+    const draft = season?.preseason_draft;
+    let heading = "No active draft";
+    let body = `The draft for ${state.year} hasn't been started yet. Switch to the History tab to review past drafts.`;
+    if (season?.draft_skipped) {
+      heading = "No amateur draft this season";
+      body =
+        "This league drafts in the preseason, and a new league's first draft follows its first completed season. The first draft opens next preseason, before spring training.";
+    } else if (preseasonLeague && season?.phase === "OFFSEASON") {
+      heading = `The ${state.year} draft opens in the preseason`;
+      body =
+        "This league drafts before spring training. The draft opens when the new season begins; until then the draft class is here to scout.";
+    } else if (draft?.due) {
+      heading = `The ${state.year} draft has not opened yet`;
+      body =
+        "This league drafts before spring training. The commissioner opens the draft from the Season page (Run Training Camp opens it first).";
+    } else if (draft?.reason === "first_season") {
+      heading = "No amateur draft this preseason";
+      body =
+        "A new league's first draft follows its first completed season, so the first draft opens next preseason.";
+    }
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-          <GraduationCap className="h-10 w-10 text-amber" />
-          <h2 className="font-display text-xl">No active draft</h2>
-          <p className="max-w-sm text-sm text-muted">
-            The draft for {state.year} hasn't been started yet. Switch to the
-            History tab to review past drafts.
-          </p>
-        </CardContent>
-      </Card>
+      <div className="space-y-6">
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+            <GraduationCap className="h-10 w-10 text-amber" />
+            <h2 className="font-display text-xl">{heading}</h2>
+            <p className="max-w-md text-sm text-muted">{body}</p>
+          </CardContent>
+        </Card>
+        {/* The class may already be on file (a preseason-draft league gets
+            next year's at the end of each season): let owners scout it. */}
+        <DraftControlsPanel
+          scoutOnly
+          year={state.year}
+          myTeamId={myTeamId}
+          onClockTeamId={null}
+          onClockIsHuman={false}
+          pickDeadline={null}
+          isAdmin={isAdmin}
+          ownerPicksLeft={{ count: 0, teams: new Map(), estimate: false }}
+        />
+      </div>
     );
   }
 
@@ -260,7 +323,7 @@ function LiveDraftView({
             label="Round"
             value="Complete"
             scoreboard={false}
-            sub={`All ${state.configured_rounds} rounds finished`}
+            sub="Every pick is in"
             Icon={Trophy}
             tone="success"
           />
@@ -321,9 +384,8 @@ function LiveDraftView({
               <div>
                 <CardTitle>Draft Complete</CardTitle>
                 <CardDescription>
-                  {state.selected.length} picks across{" "}
-                  {state.configured_rounds} round
-                  {state.configured_rounds === 1 ? "" : "s"}
+                  {state.selected.length} pick
+                  {state.selected.length === 1 ? "" : "s"} made
                 </CardDescription>
               </div>
               <Badge tone="success">
@@ -333,10 +395,10 @@ function LiveDraftView({
             <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
               <Trophy className="h-10 w-10 text-amber" />
               <p className="max-w-sm text-sm text-muted">
-                All rounds have been filled and the regular season has
-                resumed. Head to the Season page to play out the rest of the
-                schedule — if a team is over the LOW cap from its picks, run
-                Auto-assign first. Switch to History to review every pick.
+                {season?.draft_held_in_preseason
+                  ? "Every pick is in, and spring training is next: the draft class goes through camp with everyone else. Each team must be within its roster limits before Opening Day — if yours is over the Low-A limit from its picks, sort it out on the Roster page (Auto-assign can do it for you)."
+                  : "Every pick is in. Head to the Season page for what comes next — if a team is over the Low-A limit from its picks, sort that out on the Roster page first (Auto-assign can do it for you)."}{" "}
+                Switch to History to review every pick.
               </p>
             </CardContent>
           </Card>
@@ -467,7 +529,10 @@ function DraftControlsPanel({
   pickDeadline,
   isAdmin,
   ownerPicksLeft,
+  scoutOnly = false,
 }: {
+  /** Read-only: the class to scout, with no draft to act on. */
+  scoutOnly?: boolean;
   year: number;
   myTeamId: string | null;
   onClockTeamId: string | null;
@@ -517,6 +582,8 @@ function DraftControlsPanel({
     queryClient.invalidateQueries({ queryKey: ["draft-results"] });
     queryClient.invalidateQueries({ queryKey: ["draft-pool", year] });
     queryClient.invalidateQueries({ queryKey: ["team-roster"] });
+    // The last pick ends the draft and moves the season phase.
+    queryClient.invalidateQueries({ queryKey: ["season-state"] });
   }
 
   const pickMut = useMutation({
@@ -632,15 +699,21 @@ function DraftControlsPanel({
     poolQ.data?.prospects.find((p) => p.player_id === selectedPid) ??
     null;
 
+  // Nothing to scout until a class has been generated.
+  if (scoutOnly && (poolQ.data?.count ?? 0) === 0) return null;
+
   return (
     <Card>
       <CardHeader>
         <div>
           <CardTitle className="flex items-center gap-2 text-base">
-            <Sparkles className="h-4 w-4 text-amber" /> Draft controls
+            <Sparkles className="h-4 w-4 text-amber" />{" "}
+            {scoutOnly ? `${year} draft class` : "Draft controls"}
           </CardTitle>
           <CardDescription>
-            {isMyTurn
+            {scoutOnly
+              ? "Sort and filter to scout the class. Picks are made here once the draft opens."
+              : isMyTurn
               ? "Your pick — click a prospect below and choose a column to sort by, then Make pick."
               : onClockIsHuman && onClockTeamId
                 ? `${onClockTeamId} is on the clock — an owner picks here. Advancing stops rather than picking for them.`
@@ -658,7 +731,12 @@ function DraftControlsPanel({
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Action row */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-2",
+            scoutOnly && "hidden",
+          )}
+        >
           <Button
             size="sm"
             onClick={() => selectedPid && pickMut.mutate(selectedPid)}
@@ -823,7 +901,7 @@ function DraftControlsPanel({
             <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-surface">
                 <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
-                  <th className="w-8 px-2 py-2"></th>
+                  {!scoutOnly && <th className="w-8 px-2 py-2"></th>}
                   <DraftHeader
                     label="Player"
                     keyId="name"
@@ -878,22 +956,27 @@ function DraftControlsPanel({
                   return (
                     <tr
                       key={p.player_id}
-                      onClick={() => setSelectedPid(p.player_id)}
+                      onClick={
+                        scoutOnly ? undefined : () => setSelectedPid(p.player_id)
+                      }
                       className={cn(
-                        "cursor-pointer border-b border-border/40 transition last:border-b-0 hover:bg-surfaceAlt/40",
-                        isSelected && "bg-amber/10 hover:bg-amber/15",
+                        "border-b border-border/40 transition last:border-b-0 hover:bg-surfaceAlt/40",
+                        !scoutOnly && "cursor-pointer",
+                        isSelected && !scoutOnly && "bg-amber/10 hover:bg-amber/15",
                       )}
                     >
-                      <td className="px-2 py-2 text-center">
-                        <input
-                          type="radio"
-                          name="draft-prospect"
-                          checked={isSelected}
-                          onChange={() => setSelectedPid(p.player_id)}
-                          className="h-3 w-3 accent-amber"
-                          aria-label={`Select ${p.last_name}, ${p.first_name}`}
-                        />
-                      </td>
+                      {!scoutOnly && (
+                        <td className="px-2 py-2 text-center">
+                          <input
+                            type="radio"
+                            name="draft-prospect"
+                            checked={isSelected}
+                            onChange={() => setSelectedPid(p.player_id)}
+                            className="h-3 w-3 accent-amber"
+                            aria-label={`Select ${p.last_name}, ${p.first_name}`}
+                          />
+                        </td>
+                      )}
                       <td className="px-3 py-2 font-semibold">
                         {p.last_name}, {p.first_name}
                       </td>

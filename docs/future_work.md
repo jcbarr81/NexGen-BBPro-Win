@@ -1369,10 +1369,25 @@ As built (7.50.0):
   in `season_state.json`; `api/routers/season.py`
   `_maybe_open_preseason_draft` (called when the league enters the preseason,
   when the setting is saved, and by the training-camp guard).
-- The July draft-day intercept is unchanged: it fires whenever the year's
-  draft has not been completed. That alone gives "a regular season in
+- The July draft-day intercept (`_draft_day_pause_due`) fires whenever the
+  year's draft has not been completed. That alone gives "a regular season in
   progress keeps its July draft", "no July draft after a preseason one" and
   "a preseason draft that could not be held still happens in July".
+- **Decision 6 in full:** a new preseason-draft league has no draft at all in
+  its first season. The year is recorded at Opening Day
+  (`draft_skipped_years.json`, `_skip_first_season_draft_if_preseason`) and
+  the July intercept honours it only while the setting is still preseason,
+  so switching back to mid-season before July restores that July draft. A
+  league that switches to preseason during its first season keeps its July
+  draft (decision 2). This is the one case where a season has no draft.
+- A finished draft is stamped `completed` in its state, so a later change to
+  the round count cannot reopen it; a draft opened in the preseason is
+  stamped `timing: preseason`, which is what the Season page, the calendar
+  and the Command Center read in July.
+- Reset-to-opening-day keeps a draft held in the preseason (it came before
+  Opening Day) and is refused while one is open.
+- The coming year's draft cannot be initialized in the offseason, and the
+  draft does not open without a schedule (no league year to file it under).
 - The order is computed when the draft opens, from the last archived season
   (the archive is immutable, so this equals locking it at rollover);
   compensation picks are applied then too. The pool is generated at
@@ -1380,8 +1395,11 @@ As built (7.50.0):
 - Training camp runs for every player in players.csv, so the draft class
   gets its camp with no extra work (tested).
 - The scheduled run (`_run_schedule`) refuses to act during any amateur
-  draft and leaves its deadline alone; the Opening Day readiness gate cannot
-  be reached while the phase is AMATEUR_DRAFT.
+  draft. A one-shot deadline is left alone and fires after the last pick,
+  never in the same tick that made it. A recurring deadline that comes due
+  is rolled to its next future slot without running, so a long draft is not
+  followed by a burst of runs. The Opening Day readiness gate cannot be
+  reached while the phase is AMATEUR_DRAFT.
 
 Follow-ups:
 
@@ -1392,3 +1410,21 @@ Follow-ups:
   from the season context. Make the helper itself context-aware.
 - Sim-to-milestone: a "To Draft" button still appears for a mid-season
   league only; nothing to change, but the label could say "July draft".
+- **Owner call: time between the last pick and a scheduled CPU fill.** A
+  one-shot deadline that passed during a draft runs on the next tick after
+  the last pick (about ten minutes), which fills unready owner rosters. A
+  minimum gap (say 24 hours after the last pick) would give owners time
+  with their draft class. Not built: it changes when a commissioner's
+  deadline fires.
+- Free-agent signings and extensions are blocked for the whole of a draft
+  (`free_agency.py`, `contract_negotiator.py`). In July that is a day; a
+  preseason draft on a long pick clock can run for days during the busiest
+  signing period. Consider allowing them during a preseason draft.
+- Forcing the phase past an unfinished preseason draft: spring training
+  reopens it; forced past twice, the draft is finished in July. There is no
+  "cancel this year's draft" action, by design so far.
+- Reset-to-opening-day after a JULY draft deletes the draft files but leaves
+  the drafted players on rosters, so a second class is drafted in July
+  (older than #63; a preseason draft is now kept).
+- Tests still missing: `_simulate_n` crossing the July date end to end, the
+  real rollover hook, a human owner on the clock in a preseason draft.

@@ -23,13 +23,18 @@ Amateur Draft
   advancing from OFFSEASON opens the draft before spring training. The phase
   is AMATEUR_DRAFT with `draft_return_phase: PRESEASON` in
   `season_state.json`; after the last pick it returns to PRESEASON, training
-  camp unlocks, and the July draft is skipped for that league year. A change
-  of the setting applies to the next draft that has not been held; a new
-  league's first draft follows its first completed season.
+  camp unlocks, and the July draft is skipped for that league year (the
+  draft state carries `timing: preseason` and `completed: true`). A change
+  of the setting applies to the next draft that has not been held. A new
+  league's first draft follows its first completed season: a new
+  preseason-draft league has no draft at all in its first season, recorded
+  at Opening Day in `draft_skipped_years.json` (honoured only while the
+  setting is still preseason).
 - Draft artifacts are saved to `data/`:
   - `draft_pool_<year>.csv` / `draft_pool_<year>.json`
   - `draft_state_<year>.json`
   - `draft_results_<year>.csv`
-  - Completion tracking in `season_progress.json` under `draft_completed_years`
+  - Completion: `completed` in the draft state (the web draft); the legacy
+    desktop flow used `draft_completed_years` in `season_progress.json`
 
 Tip: Use a non-empty seed in Draft Settings for reproducible pools and order.

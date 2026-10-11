@@ -168,8 +168,10 @@ The most-used sim page.
   season **resumes automatically** — you don't advance out of the draft.
 - If the commissioner sets the league to draft in the **preseason**
   (Commissioner → Amateur draft timing), the draft opens when you advance out
-  of the Offseason instead, before spring training. **Run Training Camp**
-  unlocks after the last pick, and there is no draft pause in July.
+  of the Offseason instead, before spring training. Spring training (**Run
+  Training Camp**) follows the last pick, and that season has no draft pause
+  in July. A new league that drafts in the preseason has no draft in its
+  first season; its first draft opens the following preseason.
 - Each new season's **schedule is generated automatically** when you advance
   into the new year; no manual regeneration.
 - Simulate the **playoffs** from the Playoffs page (Sim Next Game / Sim Next
