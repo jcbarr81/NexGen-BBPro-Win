@@ -1619,6 +1619,7 @@ export interface PreseasonDraftStatus {
     | "after_training_camp"
     | "completed"
     | "first_season"
+    | "no_records"
     | "due";
 }
 

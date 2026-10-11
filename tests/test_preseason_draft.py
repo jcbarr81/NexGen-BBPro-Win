@@ -915,3 +915,21 @@ def test_training_camp_says_why_a_due_draft_could_not_open(league):
     assert "schedule" in str(exc.value.detail)
     assert S._read_preseason_done().get("training_camp") is not True
     assert SeasonManager().phase == SeasonPhase.PRESEASON
+
+
+def test_an_archive_without_records_falls_back_to_july_not_to_no_draft(league):
+    """An established league must never be mistaken for a new one."""
+    from playbalance.season_context import CAREER_DATA_DIR, SeasonContext
+
+    _archive_2026(league)
+    for season in SeasonContext.load().iter_archived_seasons():
+        (Path(str(CAREER_DATA_DIR)) / season["season_id"] / "stats.json").unlink()
+    _preseason_2027(league)
+
+    status = S._preseason_draft_status(SeasonManager())
+    assert (status["due"], status["reason"]) == (False, "no_records")
+    out = _open_the_season()
+    assert out["phase"] == "REGULAR_SEASON"
+    assert "draft_skipped_year" not in out
+    assert draft_state.skipped_years() == []
+    assert S._draft_day_pause_due(_july(), _july()) is True

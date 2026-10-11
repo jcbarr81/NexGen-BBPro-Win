@@ -566,7 +566,10 @@ def _preseason_draft_status(manager: SeasonManager) -> Dict[str, Any]:
         from services import draft_state as _ds
 
         if not _ds.has_completed_season():
-            reason = "first_season"
+            # A new league's first draft follows its first season. A league
+            # that HAS played seasons but whose last archive holds no records
+            # to order by is different: its draft falls back to July.
+            reason = "no_records" if _ds.has_archived_season() else "first_season"
         else:
             reason = "due"
             due = True
@@ -739,6 +742,10 @@ def _skip_first_season_draft_if_preseason() -> Optional[int]:
     if _draft_timing() != DRAFT_TIMING_PRESEASON:
         return None
     if _ds.has_completed_season() or _draft_completed_for_current_year():
+        return None
+    if _ds.has_archived_season():
+        # Not a new league: its preseason draft could not be ordered (the
+        # last archive has no records), so this year's draft is in July.
         return None
     year = _current_draft_year()
     if year is None:

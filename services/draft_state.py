@@ -197,6 +197,22 @@ def has_completed_season() -> bool:
     return _last_archived_stats_path() is not None
 
 
+def has_archived_season() -> bool:
+    """True once the league has archived any season, records file or not.
+
+    Distinguishes a genuinely new league (no draft in its first season under
+    a preseason draft) from an established one whose last archive cannot be
+    read for an order: that league still drafts, in July.
+    """
+
+    try:
+        from playbalance.season_context import SeasonContext
+
+        return any(True for _ in SeasonContext.load().iter_archived_seasons())
+    except Exception:
+        return False
+
+
 def compute_order_from_last_season(seed: int | None = None) -> List[str]:
     """Reverse order of the last completed season's records, or ``[]``.
 
@@ -341,6 +357,7 @@ __all__ = [
     "compute_order_from_last_season",
     "compute_order_for_draft_year",
     "has_completed_season",
+    "has_archived_season",
     "state_is_complete",
     "skipped_years",
     "is_year_skipped",

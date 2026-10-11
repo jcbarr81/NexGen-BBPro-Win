@@ -499,7 +499,9 @@ function buildNextStep(state: SeasonState): NextStep | null {
             ? " There is no amateur draft this year: this league drafts in the preseason, and a new league's first draft follows its first completed season."
             : draft?.reason === "after_training_camp"
               ? " Spring training has already run, so this year's amateur draft is held in July; the preseason draft starts next year."
-              : "";
+              : draft?.reason === "no_records"
+                ? " Last season's records could not be found to set a draft order, so this year's amateur draft is held in July."
+                : "";
       return {
         title: "Preseason — get the league ready to play",
         body: `Run spring training to mark every player as ready, review free agents, and confirm league-wide training focus. When you're done, click Advance Phase to start the Regular Season.${draftNote}`,

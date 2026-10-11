@@ -108,6 +108,12 @@ function changeMessage(
         tone: "success",
       };
     }
+    if (draft?.reason === "no_records") {
+      return {
+        text: "Saved. Last season's records could not be found to set a draft order, so this year's draft stays in July; the preseason draft starts next year.",
+        tone: "warning",
+      };
+    }
     if (draft?.reason === "completed") {
       return {
         text: "Saved. This year's draft has already been held; the preseason draft starts next year.",
