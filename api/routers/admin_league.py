@@ -256,6 +256,29 @@ def reset_to_opening_day(
             detail="Cannot reset: schedule.csv not found. Generate a schedule first.",
         )
 
+    # A draft held in the preseason comes BEFORE Opening Day. Resetting in
+    # the middle of one would land the league in the regular season with the
+    # draft half made and spring training marked done without having run.
+    try:
+        from playbalance.season_manager import SeasonManager, SeasonPhase
+
+        _manager = SeasonManager()
+        mid_preseason_draft = (
+            _manager.phase == SeasonPhase.AMATEUR_DRAFT
+            and _manager.phase_after_draft() == SeasonPhase.PRESEASON
+        )
+    except Exception:
+        mid_preseason_draft = False
+    if mid_preseason_draft:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The preseason amateur draft is in progress. Finish the draft "
+                "(the commissioner can auto-draft the rest) before resetting "
+                "to Opening Day."
+            ),
+        )
+
     notes: list[str] = []
 
     # 1. Clear schedule result/played/boxscore columns.
@@ -343,8 +366,27 @@ def reset_to_opening_day(
     except Exception as exc:
         notes.append(f"Failed clearing season history: {exc}")
 
-    # 7. Delete draft artifacts for the current year.
+    # 7. Delete draft artifacts for the current year -- unless the draft was
+    # held in the preseason. That draft happened before Opening Day, so it is
+    # part of the state being rewound TO, and its class is on the rosters;
+    # deleting its record would make July hold a second draft for the year.
+    preseason_draft_kept = False
     if first_year is not None:
+        try:
+            from services import draft_state as _draft_state
+
+            preseason_draft_kept = (
+                (_draft_state.load_state(first_year) or {}).get("timing")
+                == "preseason"
+            )
+        except Exception:
+            preseason_draft_kept = False
+        if preseason_draft_kept:
+            notes.append(
+                f"Kept the {first_year} amateur draft: it was held in the "
+                "preseason, before Opening Day."
+            )
+    if first_year is not None and not preseason_draft_kept:
         draft_files = [
             f"draft_pool_{first_year}.json",
             f"draft_pool_{first_year}.csv",

@@ -612,3 +612,292 @@ def test_the_command_center_knows_a_preseason_draft_is_open(league):
     assert lcc._preseason_draft_open(league) is False
     S._maybe_open_preseason_draft(SeasonManager())
     assert lcc._preseason_draft_open(league) is True
+
+
+# --- decision 6: a new preseason-draft league has no draft in its first season -----
+
+
+def _july(year: int = 2027) -> str:
+    from api.routers import schedule as schedule_router
+
+    return schedule_router._compute_draft_date(year)
+
+
+def _open_the_season() -> dict:
+    """Spring training, then Opening Day."""
+    S.preseason_training_camp(identity=ADMIN)
+    return S.advance_phase(payload={}, identity=ADMIN)
+
+
+def test_a_new_preseason_league_has_no_draft_in_its_first_season(league):
+    from api.routers import schedule as schedule_router
+    from services import league_command_center as lcc
+
+    _preseason_2027(league)  # nothing archived: this is the first season
+    out = _open_the_season()
+    assert out["phase"] == "REGULAR_SEASON"
+    assert out["draft_skipped_year"] == 2027
+    assert draft_state.is_year_skipped(2027) is True
+
+    # July does not pause the season, and nothing promises a July draft.
+    assert S._draft_day_pause_due(_july(), _july()) is False
+    assert schedule_router._draft_marker(2027, "2027-04-01") is None
+    assert lcc._is_draft_completed(league, 2027) is True
+    manager, simulator, draft_date = S._build_manager_and_simulator()
+    payload = S._state_payload(manager, simulator, draft_date)
+    assert payload["draft_skipped"] is True
+    assert payload["draft_held_in_preseason"] is False
+
+    # The commissioner changes his mind before July: the July draft is back.
+    D.draft_settings_save({"timing": "midseason"}, ADMIN)
+    assert S._draft_day_pause_due(_july(), _july()) is True
+    assert schedule_router._draft_marker(2027, "2027-04-01") == _july()
+    assert lcc._is_draft_completed(league, 2027) is False
+
+
+def test_a_midseason_league_still_drafts_in_july_of_its_first_season(league):
+    _preseason_2027(league, timing=ds.DRAFT_TIMING_MIDSEASON)
+    out = _open_the_season()
+    assert out["phase"] == "REGULAR_SEASON"
+    assert "draft_skipped_year" not in out
+    assert draft_state.skipped_years() == []
+    assert S._draft_day_pause_due(_july(), _july()) is True
+    # Only on draft day itself.
+    assert S._draft_day_pause_due(_july(), "2027-07-19") is False
+
+
+def test_switching_during_the_first_season_keeps_that_july_draft(league):
+    """Decision 2 beats decision 6: a season in progress keeps its draft."""
+    _preseason_2027(league, timing=ds.DRAFT_TIMING_MIDSEASON)
+    _open_the_season()
+    D.draft_settings_save({"timing": "preseason"}, ADMIN)
+    assert S._draft_skipped_for_current_year() is False
+    assert S._draft_day_pause_due(_july(), _july()) is True
+
+
+def test_an_established_league_is_never_marked_as_having_no_draft(league):
+    """Its preseason draft was missed (camp ran first): July is the net."""
+    _archive_2026(league)
+    _preseason_2027(league)
+    S._mark_preseason_done("training_camp")
+    out = S.advance_phase(payload={}, identity=ADMIN)
+    assert out["phase"] == "REGULAR_SEASON"
+    assert "draft_skipped_year" not in out
+    assert S._draft_day_pause_due(_july(), _july()) is True
+
+
+# --- the year's draft stays held: July, the calendar, a reset, a rounds change -----
+
+
+def _hold_the_preseason_draft(data: Path) -> None:
+    _archive_2026(data)
+    _preseason_2027(data)
+    S._maybe_open_preseason_draft(SeasonManager())
+    _finish_draft()
+
+
+def test_the_preseason_stamp_outlives_the_draft(league):
+    """In July the phase no longer says where the draft was held."""
+    from api.routers import schedule as schedule_router
+    from services import league_command_center as lcc
+
+    _hold_the_preseason_draft(league)
+    assert _open_the_season()["phase"] == "REGULAR_SEASON"
+
+    assert draft_state.load_state(2027)["timing"] == "preseason"
+    assert S._draft_held_in_preseason() is True
+    assert S._draft_day_pause_due(_july(), _july()) is False
+    assert schedule_router._draft_marker(2027, "2027-07-25") is None
+    assert lcc._is_draft_completed(league, 2027) is True
+    manager, simulator, draft_date = S._build_manager_and_simulator()
+    payload = S._state_payload(manager, simulator, draft_date)
+    assert payload["draft_held_in_preseason"] is True
+    assert payload["draft_skipped"] is False
+
+
+def test_raising_the_round_count_does_not_reopen_a_finished_draft(league):
+    _hold_the_preseason_draft(league)
+    teams = len(_team_ids(league))
+    assert draft_state.load_state(2027)["completed"] is True
+
+    D.draft_settings_save({"rounds": 2}, ADMIN)  # for next year's draft
+    assert S._draft_completed_for_current_year() is True
+    status = S._preseason_draft_status(SeasonManager())
+    assert (status["due"], status["reason"]) == (False, "completed")
+    view = D.draft_state_view(year=2027)
+    assert view["draft_complete"] is True and view["total_picks"] == teams
+    # Spring training runs; it does not reopen the draft.
+    assert _open_the_season()["phase"] == "REGULAR_SEASON"
+    assert S._draft_day_pause_due(_july(), _july()) is False
+
+
+def test_a_round_count_change_during_a_draft_still_applies_to_it(league):
+    _archive_2026(league)
+    _preseason_2027(league)
+    D.draft_settings_save({"timing": "midseason", "pool_size": 80}, ADMIN)
+    D.draft_settings_save({"timing": "preseason"}, ADMIN)  # opens the draft
+    assert SeasonManager().phase == SeasonPhase.AMATEUR_DRAFT
+    D.draft_settings_save({"rounds": 2}, ADMIN)
+    result = _finish_draft()
+    assert result["draft_complete"] is True
+    assert len(draft_state.load_state(2027)["selected"]) == 2 * len(_team_ids(league))
+
+
+def test_a_junk_round_count_is_a_400(league):
+    _preseason_2027(league)
+    with pytest.raises(HTTPException) as exc:
+        D.draft_settings_save({"rounds": "abc"}, ADMIN)
+    assert exc.value.status_code == 400
+
+
+def test_reset_to_opening_day_keeps_a_preseason_draft(league):
+    """The draft came before Opening Day; July must not hold a second one."""
+    from api.routers import admin_league
+
+    _hold_the_preseason_draft(league)
+    _open_the_season()
+    picks = len(draft_state.load_state(2027)["selected"])
+
+    out = admin_league.reset_to_opening_day(payload={}, _=ADMIN)
+    assert any("amateur draft" in note for note in out["notes"])
+    assert len(draft_state.load_state(2027)["selected"]) == picks
+    assert (league / "draft_results_2027.csv").exists()
+    assert SeasonManager().phase == SeasonPhase.REGULAR_SEASON
+    assert S._draft_completed_for_current_year() is True
+    assert S._draft_day_pause_due(_july(), _july()) is False
+
+
+def test_reset_to_opening_day_is_refused_during_a_preseason_draft(league):
+    from api.routers import admin_league
+
+    _archive_2026(league)
+    _preseason_2027(league)
+    S._maybe_open_preseason_draft(SeasonManager())
+    with pytest.raises(HTTPException) as exc:
+        admin_league.reset_to_opening_day(payload={}, _=ADMIN)
+    assert exc.value.status_code == 400
+    assert SeasonManager().phase == SeasonPhase.AMATEUR_DRAFT
+    assert S._read_preseason_done().get("training_camp") is not True
+
+
+def test_reset_to_opening_day_still_clears_a_july_draft(league):
+    from api.routers import admin_league
+
+    _archive_2026(league)
+    _preseason_2027(league, timing=ds.DRAFT_TIMING_MIDSEASON)
+    manager = SeasonManager()
+    manager.phase = SeasonPhase.REGULAR_SEASON
+    manager.save()
+    draft_state.initialize_state(2027, order=_team_ids(league))
+    admin_league.reset_to_opening_day(payload={}, _=ADMIN)
+    assert not (league / "draft_state_2027.json").exists()
+
+
+def test_an_abandoned_preseason_draft_is_finished_in_july(league):
+    """Forced past unfinished: it is a July draft now, and the calendar says so."""
+    from api.routers import schedule as schedule_router
+
+    _archive_2026(league)
+    _preseason_2027(league)
+    S._maybe_open_preseason_draft(SeasonManager())
+    manager = SeasonManager()
+    manager.phase = SeasonPhase.REGULAR_SEASON
+    manager.save()
+
+    assert S._draft_held_in_preseason() is False
+    assert schedule_router._draft_marker(2027, "2027-04-01") == _july()
+    assert S._draft_day_pause_due(_july(), _july()) is True
+    S._restamp_draft_as_midseason()
+    assert draft_state.load_state(2027)["timing"] == "midseason"
+
+
+# --- opening the draft: only with a schedule, and never in the offseason ---------
+
+
+def test_the_draft_does_not_open_without_a_schedule(league):
+    """No schedule means no league year: it would be filed under the wrong one."""
+    _archive_2026(league)
+    _preseason_2027(league)
+    (league / "schedule.csv").unlink()
+    opened = S._maybe_open_preseason_draft(SeasonManager())
+    assert opened["opened"] is False and "schedule" in opened["error"]
+    assert SeasonManager().phase == SeasonPhase.PRESEASON
+    assert not list(league.glob("draft_state_*.json"))
+
+
+def test_the_coming_years_draft_cannot_be_started_in_the_offseason(league):
+    _archive_2026(league)
+    _offseason_2027(league, timing=ds.DRAFT_TIMING_PRESEASON)
+    with pytest.raises(HTTPException) as exc:
+        D.admin_initialize({}, ADMIN)
+    assert exc.value.status_code == 400
+    assert "preseason" in str(exc.value.detail)
+    assert not (league / "draft_state_2027.json").exists()
+
+
+# --- the scheduled run around a draft -------------------------------------------------
+
+
+def _schedule(**overrides) -> dict:
+    sched = {
+        "deadline": None, "run_kind": "week", "run_n": 1, "cpu_fill": True,
+        "recurring": False, "recur_days": 7, "auto_run": True, "note": "",
+    }
+    sched.update(overrides)
+    return sched
+
+
+def test_a_recurring_run_due_during_a_draft_is_skipped_not_stacked(league, monkeypatch):
+    """Three missed weekly slots must not fire back to back after the draft."""
+    from datetime import datetime, timedelta, timezone
+
+    _archive_2026(league)
+    _preseason_2027(league)
+    S._maybe_open_preseason_draft(SeasonManager())
+    monkeypatch.setattr(S, "_sim_running", lambda: False)
+    monkeypatch.setattr(S, "_cpu_fill_all_unready", lambda: pytest.fail("ran"))
+    monkeypatch.setattr(S, "_cpu_activate_eligible", lambda: pytest.fail("ran"))
+    now = datetime.now(timezone.utc)
+    stale = (now - timedelta(days=15)).isoformat()
+
+    S._write_schedule(_schedule(deadline=stale, recurring=True))
+    with pytest.raises(HTTPException) as exc:
+        S._run_schedule(ADMIN)
+    assert exc.value.status_code == 400 and "skipped" in str(exc.value.detail)
+    rolled = S._parse_iso_utc(S._read_schedule()["deadline"])
+    # The next slot on the same weekly rhythm, in the future.
+    assert timedelta(0) < rolled - now <= timedelta(days=7)
+    assert (rolled - S._parse_iso_utc(stale)).days % 7 == 0
+
+    # A one-shot deadline is left alone: it fires once the draft is over.
+    S._write_schedule(_schedule(deadline=stale))
+    with pytest.raises(HTTPException):
+        S._run_schedule(ADMIN)
+    assert S._read_schedule()["deadline"] == stale
+
+
+def test_the_tick_that_ends_the_draft_does_not_also_run_the_schedule(league, monkeypatch):
+    """The CPU must not set rosters in the same breath as the last pick."""
+    from datetime import datetime, timedelta, timezone
+
+    _archive_2026(league)
+    _preseason_2027(league)
+    settings = ds.load_draft_settings()
+    settings.pick_clock_hours = 12
+    ds.save_draft_settings(settings)
+    S._maybe_open_preseason_draft(SeasonManager())
+    stale = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    S._write_schedule(_schedule(deadline=stale))
+    monkeypatch.setenv("NEXGEN_SCHEDULER_TOKEN", "secret")
+    monkeypatch.setattr(S, "_sim_running", lambda: False)
+    monkeypatch.setattr(S, "_iter_league_ids", lambda: [LEAGUE])
+    monkeypatch.setattr(S, "_tick_fa_windows", lambda: [])
+    monkeypatch.setattr(S, "_run_schedule", lambda *a, **k: pytest.fail("ran"))
+
+    out = S.tick_season_schedule(x_scheduler_token="secret")
+    assert out["drafts_advanced"][0]["draft_complete"] is True
+    assert SeasonManager().phase == SeasonPhase.PRESEASON
+    assert out["fired"] == []
+    assert "draft" in out["considered"][0]["skipped"]
+    # The deadline is still there for the next tick.
+    assert S._read_schedule()["deadline"] == stale

@@ -592,6 +592,15 @@ def _maybe_open_preseason_draft(manager: SeasonManager) -> Dict[str, Any]:
     out: Dict[str, Any] = {"opened": False, **state}
     if not state["due"]:
         return out
+    # The league year is read from the new season's schedule. Without one it
+    # would fall back to the wall-clock year and file the draft under the
+    # wrong season (and a second draft would open once a schedule existed).
+    if not _load_schedule():
+        out["error"] = (
+            "The new season has no schedule yet, so the draft cannot open. "
+            "Generate the schedule, then run Training Camp to open the draft."
+        )
+        return out
     try:
         from services.trade_settings import current_league_year
 
@@ -605,6 +614,18 @@ def _maybe_open_preseason_draft(manager: SeasonManager) -> Dict[str, Any]:
     if problem:
         out["error"] = str(problem)
         return out
+    # Stamp the draft as a preseason one. The phase forgets where the draft
+    # was held once it is over; the calendar and the Season page still need
+    # to know in July that this year's draft is not a July draft.
+    try:
+        from services import draft_state as _ds
+
+        stamped = _ds.load_state(year) or {}
+        if stamped and stamped.get("timing") != "preseason":
+            stamped["timing"] = "preseason"
+            _ds.save_state(year, stamped)
+    except Exception:  # pragma: no cover - cosmetic
+        pass
     manager.begin_draft(SeasonPhase.PRESEASON)
     out.update({"opened": True, "due": False, "in_progress": True, "year": year})
     out["reason"] = "in_progress"
@@ -619,6 +640,111 @@ def _maybe_open_preseason_draft(manager: SeasonManager) -> Dict[str, Any]:
     except Exception:  # pragma: no cover - defensive
         pass
     return out
+
+
+def _current_draft_year() -> Optional[int]:
+    try:
+        from services.trade_settings import current_league_year
+
+        return int(current_league_year())
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+
+def _draft_held_in_preseason() -> bool:
+    """True when this league year's draft was (or is being) held in the
+    preseason, so the July date is not this year's draft day."""
+
+    year = _current_draft_year()
+    if year is None:
+        return False
+    try:
+        from services import draft_state as _ds
+
+        if (_ds.load_state(year) or {}).get("timing") != "preseason":
+            return False
+        # A preseason draft the commissioner forced the league past, still
+        # unfinished once the season is under way, is finished in July.
+        if _draft_completed_for_current_year():
+            return True
+        return SeasonManager().phase != SeasonPhase.REGULAR_SEASON
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+def _draft_day_pause_due(draft_date: Optional[str], target_date: str) -> bool:
+    """True when the sim has reached a July draft day that must pause it.
+
+    Not when this year's draft is already over (held in the preseason, or
+    finished earlier on this same date), and not in a year that has no draft.
+    """
+
+    return bool(
+        draft_date
+        and target_date == draft_date
+        and not _draft_completed_for_current_year()
+        and not _draft_skipped_for_current_year()
+    )
+
+
+def _restamp_draft_as_midseason() -> None:
+    """Clear the preseason stamp from this year's draft state, if it has one."""
+
+    year = _current_draft_year()
+    if year is None:
+        return
+    try:
+        from services import draft_state as _ds
+
+        state = _ds.load_state(year) or {}
+        if state.get("timing") == "preseason":
+            state["timing"] = "midseason"
+            _ds.save_state(year, state)
+    except Exception:  # pragma: no cover - cosmetic
+        pass
+
+
+def _draft_skipped_for_current_year() -> bool:
+    """True when this league year has no amateur draft at all.
+
+    Owner decision 6: a new league that drafts in the preseason holds its
+    first draft after its first completed season. Its first season is marked
+    at Opening Day (``_skip_first_season_draft_if_preseason``); the mark only
+    counts while the league still drafts in the preseason, so switching back
+    to a mid-season draft before July brings that July draft back.
+    """
+
+    from services.draft_settings import DRAFT_TIMING_PRESEASON
+
+    if _draft_timing() != DRAFT_TIMING_PRESEASON:
+        return False
+    year = _current_draft_year()
+    if year is None:
+        return False
+    try:
+        from services import draft_state as _ds
+
+        return _ds.is_year_skipped(year)
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+def _skip_first_season_draft_if_preseason() -> Optional[int]:
+    """At Opening Day: a preseason-draft league with no completed season
+    behind it has no draft this year. Returns the year marked, if any."""
+
+    from services.draft_settings import DRAFT_TIMING_PRESEASON
+    from services import draft_state as _ds
+
+    if _draft_timing() != DRAFT_TIMING_PRESEASON:
+        return None
+    if _ds.has_completed_season() or _draft_completed_for_current_year():
+        return None
+    year = _current_draft_year()
+    if year is None:
+        return None
+    _ds.mark_year_skipped(year)
+    return year
 
 
 def _seed_next_draft_pool_if_preseason() -> Optional[Dict[str, Any]]:
@@ -756,6 +882,11 @@ def _state_payload(
         # "the draft comes before spring training" without inferring it.
         "draft_timing": _draft_timing(),
         "preseason_draft": _preseason_draft_status(manager),
+        # This year's draft was (or is being) held in the preseason: the July
+        # ``draft_date`` is not its draft day. And ``draft_skipped``: a new
+        # preseason-draft league has no draft in its first season at all.
+        "draft_held_in_preseason": _draft_held_in_preseason(),
+        "draft_skipped": _draft_skipped_for_current_year(),
         "draft_return_phase": (
             manager.phase_after_draft().value
             if manager.phase == SeasonPhase.AMATEUR_DRAFT
@@ -1074,11 +1205,7 @@ def _simulate_n(
         # draft for this year is already committed — otherwise the cursor,
         # which is parked on draft day, would re-trigger the draft on every
         # Sim Day and dead-lock the season right after the draft finishes.
-        if (
-            draft_date
-            and target_date == draft_date
-            and not _draft_completed_for_current_year()
-        ):
+        if _draft_day_pause_due(draft_date, target_date):
             try:
                 manager.begin_draft(SeasonPhase.REGULAR_SEASON)
             except Exception:
@@ -1094,6 +1221,10 @@ def _simulate_n(
                     )
             except Exception as exc:  # pragma: no cover - defensive
                 errors.append(f"Draft auto-init crashed: {exc}")
+            # A preseason draft that was abandoned unfinished (the
+            # commissioner forced the phase past it) is finished here, in
+            # July. It is a July draft now, so the calendar says so.
+            _restamp_draft_as_midseason()
             draft_blocked = True
             break
 
@@ -2101,6 +2232,15 @@ def advance_phase(
         and new_phase == SeasonPhase.REGULAR_SEASON
     ):
         extra["cpu_roster_upkeep"] = _cpu_opening_day_roster_upkeep()
+        # Owner decision 6: a new league that drafts in the preseason has no
+        # draft in its first season (the first follows its first completed
+        # season), so its July draft day is not a draft day either.
+        try:
+            skipped_year = _skip_first_season_draft_if_preseason()
+            if skipped_year is not None:
+                extra["draft_skipped_year"] = skipped_year
+        except Exception as exc:  # pragma: no cover - defensive
+            extra["draft_skip_error"] = str(exc)
 
     # PLAYOFFS → OFFSEASON: a league that drafts in the preseason gets the
     # coming year's draft class now, so owners can scout it all offseason
@@ -2900,6 +3040,32 @@ def _cpu_activate_eligible() -> List[str]:
         return []
 
 
+def _skip_recurring_deadline(sched: Dict[str, Any], dt: Any) -> Optional[str]:
+    """Roll a recurring deadline that has come due to its next future slot.
+
+    Nothing is run. Returns the new deadline, or ``None`` when there was
+    nothing to roll (no deadline, a one-shot, or one still in the future).
+    """
+
+    if dt is None or not sched.get("recurring"):
+        return None
+    now = _now_utc()
+    if now < dt:
+        return None
+    from datetime import timedelta
+
+    try:
+        step = timedelta(days=max(1, int(sched.get("recur_days") or 7)))
+    except (TypeError, ValueError):
+        step = timedelta(days=7)
+    nxt = dt
+    while nxt <= now:
+        nxt += step
+    sched["deadline"] = nxt.isoformat()
+    _write_schedule(sched)
+    return sched["deadline"]
+
+
 def _run_schedule(identity: Dict[str, Any], *, force: bool = False) -> Dict[str, Any]:
     """Execute the configured progression: CPU-fill stragglers, then kick off the
     configured sim. Rolls a recurring deadline forward (or clears a one-shot)."""
@@ -2923,18 +3089,25 @@ def _run_schedule(identity: Dict[str, Any], *, force: bool = False) -> Dict[str,
         )
     # An amateur draft in progress pauses the season: no sim can run, and the
     # CPU must not set an owner's roster or activate his injured players
-    # while he is still receiving draft picks (backlog #63, guard 2). The
-    # deadline is left alone, so the run fires on the first tick after the
-    # last pick. 400 rather than 409: the tick treats 409 as "the sim lock
-    # is taken" and stops looking at other leagues.
+    # while he is still receiving draft picks (backlog #63, guard 2). A
+    # one-shot deadline is left alone and fires once the draft is over. A
+    # recurring one that came due is skipped: it rolls to its next future
+    # slot without running, or every slot missed during a long draft would
+    # fire back to back on the ticks after the last pick. 400 rather than
+    # 409: the tick treats 409 as "the sim lock is taken" and stops looking
+    # at other leagues.
     if SeasonManager().phase == SeasonPhase.AMATEUR_DRAFT:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "The amateur draft is in progress. The scheduled run waits "
-                "until the draft is finished."
-            ),
+        rolled = _skip_recurring_deadline(sched, dt)
+        detail = (
+            "The amateur draft is in progress. The scheduled run waits "
+            "until the draft is finished."
         )
+        if rolled:
+            detail = (
+                "The amateur draft is in progress, so this scheduled run was "
+                f"skipped. The next one is due {rolled}."
+            )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
     # With auto-activation off, a disengaged owner could leave a healthy player
     # on the injured list indefinitely. The deadline IS their grace period, so
     # when it passes the CPU activates anyone whose stint has elapsed — the same
@@ -3364,6 +3537,14 @@ def tick_season_schedule(
     # The amateur draft pauses the season, so a league sitting in one will
     # never become sim-eligible below. Keep its pick clock running here.
     drafts_advanced = _tick_draft_clocks()
+    # A league whose draft moved in this tick sits this one out, even if that
+    # was the last pick: the CPU must not set an owner's roster in the same
+    # breath as handing him his draft class.
+    drafted_this_tick = {
+        str(item.get("league"))
+        for item in drafts_advanced
+        if item.get("action") or item.get("picks_made")
+    }
 
     for league in _iter_league_ids():
         token = path_utils.set_request_league(league)
@@ -3380,6 +3561,9 @@ def tick_season_schedule(
             }
             considered.append(row)
             if not eligible:
+                continue
+            if league in drafted_this_tick:
+                row["skipped"] = "The amateur draft advanced on this tick."
                 continue
             try:
                 result = _run_schedule(_SCHEDULER_IDENTITY, force=False)

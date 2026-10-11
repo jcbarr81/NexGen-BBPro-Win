@@ -67,6 +67,26 @@ def _upcoming_preseason_draft_year() -> Optional[int]:
         return None
 
 
+def _require_draft_open_for(year: int) -> None:
+    """Refuse to start or run the coming year's draft during the offseason.
+
+    A preseason-draft league shows the coming class all offseason, and the
+    draft itself opens when the preseason begins. Starting it early would put
+    the first team on the clock (and let the clock run out) months before
+    anyone expects to pick.
+    """
+
+    upcoming = _upcoming_preseason_draft_year()
+    if upcoming and int(year) == int(upcoming):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"The {upcoming} draft opens when the preseason begins. "
+                "Until then the draft class is here to scout."
+            ),
+        )
+
+
 def _player_lookup() -> Dict[str, Any]:
     """Cache players.csv by id for the duration of one request so pick rows
     can carry player metadata without N+1 load_players calls."""
@@ -249,6 +269,10 @@ def draft_state_view(
         if isinstance(seq, list) and seq
         else (len(order) * max(1, int(settings.rounds)) if order else 0)
     )
+    if state.get("completed") is True:
+        # A finished draft is as long as it was, whatever the round count
+        # has been changed to since.
+        total_picks = len(raw_selected)
     return {
         "year": y,
         "round": int(state.get("round", 1) or 1),
@@ -477,14 +501,22 @@ def draft_settings_save(
         timing = normalize_timing(text)
     rounds = payload.get("rounds", None)
     pool_size = payload.get("pool_size", None)
-    incoming = DraftSettings(
-        rounds=current.rounds if rounds is None else int(rounds or 0),
-        pool_size=current.pool_size if pool_size is None else int(pool_size or 0),
-        pick_clock_hours=(
-            current.pick_clock_hours if clock is None else int(clock or 0)
-        ),
-        timing=current.timing if timing is None else timing,
-    )
+    try:
+        incoming = DraftSettings(
+            rounds=current.rounds if rounds is None else int(rounds or 0),
+            pool_size=(
+                current.pool_size if pool_size is None else int(pool_size or 0)
+            ),
+            pick_clock_hours=(
+                current.pick_clock_hours if clock is None else int(clock or 0)
+            ),
+            timing=current.timing if timing is None else timing,
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="rounds, pool_size and pick_clock_hours must be whole numbers.",
+        ) from exc
     saved = save_draft_settings(incoming)
     out: Dict[str, Any] = {
         "rounds": saved.rounds,
@@ -563,6 +595,7 @@ def admin_initialize(
     """Seed a brand-new draft state for the given year."""
 
     year = int(payload.get("year") or _resolve_year(None))
+    _require_draft_open_for(year)
     seed = payload.get("seed")
     try:
         seed_int = int(seed) if seed is not None else None
@@ -697,10 +730,7 @@ def _selected_ids(state: Dict[str, Any]) -> set[str]:
 
 
 def _draft_complete(state: Dict[str, Any], total_rounds: int) -> bool:
-    seq = state.get("pick_sequence")
-    if isinstance(seq, list) and seq:
-        return int(state.get("overall_pick", 1) or 1) > len(seq)
-    return int(state.get("round", 1) or 1) > max(1, total_rounds)
+    return draft_state.state_is_complete(state, total_rounds)
 
 
 def _load_settings_rounds() -> int:
@@ -827,6 +857,11 @@ def _do_pick(
     # REGULAR_SEASON) and pushed "Advance Phase" straight to the playoffs.
     try:
         if _draft_complete(state, _load_settings_rounds()):
+            # Stamp it finished, so a later change to the round count (made
+            # for next year's draft) cannot reopen this one.
+            if state.get("completed") is not True:
+                state["completed"] = True
+                draft_state.save_state(year, state)
             _resume_regular_season_after_draft()
             # Give the freshly-drafted players avatars in the SAME consistent AI
             # style as the rest of the league (runs in the background so it never

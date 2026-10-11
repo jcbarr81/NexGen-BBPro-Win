@@ -37,6 +37,63 @@ def save_state(year: int, state: Dict[str, Any]) -> None:
     _with_lock(path.with_suffix(path.suffix + ".lock"), lambda: path.write_text(json.dumps(state, indent=2), encoding="utf-8"))
 
 
+def state_is_complete(state: Dict[str, Any], total_rounds: int) -> bool:
+    """True when a draft state has run to its last pick.
+
+    With qualifying-offer compensation the state carries an explicit pick
+    sequence; otherwise the order repeats for ``total_rounds`` rounds.
+
+    A draft that has finished is stamped ``completed`` and stays finished:
+    ``total_rounds`` is the league's current setting, and raising it for next
+    year must not reopen a draft that is over (a preseason draft would
+    otherwise reopen at spring training, or pause the season in July for the
+    extra rounds).
+    """
+
+    if state.get("completed") is True:
+        return True
+    seq = state.get("pick_sequence")
+    if isinstance(seq, list) and seq:
+        return int(state.get("overall_pick", 1) or 1) > len(seq)
+    return int(state.get("round", 1) or 1) > max(1, int(total_rounds or 1))
+
+
+# A league year with no amateur draft at all: a new league that drafts in the
+# preseason holds its first draft after its first completed season, so its
+# first season has neither a preseason draft (no records to order by) nor a
+# July one. Recorded when that season's Opening Day arrives, so a league that
+# only switches to a preseason draft later in its first season keeps the July
+# draft that was already ahead of it.
+def _skipped_years_path() -> Path:
+    return _state_dir() / "draft_skipped_years.json"
+
+
+def skipped_years() -> List[int]:
+    try:
+        payload = json.loads(_skipped_years_path().read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    years = payload.get("years") if isinstance(payload, dict) else None
+    out: List[int] = []
+    for value in years or []:
+        try:
+            out.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    return sorted(set(out))
+
+
+def is_year_skipped(year: int) -> bool:
+    return int(year) in skipped_years()
+
+
+def mark_year_skipped(year: int) -> None:
+    years = sorted(set(skipped_years()) | {int(year)})
+    path = _skipped_years_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"years": years}, indent=2), encoding="utf-8")
+
+
 def _order_from_team_stats(
     teams: Dict[str, Dict[str, Any]],
     seed: int | None,
@@ -284,6 +341,10 @@ __all__ = [
     "compute_order_from_last_season",
     "compute_order_for_draft_year",
     "has_completed_season",
+    "state_is_complete",
+    "skipped_years",
+    "is_year_skipped",
+    "mark_year_skipped",
     "initialize_state",
     "append_result",
 ]

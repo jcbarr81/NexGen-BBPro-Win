@@ -127,32 +127,22 @@ def _draft_marker(year: int, today: str) -> Optional[str]:
     """The July draft date, unless this year's draft is not a July draft.
 
     A league may hold its amateur draft in the preseason (backlog #63). The
-    calendar then must not promise a July draft: no marker while a preseason
-    draft is in progress, nor once this year's draft was completed before
-    the July date.
+    calendar then must not promise a July draft: no marker for a year whose
+    draft was (or is being) held in the preseason, nor for a new
+    preseason-draft league's first season, which has no draft at all.
     """
 
     july = _compute_draft_date(year)
     if not july:
         return None
     try:
-        from utils.path_utils import get_data_dir
+        from api.routers import season as season_router
 
-        if not (get_data_dir() / "season_state.json").exists():
-            return july
-        from playbalance.season_manager import SeasonManager, SeasonPhase
-
-        manager = SeasonManager()
         if (
-            manager.phase == SeasonPhase.AMATEUR_DRAFT
-            and manager.phase_after_draft() == SeasonPhase.PRESEASON
+            season_router._draft_held_in_preseason()
+            or season_router._draft_skipped_for_current_year()
         ):
             return None
-        if today < july:
-            from api.routers import season as season_router
-
-            if season_router._draft_completed_for_current_year():
-                return None
     except Exception:  # pragma: no cover - the marker is cosmetic
         pass
     return july
