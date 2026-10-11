@@ -1248,6 +1248,10 @@ count, so an RNG-reshuffling change can trip it -- re-check seeds 1 and 2.
 - data/calibration_league GIDP is .62-.64 per team-game (floor .62) under
   4b, so GIDP gates on data/calibration only; revisit when the league
   fixture's offence is in tolerance.
+- Live-path check at 7.49.0 (fresh 30-team league, 28 days; 7.48.0 in
+  brackets): SB/G .80 (.78), SB% .78 (.81), WP .36 (.37), GIDP/G .61 (.49),
+  SF/PA .0078 (.0107), 3B/G .18 (.19). GIDP and SF stop just short of MLB
+  (.68, .0068) on a fast-hitter league; re-check with the Release 5 retune.
 - Per-team running strategy (owner decision 4): "baserunning aggressiveness"
   (0.6x / 1.0x / 1.5x) and "play the infield in" owner settings on the Game
   Day settings page, with a guide. Today one league-wide rule applies.
