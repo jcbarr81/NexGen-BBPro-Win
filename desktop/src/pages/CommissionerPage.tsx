@@ -38,6 +38,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import { useTeams } from "@/lib/use-teams";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
+import { DraftTimingCard } from "@/components/DraftTimingCard";
 import {
   Badge,
   Button,
@@ -74,6 +75,7 @@ export function CommissionerPage() {
           <TradeCard data={settings.data} />
           <InjuryCard data={settings.data} />
           <GameRulesCard data={settings.data} />
+          <DraftTimingCard />
           <FinanceCard data={settings.data} />
           <ScoutingCard data={settings.data} />
           <StrategyCard data={settings.data} />

@@ -37,6 +37,10 @@ export interface LeagueCapabilities {
   /** Current season phase string ("PRESEASON", "REGULAR_SEASON",
    *  "AMATEUR_DRAFT", "PLAYOFFS", "OFFSEASON", or "" while loading). */
   phase: string;
+  /** When the league holds its amateur draft ("midseason" until loaded). A
+   *  preseason-draft league keeps the Draft link through the offseason, when
+   *  next year's class is there to scout. */
+  draftTiming: string;
   /** True while either query is still fetching — callers may want to
    *  delay hiding items until capabilities are resolved. */
   loading: boolean;
@@ -93,6 +97,7 @@ export function useLeagueCapabilities(): LeagueCapabilities {
     financeEnabled,
     modules: snapshot.data?.modules ?? {},
     phase,
+    draftTiming: String(seasonState.data?.draft_timing ?? "midseason"),
     loading: leagues.isLoading || snapshot.isLoading,
   };
 }

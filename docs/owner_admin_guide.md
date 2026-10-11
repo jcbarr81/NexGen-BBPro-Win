@@ -161,6 +161,14 @@ Administrators control league configuration and high-level operations.
   - Regular season only: playoff games are played the traditional way.
   - Games never end tied: past the 30th inning every game, playoffs included, gets the runner (a game is stopped as a tie only at 60 innings).
   - A change takes effect from the next game played, even mid-season; games already played keep the rule they were played under.
+- **Amateur draft timing** (Admin -> Commissioner, and the Draft page's Admin tab): when the league holds its amateur draft.
+  - **Mid-season (July)**, the default: the draft is held on the third Tuesday in July and the regular season pauses until the last pick.
+  - **Preseason (before spring training)**: the draft opens when the league advances from the Offseason into the new season. Spring training and Opening Day wait for the last pick, the draft class goes through spring training, and that season is not paused for a draft in July.
+  - It can be changed at any time and **applies to the next draft that has not been held**. A regular season already under way keeps its July draft. Switching to Preseason while the league is in the Preseason, before spring training has run, opens this year's draft at once; after spring training has run, this year's draft stays in July. A league never holds two drafts in one season.
+  - **A new league that drafts in the preseason has no draft in its first season.** A preseason draft is ordered by the last completed season's records, so the first draft opens the following preseason and the first season is not paused in July. (Switching back to Mid-season before July gives that season a July draft. A mid-season league drafts in July of its first season as before, ordered by the standings on draft day.)
+  - While any draft is open no games are simulated, scheduled runs wait (a recurring run skips to its next slot), and free-agent signings and contract extensions are paused.
+  - A finished draft stays finished: changing the number of rounds afterwards applies to next year. **Reset to Opening Day** keeps a draft that was held in the preseason and is refused while one is open.
+  - Draft order (reverse of last season's records), the pick clock and auto-draft are the same either way.
 
 ### Playoff Calendar
 - Every playoff game has a date, MLB-style: an off day after the regular season and between rounds, travel days after games 2 and 5 of a seven-game series (after games 2 and 4 of a five-game series), and none inside a three-game Wild Card series. A round starts on its scheduled date even when the previous round ends in a sweep.
@@ -196,9 +204,11 @@ owns the pick makes the selection.
   - Use it when you want a shareable baseball-reference-style archive of the current league history, especially before releases, major sim runs, or offseason rollovers.
 
 ### Amateur Draft
-The Amateur Draft introduces new prospects mid-season and pauses the season to conduct the draft.
+The Amateur Draft introduces new prospects each year. By default it is held mid-season and pauses the regular season; the commissioner can instead hold it in the preseason, before spring training (see **Amateur draft timing** under League Settings above).
 
-- Draft Timing: Draft Day is the third Tuesday in July (computed from the schedule).
+- Draft Timing (preseason): the draft opens when the league advances from the Offseason into the new season. Training camp and Opening Day unlock after the last pick, and the draft class trains with everyone else. Next year's draft class is generated when the season ends, so owners can scout it on the Draft page all offseason.
+- Draft picks go to Low-A. CPU clubs sort out their own roster limits; an owner whose club is over a limit must fix it before Opening Day. Nobody is released just to make room for a draft pick.
+- Draft Timing (mid-season, the default): Draft Day is the third Tuesday in July (computed from the schedule).
   - The Draft page shows a status line with the current simulation date and Draft Day.
   - "View Draft Pool" and "Start/Resume Draft" enable only on/after Draft Day and only if the draft has not been completed that year.
   - "Draft Settings" is always available.
@@ -269,7 +279,9 @@ existing visual style and theme.
       Simulate to Draft, and Simulate to Playoffs. On Draft Day the
       application switches to the Amateur Draft phase and pauses to conduct
       the draft via the Draft Console. After committing results, the season
-      resumes in the Regular Season phase. See also: `docs/season_progress.md`.
+      resumes in the Regular Season phase. A league set to draft in the
+      preseason holds the draft before spring training instead; that season
+      has no July pause. See also: `docs/season_progress.md`.
   - Schedule Control: Regenerate Season Schedule, Reset to Opening Day.
   - Archives: League History.
 - League Settings page grouped into:

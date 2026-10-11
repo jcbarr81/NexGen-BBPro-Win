@@ -37,6 +37,63 @@ def save_state(year: int, state: Dict[str, Any]) -> None:
     _with_lock(path.with_suffix(path.suffix + ".lock"), lambda: path.write_text(json.dumps(state, indent=2), encoding="utf-8"))
 
 
+def state_is_complete(state: Dict[str, Any], total_rounds: int) -> bool:
+    """True when a draft state has run to its last pick.
+
+    With qualifying-offer compensation the state carries an explicit pick
+    sequence; otherwise the order repeats for ``total_rounds`` rounds.
+
+    A draft that has finished is stamped ``completed`` and stays finished:
+    ``total_rounds`` is the league's current setting, and raising it for next
+    year must not reopen a draft that is over (a preseason draft would
+    otherwise reopen at spring training, or pause the season in July for the
+    extra rounds).
+    """
+
+    if state.get("completed") is True:
+        return True
+    seq = state.get("pick_sequence")
+    if isinstance(seq, list) and seq:
+        return int(state.get("overall_pick", 1) or 1) > len(seq)
+    return int(state.get("round", 1) or 1) > max(1, int(total_rounds or 1))
+
+
+# A league year with no amateur draft at all: a new league that drafts in the
+# preseason holds its first draft after its first completed season, so its
+# first season has neither a preseason draft (no records to order by) nor a
+# July one. Recorded when that season's Opening Day arrives, so a league that
+# only switches to a preseason draft later in its first season keeps the July
+# draft that was already ahead of it.
+def _skipped_years_path() -> Path:
+    return _state_dir() / "draft_skipped_years.json"
+
+
+def skipped_years() -> List[int]:
+    try:
+        payload = json.loads(_skipped_years_path().read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    years = payload.get("years") if isinstance(payload, dict) else None
+    out: List[int] = []
+    for value in years or []:
+        try:
+            out.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    return sorted(set(out))
+
+
+def is_year_skipped(year: int) -> bool:
+    return int(year) in skipped_years()
+
+
+def mark_year_skipped(year: int) -> None:
+    years = sorted(set(skipped_years()) | {int(year)})
+    path = _skipped_years_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"years": years}, indent=2), encoding="utf-8")
+
+
 def _order_from_team_stats(
     teams: Dict[str, Dict[str, Any]],
     seed: int | None,
@@ -107,6 +164,68 @@ def _archived_stats_path_for_league_year(league_year: int) -> Path | None:
             if candidate.exists():
                 return candidate
     return None
+
+
+def _last_archived_stats_path() -> Path | None:
+    """The archived ``stats.json`` of the most recently finished season."""
+
+    try:
+        from playbalance.season_context import SeasonContext, CAREER_DATA_DIR
+    except Exception:
+        return None
+    try:
+        seasons = list(SeasonContext.load().iter_archived_seasons())
+    except Exception:
+        return None
+    for season in reversed(seasons):
+        sid = season.get("season_id") if isinstance(season, dict) else None
+        if not sid:
+            continue
+        candidate = CAREER_DATA_DIR / sid / "stats.json"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def has_completed_season() -> bool:
+    """True once the league has finished (and archived) at least one season.
+
+    A league's first amateur draft follows its first completed season, so a
+    preseason draft is never held in a new league's first preseason.
+    """
+
+    return _last_archived_stats_path() is not None
+
+
+def has_archived_season() -> bool:
+    """True once the league has archived any season, records file or not.
+
+    Distinguishes a genuinely new league (no draft in its first season under
+    a preseason draft) from an established one whose last archive cannot be
+    read for an order: that league still drafts, in July.
+    """
+
+    try:
+        from playbalance.season_context import SeasonContext
+
+        return any(True for _ in SeasonContext.load().iter_archived_seasons())
+    except Exception:
+        return False
+
+
+def compute_order_from_last_season(seed: int | None = None) -> List[str]:
+    """Reverse order of the last completed season's records, or ``[]``.
+
+    The order for a draft held in the preseason: the season it would have
+    interrupted has not started, so there are no current standings to fall
+    back on (``compute_order_for_draft_year`` would rank a slate of 0-0
+    clubs at random). Reads the latest archive whatever its year label.
+    """
+
+    archived = _last_archived_stats_path()
+    if archived is None:
+        return []
+    return compute_order_from_season_stats(seed=seed, stats_path=archived)
 
 
 def compute_order_for_draft_year(
@@ -235,7 +354,14 @@ __all__ = [
     "load_state",
     "save_state",
     "compute_order_from_season_stats",
+    "compute_order_from_last_season",
     "compute_order_for_draft_year",
+    "has_completed_season",
+    "has_archived_season",
+    "state_is_complete",
+    "skipped_years",
+    "is_year_skipped",
+    "mark_year_skipped",
     "initialize_state",
     "append_result",
 ]

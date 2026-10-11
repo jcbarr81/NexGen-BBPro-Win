@@ -27,12 +27,64 @@ router = APIRouter(prefix="/draft", tags=["draft"], dependencies=[CurrentIdentit
 def _resolve_year(year: Optional[int]) -> int:
     if year and year > 0:
         return year
+    upcoming = _upcoming_preseason_draft_year()
+    if upcoming:
+        return upcoming
     try:
         return int(current_league_year())
     except Exception:
         from datetime import date
 
         return date.today().year
+
+
+def _upcoming_preseason_draft_year() -> Optional[int]:
+    """The coming season's year, during the offseason of a preseason-draft league.
+
+    Such a league generates the next draft class when the season rolls over
+    so owners can scout it all offseason, but the new schedule (which is what
+    ``current_league_year`` reads) does not exist until the preseason. The
+    season context already knows the coming league year.
+    """
+    try:
+        from services.draft_settings import (
+            DRAFT_TIMING_PRESEASON,
+            load_draft_settings,
+        )
+
+        if load_draft_settings().timing != DRAFT_TIMING_PRESEASON:
+            return None
+        from playbalance.season_manager import SeasonManager, SeasonPhase
+
+        if SeasonManager().phase != SeasonPhase.OFFSEASON:
+            return None
+        from playbalance.season_context import SeasonContext
+
+        current = SeasonContext.load().current
+        value = int(current.get("league_year") or 0) if isinstance(current, dict) else 0
+        return value if value > 0 else None
+    except Exception:
+        return None
+
+
+def _require_draft_open_for(year: int) -> None:
+    """Refuse to start or run the coming year's draft during the offseason.
+
+    A preseason-draft league shows the coming class all offseason, and the
+    draft itself opens when the preseason begins. Starting it early would put
+    the first team on the clock (and let the clock run out) months before
+    anyone expects to pick.
+    """
+
+    upcoming = _upcoming_preseason_draft_year()
+    if upcoming and int(year) == int(upcoming):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"The {upcoming} draft opens when the preseason begins. "
+                "Until then the draft class is here to scout."
+            ),
+        )
 
 
 def _player_lookup() -> Dict[str, Any]:
@@ -217,6 +269,10 @@ def draft_state_view(
         if isinstance(seq, list) and seq
         else (len(order) * max(1, int(settings.rounds)) if order else 0)
     )
+    if state.get("completed") is True:
+        # A finished draft is as long as it was, whatever the round count
+        # has been changed to since.
+        total_picks = len(raw_selected)
     return {
         "year": y,
         "round": int(state.get("round", 1) or 1),
@@ -393,6 +449,8 @@ def draft_settings_view() -> Dict[str, Any]:
         "rounds": settings.rounds,
         "pool_size": settings.pool_size,
         "pick_clock_hours": settings.pick_clock_hours,
+        "timing": settings.timing,
+        "timing_options": _timing_options(),
         "limits": {
             "rounds": {"min": MIN_ROUNDS, "max": MAX_ROUNDS, "default": DEFAULT_ROUNDS},
             "pool_size": {
@@ -417,28 +475,116 @@ def draft_settings_save(
     """Admin save of draft config."""
 
     from services.draft_settings import (
+        DRAFT_TIMINGS,
         DraftSettings,
         load_draft_settings,
+        normalize_timing,
         save_draft_settings,
     )
 
     current = load_draft_settings()
     # Absent means "leave it alone", so an older client that does not know
-    # about the pick clock cannot silently switch it off on save.
+    # about the pick clock (or the draft timing) cannot silently reset it on
+    # save. Rounds and pool size follow the same rule so a caller can change
+    # the timing alone.
     clock = payload.get("pick_clock_hours", None)
-    incoming = DraftSettings(
-        rounds=int(payload.get("rounds", 0) or 0),
-        pool_size=int(payload.get("pool_size", 0) or 0),
-        pick_clock_hours=(
-            current.pick_clock_hours if clock is None else int(clock or 0)
-        ),
-    )
+    timing = payload.get("timing", None)
+    if timing is not None:
+        # normalize_timing falls back to the default on junk, which is right
+        # for a stored file but would turn a typo into a silent change here.
+        text = str(timing).strip().lower().replace("-", "").replace("_", "")
+        if text not in DRAFT_TIMINGS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"timing must be one of {list(DRAFT_TIMINGS)}.",
+            )
+        timing = normalize_timing(text)
+    rounds = payload.get("rounds", None)
+    pool_size = payload.get("pool_size", None)
+    try:
+        incoming = DraftSettings(
+            rounds=current.rounds if rounds is None else int(rounds or 0),
+            pool_size=(
+                current.pool_size if pool_size is None else int(pool_size or 0)
+            ),
+            pick_clock_hours=(
+                current.pick_clock_hours if clock is None else int(clock or 0)
+            ),
+            timing=current.timing if timing is None else timing,
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="rounds, pool_size and pick_clock_hours must be whole numbers.",
+        ) from exc
     saved = save_draft_settings(incoming)
-    return {
+    out: Dict[str, Any] = {
         "rounds": saved.rounds,
         "pool_size": saved.pool_size,
         "pick_clock_hours": saved.pick_clock_hours,
+        "timing": saved.timing,
+        "timing_options": _timing_options(),
     }
+    if saved.timing != current.timing:
+        out["timing_change"] = _apply_timing_change()
+    return out
+
+
+def _timing_options() -> List[Dict[str, str]]:
+    from services.draft_settings import (
+        DRAFT_TIMING_MIDSEASON,
+        DRAFT_TIMING_PRESEASON,
+    )
+
+    return [
+        {
+            "id": DRAFT_TIMING_MIDSEASON,
+            "label": "Mid-season (July)",
+            "description": (
+                "The draft is held on the third Tuesday in July. The regular "
+                "season pauses until the last pick is made."
+            ),
+        },
+        {
+            "id": DRAFT_TIMING_PRESEASON,
+            "label": "Preseason (before spring training)",
+            "description": (
+                "The draft is held when the new season begins, before spring "
+                "training, so the draft class gets a training camp and no "
+                "regular-season sim waits on the draft."
+            ),
+        },
+    ]
+
+
+def _apply_timing_change() -> Dict[str, Any]:
+    """What a change of draft timing does right now, and what it will do.
+
+    A change applies to the next draft that has not been held. Switching to
+    a preseason draft while the league is in the preseason, before spring
+    training, opens this year's draft at once; in the offseason it makes the
+    coming draft class available to scout. Anywhere else nothing changes
+    until the next preseason (the regular season in progress keeps its July
+    draft).
+    """
+    out: Dict[str, Any] = {"applies": "next_draft"}
+    try:
+        from api.routers import season as season_router
+        from playbalance.season_manager import SeasonManager, SeasonPhase
+
+        manager = SeasonManager()
+        opened = season_router._maybe_open_preseason_draft(manager)
+        out["preseason_draft"] = opened
+        if opened.get("opened"):
+            out["applies"] = "now"
+        elif manager.phase == SeasonPhase.OFFSEASON:
+            seeded = season_router._seed_next_draft_pool_if_preseason()
+            if seeded:
+                out["draft_pool"] = seeded
+        out["phase"] = manager.phase.value
+    except Exception as exc:  # pragma: no cover - defensive
+        out["error"] = str(exc)
+    return out
 
 
 @router.post("/admin/initialize")
@@ -449,6 +595,7 @@ def admin_initialize(
     """Seed a brand-new draft state for the given year."""
 
     year = int(payload.get("year") or _resolve_year(None))
+    _require_draft_open_for(year)
     seed = payload.get("seed")
     try:
         seed_int = int(seed) if seed is not None else None
@@ -583,10 +730,7 @@ def _selected_ids(state: Dict[str, Any]) -> set[str]:
 
 
 def _draft_complete(state: Dict[str, Any], total_rounds: int) -> bool:
-    seq = state.get("pick_sequence")
-    if isinstance(seq, list) and seq:
-        return int(state.get("overall_pick", 1) or 1) > len(seq)
-    return int(state.get("round", 1) or 1) > max(1, total_rounds)
+    return draft_state.state_is_complete(state, total_rounds)
 
 
 def _load_settings_rounds() -> int:
@@ -713,6 +857,11 @@ def _do_pick(
     # REGULAR_SEASON) and pushed "Advance Phase" straight to the playoffs.
     try:
         if _draft_complete(state, _load_settings_rounds()):
+            # Stamp it finished, so a later change to the round count (made
+            # for next year's draft) cannot reopen this one.
+            if state.get("completed") is not True:
+                state["completed"] = True
+                draft_state.save_state(year, state)
             _resume_regular_season_after_draft()
             # Give the freshly-drafted players avatars in the SAME consistent AI
             # style as the rest of the league (runs in the background so it never
@@ -734,14 +883,16 @@ def _do_pick(
 
 
 def _resume_regular_season_after_draft() -> None:
-    """Flip the season phase back to REGULAR_SEASON once the draft finishes."""
-    try:
-        from playbalance.season_manager import SeasonManager, SeasonPhase
+    """Leave AMATEUR_DRAFT once the draft finishes.
 
-        manager = SeasonManager()
-        if manager.phase == SeasonPhase.AMATEUR_DRAFT:
-            manager.phase = SeasonPhase.REGULAR_SEASON
-            manager.save()
+    The season goes back to whichever phase the draft interrupted: the
+    regular season for the mid-season draft, the preseason (spring training
+    is next) for a draft held before the season.
+    """
+    try:
+        from playbalance.season_manager import SeasonManager
+
+        SeasonManager().resume_after_draft()
     except Exception:  # pragma: no cover - defensive
         pass
 

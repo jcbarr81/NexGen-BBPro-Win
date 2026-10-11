@@ -183,7 +183,10 @@ export function Sidebar({
       if (meta.adminOnly && !isAdmin) continue;
       if (meta.capability === "finance" && !capabilities.financeEnabled) continue;
       if (meta.capability === "multi-owner" && !capabilities.multiOwner) continue;
-      if (isHiddenByPhase(meta.path, capabilities.phase)) continue;
+      if (
+        isHiddenByPhase(meta.path, capabilities.phase, capabilities.draftTiming)
+      )
+        continue;
       items.push({ to: meta.path, label: meta.label, Icon: meta.Icon });
     }
     if (items.length === 0) return null;
@@ -194,6 +197,7 @@ export function Sidebar({
     capabilities.financeEnabled,
     capabilities.multiOwner,
     capabilities.phase,
+    capabilities.draftTiming,
   ]);
 
   const sections: NavSection[] = useMemo(() => {
@@ -466,16 +470,27 @@ function SidebarItem({
 // ---------------------------------------------------------------------------
 // Phase-aware route filtering helpers — exported so HubPage can reuse them.
 
-const PHASE_HIDE_RULES: Record<string, (phase: string) => boolean> = {
+const PHASE_HIDE_RULES: Record<
+  string,
+  (phase: string, draftTiming: string) => boolean
+> = {
   // Hide Draft outside the draft window unless we're in PRESEASON or
-  // AMATEUR_DRAFT phase. The hub still shows it; this only filters the
-  // sidebar's quick-link rail.
-  "/draft": (phase) =>
-    !!phase && phase !== "AMATEUR_DRAFT" && phase !== "PRESEASON",
+  // AMATEUR_DRAFT phase. A league that drafts in the preseason also keeps it
+  // through the OFFSEASON, when next year's class is there to scout. The hub
+  // still shows it; this only filters the sidebar's quick-link rail.
+  "/draft": (phase, draftTiming) =>
+    !!phase &&
+    phase !== "AMATEUR_DRAFT" &&
+    phase !== "PRESEASON" &&
+    !(phase === "OFFSEASON" && draftTiming === "preseason"),
   "/offseason": (phase) => !!phase && phase !== "OFFSEASON" && phase !== "PRESEASON",
 };
 
-export function isHiddenByPhase(path: string, phase: string): boolean {
+export function isHiddenByPhase(
+  path: string,
+  phase: string,
+  draftTiming = "midseason",
+): boolean {
   const rule = PHASE_HIDE_RULES[path];
-  return !!rule && rule(phase);
+  return !!rule && rule(phase, draftTiming);
 }

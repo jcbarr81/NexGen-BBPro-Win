@@ -1596,10 +1596,58 @@ export type SeasonPhase =
   | "PLAYOFFS"
   | "OFFSEASON";
 
+/** When the league holds its amateur draft: in July (the regular season
+ *  pauses for it) or in the preseason, before spring training. */
+export type DraftTiming = "midseason" | "preseason";
+
+export interface DraftTimingOption {
+  id: DraftTiming;
+  label: string;
+  description: string;
+}
+
+/** Where a preseason draft stands. `due` = it should open right now;
+ *  `in_progress` = it is open and spring training waits for it. */
+export interface PreseasonDraftStatus {
+  timing: DraftTiming;
+  due: boolean;
+  in_progress: boolean;
+  reason:
+    | "midseason"
+    | "in_progress"
+    | "not_preseason"
+    | "after_training_camp"
+    | "completed"
+    | "first_season"
+    | "no_records"
+    | "due";
+}
+
+/** What changing the draft timing did: `now` = this year's draft opened at
+ *  once (preseason, before spring training); otherwise the next draft. */
+export interface DraftTimingChange {
+  applies: "now" | "next_draft";
+  phase?: SeasonPhase;
+  preseason_draft?: PreseasonDraftStatus & { opened: boolean; error?: string };
+  draft_pool?: { seeded: boolean; year?: number; error?: string };
+  error?: string;
+}
+
 export interface SeasonState {
   phase: SeasonPhase;
   current_date: string | null;
   draft_date: string | null;
+  /** When this league holds its amateur draft, and where a preseason draft
+   *  stands. `draft_return_phase` is set only during AMATEUR_DRAFT. */
+  draft_timing?: DraftTiming;
+  preseason_draft?: PreseasonDraftStatus;
+  draft_return_phase?: "PRESEASON" | "REGULAR_SEASON" | null;
+  /** This year's draft was (or is being) held in the preseason, so
+   *  `draft_date` is not its draft day. Holds for the whole season. */
+  draft_held_in_preseason?: boolean;
+  /** This league year has no amateur draft: a new preseason-draft league's
+   *  first draft follows its first completed season. */
+  draft_skipped?: boolean;
   days_total: number;
   days_played: number;
   days_remaining: number;
@@ -3159,6 +3207,8 @@ export const api = {
       rounds: number;
       pool_size: number;
       pick_clock_hours: number;
+      timing?: DraftTiming;
+      timing_options?: DraftTimingOption[];
       limits: {
         rounds: { min: number; max: number; default: number };
         pool_size: { min: number; max: number; default: number };
@@ -3174,6 +3224,14 @@ export const api = {
       "/draft/settings",
       { method: "PUT", body: { rounds, pool_size, pick_clock_hours } },
     ),
+  // Timing alone: the server leaves rounds, pool size and the clock as they
+  // are when they are absent from the body.
+  saveDraftTiming: (timing: DraftTiming) =>
+    apiRequest<{
+      timing: DraftTiming;
+      timing_options?: DraftTimingOption[];
+      timing_change?: DraftTimingChange;
+    }>("/draft/settings", { method: "PUT", body: { timing } }),
   adminDraftInitialize: (year?: number, seed?: number) =>
     apiRequest<{ year: number; order: string[]; seed: number | null }>(
       "/draft/admin/initialize",

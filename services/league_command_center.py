@@ -385,10 +385,20 @@ def _build_deadlines_card(
             attention_count += 1
         elif days_to_draft <= 14:
             draft_status = "upcoming_soon"
+    draft_label = "Amateur Draft"
+    draft_date_shown: str | None = draft_date
+    if not draft_completed and _preseason_draft_open(data_dir):
+        # The league holds its draft before spring training and it is open
+        # now: the July date above is not when this draft happens.
+        draft_label = "Amateur Draft (preseason)"
+        draft_date_shown = None
+        days_to_draft = None
+        draft_status = "ready"
+        attention_count += 1
     items.append(
         {
-            "label": "Amateur Draft",
-            "date": draft_date,
+            "label": draft_label,
+            "date": draft_date_shown,
             "days_remaining": days_to_draft,
             "status": draft_status,
         }
@@ -529,7 +539,34 @@ def _build_finance_risks_card(
     )
 
 
+def _preseason_draft_open(data_dir: Path) -> bool:
+    """True while a draft held before spring training is in progress."""
+    try:
+        from playbalance.season_manager import SeasonManager, SeasonPhase
+
+        manager = SeasonManager(
+            path=data_dir / "season_state.json", enable_rollover=False
+        )
+        return (
+            manager.phase == SeasonPhase.AMATEUR_DRAFT
+            and manager.phase_after_draft() == SeasonPhase.PRESEASON
+        )
+    except Exception:
+        return False
+
+
 def _is_draft_completed(data_dir: Path, year: int) -> bool:
+    """True when the year's draft is over or the year has no draft.
+
+    The draft state is the authority (the web draft never writes
+    ``draft_completed_years``, which only the legacy desktop flow did): a
+    state that has run to its last pick is complete whenever in the year it
+    was held, the preseason included. A new preseason-draft league's first
+    season has no draft at all.
+    """
+
+    if _draft_state_complete(data_dir, year) or _draft_year_skipped(data_dir, year):
+        return True
     progress_path = data_dir / "season_progress.json"
     if not progress_path.exists():
         return False
@@ -541,6 +578,38 @@ def _is_draft_completed(data_dir: Path, year: int) -> bool:
     if not isinstance(years, list):
         return False
     return year in set(int(item) for item in years if str(item).strip().isdigit())
+
+
+def _draft_state_complete(data_dir: Path, year: int) -> bool:
+    try:
+        from services.draft_settings import load_draft_settings
+        from services.draft_state import state_is_complete
+
+        state = json.loads(
+            (data_dir / f"draft_state_{year}.json").read_text(encoding="utf-8")
+        )
+        if not isinstance(state, dict) or not list(state.get("order") or []):
+            return False
+        return state_is_complete(state, load_draft_settings(data_dir).rounds)
+    except Exception:
+        return False
+
+
+def _draft_year_skipped(data_dir: Path, year: int) -> bool:
+    try:
+        from services.draft_settings import (
+            DRAFT_TIMING_PRESEASON,
+            load_draft_settings,
+        )
+
+        if load_draft_settings(data_dir).timing != DRAFT_TIMING_PRESEASON:
+            return False
+        payload = json.loads(
+            (data_dir / "draft_skipped_years.json").read_text(encoding="utf-8")
+        )
+        return int(year) in {int(y) for y in payload.get("years", [])}
+    except Exception:
+        return False
 
 
 def _compute_draft_date_for_year(year: int) -> str:
