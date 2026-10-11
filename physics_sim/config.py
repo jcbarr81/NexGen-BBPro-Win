@@ -276,11 +276,13 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # steal_freq_scale 1.0 (= MLB volume, about .73 SB per team-game). The
     # speed curve (engine._steal_speed_factor) multiplies them; the double
     # steal rate is read for the runner on 2nd. Calibrated with the battery
-    # read against the league's ACT means (F4: rates x0.95 from W1).
-    "steal_attempt_rate_first": 0.0312,
-    "steal_attempt_rate_second": 0.00692,
-    "steal_attempt_rate_home": 0.00069,
-    "double_steal_rate": 0.00207,
+    # read against the league's ACT means (F4: rates x0.95 from W1), then
+    # x1.05 with Release 4b (7.49.0): more double plays and fewer runners
+    # left on 1st cut steal chances a few percent.
+    "steal_attempt_rate_first": 0.03276,
+    "steal_attempt_rate_second": 0.007266,
+    "steal_attempt_rate_home": 0.000724,
+    "double_steal_rate": 0.002174,
     # Retired in Release 4 (success is the steal_success_* logit block);
     # still registered so a stored override keeps loading.
     "steal_success_base": 0.80,
@@ -530,7 +532,8 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "advancement_aggression_scale": 1.6,
     "extra_base_out_base": 0.06,
     "extra_base_out_scale": 1.0,
-    "double_play_base": 0.32,
+    # Release 4b (7.49.0): 0.32 -> 0.38 (audit M8; GIDP ~.68 per team-game).
+    "double_play_base": 0.38,
     "double_play_range_scale": 1.2,
     "double_play_arm_scale": 1.2,
     "double_play_speed_scale": 1.0,
@@ -745,47 +748,46 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "steal_success_cfa_logit": 0.19,
     "steal_success_cap": 0.97,
     "steal_success_floor": 0.05,
-    # Release 4 (W2): runner advancement on hits (audit M7 / L21). The
-    # defaults reproduce 7.47.0 exactly; the Release 4b values live in
-    # scripts/kpi_profiles/r4b.json until the 4b flip copies them here.
-    # Hit advances read their own aggression scale so the global
+    # Release 4 (W2): runner advancement on hits (audit M7 / L21). Release
+    # 4b values since 7.49.0 (XBT ~.40); the 7.48.0 values are noted on each
+    # line. Hit advances read their own aggression scale so the global
     # ``advancement_aggression_scale`` (WP/PB advances, tag-ups) never moves.
-    "hit_advance_aggression_scale": 1.6,
+    "hit_advance_aggression_scale": 1.0,  # 7.48.0: 1.6
     # Multiplies the thrown-out chance of a runner trying for an extra base.
-    "hit_advance_out_scale": 1.0,
+    "hit_advance_out_scale": 0.45,  # 7.48.0: 1.0
     # Situation extras on the attempt chance: runner on 1st on a single
     # (1st to 3rd), runner on 2nd on a single (scores), runner on 1st on a
     # double (scores). ``xbt_two_out_extra`` is added to the last two with
     # two out (running on contact).
-    "xbt_single_r1_extra": 0.05,
-    "xbt_single_r2_extra": 0.15,
-    "xbt_double_r1_extra": -0.05,
-    "xbt_two_out_extra": 0.0,
+    "xbt_single_r1_extra": -0.17,  # 7.48.0: 0.05
+    "xbt_single_r2_extra": 0.06,  # 7.48.0: 0.15
+    "xbt_double_r1_extra": -0.13,  # 7.48.0: -0.05
+    "xbt_two_out_extra": 0.22,  # 7.48.0: 0.0
     # Multiplies the thrown-out chance of a forced runner (R3 on a single,
-    # R2/R3 on a double), who today is thrown out 5-8% of the time.
-    "forced_runner_out_scale": 1.0,
+    # R2/R3 on a double), who was thrown out 5-8% of the time at 1.0.
+    "forced_runner_out_scale": 0.25,  # 7.48.0: 1.0
     # Batter speed on ground balls (M6): out chance minus
     # scale * w * (sp - hitter_speed_center) / 10, where w ramps from 1 at
     # ``infield_hit_ev_lo`` mph down to 0 at ``infield_hit_ev_hi``. 0 = off
-    # (no extra draws, so games are unchanged).
-    "infield_hit_speed_scale": 0.0,
+    # (the 7.48.0 behaviour; no extra draws).
+    "infield_hit_speed_scale": 0.036,
     "infield_hit_ev_lo": 80.0,
     "infield_hit_ev_hi": 100.0,
     # Ground-ball singles at or below this exit velocity are infield singles:
     # runners move exactly one base, on the infielder's arm and credit, and
     # so do bunt hits. 0 = off (every hit's runners advance on the
-    # outfielder who picks it up). Not in the 4b profile: at 85 mph it took
+    # outfielder who picks it up). Not part of Release 4b: at 85 mph it took
     # calibration XBT to .35 (floor .37) and 1st-to-3rd to .20 (MLB .28).
     # Deliberately separate from the M6 ``infield_hit_ev_lo``/``_hi`` ramp
     # above (accepted by the owner/integrator): that ramp decides whether a
     # ground ball is a hit; this cut decides how the runners move once it is.
     "infield_single_ev_max": 0.0,
     # Release 4 (W3): outs in play -- tag-ups, the runner on 3rd on ground
-    # outs, double plays (audit M6 DP half, M7, M8). Two structural switches
-    # pick the 7.47.0 code path at 0; the 4b values live in
-    # scripts/kpi_profiles/r4b.json until the 4b flip copies them here.
-    "tag_up_model": 0.0,
-    "ground_out_model": 0.0,
+    # outs, double plays (audit M6 DP half, M7, M8). Two structural switches:
+    # 1 = the Release 4b models (the default since 7.49.0), 0 = the 7.47.0
+    # code paths, kept for one release as a fallback.
+    "tag_up_model": 1.0,
+    "ground_out_model": 1.0,
     # Tag-up time race (tag_up_model 1, engine._tag_up_race). Runner home
     # from 3rd: run_base - (sp - 50) * run_speed seconds. Throw: release +
     # carry * carry_k / (velo + (arm - 50) * arm_k), minus hang_k per second
@@ -801,11 +803,11 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "tag_up_carry_k": 1.2,
     "tag_up_hang_k": 0.15,
     "tag_up_hang_ref": 3.0,
-    "tag_up_send_margin": 0.20,
+    "tag_up_send_margin": 0.17,
     "tag_up_send_margin_0out": 0.10,
     "tag_up_send_sd": 0.25,
     "tag_up_out_sd": 0.30,
-    "tag_up_out_floor": 0.005,
+    "tag_up_out_floor": 0.008,
     # A fly caught under this much engine carry (ft) is a pop-up: nobody
     # tags and no number is drawn, as on an infield liner. Model 0 ignores it.
     "tag_up_min_carry_ft": 150.0,
@@ -843,8 +845,8 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # DP chance (fielding.double_play_probability): the raw chance times
     # exp(-k * (batter sp - hitter_speed_center) / 10), capped at
     # double_play_max. k 0 and the 0.45 cap are the 7.47.0 behaviour.
-    "double_play_batter_speed_k": 0.0,
-    "double_play_max": 0.45,
+    "double_play_batter_speed_k": 0.2,
+    "double_play_max": 0.6,
 }
 
 

@@ -51,14 +51,16 @@ class _Script:
         return self._draws.pop(0)
 
 
-# Release 4 (W3): the structural switch for the rewritten ground out. The
-# tests without it pin the 7.47.0 path (ground_out_model 0, the default).
+# Release 4 (W3): the structural switch for the rewritten ground out. Model
+# 1 is the default since 7.49.0; the tests that do not name a model pin the
+# 7.47.0 path, kept behind ground_out_model 0.
+GROUND_OUT_V0 = {"ground_out_model": 0.0}
 GROUND_OUT_V1 = {"ground_out_model": 1.0}
 
 
 def _ground_out(monkeypatch, bases: BaseState, outs: int, draws, overrides=None):
     monkeypatch.setattr(engine, "random", _Script(draws))
-    tuning = load_tuning(overrides)
+    tuning = load_tuning(GROUND_OUT_V0 if overrides is None else overrides)
     defense = _defense()
     return _resolve_ground_out(
         bases=bases,
@@ -109,7 +111,7 @@ def test_draw_sequence_is_unchanged(monkeypatch):
     bases = BaseState(first=_batter("R1"), third=_batter("R3"))
     script = _Script([0.99, 0.99, 0.99, 0.99])
     monkeypatch.setattr(engine, "random", script)
-    tuning = load_tuning()
+    tuning = load_tuning(GROUND_OUT_V0)
     defense = _defense()
     _resolve_ground_out(
         bases=bases, outs=0, batter=_batter("BAT"), defense_map=defense,
@@ -179,8 +181,10 @@ def test_bases_loaded_runners_move_up_model_1(monkeypatch):
 
 
 def test_ground_outs_conserve_runners():
-    """20,000 random base-out states: every runner is still on base, scored or out."""
-    tuning = load_tuning()
+    """20,000 random base-out states on the 7.47.0 path (model 0): every
+    runner is still on base, scored or out. Model 1 has its own copy in
+    tests/test_r4_tagups_ground_outs.py."""
+    tuning = load_tuning(GROUND_OUT_V0)
     defense = _defense()
     ratings = compute_defense_ratings(defense, tuning)
     rng = random.Random(20261007)
@@ -486,7 +490,7 @@ def test_no_triple_play_with_one_out(monkeypatch):
     """With one out a ground ball cannot be a triple play (a 4th out): the
     triple-play roll is skipped and the play is at most an inning-ending DP,
     on either ground-out model."""
-    for overrides in ({}, GROUND_OUT_V1):
+    for overrides in (GROUND_OUT_V0, GROUND_OUT_V1):
         tp = {"triple_play_base": 1.0, **overrides}
         bases = BaseState(first=_batter("R1"), second=_batter("R2"))
         _, outs_added, events, _ = _ground_out(monkeypatch, bases, 0, [0.0], tp)

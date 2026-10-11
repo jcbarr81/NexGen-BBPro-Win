@@ -267,6 +267,14 @@ different stats and a rebased admin slider).
    to 2); per-team "baserunning aggressiveness" and "infield in" owner
    settings are backlog.
 
+5. **4b shipped as 7.49.0 (owner, 2026-10-11).** Sixteen calibration
+   seasons with 4b on (seeds 1-8 at two steal nudges): 14 passed every strict
+   gate; the two misses were the noisy platoon / contact-correlation gates,
+   which trip at the same rate with 4b off (platoon mean ~.031 against a
+   .035 ceiling). The owner chose to ship rather than hold for Release 5,
+   with the x1.05 steal nudge, which is green on seeds 1-4 and the league
+   running set.
+
 Taken as recommended (technical): the Steal Frequency slider is rebased so
 1.0 = MLB (default 3.0 -> 1.0, range 0.25-3.0) and any stored override is
 divided by 3 once (no live league had one on 2026-10-09); speed is read

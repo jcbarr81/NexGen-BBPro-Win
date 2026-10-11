@@ -423,7 +423,11 @@ def test_main_keeps_extras_and_report_only_gates_apart(monkeypatch, tmp_path, ca
     monkeypatch.setattr(
         kpis, "run_sim",
         lambda *a, **k: {
-            "metrics": {"extra_base_advance_rate": 0.69, "sba_per_pa": 0.05},
+            "metrics": {
+                "extra_base_advance_rate": 0.69,
+                "sba_per_pa": 0.05,
+                "hard_hit_pct": 0.29,
+            },
             "report_only": extras,
         },
     )
@@ -437,11 +441,13 @@ def test_main_keeps_extras_and_report_only_gates_apart(monkeypatch, tmp_path, ca
     summary = json.loads(out.read_text(encoding="utf-8"))
     assert summary["report_only"]["metrics"]["swing_rate_0_0"] == 0.4
     rows = {r["metric"]: r for r in summary["report_only_gates"]["results"]}
-    assert rows["extra_base_advance_rate"]["ok"] is False
-    # Release 4: steal volume is strict now, no longer a report-only row.
+    assert rows["hard_hit_pct"]["ok"] is False
+    # Release 4: steal volume is strict now, no longer a report-only row,
+    # and since 4b became the default (7.49.0) so is XBT.
     assert "sba_per_pa" not in rows
+    assert "extra_base_advance_rate" not in rows
     failed = {f["metric"] for f in summary["tolerance_failures"]}
-    assert "sba_per_pa" in failed
+    assert {"sba_per_pa", "extra_base_advance_rate"} <= failed
 
 
 def test_thin_log5_cells_are_skipped():

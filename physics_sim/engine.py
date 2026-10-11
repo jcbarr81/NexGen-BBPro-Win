@@ -2011,7 +2011,7 @@ def _out_on_base_prob(
     base -= (speed - 50.0) / 240.0
     base *= tuning.get("extra_base_out_scale", 1.0)
     # Release 4 (W2): hit advances pass ``hit_advance_out_scale``. Applied
-    # before the clamp; 1.0 is exact, so the default changes nothing.
+    # before the clamp; 1.0 (the 7.48.0 value) is exact and changes nothing.
     base *= scale
     return max(0.01, min(0.55, base))
 
@@ -2033,8 +2033,9 @@ def _attempt_extra_base(
     out_extra: float = 0.0,
     force: bool = False,
 ) -> str:
-    # Release 4 (W2): hit advances read their own knobs. The defaults equal
-    # the global scale and 1.0, so the draws and outcomes match 7.47.0.
+    # Release 4 (W2): hit advances read their own knobs. At the 7.48.0
+    # values (the global scale and 1.0; scripts/kpi_profiles/r4a_legacy.json)
+    # the draws and outcomes match 7.47.0; the defaults are Release 4b's.
     attempt_prob = _advance_prob(
         runner.speed,
         defense_arm,

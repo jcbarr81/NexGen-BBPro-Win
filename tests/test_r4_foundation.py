@@ -281,10 +281,20 @@ def test_centred_speed():
 
 
 def test_centre_moves_only_the_centred_terms():
-    # Since Release 4 W1 the steal-attempt curve reads the centre. With the
-    # steal attempt rate at zero, a different centre must leave the game
-    # byte-identical: no other 4a term (race-against-the-throw speed terms
-    # read raw speed) and no 4b term at its default may read it.
+    # The terms that read the hitter speed centre are the frequency terms
+    # (decision 2): steal attempts and success (W1), and since Release 4b
+    # the infield-hit term, the batter-speed double-play factor and the
+    # ground-out runner-on-3rd term. With every one of them switched off, a
+    # different centre must leave the game byte-identical: the race terms
+    # (hit advances, tag-ups, triples, dropped-third-strike reaches) read
+    # raw speed.
+    centred_terms_off = {
+        "steal_freq_scale": 0.0,
+        "infield_hit_speed_scale": 0.0,
+        "double_play_batter_speed_k": 0.0,
+        "ground_out_r3_speed": 0.0,
+    }
+
     def play(overrides):
         return engine.simulate_matchup_from_files(
             away_team="CAL01",
@@ -295,9 +305,9 @@ def test_centre_moves_only_the_centred_terms():
             tuning_overrides=overrides,
         )
 
-    base = play({"steal_freq_scale": 0.0})
+    base = play(centred_terms_off)
     for centre in (40.0, 62.5):
-        centred = play({"steal_freq_scale": 0.0, "hitter_speed_center": centre})
+        centred = play({**centred_terms_off, "hitter_speed_center": centre})
         assert centred.totals == base.totals
         assert json.dumps(centred.pitch_log, sort_keys=True, default=str) == json.dumps(
             base.pitch_log, sort_keys=True, default=str
@@ -586,10 +596,16 @@ def test_cli_rejects_unknown_override_before_simulating(kpis, tmp_path, monkeypa
     assert exc.value.code == 2
 
 
-def test_r4b_profile_is_a_valid_profile(kpis):
-    profile = REPO / "scripts" / "kpi_profiles" / "r4b.json"
+def test_legacy_profile_is_a_valid_profile(kpis):
+    # Release 4b became the default in 7.49.0; the profile that remains
+    # switches it back off (the 7.48.0 running game), for comparisons.
+    from physics_sim.config import DEFAULT_TUNING
+
+    profile = REPO / "scripts" / "kpi_profiles" / "r4a_legacy.json"
     overrides = kpis.load_tuning_overrides_file(profile)
-    assert isinstance(overrides, dict)
+    assert overrides["tag_up_model"] == 0 and overrides["ground_out_model"] == 0
+    # Every entry really changes a default (no stale no-op keys).
+    assert all(float(DEFAULT_TUNING[k]) != float(v) for k, v in overrides.items())
 
 
 def test_gate_sets(kpis, monkeypatch):

@@ -105,6 +105,8 @@ def test_promoted_extras_are_strict_with_matching_reference_rows() -> None:
         "wp_pb_bases_empty",
         "double_steal_two_out_plays",
         "illegal_k_reach",
+        # Release 4b (7.49.0).
+        "sf_per_pa",
     }
     assert kpis.DEFAULT_TOLERANCES["runs_on_inning_ending_plays"] == 0.0
     assert kpis.DEFAULT_TOLERANCES["closer_third_straight_day"] == 0.0

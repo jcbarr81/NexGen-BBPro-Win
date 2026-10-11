@@ -33,11 +33,12 @@ CALIBRATION = REPO / "data" / "calibration"
 
 W1_STEAL_KNOBS = {
     "steal_freq_scale": 1.0,
-    # F4 retune: the fixtures' batteries now read as ~50 (decision 2).
-    "steal_attempt_rate_first": 0.0312,
-    "steal_attempt_rate_second": 0.00692,
-    "steal_attempt_rate_home": 0.00069,
-    "double_steal_rate": 0.00207,
+    # F4 retune: the fixtures' batteries now read as ~50 (decision 2); then
+    # x1.05 with Release 4b (7.49.0), which cuts steal chances a few percent.
+    "steal_attempt_rate_first": 0.03276,
+    "steal_attempt_rate_second": 0.007266,
+    "steal_attempt_rate_home": 0.000724,
+    "double_steal_rate": 0.002174,
     "steal_speed_mid": 75.0,
     "steal_speed_width": 12.0,
     "steal_success_logit_base": 1.11,
