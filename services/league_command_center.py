@@ -385,10 +385,20 @@ def _build_deadlines_card(
             attention_count += 1
         elif days_to_draft <= 14:
             draft_status = "upcoming_soon"
+    draft_label = "Amateur Draft"
+    draft_date_shown: str | None = draft_date
+    if not draft_completed and _preseason_draft_open(data_dir):
+        # The league holds its draft before spring training and it is open
+        # now: the July date above is not when this draft happens.
+        draft_label = "Amateur Draft (preseason)"
+        draft_date_shown = None
+        days_to_draft = None
+        draft_status = "ready"
+        attention_count += 1
     items.append(
         {
-            "label": "Amateur Draft",
-            "date": draft_date,
+            "label": draft_label,
+            "date": draft_date_shown,
             "days_remaining": days_to_draft,
             "status": draft_status,
         }
@@ -527,6 +537,22 @@ def _build_finance_risks_card(
         items=rows[:max_items],
         actions=actions,
     )
+
+
+def _preseason_draft_open(data_dir: Path) -> bool:
+    """True while a draft held before spring training is in progress."""
+    try:
+        from playbalance.season_manager import SeasonManager, SeasonPhase
+
+        manager = SeasonManager(
+            path=data_dir / "season_state.json", enable_rollover=False
+        )
+        return (
+            manager.phase == SeasonPhase.AMATEUR_DRAFT
+            and manager.phase_after_draft() == SeasonPhase.PRESEASON
+        )
+    except Exception:
+        return False
 
 
 def _is_draft_completed(data_dir: Path, year: int) -> bool:

@@ -166,6 +166,10 @@ The most-used sim page.
   committed, or a champion crowned) and tells you why it's disabled.
 - The amateur draft is a mid-season interruption: once it commits, the regular
   season **resumes automatically** — you don't advance out of the draft.
+- If the commissioner sets the league to draft in the **preseason**
+  (Commissioner → Amateur draft timing), the draft opens when you advance out
+  of the Offseason instead, before spring training. **Run Training Camp**
+  unlocks after the last pick, and there is no draft pause in July.
 - Each new season's **schedule is generated automatically** when you advance
   into the new year; no manual regeneration.
 - Simulate the **playoffs** from the Playoffs page (Sim Next Game / Sim Next

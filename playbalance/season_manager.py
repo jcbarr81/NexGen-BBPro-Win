@@ -39,6 +39,12 @@ class SeasonManager:
     def __init__(self, path: str | Path | None = None, *, enable_rollover: bool = True) -> None:
         self.path = Path(path) if path is not None else get_data_dir() / "season_state.json"
         self.phase = SeasonPhase.PRESEASON
+        # Where the season goes when an amateur draft in progress finishes:
+        # REGULAR_SEASON for the mid-season draft (and when unset, the only
+        # behaviour before the preseason draft existed), PRESEASON for a
+        # draft held before spring training. Only meaningful while the phase
+        # is AMATEUR_DRAFT.
+        self.draft_return_phase: SeasonPhase | None = None
         self.rollover_result: RolloverResult | None = None
         self.enable_rollover = enable_rollover
         self.load()
@@ -56,27 +62,80 @@ class SeasonManager:
             with self.path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
             self.phase = SeasonPhase(data.get("phase", SeasonPhase.PRESEASON.value))
-        except (OSError, json.JSONDecodeError, ValueError, KeyError):
+            self.draft_return_phase = self._parse_return_phase(
+                data.get("draft_return_phase")
+            )
+        except (OSError, json.JSONDecodeError, ValueError, KeyError, AttributeError):
             self.phase = SeasonPhase.PRESEASON
+            self.draft_return_phase = None
             self.save()
         return self.phase
+
+    @staticmethod
+    def _parse_return_phase(value: object) -> "SeasonPhase | None":
+        """The stored draft return phase; anything unexpected reads as unset."""
+        try:
+            phase = SeasonPhase(str(value))
+        except ValueError:
+            return None
+        if phase in (SeasonPhase.PRESEASON, SeasonPhase.REGULAR_SEASON):
+            return phase
+        return None
 
     def save(self) -> None:
         """Persist the current season phase to disk."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"phase": self.phase.value}
+        if (
+            self.phase == SeasonPhase.AMATEUR_DRAFT
+            and self.draft_return_phase is not None
+        ):
+            payload["draft_return_phase"] = self.draft_return_phase.value
         with self.path.open("w", encoding="utf-8") as f:
-            json.dump({"phase": self.phase.value}, f, indent=2)
+            json.dump(payload, f, indent=2)
+
+    # ------------------------------------------------------------------
+    # Amateur draft
+    # ------------------------------------------------------------------
+    def begin_draft(self, return_phase: SeasonPhase = SeasonPhase.REGULAR_SEASON) -> None:
+        """Pause the season for the amateur draft.
+
+        ``return_phase`` is where the season resumes when the draft is done:
+        REGULAR_SEASON for the mid-season draft, PRESEASON for a draft held
+        before spring training.
+        """
+        self.draft_return_phase = self._parse_return_phase(return_phase.value)
+        self.phase = SeasonPhase.AMATEUR_DRAFT
+        self.save()
+
+    def phase_after_draft(self) -> SeasonPhase:
+        """Where a draft in progress returns to (REGULAR_SEASON by default)."""
+        return self.draft_return_phase or SeasonPhase.REGULAR_SEASON
+
+    def resume_after_draft(self) -> SeasonPhase:
+        """Leave AMATEUR_DRAFT for the phase the draft interrupted.
+
+        A no-op outside AMATEUR_DRAFT. Not a season transition: no rollover
+        and no roster hooks run here.
+        """
+        if self.phase == SeasonPhase.AMATEUR_DRAFT:
+            self.phase = self.phase_after_draft()
+            self.draft_return_phase = None
+            self.save()
+        return self.phase
 
     # ------------------------------------------------------------------
     # Phase advancement
     # ------------------------------------------------------------------
-    # Phase advancement is NOT the linear enum order. The amateur draft is a
-    # mid-regular-season interruption (the sim's draft-day intercept flips the
-    # phase to AMATEUR_DRAFT around the third Tuesday in July), so advancing
-    # FROM the draft resumes the regular season — it does not jump to the
-    # playoffs and skip August/September. The regular season advances to the
-    # playoffs only once its schedule is exhausted (enforced by the
-    # advance-phase endpoint's end-of-schedule guard).
+    # Phase advancement is NOT the linear enum order. The amateur draft is an
+    # interruption, not a step in the year: mid-season (the sim's draft-day
+    # intercept flips the phase to AMATEUR_DRAFT around the third Tuesday in
+    # July) or, when the league holds it in the preseason, before spring
+    # training. Advancing FROM the draft resumes whichever phase it
+    # interrupted (``phase_after_draft``) — it does not jump to the playoffs
+    # and skip August/September. The regular season advances to the playoffs
+    # only once its schedule is exhausted (enforced by the advance-phase
+    # endpoint's end-of-schedule guard).
     _PHASE_AFTER = {
         SeasonPhase.PRESEASON: SeasonPhase.REGULAR_SEASON,
         SeasonPhase.REGULAR_SEASON: SeasonPhase.PLAYOFFS,
@@ -88,7 +147,11 @@ class SeasonManager:
     def advance_phase(self) -> SeasonPhase:
         """Advance to the next season phase and persist it."""
         previous = self.phase
-        self.phase = self._PHASE_AFTER.get(self.phase, self.phase.next())
+        if previous == SeasonPhase.AMATEUR_DRAFT:
+            self.phase = self.phase_after_draft()
+            self.draft_return_phase = None
+        else:
+            self.phase = self._PHASE_AFTER.get(self.phase, self.phase.next())
         self.save()
         if (
             self.enable_rollover

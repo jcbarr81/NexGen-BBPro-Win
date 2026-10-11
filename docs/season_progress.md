@@ -6,7 +6,10 @@ and provides quick 'simulate to' actions for major milestones.
 - The window includes a single Season Timeline list for milestone visibility
   without a separate timeline feed panel.
 
-- Current phases: PRESEASON -> REGULAR_SEASON -> AMATEUR_DRAFT -> PLAYOFFS -> OFFSEASON.
+- Current phases: PRESEASON -> REGULAR_SEASON -> PLAYOFFS -> OFFSEASON, with
+  AMATEUR_DRAFT as an interruption: in mid-season by default, or before
+  spring training when the commissioner sets the league to draft in the
+  preseason.
 - The big action button adapts to context:
   - Simulate to Midseason: available during the first half of the regular season.
   - Simulate to Draft: after midseason and before Draft Day (third Tuesday in July).
@@ -16,6 +19,13 @@ Amateur Draft
 - On Draft Day, the simulator switches to the Amateur Draft phase and opens the
   Draft Console. Simulation is paused until draft results are committed, after
   which the phase returns to REGULAR_SEASON.
+- Preseason draft (commissioner setting, `draft_settings.json` `timing`):
+  advancing from OFFSEASON opens the draft before spring training. The phase
+  is AMATEUR_DRAFT with `draft_return_phase: PRESEASON` in
+  `season_state.json`; after the last pick it returns to PRESEASON, training
+  camp unlocks, and the July draft is skipped for that league year. A change
+  of the setting applies to the next draft that has not been held; a new
+  league's first draft follows its first completed season.
 - Draft artifacts are saved to `data/`:
   - `draft_pool_<year>.csv` / `draft_pool_<year>.json`
   - `draft_state_<year>.json`

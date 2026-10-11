@@ -217,7 +217,9 @@ export function SeasonPage() {
             <NoScheduleBanner phase={state.data.phase} />
           )}
           {(state.data.draft_blocked ||
-            state.data.phase === "AMATEUR_DRAFT") && <DraftReadyBanner />}
+            state.data.phase === "AMATEUR_DRAFT") && (
+            <DraftReadyBanner preseason={isPreseasonDraft(state.data)} />
+          )}
           {(lastNotifications.length > 0 || stopReason) && (
             <NotificationsBanner
               events={lastNotifications}
@@ -386,6 +388,24 @@ function isDraftDone(state: SeasonState): boolean {
   return false;
 }
 
+/** True while the league is holding its amateur draft in the preseason,
+ *  before spring training (a commissioner setting), rather than in July. */
+function isPreseasonDraft(state: SeasonState): boolean {
+  return (
+    state.phase === "AMATEUR_DRAFT" &&
+    (state.draft_return_phase === "PRESEASON" ||
+      !!state.preseason_draft?.in_progress)
+  );
+}
+
+/** True when this year's draft was (or is being) held in the preseason, so
+ *  the July draft date is not a milestone any more. */
+function draftHeldInPreseason(state: SeasonState): boolean {
+  return (
+    isPreseasonDraft(state) || state.preseason_draft?.reason === "completed"
+  );
+}
+
 /** True when the regular-season schedule is fully played. Prefer the backend
  *  flag; fall back to "no days remaining while in the regular season." */
 function isSeasonComplete(state: SeasonState): boolean {
@@ -420,7 +440,9 @@ function advanceBlockedReason(state: SeasonState): string | undefined {
     case "REGULAR_SEASON":
       return "Finish the regular season (play all scheduled games) before advancing to the Playoffs.";
     case "AMATEUR_DRAFT":
-      return "Commit the amateur draft before advancing.";
+      return isPreseasonDraft(state)
+        ? "Finish the amateur draft first — spring training comes after the last pick."
+        : "Commit the amateur draft before advancing.";
     case "PLAYOFFS":
       return "Resolve the playoff bracket and crown a champion (Playoffs page) before advancing to the Offseason.";
     case "PRESEASON":
@@ -432,12 +454,27 @@ function advanceBlockedReason(state: SeasonState): string | undefined {
 
 function buildNextStep(state: SeasonState): NextStep | null {
   switch (state.phase) {
-    case "PRESEASON":
+    case "PRESEASON": {
+      const draft = state.preseason_draft;
+      if (draft?.due) {
+        return {
+          title: "Preseason — the amateur draft comes first",
+          body:
+            "This league holds its amateur draft before spring training. Open the Draft page to start it; training camp unlocks after the last pick.",
+          cta: { label: "Open Draft", to: "/draft" },
+        };
+      }
+      const draftNote =
+        draft?.reason === "completed"
+          ? " This year's amateur draft is done, so the draft class goes through camp with everyone else."
+          : draft?.reason === "first_season"
+            ? " (A new league's first amateur draft comes after its first completed season.)"
+            : "";
       return {
         title: "Preseason — get the league ready to play",
-        body:
-          "Run spring training to mark every player as ready, review free agents, and confirm league-wide training focus. When you're done, click Advance Phase to start the Regular Season.",
+        body: `Run spring training to mark every player as ready, review free agents, and confirm league-wide training focus. When you're done, click Advance Phase to start the Regular Season.${draftNote}`,
       };
+    }
     case "REGULAR_SEASON": {
       // Season's done — title and body must agree (the old code left the
       // title pointing at the long-past draft while the body said "all games
@@ -485,19 +522,21 @@ function buildNextStep(state: SeasonState): NextStep | null {
   }
 }
 
-function DraftReadyBanner() {
+function DraftReadyBanner({ preseason = false }: { preseason?: boolean }) {
   return (
     <Card className="border-amber/50 bg-amber/10">
       <CardContent className="flex items-start gap-3 py-4">
         <GraduationCap className="mt-0.5 h-5 w-5 shrink-0 text-amber" />
         <div className="flex-1 text-sm">
           <div className="font-semibold text-amber-text">
-            Amateur draft is ready
+            {preseason
+              ? "The preseason amateur draft is open"
+              : "Amateur draft is ready"}
           </div>
           <p className="mt-1 text-muted">
-            The calendar reached draft day. Sim actions are paused until the
-            commissioner commits the draft — head to the Draft page to
-            generate the pool and run the selections.
+            {preseason
+              ? "This league drafts before spring training. Make the selections on the Draft page; training camp and Opening Day wait until the last pick, and the draft class then goes through camp with everyone else."
+              : "The calendar reached draft day. Sim actions are paused until the commissioner commits the draft — head to the Draft page to generate the pool and run the selections."}
           </p>
           <p className="mt-2 text-xs">
             <Link
@@ -647,16 +686,26 @@ function MetricsRow({ state }: { state: SeasonState }) {
       />
       <StatCard
         label="Draft Day"
-        value={state.draft_date ? formatDate(state.draft_date) : "—"}
-        sub={
-          isDraftDone(state)
-            ? "Complete"
+        value={
+          draftHeldInPreseason(state)
+            ? "Preseason"
             : state.draft_date
-              ? "Scheduled"
-              : undefined
+              ? formatDate(state.draft_date)
+              : "—"
+        }
+        sub={
+          isPreseasonDraft(state)
+            ? "In progress"
+            : isDraftDone(state)
+              ? "Complete"
+              : state.draft_date
+                ? "Scheduled"
+                : undefined
         }
         Icon={GraduationCap}
-        tone={isDraftDone(state) ? "success" : "neutral"}
+        tone={
+          isDraftDone(state) && !isPreseasonDraft(state) ? "success" : "neutral"
+        }
       />
       <StatCard
         label="Next Date"
@@ -708,7 +757,9 @@ function ActionsCard({
           <CardTitle>Advance the Season</CardTitle>
           <CardDescription>
             {simBlocked
-              ? `Sim is locked during ${PHASE_LABEL[state.phase] ?? state.phase} — Advance Phase to start the regular season.`
+              ? isPreseasonDraft(state)
+                ? "Sim is locked during the amateur draft — spring training and Opening Day follow the last pick."
+                : `Sim is locked during ${PHASE_LABEL[state.phase] ?? state.phase} — Advance Phase to start the regular season.`
               : (activeLabel ??
                 "Each action runs the real SeasonSimulator in the Python sidecar.")}
           </CardDescription>
@@ -783,6 +834,9 @@ function PreseasonActionsCard({ state }: { state: SeasonState }) {
 
   const freeAgencyDone = !!state.preseason_done?.free_agency;
   const trainingCampDone = !!state.preseason_done?.training_camp;
+  // A league that drafts in the preseason holds the draft before camp, so
+  // the draft class trains with everyone else.
+  const draftFirst = !!state.preseason_draft?.due;
 
   const refreshSeasonState = () => {
     queryClient.invalidateQueries({ queryKey: ["season-state"] });
@@ -899,12 +953,16 @@ function PreseasonActionsCard({ state }: { state: SeasonState }) {
             <Button
               variant="ghost"
               onClick={() => trainingCamp.mutate()}
-              disabled={trainingCamp.isPending || trainingCampDone}
+              disabled={
+                trainingCamp.isPending || trainingCampDone || draftFirst
+              }
               className="justify-start"
               title={
                 trainingCampDone
                   ? "Training camp already completed for this preseason"
-                  : "Runs spring training for every player"
+                  : draftFirst
+                    ? "The amateur draft comes before spring training — finish it on the Draft page first"
+                    : "Runs spring training for every player"
               }
             >
               {trainingCamp.isPending ? (

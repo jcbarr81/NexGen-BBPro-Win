@@ -43,6 +43,7 @@ import {
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
+import { DraftTimingCard } from "@/components/DraftTimingCard";
 import { StatCard } from "@/components/StatCard";
 import { StarRating } from "@/components/StarRating";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
@@ -1331,6 +1332,7 @@ function AdminDraftPanel({ currentYear }: { currentYear: number | null }) {
   return (
     <div className="space-y-4">
       <DraftSettingsCard />
+      <DraftTimingCard />
       <AdminDraftPanelInner
         year={year}
         setYear={setYear}

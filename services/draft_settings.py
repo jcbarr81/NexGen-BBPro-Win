@@ -1,9 +1,9 @@
 """Per-league draft configuration.
 
 Stores the number of rounds and the pool size the commissioner wants for
-the amateur draft. Read at league creation, overridable season-to-season
-from the Draft admin tab. Persisted to
-``<data_dir>/draft_settings.json``.
+the amateur draft, the pick clock, and when in the year the draft runs.
+Read at league creation, overridable season-to-season from the Draft admin
+tab. Persisted to ``<data_dir>/draft_settings.json``.
 """
 
 from __future__ import annotations
@@ -30,19 +30,42 @@ DEFAULT_PICK_CLOCK_HOURS = 0
 MIN_PICK_CLOCK_HOURS = 0
 MAX_PICK_CLOCK_HOURS = 336  # two weeks
 
+# When the amateur draft runs (backlog #63, owner decisions 2026-10-11).
+# "midseason": the third Tuesday in July; the regular season pauses for it.
+# "preseason": after the offseason and BEFORE spring training, so the draft
+# class gets a training camp and no regular-season sim ever waits on a draft.
+# A change applies to the next draft that has not been held yet; a league's
+# first draft always follows its first completed season.
+DRAFT_TIMING_MIDSEASON = "midseason"
+DRAFT_TIMING_PRESEASON = "preseason"
+DRAFT_TIMINGS = (DRAFT_TIMING_MIDSEASON, DRAFT_TIMING_PRESEASON)
+DEFAULT_DRAFT_TIMING = DRAFT_TIMING_MIDSEASON
+
 
 @dataclass
 class DraftSettings:
     rounds: int = DEFAULT_ROUNDS
     pool_size: int = DEFAULT_POOL_SIZE
     pick_clock_hours: int = DEFAULT_PICK_CLOCK_HOURS
+    timing: str = DEFAULT_DRAFT_TIMING
 
-    def to_dict(self) -> Dict[str, int]:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "rounds": int(self.rounds),
             "pool_size": int(self.pool_size),
             "pick_clock_hours": int(self.pick_clock_hours),
+            "timing": normalize_timing(self.timing),
         }
+
+
+def normalize_timing(value: Any) -> str:
+    """A stored or submitted timing as one of DRAFT_TIMINGS (default on junk)."""
+
+    text = str(value or "").strip().lower().replace("-", "").replace("_", "")
+    for timing in DRAFT_TIMINGS:
+        if text == timing:
+            return timing
+    return DEFAULT_DRAFT_TIMING
 
 
 def _settings_path(data_dir: Path | None = None) -> Path:
@@ -57,6 +80,8 @@ def load_draft_settings(data_dir: Path | None = None) -> DraftSettings:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
+        return DraftSettings()
+    if not isinstance(payload, dict):
         return DraftSettings()
     rounds = _clamp(
         payload.get("rounds", DEFAULT_ROUNDS), MIN_ROUNDS, MAX_ROUNDS, DEFAULT_ROUNDS
@@ -73,7 +98,12 @@ def load_draft_settings(data_dir: Path | None = None) -> DraftSettings:
         MAX_PICK_CLOCK_HOURS,
         DEFAULT_PICK_CLOCK_HOURS,
     )
-    return DraftSettings(rounds=rounds, pool_size=pool, pick_clock_hours=clock)
+    return DraftSettings(
+        rounds=rounds,
+        pool_size=pool,
+        pick_clock_hours=clock,
+        timing=normalize_timing(payload.get("timing")),
+    )
 
 
 def save_draft_settings(
@@ -87,7 +117,12 @@ def save_draft_settings(
         MAX_PICK_CLOCK_HOURS,
         DEFAULT_PICK_CLOCK_HOURS,
     )
-    normalized = DraftSettings(rounds=rounds, pool_size=pool, pick_clock_hours=clock)
+    normalized = DraftSettings(
+        rounds=rounds,
+        pool_size=pool,
+        pick_clock_hours=clock,
+        timing=normalize_timing(settings.timing),
+    )
     path = _settings_path(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(normalized.to_dict(), indent=2), encoding="utf-8")
@@ -113,6 +148,11 @@ __all__ = [
     "DEFAULT_PICK_CLOCK_HOURS",
     "MIN_PICK_CLOCK_HOURS",
     "MAX_PICK_CLOCK_HOURS",
+    "DRAFT_TIMING_MIDSEASON",
+    "DRAFT_TIMING_PRESEASON",
+    "DRAFT_TIMINGS",
+    "DEFAULT_DRAFT_TIMING",
+    "normalize_timing",
     "load_draft_settings",
     "save_draft_settings",
 ]

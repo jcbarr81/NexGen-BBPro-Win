@@ -1292,6 +1292,8 @@ count, so an RNG-reshuffling change can trip it -- re-check seeds 1 and 2.
 
 ## 63. Commissioner option: amateur draft in the preseason
 
+**SHIPPED 7.50.0.** Kept for the decisions and the follow-ups at the end.
+
 Requested by the owner, 2026-10-11.
 
 Today the amateur draft is fixed at the third Tuesday in July
@@ -1360,10 +1362,33 @@ Planned approach (owner approved, 2026-10-11):
   year; switching back, the July draft is skipped if that year's preseason
   draft already happened.
 
-To confirm when building:
+As built (7.50.0):
 
-- Training camp covers the whole organisation including LOW (a 30-team test
-  league processed 1,530 players, 51 per team), so draftees get their camp
-  with no extra work.
-- Exactly what the scheduled auto-run does today during PRESEASON, so the
-  deadline guard lands in the right place.
+- `services/draft_settings.py` `timing` ("midseason" | "preseason");
+  `SeasonManager.begin_draft / resume_after_draft` and `draft_return_phase`
+  in `season_state.json`; `api/routers/season.py`
+  `_maybe_open_preseason_draft` (called when the league enters the preseason,
+  when the setting is saved, and by the training-camp guard).
+- The July draft-day intercept is unchanged: it fires whenever the year's
+  draft has not been completed. That alone gives "a regular season in
+  progress keeps its July draft", "no July draft after a preseason one" and
+  "a preseason draft that could not be held still happens in July".
+- The order is computed when the draft opens, from the last archived season
+  (the archive is immutable, so this equals locking it at rollover);
+  compensation picks are applied then too. The pool is generated at
+  rollover (`_seed_next_draft_pool_if_preseason`).
+- Training camp runs for every player in players.csv, so the draft class
+  gets its camp with no extra work (tested).
+- The scheduled run (`_run_schedule`) refuses to act during any amateur
+  draft and leaves its deadline alone; the Opening Day readiness gate cannot
+  be reached while the phase is AMATEUR_DRAFT.
+
+Follow-ups:
+
+- League creation wizard: offer the timing there (today a new league starts
+  on mid-season and the commissioner changes it on the Commissioner page).
+- `current_league_year()` falls back to the wall-clock year in the offseason
+  (no schedule yet); only the draft router resolves the coming league year
+  from the season context. Make the helper itself context-aware.
+- Sim-to-milestone: a "To Draft" button still appears for a mid-season
+  league only; nothing to change, but the label could say "July draft".

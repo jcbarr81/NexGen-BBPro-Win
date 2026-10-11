@@ -123,6 +123,41 @@ def _compute_draft_date(year: int) -> Optional[str]:
     return tuesdays[2].isoformat()
 
 
+def _draft_marker(year: int, today: str) -> Optional[str]:
+    """The July draft date, unless this year's draft is not a July draft.
+
+    A league may hold its amateur draft in the preseason (backlog #63). The
+    calendar then must not promise a July draft: no marker while a preseason
+    draft is in progress, nor once this year's draft was completed before
+    the July date.
+    """
+
+    july = _compute_draft_date(year)
+    if not july:
+        return None
+    try:
+        from utils.path_utils import get_data_dir
+
+        if not (get_data_dir() / "season_state.json").exists():
+            return july
+        from playbalance.season_manager import SeasonManager, SeasonPhase
+
+        manager = SeasonManager()
+        if (
+            manager.phase == SeasonPhase.AMATEUR_DRAFT
+            and manager.phase_after_draft() == SeasonPhase.PRESEASON
+        ):
+            return None
+        if today < july:
+            from api.routers import season as season_router
+
+            if season_router._draft_completed_for_current_year():
+                return None
+    except Exception:  # pragma: no cover - the marker is cosmetic
+        pass
+    return july
+
+
 def _today_iso() -> str:
     sim = get_current_sim_date()
     if sim:
@@ -155,7 +190,7 @@ def _build_markers(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "season_end": season_end,
         "all_star_break": _detect_all_star_break(rows),
         "trade_deadline": date(year, 7, 31).isoformat(),
-        "draft_date": _compute_draft_date(year),
+        "draft_date": _draft_marker(year, today),
     }
 
 

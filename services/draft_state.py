@@ -109,6 +109,52 @@ def _archived_stats_path_for_league_year(league_year: int) -> Path | None:
     return None
 
 
+def _last_archived_stats_path() -> Path | None:
+    """The archived ``stats.json`` of the most recently finished season."""
+
+    try:
+        from playbalance.season_context import SeasonContext, CAREER_DATA_DIR
+    except Exception:
+        return None
+    try:
+        seasons = list(SeasonContext.load().iter_archived_seasons())
+    except Exception:
+        return None
+    for season in reversed(seasons):
+        sid = season.get("season_id") if isinstance(season, dict) else None
+        if not sid:
+            continue
+        candidate = CAREER_DATA_DIR / sid / "stats.json"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def has_completed_season() -> bool:
+    """True once the league has finished (and archived) at least one season.
+
+    A league's first amateur draft follows its first completed season, so a
+    preseason draft is never held in a new league's first preseason.
+    """
+
+    return _last_archived_stats_path() is not None
+
+
+def compute_order_from_last_season(seed: int | None = None) -> List[str]:
+    """Reverse order of the last completed season's records, or ``[]``.
+
+    The order for a draft held in the preseason: the season it would have
+    interrupted has not started, so there are no current standings to fall
+    back on (``compute_order_for_draft_year`` would rank a slate of 0-0
+    clubs at random). Reads the latest archive whatever its year label.
+    """
+
+    archived = _last_archived_stats_path()
+    if archived is None:
+        return []
+    return compute_order_from_season_stats(seed=seed, stats_path=archived)
+
+
 def compute_order_for_draft_year(
     draft_year: int,
     seed: int | None = None,
@@ -235,7 +281,9 @@ __all__ = [
     "load_state",
     "save_state",
     "compute_order_from_season_stats",
+    "compute_order_from_last_season",
     "compute_order_for_draft_year",
+    "has_completed_season",
     "initialize_state",
     "append_result",
 ]
