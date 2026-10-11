@@ -42,20 +42,29 @@ def league(tmp_path, monkeypatch):
     from utils import path_utils
 
     root = tmp_path / "root"
-    (root / "leagues").mkdir(parents=True)
-    # Sentinel so nothing seeds or reads the repo's data/ for this root.
+    data = root / "leagues" / LEAGUE / "data"
+    data.mkdir(parents=True)
+    # The league's own files go in BEFORE anything resolves the data dir: a
+    # league folder missing teams.csv, players.csv or users.txt is seeded
+    # with a full copy of the repo's data/ (its sample schedule and season
+    # files included) the first time it is resolved. With all three present
+    # only reference files (names, parks, MLB averages) are added.
     (root / "players.csv").write_text("player_id\n", encoding="utf-8")
+    _copy_players(CALIBRATION / "players.csv", data / "players.csv")
+    shutil.copy(CALIBRATION / "teams.csv", data / "teams.csv")
+    (data / "users.txt").write_text("", encoding="utf-8")
+    shutil.copytree(CALIBRATION / "rosters", data / "rosters")
     monkeypatch.setenv("NEXGEN_DATA_ROOT", str(root))
     monkeypatch.delenv("NEXGEN_ACTIVE_LEAGUE", raising=False)
     path_utils._DATA_DIR_CACHE.clear()
     token = path_utils.set_request_league(LEAGUE)
-    data = path_utils.get_data_dir()
-    assert root in data.parents, data
-    data.mkdir(parents=True, exist_ok=True)
-    shutil.copy(CALIBRATION / "teams.csv", data / "teams.csv")
-    _copy_players(CALIBRATION / "players.csv", data / "players.csv")
-    shutil.copytree(CALIBRATION / "rosters", data / "rosters")
-    (data / "users.txt").write_text("", encoding="utf-8")
+    assert path_utils.get_data_dir().resolve() == data.resolve()
+    # No season state was seeded in from the repo.
+    seeded = {p.name for p in data.iterdir()}
+    assert not seeded & {
+        "schedule.csv", "season_state.json", "season_progress.json",
+        "careers", "career_index.json", "draft_settings.json", "leagues",
+    }, sorted(seeded)
     # The last pick starts a background avatar job; it must not outlive the
     # test (it would write into the next test's league) or call out.
     monkeypatch.setattr(D, "_generate_draft_avatars_async", lambda ids: None)
