@@ -1,0 +1,12 @@
+{
+  "foul_territory_scale": 0.0,
+  "pitch_objective_fbo_requires_risp": 1.0,
+  "pitch_objective_late_close_strength": 0.0,
+  "reliever_fresh_bonus": 1.0,
+  "reliever_fresh_bf_full": 4.0,
+  "reliever_fresh_bf_end": 7.0,
+  "home_field_edge": 0.8,
+  "home_field_power_ratio": 0.6,
+  "tto_pass2_weight": 4.5,
+  "tto_pass3_weight": 2.0
+}
