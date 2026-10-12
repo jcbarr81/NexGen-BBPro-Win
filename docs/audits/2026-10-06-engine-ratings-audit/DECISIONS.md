@@ -371,14 +371,31 @@ pitcher and hitter ratings as absolute numbers. The build therefore reads
 every rating that feeds a plate appearance relative to its league, hitters
 against the lineup regulars (Release 0 decision 2 in full).
 
+As built and retuned: hitters' Contact, Power and Eye are read against the
+average of the league's lineup regulars, and pitchers' control, movement,
+pitch grades and arm against the average of the league's staffs weighted
+by workload (a rotation starter counts 2.5 times a reliever); the averages
+are fixed when the season starts. Adding the same amount to every hitter's
+ratings in a league gives an identical season. The three test leagues now
+score 4.35 (calibration fixture, 18 seasons), 4.45 (league fixture, 6) and
+4.52 (product-created league, 6) runs per team-game, all inside the 4.47
++/- .25 target and within 0.17 of each other, and the product-created
+league reads 4.40 through the live game path (420 games; it read 4.95 on
+today's engine). Two differences between leagues remain that league
+averages do not remove: the product-created league hits about 10% fewer
+home runs than the two fixtures (its hitters' pull and ground-ball
+tendencies are bunched; Release 6 reworks batted balls), and its late
+innings show almost no extra difficulty because its relievers are not
+rated above its starters.
+
 **The re-sized rule presets were confirmed by the owner (2026-10-12), at
 the modest sizes below.**
 "High Offense" and "Pitcher Friendly" in the create-league wizard were
 badly mis-sized (Pitcher Friendly played at about 1 run per team-game and
 55% strikeouts). They are now modest: about 4.7 to 4.8 and about 3.8 to
 4.0 runs per team-game against about 4.4 for the standard setting, sized
-on one test season each. No existing league used one and existing leagues
-are untouched.
+on one test season each, before the league-relative retune. No existing
+league used one and existing leagues are untouched.
 
 Two smaller points, recorded for completeness. The help text for the
 relabelled `vl` rating ("Platoon vs L", decision 10) names no typical
@@ -387,5 +404,5 @@ about 63 for right-handed batters and 48 for left-handed ones on the league
 test fixture until the Release 7 recentring; it says to compare within a
 batting side. And against decisions 1 and 3
 the measured results are an 80 Contact hitter at about 4% strikeouts (3%
-decided) and home teams winning about 53% (.529 and .546 on the two test
-leagues; 53.5% decided).
+decided) and home teams winning about 53% (.531, .540 and .536 on the
+three test leagues; 53.5% decided).

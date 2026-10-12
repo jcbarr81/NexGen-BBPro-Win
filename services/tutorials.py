@@ -554,26 +554,32 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "What changes in the numbers",
-                "<p>Expect less scoring, more strikeouts and fewer walks, at about MLB's level. Measured on a 30-team test league built the way a real league is (420 games on each engine; sampling error about 0.11 runs either way):</p>"
+                "<p>Expect scoring to come down by about half a run per team per game, to MLB's level, with a few more strikeouts and fewer walks. Measured on a 30-team league created the way a real league is (420 games on each engine through the real game path; sampling error about 0.11 runs either way):</p>"
                 "<ul>"
-                "<li>Runs per team per game: about 4.9 on the earlier engine, about 4.3 on the updated one.</li>"
-                "<li>Strikeouts: 20.8% of plate appearances, now 23.2%.</li>"
-                "<li>Walks: 9.5% of plate appearances, now 7.9%.</li>"
-                "<li>Intentional walks: none, now about 15 per team per season.</li>"
-                "<li>Hit batters: 1.4% of plate appearances, now 1.0%.</li>"
-                "<li>Home teams win about 53% of games (49% in the earlier-engine sample).</li>"
-                "<li>Relievers allow slightly fewer runs per nine innings than starters; before, slightly more.</li>"
+                "<li>Runs per team per game: 4.95 on the earlier engine, 4.40 on the updated one (MLB 4.47).</li>"
+                "<li>Strikeouts: 20.8% of plate appearances, now 22.0%.</li>"
+                "<li>Walks: 9.5% of plate appearances, now 8.2%.</li>"
+                "<li>Home runs per team per game: 1.03, now 0.99.</li>"
+                "<li>Intentional walks: none, now about 12 per team per season in that sample (about 15 on the test leagues, MLB's rate).</li>"
+                "<li>Hit batters: 1.4% of plate appearances, now 0.9%.</li>"
+                "<li>Home teams win about 53% of games: .529 in that sample against .490 on the earlier engine (sampling error about .024 either way).</li>"
                 "</ul>"
-                "<p>Why scoring comes down: the earlier engine read Contact and Eye as absolute numbers, which ran hot in live leagues. The updated game engine reads them against your league's own average, which brings scoring down to about MLB's level.</p>"
-                "<p>One known shortfall: in leagues like that test league, scoring lands about 0.2 runs per team per game under MLB's 4.47, because home runs run a little low. Power is to be read against the league's average in the next engine release.</p>",
+                "<p>Scoring comes down because the earlier engine read ratings as absolute numbers, which ran hot in live leagues. The updated game engine reads them against your league; the next step explains what that means.</p>",
+            ),
+            TutorialStep(
+                "Ratings are read against your league",
+                "<p>On the updated game engine every rating that decides a plate appearance is read relative to your league. A hitter's <b>Contact</b>, <b>Power</b> and <b>Eye</b> are compared with the average of the league's lineup regulars, the hitters who actually bat. A pitcher's <b>Control</b>, <b>Movement</b>, pitch grades and arm are compared with the average of the league's pitching staffs, weighted by workload: a rotation starter counts 2.5 times a reliever.</p>"
+                "<p>What that means for you: a 60 is good because it is ten points above the league's regulars, not because of the number 60. When the whole league is strong, an average player is still average, and a league whose players are all rated higher or lower than another's plays the same baseball. In testing, adding the same amount to every hitter's ratings in a league gave an identical season. Judge a player by how he compares with the rest of your league.</p>"
+                "<p>The league's averages are set when the season starts and stay fixed for that season.</p>"
+                "<p>Two differences between leagues are not evened out by this. A league created by the product hits about 10% fewer home runs than the two test leagues the engine was tuned on, because its hitters' pull and ground-ball tendencies are bunched together; the next engine release reworks batted balls. And in a league whose relievers are not rated above its starters, the late innings are barely harder for hitters than the rest of the game.</p>",
             ),
             TutorialStep(
                 "Contact",
                 "<p><b>Contact</b> is a sharper skill. Against an average pitcher:</p>"
                 "<ul>"
                 "<li>An 80 Contact hitter strikes out about 4% of the time (11% on the earlier engine).</li>"
-                "<li>A 65 Contact hitter about 10% (it was 14%).</li>"
-                "<li>A 50 Contact hitter about 26%.</li>"
+                "<li>A 65 Contact hitter about 9% (it was 14%).</li>"
+                "<li>A 50 Contact hitter about 24%.</li>"
                 "<li>A 35 Contact hitter about half the time.</li>"
                 "</ul>"
                 "<p>A good contact hitter is also called out on strikes less often. An ace's strikeout edge now applies equally to every hitter; before, elite contact hitters felt only about half of it.</p>"
@@ -605,9 +611,9 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Home field, late innings and intentional walks",
                 "<p><b>Home field.</b> Home teams win about 53% of the time, the same for every club and park, in the playoffs too. The All-Star game is not affected. The earlier engine had no home edge.</p>"
-                "<p><b>Late innings.</b> A reliever is a little tougher for his first four batters: about 0.2 runs per nine innings better than a starter with the same ratings, fading to nothing by his seventh batter. The pitcher who starts the game never gets it. Pitchers no longer pitch around hitters just because first base is open with nobody in scoring position, or because the game is late and close; both habits were adding walks. Hitters still do a little worse late in close games, by about as much as MLB hitters do.</p>"
-                "<p><b>Second time through the order.</b> Hitters gain about 12 points of wOBA the second time they face a starter (MLB about 10; it was about 2).</p>"
-                "<p><b>Intentional walks.</b> Managers now issue them: about 15 per team per season, MLB's rate. They come with first base open and a runner in scoring position, mostly late in close games, and only when the hitter is clearly better than the man on deck. Lineup protection matters: a strong bat behind your best hitter means he gets pitched to.</p>"
+                "<p><b>Late innings.</b> A reliever is a little tougher for his first four batters: about 0.2 runs per nine innings better than a starter with the same ratings, fading to nothing by his seventh batter. The pitcher who starts the game never gets it. Pitchers no longer pitch around hitters just because first base is open with nobody in scoring position, or because the game is late and close; both habits were adding walks. On the two test leagues hitters do a little worse late in close games, by about as much as MLB hitters do; in a league whose relievers are not rated above its starters the difference is close to nothing.</p>"
+                "<p><b>Second time through the order.</b> Hitters gain about 9 to 12 points of wOBA the second time they face a starter (MLB about 10; it was about 2).</p>"
+                "<p><b>Intentional walks.</b> Managers now issue them: about 12 to 15 per team per season, around MLB's rate. They come with first base open and a runner in scoring position, mostly late in close games, and only when the hitter is clearly better than the man on deck. Lineup protection matters: a strong bat behind your best hitter means he gets pitched to.</p>"
                 "<p><b>Parks.</b> A park's foul territory no longer changes strikeouts and walks. It returns in a later release as caught foul pop-ups.</p>",
             ),
             TutorialStep(
