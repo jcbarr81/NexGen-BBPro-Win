@@ -1356,9 +1356,15 @@ def fixture_rating_centers(
     Release 5a: also the hitter Contact / Eye centres, the pitcher movement
     and pitch-grade centres, the hitters' mean vl by batting side and the
     batting-side shares (nothing in the engine reads them yet).
-    data/calibration ~ contact 48.8, eye 48.4, movement 53.0, grade 54.8, vl
-    L/R/S 49.9/49.1/49.4, shares .385/.513/.103; data/calibration_league ~
-    50.7, 50.2, 56.4, 58.1, 45.0/53.6/49.4, .239/.651/.110.
+    data/calibration ~ movement 53.0, grade 54.8, vl L/R/S 49.9/49.1/49.4,
+    shares .385/.513/.103; data/calibration_league ~ 56.4, 58.1,
+    45.0/53.6/49.4, .239/.651/.110.
+
+    Release 5 (league-relative ratings): the hitter Contact, Eye and (new)
+    Power centres are the means over the lineup regulars -- the hitters in
+    the fixture's ``lineups/`` files, as a live league's are -- not over
+    every ACT hitter. data/calibration ~ contact 50.3, eye 50.3, power 50.2;
+    data/calibration_league ~ 51.1, 50.4, 50.9.
     """
     from services.league_rating_centers import active_rating_centers
 
