@@ -12,8 +12,8 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from services.physics_tuning_settings import (
+    load_physics_tuning_defaults,
     load_physics_tuning_overrides,
-    load_physics_tuning_values,
     reset_physics_tuning_overrides,
     save_physics_tuning_overrides,
 )
@@ -50,9 +50,12 @@ def _serialize_spec() -> List[Dict[str, Any]]:
 
 @router.get("")
 def get_tuning(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
+    # ``defaults`` are the engine's defaults, not the effective values: the
+    # editor saves every knob that differs from them, so a stored override
+    # the commissioner did not touch this session is sent back and kept.
     return {
         "sections": _serialize_spec(),
-        "defaults": load_physics_tuning_values(),
+        "defaults": load_physics_tuning_defaults(),
         "overrides": load_physics_tuning_overrides(),
     }
 
@@ -76,7 +79,7 @@ def save_tuning(
         ) from exc
     return {
         "sections": _serialize_spec(),
-        "defaults": load_physics_tuning_values(),
+        "defaults": load_physics_tuning_defaults(),
         "overrides": load_physics_tuning_overrides(),
     }
 
@@ -86,6 +89,6 @@ def reset_tuning(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
     reset_physics_tuning_overrides()
     return {
         "sections": _serialize_spec(),
-        "defaults": load_physics_tuning_values(),
+        "defaults": load_physics_tuning_defaults(),
         "overrides": load_physics_tuning_overrides(),
     }

@@ -15,6 +15,7 @@ __all__ = [
     "STEAL_FREQ_REBASE_MARKER",
     "TUNING_OVERRIDES_PATH",
     "get_physics_tuning_overrides",
+    "load_physics_tuning_defaults",
     "load_physics_tuning_overrides",
     "load_physics_tuning_values",
     "reset_physics_tuning_overrides",
@@ -56,14 +57,26 @@ def load_physics_tuning_overrides() -> Dict[str, float]:
     return cleaned
 
 
-def load_physics_tuning_values() -> Dict[str, float]:
-    """Return defaults merged with any stored overrides."""
+def load_physics_tuning_defaults() -> Dict[str, float]:
+    """Return the engine's own default for every numeric knob.
 
-    values = {
+    What a knob reads with no override. The tuning editor measures "changed"
+    against these: handing it the effective values instead made it save only
+    the knobs touched in that session, which dropped every other stored
+    override.
+    """
+
+    return {
         key: float(value)
         for key, value in DEFAULT_TUNING.items()
         if isinstance(value, _NUMERIC_TYPES)
     }
+
+
+def load_physics_tuning_values() -> Dict[str, float]:
+    """Return defaults merged with any stored overrides."""
+
+    values = load_physics_tuning_defaults()
     values.update(load_physics_tuning_overrides())
     return values
 
