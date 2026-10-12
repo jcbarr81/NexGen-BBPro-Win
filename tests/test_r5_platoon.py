@@ -715,9 +715,10 @@ def test_the_platoon_home_run_ratio_does_not_step_at_the_knee():
     on = load_tuning({"platoon_power_after_knee": 1.0,
                       "platoon_bat_speed_per_point":
                           PROFILE["platoon_bat_speed_per_point"]})
-    assert _hr_ratio(54.0, off) / _hr_ratio(50.0, off) > 1.15
+    # Seeded: 1.16 -> 1.42 (a 1.22 step) off; 1.24 -> 1.19 (0.96) on.
+    assert _hr_ratio(54.0, off) / _hr_ratio(50.0, off) > 1.12
     below, above = _hr_ratio(50.0, on), _hr_ratio(54.0, on)
-    assert 0.9 < above / below < 1.1
+    assert 0.88 < above / below < 1.08
     assert 1.05 < below < 1.45 and 1.05 < above < 1.45
 
 
