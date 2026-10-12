@@ -5,7 +5,7 @@ from typing import Dict, Any
 import math
 import random
 
-from .config import TuningConfig
+from .config import DEFAULT_TUNING, TuningConfig
 from .park import Park
 
 
@@ -487,13 +487,24 @@ def sample_pitch_velocity(base_velo: float, fatigue: float, tuning: TuningConfig
 def _command_error(
     *, control: float, movement: float, tuning: TuningConfig
 ) -> tuple[float, float]:
-    miss = max(0.0, (100.0 - control) / 100.0)
     base_x = tuning.get("command_error_base_x", 0.08)
     base_y = tuning.get("command_error_base_y", 0.1)
-    scale = tuning.get("command_error_scale", 2.2)
     movement_adj = max(0.0, (movement - 50.0) / 50.0)
     movement_penalty = tuning.get("movement_command_penalty", 0.4)
-    multiplier = 1.0 + miss * scale + movement_adj * movement_penalty
+    if tuning.get("command_model", 0.0) >= 1.0:
+        # Release 5: the miss shrinks by a fixed share per control point
+        # (log-linear) instead of a fixed amount, read against the league's
+        # mean control. ``control`` is the fatigued rating, so a tiring
+        # pitcher's misses grow the same way.
+        centred = control - tuning.get("pitcher_control_center", 50.0)
+        multiplier = tuning.get("command_error_ref_mult", 2.55) * math.exp(
+            -centred * tuning.get("command_error_control_log_slope", 0.02)
+        )
+        multiplier += movement_adj * movement_penalty
+    else:
+        miss = max(0.0, (100.0 - control) / 100.0)
+        scale = tuning.get("command_error_scale", 2.2)
+        multiplier = 1.0 + miss * scale + movement_adj * movement_penalty
     multiplier *= tuning.get("command_variance_scale", 1.0)
     return base_x * multiplier, base_y * multiplier
 
@@ -536,6 +547,40 @@ def _edge_distance(
     else:
         y_over = 0.0
     return max(x_over, y_over)
+
+
+def _signed_edge_distance(
+    *,
+    location: tuple[float, float],
+    zone_bottom: float,
+    zone_top: float,
+    plate_half_width: float,
+) -> float:
+    """Feet from the zone edge: positive outside, negative inside.
+
+    Outside it is ``_edge_distance`` (the larger of the horizontal and the
+    vertical miss); inside it is minus the distance to the nearest edge.
+    The bounds are the caller's, ball radius included.
+    """
+    x, y = location
+    x_in = plate_half_width - abs(x)
+    y_in = min(y - zone_bottom, zone_top - y)
+    if x_in >= 0.0 and y_in >= 0.0:
+        return -min(x_in, y_in)
+    return max(-x_in, -y_in)
+
+
+def _logit(prob: float) -> float:
+    prob = min(max(prob, 1e-6), 1.0 - 1e-6)
+    return math.log(prob / (1.0 - prob))
+
+
+def _sigmoid(x: float) -> float:
+    if x < -40.0:
+        return 0.0
+    if x > 40.0:
+        return 1.0
+    return 1.0 / (1.0 + math.exp(-x))
 
 
 def _called_strike(
@@ -602,6 +647,231 @@ def _count_modifier(
         return default
 
 
+def _swing_logit_table(
+    tuning: TuningConfig,
+) -> tuple[Dict[tuple[int, int], tuple[float, float]], float]:
+    """``swing_model`` 1: per-count (zone, chase) swing logits and the eye
+    centre, computed once per TuningConfig like ``_objective_weight_table``.
+
+    The logits are ``swing_count_table`` with the commissioner sliders
+    folded in as odds multipliers (all 1.0 = the table): the zone and chase
+    scales on their own column, the two-strike scale on both columns with
+    two strikes, and the walk scale dividing the chase odds, to the power
+    ``swing_walk_logit_gain``. A count or column the table lacks reads the
+    default table's.
+
+    The eye centre is the league mean of what ``simulate_pitch`` calls
+    ``eye``: ``hitter_eye_center``, pulled toward the pitchers' mean control
+    by ``eye_control_blend`` exactly as ``engine._batter_context`` blends
+    the rating itself, and scaled by ``eye_scale``.
+    """
+    cached = tuning.__dict__.get("_swing_table")
+    if cached is not None:
+        return cached
+
+    def odds_logit(key: str) -> float:
+        return math.log(max(1e-6, tuning.get(key, 1.0)))
+
+    zone_shift = odds_logit("swing_zone_scale")
+    chase_shift = odds_logit("swing_chase_scale") - odds_logit(
+        "swing_walk_scale"
+    ) * tuning.get("swing_walk_logit_gain", 1.33)
+    two_strike_shift = odds_logit("swing_two_strike_scale")
+    raw = tuning.values.get("swing_count_table")
+    default = DEFAULT_TUNING["swing_count_table"]
+    table: Dict[tuple[int, int], tuple[float, float]] = {}
+    for balls in range(4):
+        for strikes in range(3):
+            key = f"{balls}-{strikes}"
+            zone, chase = (
+                _logit(
+                    _count_modifier(
+                        raw, count_key=key, default=default[key][field], field=field
+                    )
+                )
+                for field in ("zone", "chase")
+            )
+            zone += zone_shift
+            chase += chase_shift
+            if strikes >= 2:
+                zone += two_strike_shift
+                chase += two_strike_shift
+            table[(balls, strikes)] = (zone, chase)
+    blend = tuning.get("eye_control_blend", 0.2)
+    eye_center = tuning.get("hitter_eye_center", 50.0) * (1.0 - blend)
+    eye_center += (100.0 - tuning.get("pitcher_control_center", 50.0)) * blend
+    eye_center *= tuning.get("eye_scale", 1.0)
+    cached = (table, eye_center)
+    tuning.__dict__["_swing_table"] = cached
+    return cached
+
+
+def _swing_probability(
+    *,
+    eye: float,
+    contact: float,
+    platoon_chase: float,
+    in_zone: bool,
+    balls: int,
+    strikes: int,
+    tuning: TuningConfig,
+) -> float:
+    """``swing_model`` 1: the chance the batter swings at this pitch.
+
+    Log-odds from the per-count table (``_swing_logit_table``). The count is
+    in the table, so there is no take-on-3-0 scale and no count bonus. The
+    eye moves the chase rate (and barely the zone rate) around the league's
+    average hitter; ``platoon_chase`` is the old model's chase shift, in
+    chance units, converted to log-odds. With two strikes a zone pitch also
+    takes the contact-model hook (plan 2.2): the better contact hitter takes
+    fewer called third strikes; it is off at 0.0.
+    """
+    swing_logits, eye_center = _swing_logit_table(tuning)
+    zone_logit, chase_logit = swing_logits[(min(balls, 3), min(strikes, 2))]
+    eye_edge = eye - eye_center
+    if in_zone:
+        swing_logit = zone_logit + eye_edge * tuning.get(
+            "swing_eye_zone_logit", -0.005
+        )
+        if strikes >= 2:
+            swing_logit += (
+                contact - tuning.get("hitter_contact_center", 50.0)
+            ) * tuning.get("swing_two_strike_contact_logit", 0.0)
+    else:
+        swing_logit = chase_logit - eye_edge * tuning.get(
+            "swing_eye_chase_logit", 0.035
+        )
+        swing_logit += platoon_chase * tuning.get("swing_platoon_chase_logit", 5.0)
+    return max(
+        tuning.get("swing_prob_floor", 0.01),
+        min(tuning.get("swing_prob_cap", 0.99), _sigmoid(swing_logit)),
+    )
+
+
+def _two_strike_zone_protect(
+    protect: float, *, contact: float, eye: float, tuning: TuningConfig
+) -> float:
+    """``swing_model`` 0: the chance a two-strike take of a zone pitch turns
+    into a "protect" swing, by hitter (plan 2.2).
+
+    ``protect`` is ``two_strike_zone_protect``; the hitter moves it in
+    log-odds, his contact (and, off by design, his eye) read against the
+    league's average hitter, so the better contact hitter takes fewer called
+    third strikes. Both slopes are 0.0 by default and ``protect`` comes back
+    untouched. Under ``swing_model`` 1 there is no protect roll and the same
+    term is ``swing_two_strike_contact_logit``.
+    """
+    shift = (contact - tuning.get("hitter_contact_center", 50.0)) * tuning.get(
+        "two_strike_protect_contact", 0.0
+    )
+    eye_slope = tuning.get("two_strike_protect_eye", 0.0)
+    if eye_slope:
+        shift += (eye - _swing_logit_table(tuning)[1]) * eye_slope
+    if not shift:
+        return protect
+    return _sigmoid(_logit(protect) + shift)
+
+
+def _contact_probability(
+    *,
+    contact: float,
+    pitch_quality: float,
+    break_mag: float,
+    velocity: float,
+    pitch_type: str,
+    in_zone: bool,
+    strikes: int,
+    tuning: TuningConfig,
+) -> float:
+    """``contact_model`` 1: the chance a swing meets the ball (plan 2.2).
+
+    One log-odds sum, so the hitter and the pitcher each move the odds by
+    the same factor whoever the other is (log5): there is no ceiling, no
+    separate whiff roll and no ``k_scale`` division. ``contact`` is the
+    batter's contact in context (handedness, platoon and times through the
+    order included) and ``pitch_quality`` the control / movement / pitch
+    grade composite the old roll used; both are read against the league's
+    averages. Break is in feet. The velocity term compares the pitch with
+    the reference speed of its own type and is off (0.0) until Release 6.
+    """
+    logit = (
+        tuning.get("contact_logit_zone", 1.74)
+        if in_zone
+        else tuning.get("contact_logit_chase", 0.48)
+    )
+    logit += (contact - tuning.get("hitter_contact_center", 50.0)) * tuning.get(
+        "contact_logit_ch", 0.09
+    )
+    quality_center = (
+        tuning.get("pitcher_control_center", 50.0) * 0.4
+        + tuning.get("pitcher_movement_center", 50.0) * 0.4
+        + tuning.get("pitcher_grade_center", 50.0) * 0.2
+    )
+    logit -= (pitch_quality - quality_center) * tuning.get("contact_logit_pq", 0.04)
+    logit -= break_mag * tuning.get("contact_logit_break", 0.4)
+    velocity_slope = tuning.get("contact_logit_velo", 0.0)
+    if velocity_slope:
+        reference = tuning.get("contact_velo_ref", 93.0)
+        offsets = tuning.values.get("pitch_type_velocity_offset") or {}
+        try:
+            reference += float(offsets.get(pitch_type, 0.0))
+        except (TypeError, ValueError):
+            pass
+        logit -= (velocity - reference) * velocity_slope
+    if strikes >= 2:
+        logit += tuning.get("contact_logit_two_strike", 0.22)
+    return _sigmoid(logit)
+
+
+def _umpire_even_distance(
+    *, catcher_fielding: float, balls: int, strikes: int, tuning: TuningConfig
+) -> float:
+    """``umpire_model`` 1: feet outside the zone edge where a take is 50/50.
+
+    The base offset is negative (the called zone is a little smaller than
+    the rulebook's). A good receiver moves it out, read against the league's
+    mean catcher fielding; so does a hitter's count, and a pitcher's count
+    moves it in.
+    """
+    even = tuning.get("umpire_edge_offset_ft", -0.055)
+    even += (
+        (catcher_fielding - tuning.get("catcher_fa_center", 50.0))
+        / 100.0
+        * tuning.get("umpire_framing_offset_ft", 0.045)
+    )
+    even += (balls - strikes) * tuning.get("umpire_count_offset_ft", 0.012)
+    return even
+
+
+def _umpire_strike_probability(
+    edge_signed: float, edge_even: float, tuning: TuningConfig
+) -> float:
+    """``umpire_model`` 1: the chance a take ``edge_signed`` feet outside the
+    zone edge (negative inside) is called a strike."""
+    width = max(0.005, tuning.get("umpire_edge_width_ft", 0.07))
+    return _sigmoid((edge_even - edge_signed) / width)
+
+
+def _hbp_inside_chance(
+    *, x: float, batter_side: str, zone_half_width: float, tuning: TuningConfig
+) -> float:
+    """``hbp_model`` 1: the chance this pitch hits the batter.
+
+    +x is the right-handed batter's side of the plate: ``_pitch_break`` runs
+    a right-hander's arm-side pitches (fb, si, cu) toward +x, and those run
+    in on a right-handed batter. So "inside" is +x for a batter hitting
+    right and -x for one hitting left. Zero until the pitch is
+    ``hbp_inside_min_ft`` inside the zone edge on his side, then a ramp to
+    ``hbp_inside_rate`` over ``hbp_inside_span_ft``.
+    """
+    inside_ft = (x if batter_side == "R" else -x) - zone_half_width
+    inside_ft -= tuning.get("hbp_inside_min_ft", 0.35)
+    if inside_ft <= 0.0:
+        return 0.0
+    span = max(0.01, tuning.get("hbp_inside_span_ft", 0.6))
+    return tuning.get("hbp_inside_rate", 0.2) * min(1.0, inside_ft / span)
+
+
 def simulate_pitch(
     *,
     batter: Dict[str, Any],
@@ -660,7 +930,14 @@ def simulate_pitch(
     ball_radius = tuning.get("ball_radius_ft", 0.12)
     balls, strikes = count
     zone_target = tuning.get("zone_target_base", 0.50)
-    zone_target += (control - 50.0) * tuning.get("zone_target_control_scale", 0.0025)
+    # Release 5 (command_model 1): control is read against the league mean
+    # here too; the stronger slope is zone_target_control_scale's value.
+    control_ref = 50.0
+    if tuning.get("command_model", 0.0) >= 1.0:
+        control_ref = tuning.get("pitcher_control_center", 50.0)
+    zone_target += (control - control_ref) * tuning.get(
+        "zone_target_control_scale", 0.0025
+    )
     zone_target += (strikes - balls) * tuning.get("zone_target_count_scale", 0.03)
     zone_adjust = _weight_map(tuning.values.get("pitch_objective_zone_adjust"))
     if objective in zone_adjust:
@@ -715,13 +992,52 @@ def simulate_pitch(
     called_in_zone = (
         abs(loc[0]) <= called_half and called_bottom <= loc[1] <= called_top
     )
+    # Release 5 (umpire_model 1): the edge is a probability, not a line. A
+    # take is called a strike with a chance that falls from near 1 well
+    # inside the zone to near 0 well outside, 50/50 at ``edge_even`` feet
+    # outside the edge. ``called_in_zone`` then means "more likely a strike
+    # than a ball".
+    umpire_model = tuning.get("umpire_model", 0.0) >= 1.0
+    edge_signed = edge_even = 0.0
+    if umpire_model:
+        catcher_fielding = 50.0
+        if context:
+            try:
+                catcher_fielding = float(context.get("catcher_fielding", 50.0))
+            except (TypeError, ValueError):
+                catcher_fielding = 50.0
+        edge_signed = _signed_edge_distance(
+            location=loc,
+            zone_bottom=zone_bottom - ball_radius,
+            zone_top=zone_top + ball_radius,
+            plate_half_width=plate_half + ball_radius,
+        )
+        edge_even = _umpire_even_distance(
+            catcher_fielding=catcher_fielding,
+            balls=balls,
+            strikes=strikes,
+            tuning=tuning,
+        )
+        called_in_zone = edge_signed <= edge_even
     loc_miss = miss_distance(
         location=loc, zone_bottom=zone_bottom, zone_top=zone_top, tuning=tuning
     )
-    hbp_rate = tuning.get("hbp_rate", 0.003)
-    hbp_rate *= 1.0 + (50.0 - control) / 120.0
-    hbp_rate *= 1.0 + loc_miss
-    if random.random() < hbp_rate:
+    if tuning.get("hbp_model", 0.0) >= 1.0:
+        # Release 5: only a pitch well inside can hit the batter, and no
+        # roll is made for one that cannot reach him.
+        hbp_rate = _hbp_inside_chance(
+            x=loc[0],
+            batter_side=batter_side,
+            zone_half_width=plate_half + ball_radius,
+            tuning=tuning,
+        )
+        hit_batter = hbp_rate > 0.0 and random.random() < hbp_rate
+    else:
+        hbp_rate = tuning.get("hbp_rate", 0.003)
+        hbp_rate *= 1.0 + (50.0 - control) / 120.0
+        hbp_rate *= 1.0 + loc_miss
+        hit_batter = random.random() < hbp_rate
+    if hit_batter:
         return PitchResult(
             pitch_type=pitch_type,
             pitch_quality=pitch_quality,
@@ -737,44 +1053,66 @@ def simulate_pitch(
             objective=objective,
             intent=intent,
         )
-    # S2-08 de-compression: widen the eye slopes so plate-discipline dispersion
-    # (qualified OBP/AVG SD, walk-rate spread) matches MLB instead of collapsing.
-    zone_base = 0.62 + (eye - 50.0) / 200.0
-    chase_base = 0.28 - (eye - 50.0) / 230.0
-    chase_base += batter.get("platoon_chase", 0.0)
-    base_swing = zone_base if in_zone else chase_base
-    base_swing *= zone_scale if in_zone else chase_scale
-    if strikes >= 2:
-        aggression = tuning.get("two_strike_aggression_scale", 1.0)
-        base_swing += 0.10 * aggression if in_zone else 0.08 * aggression
     count_key = f"{balls}-{strikes}"
-    swing_bonus = _count_modifier(
-        tuning.values.get("count_swing_bonus"),
-        count_key=count_key,
-        default=0.0,
-        field="zone" if in_zone else "chase",
-    )
-    base_swing += swing_bonus
-    if balls == 3:
-        take_scale = (
-            tuning.get("take_on_3_0_scale", 0.35)
-            if strikes == 0
-            else tuning.get("take_on_3_1_scale", 0.65)
+    if tuning.get("swing_model", 0.0) >= 1.0:
+        # Release 5: one roll, and no second "protect" roll.
+        base_swing = _swing_probability(
+            eye=eye,
+            contact=batter.get("contact", 50.0),
+            platoon_chase=batter.get("platoon_chase", 0.0),
+            in_zone=in_zone,
+            balls=balls,
+            strikes=strikes,
+            tuning=tuning,
         )
-        base_swing *= take_scale
-    walk_scale = tuning.get("walk_scale", 1.0)
-    if walk_scale > 0:
-        base_swing = base_swing / walk_scale if not in_zone else base_swing
-    base_swing = max(0.02, min(0.98, base_swing))
-    swing = random.random() < base_swing
-    if not swing and strikes >= 2:
-        protect = (
-            tuning.get("two_strike_zone_protect", 0.0)
-            if in_zone
-            else tuning.get("two_strike_chase_protect", 0.0)
+        swing = random.random() < base_swing
+    else:
+        # S2-08 de-compression: widen the eye slopes so plate-discipline
+        # dispersion (qualified OBP/AVG SD, walk-rate spread) matches MLB
+        # instead of collapsing.
+        zone_base = 0.62 + (eye - 50.0) / 200.0
+        chase_base = 0.28 - (eye - 50.0) / 230.0
+        chase_base += batter.get("platoon_chase", 0.0)
+        base_swing = zone_base if in_zone else chase_base
+        base_swing *= zone_scale if in_zone else chase_scale
+        if strikes >= 2:
+            aggression = tuning.get("two_strike_aggression_scale", 1.0)
+            base_swing += 0.10 * aggression if in_zone else 0.08 * aggression
+        swing_bonus = _count_modifier(
+            tuning.values.get("count_swing_bonus"),
+            count_key=count_key,
+            default=0.0,
+            field="zone" if in_zone else "chase",
         )
-        if protect > 0 and random.random() < protect:
-            swing = True
+        base_swing += swing_bonus
+        if balls == 3:
+            take_scale = (
+                tuning.get("take_on_3_0_scale", 0.35)
+                if strikes == 0
+                else tuning.get("take_on_3_1_scale", 0.65)
+            )
+            base_swing *= take_scale
+        walk_scale = tuning.get("walk_scale", 1.0)
+        if walk_scale > 0:
+            base_swing = base_swing / walk_scale if not in_zone else base_swing
+        base_swing = max(0.02, min(0.98, base_swing))
+        swing = random.random() < base_swing
+        if not swing and strikes >= 2:
+            protect = (
+                tuning.get("two_strike_zone_protect", 0.0)
+                if in_zone
+                else tuning.get("two_strike_chase_protect", 0.0)
+            )
+            if in_zone and protect > 0:
+                # Release 5: the called third strike depends on Contact.
+                protect = _two_strike_zone_protect(
+                    protect,
+                    contact=batter.get("contact", 50.0),
+                    eye=eye,
+                    tuning=tuning,
+                )
+            if protect > 0 and random.random() < protect:
+                swing = True
 
     contact = False
     foul = False
@@ -807,41 +1145,58 @@ def simulate_pitch(
             )
         pitch_quality = control * 0.4 + movement * 0.4 + pitch_quality * 0.2
         pitch_quality *= tuning.get("pitching_dom_scale", 1.0)
-        whiff_prob = tuning.get("whiff_base", 0.05)
-        whiff_prob += max(0.0, (pitch_quality - 50.0) / 100.0) * tuning.get(
-            "whiff_quality_scale", 0.25
-        )
-        whiff_prob += max(0.0, (velocity - 90.0) / 20.0) * tuning.get(
-            "whiff_velocity_scale", 0.15
-        )
-        whiff_prob += min(1.0, break_mag / 0.4) * tuning.get(
-            "whiff_break_scale", 0.2
-        )
-        whiff_prob += min(1.0, loc_miss) * tuning.get("whiff_location_scale", 0.12)
-        if not in_zone:
-            whiff_prob *= tuning.get("whiff_chase_scale", 1.05)
-        whiff_prob = max(0.0, min(0.6, whiff_prob))
+        # Exit velocity reads contact_base (its pitcher part) under either
+        # contact model, so it is computed here whichever makes the roll.
         contact_base = batter.get("contact", 50.0) - (pitch_quality - 50.0) * 0.4
         contact_base -= break_mag * tuning.get("break_contact_penalty", 5.0)
-        contact_prob_scale = tuning.get("contact_prob_scale", 1.0)
-        contact_prob = min(
-            0.95,
-            max(0.05, (contact_base / 100.0) * contact_prob_scale),
-        )
-        if not in_zone:
-            contact_prob *= tuning.get("chase_contact_scale", 1.0)
-        contact_prob *= _count_modifier(
-            tuning.values.get("count_contact_scale"),
-            count_key=count_key,
-            default=1.0,
-        )
-        contact_prob /= max(0.1, tuning.get("k_scale", 1.0))
-        contact_prob = max(0.0, min(contact_prob, 1.0 - whiff_prob))
-        if random.random() < whiff_prob:
-            contact = False
+        if tuning.get("contact_model", 0.0) >= 1.0:
+            # Release 5: one log-odds roll, no ceiling and no whiff roll.
+            contact = random.random() < _contact_probability(
+                contact=batter.get("contact", 50.0),
+                pitch_quality=pitch_quality,
+                break_mag=break_mag,
+                velocity=velocity,
+                pitch_type=pitch_type,
+                in_zone=in_zone,
+                strikes=strikes,
+                tuning=tuning,
+            )
         else:
-            no_whiff = max(1e-6, 1.0 - whiff_prob)
-            contact = random.random() < (contact_prob / no_whiff)
+            whiff_prob = tuning.get("whiff_base", 0.05)
+            whiff_prob += max(0.0, (pitch_quality - 50.0) / 100.0) * tuning.get(
+                "whiff_quality_scale", 0.25
+            )
+            whiff_prob += max(0.0, (velocity - 90.0) / 20.0) * tuning.get(
+                "whiff_velocity_scale", 0.15
+            )
+            whiff_prob += min(1.0, break_mag / 0.4) * tuning.get(
+                "whiff_break_scale", 0.2
+            )
+            whiff_prob += min(1.0, loc_miss) * tuning.get(
+                "whiff_location_scale", 0.12
+            )
+            if not in_zone:
+                whiff_prob *= tuning.get("whiff_chase_scale", 1.05)
+            whiff_prob = max(0.0, min(0.6, whiff_prob))
+            contact_prob_scale = tuning.get("contact_prob_scale", 1.0)
+            contact_prob = min(
+                0.95,
+                max(0.05, (contact_base / 100.0) * contact_prob_scale),
+            )
+            if not in_zone:
+                contact_prob *= tuning.get("chase_contact_scale", 1.0)
+            contact_prob *= _count_modifier(
+                tuning.values.get("count_contact_scale"),
+                count_key=count_key,
+                default=1.0,
+            )
+            contact_prob /= max(0.1, tuning.get("k_scale", 1.0))
+            contact_prob = max(0.0, min(contact_prob, 1.0 - whiff_prob))
+            if random.random() < whiff_prob:
+                contact = False
+            else:
+                no_whiff = max(1e-6, 1.0 - whiff_prob)
+                contact = random.random() < (contact_prob / no_whiff)
         if contact:
             batter_contact = batter.get("contact", 50.0)
             difficulty = 0.0
@@ -977,25 +1332,31 @@ def simulate_pitch(
         else:
             outcome = "swinging_strike"
 
-    if not swing and not in_zone:
-        catcher_fielding = 50.0
-        if context:
-            try:
-                catcher_fielding = float(context.get("catcher_fielding", 50.0))
-            except (TypeError, ValueError):
-                catcher_fielding = 50.0
-        if _called_strike(
-            location=loc,
-            zone_bottom=called_bottom,
-            zone_top=called_top,
-            catcher_fielding=catcher_fielding,
-            intent=intent,
-            tuning=tuning,
-            plate_half_width=called_half,
+    if umpire_model:
+        if not swing and random.random() < _umpire_strike_probability(
+            edge_signed, edge_even, tuning
         ):
             outcome = "strike"
-    if not swing and called_in_zone:
-        outcome = "strike"
+    else:
+        if not swing and not in_zone:
+            catcher_fielding = 50.0
+            if context:
+                try:
+                    catcher_fielding = float(context.get("catcher_fielding", 50.0))
+                except (TypeError, ValueError):
+                    catcher_fielding = 50.0
+            if _called_strike(
+                location=loc,
+                zone_bottom=called_bottom,
+                zone_top=called_top,
+                catcher_fielding=catcher_fielding,
+                intent=intent,
+                tuning=tuning,
+                plate_half_width=called_half,
+            ):
+                outcome = "strike"
+        if not swing and called_in_zone:
+            outcome = "strike"
 
     return PitchResult(
         pitch_type=pitch_type,

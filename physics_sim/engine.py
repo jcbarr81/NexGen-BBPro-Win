@@ -3009,6 +3009,24 @@ def _is_infield_single(
     return float(exit_velo if exit_velo is not None else 90.0) <= ev_max
 
 
+def _contact_babip_edge(batter: BatterRatings, tuning: TuningConfig) -> float:
+    """Contact's hit chance on a ball in play (Release 0 decision 4).
+
+    ``contact_babip_per10`` of hit probability per 10 points of Contact
+    above the league's average hitter, at most 25 points either way, added
+    to every ball in play that is not a home run. It reads the hitter's own
+    rating, not the handedness / times-through-the-order contact the pitch
+    sees, so a platoon edge does not become a second BABIP edge. The minimal
+    direct form; Release 6 replaces it with a batted-ball channel. 0.0 (the
+    default) = off.
+    """
+    per10 = tuning.get("contact_babip_per10", 0.0)
+    if not per10:
+        return 0.0
+    edge = batter.contact - tuning.get("hitter_contact_center", 50.0)
+    return per10 * max(-25.0, min(25.0, edge)) / 10.0
+
+
 def _hit_advance_log(
     runners_before: tuple[BatterRatings | None, ...],
     *,
@@ -4379,11 +4397,38 @@ def _should_intentional_walk(
     outs: int,
     score_diff: int,
     tuning: TuningConfig,
+    on_deck: BatterRatings | None = None,
 ) -> bool:
     if bases.first is not None:
         return False
     if bases.second is None and bases.third is None:
         return False
+    if tuning.get("ibb_model", 0.0) >= 1.0:
+        # Release 5 (owner decision 7): first base open with a runner in
+        # scoring position, and the walk is for the matchup -- how much
+        # better this hitter is than the one behind him against this
+        # pitcher. Mostly late and close, rarely with nobody out. No roll
+        # is made unless the gap is big enough to consider it.
+        if on_deck is None:
+            return False
+        gap = _batter_offense_score(batter, pitcher) - _batter_offense_score(
+            on_deck, pitcher
+        )
+        gap_min = tuning.get("ibb_gap_min", 2.0)
+        if gap <= gap_min:
+            return False
+        gap_full = tuning.get("ibb_gap_full", 7.0)
+        chance = tuning.get("ibb_chance", 0.35) * min(
+            1.0, (gap - gap_min) / max(0.1, gap_full - gap_min)
+        )
+        late_close = inning >= int(tuning.get("ibb_inning", 7.0)) and abs(
+            score_diff
+        ) <= tuning.get("ibb_close_run_diff", 2.0)
+        if not late_close:
+            chance *= tuning.get("ibb_early_scale", 0.1)
+        if outs == 0:
+            chance *= tuning.get("ibb_no_out_scale", 0.3)
+        return random.random() < chance
     if outs >= 2 and bases.third is None:
         return False
     if inning < int(tuning.get("ibb_inning", 7.0)):
@@ -4828,7 +4873,10 @@ def _batter_context(
 ) -> Dict[str, Any]:
     pitcher_hand = (pitcher.throws or "R").upper()
     batter_hand = (batter.bats or "R").upper()
-    eye = batter.eye * 0.8 + (100.0 - pitcher.control) * 0.2
+    # Release 5: the pitcher's share of the eye is a knob. 0.2 is the old
+    # hard-coded blend (1.0 - 0.2 is exactly the 0.8 it multiplied by).
+    eye_blend = tuning.get("eye_control_blend", 0.2)
+    eye = batter.eye * (1.0 - eye_blend) + (100.0 - pitcher.control) * eye_blend
     contact = batter.contact
     power = batter.power
     handedness, vs_left_diff = platoon_shift(batter, pitcher_hand, tuning)
@@ -6205,6 +6253,10 @@ def simulate_game(
                 outs=outs,
                 score_diff=score_diff,
                 tuning=tuning,
+                # batter_index already points past this batter.
+                on_deck=offense_state.lineup[
+                    batter_index % len(offense_state.lineup)
+                ],
             ):
                 totals["bb"] += 1
                 totals["ibb"] += 1
@@ -6791,6 +6843,9 @@ def simulate_game(
                             batter_speed=batter.speed,
                         )
                         hit_prob = (1.0 - out_prob) * tuning.get("babip_scale", 1.0)
+                        babip_edge = _contact_babip_edge(batter, tuning)
+                        if babip_edge:
+                            hit_prob += babip_edge
                         hit_prob = max(0.02, min(0.95, hit_prob))
                         if rng.random() < hit_prob:
                             totals["h"] += 1

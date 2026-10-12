@@ -775,8 +775,12 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "catcher_arm_center": 50.0,
     "catcher_fa_center": 50.0,
     # Release 5a: the centres and batting-side shares Release 5 will read,
-    # from the same source (services/league_rating_centers). NOTHING READS
-    # THEM YET. The ACT hitters' mean Contact and Eye, the ACT pitchers'
+    # from the same source (services/league_rating_centers). Read only by
+    # the Release 5 models while they are switched on (so far swing_model:
+    # hitter_eye_center and hitter_contact_center; contact_model and the
+    # two contact knobs beside it: hitter_contact_center,
+    # pitcher_movement_center and pitcher_grade_center); nothing else reads
+    # them yet. The ACT hitters' mean Contact and Eye, the ACT pitchers'
     # mean movement and mean pitch grade (each pitcher's average over the
     # pitches he throws), and the ACT hitters' mean vl by batting side (a
     # side with fewer than 10 hitters reads the all-hitter mean).
@@ -794,6 +798,173 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "hitter_bats_share_l": 0.0,
     "hitter_bats_share_r": 0.0,
     "hitter_bats_share_s": 0.0,
+    # Release 5 (plan 2.1, plate discipline). Five switches, all OFF: at 0
+    # each path is the code it replaces, byte for byte, and draws no extra
+    # random number. The values beside them are the design's starting
+    # values and are read only while their switch is on; the switched-on
+    # profile is scripts/kpi_profiles/r5_discipline.json.
+    #
+    # swing_model 1: one log-odds swing roll per pitch from the per-count
+    # table below (MLB 2023 zone swing / chase by count),
+    #   zone:  logit(table) + e * swing_eye_zone_logit
+    #          (+ (contact - hitter_contact_center)
+    #             * swing_two_strike_contact_logit with two strikes)
+    #   chase: logit(table) - e * swing_eye_chase_logit
+    #          + platoon_chase * swing_platoon_chase_logit
+    # with e = the batter's eye in context minus the league centre of that
+    # quantity (hitter_eye_center when eye_control_blend is 0), clamped to
+    # swing_prob_floor..swing_prob_cap. There is no second "protect" roll,
+    # and zone_swing_scale, chase_scale, walk_scale, take_on_3_*,
+    # count_swing_bonus and the two_strike_* swing knobs are not read.
+    "swing_model": 0.0,
+    "swing_count_table": {
+        "0-0": {"zone": 0.444, "chase": 0.158},
+        "0-1": {"zone": 0.744, "chase": 0.280},
+        "0-2": {"zone": 0.871, "chase": 0.341},
+        "1-0": {"zone": 0.597, "chase": 0.223},
+        "1-1": {"zone": 0.777, "chase": 0.317},
+        "1-2": {"zone": 0.886, "chase": 0.386},
+        "2-0": {"zone": 0.582, "chase": 0.209},
+        "2-1": {"zone": 0.778, "chase": 0.325},
+        "2-2": {"zone": 0.893, "chase": 0.425},
+        "3-0": {"zone": 0.135, "chase": 0.036},
+        "3-1": {"zone": 0.719, "chase": 0.258},
+        "3-2": {"zone": 0.890, "chase": 0.449},
+    },
+    "swing_eye_chase_logit": 0.035,
+    "swing_eye_zone_logit": -0.005,
+    "swing_platoon_chase_logit": 5.0,
+    # Hook for the contact model (plan 2.2): set there, 0.0 = no term.
+    "swing_two_strike_contact_logit": 0.0,
+    "swing_prob_floor": 0.01,
+    "swing_prob_cap": 0.99,
+    # The commissioner sliders under swing_model 1 (owner decision 9): odds
+    # multipliers on the table, 1.0 = MLB. Zone and chase scale their own
+    # odds, the two-strike scale both with two strikes, and the walk scale
+    # divides the chase odds to the power swing_walk_logit_gain. The gain
+    # makes the slider read as a walk multiplier: walks move about -0.75%
+    # per +1% of chase odds (162-game runs at chase scale 0.8 and 1.25,
+    # both fixtures), so 1.33 = 1 / 0.75. The swing_model 0 sliders keep
+    # their own keys (services/physics_tuning_spec).
+    "swing_zone_scale": 1.0,
+    "swing_chase_scale": 1.0,
+    "swing_walk_scale": 1.0,
+    "swing_two_strike_scale": 1.0,
+    "swing_walk_logit_gain": 1.33,
+    # The pitcher's share of the batter's eye (engine._batter_context):
+    # eye = batter eye * (1 - blend) + (100 - control) * blend. 0.2 is the
+    # value that was hard-coded; at 0.0 control acts through location only.
+    "eye_control_blend": 0.2,
+    # command_model 1: the command error multiplier is
+    # command_error_ref_mult * exp(-c * command_error_control_log_slope)
+    # with c = fatigued control - pitcher_control_center (2.55 is the old
+    # multiplier at control 50), and the zone-target term reads the same c.
+    "command_model": 0.0,
+    "command_error_ref_mult": 2.55,
+    "command_error_control_log_slope": 0.02,
+    # umpire_model 1: every take is called by one roll,
+    #   P(strike) = 1 / (1 + exp((d - d0) / umpire_edge_width_ft)),
+    # d = the pitch's distance outside the zone edge in feet (negative
+    # inside), d0 = umpire_edge_offset_ft
+    #   + (catcher fa - catcher_fa_center) / 100 * umpire_framing_offset_ft
+    #   + (balls - strikes) * umpire_count_offset_ft.
+    # The offset must stay negative (a symmetric edge costs about 2 pp of
+    # walks). Replaces called_zone_shrink_ft, umpire_margin_ft and the
+    # framing_* keys. Framing (owner decision 6: about 5 runs a season per
+    # 10 points of catcher fielding): moving the edge 0.04 ft is worth 0.28
+    # runs per team-game (162-game runs, both fixtures, seeds 1-2), so 10
+    # points x 0.045 / 100 = 0.0045 ft is about 0.031 runs a game.
+    "umpire_model": 0.0,
+    "umpire_edge_offset_ft": -0.055,
+    "umpire_edge_width_ft": 0.07,
+    "umpire_framing_offset_ft": 0.045,
+    "umpire_count_offset_ft": 0.012,
+    # hbp_model 1: a pitch can hit the batter only when it is more than
+    # hbp_inside_min_ft inside the zone edge on HIS side of the plate; the
+    # chance ramps to hbp_inside_rate over hbp_inside_span_ft. Replaces
+    # hbp_rate (and its roll on every pitch).
+    "hbp_model": 0.0,
+    "hbp_inside_min_ft": 0.35,
+    "hbp_inside_span_ft": 0.6,
+    "hbp_inside_rate": 0.2,
+    # ibb_model 1: the intentional walk is decided by the gap between the
+    # batter and the on-deck hitter (offense score against this pitcher):
+    # no chance below ibb_gap_min, ibb_chance at ibb_gap_full and beyond,
+    # times ibb_early_scale outside late-and-close (ibb_inning,
+    # ibb_close_run_diff) and ibb_no_out_scale with nobody out.
+    # ibb_batter_threshold is not read.
+    "ibb_model": 0.0,
+    "ibb_gap_min": 2.0,
+    "ibb_gap_full": 7.0,
+    "ibb_early_scale": 0.1,
+    "ibb_no_out_scale": 0.3,
+    # Release 5 (plan 2.2, contact, whiffs and strikeouts). All OFF: the
+    # switch is 0 and the two knobs outside it are 0.0, so the contact roll,
+    # the two-strike take and the hit chance are the code they were, byte
+    # for byte, with no extra random number. The switched-on profiles are
+    # scripts/kpi_profiles/r5_contact.json (this area alone) and
+    # r5_discipline_contact.json (with plate discipline, retuned together).
+    #
+    # contact_model 1: one log-odds roll for contact on a swing,
+    #   logit = contact_logit_zone (in the zone) | contact_logit_chase
+    #     + contact_logit_ch * (contact in context - hitter_contact_center)
+    #     - contact_logit_pq * (pq - pq centre)
+    #     - contact_logit_break * break in feet
+    #     - contact_logit_velo * (velocity - reference for the pitch type)
+    #     + contact_logit_two_strike with two strikes,
+    # pq = 0.4 control + 0.4 movement + 0.2 pitch grade (x
+    # pitching_dom_scale), its centre the same mix of pitcher_control_center,
+    # pitcher_movement_center and pitcher_grade_center. No ceiling, no
+    # separate whiff roll, no clamp: the hitter and the pitcher each move
+    # the odds by a fixed factor, so strikeouts follow log5 (audit M20).
+    # k_scale, contact_prob_scale, chase_contact_scale, count_contact_scale
+    # and the whiff_* keys are NOT read under model 1 (break_contact_penalty
+    # still is: contact_base feeds exit velocity under both models).
+    #
+    # The slopes are owner decision 1 (0.090: an 80 Contact hitter strikes
+    # out about 3% against an average pitcher, a 40 about 37%) and today's
+    # ace effect (0.040). Do not refit them to today's surface: that gives
+    # 0.073 / 0.029 and shrinks the hitter and pitcher strikeout spread
+    # below their gates. The two-strike term must stay positive (MLB contact
+    # rises with two strikes). The intercepts and the two-strike term set
+    # the league strikeout level; the values here are the K-neutral start on
+    # today's swing model (r5_contact.json: K .234 / .240 against .234 /
+    # .234 on the two fixtures with neutral parks, seeds 1-2), retuned for
+    # swing_model 1 in r5_discipline_contact.json (1.52 / 0.26 / 0.20). The
+    # design's 1.94 / 0.68 were solved with every centre at 50; against the
+    # fixtures' own centres they give K .210 / .217.
+    "contact_model": 0.0,
+    "contact_logit_zone": 1.74,
+    "contact_logit_chase": 0.48,
+    "contact_logit_ch": 0.09,
+    "contact_logit_pq": 0.04,
+    "contact_logit_break": 0.4,
+    "contact_logit_two_strike": 0.22,
+    # Velocity is registered but off until Release 6 retunes fatigue (a
+    # two-sided term on top of today's velocity fade is wrong-signed). The
+    # reference is a 50-arm fastball (83 + 0.2 * arm) plus the pitch type's
+    # pitch_type_velocity_offset.
+    "contact_logit_velo": 0.0,
+    "contact_velo_ref": 93.0,
+    # The called third strike depends on Contact (independent of the
+    # switch above; 0.0 = today's flat two_strike_zone_protect). Under
+    # swing_model 0, for a two-strike take of a zone pitch:
+    #   logit(protect) = logit(two_strike_zone_protect)
+    #     + two_strike_protect_contact * (contact - hitter_contact_center)
+    #     + two_strike_protect_eye * (eye - the league's eye in context)
+    # 0.06 gives protect .41 / .63 / .81 / .91 at Contact 35 / 50 / 65 / 80;
+    # the eye slope stays 0 (owner: Contact only). Under swing_model 1 there
+    # is no protect roll and the term is swing_two_strike_contact_logit.
+    "two_strike_protect_contact": 0.0,
+    "two_strike_protect_eye": 0.0,
+    # Contact's BABIP edge (Release 0 decision 4), minimal direct form: on a
+    # ball in play that is not a home run,
+    #   hit chance += contact_babip_per10
+    #                 * clip(Contact - hitter_contact_center, -25, 25) / 10
+    # after babip_scale and before the hit-chance clamp. The hitter's own
+    # rating, not his contact in context. Profile value 0.010; Release 6
+    # replaces it with a batted-ball channel.
+    "contact_babip_per10": 0.0,
     # Release 4 (W1): wild pitches, passed balls and the dropped third strike
     # (audit M10). Rating terms are exponential, e^((50 - rating) / k), on the
     # rating centred on the league's ACT mean (F4) and clipped to [20, 95]:
@@ -996,6 +1167,7 @@ class TuningConfig:
         """Drop memoized lookups after an in-place ``values`` mutation."""
         self.__dict__.pop("_num_cache", None)
         self.__dict__.pop("_objective_table", None)
+        self.__dict__.pop("_swing_table", None)
 
 
 def load_tuning(

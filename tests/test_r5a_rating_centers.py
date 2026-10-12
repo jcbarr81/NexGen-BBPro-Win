@@ -478,6 +478,17 @@ def test_a_game_is_identical_whatever_the_new_keys_hold():
         assert game.metadata["score"] == base.metadata["score"]
 
 
+# Keys a Release 5 model now reads, and only while its switch is on (the
+# game-identity test above still holds at the defaults). Plate discipline
+# (swing_model, tests/test_r5_discipline.py): the swing decision reads eye
+# and, through the contact hook, contact against the league centre.
+READ_BY_R5_MODELS = {"hitter_eye_center", "hitter_contact_center"}
+# Contact (contact_model, tests/test_r5_contact.py): the contact roll reads
+# contact and the pitch-quality mix (control, movement, pitch grade) against
+# the league centres; the protect term and the BABIP edge read contact.
+READ_BY_R5_MODELS |= {"pitcher_movement_center", "pitcher_grade_center"}
+
+
 def test_no_engine_module_reads_the_new_keys():
     # 5a registers the keys only; the engine starts reading them with the
     # Release 5 models. Until then a reference in physics_sim (outside the
@@ -494,6 +505,6 @@ def test_no_engine_module_reads_the_new_keys():
             continue
         text = path.read_text(encoding="utf-8")
         for key in R5A_KEYS:
-            if key in released.get(path.name, ()):
+            if key in READ_BY_R5_MODELS or key in released.get(path.name, ()):
                 continue
             assert key not in text, f"{path.name} reads {key}"
