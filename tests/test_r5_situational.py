@@ -453,7 +453,7 @@ def test_playoff_games_reach_the_engine_with_the_home_club_at_home(monkeypatch):
     arms = {f"P{i}": SimpleNamespace(player_id=f"P{i}") for i in range(2)}
     monkeypatch.setattr(loader, "load_players_by_id", lambda path: (batters, arms))
     monkeypatch.setattr(
-        gr, "get_physics_tuning_overrides", lambda: {"home_field_edge": 0.8}
+        gr, "get_physics_tuning_overrides", lambda *_a, **_k: {"home_field_edge": 0.8}
     )
     monkeypatch.setattr(gr, "get_injury_tuning_overrides", lambda: {})
     monkeypatch.setattr(gr, "get_rating_center_overrides", lambda: {})

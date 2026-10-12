@@ -23,7 +23,8 @@ sys.path.append(str(BASE_DIR))
 
 from playbalance.schedule_generator import generate_mlb_schedule
 from services.league_rating_centers import RATING_CENTER_KEYS
-from physics_sim.config import DEFAULT_TUNING
+from physics_sim.config import DEFAULT_TUNING, load_tuning
+from physics_sim.engine_generation import engine_profile, known_engine_generations
 from physics_sim.engine import _resolve_data_root, simulate_matchup_from_files
 from physics_sim.usage import UsageState, calendar_day
 from scripts import kpi_extras
@@ -267,17 +268,47 @@ _RUNNING_GATES: list[str] = [
     "sf_per_pa",
 ]
 
+# "r5" keeps the engine generation 5 path from rotting while its profile is
+# still being tuned (``--engine 5 --gate-set r5``): the rates the profile
+# already holds on both fixtures -- strikeouts, walks, and intentional
+# walks, which the legacy engine never issues -- and the rule gates that
+# must stay at exactly 0 whatever the engine. It is NOT the flip check:
+# that is every strict gate with ``--engine 5`` on calibration seeds 1-8
+# and league seeds 1-4 (RELEASE5_PLAN.md section 3), which the profile
+# does not pass yet (zone%, O-swing% and the TTO gap on seed 1). Grow this
+# set toward the full one as the profile settles, and add the plan's
+# pooled gates (per-count swing, the K log5 residual, TTO pass 2, home W%,
+# LHP - RHP) when they are promoted.
+_R5_GATES: list[str] = [
+    "k_pct",
+    "bb_pct",
+    "ibb_per_pa",
+    "runs_on_inning_ending_plays",
+    "steal_events_on_foul",
+    "wp_pb_on_foul",
+    "wp_pb_bases_empty",
+    "double_steal_two_out_plays",
+    "illegal_k_reach",
+]
+
 GATE_SETS: dict[str, list[str]] = {
     "running": list(_RUNNING_GATES),
+    "r5": list(_R5_GATES),
 }
 
 # Tolerances a gate set adds to the strict group when it runs: gates for a
 # feature that is built but still switched off, run with its tuning profile
-# (--tuning-overrides) until it becomes the default. Targets come from the
-# benchmark CSV or GATE_SET_EXTRAS_TARGETS. Release 4b used this as "r4b"
-# until 7.49.0 made it the default; empty since.
-GATE_SET_TOLERANCES: dict[str, dict[str, float]] = {}
-GATE_SET_EXTRAS_TARGETS: dict[str, dict[str, float]] = {}
+# (--tuning-overrides, or --engine for a whole generation) until it becomes
+# the default. Targets come from the benchmark CSV or
+# GATE_SET_EXTRAS_TARGETS. Release 4b used this as "r4b" until 7.49.0 made
+# it the default. "r5": intentional walks at MLB's rate (owner decision 7,
+# about 15 per team-season = .0025 per PA; .0025 on calibration seed 1).
+GATE_SET_TOLERANCES: dict[str, dict[str, float]] = {
+    "r5": {"ibb_per_pa": 0.001},
+}
+GATE_SET_EXTRAS_TARGETS: dict[str, dict[str, float]] = {
+    "r5": {"ibb_per_pa": 0.0025},
+}
 
 # Metric keys that were renamed; a --tolerances override using the old name
 # still applies to the new one instead of being silently dropped.
@@ -527,7 +558,15 @@ def _ensure_team_files(
     *,
     players_path: Path,
     base_dir: Path,
+    tuning: object | None = None,
 ) -> None:
+    """Alias and, where missing, auto-fill a team's lineup files.
+
+    ``tuning`` is the run's own tuning: a lineup built here is scored with
+    the platoon terms the season will be played on, not with whatever the
+    active league has stored (``None`` leaves the auto-fill to resolve the
+    league of ``players_path``).
+    """
     roster_dir = base_dir / "data" / "rosters"
     lineup_dir = base_dir / "data" / "lineups"
     for suffix in ("", "_pitching"):
@@ -551,6 +590,7 @@ def _ensure_team_files(
                 players_file=str(players_path),
                 roster_dir=str(roster_dir),
                 lineup_dir=str(lineup_dir),
+                tuning=tuning,
             )
             break
 
@@ -1295,7 +1335,9 @@ def _merged_table_override(
     return merged
 
 
-def load_tuning_overrides_file(path: Path) -> dict[str, Any]:
+def load_tuning_overrides_file(
+    path: Path, base: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Read a ``--tuning-overrides`` JSON dict, rejecting unknown keys.
 
     ``TuningConfig.from_overrides`` silently drops a key that is not in
@@ -1308,7 +1350,9 @@ def load_tuning_overrides_file(path: Path) -> dict[str, Any]:
     {"0-2": 1.0}}``. The value returned for it is the WHOLE table, the
     default with those entries replaced (see ``_merged_table_override``):
     ``from_overrides`` replaces a table outright, so a partial one would
-    drop the entries it leaves out.
+    drop the entries it leaves out. ``base`` holds tables the run has
+    already changed (an ``--engine`` profile): the file's entries go over
+    THOSE, so a retune of one count keeps the profile's other counts.
     """
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -1326,7 +1370,10 @@ def load_tuning_overrides_file(path: Path) -> dict[str, Any]:
     for key, value in payload.items():
         default = DEFAULT_TUNING[key]
         if isinstance(default, dict):
-            overrides[key] = _merged_table_override(path, key, default, value)
+            # Merged into the table the run starts from: the default, or
+            # the --engine profile's when it changes this table.
+            table = (base or {}).get(key, default)
+            overrides[key] = _merged_table_override(path, key, table, value)
             continue
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(
@@ -1334,6 +1381,30 @@ def load_tuning_overrides_file(path: Path) -> dict[str, Any]:
             )
         overrides[key] = float(value)
     return overrides
+
+
+def resolve_run_overrides(
+    *,
+    engine: int | None = None,
+    overrides_path: Path | None = None,
+    disable_park_factors: bool = False,
+) -> dict[str, Any] | None:
+    """The tuning overrides of a run, layered as a league's games are.
+
+    The profile of engine generation ``engine`` first (``--engine``; none
+    for the legacy generation or when it is not given), then the
+    ``--tuning-overrides`` file on top, then the park switch. ``None`` when
+    nothing is asked for, which is the plain DEFAULT_TUNING run. Raises
+    ``ValueError`` for a profile or a file that does not load.
+    """
+    overrides: dict[str, Any] = {}
+    if engine is not None:
+        overrides.update(engine_profile(engine))
+    if overrides_path is not None:
+        overrides.update(load_tuning_overrides_file(overrides_path, base=overrides))
+    if disable_park_factors:
+        overrides["park_factor_scale"] = 0.0
+    return overrides or None
 
 
 def _is_finite_number(value: object) -> bool:
@@ -2003,6 +2074,20 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--engine",
+        type=int,
+        choices=known_engine_generations(),
+        default=None,
+        help=(
+            "Engine generation to run (physics_sim.engine_generation): its "
+            "profile is laid over DEFAULT_TUNING first and --tuning-overrides "
+            "goes on top, the order a league's games use. Default: the "
+            "legacy engine (DEFAULT_TUNING as it is), so every existing run "
+            "and gate is unchanged. --engine 5 alone equals "
+            "--tuning-overrides scripts/kpi_profiles/r5.json."
+        ),
+    )
+    parser.add_argument(
         "--gate-set",
         choices=sorted(GATE_SETS),
         default=None,
@@ -2021,18 +2106,29 @@ def main() -> None:
     if base_dir is not None and not base_dir.is_absolute():
         base_dir = (BASE_DIR / base_dir).resolve()
 
-    if args.ensure_lineups:
-        for team in load_teams():
-            _ensure_team_files(team.team_id, players_path=players_path, base_dir=BASE_DIR)
+    try:
+        tuning_overrides = resolve_run_overrides(
+            engine=args.engine,
+            overrides_path=args.tuning_overrides,
+            disable_park_factors=args.disable_park_factors,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
-    tuning_overrides = None
-    if args.tuning_overrides is not None:
-        try:
-            tuning_overrides = load_tuning_overrides_file(args.tuning_overrides)
-        except ValueError as exc:
-            parser.error(str(exc))
-    if args.disable_park_factors:
-        tuning_overrides = {**(tuning_overrides or {}), "park_factor_scale": 0.0}
+    if args.ensure_lineups:
+        # A lineup built here is scored with the run's own tuning (and the
+        # fixture's rating centres), as the games will be played.
+        fill_tuning = load_tuning(
+            with_rating_centers(tuning_overrides, players_path, base_dir)
+        )
+        for team in load_teams():
+            _ensure_team_files(
+                team.team_id,
+                players_path=players_path,
+                base_dir=BASE_DIR,
+                tuning=fill_tuning,
+            )
+
     summary = run_sim(args.games, args.seed, players_path, tuning_overrides, base_dir)
     report_only = summary["report_only"]
     if args.matchup_grid_pa > 0:

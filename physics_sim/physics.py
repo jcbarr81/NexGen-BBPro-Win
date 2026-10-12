@@ -820,6 +820,13 @@ def _contact_probability(
         logit -= (velocity - reference) * velocity_slope
     if strikes >= 2:
         logit += tuning.get("contact_logit_two_strike", 0.22)
+    # The commissioner's Strikeout Rate slider (1.0 = MLB, no term): it
+    # divides the contact odds, to the power contact_strikeout_logit_gain.
+    strikeout_scale = tuning.get("contact_strikeout_scale", 1.0)
+    if strikeout_scale != 1.0:
+        logit -= math.log(max(1e-6, strikeout_scale)) * tuning.get(
+            "contact_strikeout_logit_gain", 1.8
+        )
     return _sigmoid(logit)
 
 

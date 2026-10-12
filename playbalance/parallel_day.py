@@ -51,6 +51,9 @@ class GameJournal:
     # Release 4: the league's rating centres (``hitter_speed_center``) as the
     # parent computed them before the fan-out; ``None`` = look them up here.
     rating_centers: Optional[Dict[str, float]] = None
+    # Release 5: the season's engine generation as the parent fixed it
+    # before the fan-out; ``None`` = look it up here.
+    engine_generation: Optional[int] = None
     stats_players: Dict[str, dict] = field(default_factory=dict)
     stats_teams: Dict[str, dict] = field(default_factory=dict)
     injury_events: List[dict] = field(default_factory=list)
@@ -254,11 +257,14 @@ def build_payload(
     league_id: Optional[str],
     usage_in: Dict[str, Any],
     rating_centers: Optional[Dict[str, float]] = None,
+    engine_generation: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Assemble the JSON-safe payload dict submitted to :func:`simulate_game_job`.
 
     ``rating_centers`` is the parent's ``get_rating_center_overrides()`` for
-    the day (Release 4); ``None`` leaves the worker to look it up itself.
+    the day (Release 4) and ``engine_generation`` its
+    ``get_league_engine_generation()`` (Release 5); ``None`` leaves the
+    worker to look either up itself.
     """
 
     return {
@@ -275,6 +281,7 @@ def build_payload(
         "rating_centers": (
             dict(rating_centers) if rating_centers is not None else None
         ),
+        "engine_generation": engine_generation,
     }
 
 
@@ -324,6 +331,7 @@ def simulate_game_job(payload: Dict[str, Any]) -> Dict[str, Any]:
         journal = GameJournal(
             usage_in=payload["usage_in"],
             rating_centers=payload.get("rating_centers"),
+            engine_generation=payload.get("engine_generation"),
         )
         with tracker.suppressed_saves(), journal_capture(journal):
             home_runs, away_runs, html, meta = game_runner.simulate_game_scores(

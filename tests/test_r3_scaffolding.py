@@ -102,8 +102,10 @@ def test_rotation_builder_moved_and_is_re_exported():
 def test_lineup_loader_split_into_hitters_and_pitchers():
     import utils.lineup_loader as loader
 
+    # ``data_dir`` (keyword-only, Release 5): the league the players file
+    # belongs to, whose tuning scores the hitters.
     assert list(inspect.signature(loader._default_hitters).parameters) == [
-        "team_id", "roster", "all_players",
+        "team_id", "roster", "all_players", "data_dir",
     ]
     assert list(inspect.signature(loader._default_pitchers).parameters) == [
         "team_id", "roster_dir", "roster", "all_players",

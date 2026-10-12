@@ -106,7 +106,11 @@ def _resolve_players(
 
 
 def _default_hitters(
-    team_id: str, roster: Roster, all_players: dict[str, Player]
+    team_id: str,
+    roster: Roster,
+    all_players: dict[str, Player],
+    *,
+    data_dir: Path | None = None,
 ) -> Tuple[List[Player], List[Player]]:
     """Return ``(lineup, bench)`` for ``team_id``'s default game state.
 
@@ -117,7 +121,10 @@ def _default_hitters(
     lineup player's ``position`` is set as :func:`apply_lineup` does; a saved
     lineup applied afterwards overrides it. The remaining hitters form the
     bench. Only the club's own players: the old fallback to other clubs'
-    hitters is gone (the game rejected them anyway, audit H9).
+    hitters is gone (the game rejected them anyway, audit H9). ``data_dir``
+    is the league directory the players came from, whose tuning scores them
+    (``utils.lineup_autofill.platoon_tuning``); ``None`` is the active
+    league.
     """
 
     # A big-league game uses the ACTIVE roster. 3.2.12 widened this pool to
@@ -144,7 +151,7 @@ def _default_hitters(
     )
 
     by_id = {p.player_id: p for p in hitters}
-    tuning = platoon_tuning()
+    tuning = platoon_tuning(data_dir)
 
     def score(pid: str) -> float:
         return lineup_hitter_score(by_id[pid], vs_hand="R", tuning=tuning)
@@ -246,7 +253,13 @@ def _build_default_lists(
     roster = load_roster(team_id, roster_dir)
     # Hitters first: their pool is chosen before any pitcher's
     # ``assigned_pitching_role`` is (re)labelled, as it always was.
-    lineup, bench = _default_hitters(team_id, roster, all_players)
+    # The league the players file belongs to, as the lineup auto-fill reads
+    # it: the folder holding a players.csv.
+    players_path = resolve_app_path(players_file)
+    data_dir = None
+    if players_path.name.lower() == "players.csv":
+        data_dir = players_path.parent
+    lineup, bench = _default_hitters(team_id, roster, all_players, data_dir=data_dir)
     pitchers = _default_pitchers(team_id, roster_dir, roster, all_players)
     return lineup, bench, pitchers
 

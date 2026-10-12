@@ -43,7 +43,8 @@ on:
 jobs:
   physics-sim-kpis:
     runs-on: ubuntu-latest
-    # Two strict 162-game seasons in sequence (the report-only league step
+    # Three 162-game seasons in sequence: two strict on the legacy engine and
+    # one, not blocking, on engine generation 5 (the report-only league step
     # reuses the running-game step's season).
     timeout-minutes: 60
     steps:
@@ -133,6 +134,50 @@ jobs:
         with:
           name: physics-kpis-league-running
           path: tmp/physics_kpis_league_running.json
+          if-no-files-found: warn
+      - name: Run KPI harness (engine generation 5, NOT blocking)
+        # Release 5. The steps above run the legacy engine every league
+        # plays today (no --engine). This one runs engine generation 5
+        # (physics_sim/profiles/engine_5.json over the defaults) so the path
+        # a league takes at its next season does not rot, strict on
+        # GATE_SETS["r5"] only (strikeouts, walks, intentional walks and the
+        # rule zero gates). It is continue-on-error: the profile is still
+        # being tuned, so a miss annotates the run and never fails the job.
+        # TODO at the switch-on: drop continue-on-error, and gate the full
+        # strict set with --engine 5 on both fixtures.
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          PYTHONHASHSEED: "0"
+        run: |
+          mkdir -p tmp
+          set -o pipefail
+          if ! python scripts/physics_sim_season_kpis.py \
+              --games 162 \
+              --seed 1 \
+              --base-dir data/calibration \
+              --players data/calibration/players.csv \
+              --engine 5 \
+              --gate-set r5 \
+              --output tmp/physics_kpis_engine5.json \
+              --strict 2>&1 | tee tmp/kpi_engine5.log; then
+            {
+              if [ -f tmp/physics_kpis_engine5.json ]; then
+                python -c "import json; d=json.load(open('tmp/physics_kpis_engine5.json')); [print(f\"{f['metric']}: {f['value']:.4f} (target {f['target']} +/- {f['tolerance']}) {f.get('reason', '')}\") for f in d.get('gate_set', {}).get('failures', [])]"
+              fi
+              echo "--- last lines of output ---"
+              tail -n 40 tmp/kpi_engine5.log
+            } > tmp/kpi_engine5_failure.txt
+            msg=$(sed -e 's/%/%25/g' -e 's/\r//g' tmp/kpi_engine5_failure.txt | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::warning title=KPI engine generation 5 gates missed (not blocking)::${msg}"
+            exit 1
+          fi
+      - name: Upload engine generation 5 KPI report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: physics-kpis-engine5
+          path: tmp/physics_kpis_engine5.json
           if-no-files-found: warn
       - name: Run KPI harness (report-only, league-like fixture)
         # Audit 2026-10-06 H3 / Release 2. data/calibration_league is built by

@@ -11,18 +11,28 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
+from physics_sim.engine_generation import (
+    CURRENT_ENGINE_GENERATION,
+    LEGACY_ENGINE_GENERATION,
+)
+from services.league_rating_centers import get_league_engine_generation
 from services.physics_tuning_settings import (
-    effective_swing_model,
     load_physics_tuning_defaults,
     load_physics_tuning_overrides,
     reset_physics_tuning_overrides,
     save_physics_tuning_overrides,
 )
-from services.physics_tuning_spec import tuning_sections
+from services.physics_tuning_spec import tuning_sections_for_generation
 
 from ..security import require_bearer
 
 router = APIRouter(prefix="/tuning", tags=["tuning"])
+
+# The one line the Physics Tuning page shows about the league's engine.
+ENGINE_MESSAGE_LEGACY = (
+    "This league moves to the new game engine at the start of next season."
+)
+ENGINE_MESSAGE_CURRENT = "This league uses the new game engine."
 
 
 def _require_admin(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[str, Any]:
@@ -37,12 +47,14 @@ def _require_admin(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[s
 AdminIdentity = Depends(_require_admin)
 
 
-def _serialize_spec() -> List[Dict[str, Any]]:
-    # Release 5: a league running swing_model 1 gets the rebased swing
-    # sliders; every other league gets the catalog it always had.
-    swing_model = effective_swing_model(load_physics_tuning_overrides())
+def _serialize_spec(generation: int | None = None) -> List[Dict[str, Any]]:
+    # Release 5: the slider set is the one of the league season's engine
+    # generation (the rebased sliders from generation 5); a league on the
+    # legacy engine gets the catalog it always had.
+    if generation is None:
+        generation = get_league_engine_generation(store=False)
     sections: List[Dict[str, Any]] = []
-    for label, specs in tuning_sections(swing_model):
+    for label, specs in tuning_sections_for_generation(generation):
         sections.append(
             {
                 "label": label,
@@ -52,16 +64,34 @@ def _serialize_spec() -> List[Dict[str, Any]]:
     return sections
 
 
+def _engine_block(generation: int) -> Dict[str, Any]:
+    current = generation > LEGACY_ENGINE_GENERATION
+    return {
+        "generation": generation,
+        "latest_generation": CURRENT_ENGINE_GENERATION,
+        "message": ENGINE_MESSAGE_CURRENT if current else ENGINE_MESSAGE_LEGACY,
+    }
+
+
+def _view() -> Dict[str, Any]:
+    # A page load reads the season's generation and never fixes it. One
+    # lookup, so the sliders, the defaults and the overrides agree.
+    generation = get_league_engine_generation(store=False)
+    return {
+        "sections": _serialize_spec(generation),
+        # ``defaults`` are the engine's defaults under the league's
+        # generation, not the effective values: the editor saves every knob
+        # that differs from them, so a stored override the commissioner did
+        # not touch this session is sent back and kept.
+        "defaults": load_physics_tuning_defaults(generation),
+        "overrides": load_physics_tuning_overrides(generation),
+        "engine": _engine_block(generation),
+    }
+
+
 @router.get("")
 def get_tuning(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
-    # ``defaults`` are the engine's defaults, not the effective values: the
-    # editor saves every knob that differs from them, so a stored override
-    # the commissioner did not touch this session is sent back and kept.
-    return {
-        "sections": _serialize_spec(),
-        "defaults": load_physics_tuning_defaults(),
-        "overrides": load_physics_tuning_overrides(),
-    }
+    return _view()
 
 
 @router.put("")
@@ -81,18 +111,10 @@ def save_tuning(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
-    return {
-        "sections": _serialize_spec(),
-        "defaults": load_physics_tuning_defaults(),
-        "overrides": load_physics_tuning_overrides(),
-    }
+    return _view()
 
 
 @router.post("/reset")
 def reset_tuning(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
     reset_physics_tuning_overrides()
-    return {
-        "sections": _serialize_spec(),
-        "defaults": load_physics_tuning_defaults(),
-        "overrides": load_physics_tuning_overrides(),
-    }
+    return _view()

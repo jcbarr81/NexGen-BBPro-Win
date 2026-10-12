@@ -214,12 +214,24 @@ def auto_fill_lineup_for_team(
 def platoon_tuning(data_dir: Path | None = None) -> object:
     """The engine tuning a league's games read the platoon terms from.
 
-    The league's stored physics overrides over the defaults and -- only when
-    a platoon term that reads them is switched on (the centred ``vl``, the
-    balanced handedness bonus) -- its rating centres, so the auto-fill
-    values a hitter against each hand exactly as the game will
-    (``physics_sim.platoon``). ``data_dir`` is the directory holding the
-    ``players.csv`` in use when that is not the active league (a fixture).
+    The profile of the league season's engine generation, then the league's
+    stored physics overrides, over the defaults (``services.league_tuning``)
+    and -- only when a platoon term that reads them is switched on (the
+    centred ``vl``, the balanced handedness bonus) -- its rating centres, so
+    the auto-fill values a hitter against each hand exactly as the game
+    will (``physics_sim.platoon``).
+
+    ``data_dir`` is the directory holding the ``players.csv`` in use, and
+    the league is read from THERE: its overrides file, its season's
+    generation and its centres. A fixture or any folder that is not a
+    league in a season has none of them and gets the engine defaults,
+    whatever league happens to be active. ``None`` is the active league. A
+    caller that has the game's own tuning passes it to the auto-fill
+    instead of calling this.
+
+    Nothing is written: a lineup action never fixes a season's generation
+    or centres, and never rewrites a tuning file (an overrides file that
+    predates a slider rebase is converted in memory only).
     """
 
     # Imported here: the engine imports this module.
@@ -228,9 +240,11 @@ def platoon_tuning(data_dir: Path | None = None) -> object:
 
     overrides: dict = {}
     try:
-        from services.physics_tuning_settings import get_physics_tuning_overrides
+        from services.league_tuning import league_tuning_overrides
 
-        overrides.update(get_physics_tuning_overrides())
+        overrides.update(
+            league_tuning_overrides(data_dir, store=False, migrate=False)
+        )
     except Exception:
         pass
     tuning = load_tuning(overrides)

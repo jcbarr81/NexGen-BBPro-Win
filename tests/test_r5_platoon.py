@@ -822,8 +822,9 @@ def test_auto_fill_reads_the_centred_vl(tmp_path):
 
 
 def test_auto_fill_resolves_the_leagues_tuning_itself(tmp_path, monkeypatch):
-    """No tuning passed: the stored physics overrides decide, and only a
-    switched-on platoon term makes it read the league's rating centres."""
+    """No tuning passed: the overrides stored IN THE LEAGUE THE PLAYERS FILE
+    BELONGS TO decide, and only a switched-on platoon term makes it read
+    that league's rating centres."""
     import services.league_rating_centers as centers
     import services.physics_tuning_settings as settings
 
@@ -841,15 +842,14 @@ def test_auto_fill_resolves_the_leagues_tuning_itself(tmp_path, monkeypatch):
         return real(*args, **kwargs)
 
     monkeypatch.setattr(centers, "league_rating_centers", spy)
-    monkeypatch.setattr(settings, "get_physics_tuning_overrides", lambda: {})
+    stored = tmp_path / "league" / settings.TUNING_OVERRIDES_FILENAME
+    assert not stored.exists()
     assert platoon_tuning(tmp_path / "league").get("hitter_vl_center_l") == 50.0
     assert _first_baseman(paths) == "B"
     assert reads == []
 
-    monkeypatch.setattr(
-        settings, "get_physics_tuning_overrides",
-        lambda: {"platoon_vl_center_enabled": 1.0},
-    )
+    stored.write_text(json.dumps({"platoon_vl_center_enabled": 1.0}), encoding="utf-8")
+    before = stored.read_text(encoding="utf-8")
     tuning = platoon_tuning(tmp_path / "league")
     assert tuning.get("hitter_vl_center_l") == 62.0
     assert tuning.get("hitter_vl_center_r") == 38.0
@@ -857,6 +857,8 @@ def test_auto_fill_resolves_the_leagues_tuning_itself(tmp_path, monkeypatch):
     assert all(kwargs.get("store") is False for kwargs in reads)
     assert _first_baseman(paths) == "A"
     assert not (tmp_path / "league" / centers.RATING_CENTERS_FILENAME).exists()
+    # A lineup read leaves the tuning file exactly as it found it.
+    assert stored.read_text(encoding="utf-8") == before
 
 
 # --- the generator's batting-side mix ---------------------------------------

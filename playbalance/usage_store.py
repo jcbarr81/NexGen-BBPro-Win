@@ -253,9 +253,11 @@ def _bootstrap_from_tracker(entry: _LeagueUsage, when: date) -> None:
 
     overrides = None
     try:
-        from services.physics_tuning_settings import get_physics_tuning_overrides
+        from services.league_tuning import league_tuning_overrides
 
-        overrides = get_physics_tuning_overrides()
+        # The league's tuning as its games get it (generation profile, then
+        # stored overrides); a replay fixes nothing for the season.
+        overrides = league_tuning_overrides(store=False)
     except Exception:
         overrides = None
     tuning = load_tuning(overrides=overrides or None)
