@@ -113,6 +113,18 @@ EXPECTED = {
     "pitcher_arm_center": 70.5,  # P1 80, P2 61
     "catcher_arm_center": 52.5,  # C1 60, C2 45
     "catcher_fa_center": 60.0,  # C1 70, C2 blank -> 50
+    # Release 5a keys (tests/test_r5a_rating_centers.py). This league has no
+    # ch / eye / movement / vl / bats columns, so they read 50 and everyone
+    # bats right; with no pitch columns there is no pitcher_grade_center.
+    "hitter_contact_center": 50.0,
+    "hitter_eye_center": 50.0,
+    "pitcher_movement_center": 50.0,
+    "hitter_vl_center_l": 50.0,
+    "hitter_vl_center_r": 50.0,
+    "hitter_vl_center_s": 50.0,
+    "hitter_bats_share_l": 0.0,
+    "hitter_bats_share_r": 1.0,
+    "hitter_bats_share_s": 0.0,
 }
 
 
@@ -137,7 +149,8 @@ def _stored(base: Path) -> dict:
 
 
 def test_centres_are_over_the_act_pitchers_and_catchers():
-    assert centers.RATING_CENTER_KEYS == ("hitter_speed_center",) + BATTERY_KEYS
+    # Release 5a appends its keys after these six.
+    assert centers.RATING_CENTER_KEYS[:6] == ("hitter_speed_center",) + BATTERY_KEYS
 
 
 def test_centres_of_a_small_league(tmp_path):

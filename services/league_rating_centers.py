@@ -35,6 +35,17 @@ F4 (speed only) gets the missing centres computed and added for the same
 season without touching its stored speed centre. A league with no ACT
 catcher (or pitcher) leaves those keys out and the engine keeps the 50.0
 default for them.
+
+Release 5a adds the centres the Release 5 plate-discipline, contact and
+platoon terms will read, with nothing reading them yet: the ACT hitters'
+mean Contact (``ch``) and Eye, the ACT pitchers' mean ``movement`` and mean
+pitch grade (each pitcher's average over the pitches he throws), the ACT
+hitters' mean ``vl`` by batting side (L / R / S) and the share of ACT
+hitters batting from each side. They ride in the same file, season key and
+cache, so a file written before 5a gains them for the same season without
+any stored value changing. The three shares are not centres -- their
+tuning default is 0.0, "unknown" -- but are fixed, stored and delivered the
+same way.
 """
 
 from __future__ import annotations
@@ -62,6 +73,12 @@ __all__ = [
     "PITCHER_ARM_CENTER_KEY",
     "CATCHER_ARM_CENTER_KEY",
     "CATCHER_FA_CENTER_KEY",
+    "HITTER_CONTACT_CENTER_KEY",
+    "HITTER_EYE_CENTER_KEY",
+    "PITCHER_MOVEMENT_CENTER_KEY",
+    "PITCHER_GRADE_CENTER_KEY",
+    "HITTER_VL_CENTER_KEYS",
+    "HITTER_BATS_SHARE_KEYS",
     "RATING_CENTER_KEYS",
     "active_hitter_mean_speed",
     "active_rating_centers",
@@ -79,6 +96,25 @@ PITCHER_HOLD_CENTER_KEY = "pitcher_hold_center"
 PITCHER_ARM_CENTER_KEY = "pitcher_arm_center"
 CATCHER_ARM_CENTER_KEY = "catcher_arm_center"
 CATCHER_FA_CENTER_KEY = "catcher_fa_center"
+HITTER_CONTACT_CENTER_KEY = "hitter_contact_center"
+HITTER_EYE_CENTER_KEY = "hitter_eye_center"
+PITCHER_MOVEMENT_CENTER_KEY = "pitcher_movement_center"
+PITCHER_GRADE_CENTER_KEY = "pitcher_grade_center"
+# Batting side -> tuning key: the ACT hitters' mean ``vl`` on that side, and
+# the share of ACT hitters who bat from it (the three shares sum to 1).
+HITTER_VL_CENTER_KEYS: Dict[str, str] = {
+    "L": "hitter_vl_center_l",
+    "R": "hitter_vl_center_r",
+    "S": "hitter_vl_center_s",
+}
+HITTER_BATS_SHARE_KEYS: Dict[str, str] = {
+    "L": "hitter_bats_share_l",
+    "R": "hitter_bats_share_r",
+    "S": "hitter_bats_share_s",
+}
+# A side with fewer ACT hitters than this reads the all-hitter ``vl`` mean:
+# a handful of switch hitters is not a centre.
+_VL_SIDE_MIN_HITTERS = 10
 # tuning key -> (ACT group, players.csv column). "hitter" is every ACT
 # non-pitcher, "pitcher" every ACT ``counts_as_pitcher`` row and "catcher"
 # the ACT non-pitchers whose primary position is C.
@@ -89,8 +125,18 @@ _CENTER_SPECS: Dict[str, tuple[str, str]] = {
     PITCHER_ARM_CENTER_KEY: ("pitcher", "arm"),
     CATCHER_ARM_CENTER_KEY: ("catcher", "arm"),
     CATCHER_FA_CENTER_KEY: ("catcher", "fa"),
+    HITTER_CONTACT_CENTER_KEY: ("hitter", "ch"),
+    # A blank Eye reads as the hitter's Contact (``_eye_rating``).
+    HITTER_EYE_CENTER_KEY: ("hitter", "eye"),
+    PITCHER_MOVEMENT_CENTER_KEY: ("pitcher", "movement"),
 }
-RATING_CENTER_KEYS: tuple[str, ...] = tuple(_CENTER_SPECS)
+# The Release 4 keys first, in their stored order; the 5a keys follow.
+RATING_CENTER_KEYS: tuple[str, ...] = (
+    tuple(_CENTER_SPECS)
+    + (PITCHER_GRADE_CENTER_KEY,)
+    + tuple(HITTER_VL_CENTER_KEYS.values())
+    + tuple(HITTER_BATS_SHARE_KEYS.values())
+)
 # Seasons kept in the file for reference; the current one rules.
 _KEEP_SEASONS = 5
 # The season key ``_season_key`` returns when the league has no schedule
@@ -116,7 +162,8 @@ def clear_rating_center_cache() -> None:
 def get_rating_center_overrides(*, store: bool = True) -> Dict[str, float]:
     """Tuning overrides carrying the current league's rating centres.
 
-    Every centre the league can average, keyed as ``RATING_CENTER_KEYS``
+    Every centre the league can average (and, since Release 5a, its
+    batting-side shares), keyed as ``RATING_CENTER_KEYS``
     (``{"hitter_speed_center": x, "pitcher_control_center": y, ...}``). A
     centre with nothing to average (no ACT hitters, pitchers or catchers) is
     left out, and the engine keeps its 50.0 default; ``{}`` when there is
@@ -284,6 +331,14 @@ def active_rating_centers(
     non-pitchers whose primary position is C. A missing or blank rating
     counts as 50, as the engine's rating loaders read it. A centre whose
     group is empty is left out; ``{}`` when the files are missing.
+
+    Release 5a: ``pitcher_grade_center`` is the mean over the ACT pitchers
+    of each one's average pitch grade across the pitches he throws (a blank
+    or 0 grade is a pitch he does not throw; a pitcher with none is left
+    out). The ``hitter_vl_center_*`` keys are the ACT hitters' mean ``vl``
+    by batting side, a side with fewer than ``_VL_SIDE_MIN_HITTERS`` hitters
+    reading the all-hitter mean; the ``hitter_bats_share_*`` keys are the
+    share of ACT hitters on each side, to 4 decimals, summing to 1.
     """
 
     from utils.roster_rules import counts_as_pitcher
@@ -294,7 +349,9 @@ def active_rating_centers(
     if not players.exists() or not roster_dir.is_dir():
         return {}
     active = _active_player_ids(roster_dir)
-    values: Dict[str, list[float]] = {key: [] for key in RATING_CENTER_KEYS}
+    values: Dict[str, list[float]] = {key: [] for key in _CENTER_SPECS}
+    grades: list[float] = []
+    vl_by_side: Dict[str, list[float]] = {side: [] for side in HITTER_VL_CENTER_KEYS}
     try:
         with players.open(newline="", encoding="utf-8") as fh:
             for row in csv.DictReader(fh):
@@ -302,21 +359,33 @@ def active_rating_centers(
                     continue
                 if counts_as_pitcher(row):
                     groups = {"pitcher"}
+                    grade = _pitch_grade(row)
+                    if grade is not None:
+                        grades.append(grade)
                 else:
                     groups = {"hitter"}
                     position = str(row.get("primary_position") or "")
                     if position.strip().upper() == "C":
                         groups.add("catcher")
+                    vl_by_side[_bats_side(row)].append(_rating(row, "vl"))
                 for key, (group, column) in _CENTER_SPECS.items():
-                    if group in groups:
+                    if group not in groups:
+                        continue
+                    if key == HITTER_EYE_CENTER_KEY:
+                        values[key].append(_eye_rating(row))
+                    else:
                         values[key].append(_rating(row, column))
     except OSError:
         return {}
-    return {
+    centres = {
         key: round(sum(found) / len(found), 2)
         for key, found in values.items()
         if found
     }
+    if grades:
+        centres[PITCHER_GRADE_CENTER_KEY] = round(sum(grades) / len(grades), 2)
+    centres.update(_batting_side_centers(vl_by_side))
+    return _ordered(centres, RATING_CENTER_KEYS)
 
 
 def _rating(row: dict, column: str) -> float:
@@ -324,6 +393,65 @@ def _rating(row: dict, column: str) -> float:
         return float(row.get(column) or 50.0)
     except (TypeError, ValueError):
         return 50.0
+
+
+def _eye_rating(row: dict) -> float:
+    """Eye as ``BatterRatings.from_row`` reads it: a blank Eye is the
+    hitter's Contact."""
+    try:
+        return float(row.get("eye") or "")
+    except (TypeError, ValueError):
+        return _rating(row, "ch")
+
+
+def _bats_side(row: dict) -> str:
+    """L, R or S; a blank or unknown side bats right, as the engine has it."""
+    side = str(row.get("bats") or "").strip().upper()
+    return side if side in HITTER_VL_CENTER_KEYS else "R"
+
+
+def _pitch_grade(row: dict) -> Optional[float]:
+    """A pitcher's mean grade over the pitches he throws, or ``None``.
+
+    The grades are the per-pitch columns the engine's pitch quality reads
+    (``PitcherRatings.repertoire``, ``physics_sim.models.PITCH_KEYS``); a
+    blank or 0 grade means he does not throw that pitch.
+    """
+    from physics_sim.models import PITCH_KEYS
+
+    thrown = []
+    for key in PITCH_KEYS:
+        try:
+            grade = float(row.get(key) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if grade > 0.0:
+            thrown.append(grade)
+    return (sum(thrown) / len(thrown)) if thrown else None
+
+
+def _batting_side_centers(vl_by_side: Dict[str, list[float]]) -> Dict[str, float]:
+    """The ``hitter_vl_center_*`` and ``hitter_bats_share_*`` keys.
+
+    ``vl_by_side`` holds every ACT hitter's ``vl`` under his batting side.
+    ``{}`` when there are no hitters.
+    """
+    everyone = [vl for found in vl_by_side.values() for vl in found]
+    if not everyone:
+        return {}
+    overall = sum(everyone) / len(everyone)
+    out: Dict[str, float] = {}
+    for side, key in HITTER_VL_CENTER_KEYS.items():
+        found = vl_by_side[side]
+        enough = len(found) >= _VL_SIDE_MIN_HITTERS
+        out[key] = round(sum(found) / len(found) if enough else overall, 2)
+    left = round(len(vl_by_side["L"]) / len(everyone), 4)
+    right = round(len(vl_by_side["R"]) / len(everyone), 4)
+    out[HITTER_BATS_SHARE_KEYS["L"]] = left
+    out[HITTER_BATS_SHARE_KEYS["R"]] = right
+    # The remainder, so the three sum to 1 whatever the rounding did.
+    out[HITTER_BATS_SHARE_KEYS["S"]] = max(0.0, round(1.0 - left - right, 4))
+    return out
 
 
 def _active_player_ids(roster_dir: Path) -> set[str]:

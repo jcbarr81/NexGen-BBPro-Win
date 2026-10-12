@@ -4854,6 +4854,47 @@ def _lineup_hand_from_starter(starter: PitcherRatings | None) -> str:
     return "L" if hand == "L" else "R"
 
 
+def _projected_starter(
+    pitchers: List[PitcherRatings],
+    *,
+    roles_by_id: Dict[str, str] | None,
+    usage_state: UsageState | None,
+    game_day: int | None,
+    tuning: TuningConfig,
+) -> PitcherRatings | None:
+    """The starter ``simulate_game`` will pick from this staff today.
+
+    Release 5a: ``simulate_matchup_from_files`` must choose each lineup
+    (vs LHP / vs RHP) before the game runs, but ``simulate_game`` picks the
+    starter itself, from the rotation slot and each arm's rest once the
+    usage state has moved to ``game_day``. This repeats that choice on a
+    copy of the staff's workloads, so ``usage_state`` is left exactly as it
+    was and no random number is drawn.
+    """
+    if not pitchers:
+        return None
+    preview = usage_state
+    if usage_state is not None and game_day is not None:
+        preview = UsageState(
+            current_day=usage_state.current_day,
+            game_index=usage_state.game_index,
+            workloads={
+                p.player_id: replace(usage_state.workloads[p.player_id])
+                for p in pitchers
+                if p.player_id in usage_state.workloads
+            },
+        )
+        preview.advance_day(day=game_day, pitchers=pitchers, tuning=tuning)
+    ordered = _order_pitchers_for_game(
+        list(pitchers),
+        roles_by_id=roles_by_id,
+        usage_state=preview,
+        game_day=game_day,
+        tuning=tuning,
+    )
+    return ordered[0] if ordered else None
+
+
 def _resolve_data_root(base_dir: Path | None) -> Path:
     if base_dir is None:
         return get_data_dir()
@@ -4917,13 +4958,30 @@ def simulate_matchup_from_files(
             reverse=True,
         )
         home_pitchers = fallback[:10]
-    away_starter = away_pitchers[0] if away_pitchers else None
-    home_starter = home_pitchers[0] if home_pitchers else None
-
-    if away_lineup_hand is None:
-        away_lineup_hand = _lineup_hand_from_starter(home_starter)
-    if home_lineup_hand is None:
-        home_lineup_hand = _lineup_hand_from_starter(away_starter)
+    # Release 5a: each lineup is the one for the hand of the opposing starter
+    # who will actually pitch. ``build_staff`` leads with
+    # ``starters[game_day % n]``, but ``simulate_game`` re-picks the starter
+    # from the usage state's rotation slot and rest, so the staff's first
+    # pitcher was the real starter (and his hand the right lineup) only
+    # about two games in three on a fixture whose two lineups differ.
+    if away_lineup_hand is None or home_lineup_hand is None:
+        staff_tuning = load_tuning(overrides=tuning_overrides)
+        if away_lineup_hand is None:
+            away_lineup_hand = _lineup_hand_from_starter(
+                _projected_starter(
+                    home_pitchers, roles_by_id=home_roles,
+                    usage_state=usage_state, game_day=game_day,
+                    tuning=staff_tuning,
+                )
+            )
+        if home_lineup_hand is None:
+            home_lineup_hand = _lineup_hand_from_starter(
+                _projected_starter(
+                    away_pitchers, roles_by_id=away_roles,
+                    usage_state=usage_state, game_day=game_day,
+                    tuning=staff_tuning,
+                )
+            )
 
     away_lineup_slots = load_lineup(away_team, away_lineup_hand, base_dir=data_root)
     home_lineup_slots = load_lineup(home_team, home_lineup_hand, base_dir=data_root)

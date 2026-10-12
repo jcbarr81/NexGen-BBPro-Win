@@ -710,6 +710,24 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "pitcher_arm_center": 50.0,
     "catcher_arm_center": 50.0,
     "catcher_fa_center": 50.0,
+    # Release 5a: the centres and batting-side shares Release 5 will read,
+    # from the same source (services/league_rating_centers). NOTHING READS
+    # THEM YET. The ACT hitters' mean Contact and Eye, the ACT pitchers'
+    # mean movement and mean pitch grade (each pitcher's average over the
+    # pitches he throws), and the ACT hitters' mean vl by batting side (a
+    # side with fewer than 10 hitters reads the all-hitter mean).
+    "hitter_contact_center": 50.0,
+    "hitter_eye_center": 50.0,
+    "pitcher_movement_center": 50.0,
+    "pitcher_grade_center": 50.0,
+    "hitter_vl_center_l": 50.0,
+    "hitter_vl_center_r": 50.0,
+    "hitter_vl_center_s": 50.0,
+    # The share of ACT hitters batting left / right / switch (sum 1.0).
+    # 0 / 0 / 0, the default, means "unknown".
+    "hitter_bats_share_l": 0.0,
+    "hitter_bats_share_r": 0.0,
+    "hitter_bats_share_s": 0.0,
     # Release 4 (W1): wild pitches, passed balls and the dropped third strike
     # (audit M10). Rating terms are exponential, e^((50 - rating) / k), on the
     # rating centred on the league's ACT mean (F4) and clipped to [20, 95]:
