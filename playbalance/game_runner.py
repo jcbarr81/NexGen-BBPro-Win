@@ -33,6 +33,7 @@ from physics_sim.engine_generation import engine_profile
 from services.league_rating_centers import (
     get_league_engine_generation,
     get_rating_center_overrides,
+    recorded_league_engine_generation,
 )
 from services.physics_tuning_settings import get_physics_tuning_overrides
 from services.decision_explanations import (
@@ -1294,14 +1295,28 @@ def _run_physics_game(
     # then the stored commissioner overrides, then (below) the rating
     # centres. A legacy season has no profile, so its tuning is what it has
     # always been. A parallel-day worker uses the generation its parent
-    # fixed before the fan-out. A profile that cannot be loaded raises: a
-    # season on the new engine is never played on the old one in silence.
+    # fixed before the fan-out. A generation that cannot be read, or a
+    # profile that cannot be loaded, raises: a season on the new engine is
+    # never played on the old one in silence.
     generation = getattr(jr, "engine_generation", None) if jr is not None else None
+    convert_sliders = False
     if generation is None:
         generation = get_league_engine_generation()
+        # Stored sliders are converted to the generation's scales ON DISK
+        # only by a season game (it has a date; an exhibition has none) of
+        # a season written down as that generation, and never by a
+        # parallel-day worker. Every other reader, and this game too, gets
+        # them converted in memory.
+        convert_sliders = (
+            jr is None
+            and date_token is not None
+            and recorded_league_engine_generation() == generation
+        )
     tuning_overrides: Dict[str, Any] = engine_profile(generation)
     try:
-        tuning_overrides.update(get_physics_tuning_overrides(generation))
+        tuning_overrides.update(
+            get_physics_tuning_overrides(generation, convert=convert_sliders)
+        )
     except Exception:
         pass
     try:

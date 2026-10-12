@@ -579,6 +579,9 @@ class LeagueRolloverService:
         clear_transactions(path=_TRANSACTIONS_PATH)
 
     def _reset_progress_file(self) -> None:
+        # Built from nothing on purpose: the finished season's engine
+        # generation witness (services.league_rating_centers) must not carry
+        # into the next season, which is given its own when it starts.
         payload = {
             "preseason_done": {"free_agency": False, "training_camp": False, "schedule": False},
             "sim_index": 0,

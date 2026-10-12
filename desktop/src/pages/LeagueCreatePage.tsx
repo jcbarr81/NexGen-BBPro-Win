@@ -27,6 +27,7 @@ import {
 import { api, type CommissionerSettings } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
+import { toast } from "@/lib/toast-store";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Badge,
@@ -226,6 +227,16 @@ function NumberField({
   );
 }
 
+/** The league was created, but something the wizard asked for was not
+ * applied (a rule preset, say). The toast outlives the navigation away. */
+function showCreateWarnings(warnings: string[] | undefined) {
+  if (!warnings || warnings.length === 0) return;
+  toast.info("League created, with a problem to review", {
+    description: warnings.join("\n"),
+    duration: 0,
+  });
+}
+
 export function LeagueCreatePage() {
   const [params] = useSearchParams();
   const isFirstRun = params.get("first-run") === "1";
@@ -367,13 +378,15 @@ export function LeagueCreatePage() {
         // Cloud: register the league in the control plane with the caller as
         // commissioner. Server forces owner_league mode. Starts private; the
         // commissioner can open it up / generate invites afterwards.
-        await api.createLeagueAsCommissioner({
+        const created = await api.createLeagueAsCommissioner({
           ...createPayload,
           visibility: state.commissionerVisibility,
         });
+        showCreateWarnings(created.warnings);
         navigate("/my-leagues", { replace: true });
       } else {
-        await api.createLeague(createPayload);
+        const created = await api.createLeague(createPayload);
+        showCreateWarnings(created.warnings);
         navigate("/select-league", { replace: true });
       }
     } catch (err) {

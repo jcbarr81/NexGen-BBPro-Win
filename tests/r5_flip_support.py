@@ -125,10 +125,18 @@ def write_schedule(data: Path, year: int, *, days: int = 6, played: int = 0) -> 
             f"{'5-3' if done else ''},{'1' if done else ''},"
         )
     (data / "schedule.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
-    (data / "season_progress.json").write_text(
-        json.dumps({"preseason_done": {"schedule": True}, "sim_index": played}),
-        encoding="utf-8",
-    )
+    # As the product writes season_progress.json outside a rollover: the
+    # keys it sets are changed and everything else in the file is kept (the
+    # season's engine generation witness is in there).
+    progress_path = data / "season_progress.json"
+    try:
+        progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        progress = {}
+    if not isinstance(progress, dict):
+        progress = {}
+    progress.update({"preseason_done": {"schedule": True}, "sim_index": played})
+    progress_path.write_text(json.dumps(progress), encoding="utf-8")
     standings = {}
     if played:
         standings = {
@@ -163,6 +171,27 @@ def roll_over(data: Path, year: int) -> None:
     assert json.loads((data / "career_index.json").read_text())["seasons"]
 
 
+def witness(data: Path):
+    """The season's generation as ``season_progress.json`` records it:
+    ``(season key, generation)``, or None when it records none."""
+    path = data / "season_progress.json"
+    if not path.exists():
+        return None
+    record = json.loads(path.read_text(encoding="utf-8")).get("engine_generation")
+    if record is None:
+        return None
+    return record["season"], record["generation"]
+
+
+def drop_witness(data: Path) -> None:
+    """Take the generation witness out of ``season_progress.json``, leaving
+    the rest of the file as it is."""
+    path = data / "season_progress.json"
+    progress = json.loads(path.read_text(encoding="utf-8"))
+    progress.pop("engine_generation", None)
+    path.write_text(json.dumps(progress), encoding="utf-8")
+
+
 def stored_generation(data: Path, season: str | int):
     """What ``rating_centers.json`` records for a season: the number, None
     for an entry without one, or "no entry"."""
@@ -179,10 +208,13 @@ class _Captured(Exception):
     pass
 
 
-def game_tuning(monkeypatch) -> dict:
+def game_tuning(monkeypatch, date_token: str | None = None) -> dict:
     """The tuning ``playbalance.game_runner`` hands the engine for a game of
     the active league right now (every league getter is the real one; only
-    the player loading and the engine itself are stubbed)."""
+    the player loading and the engine itself are stubbed).
+
+    ``date_token`` is the game's date: a season game has one, an exhibition
+    (the default here) has none."""
     import physics_sim.data_loader as loader
     import physics_sim.engine as engine
     import playbalance.game_runner as gr
@@ -217,7 +249,7 @@ def game_tuning(monkeypatch) -> dict:
             gr._run_physics_game(
                 home_id="H", away_id="A", home_state=state(0), away_state=state(9),
                 players_file=str(CALIBRATION / "players.csv"), roster_dir="rosters",
-                seed=1, date_token=None, tracker=None, players_lookup={},
+                seed=1, date_token=date_token, tracker=None, players_lookup={},
                 persist_stats=False, postseason=False,
             )
     return seen["tuning_overrides"]

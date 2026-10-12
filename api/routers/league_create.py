@@ -202,13 +202,33 @@ def _build_league(payload: Dict[str, Any]) -> Dict[str, Any]:
             detail=f"League data generation failed: {exc}",
         ) from exc
 
+    # Problems that do not stop the league from being created: returned as
+    # ``warnings`` (the name the roster, lineup and trade endpoints use) so
+    # the commissioner is told, instead of finding a setting missing later.
+    warnings: List[str] = []
+
     # 4. Apply the optional preset bundle.
     rule_preset_id = str(payload.get("rule_preset_id", "")).strip()
     if rule_preset_id:
         try:
-            apply_rule_preset(rule_preset_id)
-        except Exception:
-            pass
+            applied = apply_rule_preset(rule_preset_id)
+        except Exception as exc:
+            logger.exception(
+                "league_create: apply_rule_preset(%r) failed for league %s",
+                rule_preset_id,
+                record.id,
+            )
+            warnings.append(
+                f"The rule preset {rule_preset_id!r} could not be applied "
+                f"({exc}). The league was created with the standard rules; "
+                "review Physics Tuning and the league settings."
+            )
+        else:
+            if applied is None:
+                warnings.append(
+                    f"The rule preset {rule_preset_id!r} was not found. The "
+                    "league was created with the standard rules."
+                )
 
     # Playoff format (#14): persist the commissioner's chosen bracket shape so
     # the postseason seeds exactly that (playoff teams per league + whether
@@ -473,6 +493,7 @@ def _build_league(payload: Dict[str, Any]) -> Dict[str, Any]:
         "mode": record.mode,
         "data_dir": str(data_dir),
         "teams_total": total,
+        "warnings": warnings,
     }
 
 

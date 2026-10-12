@@ -327,6 +327,15 @@ def reset_to_opening_day(
         if progress.exists():
             try:
                 current = json.loads(progress.read_text(encoding="utf-8"))
+                if isinstance(current, dict):
+                    # The season is rewound, not replaced: it keeps the
+                    # record of the engine generation it was started on
+                    # (services.league_rating_centers, the witness).
+                    from services.league_rating_centers import (
+                        carry_generation_witness,
+                    )
+
+                    carry_generation_witness(current, data)
                 completed = set(current.get("draft_completed_years", []))
                 if first_year is not None:
                     completed.discard(first_year)

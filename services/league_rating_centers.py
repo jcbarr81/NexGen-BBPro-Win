@@ -67,16 +67,56 @@ fact that keeps a season on the engine it started on:
 
 So nothing changes for a league at deploy; it moves to the new engine when
 its next season starts, and a league created after the deploy starts on it.
+
+A league must never change engine in the middle of a season, in either
+direction, and one file is one point of failure: a lost, truncated or stale
+``rating_centers.json`` would read as "no generation", which is legacy. So
+a generation that is written down is written down TWICE -- in the season's
+entry here and, as ``{"season": ..., "generation": ...}`` under
+``engine_generation``, in ``season_progress.json`` (the WITNESS). That file
+belongs to the season being played: the rollover and a new league rebuild
+it from nothing, which is what drops the witness for the next season; Reset
+to Opening Day rebuilds it too and carries the witness over, because it
+rewinds the same season; every other writer changes one key and keeps the
+rest. The witness therefore speaks for the current season whatever key the
+schedule's year gives it. Legacy stays the absence of both records for a
+league that has never switched, so neither of its files changes.
+
+How a season's generation is read (:func:`_season_verdict`):
+
+1. What is written down for the season -- its entry, the witness. If they
+   disagree, or the entry's is missing, the HIGHER generation is played,
+   the fault is logged loudly and (when storing) both records are repaired.
+   Higher, because the only way a season gets a generation above legacy
+   written down is to have been started on it, while "legacy" is also what
+   every kind of loss looks like.
+2. Nothing written down and the season has an entry: legacy, as at deploy.
+3. Nothing written down and no entry: a season that has not started gets
+   the new generation (the rule above). One that HAS started lost its
+   entry; it keeps the generation of the newest other season in the file,
+   or generation 5 when the league's tuning overrides carry the marker
+   that is only written while a season is fixed on generation 5
+   (``services.physics_tuning_settings.SWING_SLIDER_REBASE_MARKER``).
+   A generation found that way is logged loudly and written down with the
+   new entry.
+
+A ``rating_centers.json`` that exists and cannot be read decides nothing
+and is never overwritten, by the generation or by the centres: the witness
+(or what this process last saw) is played and the fault logged. Anything
+else that goes wrong while reading a generation RAISES
+(:func:`get_league_engine_generation`): a game that cannot tell which
+engine its season is on must fail, not play the wrong one.
 """
 
 from __future__ import annotations
 
 import csv
+import json
 import logging
 import os
 from pathlib import Path
 import threading
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Mapping, NamedTuple, Optional
 
 from physics_sim.engine_generation import (
     CURRENT_ENGINE_GENERATION,
@@ -112,10 +152,15 @@ __all__ = [
     "HITTER_BATS_SHARE_KEYS",
     "RATING_CENTER_KEYS",
     "ENGINE_GENERATION_KEY",
+    "GENERATION_WITNESS_FILENAME",
+    "GENERATION_WITNESS_KEY",
     "NEW_SEASON_ENGINE_ENV",
     "ENGINE_SWITCH_NEWS",
+    "carry_generation_witness",
     "league_engine_generation",
     "get_league_engine_generation",
+    "new_seasons_held_on_legacy",
+    "recorded_league_engine_generation",
     "active_hitter_mean_speed",
     "active_rating_centers",
     "league_hitter_speed_center",
@@ -201,9 +246,18 @@ ENGINE_SWITCH_NEWS = (
     "Strikeouts, walks and contact are sharper skills, home teams have a "
     "small edge, and managers now issue intentional walks."
 )
+# The second record of a season's generation (module docstring): the file
+# and the key in it. The value is ``{"season": <key>, "generation": <n>}``.
+GENERATION_WITNESS_FILENAME = "season_progress.json"
+GENERATION_WITNESS_KEY = "engine_generation"
+# The generation a tuning overrides file carrying the swing-slider rebase
+# marker was written under (``_sliders_rebased``).
+_SLIDER_REBASE_GENERATION = 5
 # (league dir, season) -> generation last read from or written to the file.
 # Used only when the file cannot be read (see ``_generation_locked``).
 _GENERATION_CACHE: Dict[tuple, int] = {}
+# Engine-generation faults this process has already reported (``_shout``).
+_SHOUTED: set[tuple] = set()
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -213,22 +267,74 @@ def clear_rating_center_cache() -> None:
     with _CENTER_LOCK:
         _CENTER_CACHE.clear()
         _GENERATION_CACHE.clear()
+        _SHOUTED.clear()
 
 
 def get_league_engine_generation(*, store: bool = True) -> int:
-    """The engine generation of the current league's season; never raises.
+    """The engine generation of the current league's season.
 
     ``store`` False is for everything that is not a season game or a saved
     setting (a page load, a lineup action, watch-a-game): it reads the
     season's generation, or works out the one the season will get, without
     fixing it.
+
+    Nothing is caught here. The expected "nothing to read" cases -- no
+    league, no schedule, no file yet, a file that cannot be parsed -- are
+    answered inside :func:`league_engine_generation` without raising, so
+    whatever still raises is a real fault, and answering it with "legacy"
+    would put a generation-5 league's game on the wrong engine. A game
+    fails instead; a page reports the error.
     """
 
-    try:
-        return league_engine_generation(store=store)
-    except Exception:  # pragma: no cover - defensive; a game must still run
-        _LOGGER.exception("engine generation lookup failed; using legacy")
-        return LEGACY_ENGINE_GENERATION
+    return league_engine_generation(store=store)
+
+
+def recorded_league_engine_generation(
+    data_dir: Path | str | None = None,
+    season: str | int | None = None,
+) -> Optional[int]:
+    """The generation WRITTEN DOWN for a league's season, or ``None``.
+
+    The season's entry or the witness (the higher, if they disagree);
+    ``None`` when neither records one -- a league that has never switched,
+    an offseason, a season nothing has fixed yet. Reads only. A tuning file
+    is converted on disk to a generation's slider scales only while this
+    says the season is fixed on that generation
+    (``services.physics_tuning_settings``).
+    """
+
+    base = Path(data_dir) if data_dir is not None else get_data_dir()
+    season_key = str(season) if season is not None else _engine_season_key(base)
+    if season_key == _UNKNOWN_SEASON:
+        return None
+    with _CENTER_LOCK:
+        seasons = _stored_seasons(_read_json(base / RATING_CENTERS_FILENAME))
+        recorded = _recorded_generations(base, seasons.get(season_key))
+    return max(recorded.values()) if recorded else None
+
+
+def new_seasons_held_on_legacy() -> bool:
+    """True while the operations switch holds new seasons on the legacy
+    engine (:data:`NEW_SEASON_ENGINE_ENV`)."""
+
+    return _configured_new_season_generation() <= LEGACY_ENGINE_GENERATION
+
+
+def carry_generation_witness(
+    previous: Mapping[str, object], rebuilt: Dict[str, object]
+) -> None:
+    """Copy the season's generation witness into a rebuilt progress payload.
+
+    For a writer that builds ``season_progress.json`` from nothing for the
+    SAME season (Reset to Opening Day); ``previous`` is the payload being
+    replaced. A writer that starts a new season (the rollover, a new
+    league) must not call this: leaving the witness out is what lets the
+    next season be given its own generation.
+    """
+
+    witness = previous.get(GENERATION_WITNESS_KEY)
+    if isinstance(witness, dict):
+        rebuilt[GENERATION_WITNESS_KEY] = dict(witness)
 
 
 def league_engine_generation(
@@ -375,9 +481,8 @@ def _league_centers_locked(
         return _ordered(found, keys)
     path = base / RATING_CENTERS_FILENAME
     payload = _read_json(path)
-    seasons = payload.get("seasons")
-    if not isinstance(seasons, dict):
-        seasons = {}
+    unreadable = not payload and path.exists()
+    seasons = _stored_seasons(payload)
     entry = seasons.get(season_key)
     new_entry = not isinstance(entry, dict)
     if new_entry:
@@ -393,24 +498,48 @@ def _league_centers_locked(
     if unstored:
         computed = _computed(base, unstored)
         found.update(computed)
-        if computed and store:
-            if new_entry:
-                # The season's entry is being created here: its engine
-                # generation is fixed with it (module docstring).
-                generation = _new_season_generation(base, seasons)
-                entry = _generation_entry(generation, seasons)
-                _GENERATION_CACHE[(root, season_key)] = generation
-                if _is_engine_switch(base, seasons, generation):
-                    announce.append(True)
-            seasons[season_key] = {**entry, **computed}
-            keep = sorted(seasons)[-_KEEP_SEASONS:]
-            _write_json_atomic(
+        if computed and store and unreadable:
+            # The file is there but cannot be read (a disk or sync fault):
+            # the season's stored centres may be in it. Writing would
+            # replace them, and its generation, with what can be worked
+            # out right now, so nothing is written and nothing is cached:
+            # the stored values are read again as soon as the file is.
+            _shout(
+                (root, "centres unreadable"),
+                "%s exists but cannot be read; this game uses rating centres "
+                "computed from today's rosters and the file is left alone "
+                "(restore it, or delete it to have it rebuilt)",
                 path,
-                {"version": VERSION, "seasons": {k: seasons[k] for k in keep}},
             )
+        elif computed and store:
+            # The season's engine generation is settled with every write of
+            # its entry (module docstring): a new entry gets the season's,
+            # and an entry that lost its generation gets it back.
+            verdict = _season_verdict(base, season_key, seasons)
+            if verdict.record:
+                entry = {**entry, ENGINE_GENERATION_KEY: verdict.generation}
+            if new_entry or verdict.record:
+                _GENERATION_CACHE[(root, season_key)] = verdict.generation
+            if new_entry and verdict.announce:
+                announce.append(True)
+            seasons[season_key] = {**entry, **computed}
+            _write_seasons(path, seasons)
+            if verdict.record:
+                _write_witness(base, season_key, verdict.generation)
             for key, value in computed.items():
                 _CENTER_CACHE[(root, season_key, key)] = value
     return _ordered(found, keys)
+
+
+class _Verdict(NamedTuple):
+    """What the evidence says about a season's engine generation."""
+
+    generation: int
+    # Write it down (the entry and the witness) when storing. False for a
+    # legacy season of a league that has never recorded a generation.
+    record: bool
+    # The season is new and this is the league's switch to a later engine.
+    announce: bool
 
 
 def _generation_locked(
@@ -424,47 +553,252 @@ def _generation_locked(
     path = base / RATING_CENTERS_FILENAME
     payload = _read_json(path)
     if not payload and path.exists():
-        # The file is there but cannot be read (a disk or sync fault). Do
-        # not decide a season's engine from that, and write nothing: use
-        # what this process last saw, else what the rules give right now.
-        cached = _GENERATION_CACHE.get((root, season_key))
-        if cached is not None:
-            return cached, False
-        return _new_season_generation(base), False
-    seasons = payload.get("seasons")
-    if not isinstance(seasons, dict):
-        seasons = {}
+        return _generation_without_the_file(base, root, season_key, path), False
+    seasons = _stored_seasons(payload)
     if season_key == _UNKNOWN_SEASON:
-        # No schedule, so no season to fix anything for: what the league's
-        # next season will get (or, if results exist, what it plays now).
+        # No schedule, so no season to fix anything for: the generation of
+        # the season under way if its schedule has gone missing (the
+        # witness), else what the league's next season will get.
+        witness = _read_witness(base)
+        if witness is not None:
+            return witness[1], False
         return _new_season_generation(base, seasons), False
+    had_entry = isinstance(seasons.get(season_key), dict)
+    verdict = _season_verdict(base, season_key, seasons)
+    if had_entry or (store and verdict.record):
+        _GENERATION_CACHE[(root, season_key)] = verdict.generation
+    if not store or not verdict.record:
+        # Nothing to write: a read, or a legacy season of a league that has
+        # never recorded a generation -- legacy is the absence of one, so
+        # that league's files stay exactly as they are today. (Its season
+        # is pinned by its first game, which creates the entry.)
+        return verdict.generation, False
+    _record_generation(base, path, season_key, seasons, verdict.generation)
+    return verdict.generation, verdict.announce and not had_entry
+
+
+def _season_verdict(base: Path, season_key: str, seasons: dict) -> _Verdict:
+    """A season's generation from all the evidence (module docstring).
+
+    Reads only; ``_CENTER_LOCK`` held. ``seasons`` is the readable file's
+    ``seasons`` object.
+    """
+
     entry = seasons.get(season_key)
+    recorded = _recorded_generations(base, entry)
+    if recorded:
+        generation = max(recorded.values())
+        stored = recorded.get(RATING_CENTERS_FILENAME)
+        root = str(base.resolve(strict=False))
+        if min(recorded.values()) != generation:
+            _shout(
+                (root, season_key, "contradiction", generation),
+                "season %s of %s has two engine generations on record (%s); "
+                "playing %s, the higher (the lower record is corrected the "
+                "next time the season's records are written)",
+                season_key,
+                base,
+                ", ".join(f"{name}: {number}" for name, number in recorded.items()),
+                generation,
+            )
+        elif stored is None:
+            _shout(
+                (root, season_key, "entry lost", generation),
+                "season %s of %s has no engine generation in %s (the file or "
+                "its entry was lost, or is a stale copy) but %s records "
+                "generation %s; playing %s (the entry gets it back the next "
+                "time the season's records are written)",
+                season_key,
+                base,
+                RATING_CENTERS_FILENAME,
+                GENERATION_WITNESS_FILENAME,
+                generation,
+                generation,
+            )
+        return _Verdict(generation, True, False)
     if isinstance(entry, dict):
-        stored = entry.get(ENGINE_GENERATION_KEY)
-        generation = (
-            normalize_engine_generation(stored)
-            if stored is not None
-            # Written before generations existed: the season was already
-            # under way on the legacy engine, and finishes on it.
-            else LEGACY_ENGINE_GENERATION
-        )
-        _GENERATION_CACHE[(root, season_key)] = generation
-        return generation, False
+        # An entry and nothing written down anywhere: written before
+        # generations existed, or by a league that has never switched. The
+        # season was under way on the legacy engine, and finishes on it.
+        return _Verdict(LEGACY_ENGINE_GENERATION, False, False)
+    started = _season_has_started(base)
     generation = _new_season_generation(base, seasons)
-    entry = _generation_entry(generation, seasons)
-    if not store or not entry:
-        # Legacy is the absence of a generation, so there is nothing to
-        # write: a legacy league's file stays exactly as it is today. (Its
-        # season is pinned by its first game, which creates the entry.)
-        return generation, False
-    announce = _is_engine_switch(base, seasons, generation)
-    seasons[season_key] = entry
+    return _Verdict(
+        generation,
+        bool(_generation_entry(generation, seasons)),
+        not started and _is_engine_switch(base, seasons, generation),
+    )
+
+
+def _generation_without_the_file(
+    base: Path, root: str, season_key: str, path: Path
+) -> int:
+    """A season's generation when ``rating_centers.json`` cannot be read.
+
+    The file is there but unreadable (a disk or sync fault, a truncated
+    copy). It decides nothing and nothing is written to it: the witness and
+    what this process last saw answer, the higher if they differ; with
+    neither, what the rules give for a season with no entry. Always logged.
+    """
+
+    known = []
+    witness = _read_witness(base)
+    if witness is not None:
+        known.append(witness[1])
+    cached = _GENERATION_CACHE.get((root, season_key))
+    if cached is not None:
+        known.append(cached)
+    generation = max(known) if known else _new_season_generation(base)
+    _shout(
+        (root, season_key, "unreadable", generation),
+        "%s exists but cannot be read; playing engine generation %s (%s) and "
+        "leaving the file alone (restore it, or delete it to have it rebuilt)",
+        path,
+        generation,
+        "from the season's other record" if known else "nothing else records one",
+    )
+    return generation
+
+
+def _recorded_generations(base: Path, entry: object) -> Dict[str, int]:
+    """Where a season's generation is written down -> the generation: its
+    ``rating_centers.json`` entry (``entry``) and the witness."""
+
+    recorded: Dict[str, int] = {}
+    stored = _entry_generation(entry)
+    if stored is not None:
+        recorded[RATING_CENTERS_FILENAME] = stored
+    witness = _read_witness(base)
+    if witness is not None:
+        recorded[GENERATION_WITNESS_FILENAME] = witness[1]
+    return recorded
+
+
+def _entry_generation(entry: object) -> Optional[int]:
+    if not isinstance(entry, dict):
+        return None
+    stored = entry.get(ENGINE_GENERATION_KEY)
+    return normalize_engine_generation(stored) if stored is not None else None
+
+
+def _stored_seasons(payload: Mapping[str, object]) -> dict:
+    seasons = payload.get("seasons")
+    return seasons if isinstance(seasons, dict) else {}
+
+
+def _write_seasons(path: Path, seasons: dict) -> None:
     keep = sorted(seasons)[-_KEEP_SEASONS:]
     _write_json_atomic(
         path, {"version": VERSION, "seasons": {k: seasons[k] for k in keep}}
     )
-    _GENERATION_CACHE[(root, season_key)] = generation
-    return generation, announce
+
+
+def _record_generation(
+    base: Path, path: Path, season_key: str, seasons: dict, generation: int
+) -> None:
+    """Write a season's generation down in both places, where it is not
+    already; the entry keeps everything else it holds."""
+
+    entry = seasons.get(season_key)
+    if _entry_generation(entry) != generation:
+        kept = entry if isinstance(entry, dict) else {}
+        seasons[season_key] = {**kept, ENGINE_GENERATION_KEY: generation}
+        _write_seasons(path, seasons)
+    _write_witness(base, season_key, generation)
+
+
+def _read_witness(base: Path) -> Optional[tuple[str, int]]:
+    """(season key, generation) from the witness, or ``None``.
+
+    ``None`` when ``season_progress.json`` is missing or unreadable, has no
+    witness, or holds one that is not a generation number.
+    """
+
+    record = _read_json(base / GENERATION_WITNESS_FILENAME).get(
+        GENERATION_WITNESS_KEY
+    )
+    if not isinstance(record, dict):
+        return None
+    raw = record.get("generation")
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    return str(record.get("season") or ""), normalize_engine_generation(raw)
+
+
+def _write_witness(base: Path, season_key: str, generation: int) -> None:
+    """Record ``generation`` for the season in ``season_progress.json``.
+
+    One key is changed and everything else in the file kept, in the file's
+    own layout. A file that exists and cannot be parsed is left alone (the
+    schedule cursor is in it); a write that fails is logged -- the entry in
+    ``rating_centers.json`` still holds the generation.
+    """
+
+    if _read_witness(base) == (season_key, generation):
+        return
+    path = base / GENERATION_WITNESS_FILENAME
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        text = ""
+    except OSError:
+        _LOGGER.exception("could not read %s to record the engine generation", path)
+        return
+    try:
+        payload = json.loads(text) if text.strip() else {}
+    except ValueError:
+        payload = None
+    if not isinstance(payload, dict):
+        _LOGGER.error(
+            "%s cannot be parsed; engine generation %s not recorded in it",
+            path,
+            generation,
+        )
+        return
+    payload[GENERATION_WITNESS_KEY] = {"season": season_key, "generation": generation}
+    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}.{threading.get_ident()}")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        _LOGGER.exception("could not record the engine generation in %s", path)
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def _sliders_rebased(base: Path) -> bool:
+    """True when the league's tuning overrides were written while a season
+    was fixed on generation 5 (the swing-slider rebase marker)."""
+
+    from services.physics_tuning_settings import (
+        SWING_SLIDER_REBASE_MARKER,
+        TUNING_OVERRIDES_FILENAME,
+    )
+
+    payload = _read_json(base / TUNING_OVERRIDES_FILENAME)
+    return payload.get(SWING_SLIDER_REBASE_MARKER) is True
+
+
+def _shout(key: tuple, message: str, *args: object) -> None:
+    """Report an engine-generation fault where an operator will see it.
+
+    To the log and to stdout: the API's root logger writes to a file under
+    the data dir, which Cloud Run never shows (``api.working_copy._emit``).
+    Once per process per fault -- a page that cannot repair what it reads
+    would otherwise repeat it on every load.
+    """
+
+    if key in _SHOUTED:
+        return
+    _SHOUTED.add(key)
+    _LOGGER.error(message, *args)
+    try:
+        print(f"[engine-generation] {message % args}", flush=True)
+    except Exception:  # pragma: no cover - reporting must never stop a game
+        pass
 
 
 def _new_season_generation(base: Path, seasons: dict | None = None) -> int:
@@ -475,14 +809,30 @@ def _new_season_generation(base: Path, seasons: dict | None = None) -> int:
     generation of the newest season in ``seasons`` (the file's other
     entries), which is this same season when its key moved -- a schedule
     regenerated with another year -- and legacy when the file has never
-    recorded one, the case of every league at deploy. A new generation whose
-    profile cannot be loaded is not handed out (every game of the season
-    would fail): the season starts on the legacy engine and the fault is
-    logged.
+    recorded one, the case of every league at deploy. With no season in the
+    file to go by, tuning overrides that were written while a season was
+    fixed on generation 5 say so (:func:`_sliders_rebased`). A new
+    generation whose profile cannot be loaded is not handed out (every game
+    of the season would fail): the season starts on the legacy engine and
+    the fault is logged.
     """
 
     if _season_has_started(base):
-        return _newest_stored_generation(seasons or {})
+        generation = _newest_stored_generation(seasons or {})
+        source = "the newest other season in the file"
+        if generation <= LEGACY_ENGINE_GENERATION and _sliders_rebased(base):
+            generation = _SLIDER_REBASE_GENERATION
+            source = "its tuning overrides, converted for that generation"
+        if generation > LEGACY_ENGINE_GENERATION:
+            _shout(
+                (str(base.resolve(strict=False)), "inferred", generation),
+                "the season under way in %s has no engine generation on "
+                "record; playing generation %s, from %s",
+                base,
+                generation,
+                source,
+            )
+        return generation
     wanted = _configured_new_season_generation()
     if wanted <= LEGACY_ENGINE_GENERATION:
         return LEGACY_ENGINE_GENERATION
