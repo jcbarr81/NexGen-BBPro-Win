@@ -80,6 +80,7 @@ Team owners manage their franchise through the Owner Dashboard.
 - Run **League Command Center** to review league-wide operational alerts and suggested next actions.
 - Run **Appearance & Themes** for a guided walkthrough of theme-family selection and light/dark toggling.
 - Run **Dashboard Overview** to review top-bar navigation, including the new **Owner Tools** menu shortcuts.
+- Run **The Updated Game Engine** to see when your league moves to the updated game engine and what changes: strikeouts, walks, Contact, Eye, platoon splits, home field and intentional walks.
 - Open **Tutorials -> Reference Manuals** for two searchable in-app documents:
   - **Complete Game Manual**
   - **Finance System Manual**
@@ -140,6 +141,7 @@ Administrators control league configuration and high-level operations.
 
 ### League Creation and Policy Setup
 - **Create League** (League Settings): generate a new league structure (overwrites current data).
+  - A new league plays on the updated game engine from its first game. The wizard's rule presets **High Offense** and **Pitcher Friendly** are modest changes from **MLB Standard**; see **The Updated Game Engine** below.
   - During creation, commissioners can set baseline trade policy:
     - trading enabled/disabled,
     - draft-pick trading enabled/disabled,
@@ -171,6 +173,26 @@ Administrators control league configuration and high-level operations.
   - A finished draft stays finished: changing the number of rounds afterwards applies to next year. **Reset to Opening Day** keeps a draft that was held in the preseason and is refused while one is open.
   - Draft order (reverse of last season's records), the pick clock and auto-draft are the same either way.
 
+### The Updated Game Engine (7.51.0)
+Version 7.51.0 brings an updated game engine: plate discipline, contact, platoon splits and game situations play closer to MLB. The in-app tutorial **The Updated Game Engine** (Help -> Tutorials) covers it for owners; this section is the commissioner's summary.
+
+- **When a league moves to it.** Nothing changes for a season already under way. A league moves at the start of its own next season: when it advances into the new season, before its first regular-season game. A brand-new league starts on it. A season's stats are never split between two engines.
+  - A league that has already advanced into a new season but has not played a regular-season game moves at that season's first game.
+  - **Regenerate Season Schedule** and **Reset to Opening Day** do not change the engine a season is played on.
+- **How to tell.** When the league moves, one league news item says so. The top of the **Physics Tuning** page reads either "This league uses the new game engine." or "This league moves to the new game engine at the start of next season."
+- **What to expect when it moves.** Less scoring, more strikeouts and fewer walks, at about MLB's level. On a 30-team test league built the way a real league is (420 games on each engine; sampling error about +/-0.11 runs): runs per team-game about 4.9 before and about 4.3 after, strikeouts 20.8% to 23.2% of plate appearances, walks 9.5% to 7.9%, intentional walks from none to about 15 per team per season, and home teams winning about 53%. Known shortfall: scoring lands about 0.2 runs per team-game under MLB's 4.47 in leagues like that one because home runs run a little low; a later engine release addresses it.
+- **Physics Tuning sliders on the updated engine.**
+  - **Walk Rate**, **Zone Swing** and **Chase** are rebased so that 1.0 means MLB.
+  - **Two-Strike Aggression** and **Two-Strike Protect** become one slider, **Two-Strike Approach**.
+  - **Strikeout Rate** and **Contact Rate** become one **Strikeout Rate** slider (1.0 = MLB).
+  - A league's stored slider settings are converted once, when it moves, to settings that play the same. Until then the sliders are exactly as before.
+  - A save keeps every setting you did not touch (since 7.50.3).
+- **Rule presets in the create-league wizard.** **High Offense** and **Pitcher Friendly** are now modest: about 4.7 to 4.8 and about 3.8 to 4.0 runs per team-game, against about 4.4 for **MLB Standard** (one test season each, so treat the sizes as estimates). Before 7.51.0 they were badly mis-sized (Pitcher Friendly produced about 1 run per team-game). No existing league used one, and existing leagues are untouched.
+- **Changes every league sees at once** (they do not wait for the new season):
+  - The hitter rating shown as "Vision" is now **Platoon vs L**: how well a hitter handles left-handed pitching. Compare it only with hitters who bat from the same side; there is no typical number. No rating changed.
+  - Any new schedule gives every club exactly half its games at home (before, between 75 and 87 home games in a 162-game, 30-team league, the same clubs every year). A season already under way keeps its schedule.
+  - Newly generated catchers, second basemen, third basemen and shortstops are about 60% right-handed, 27% left-handed and 13% switch (it was 75 / 15 / 10), in new leagues and in future draft classes of every league. Existing players are not changed.
+
 ### Playoff Calendar
 - Every playoff game has a date, MLB-style: an off day after the regular season and between rounds, travel days after games 2 and 5 of a seven-game series (after games 2 and 4 of a five-game series), and none inside a three-game Wild Card series. A round starts on its scheduled date even when the previous round ends in a sweep.
 - Because games are dated, starters rotate and relievers rest in October the same way they do in the regular season, and **Sim Next Game** plays one playoff day (every series scheduled that day, in both leagues).
@@ -191,7 +213,7 @@ owns the pick makes the selection.
 
 ### Operations Highlights
 - **Reset to Opening Day** (Season): clear current season results and standings, reset progress to day one, and set the phase to Regular Season (non-destructive to teams/rosters). You will be prompted whether to also purge saved season boxscores (`data/boxscores/season`).
-- **Regenerate Season Schedule** (Season): generate a fresh regular-season schedule and clear previous results.
+- **Regenerate Season Schedule** (Season): generate a fresh regular-season schedule and clear previous results. Every club gets exactly half its games at home.
 - **Open League Command Center** (Season): monitor injuries, approvals, roster conflicts, deadlines, and finance risk alerts in a unified operations view.
 - **Open Offseason Finance Workflow** (Season): during Offseason/Preseason, use the guided checklist to run the finance pipeline (snapshot, arbitration, reset) and complete finance review stages in order (contracts, arbitration, budgets, free-agency kickoff, finalize).
   - The workflow now includes dedicated in-dialog review tabs for **Contract Expirations**, **Arbitration Details**, and **Budget Deltas** before each stage is marked complete.

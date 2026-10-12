@@ -1,6 +1,6 @@
 # Release 5 implementation plan: plate discipline, contact, platoon and situations
 
-Audit: `docs/audits/2026-10-06-engine-ratings-audit` (REPORT.md "Release 5"; H4, H6 (K part), H7, M1, M3 (platoon part), M5 (foul territory), M19, M20, L1, L3, L4, L5, L14, L16; batting.md, pitching.md; DECISIONS.md 2, 4, 6, 7, 10). Code base: 7.50.1 (engine unchanged since 7.49.0). Written 2026-10-12 from four read-only design passes (plate discipline, contact model, platoon, situational); their prototype patches and raw numbers are in the session scratchpad under `r5/`. **Status: design approved; owner decisions taken 2026-10-12 (section 6); nothing is built yet.**
+Audit: `docs/audits/2026-10-06-engine-ratings-audit` (REPORT.md "Release 5"; H4, H6 (K part), H7, M1, M3 (platoon part), M5 (foul territory), M19, M20, L1, L3, L4, L5, L14, L16; batting.md, pitching.md; DECISIONS.md 2, 4, 6, 7, 10). Code base: 7.50.1 (engine unchanged since 7.49.0). Written 2026-10-12 from four read-only design passes (plate discipline, contact model, platoon, situational); their prototype patches and raw numbers are in the session scratchpad under `r5/`. **Status: built (7.51.0, 2026-10-12). Owner decisions taken 2026-10-12 (section 6); the engine reaches each league at the start of its own next season (section 7); the final measurements, what differs from this plan and the known shortfalls are in section 8.**
 
 Evidence levels used below: **season** = full 162-game KPI run; **300g** = 300-game sample in the real engine (±0.2 pp BB, ±0.3 pp K, ±0.13 R/G); **MC** = per-PA Monte Carlo on the real pitch kernel; **model** = arithmetic from shares and sensitivities.
 
@@ -132,4 +132,60 @@ The second option was built. `DEFAULT_TUNING` does not change; the switch-on is 
 - **Sliders** follow the generation, not a key in the overrides file: generation 5 leagues get the rebased sliders and their stored legacy values are converted (and replaced) the first time the file is loaded or saved under generation 5.
 - **Holding the rollout.** `NEXGEN_NEW_SEASON_ENGINE=4` in the service's environment starts every new season on the legacy engine; a season that already has a generation is not moved by it. The test suite sets it, so existing tests run on the legacy engine.
 - **Harness.** `scripts/physics_sim_season_kpis.py --engine 5` applies the profile before `--tuning-overrides`; with no `--engine` the run is the legacy engine. `--gate-set r5` is a small set the profile already holds; the CI step that runs it is not blocking.
-- **Still to do at the switch-on:** the final profile numbers; drop `continue-on-error` from the CI step and gate the full strict set with `--engine 5`; help text and the tutorial for the rebased sliders; the VERSION bump and release notes.
+- **Done at the switch-on (7.51.0):** the final profile numbers (section 8); the CI step runs the full strict set with `--engine 5`; help text and the tutorial ("The Updated Game Engine") for the rebased sliders; the VERSION bump and release notes. **Still open:** that CI step is `continue-on-error` until it has passed once on the CI runner; drop it then, so a miss fails the job.
+
+## 8. As built (2026-10-12)
+
+**Switch-on.** Each league season records the engine it is played on: a season already under way finishes on the legacy engine, and a season with no regular-season game played starts on the Release 5 profile, so every league moves at its own rollover and a new league starts on it (section 7). The legacy engine is the engine defaults with no profile laid over them, and its results are unchanged to the last digit.
+
+**Final measurements** (`--engine 5`; calibration fixture seeds 1-18, league fixture seeds 1-6; means):
+
+| Metric | Target | Calibration (18 seasons) | League (6 seasons) |
+|---|---|---|---|
+| Runs per team-game | 4.47 +/- .25 | 4.39 | 4.13 (short) |
+| K% | .22 | .220 | .226 |
+| BB% | .082 | .082 | .082 |
+| Contact | .76 | .763 | .757 |
+| Pitches per PA | 3.88 | 3.87 | 3.88 |
+| Home runs per team-game | 1.17 +/- .15 | 1.08 | 0.94 (short) |
+| Platoon gap, pooled (wOBA) | .026 +/- .006 | .026 | .020 |
+| LHB gap | .028 | .025 | .031 |
+| RHB gap | .018 | .023 | .012 |
+| LHP minus RHP, RA9 | 0 +/- .15 | +0.02 | -0.10 |
+| Home W% | .535 +/- .015 (pooled) | .529 | .546 |
+| Home minus road wOBA | +.012 +/- .009 | +.011 | +.015 |
+| TTO pass 2 wOBA | >= +.008 (pooled) | +.012 | +.010 |
+| Late and close OPS delta | -.02 to -.04 | -.024 | -.033 |
+| Innings 7-9 over 3-6, runs ratio | MLB about .935 | .915 | .866 |
+| IBB per PA | about .0025 | .0024 | .0024 |
+| HBP per PA | about .011 | .0105 | .0108 |
+| HBP, same-hand over opposite-hand | about 2 | 2.1 | 1.9 |
+| BB% per 10 Eye | +2.3 to +2.8 pp | +2.5 | +2.9 |
+| BB% per 10 Control | -1.2 to -1.5 pp | -1.26 | -1.30 |
+| Contact-to-AVG correlation | >= .5 | .62 | .65 |
+| Power-to-HR correlation | floor .45 (>= .60 from Release 6) | .58 | .66 |
+| K matchup grid, worst log5 error | <= 2 pp | 1.5 pp (one seed) | |
+
+Calibration seeds 1-18 pass the full strict set; league seeds 1-6 pass the running-game set. The product's own game path (a product-created 30-team league, 420 games per engine; sampling error about +/-0.11 runs) reads runs per team-game about 4.9 legacy and about 4.3 on the profile, K 20.8% to 23.2%, BB 9.5% to 7.9%, HBP 1.4% to 1.0% of PA, IBB none to about 15 per team-season, home W% 49% to about 53%.
+
+**What differs from the plan:**
+
+- **Contact hit edge:** `contact_babip_per10` 0.005, not 0.010 (2.2; owner decision 4). At .010 too many hitters batted .300. At .005 the Contact-to-AVG correlation is .62 / .65, above its .5 floor.
+- **Handedness bonuses** were sized last, as planned, and then re-sized after the hit-by-pitch handedness fix, because hit batters count in wOBA: contact 1.85, eye 1.35, power 2.0 (defaults 1.8 / 1.2 / 2.0), with `hbp_same_hand_scale` 1.75 and `hbp_opposite_hand_scale` 0.57. The plan expected the contact bonus to shrink (x0.85-0.9); it did not.
+- **Home field:** `home_field_edge` finished at 0.80, the plan's starting value (an interim tune used 0.72), for a pooled home W% of .529 / .546 against the .535 target.
+- **Power is not centred on the league.** Contact and Eye are read against the league's own averages; Power still is not, which is why home runs and scoring run low on the league fixture. Left for Release 6.
+- **BB spread is gated as slopes** (BB% per 10 Eye, per 10 Control), not as the true-sd targets, which the committed fixtures cannot meet (0.11).
+- **Single-season home W% and TTO pass 2 are read pooled, not gated.** One season's home W% has a standard error of about .011. The gates are home-minus-road wOBA (+.012 +/- .009) and the starters-only times-through-the-order OPS gap (`tto_ops_gap_starters`), which replaces `tto_ops_gap`.
+- **Switch-on per league** rather than at one league's rollover (section 7), and the generator's new batting-side mix also applies to future draft classes in existing leagues (DECISIONS.md, "As built").
+- **Tuned values that moved from the starting numbers in section 2** (the tuning order of section 3): contact intercepts 1.49 zone / 0.23 chase (1.94 / 0.68), two-strike term 0.20 (0.22), `foul_rate` 0.395 (0.385), `swing_eye_chase_logit` 0.039 (0.035), command slope 0.023 (0.02), `ibb_chance` 0.44 (0.35), `zone_target_base` 0.34 (default 0.36), and the run-level knobs `hr_scale` 0.93 and `babip_scale` 0.941 (defaults 0.925 / 0.925). The profile itself is `physics_sim/profiles/engine_5.json`.
+
+**Known shortfalls:**
+
+- **Scoring on league-like rosters.** The league fixture is 0.34 runs per team-game under the target (4.13; the gate floor is 4.22) because home runs run low (0.94 against 1.17), as it was before Release 5 (4.11 in section 1). The live-path sample lands about 0.2 under. Release 6 (Power read against the league) is the fix.
+- **An 80 Contact hitter strikes out about 4%, not the owner's 3%** (decision 1): about 2% of PA end in a called third strike on the edge whatever the hitter's Contact (`docs/future_work.md`).
+- **Home W%** reads .529 on calibration against the owner's .535, inside the pooled tolerance.
+- **The league fixture's late innings overshoot** (innings ratio .866, late and close -.033): its relievers are rated well above its starters. Read the late-inning measurements on the calibration fixture until the Release 7 regeneration.
+- **Live leagues see little of the Eye and Control spread** until the Release 7 re-spread; the slopes are right, the ratings are bunched.
+- **Catcher framing (about 5 runs a season per 10 points)** is an estimate from the size of the effect, not a measured season total.
+- **The matchup grid** was measured on one seed.
+- **The rule presets** (High Offense, Pitcher Friendly) were re-sized on one seed each and await the owner's confirmation.
