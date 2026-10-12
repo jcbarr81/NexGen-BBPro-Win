@@ -1457,10 +1457,84 @@ Built on branch `r5-platoon`, switched off; the switched-on values are in
   `_sample_normalized_pitcher`, and the dice ranges in `generate_player`).
   It goes in Release 7 with the data recentring (decision 6).
 - `playbalance/archetypes.py::infer_hitter_archetype` reads vl as
-  "discipline" (speed_disc needs vl >= 70), and
-  `player_development._HITTER_TRACKS` trains vl with Contact. Both predate
-  "vl is the personal platoon split" and want a look in Release 7.
+  "discipline" (speed_disc needs vl >= 70). It predates "vl is the personal
+  platoon split"; the archetype should read Eye. Release 7.
+- **Training contradicts the "Platoon vs L" label.**
+  `player_development._HITTER_TRACKS["contact"]` is `("ch", "vl", "pl")`, so
+  the "Barrel Control" track trains the two of those with the most room, and
+  vl is often one of them. The profile now
+  tells the owner vl is how a hitter handles left-handed pitching, and that
+  more of it gives a little back against right-handers; so a contact drill
+  quietly tilts a hitter toward left-handed pitching and costs him against
+  right-handers, and nothing on the training page says so. Not changed in
+  Release 5 (training is outside it). For Release 7: take vl out of the
+  track, or give the split its own track and say what it does.
 - At the Release 5b flip the lineup auto-fill starts reading the centred vl
   for the league fixture's own generation, so
   `test_committed_fixture_matches_the_current_generator` will ask for a
   regenerated fixture (or a pinned tuning) at that point.
+
+## Release 5 discipline, contact and situational: follow-ups (2026-10-12)
+
+Raised by the area builders and reviewers; none is fixed in Release 5. The
+switched-on values are in `scripts/kpi_profiles/r5_discipline.json`,
+`r5_contact.json`, `r5_discipline_contact.json` and `r5_situational.json`.
+
+- **The fresh-arm bonus reaches the pitch only.** `reliever_fresh_bonus` is
+  added to the control and movement `simulate_pitch` sees. It does not reach
+  the pitcher's share of the batter's eye (`eye_control_blend` in
+  `_batter_context`, which reads the raw control) or the wild-pitch and balk
+  rolls. Decide whether a fresh arm should also throw fewer wild pitches.
+- **A long reliever past nine batters gets the second-pass familiarity
+  weight with no fresh edge left.** `tto_pass2_weight` (4.5 in the profile)
+  applies to anyone's second trip through the order, and the fresh edge is
+  gone by the seventh batter. Check the size against MLB long relief before
+  the flip.
+- **The league fixture's relievers are rated well above its starters,** so
+  its late innings overshoot with the fresh edge on. The fixture is
+  regenerated with the Release 7 re-spread; until then read the late-inning
+  KPIs on the calibration fixture.
+- **An 80 Contact hitter strikes out about 4%, not the owner's 3%** (owner
+  decision 1). Under `umpire_model` 1 about 2% of PA end in a called third
+  strike whatever the hitter's Contact, and that floor sits under the
+  strikeouts the contact model does move. Closing it needs Contact (or Eye)
+  in the two-strike take on the edge, not a steeper contact slope.
+- **`batter_fatigue_eye_scale` has no effect in the KPI harness.** The
+  profile moves it 0.7 -> 0.25 and the harness numbers do not change, so the
+  retune is unmeasured. The cause was not run down; find it (or measure
+  through the live-path driver) before the flip.
+- **Malformed rows are read strictly only once the centred vl is on.** At
+  the defaults (kept byte-identical) a batting side that is not L, R or S
+  ("B", " l") still takes the platoon edge against both hands, and a stored
+  vl of 0 reads as 0 in the engine and as 50 in the lineup auto-fill. With
+  `platoon_vl_center_enabled` 1 the side is normalised and a blank or zero
+  vl is no personal split, in both. Leftovers: `BatterRatings.from_row` and
+  pitch physics (`physics._effective_batter_side`) do not strip the side,
+  so " l" still stands in the right-handed box for pitch location and hit
+  batters; and a pitcher's own blank vl is untouched (the plan says do not
+  fill pitcher vl). A data check at league load would retire all of it.
+- **No catcher is "average" for framing only.** `_catcher_context` still
+  hands steals, wild pitches and passed balls a flat 50 for a defence with
+  no catcher, which reads as below average in a league whose catcher centre
+  is above 50 (Release 4 behaviour, live today). Framing under
+  `umpire_model` 1 reads the centre instead (`engine._framing_fielding`).
+  A real nine always has a catcher (`build_defense_from_lineup` fills an
+  open position from whoever is left), so this only shows with a short
+  lineup.
+- **A live game is reproducible only under a fixed hash seed.**
+  `game_runner._apply_bullpen_usage_order` seeds the bullpen's tie-break
+  order from `hash((team_id, date, seed))`, and `hash()` of a string changes
+  with `PYTHONHASHSEED`; the staff order handed to the engine changes with
+  it, and so do some games (at least two of the six in
+  `tests/test_r5_live_path.py`, whose digests are pinned under
+  `PYTHONHASHSEED=0` and skipped otherwise). `parallel_day` sets it to 0
+  for its workers; the Dockerfile does not set it, so a parent process
+  started without it does not match them. Seed the order from a stable
+  digest (`zlib.crc32` or `hashlib`) instead. Older than Release 5.
+- **The hit-batter hand scales are a correction, not a mechanism.**
+  `hbp_same_hand_scale` 1.75 / `hbp_opposite_hand_scale` 0.57 put same-hand
+  batters at twice the opposite-hand rate with the total unchanged. The
+  cause is upstream: pitch targets are side-symmetric and break is added to
+  the aim point, so far-inside pitches are mostly glove-side. If Release 6
+  gives pitchers arm-side and glove-side aim, re-measure with both scales
+  at 1.0 (`hbp_same_over_opposite_hand` in the report-only KPIs).
