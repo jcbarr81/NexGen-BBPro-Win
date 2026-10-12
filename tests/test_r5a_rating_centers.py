@@ -483,6 +483,10 @@ def test_a_game_is_identical_whatever_the_new_keys_hold():
 # (swing_model, tests/test_r5_discipline.py): the swing decision reads eye
 # and, through the contact hook, contact against the league centre.
 READ_BY_R5_MODELS = {"hitter_eye_center", "hitter_contact_center"}
+# Contact (contact_model, tests/test_r5_contact.py): the contact roll reads
+# contact and the pitch-quality mix (control, movement, pitch grade) against
+# the league centres; the protect term and the BABIP edge read contact.
+READ_BY_R5_MODELS |= {"pitcher_movement_center", "pitcher_grade_center"}
 
 
 def test_no_engine_module_reads_the_new_keys():

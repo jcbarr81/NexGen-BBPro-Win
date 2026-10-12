@@ -2382,6 +2382,30 @@ def _p5_50_p95(values: list[float]) -> list[float]:
 # --matchup-grid-pa if cells are skipped.
 GRID_MIN_EVENTS = 20
 
+# The grid is its own league: the anchor cell (a 50 hitter against a pitcher
+# with control and movement 50 throwing GRID_PITCH_GRADE pitches to a
+# GRID_CATCHER_FIELDING catcher) is the league-average hitter, pitcher and
+# catcher. The Release 5 models read ratings against the league's centres
+# (contact_model: Contact and the pitch-quality mix; swing_model: Eye;
+# command_model: control; umpire_model: catcher fielding), so the grid pins
+# every centre to its own anchor. A fixture's centres would put the anchor
+# hitter and pitcher off average (calibration: Contact 48.8, pitch quality
+# 52.7), and so would a centre pinned in the profile. With the models off
+# nothing in a cell reads a centre that is not already 50. The K and HR
+# cells are right-handed batter against right-handed pitcher, so the
+# anchor strikes out a little more than the league (the same-hand penalty).
+GRID_PITCH_GRADE = 55.0
+GRID_CATCHER_FIELDING = 50.0
+GRID_RATING_CENTERS = {
+    "hitter_contact_center": 50.0,
+    "hitter_eye_center": 50.0,
+    "hitter_speed_center": 50.0,
+    "pitcher_control_center": 50.0,
+    "pitcher_movement_center": 50.0,
+    "pitcher_grade_center": GRID_PITCH_GRADE,
+    "catcher_fa_center": GRID_CATCHER_FIELDING,
+}
+
 
 def _logit(p: float) -> float:
     p = min(max(p, 1e-6), 1 - 1e-6)
@@ -2413,7 +2437,7 @@ def _simulate_cell(
         velocity=50.0, control=pitcher_level, movement=pitcher_level,
         gb_tendency=50.0, vs_left=50.0, hold_runner=50.0, endurance=50.0,
         durability=50.0, fielding=50.0, arm=50.0,
-        repertoire={"fb": 55.0, "sl": 55.0, "cu": 55.0, "cb": 55.0},
+        repertoire={pitch: GRID_PITCH_GRADE for pitch in ("fb", "sl", "cu", "cb")},
     )
     ctx_b = _batter_context(batter, pitcher, tuning, tto=1)
     # Mirrors the engine's per-PA pitcher context (fresh pitcher).
@@ -2425,7 +2449,7 @@ def _simulate_cell(
     context = {
         "inning": 1, "outs": 0, "score_diff": 0,
         "bases": {"first": False, "second": False, "third": False},
-        "catcher_fielding": 50.0, "batter_pitches_seen": 0,
+        "catcher_fielding": GRID_CATCHER_FIELDING, "batter_pitches_seen": 0,
         "batter_swing_rate": None, "batter_chase_rate": None,
         "last_pitch_type": None, "last_pitch_repeat": 0,
         "foul_territory_scale": 1.0,
@@ -2523,11 +2547,15 @@ def matchup_grid_metrics(
     split into swinging and looking (``_k_split_grid``) and a platoon grid,
     the HR rate against the opposite hand over the same hand by Power for
     each batting side (``_platoon_hr_grid``; 20 more cells).
+
+    Release 5: the rating centres are the grid's own (``GRID_RATING_CENTERS``),
+    whatever the overrides hold, so a 50 is the league-average rating under
+    the models that read ratings against a centre.
     """
     from physics_sim.config import load_tuning
     from physics_sim.park import load_park
 
-    tuning = load_tuning(tuning_overrides)
+    tuning = load_tuning({**(tuning_overrides or {}), **GRID_RATING_CENTERS})
     park = load_park(None)
     ph_pop, comp_pop = _population_levels(players_path)
     state = random.getstate()

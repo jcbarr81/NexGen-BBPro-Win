@@ -2968,6 +2968,24 @@ def _is_infield_single(
     return float(exit_velo if exit_velo is not None else 90.0) <= ev_max
 
 
+def _contact_babip_edge(batter: BatterRatings, tuning: TuningConfig) -> float:
+    """Contact's hit chance on a ball in play (Release 0 decision 4).
+
+    ``contact_babip_per10`` of hit probability per 10 points of Contact
+    above the league's average hitter, at most 25 points either way, added
+    to every ball in play that is not a home run. It reads the hitter's own
+    rating, not the handedness / times-through-the-order contact the pitch
+    sees, so a platoon edge does not become a second BABIP edge. The minimal
+    direct form; Release 6 replaces it with a batted-ball channel. 0.0 (the
+    default) = off.
+    """
+    per10 = tuning.get("contact_babip_per10", 0.0)
+    if not per10:
+        return 0.0
+    edge = batter.contact - tuning.get("hitter_contact_center", 50.0)
+    return per10 * max(-25.0, min(25.0, edge)) / 10.0
+
+
 def _hit_advance_log(
     runners_before: tuple[BatterRatings | None, ...],
     *,
@@ -6774,6 +6792,9 @@ def simulate_game(
                             batter_speed=batter.speed,
                         )
                         hit_prob = (1.0 - out_prob) * tuning.get("babip_scale", 1.0)
+                        babip_edge = _contact_babip_edge(batter, tuning)
+                        if babip_edge:
+                            hit_prob += babip_edge
                         hit_prob = max(0.02, min(0.95, hit_prob))
                         if rng.random() < hit_prob:
                             totals["h"] += 1

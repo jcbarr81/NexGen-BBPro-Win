@@ -707,6 +707,81 @@ def _swing_probability(
     )
 
 
+def _two_strike_zone_protect(
+    protect: float, *, contact: float, eye: float, tuning: TuningConfig
+) -> float:
+    """``swing_model`` 0: the chance a two-strike take of a zone pitch turns
+    into a "protect" swing, by hitter (plan 2.2).
+
+    ``protect`` is ``two_strike_zone_protect``; the hitter moves it in
+    log-odds, his contact (and, off by design, his eye) read against the
+    league's average hitter, so the better contact hitter takes fewer called
+    third strikes. Both slopes are 0.0 by default and ``protect`` comes back
+    untouched. Under ``swing_model`` 1 there is no protect roll and the same
+    term is ``swing_two_strike_contact_logit``.
+    """
+    shift = (contact - tuning.get("hitter_contact_center", 50.0)) * tuning.get(
+        "two_strike_protect_contact", 0.0
+    )
+    eye_slope = tuning.get("two_strike_protect_eye", 0.0)
+    if eye_slope:
+        shift += (eye - _swing_logit_table(tuning)[1]) * eye_slope
+    if not shift:
+        return protect
+    return _sigmoid(_logit(protect) + shift)
+
+
+def _contact_probability(
+    *,
+    contact: float,
+    pitch_quality: float,
+    break_mag: float,
+    velocity: float,
+    pitch_type: str,
+    in_zone: bool,
+    strikes: int,
+    tuning: TuningConfig,
+) -> float:
+    """``contact_model`` 1: the chance a swing meets the ball (plan 2.2).
+
+    One log-odds sum, so the hitter and the pitcher each move the odds by
+    the same factor whoever the other is (log5): there is no ceiling, no
+    separate whiff roll and no ``k_scale`` division. ``contact`` is the
+    batter's contact in context (handedness, platoon and times through the
+    order included) and ``pitch_quality`` the control / movement / pitch
+    grade composite the old roll used; both are read against the league's
+    averages. Break is in feet. The velocity term compares the pitch with
+    the reference speed of its own type and is off (0.0) until Release 6.
+    """
+    logit = (
+        tuning.get("contact_logit_zone", 1.74)
+        if in_zone
+        else tuning.get("contact_logit_chase", 0.48)
+    )
+    logit += (contact - tuning.get("hitter_contact_center", 50.0)) * tuning.get(
+        "contact_logit_ch", 0.09
+    )
+    quality_center = (
+        tuning.get("pitcher_control_center", 50.0) * 0.4
+        + tuning.get("pitcher_movement_center", 50.0) * 0.4
+        + tuning.get("pitcher_grade_center", 50.0) * 0.2
+    )
+    logit -= (pitch_quality - quality_center) * tuning.get("contact_logit_pq", 0.04)
+    logit -= break_mag * tuning.get("contact_logit_break", 0.4)
+    velocity_slope = tuning.get("contact_logit_velo", 0.0)
+    if velocity_slope:
+        reference = tuning.get("contact_velo_ref", 93.0)
+        offsets = tuning.values.get("pitch_type_velocity_offset") or {}
+        try:
+            reference += float(offsets.get(pitch_type, 0.0))
+        except (TypeError, ValueError):
+            pass
+        logit -= (velocity - reference) * velocity_slope
+    if strikes >= 2:
+        logit += tuning.get("contact_logit_two_strike", 0.22)
+    return _sigmoid(logit)
+
+
 def _umpire_even_distance(
     *, catcher_fielding: float, balls: int, strikes: int, tuning: TuningConfig
 ) -> float:
@@ -987,6 +1062,14 @@ def simulate_pitch(
                 if in_zone
                 else tuning.get("two_strike_chase_protect", 0.0)
             )
+            if in_zone and protect > 0:
+                # Release 5: the called third strike depends on Contact.
+                protect = _two_strike_zone_protect(
+                    protect,
+                    contact=batter.get("contact", 50.0),
+                    eye=eye,
+                    tuning=tuning,
+                )
             if protect > 0 and random.random() < protect:
                 swing = True
 
@@ -1021,41 +1104,58 @@ def simulate_pitch(
             )
         pitch_quality = control * 0.4 + movement * 0.4 + pitch_quality * 0.2
         pitch_quality *= tuning.get("pitching_dom_scale", 1.0)
-        whiff_prob = tuning.get("whiff_base", 0.05)
-        whiff_prob += max(0.0, (pitch_quality - 50.0) / 100.0) * tuning.get(
-            "whiff_quality_scale", 0.25
-        )
-        whiff_prob += max(0.0, (velocity - 90.0) / 20.0) * tuning.get(
-            "whiff_velocity_scale", 0.15
-        )
-        whiff_prob += min(1.0, break_mag / 0.4) * tuning.get(
-            "whiff_break_scale", 0.2
-        )
-        whiff_prob += min(1.0, loc_miss) * tuning.get("whiff_location_scale", 0.12)
-        if not in_zone:
-            whiff_prob *= tuning.get("whiff_chase_scale", 1.05)
-        whiff_prob = max(0.0, min(0.6, whiff_prob))
+        # Exit velocity reads contact_base (its pitcher part) under either
+        # contact model, so it is computed here whichever makes the roll.
         contact_base = batter.get("contact", 50.0) - (pitch_quality - 50.0) * 0.4
         contact_base -= break_mag * tuning.get("break_contact_penalty", 5.0)
-        contact_prob_scale = tuning.get("contact_prob_scale", 1.0)
-        contact_prob = min(
-            0.95,
-            max(0.05, (contact_base / 100.0) * contact_prob_scale),
-        )
-        if not in_zone:
-            contact_prob *= tuning.get("chase_contact_scale", 1.0)
-        contact_prob *= _count_modifier(
-            tuning.values.get("count_contact_scale"),
-            count_key=count_key,
-            default=1.0,
-        )
-        contact_prob /= max(0.1, tuning.get("k_scale", 1.0))
-        contact_prob = max(0.0, min(contact_prob, 1.0 - whiff_prob))
-        if random.random() < whiff_prob:
-            contact = False
+        if tuning.get("contact_model", 0.0) >= 1.0:
+            # Release 5: one log-odds roll, no ceiling and no whiff roll.
+            contact = random.random() < _contact_probability(
+                contact=batter.get("contact", 50.0),
+                pitch_quality=pitch_quality,
+                break_mag=break_mag,
+                velocity=velocity,
+                pitch_type=pitch_type,
+                in_zone=in_zone,
+                strikes=strikes,
+                tuning=tuning,
+            )
         else:
-            no_whiff = max(1e-6, 1.0 - whiff_prob)
-            contact = random.random() < (contact_prob / no_whiff)
+            whiff_prob = tuning.get("whiff_base", 0.05)
+            whiff_prob += max(0.0, (pitch_quality - 50.0) / 100.0) * tuning.get(
+                "whiff_quality_scale", 0.25
+            )
+            whiff_prob += max(0.0, (velocity - 90.0) / 20.0) * tuning.get(
+                "whiff_velocity_scale", 0.15
+            )
+            whiff_prob += min(1.0, break_mag / 0.4) * tuning.get(
+                "whiff_break_scale", 0.2
+            )
+            whiff_prob += min(1.0, loc_miss) * tuning.get(
+                "whiff_location_scale", 0.12
+            )
+            if not in_zone:
+                whiff_prob *= tuning.get("whiff_chase_scale", 1.05)
+            whiff_prob = max(0.0, min(0.6, whiff_prob))
+            contact_prob_scale = tuning.get("contact_prob_scale", 1.0)
+            contact_prob = min(
+                0.95,
+                max(0.05, (contact_base / 100.0) * contact_prob_scale),
+            )
+            if not in_zone:
+                contact_prob *= tuning.get("chase_contact_scale", 1.0)
+            contact_prob *= _count_modifier(
+                tuning.values.get("count_contact_scale"),
+                count_key=count_key,
+                default=1.0,
+            )
+            contact_prob /= max(0.1, tuning.get("k_scale", 1.0))
+            contact_prob = max(0.0, min(contact_prob, 1.0 - whiff_prob))
+            if random.random() < whiff_prob:
+                contact = False
+            else:
+                no_whiff = max(1e-6, 1.0 - whiff_prob)
+                contact = random.random() < (contact_prob / no_whiff)
         if contact:
             batter_contact = batter.get("contact", 50.0)
             difficulty = 0.0

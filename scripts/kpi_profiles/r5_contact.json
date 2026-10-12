@@ -1,0 +1,14 @@
+{
+  "foul_territory_scale": 0,
+  "contact_model": 1,
+  "contact_logit_zone": 1.74,
+  "contact_logit_chase": 0.48,
+  "contact_logit_ch": 0.09,
+  "contact_logit_pq": 0.04,
+  "contact_logit_break": 0.4,
+  "contact_logit_velo": 0.0,
+  "contact_logit_two_strike": 0.22,
+  "two_strike_protect_contact": 0.06,
+  "two_strike_protect_eye": 0.0,
+  "contact_babip_per10": 0.01
+}
