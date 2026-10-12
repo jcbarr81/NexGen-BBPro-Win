@@ -25,6 +25,7 @@ import hashlib
 import json
 import random
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -426,6 +427,73 @@ def test_engine_marks_the_home_side_for_every_plate_appearance(monkeypatch):
         for player_id, home, _tto in contexts:
             assert home is (player_id in sides["home"])
         assert {home for _pid, home, _tto in contexts} == {True, False}
+
+
+class _Captured(Exception):
+    pass
+
+
+def test_playoff_games_reach_the_engine_with_the_home_club_at_home(monkeypatch):
+    """Owner decision 3: the same edge in the playoffs.
+
+    A playoff game is the regular game runner flagged ``postseason``; it
+    hands the engine the home club as ``home_lineup`` and the stored tuning,
+    so the edge applies there exactly as in the regular season.
+    """
+    import physics_sim.data_loader as loader
+    import playbalance.game_runner as gr
+    import playbalance.playoffs as playoffs
+    from utils import league_settings as ls
+
+    playoff_sim = playoffs._default_simulate_game()
+    assert playoff_sim.func is gr.simulate_game_scores
+    assert playoff_sim.keywords == {"postseason": True}
+
+    batters = {f"B{i}": SimpleNamespace(player_id=f"B{i}") for i in range(18)}
+    arms = {f"P{i}": SimpleNamespace(player_id=f"P{i}") for i in range(2)}
+    monkeypatch.setattr(loader, "load_players_by_id", lambda path: (batters, arms))
+    monkeypatch.setattr(
+        gr, "get_physics_tuning_overrides", lambda: {"home_field_edge": 0.8}
+    )
+    monkeypatch.setattr(gr, "get_injury_tuning_overrides", lambda: {})
+    monkeypatch.setattr(gr, "get_rating_center_overrides", lambda: {})
+    monkeypatch.setattr(
+        ls, "load_league_settings", lambda path=None: {"extra_innings_runner": True}
+    )
+    seen = {}
+
+    def fake_simulate_game(**kwargs):
+        seen.update(kwargs)
+        raise _Captured
+
+    monkeypatch.setattr(engine, "simulate_game", fake_simulate_game)
+
+    def state(offset):
+        return SimpleNamespace(
+            lineup=[
+                SimpleNamespace(player_id=f"B{i + offset}", position="CF")
+                for i in range(9)
+            ],
+            bench=[],
+            pitchers=[
+                SimpleNamespace(
+                    player_id=f"P{offset // 9}", assigned_pitching_role="SP1"
+                )
+            ],
+            team=None,
+        )
+
+    with pytest.raises(_Captured):
+        gr._run_physics_game(
+            home_id="H", away_id="A", home_state=state(0), away_state=state(9),
+            players_file=str(CALIBRATION / "players.csv"), roster_dir="rosters",
+            seed=1, date_token=None, tracker=None, players_lookup={},
+            persist_stats=False, postseason=True,
+        )
+    assert seen["postseason"] is True
+    assert [b.player_id for b in seen["home_lineup"]] == [f"B{i}" for i in range(9)]
+    assert [b.player_id for b in seen["away_lineup"]] == [f"B{i}" for i in range(9, 18)]
+    assert seen["tuning_overrides"]["home_field_edge"] == 0.8
 
 
 # --- times through the order ---------------------------------------------------
