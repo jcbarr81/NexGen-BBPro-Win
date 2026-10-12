@@ -145,6 +145,7 @@ chase_swing_rate_3_0,0.0362,0,statcast_counts_2023.csv chase_rate
 chase_swing_rate_3_1,0.2580,0,statcast_counts_2023.csv chase_rate
 chase_swing_rate_3_2,0.4493,0,statcast_counts_2023.csv chase_rate
 hbp_in_zone_share,0,0,"rule 5.05(b)(2): a pitch in the strike zone that touches the batter is a strike, not a hit batter (Release 5 plan 2.1); report-only"
+hbp_same_over_opposite_hand,2.0,1,"tuning target from the Release 5 review, not from a committed MLB file: same-hand batters (RvR, LvL) are hit about twice as often per batter faced as opposite-hand ones (switch hitters count as opposite); report-only"
 bb_pct_per10_eye,2.5,1,"gate target, not an MLB value: hitter BB% should rise 2.3-2.8 points per 10 Eye (Release 5 plan section 4); report-only"
 bb_pct_per10_control,-1.35,1,"gate target, not an MLB value: pitcher BB% should fall 1.2-1.5 points per 10 Control (Release 5 plan section 4); report-only"
 home_minus_away_woba,0.011,1,"tuning target: home wOBA minus away wOBA about +.011 (Release 5 plan 2.4); pool seeds before reading"

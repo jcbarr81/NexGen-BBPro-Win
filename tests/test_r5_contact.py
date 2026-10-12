@@ -211,21 +211,27 @@ WILD_OFF = {
     "pitcher_movement_center": 20.0,
     "pitcher_grade_center": 90.0,
 }
-# The plate-discipline profile's games, captured on the plate-discipline
-# branch (a7fedea0e) before any contact code was written: with only that
-# profile on, this branch must still play them. Same recipe as
-# PINNED_DIGESTS. RE-BASELINE only when plate discipline changes on purpose.
+# The plate-discipline profile's games, computed on the plate-discipline
+# branch (a7fedea0e, exported with git archive; its own r5_discipline.json)
+# where no contact code exists: with only that profile on, this branch must
+# still play them. Same recipe as PINNED_DIGESTS (full-precision floats).
+# RE-BASELINE only when plate discipline changes on purpose.
+#
+# The profile has since gained the hit-batter hand scales (same-hand batters
+# hit about twice as often as opposite-hand ones); HBP_LOCATION_ALONE sets
+# them back to 1.0, which is the profile these digests were taken with.
+HBP_LOCATION_ALONE = {"hbp_same_hand_scale": 1.0, "hbp_opposite_hand_scale": 1.0}
 DISCIPLINE_DIGESTS = {
     ("calibration", "CAL01", "CAL02", 1):
-        "7cb4294918e09edbcaa732767332cb79febb8d4abab8e0f218540b07064ce64d",
+        "7a9ef462c73f4efd9cd0d7e6bcd285495a6e4dfee17e801aabccfc1857eebe6e",
     ("calibration", "CAL01", "CAL02", 2):
-        "633bde769bab880e142fa5a9770a2accc3df0d96559f17be6fa98194b1b6a610",
+        "d14e53917e70e037a17d931be5b51579304fa7084d7bf6fe121c6debbbedc92f",
     ("calibration", "CAL07", "CAL12", 5):
-        "6d98283e48ef0bdf1f5bb51aea8d0d72b46d43662da236f30330af5819896f27",
+        "76fd80fd7c9eab837f64ba11cba1d2bd4ac89fb50ed9b2299e908691acc071fc",
     ("calibration_league", "ALB", "DET", 1):
-        "b0a2c0679e3f52cbffb7c7aeb9c4cc445a9f41cd6e0681a2c7edaa4998d21a1b",
+        "0ea54964123395677bc701eb22a1857890fcd82485c549cde5b26db1b7dbf9fb",
     ("calibration_league", "ALB", "DET", 2):
-        "de1824e1ac87328ca97576c276c5a1579c266cb15737df8e223ac6d98f2c2832",
+        "c977e4136cf516e24e81e17947423231caa50e07cdcf0690efbf65d32ba68ac5",
 }
 IDENTITY_GAMES = (
     ("calibration", "CAL01", "CAL02", 2, None),
@@ -239,9 +245,17 @@ def test_switched_off_the_game_is_the_pinned_game_whatever_the_knobs_hold():
 
 
 def test_discipline_profile_alone_still_plays_the_discipline_branch_games():
-    profile = kpis.load_tuning_overrides_file(DISCIPLINE_PROFILE)
+    tuned = kpis.load_tuning_overrides_file(DISCIPLINE_PROFILE)
+    profile = {**tuned, **HBP_LOCATION_ALONE}
     got = {key: _digest(_play(*key, profile)) for key in DISCIPLINE_DIGESTS}
     assert got == DISCIPLINE_DIGESTS, f"got {got}"
+    # The hand scales are the only thing the profile has changed since, and
+    # they do change who is hit.
+    assert set(HBP_LOCATION_ALONE) <= set(tuned)
+    assert any(
+        _digest(_play(*key, tuned)) != digest
+        for key, digest in DISCIPLINE_DIGESTS.items()
+    )
     # ... and, under swing_model 1, whatever the switched-off knobs hold
     # (the hook is this area's, so it is spelled out as off).
     key = ("calibration", "CAL01", "CAL02", 2)
@@ -272,7 +286,9 @@ def test_each_switch_changes_the_game(overrides):
 
 
 def test_the_hook_changes_the_game_under_the_discipline_profile():
-    profile = kpis.load_tuning_overrides_file(DISCIPLINE_PROFILE)
+    profile = {
+        **kpis.load_tuning_overrides_file(DISCIPLINE_PROFILE), **HBP_LOCATION_ALONE
+    }
     hooked = {**profile, "swing_two_strike_contact_logit": 0.06}
     assert any(
         _digest(_play(*key, hooked)) != digest

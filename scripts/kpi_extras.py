@@ -2010,6 +2010,26 @@ class ReportOnlyKpis:
         metrics["rhb_share_of_pa_vs_lhp"] = _ratio(vs_lhp["R"], sum(vs_lhp.values()))
         tables["platoon_rates"] = {"same": same, "opposite": opp, "pa_vs_lhp": vs_lhp}
 
+        # Hit batters by matchup hand, per batter faced (every PA result).
+        # A switch hitter bats from the opposite side, so he counts there.
+        # MLB hits the same-hand batter about twice as often.
+        hbp_hand = {}
+        for name, keys in (
+            ("same", ("LL", "RR")), ("opposite", ("LR", "RL", "SL", "SR"))
+        ):
+            counts = bucket(*keys)
+            faced = sum(counts.values())
+            hbp_hand[name] = {
+                "bf": faced, "hbp": counts["hbp"],
+                "hbp_per_bf": _ratio(counts["hbp"], faced),
+            }
+        same_rate = hbp_hand["same"]["hbp_per_bf"]
+        opp_rate = hbp_hand["opposite"]["hbp_per_bf"]
+        metrics["hbp_same_over_opposite_hand"] = (
+            same_rate / opp_rate if same_rate is not None and opp_rate else None
+        )
+        tables["hbp_by_matchup_hand"] = hbp_hand
+
         # Situations (M19, L5): walks late and close and with first base
         # occupied, intentional walks, the home side and the fresh reliever.
         logged = bool(self.logged_games)

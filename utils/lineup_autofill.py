@@ -250,14 +250,14 @@ def _platoon_shift(
     player: object, vs_hand: str, tuning: object | None
 ) -> tuple[float, float]:
     """The engine's ``(h, d_hand)`` for a ``players.csv`` player against a
-    pitcher hand (``physics_sim.platoon``); a blank ``vl`` reads as 50."""
+    pitcher hand (``physics_sim.platoon``). A blank or zero ``vl`` reads as
+    50, or as no personal split once the centred ``vl`` is switched on."""
 
     # Imported here: the engine imports this module.
-    from physics_sim.platoon import platoon_shift_values
+    from physics_sim.platoon import platoon_shift_row
 
     hand = "L" if str(vs_hand or "R").upper().startswith("L") else "R"
-    vl = float(getattr(player, "vl", 50) or 50)
-    return platoon_shift_values(getattr(player, "bats", ""), vl, hand, tuning)
+    return platoon_shift_row(player, hand, tuning)
 
 
 def lineup_hitter_score(

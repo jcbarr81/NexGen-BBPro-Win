@@ -7,6 +7,19 @@ from typing import Dict, List, Optional
 PITCH_KEYS = ["fb", "sl", "si", "cb", "cu", "scb", "kn"]
 
 
+def known_vl(value: object) -> Optional[float]:
+    """A stored ``vl`` as a rating, or ``None`` when there is none.
+
+    Blank, not a number, or zero (``models.player.Player`` defaults a
+    missing ``vl`` to 0) all mean the player has no vs-left rating.
+    """
+    try:
+        rating = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return rating if rating > 0.0 else None
+
+
 @dataclass
 class BatterRatings:
     player_id: str
@@ -26,6 +39,11 @@ class BatterRatings:
     durability: float
     zone_bottom: Optional[float] = None
     zone_top: Optional[float] = None
+    # False when the row's ``vl`` was blank, not a number or zero, so
+    # ``vs_left`` is the 50.0 (or 0.0) placeholder rather than a rating. Only
+    # the centred vl reads it (``physics_sim.platoon``): such a hitter has
+    # no personal split.
+    vs_left_known: bool = True
 
     @classmethod
     def from_row(cls, row: Dict[str, str]) -> "BatterRatings":
@@ -73,6 +91,7 @@ class BatterRatings:
             durability=f("durability", 50.0),
             zone_bottom=opt_float("zone_bottom"),
             zone_top=opt_float("zone_top"),
+            vs_left_known=known_vl(row.get("vl")) is not None,
         )
 
 
