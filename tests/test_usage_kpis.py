@@ -70,6 +70,94 @@ def test_harness_schedule_is_the_dense_league_template():
     assert 180 <= span <= 196
 
 
+# Release 5: the schedules the calibration baselines and CI gates were measured
+# on -- sha256 of the rows (compact JSON, sorted keys) generated for each
+# fixture's clubs at the commit before home games were balanced.
+BASELINE_SCHEDULE_SHA256 = {
+    "data/calibration": (
+        "d9729ff332bd0540f7b7879350797b2f1cdc7e8223c098f214d70f1bb0c30b4b"
+    ),
+    "data/calibration_league": (
+        "d57fea2c301de11de05142b430389d8513cb5d84aa4c8ca8a3593639dcd85536"
+    ),
+}
+
+
+def _schedule_sha256(schedule):
+    import hashlib
+    import json
+
+    rows = json.dumps(schedule, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(rows.encode("utf-8")).hexdigest()
+
+
+def _dates_and_opponents(schedule):
+    return sorted(
+        (g["date"], *sorted((g["home"], g["away"]))) for g in schedule
+    )
+
+
+@pytest.mark.parametrize("fixture", sorted(BASELINE_SCHEDULE_SHA256))
+def test_harness_default_schedule_is_the_one_the_baselines_were_measured_on(
+    fixture,
+):
+    """A different schedule re-rolls every game, so the default must stay
+    byte-identical; ``--balanced-schedule`` is the only way to change it."""
+    teams = kpis._team_ids(Path(fixture) / "teams.csv")
+    schedule = kpis._season_schedule(teams, 162)
+    assert _schedule_sha256(schedule) == BASELINE_SCHEDULE_SHA256[fixture]
+    assert kpis._season_schedule(teams, 162, balanced=False) == schedule
+    home = Counter(g["home"] for g in schedule)
+    assert (min(home.values()), max(home.values())) == (75, 87)
+
+
+@pytest.mark.parametrize("fixture", sorted(BASELINE_SCHEDULE_SHA256))
+def test_balanced_harness_schedule_gives_every_club_81_home_games(fixture):
+    teams = kpis._team_ids(Path(fixture) / "teams.csv")
+    default = kpis._season_schedule(teams, 162)
+    balanced = kpis._season_schedule(teams, 162, balanced=True)
+    assert set(Counter(g["home"] for g in balanced).values()) == {81}
+    assert set(Counter(g["away"] for g in balanced).values()) == {81}
+    assert balanced != default
+    assert _dates_and_opponents(balanced) == _dates_and_opponents(default)
+    assert kpis._season_schedule(teams, 162, balanced=True) == balanced
+
+
+@pytest.mark.parametrize(
+    "argv, expected", [([], False), (["--balanced-schedule"], True)]
+)
+def test_balanced_schedule_flag_reaches_the_schedule(
+    monkeypatch, argv, expected
+):
+    import sys
+
+    class Stop(Exception):
+        pass
+
+    seen = []
+
+    def fake_schedule(teams, games_per_team, balanced=False):
+        seen.append(balanced)
+        raise Stop
+
+    monkeypatch.setattr(kpis, "_season_schedule", fake_schedule)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "physics_sim_season_kpis.py",
+            "--base-dir",
+            str(CAL),
+            "--players",
+            str(CAL / "players.csv"),
+            *argv,
+        ],
+    )
+    with pytest.raises(Stop):
+        kpis.main()
+    assert seen == [expected]
+
+
 def test_usage_metrics_zero_denominator_none():
     m = kpis._usage_metrics(Counter(), {}, {}, games=0, games_per_team=0)
     for k in USAGE_KEYS:

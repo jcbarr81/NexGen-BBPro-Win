@@ -1052,10 +1052,20 @@ def _usage_metrics(
     return metrics
 
 
-def _season_schedule(teams: list[str], games_per_team: int) -> list[dict[str, str]]:
+def _season_schedule(
+    teams: list[str], games_per_team: int, balanced: bool = False
+) -> list[dict[str, str]]:
     """The harness season: the layout new leagues get from the ``mlb_162``
     template (owner decision Q4: MLB-dense), from 2025-04-01. Rest is counted
-    in calendar days, so the harness must see the off days owners see."""
+    in calendar days, so the harness must see the off days owners see.
+
+    ``balanced`` (``--balanced-schedule``) gives every club the same number
+    of home games, as new leagues get from Release 5 on. It is off by default
+    because every calibration baseline and CI gate was measured on the
+    schedule from before that, where a club's place in the team list decided
+    its home games (75 to 87 of 162 on the 30-team fixture); the dates and
+    opponents are the same either way, but a different host re-rolls the
+    game."""
     layout: dict[str, object] = {}
     try:
         from services.league_presets import get_schedule_template
@@ -1070,7 +1080,13 @@ def _season_schedule(teams: list[str], games_per_team: int) -> list[dict[str, st
             "extra_off_every_n_rounds": template.extra_off_every_n_rounds,
             "series_off_day": template.series_off_day,
         }
-    return generate_mlb_schedule(teams, date(2025, 4, 1), games_per_team, **layout)
+    return generate_mlb_schedule(
+        teams,
+        date(2025, 4, 1),
+        games_per_team,
+        balance_home_games=balanced,
+        **layout,
+    )
 
 
 def _is_barrel(exit_velo: float, launch_angle: float) -> bool:
@@ -1409,11 +1425,12 @@ def run_sim(
     players_path: Path,
     tuning_overrides: dict[str, Any] | None = None,
     base_dir: Path | None = None,
+    balanced_schedule: bool = False,
 ) -> dict[str, object]:
     teams_csv = (Path(base_dir) / "teams.csv") if base_dir is not None else None
     teams = _team_ids(teams_csv)
     parks_by_team = _team_parks(teams_csv)
-    schedule = _season_schedule(teams, games_per_team)
+    schedule = _season_schedule(teams, games_per_team, balanced_schedule)
     # Release 4 (decision 2): the engine reads speed and the battery against
     # the league's ACT means, which a live league gets from
     # services.league_rating_centers.
@@ -1945,6 +1962,16 @@ def _report_only_block(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--games", type=int, default=162)
+    parser.add_argument(
+        "--balanced-schedule",
+        action="store_true",
+        help=(
+            "Give every club the same number of home games, as new leagues "
+            "get. Off by default: the calibration baselines and CI gates "
+            "were measured on the schedule from before that, and a different "
+            "host re-rolls every game."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--players", type=Path, default=_default_players_path())
     parser.add_argument("--output", type=Path, default=None)
@@ -2033,7 +2060,10 @@ def main() -> None:
             parser.error(str(exc))
     if args.disable_park_factors:
         tuning_overrides = {**(tuning_overrides or {}), "park_factor_scale": 0.0}
-    summary = run_sim(args.games, args.seed, players_path, tuning_overrides, base_dir)
+    summary = run_sim(
+        args.games, args.seed, players_path, tuning_overrides, base_dir,
+        balanced_schedule=args.balanced_schedule,
+    )
     report_only = summary["report_only"]
     if args.matchup_grid_pa > 0:
         started = time.perf_counter()
