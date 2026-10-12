@@ -344,8 +344,9 @@ ENGINE_GATES: dict[int, dict[str, Any]] = {
         "tolerances": {
             "platoon_gap_woba": 0.006,
             # Wider than the all-pitcher gap's .025: starters only is fewer
-            # plate appearances (calibration seeds 1-18: .035-.068, sd .010).
-            "tto_ops_gap_starters": 0.035,
+            # plate appearances, and one season's value moves a lot (18
+            # calibration seasons: mean .046, range .014-.083).
+            "tto_ops_gap_starters": 0.045,
             "ibb_per_pa": 0.001,
             # 18 calibration seasons: mean .011, sd .0027; 6 league: .015.
             "home_minus_away_woba": 0.009,

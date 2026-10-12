@@ -59,13 +59,13 @@
   "home_field_power_ratio": 0.6,
   "tto_pass2_weight": 4.5,
   "tto_pass3_weight": 2.0,
-  "babip_scale": 0.925,
+  "babip_scale": 0.92,
   "handedness_contact_bonus": 1.8,
   "handedness_eye_bonus": 1.3,
   "handedness_power_bonus": 1.95,
   "hbp_opposite_hand_scale": 0.57,
   "hbp_same_hand_scale": 1.75,
-  "hr_scale": 0.912,
+  "hr_scale": 0.91,
   "swing_count_table": {
     "0-0": {
       "zone": 0.444,
