@@ -26,6 +26,7 @@ from .fielding import (
     select_error_type,
 )
 from .park import load_park, Park
+from .platoon import platoon_shift
 from .physics import (
     simulate_pitch,
     resolve_batted_ball,
@@ -911,12 +912,12 @@ def _matchup_score(
     score = 0.0
     for batter in upcoming_batters:
         batter_hand = (batter.bats or "R").upper()
+        # The batter's handedness advantage is the pitcher's disadvantage.
+        score -= platoon_shift(batter, pitcher_hand, tuning)[0]
         if batter_hand == "S":
-            score -= 0.5
             effective_side = "L" if pitcher_hand == "R" else "R"
         else:
             effective_side = batter_hand
-            score += 1.0 if batter_hand == pitcher_hand else -1.0
         if effective_side == "L":
             score += (pitcher_state.pitcher.vs_left - 50.0) / 25.0
     return score
@@ -3994,34 +3995,22 @@ def _lineup_index(lineup: List[BatterRatings], player_id: str) -> int | None:
     return None
 
 
-# Share of league PA that come against LHP is ~26%; the vs-RHP counter-shift is
-# scaled by 0.26/0.74 ≈ 0.35 so a batter's season-weighted platoon effect from
-# vs_left is ~neutral: 0.74*(-0.35*d) + 0.26*(d) ≈ 0.
-PLATOON_RHP_COUNTER_SCALE = 0.35
+def _platoon_bonus(
+    batter: BatterRatings, pitcher: PitcherRatings, tuning: TuningConfig | None = None
+) -> float:
+    """The platoon shift on the offence score below: the handedness advantage
+    and the hitter's own vl split (``platoon_shift``), in rating points."""
+    h, vl_delta = platoon_shift(batter, pitcher.throws, tuning)
+    return 2.0 * h + 0.2275 * vl_delta
 
 
-def _platoon_vl_delta(batter: BatterRatings, pitcher_hand: str) -> float:
-    """Signed vs-hand rating delta derived from the single vs_left rating."""
-    d = batter.vs_left - 50.0
-    if (pitcher_hand or "R").upper() == "L":
-        return d
-    return -PLATOON_RHP_COUNTER_SCALE * d
-
-
-def _platoon_bonus(batter: BatterRatings, pitcher: PitcherRatings) -> float:
-    hand = (pitcher.throws or "R").upper()
-    bats = (batter.bats or "R").upper()
-    if bats == "S":
-        h = 0.5  # mirrors handedness_switch_bonus default
-    elif bats == hand:
-        h = -1.0
-    else:
-        h = 1.0
-    return 2.0 * h + 0.2275 * _platoon_vl_delta(batter, hand)
-
-
-def _batter_offense_score(batter: BatterRatings, pitcher: PitcherRatings) -> float:
-    return batter.contact * 0.55 + batter.power * 0.45 + _platoon_bonus(batter, pitcher)
+def _batter_offense_score(
+    batter: BatterRatings, pitcher: PitcherRatings, tuning: TuningConfig | None = None
+) -> float:
+    return (
+        batter.contact * 0.55 + batter.power * 0.45
+        + _platoon_bonus(batter, pitcher, tuning)
+    )
 
 
 def _available_bench(lineup_state: LineupState) -> List[BatterRatings]:
@@ -4212,12 +4201,12 @@ def _select_pinch_hitter(
     oop_penalty = tuning.get("pinch_hit_oop_penalty", 8.0)
 
     def ph_score(candidate: BatterRatings) -> float:
-        score = _batter_offense_score(candidate, pitcher)
+        score = _batter_offense_score(candidate, pitcher, tuning)
         if defense_matters and not _can_play(candidate, vacated_pos):
             score -= oop_penalty
         return score
 
-    current_score = _batter_offense_score(batter, pitcher)
+    current_score = _batter_offense_score(batter, pitcher, tuning)
     best = max(candidates, key=ph_score)
     if ph_score(best) - current_score < tuning.get("pinch_hit_advantage_min", 6.0):
         return None
@@ -4362,7 +4351,7 @@ def _should_intentional_walk(
     close_diff = tuning.get("ibb_close_run_diff", 2.0)
     if abs(score_diff) > close_diff:
         return False
-    threat = _batter_offense_score(batter, pitcher)
+    threat = _batter_offense_score(batter, pitcher, tuning)
     if threat < tuning.get("ibb_batter_threshold", 65.0):
         return False
     return random.random() < tuning.get("ibb_chance", 0.35)
@@ -4793,14 +4782,6 @@ def _maybe_pitcher_overuse_injury(
     return True
 
 
-def _handedness_advantage(batter_hand: str, pitcher_hand: str, tuning: TuningConfig) -> float:
-    if batter_hand == "S":
-        return tuning.get("handedness_switch_bonus", 0.5)
-    if batter_hand == pitcher_hand:
-        return -1.0
-    return 1.0
-
-
 def _batter_context(
     batter: BatterRatings, pitcher: PitcherRatings, tuning: TuningConfig,
     *, tto: int = 1,
@@ -4810,7 +4791,7 @@ def _batter_context(
     eye = batter.eye * 0.8 + (100.0 - pitcher.control) * 0.2
     contact = batter.contact
     power = batter.power
-    handedness = _handedness_advantage(batter_hand, pitcher_hand, tuning)
+    handedness, vs_left_diff = platoon_shift(batter, pitcher_hand, tuning)
     contact += handedness * tuning.get("handedness_contact_bonus", 2.0)
     power += handedness * tuning.get("handedness_power_bonus", 2.0)
     eye += handedness * tuning.get("handedness_eye_bonus", 2.0)
@@ -4823,7 +4804,6 @@ def _batter_context(
         eye += tto_extra * tuning.get("tto_eye_bonus", 0.0)
         power += tto_extra * tuning.get("tto_power_bonus", 0.0)
     platoon_chase = 0.0
-    vs_left_diff = _platoon_vl_delta(batter, pitcher_hand)
     contact += vs_left_diff * tuning.get("platoon_contact_scale", 0.25)
     power += vs_left_diff * tuning.get("platoon_power_scale", 0.2)
     eye += vs_left_diff * tuning.get("platoon_eye_scale", 0.3)
@@ -4835,6 +4815,7 @@ def _batter_context(
     return {
         "contact": contact,
         "power": power,
+        "power_base": batter.power,
         "gb_tendency": batter.gb_tendency,
         "pull_tendency": batter.pull_tendency,
         "eye": eye,
@@ -5058,9 +5039,13 @@ def simulate_matchup_from_files(
     return result
 
 
-def _rest_bench_value(b: BatterRatings, opposing_starter: PitcherRatings | None) -> float:
+def _rest_bench_value(
+    b: BatterRatings,
+    opposing_starter: PitcherRatings | None,
+    tuning: TuningConfig | None = None,
+) -> float:
     if opposing_starter is not None:
-        return _batter_offense_score(b, opposing_starter)
+        return _batter_offense_score(b, opposing_starter, tuning)
     return b.contact * 0.55 + b.power * 0.45
 
 
@@ -5105,7 +5090,7 @@ def _best_rest_replacement(
     )
     if not candidates:
         return None
-    return max(candidates, key=lambda b: _rest_bench_value(b, opposing_starter))
+    return max(candidates, key=lambda b: _rest_bench_value(b, opposing_starter, tuning))
 
 
 def _chain_rest_replacement(
@@ -5164,7 +5149,10 @@ def _rest_swap(
         )
         if filler is not None:
             options.append(
-                (_rest_bench_value(filler, opposing_starter), filler.player_id, mate, filler, spot)
+                (
+                    _rest_bench_value(filler, opposing_starter, tuning),
+                    filler.player_id, mate, filler, spot,
+                )
             )
     if not options:
         return None
@@ -5196,7 +5184,7 @@ def _similar_rest_replacement(
     )
     if not candidates:
         return None
-    return max(candidates, key=lambda b: _rest_bench_value(b, opposing_starter))
+    return max(candidates, key=lambda b: _rest_bench_value(b, opposing_starter, tuning))
 
 
 def _apply_rest_days(

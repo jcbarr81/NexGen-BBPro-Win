@@ -66,6 +66,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  InfoTip,
   Input,
 } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -353,6 +354,7 @@ function RatingsRow({ profile }: { profile: PlayerProfile }) {
       <RatingsCard
         title={profile.is_pitcher ? "Pitching" : "Hitting"}
         rows={profile.overview_ratings}
+        help={profile.rating_help}
       />
       <RatingsCard title="Defense" rows={profile.defense_ratings} />
     </div>
@@ -363,10 +365,13 @@ function RatingsCard({
   title,
   rows,
   emphasize = false,
+  help,
 }: {
   title: string;
   rows: Array<[string, string]>;
   emphasize?: boolean;
+  /** Rating label -> help text, shown as a tip beside the label. */
+  help?: Record<string, string>;
 }) {
   return (
     <Card>
@@ -385,7 +390,10 @@ function RatingsCard({
                 key={`${label}-${i}`}
                 className="flex items-center justify-between px-6 py-2 text-sm"
               >
-                <dt className="text-muted">{label}</dt>
+                <dt className="flex items-center gap-1.5 text-muted">
+                  {label}
+                  {help?.[label] && <InfoTip tip={help[label]} />}
+                </dt>
                 <dd
                   className={cn(
                     "tabular-nums",

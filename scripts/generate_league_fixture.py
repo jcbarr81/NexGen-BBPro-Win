@@ -288,6 +288,14 @@ def build_league(work_dir: Path, *, seed: int, teams: int, as_of: date,
                 _with_speed_tiers(player_generator),
             )
         )
+        # Release 5 moved the generator's batting-side mix to MLB's
+        # (decision 7). The committed fixture is not regenerated until
+        # Release 7, so it keeps the mix it was built with.
+        stack.enter_context(
+            mock.patch.object(
+                player_generator, "BATS_THROWS", player_generator.BATS_THROWS_PRE_R5
+            )
+        )
 
         random.seed(seed)
         league_creator.create_league(

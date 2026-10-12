@@ -645,6 +645,45 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "platoon_chase_scale": 0.0015,
     "platoon_pitcher_scale": 0.25,
     "bullpen_platoon_weight": 2.0,
+    # Release 5 (audit H7; decisions 6-7; Release 5 owner decision 5), all
+    # read through physics_sim.platoon.platoon_shift. The values here are the
+    # ones the engine hard-coded before, so the defaults change nothing; the
+    # switched-on values live in scripts/kpi_profiles/r5_platoon.json.
+    #
+    # The handedness bonus by batting side: a left-handed batter's is
+    # handedness_lhb_scale (a_L) times the three handedness_*_bonus knobs, a
+    # right-handed batter's a_L * clamp((1 - w) * handedness_rhb_scale
+    # + w * rho + handedness_balance_bias, _min, _max). rho is the ratio that
+    # makes LHP and RHP equal for the league's own mix of batting sides
+    # (hitter_bats_share_*; unknown shares read as w = 0) and w is
+    # handedness_balance_strength: 0 = a fixed right-handed split, 1 = LHP
+    # and RHP equal in every league. A switch hitter takes
+    # handedness_switch_bonus (above) times the bonus of the side he bats
+    # from.
+    "handedness_lhb_scale": 1.0,
+    "handedness_rhb_scale": 1.0,
+    "handedness_balance_strength": 0.0,
+    "handedness_balance_bias": 0.0,
+    "handedness_balance_min": 0.35,
+    "handedness_balance_max": 1.0,
+    # A hitter's vl shifts his ratings by (vl - centre) against a LHP and by
+    # the opposite sign times this against a RHP. About 26% of PA come
+    # against LHP, and 0.26 / 0.74 = 0.35 keeps the season-weighted effect of
+    # vl near zero: 0.74 * (-0.35 * d) + 0.26 * d = 0.
+    "platoon_rhp_counter_scale": 0.35,
+    # 1 = read vl against the league's own mean for the hitter's batting side
+    # (hitter_vl_center_l/_r/_s below) instead of 50, so vl is the hitter's
+    # personal split and a by-bats tilt in a league's data adds nothing to the
+    # handedness bonus (decision 6).
+    "platoon_vl_center_enabled": 0.0,
+    # 1 = the situational Power bonuses (handedness, vl, times through the
+    # order) no longer pass through the bat-speed knee, where a point is
+    # worth 0.15 mph below bat_speed_power_knee and 0.95 above it. Bat speed
+    # reads the hitter's own Power on the curve and adds
+    # platoon_bat_speed_per_point mph per bonus point; barrel accuracy still
+    # reads Power plus the bonus, pitch selection Power without it.
+    "platoon_power_after_knee": 0.0,
+    "platoon_bat_speed_per_point": 0.35,
     "pitch_seq_fastball_bias": 1.0,
     "pitch_seq_breaking_bias": 1.0,
     "pitch_seq_offspeed_bias": 1.0,
@@ -724,7 +763,9 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "hitter_vl_center_r": 50.0,
     "hitter_vl_center_s": 50.0,
     # The share of ACT hitters batting left / right / switch (sum 1.0).
-    # 0 / 0 / 0, the default, means "unknown".
+    # 0 / 0 / 0, the default, means "unknown". Release 5:
+    # physics_sim.platoon reads these (handedness_balance_strength) and the
+    # three vl centres above (platoon_vl_center_enabled), both off by default.
     "hitter_bats_share_l": 0.0,
     "hitter_bats_share_r": 0.0,
     "hitter_bats_share_s": 0.0,

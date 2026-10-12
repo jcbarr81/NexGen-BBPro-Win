@@ -1552,6 +1552,15 @@ def assign_facial_hair(ethnicity: str, age: int) -> str:
     return random.choices(list(weights.keys()), weights=weights.values())[0]
 
 
+# (bats, throws, weight) by primary position.
+#
+# Release 5 (audit decision 7; Release 5 owner decision 11): catchers and
+# second basemen, third basemen and shortstops -- who all throw right -- bat
+# 60 / 27 / 13 right / left / switch, MLB's mix. It was 75 / 15 / 10, which
+# left a generated league short of left-handed bats, so its left-handed
+# pitchers faced mostly opposite-hand hitters and ran about 0.4 runs per nine
+# worse than right-handers with the same ratings. Applies to every player
+# generated from now on; nobody already in a league changes sides.
 BATS_THROWS: Dict[str, List[Tuple[str, str, int]]] = {
     "P": [
         ("R", "L", 1),
@@ -1563,11 +1572,11 @@ BATS_THROWS: Dict[str, List[Tuple[str, str, int]]] = {
     ],
     "C": [
         ("R", "L", 0),
-        ("R", "R", 75),
+        ("R", "R", 60),
         ("L", "L", 0),
-        ("L", "R", 15),
+        ("L", "R", 27),
         ("S", "L", 0),
-        ("S", "R", 10),
+        ("S", "R", 13),
     ],
     "1B": [
         ("R", "L", 1),
@@ -1579,27 +1588,27 @@ BATS_THROWS: Dict[str, List[Tuple[str, str, int]]] = {
     ],
     "2B": [
         ("R", "L", 0),
-        ("R", "R", 75),
+        ("R", "R", 60),
         ("L", "L", 0),
-        ("L", "R", 15),
+        ("L", "R", 27),
         ("S", "L", 0),
-        ("S", "R", 10),
+        ("S", "R", 13),
     ],
     "3B": [
         ("R", "L", 0),
-        ("R", "R", 75),
+        ("R", "R", 60),
         ("L", "L", 0),
-        ("L", "R", 15),
+        ("L", "R", 27),
         ("S", "L", 0),
-        ("S", "R", 10),
+        ("S", "R", 13),
     ],
     "SS": [
         ("R", "L", 0),
-        ("R", "R", 75),
+        ("R", "R", 60),
         ("L", "L", 0),
-        ("L", "R", 15),
+        ("L", "R", 27),
         ("S", "L", 0),
-        ("S", "R", 10),
+        ("S", "R", 13),
     ],
     "LF": [
         ("R", "L", 1),
@@ -1625,6 +1634,25 @@ BATS_THROWS: Dict[str, List[Tuple[str, str, int]]] = {
         ("S", "L", 4),
         ("S", "R", 10),
     ],
+}
+
+# The table before Release 5 (C / 2B / 3B / SS at 75 / 15 / 10). Only
+# scripts/generate_league_fixture.py reads it: the committed KPI league
+# fixture is not regenerated until Release 7, and it must stay reproducible
+# from the generator until then.
+BATS_THROWS_PRE_R5: Dict[str, List[Tuple[str, str, int]]] = {
+    **BATS_THROWS,
+    **{
+        position: [
+            ("R", "L", 0),
+            ("R", "R", 75),
+            ("L", "L", 0),
+            ("L", "R", 15),
+            ("S", "L", 0),
+            ("S", "R", 10),
+        ]
+        for position in ("C", "2B", "3B", "SS")
+    },
 }
 
 

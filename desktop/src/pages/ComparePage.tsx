@@ -29,6 +29,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  InfoTip,
 } from "@/components/ui";
 
 export function ComparePage() {
@@ -225,7 +226,13 @@ function RatingsCompare({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <DiffRow key={row.label} label={row.label} a={row.a} b={row.b} />
+              <DiffRow
+                key={row.label}
+                label={row.label}
+                a={row.a}
+                b={row.b}
+                help={a.rating_help?.[row.label] ?? b.rating_help?.[row.label]}
+              />
             ))}
           </tbody>
         </table>
@@ -238,10 +245,12 @@ function DiffRow({
   label,
   a,
   b,
+  help,
 }: {
   label: string;
   a?: string;
   b?: string;
+  help?: string;
 }) {
   const aNum = parseNumeric(a);
   const bNum = parseNumeric(b);
@@ -261,7 +270,12 @@ function DiffRow({
   }
   return (
     <tr className="border-b border-border/40 last:border-b-0">
-      <td className="px-6 py-2 text-left font-semibold">{label}</td>
+      <td className="px-6 py-2 text-left font-semibold">
+        <span className="inline-flex items-center gap-1.5">
+          {label}
+          {help && <InfoTip tip={help} />}
+        </span>
+      </td>
       <td className="px-3 py-2 text-right tabular-nums">{a ?? "—"}</td>
       <td className={cn("px-3 py-2 text-center tabular-nums", tone)}>{delta || "—"}</td>
       <td className="px-3 py-2 text-right tabular-nums">{b ?? "—"}</td>

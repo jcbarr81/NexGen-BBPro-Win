@@ -92,6 +92,7 @@ home_wpct,0.535,1,REPORT L1: MLB home edge ~+3-4 pp; pool seeds before reading
 platoon_gap_woba_lhb,0.028,1,LHB wOBA vs RHP minus vs LHP (MLB ~.025-.030)
 platoon_gap_woba_rhb,0.018,1,RHB wOBA vs LHP minus vs RHP (MLB ~.015-.020; REPORT H7)
 lhp_minus_rhp_ra9,0.0,1,"DECISIONS 7: equal on average; gate +/-0.15 (raw, not rating-matched)"
+lhp_minus_rhp_ra9_rating_adj,0.0,1,"DECISIONS 7: equal at equal ratings (LHP coefficient, outs-weighted RA9 on control/movement/arm/endurance/pitch grade)"
 ibb_per_pa,0.0025,1,"REPORT L5: ~140-210 IBB per 70,739 PA"
 hbp_per_pa,0.0114,0,Teams_last5years.csv 2021-24 HBP / (AB+BB+HBP+SF)
 backup_c_starts_mean_per_162,35.0,1,spec S2-05 target 35+ backup-catcher starts
