@@ -2528,15 +2528,27 @@ GRID_MIN_EVENTS = 20
 # nothing in a cell reads a centre that is not already 50. The K and HR
 # cells are right-handed batter against right-handed pitcher, so the
 # anchor strikes out a little more than the league (the same-hand penalty).
+# With centred_ratings on the engine shifts each rating by 50 minus its
+# centre before the pitch (a cell goes through the engine's own
+# _batter_context and _pitcher_context), so the centres it shifts by are
+# pinned too: Power at the grid's 50 and the pitcher's workload-weighted
+# centres (pitcher_*_usage_center) at the same anchor as the plain ones.
+# The grid's pitches then read as the league-average 50 pitch.
 GRID_PITCH_GRADE = 55.0
 GRID_CATCHER_FIELDING = 50.0
 GRID_RATING_CENTERS = {
     "hitter_contact_center": 50.0,
     "hitter_eye_center": 50.0,
+    "hitter_power_center": 50.0,
     "hitter_speed_center": 50.0,
     "pitcher_control_center": 50.0,
     "pitcher_movement_center": 50.0,
+    "pitcher_arm_center": 50.0,
     "pitcher_grade_center": GRID_PITCH_GRADE,
+    "pitcher_control_usage_center": 50.0,
+    "pitcher_movement_usage_center": 50.0,
+    "pitcher_arm_usage_center": 50.0,
+    "pitcher_grade_usage_center": GRID_PITCH_GRADE,
     "catcher_fa_center": GRID_CATCHER_FIELDING,
 }
 
@@ -2556,7 +2568,11 @@ def _simulate_cell(
     ``k_swinging``, Release 5a) and ``hr``. ``bats`` / ``throws`` set the
     hands for the platoon cells; both vs-left ratings are 50.
     """
-    from physics_sim.engine import _batter_context
+    from physics_sim.engine import (
+        _batter_context,
+        _league_relative,
+        _pitcher_context,
+    )
     from physics_sim.models import BatterRatings, PitcherRatings
     from physics_sim.physics import resolve_batted_ball, simulate_pitch
 
@@ -2574,12 +2590,8 @@ def _simulate_cell(
         repertoire={pitch: GRID_PITCH_GRADE for pitch in ("fb", "sl", "cu", "cb")},
     )
     ctx_b = _batter_context(batter, pitcher, tuning, tto=1)
-    # Mirrors the engine's per-PA pitcher context (fresh pitcher).
-    ctx_p = {
-        "repertoire": pitcher.repertoire, "velocity": 83.0 + pitcher.arm * 0.2,
-        "control": pitcher.control, "movement": pitcher.movement,
-        "fatigue_factor": 1.0, "hand": pitcher.throws, "vs_left": pitcher.vs_left,
-    }
+    # The engine's own per-PA pitcher context (a fresh pitcher).
+    ctx_p = _pitcher_context(pitcher, tuning)
     context = {
         "inning": 1, "outs": 0, "score_diff": 0,
         "bases": {"first": False, "second": False, "third": False},
@@ -2622,7 +2634,12 @@ def _simulate_cell(
                     launch_angle=res.launch_angle or 12.0,
                     spray_angle=res.spray_angle or 0.0,
                     park=park, tuning=tuning, batter_speed=batter.speed,
-                    batter_contact=batter.contact, batter_power=batter.power,
+                    batter_contact=_league_relative(
+                        batter.contact, "hitter_contact_center", tuning
+                    ),
+                    batter_power=_league_relative(
+                        batter.power, "hitter_power_center", tuning
+                    ),
                 )
                 out["hr"] += bool(is_hr)
                 break

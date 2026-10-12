@@ -68,6 +68,44 @@ fact that keeps a season on the engine it started on:
 So nothing changes for a league at deploy; it moves to the new engine when
 its next season starts, and a league created after the deploy starts on it.
 
+Release 5 (league-relative ratings, the engine's ``centred_ratings``) moves
+the hitter Contact and Eye centres from every ACT hitter to the lineup
+REGULARS and adds a Power centre (``hitter_power_center``) read the same
+way: the hitters who bat are the regulars, and how far they sit above the
+bench differs from league to league. The regulars are the hitters named in
+each club's saved lineup files (``lineups/<team>_vs_lhp.csv`` and
+``_vs_rhp.csv``; a hitter in both counts twice, so an everyday player
+weighs more than a platoon one), and for a file that is missing or that a
+game would not play as saved -- not nine different ACT hitters of the club
+-- the club's nine best ACT hitters (:func:`_regular_hitter_ids`). Nothing
+is written to a lineup. The speed centre, the pitcher and catcher centres,
+the ``vl`` centres and the batting-side shares are unchanged: every ACT
+player of the kind.
+
+The same switch shifts a pitcher's control, movement, pitch grades and arm,
+and the mean that matters there is over the pitches hitters see: a starter
+throws about two and a half times a reliever's innings, and how a staff's
+starters compare with its bullpen differs from league to league. Four more
+centres carry that, weighted by each ACT pitcher's expected workload
+(``pitcher_control_usage_center``, ``pitcher_movement_usage_center``,
+``pitcher_grade_usage_center``, ``pitcher_arm_usage_center``): a club's
+five-man rotation counts ``_STARTER_WORKLOAD`` and every other arm
+``_RELIEVER_WORKLOAD``. The rotation is the one the games use
+(``utils.rotation.staff_rotation`` on the club's ACT arms and its
+``rosters/<team>_pitching.csv``: the file's SP1-SP5, holes filled by
+starter-capable arms and then by endurance, which is also what a club with
+no staff file gets); the stored ``role`` column is never read. The plain
+ACT means above are NOT redefined: the Release 4 running-game terms and
+every stored season file read ``pitcher_control_center``,
+``pitcher_hold_center`` and ``pitcher_arm_center`` as they always did.
+
+A season's league-relative centres always share one definition: the Power
+centre and the four usage centres are computed only in the same step as the
+Contact and Eye centres. An entry that already holds one of those two
+(written before this change, on either engine) never gains them -- the
+engine reads 50.0 for them, and a league's stored file keeps its bytes for
+the rest of that season.
+
 A league must never change engine in the middle of a season, in either
 direction, and one file is one point of failure: a lost, truncated or stale
 ``rating_centers.json`` would read as "no generation", which is legacy. So
@@ -148,6 +186,8 @@ __all__ = [
     "HITTER_EYE_CENTER_KEY",
     "PITCHER_MOVEMENT_CENTER_KEY",
     "PITCHER_GRADE_CENTER_KEY",
+    "HITTER_POWER_CENTER_KEY",
+    "PITCHER_USAGE_CENTER_KEYS",
     "HITTER_VL_CENTER_KEYS",
     "HITTER_BATS_SHARE_KEYS",
     "RATING_CENTER_KEYS",
@@ -181,6 +221,7 @@ HITTER_CONTACT_CENTER_KEY = "hitter_contact_center"
 HITTER_EYE_CENTER_KEY = "hitter_eye_center"
 PITCHER_MOVEMENT_CENTER_KEY = "pitcher_movement_center"
 PITCHER_GRADE_CENTER_KEY = "pitcher_grade_center"
+HITTER_POWER_CENTER_KEY = "hitter_power_center"
 # Batting side -> tuning key: the ACT hitters' mean ``vl`` on that side, and
 # the share of ACT hitters who bat from it (the three shares sum to 1).
 HITTER_VL_CENTER_KEYS: Dict[str, str] = {
@@ -211,13 +252,47 @@ _CENTER_SPECS: Dict[str, tuple[str, str]] = {
     HITTER_EYE_CENTER_KEY: ("hitter", "eye"),
     PITCHER_MOVEMENT_CENTER_KEY: ("pitcher", "movement"),
 }
-# The Release 4 keys first, in their stored order; the 5a keys follow.
+# The hitter centres averaged over the lineup regulars instead of every ACT
+# hitter (module docstring): tuning key -> players.csv column.
+_REGULARS_CENTER_SPECS: Dict[str, str] = {
+    HITTER_CONTACT_CENTER_KEY: "ch",
+    HITTER_EYE_CENTER_KEY: "eye",
+    HITTER_POWER_CENTER_KEY: "ph",
+}
+# A club's saved lineups are ``lineups/<team>_vs_<hand>.csv``, nine hitters.
+_LINEUP_HANDS = ("lhp", "rhp")
+_LINEUP_SIZE = 9
+# The pitcher centres weighted by expected workload (module docstring):
+# tuning key -> players.csv column, the pitch grade being each pitcher's
+# mean over the pitches he throws (``_pitch_grade``).
+PITCHER_USAGE_CENTER_KEYS: Dict[str, str] = {
+    "pitcher_control_usage_center": "control",
+    "pitcher_movement_usage_center": "movement",
+    "pitcher_grade_usage_center": "grade",
+    "pitcher_arm_usage_center": "arm",
+}
+# Expected innings of a rotation starter against any other arm. In the
+# engine's own generation 5 seasons (three leagues) a starter throws 164-168
+# innings and a reliever 75-78 on average (closers about 53, long men
+# 91-118). Against the innings-weighted means of those seasons any ratio
+# from 2.0 to 2.5 lands within 0.36 of every rating (rms 0.14-0.17; the
+# plain mean misses by up to 1.8, rms 0.67), and a weight per relief role
+# does no better, so there are two weights.
+_STARTER_WORKLOAD = 2.5
+_RELIEVER_WORKLOAD = 1.0
+# The Release 4 keys first, in their stored order; the 5a keys follow, then
+# the Power centre and the usage centres.
 RATING_CENTER_KEYS: tuple[str, ...] = (
     tuple(_CENTER_SPECS)
     + (PITCHER_GRADE_CENTER_KEY,)
     + tuple(HITTER_VL_CENTER_KEYS.values())
     + tuple(HITTER_BATS_SHARE_KEYS.values())
+    + (HITTER_POWER_CENTER_KEY,)
+    + tuple(PITCHER_USAGE_CENTER_KEYS)
 )
+# Centres a stored entry gains only together with its Contact and Eye
+# centres (``_predates_league_relative_centers``).
+_NEW_ENTRY_KEYS = frozenset((HITTER_POWER_CENTER_KEY, *PITCHER_USAGE_CENTER_KEYS))
 # Seasons kept in the file for reference; the current one rules.
 _KEEP_SEASONS = 5
 # The season key ``_season_key`` returns when the league has no schedule
@@ -230,6 +305,10 @@ _UNKNOWN_SEASON = "default"
 
 # (league dir, season, key) -> centre; the file is the source of truth.
 _CENTER_CACHE: Dict[tuple, float] = {}
+# (league dir, season) whose stored entry never gains the ``_NEW_ENTRY_KEYS``
+# (``_predates_league_relative_centers``), so the file is not re-read for
+# them every game.
+_WITHHELD: set[tuple] = set()
 _CENTER_LOCK = threading.Lock()
 
 # The season entry's engine generation (see the module docstring).
@@ -266,6 +345,7 @@ def clear_rating_center_cache() -> None:
 
     with _CENTER_LOCK:
         _CENTER_CACHE.clear()
+        _WITHHELD.clear()
         _GENERATION_CACHE.clear()
         _SHOUTED.clear()
 
@@ -431,7 +511,9 @@ def _league_centers(
 
     Only keys missing from both are computed, and (``store``, known season)
     merged into the season's stored entry; a stored centre is never
-    recomputed. A key with nothing to average is left out.
+    recomputed. A key with nothing to average is left out, and so are the
+    Power and usage centres of an entry that already holds its Contact or
+    Eye centre (:func:`_predates_league_relative_centers`).
     """
 
     base = Path(data_dir) if data_dir is not None else get_data_dir()
@@ -468,6 +550,8 @@ def _league_centers_locked(
         cached = _CENTER_CACHE.get((root, season_key, key))
         if cached is not None:
             found[key] = cached
+        elif key in _NEW_ENTRY_KEYS and (root, season_key) in _WITHHELD:
+            continue
         else:
             missing.append(key)
     if not missing:
@@ -495,6 +579,9 @@ def _league_centers_locked(
             continue
         found[key] = value
         _CENTER_CACHE[(root, season_key, key)] = value
+    if _predates_league_relative_centers(entry) and _NEW_ENTRY_KEYS & set(unstored):
+        unstored = [key for key in unstored if key not in _NEW_ENTRY_KEYS]
+        _WITHHELD.add((root, season_key))
     if unstored:
         computed = _computed(base, unstored)
         found.update(computed)
@@ -1023,6 +1110,25 @@ def _stored_value(entry: dict, key: str) -> Optional[float]:
         return None
 
 
+def _predates_league_relative_centers(entry: dict) -> bool:
+    """True when a season's stored entry must not gain the Power centre or
+    the pitcher usage centres (``_NEW_ENTRY_KEYS``).
+
+    The entry already holds the season's Contact or Eye centre: its centres
+    were fixed before, and whichever of the new ones it lacks stay out. An
+    entry written before the hitter centres were averaged over the lineup
+    regulars holds ACT means for those two; they are never recomputed, and
+    new centres beside them would be a second definition in one season --
+    and would change the stored file of a league whose season is already
+    under way. The engine reads 50.0 for a centre left out.
+    """
+
+    return any(
+        _stored_value(entry, key) is not None
+        for key in (HITTER_CONTACT_CENTER_KEY, HITTER_EYE_CENTER_KEY)
+    )
+
+
 def _computed(base: Path, keys: Iterable[str]) -> Dict[str, float]:
     wanted = set(keys)
     return {k: v for k, v in active_rating_centers(base).items() if k in wanted}
@@ -1070,6 +1176,15 @@ def active_rating_centers(
     by batting side, a side with fewer than ``_VL_SIDE_MIN_HITTERS`` hitters
     reading the all-hitter mean; the ``hitter_bats_share_*`` keys are the
     share of ACT hitters on each side, to 4 decimals, summing to 1.
+
+    Release 5 (league-relative ratings): ``hitter_contact_center``,
+    ``hitter_eye_center`` and the new ``hitter_power_center`` are the means
+    over the lineup regulars (:func:`_regular_hitter_ids`), read from
+    ``base / "lineups"``. The ``PITCHER_USAGE_CENTER_KEYS`` are the ACT
+    pitchers' control, movement, pitch grade and arm weighted by expected
+    workload (:func:`_pitcher_workloads`, from ``base / "rosters"``'s staff
+    files). Every other centre is still the plain mean over every ACT
+    player of its kind.
     """
 
     from utils.roster_rules import counts_as_pitcher
@@ -1079,35 +1194,54 @@ def active_rating_centers(
     roster_dir = base / "rosters"
     if not players.exists() or not roster_dir.is_dir():
         return {}
-    active = _active_player_ids(roster_dir)
+    active_by_team = _active_ids_by_team(roster_dir)
+    active = {pid for ids in active_by_team.values() for pid in ids}
     values: Dict[str, list[float]] = {key: [] for key in _CENTER_SPECS}
     grades: list[float] = []
     vl_by_side: Dict[str, list[float]] = {side: [] for side in HITTER_VL_CENTER_KEYS}
+    # ACT hitter id -> his regulars-centre ratings, and his lineup value.
+    hitters: Dict[str, Dict[str, float]] = {}
+    hitter_value: Dict[str, float] = {}
+    # ACT pitcher id -> his players.csv row (for the usage centres).
+    pitchers: Dict[str, dict] = {}
     try:
         with players.open(newline="", encoding="utf-8") as fh:
             for row in csv.DictReader(fh):
-                if str(row.get("player_id") or "").strip() not in active:
+                player_id = str(row.get("player_id") or "").strip()
+                if player_id not in active:
                     continue
                 if counts_as_pitcher(row):
                     groups = {"pitcher"}
                     grade = _pitch_grade(row)
                     if grade is not None:
                         grades.append(grade)
+                    pitchers[player_id] = row
                 else:
                     groups = {"hitter"}
                     position = str(row.get("primary_position") or "")
                     if position.strip().upper() == "C":
                         groups.add("catcher")
                     vl_by_side[_bats_side(row)].append(_rating(row, "vl"))
+                    hitters[player_id] = {
+                        key: _eye_rating(row)
+                        if key == HITTER_EYE_CENTER_KEY
+                        else _rating(row, column)
+                        for key, column in _REGULARS_CENTER_SPECS.items()
+                    }
+                    hitter_value[player_id] = _lineup_value(row)
                 for key, (group, column) in _CENTER_SPECS.items():
-                    if group not in groups:
+                    if group not in groups or key in _REGULARS_CENTER_SPECS:
                         continue
-                    if key == HITTER_EYE_CENTER_KEY:
-                        values[key].append(_eye_rating(row))
-                    else:
-                        values[key].append(_rating(row, column))
+                    values[key].append(_rating(row, column))
     except OSError:
         return {}
+    regulars = _regular_hitter_ids(base / "lineups", active_by_team, hitter_value)
+    for key in _REGULARS_CENTER_SPECS:
+        # No regular at all (no club has an ACT hitter) is no hitter at all;
+        # the every-ACT-hitter mean is kept as the fallback all the same.
+        values[key] = [hitters[pid][key] for pid in regulars] or [
+            ratings[key] for ratings in hitters.values()
+        ]
     centres = {
         key: round(sum(found) / len(found), 2)
         for key, found in values.items()
@@ -1116,7 +1250,171 @@ def active_rating_centers(
     if grades:
         centres[PITCHER_GRADE_CENTER_KEY] = round(sum(grades) / len(grades), 2)
     centres.update(_batting_side_centers(vl_by_side))
+    centres.update(
+        _pitcher_usage_centers(
+            pitchers, _pitcher_workloads(roster_dir, active_by_team, pitchers)
+        )
+    )
     return _ordered(centres, RATING_CENTER_KEYS)
+
+
+def _pitcher_workloads(
+    roster_dir: Path,
+    active_by_team: Mapping[str, list[str]],
+    pitchers: Mapping[str, dict],
+) -> Dict[str, float]:
+    """ACT pitcher id -> his expected share of his club's innings.
+
+    ``_STARTER_WORKLOAD`` for the club's rotation, ``_RELIEVER_WORKLOAD``
+    for every other ACT arm. The rotation is built exactly as a game builds
+    it (``physics_sim.team_data.build_staff``): the club's ACT pitchers and
+    the labels its ``<team>_pitching.csv`` gives them, through
+    ``utils.rotation.staff_rotation``. A club with no staff file, or one
+    that names fewer than five starters, gets the same builder's fill:
+    starter-capable arms (``utils.pitcher_role.get_role``) by endurance,
+    then the rest by endurance, the closer last. ``pitchers`` holds every
+    ACT pitcher's players.csv row; the stored ``role`` column is read only
+    as ``get_role``'s last resort.
+    """
+    from types import SimpleNamespace
+
+    from utils.rotation import staff_rotation
+
+    workloads: Dict[str, float] = {}
+    for team, ids in active_by_team.items():
+        arms = list(dict.fromkeys(pid for pid in ids if pid in pitchers))
+        if not arms:
+            continue
+        labels: Dict[str, str] = {}
+        for pid, label in _staff_file_labels(roster_dir / f"{team}_pitching.csv"):
+            if pid in pitchers and pid in arms and pid not in labels:
+                labels[pid] = "MR" if label in {"RP", "R"} else label
+        rotation = staff_rotation(
+            [
+                SimpleNamespace(
+                    player_id=pid,
+                    endurance=_whole(pitchers[pid].get("endurance")),
+                    primary_position=pitchers[pid].get("primary_position") or "",
+                    preferred_pitching_role=pitchers[pid].get(
+                        "preferred_pitching_role"
+                    )
+                    or "",
+                    role=pitchers[pid].get("role") or "",
+                )
+                for pid in arms
+            ],
+            labels,
+        )
+        starters = set(rotation)
+        for pid in arms:
+            workloads[pid] = (
+                _STARTER_WORKLOAD if pid in starters else _RELIEVER_WORKLOAD
+            )
+    return workloads
+
+
+def _pitcher_usage_centers(
+    pitchers: Mapping[str, dict], workloads: Mapping[str, float]
+) -> Dict[str, float]:
+    """The ``PITCHER_USAGE_CENTER_KEYS``: each rating's mean over the ACT
+    pitchers, weighted by ``workloads``. The grade centre leaves out a
+    pitcher with no pitch grades, as ``pitcher_grade_center`` does; ``{}``
+    when there is no pitcher."""
+    out: Dict[str, float] = {}
+    for key, column in PITCHER_USAGE_CENTER_KEYS.items():
+        total = weight_sum = 0.0
+        for pid, weight in workloads.items():
+            row = pitchers[pid]
+            value = _pitch_grade(row) if column == "grade" else _rating(row, column)
+            if value is None:
+                continue
+            total += value * weight
+            weight_sum += weight
+        if weight_sum > 0.0:
+            out[key] = round(total / weight_sum, 2)
+    return out
+
+
+def _staff_file_labels(path: Path) -> list[tuple[str, str]]:
+    """``(player_id, LABEL)`` rows of a club's pitching-staff file, as
+    ``physics_sim.team_data.load_pitching_staff`` reads it; ``[]`` if the
+    file is missing or unreadable."""
+    try:
+        with path.open(newline="", encoding="utf-8") as fh:
+            return [
+                (row[0].strip(), (row[1] if len(row) > 1 else "").strip().upper())
+                for row in csv.reader(fh)
+                if row and row[0].strip()
+            ]
+    except (OSError, csv.Error, UnicodeDecodeError):
+        return []
+
+
+def _whole(value: object) -> int:
+    try:
+        return int(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _lineup_value(row: dict) -> float:
+    """A hitter's value to a lineup, for picking a club's nine best.
+
+    The lineup auto-fill's base score (``utils.lineup_autofill``): bat 60%
+    (Contact and Power evenly), speed 20%, glove and arm 20%. No platoon
+    shift and no position coverage: this stands in for a lineup nobody has
+    saved, it does not build one.
+    """
+    bat = 0.5 * _rating(row, "ch") + 0.5 * _rating(row, "ph")
+    defence = 0.5 * _rating(row, "fa") + 0.5 * _rating(row, "arm")
+    return 0.6 * bat + 0.2 * _rating(row, "sp") + 0.2 * defence
+
+
+def _regular_hitter_ids(
+    lineup_dir: Path,
+    active_by_team: Mapping[str, list[str]],
+    hitter_value: Mapping[str, float],
+) -> list[str]:
+    """The league's lineup regulars, one id per lineup spot.
+
+    For each club and each of its two saved lineups (vs LHP, vs RHP): the
+    nine hitters the file names, when a game would play it as saved -- nine
+    different players, every one an ACT hitter of the club
+    (``playbalance.game_runner._lineup_fits_pool``) -- else the club's nine
+    best ACT hitters by :func:`_lineup_value` (all of them when it has nine
+    or fewer). So an everyday player is counted twice and a platoon player
+    once, and every club carries the same weight. ``hitter_value`` holds
+    every ACT hitter in the league; nothing is written.
+    """
+    regulars: list[str] = []
+    for team, ids in active_by_team.items():
+        pool = list(dict.fromkeys(pid for pid in ids if pid in hitter_value))
+        if not pool:
+            continue
+        # Best first; the id breaks a tie, so the nine never depend on the
+        # roster file's order.
+        best = sorted(pool, key=lambda pid: (-hitter_value[pid], pid))[:_LINEUP_SIZE]
+        for hand in _LINEUP_HANDS:
+            saved = _saved_lineup_ids(lineup_dir / f"{team}_vs_{hand}.csv")
+            usable = (
+                len(saved) == _LINEUP_SIZE
+                and len(set(saved)) == _LINEUP_SIZE
+                and all(pid in pool for pid in saved)
+            )
+            regulars.extend(saved if usable else best)
+    return regulars
+
+
+def _saved_lineup_ids(path: Path) -> list[str]:
+    """The ``player_id`` column of a saved lineup file; ``[]`` if unreadable."""
+    try:
+        with path.open(newline="", encoding="utf-8") as fh:
+            return [
+                str(row.get("player_id") or "").strip()
+                for row in csv.DictReader(fh)
+            ]
+    except (OSError, csv.Error, UnicodeDecodeError):
+        return []
 
 
 def _rating(row: dict, column: str) -> float:
@@ -1185,16 +1483,19 @@ def _batting_side_centers(vl_by_side: Dict[str, list[float]]) -> Dict[str, float
     return out
 
 
-def _active_player_ids(roster_dir: Path) -> set[str]:
-    active: set[str] = set()
+def _active_ids_by_team(roster_dir: Path) -> Dict[str, list[str]]:
+    """Team id (the roster file's name) -> its ACT player ids, in file order."""
+    active: Dict[str, list[str]] = {}
     for roster_file in sorted(roster_dir.glob("*.csv")):
         if roster_file.stem.endswith(_ROSTER_SIDE_SUFFIXES):
             continue  # <team>_pitching.csv and other side files
         try:
             with roster_file.open(newline="", encoding="utf-8") as fh:
-                for row in csv.reader(fh):
-                    if len(row) >= 2 and row[1].strip().upper() == "ACT":
-                        active.add(row[0].strip())
+                active[roster_file.stem] = [
+                    row[0].strip()
+                    for row in csv.reader(fh)
+                    if len(row) >= 2 and row[1].strip().upper() == "ACT"
+                ]
         except OSError:
             continue
     return active

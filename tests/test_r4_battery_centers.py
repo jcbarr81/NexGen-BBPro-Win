@@ -125,6 +125,14 @@ EXPECTED = {
     "hitter_bats_share_l": 0.0,
     "hitter_bats_share_r": 1.0,
     "hitter_bats_share_s": 0.0,
+    # Release 5 (league-relative ratings, tests/test_r5_centred_ratings.py):
+    # the Power centre; no ph column here, so it reads 50 too. And the
+    # pitcher centres weighted by workload: each club's one ACT pitcher
+    # starts, so they equal the plain means (no pitch columns: no grade).
+    "hitter_power_center": 50.0,
+    "pitcher_control_usage_center": 51.5,
+    "pitcher_movement_usage_center": 50.0,
+    "pitcher_arm_usage_center": 70.5,
 }
 
 

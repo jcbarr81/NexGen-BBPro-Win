@@ -5,6 +5,7 @@ from typing import Dict, Any
 import math
 import random
 
+from .centred_ratings import rating_center
 from .config import DEFAULT_TUNING, TuningConfig
 from .park import Park
 
@@ -496,7 +497,7 @@ def _command_error(
         # (log-linear) instead of a fixed amount, read against the league's
         # mean control. ``control`` is the fatigued rating, so a tiring
         # pitcher's misses grow the same way.
-        centred = control - tuning.get("pitcher_control_center", 50.0)
+        centred = control - rating_center(tuning, "pitcher_control_center")
         multiplier = tuning.get("command_error_ref_mult", 2.55) * math.exp(
             -centred * tuning.get("command_error_control_log_slope", 0.02)
         )
@@ -663,7 +664,9 @@ def _swing_logit_table(
     The eye centre is the league mean of what ``simulate_pitch`` calls
     ``eye``: ``hitter_eye_center``, pulled toward the pitchers' mean control
     by ``eye_control_blend`` exactly as ``engine._batter_context`` blends
-    the rating itself, and scaled by ``eye_scale``.
+    the rating itself, and scaled by ``eye_scale``. With ``centred_ratings``
+    on both ratings reach ``simulate_pitch`` already league-relative and
+    both centres read 50 (``centred_ratings.rating_center``).
     """
     cached = tuning.__dict__.get("_swing_table")
     if cached is not None:
@@ -698,8 +701,10 @@ def _swing_logit_table(
                 chase += two_strike_shift
             table[(balls, strikes)] = (zone, chase)
     blend = tuning.get("eye_control_blend", 0.2)
-    eye_center = tuning.get("hitter_eye_center", 50.0) * (1.0 - blend)
-    eye_center += (100.0 - tuning.get("pitcher_control_center", 50.0)) * blend
+    eye_center = rating_center(tuning, "hitter_eye_center") * (1.0 - blend)
+    eye_center += (
+        100.0 - rating_center(tuning, "pitcher_control_center")
+    ) * blend
     eye_center *= tuning.get("eye_scale", 1.0)
     cached = (table, eye_center)
     tuning.__dict__["_swing_table"] = cached
@@ -735,7 +740,7 @@ def _swing_probability(
         )
         if strikes >= 2:
             swing_logit += (
-                contact - tuning.get("hitter_contact_center", 50.0)
+                contact - rating_center(tuning, "hitter_contact_center")
             ) * tuning.get("swing_two_strike_contact_logit", 0.0)
     else:
         swing_logit = chase_logit - eye_edge * tuning.get(
@@ -761,9 +766,9 @@ def _two_strike_zone_protect(
     untouched. Under ``swing_model`` 1 there is no protect roll and the same
     term is ``swing_two_strike_contact_logit``.
     """
-    shift = (contact - tuning.get("hitter_contact_center", 50.0)) * tuning.get(
-        "two_strike_protect_contact", 0.0
-    )
+    shift = (
+        contact - rating_center(tuning, "hitter_contact_center")
+    ) * tuning.get("two_strike_protect_contact", 0.0)
     eye_slope = tuning.get("two_strike_protect_eye", 0.0)
     if eye_slope:
         shift += (eye - _swing_logit_table(tuning)[1]) * eye_slope
@@ -792,20 +797,22 @@ def _contact_probability(
     order included) and ``pitch_quality`` the control / movement / pitch
     grade composite the old roll used; both are read against the league's
     averages. Break is in feet. The velocity term compares the pitch with
-    the reference speed of its own type and is off (0.0) until Release 6.
+    the reference speed of its own type and is off (0.0) until Release 6;
+    ``contact_velo_ref`` is the fastball of a 50 arm, which is the league's
+    average arm once ``centred_ratings`` shifts the arm rating.
     """
     logit = (
         tuning.get("contact_logit_zone", 1.74)
         if in_zone
         else tuning.get("contact_logit_chase", 0.48)
     )
-    logit += (contact - tuning.get("hitter_contact_center", 50.0)) * tuning.get(
-        "contact_logit_ch", 0.09
-    )
+    logit += (
+        contact - rating_center(tuning, "hitter_contact_center")
+    ) * tuning.get("contact_logit_ch", 0.09)
     quality_center = (
-        tuning.get("pitcher_control_center", 50.0) * 0.4
-        + tuning.get("pitcher_movement_center", 50.0) * 0.4
-        + tuning.get("pitcher_grade_center", 50.0) * 0.2
+        rating_center(tuning, "pitcher_control_center") * 0.4
+        + rating_center(tuning, "pitcher_movement_center") * 0.4
+        + rating_center(tuning, "pitcher_grade_center") * 0.2
     )
     logit -= (pitch_quality - quality_center) * tuning.get("contact_logit_pq", 0.04)
     logit -= break_mag * tuning.get("contact_logit_break", 0.4)
@@ -842,7 +849,7 @@ def _umpire_even_distance(
     """
     even = tuning.get("umpire_edge_offset_ft", -0.055)
     even += (
-        (catcher_fielding - tuning.get("catcher_fa_center", 50.0))
+        (catcher_fielding - rating_center(tuning, "catcher_fa_center"))
         / 100.0
         * tuning.get("umpire_framing_offset_ft", 0.045)
     )
@@ -961,7 +968,7 @@ def simulate_pitch(
     # here too; the stronger slope is zone_target_control_scale's value.
     control_ref = 50.0
     if tuning.get("command_model", 0.0) >= 1.0:
-        control_ref = tuning.get("pitcher_control_center", 50.0)
+        control_ref = rating_center(tuning, "pitcher_control_center")
     zone_target += (control - control_ref) * tuning.get(
         "zone_target_control_scale", 0.0025
     )
@@ -1029,7 +1036,7 @@ def simulate_pitch(
     if umpire_model:
         # No catcher in the context reads as the league's average receiver:
         # no framing, whatever the league's centre is.
-        catcher_center = tuning.get("catcher_fa_center", 50.0)
+        catcher_center = rating_center(tuning, "catcher_fa_center")
         catcher_fielding = catcher_center
         if context:
             try:

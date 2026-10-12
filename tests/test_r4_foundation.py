@@ -224,9 +224,11 @@ def test_overrides_for_the_active_league(active_league):
     # catcher carry no battery columns, so every one of them reads 50.
     # Release 5a: so do the contact / eye / movement / vl centres (50 here)
     # and the batting-side shares (no bats column: everyone bats right).
-    # No pitch columns, so no pitcher_grade_center.
+    # No pitch columns, so no pitcher_grade_center (and no workload-weighted
+    # pitcher_grade_usage_center, Release 5).
     expected = {key: 50.0 for key in centers.RATING_CENTER_KEYS}
     del expected["pitcher_grade_center"]
+    del expected["pitcher_grade_usage_center"]
     expected.update(
         hitter_bats_share_l=0.0, hitter_bats_share_r=1.0, hitter_bats_share_s=0.0
     )

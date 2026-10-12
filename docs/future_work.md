@@ -1641,3 +1641,78 @@ switched-on values are in `scripts/kpi_profiles/r5_discipline.json`,
   102 player(s) over 600"): the new league's folder is re-seeded with the
   600-player reference `players.csv` after `create_league` has purged it.
   The same call from a plain script succeeded; not investigated.
+
+## Release 5 league-relative ratings: follow-ups (2026-10-12)
+
+`centred_ratings` (generation 5) shifts every rating that feeds a plate
+appearance by 50 minus its league centre (RELEASE5_PLAN section 8). What it
+leaves, on purpose or because it was out of scope:
+
+- **The pitcher usage centres are a two-weight proxy for innings.** A
+  rotation starter counts 2.5 and every other ACT arm 1
+  (`pitcher_*_usage_center`). Against the innings-weighted means of a
+  played generation 5 season the proxy is within 0.30 of every rating on
+  all three test leagues (worst: calibration control, 51.59 against 51.89;
+  the plain ACT mean missed by up to 1.79, the league fixture's arm). In
+  those seasons a starter threw 164-168 innings and a reliever 75-78
+  (closers about 53, long men 91-118), so the measured ratio is nearer
+  2.2; any ratio from 2.0 to 2.5 and a weight per relief role all fit
+  equally well (rms 0.14-0.17), so the weights were left at two. An
+  experiment that pinned the centres to the innings-weighted means
+  themselves closed the spread between the leagues a little further than
+  the proxy does on the same seeds 1-2 (.13 runs against .16, 0.67 pp of K
+  against 0.81, 0.05 pp of BB against 0.18); the BB difference is nearly
+  all on calibration (7.72% against 7.81%). Not weighted: the batters a
+  pitcher faces by hand, or leverage.
+- **The Release 4 running-game terms still read the plain ACT means**
+  (`pitcher_control_center`, `pitcher_arm_center`, `pitcher_hold_center`):
+  wild pitches, steals and the dropped third strike are centred on every
+  ACT pitcher, the pitch itself on the usage centres. Both are right for
+  what they were calibrated on; if the running game is retuned, decide
+  whether it should follow the usage centres too.
+- **Only the mean is centred, not the spread.** Curves that bend still see
+  a league's spread: the Power knee (mean bat speed added after the shift:
+  calibration 0.70 mph, league fixture 0.83, product league 0.87), the
+  one-sided pitch-difficulty terms, the clamps. The Release 7 re-spread is
+  the place for it.
+- **The product-created league's home runs still trail** (1.10 a team-game
+  against 1.21 and 1.21 with the profile as it stands). Not explained by
+  a centre. Seen
+  and not followed up: its regulars' pull and ground-ball tendencies are
+  bunched (sd 1.7 and 1.4, against about 6 and 3 on the fixtures) and its
+  average exit velocity is 0.5 to 1.0 mph lower.
+- **The regulars are counted by lineup spot, not by plate appearance** (the
+  leadoff man bats more than the ninth hitter), pinch hitters and rest-day
+  substitutes are left out, and a club with no usable lineup file counts
+  its nine best ACT hitters by the auto-fill's base score, with no position
+  coverage (the auto-fill would start a weaker catcher or shortstop). The
+  centres are fixed when the season's entry is created, from the lineup
+  files as they are on disk that day; a CPU club's stale file reads as its
+  nine best.
+- **A season entry created before this change keeps what it has.** A
+  generation 5 season whose entry already holds Contact and Eye centres
+  (possible only for a league that started a generation 5 season on a
+  7.51.0 build before this change) plays `centred_ratings` on the Contact
+  and Eye centres it has and reads Power and the four pitcher usage
+  centres as 50, so its pitchers are not shifted at all while the models
+  compare them against 50. Delete the season's entry before its first
+  game to have it rebuilt.
+- **Left absolute on purpose:** the pitcher's `vl` (`platoon_pitcher_scale`
+  reads it against 50), ground-ball and pull tendencies, speed outside the Release 4 terms (the doubles and
+  triples speed terms, the bunt), everything about fielding (range, arm,
+  double plays, tag-ups, errors), the catcher's glove under the legacy
+  umpire model, endurance, durability and hold. The Release 4
+  running-game terms keep their own raw-rating-against-the-centre form.
+  The lineup auto-fill and the rest-day replacement rank hitters on raw
+  Contact and Power (an order, so a league-wide shift cannot change it).
+- **Not retuned.** The generation 5 profile was tuned with Contact and Eye
+  centred on the ACT mean (so calibration's regulars read about 1.5 points
+  above the centre) and Power, velocity and pitch quality absolute. With
+  the profile untouched the run level rose (4.39 / 4.13 / 4.37 to 4.43 /
+  4.57 / 4.60), K rose (calibration 22.0% to 24.0%) and BB fell (8.2% to
+  7.7%). The retune, the gates and the release notes follow it (the
+  7.51.0 draft still carries the measurements taken before this change).
+- **The matchup grid's pitches read 50, not 55, under the switch** (the
+  grid pins its grade centre to its own 55, and a cell now goes through
+  the engine's own pitcher context). Not re-measured: re-read the log5
+  gate with the retune.
