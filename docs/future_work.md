@@ -1538,3 +1538,58 @@ switched-on values are in `scripts/kpi_profiles/r5_discipline.json`,
   the aim point, so far-inside pitches are mostly glove-side. If Release 6
   gives pitchers arm-side and glove-side aim, re-measure with both scales
   at 1.0 (`hbp_same_over_opposite_hand` in the report-only KPIs).
+  regenerated fixture (or a pinned tuning) at that point. (Pinned with the
+  switch-on mechanism: the generator now passes the engine defaults to the
+  auto-fill, so the fixture does not depend on the active league.)
+
+## Release 5 switch-on mechanism: follow-ups (2026-10-12)
+
+- **Leagues created with a rule preset before this fix.** "High Offense" and
+  "Pitcher Friendly" wrote `walk_scale` 1.05 / 0.90 and `k_scale` 0.92 / 1.08
+  as if 1.0 were normal; the engine's defaults are 0.83 and 0.51. On the
+  legacy engine (calibration fixture, 162 games, seed 1) that is a league
+  striking out in 48% (High Offense) or 55% (Pitcher Friendly) of plate
+  appearances, against 21.5%, with 5.40 and 0.96 runs per team-game against
+  4.43. The other three values were as badly sized: 1% of `offense_scale`
+  is about 9% of the runs and 1% of `hr_scale` about 2.6%, so with the
+  strikeouts right the old 1.08 / 1.12 / 1.04 gave 11.3 runs a game. The
+  presets are fixed for leagues created from now on: they state small
+  changes relative to the engine (`physics_tuning_multipliers`), sized to
+  about 8-11% more runs for High Offense (4.79 legacy, 4.71 generation 5)
+  and 9% fewer for Pitcher Friendly (4.02, 3.84). Those sizes are a first
+  calibration on one seed and are the owner's to change. Nothing was
+  changed in existing leagues:
+  find any whose `physics_tuning_overrides.json` holds those values and
+  decide with the commissioner what to do. At such a league's rollover the
+  stored values are converted faithfully, so the strikeouts stay until
+  someone moves the slider.
+- **A lost `rating_centers.json` mid-season.** The season's engine
+  generation lives only there. A generation 5 league that loses the file
+  after games have been played reads as legacy from then on (a running
+  process keeps what it last read, a fresh one does not). A league copy and
+  a backup both carry the file. A second record of the generation (the
+  season context, say) would close it.
+- **The KPI harness is not always repeatable when several seasons run at
+  once on one machine.** Two of thirteen identical `--engine 5` /
+  `--tuning-overrides r5.json` calibration seed-1 seasons, launched eight at
+  a time on Windows, came out as a second season (K .2131, R/G 4.20, HR/G
+  .99 against .2138, 4.23, 1.17), the same alternative both times. Runs
+  launched one to three at a time agreed. The harness writes nothing in the
+  repository, so the cause is not a shared output file; a loader that
+  swallows a read error and falls back (park data?) is the first suspect.
+  Until it is found, judge a gate on runs made one at a time.
+- **`utils.roster_loader.load_roster` reads the ACTIVE league for any
+  roster.** Observed: `load_roster("ELP", data/calibration_league/rosters)`
+  in a checkout whose active league is `cbl` returns six ACT players that
+  are not in the fixture's file, in place of six that are, and the
+  auto-fill then cannot field nine for that club. The likely cause, not
+  confirmed: `_ensure_pitcher_depth` and the placeholder pool decide who is
+  a pitcher from the active league's `data/players.csv`. The lineup
+  auto-fill's TUNING no longer comes from the active league; its ROSTER and
+  depth chart (`lineup_depth_chart`) still do.
+- **Help text and tutorial for the rebased sliders** (the labels and
+  descriptions marked SWITCH-ON TEXT in `services/physics_tuning_spec.py`)
+  are to be reviewed with the news post at the switch-on.
+- **Live-path tools on a new scratch league now run generation 5**
+  (`scripts/run_long_term_physics_sim.py` and the like). Set
+  `NEXGEN_NEW_SEASON_ENGINE=4` to run them on the legacy engine.

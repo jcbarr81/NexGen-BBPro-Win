@@ -804,6 +804,12 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # values and are read only while their switch is on; the switched-on
     # profile is scripts/kpi_profiles/r5_discipline.json.
     #
+    # THE SWITCH-ON IS NOT A CHANGE TO THIS FILE. A league season is played
+    # on an engine GENERATION; generation 5 is all four Release 5 areas,
+    # switched on by the profile physics_sim/profiles/engine_5.json laid
+    # over these defaults (physics_sim/engine_generation.py). These stay
+    # the legacy engine, which a league plays until its next season starts.
+    #
     # swing_model 1: one log-odds swing roll per pitch from the per-count
     # table below (MLB 2023 zone swing / chase by count),
     #   zone:  logit(table) + e * swing_eye_zone_logit
@@ -948,6 +954,18 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "contact_logit_pq": 0.04,
     "contact_logit_break": 0.4,
     "contact_logit_two_strike": 0.22,
+    # The commissioner's Strikeout Rate slider under contact_model 1 (owner
+    # decision 9, 1.0 = MLB): it divides the contact odds of every swing, in
+    # and out of the zone, to the power contact_strikeout_logit_gain, so
+    # higher = more strikeouts. The gain makes the slider read as a
+    # strikeout multiplier: strikeouts move about 0.55% per 1% of contact
+    # odds (162-game runs at odds / 1.25 and / 0.8 on the generation 5
+    # profile: K .243 and .190 against .214), so 1.8 = 1 / 0.55; walks do
+    # not move. k_scale and contact_prob_scale, the contact_model 0
+    # sliders, keep their own keys and are not read under model 1
+    # (services/physics_tuning_spec).
+    "contact_strikeout_scale": 1.0,
+    "contact_strikeout_logit_gain": 1.8,
     # Velocity is registered but off until Release 6 retunes fatigue (a
     # two-sided term on top of today's velocity fade is wrong-signed). The
     # reference is a 50-arm fastball (83 + 0.2 * arm) plus the pitch type's

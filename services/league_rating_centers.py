@@ -46,14 +46,45 @@ cache, so a file written before 5a gains them for the same season without
 any stored value changing. The three shares are not centres -- their
 tuning default is 0.0, "unknown" -- but are fixed, stored and delivered the
 same way.
+
+Release 5b adds the season's ENGINE GENERATION to the same entry
+(``engine_generation``): which engine the season is played on
+(``physics_sim.engine_generation``). It lives here, not in a file of its
+own, because it has the centres' lifetime exactly -- fixed when the season
+starts, read by every process, carried by a league copy, a backup and the
+working-copy push -- and because "this season already has an entry" is the
+fact that keeps a season on the engine it started on:
+
+* an entry with a generation plays that generation for the whole season;
+* an entry WITHOUT one is a legacy season: it was written before
+  generations existed, when the season was already under way on today's
+  engine, or it belongs to a season that started legacy. Legacy is never
+  written down, so a legacy league's file is byte for byte what it is today;
+* a season with no entry yet gets the new generation only if none of its
+  regular-season games has been played (:func:`_season_has_started`), else
+  the engine it has been playing on. A new generation is written with the
+  entry, whoever creates the entry (this module is the file's only writer).
+
+So nothing changes for a league at deploy; it moves to the new engine when
+its next season starts, and a league created after the deploy starts on it.
 """
 
 from __future__ import annotations
 
 import csv
+import logging
+import os
 from pathlib import Path
 import threading
 from typing import Dict, Iterable, Optional
+
+from physics_sim.engine_generation import (
+    CURRENT_ENGINE_GENERATION,
+    LEGACY_ENGINE_GENERATION,
+    engine_profile,
+    known_engine_generations,
+    normalize_engine_generation,
+)
 
 # Shared with the durability centre so both resolve the season, and read and
 # write their per-season files, the same way.
@@ -80,6 +111,11 @@ __all__ = [
     "HITTER_VL_CENTER_KEYS",
     "HITTER_BATS_SHARE_KEYS",
     "RATING_CENTER_KEYS",
+    "ENGINE_GENERATION_KEY",
+    "NEW_SEASON_ENGINE_ENV",
+    "ENGINE_SWITCH_NEWS",
+    "league_engine_generation",
+    "get_league_engine_generation",
     "active_hitter_mean_speed",
     "active_rating_centers",
     "league_hitter_speed_center",
@@ -151,12 +187,73 @@ _UNKNOWN_SEASON = "default"
 _CENTER_CACHE: Dict[tuple, float] = {}
 _CENTER_LOCK = threading.Lock()
 
+# The season entry's engine generation (see the module docstring).
+ENGINE_GENERATION_KEY = "engine_generation"
+# Operations switch: the generation a season that has not started is given
+# (default: the current one). Set to the legacy generation to hold every
+# league on today's engine without a code change; a season that already has
+# a generation is never moved by it.
+NEW_SEASON_ENGINE_ENV = "NEXGEN_NEW_SEASON_ENGINE"
+# The league news item logged once, when a league that has played a season
+# before starts one on generation 5.
+ENGINE_SWITCH_NEWS = (
+    "The league now plays on the updated game engine, starting this season. "
+    "Strikeouts, walks and contact are sharper skills, home teams have a "
+    "small edge, and managers now issue intentional walks."
+)
+# (league dir, season) -> generation last read from or written to the file.
+# Used only when the file cannot be read (see ``_generation_locked``).
+_GENERATION_CACHE: Dict[tuple, int] = {}
+_LOGGER = logging.getLogger(__name__)
+
 
 def clear_rating_center_cache() -> None:
     """Drop the process cache (tests; the file stays the source of truth)."""
 
     with _CENTER_LOCK:
         _CENTER_CACHE.clear()
+        _GENERATION_CACHE.clear()
+
+
+def get_league_engine_generation(*, store: bool = True) -> int:
+    """The engine generation of the current league's season; never raises.
+
+    ``store`` False is for everything that is not a season game or a saved
+    setting (a page load, a lineup action, watch-a-game): it reads the
+    season's generation, or works out the one the season will get, without
+    fixing it.
+    """
+
+    try:
+        return league_engine_generation(store=store)
+    except Exception:  # pragma: no cover - defensive; a game must still run
+        _LOGGER.exception("engine generation lookup failed; using legacy")
+        return LEGACY_ENGINE_GENERATION
+
+
+def league_engine_generation(
+    data_dir: Path | str | None = None,
+    season: str | int | None = None,
+    *,
+    store: bool = True,
+) -> int:
+    """The engine generation of a league's season, fixed for the season.
+
+    The rules are in the module docstring. A league with no schedule has no
+    season to fix anything for: the active league (an offseason, a league
+    being created) reads the generation its next season will get, nothing
+    stored; any other directory (a fixture, a tools folder) is legacy.
+    ``data_dir`` other than the active league is read by its own schedule.
+    With ``store`` False nothing is written.
+    """
+
+    base = Path(data_dir) if data_dir is not None else get_data_dir()
+    season_key = str(season) if season is not None else _engine_season_key(base)
+    with _CENTER_LOCK:
+        generation, announce = _generation_locked(base, season_key, store=store)
+    if announce:
+        _announce_engine_switch(base)
+    return generation
 
 
 def get_rating_center_overrides(*, store: bool = True) -> Dict[str, float]:
@@ -231,57 +328,341 @@ def _league_centers(
     recomputed. A key with nothing to average is left out.
     """
 
-    keys = tuple(keys)
     base = Path(data_dir) if data_dir is not None else get_data_dir()
     season_key = str(season) if season is not None else _season_key(base)
+    announce: list[bool] = []
+    with _CENTER_LOCK:
+        centres = _league_centers_locked(
+            base, season_key, tuple(keys), store=store, announce=announce
+        )
+    if announce:
+        _announce_engine_switch(base)
+    return centres
+
+
+def _league_centers_locked(
+    base: Path,
+    season_key: str,
+    keys: tuple[str, ...],
+    *,
+    store: bool,
+    announce: list[bool],
+) -> Dict[str, float]:
+    """:func:`_league_centers` with ``_CENTER_LOCK`` held.
+
+    ``announce`` gets one item when this call created the season's entry on
+    a new engine generation and the league should be told (the caller logs
+    the news after releasing the lock).
+    """
+
     root = str(base.resolve(strict=False))
     found: Dict[str, float] = {}
-    with _CENTER_LOCK:
-        missing = []
-        for key in keys:
-            cached = _CENTER_CACHE.get((root, season_key, key))
-            if cached is not None:
-                found[key] = cached
-            else:
-                missing.append(key)
-        if not missing:
-            return _ordered(found, keys)
-        if season_key == _UNKNOWN_SEASON:
-            computed = _computed(base, missing)
-            found.update(computed)
-            if store:
-                for key, value in computed.items():
-                    _CENTER_CACHE[(root, season_key, key)] = value
-            return _ordered(found, keys)
-        path = base / RATING_CENTERS_FILENAME
-        payload = _read_json(path)
-        seasons = payload.get("seasons")
-        if not isinstance(seasons, dict):
-            seasons = {}
-        entry = seasons.get(season_key)
-        if not isinstance(entry, dict):
-            entry = {}
-        unstored = []
-        for key in missing:
-            value = _stored_value(entry, key)
-            if value is None:
-                unstored.append(key)
-                continue
-            found[key] = value
-            _CENTER_CACHE[(root, season_key, key)] = value
-        if unstored:
-            computed = _computed(base, unstored)
-            found.update(computed)
-            if computed and store:
-                seasons[season_key] = {**entry, **computed}
-                keep = sorted(seasons)[-_KEEP_SEASONS:]
-                _write_json_atomic(
-                    path,
-                    {"version": VERSION, "seasons": {k: seasons[k] for k in keep}},
-                )
-                for key, value in computed.items():
-                    _CENTER_CACHE[(root, season_key, key)] = value
+    missing = []
+    for key in keys:
+        cached = _CENTER_CACHE.get((root, season_key, key))
+        if cached is not None:
+            found[key] = cached
+        else:
+            missing.append(key)
+    if not missing:
         return _ordered(found, keys)
+    if season_key == _UNKNOWN_SEASON:
+        computed = _computed(base, missing)
+        found.update(computed)
+        if store:
+            for key, value in computed.items():
+                _CENTER_CACHE[(root, season_key, key)] = value
+        return _ordered(found, keys)
+    path = base / RATING_CENTERS_FILENAME
+    payload = _read_json(path)
+    seasons = payload.get("seasons")
+    if not isinstance(seasons, dict):
+        seasons = {}
+    entry = seasons.get(season_key)
+    new_entry = not isinstance(entry, dict)
+    if new_entry:
+        entry = {}
+    unstored = []
+    for key in missing:
+        value = _stored_value(entry, key)
+        if value is None:
+            unstored.append(key)
+            continue
+        found[key] = value
+        _CENTER_CACHE[(root, season_key, key)] = value
+    if unstored:
+        computed = _computed(base, unstored)
+        found.update(computed)
+        if computed and store:
+            if new_entry:
+                # The season's entry is being created here: its engine
+                # generation is fixed with it (module docstring).
+                generation = _new_season_generation(base, seasons)
+                entry = _generation_entry(generation, seasons)
+                _GENERATION_CACHE[(root, season_key)] = generation
+                if _is_engine_switch(base, seasons, generation):
+                    announce.append(True)
+            seasons[season_key] = {**entry, **computed}
+            keep = sorted(seasons)[-_KEEP_SEASONS:]
+            _write_json_atomic(
+                path,
+                {"version": VERSION, "seasons": {k: seasons[k] for k in keep}},
+            )
+            for key, value in computed.items():
+                _CENTER_CACHE[(root, season_key, key)] = value
+    return _ordered(found, keys)
+
+
+def _generation_locked(
+    base: Path, season_key: str, *, store: bool
+) -> tuple[int, bool]:
+    """(generation, announce the switch) for a season; ``_CENTER_LOCK`` held."""
+
+    if season_key == _UNKNOWN_SEASON and not _is_active_league(base):
+        return LEGACY_ENGINE_GENERATION, False
+    root = str(base.resolve(strict=False))
+    path = base / RATING_CENTERS_FILENAME
+    payload = _read_json(path)
+    if not payload and path.exists():
+        # The file is there but cannot be read (a disk or sync fault). Do
+        # not decide a season's engine from that, and write nothing: use
+        # what this process last saw, else what the rules give right now.
+        cached = _GENERATION_CACHE.get((root, season_key))
+        if cached is not None:
+            return cached, False
+        return _new_season_generation(base), False
+    seasons = payload.get("seasons")
+    if not isinstance(seasons, dict):
+        seasons = {}
+    if season_key == _UNKNOWN_SEASON:
+        # No schedule, so no season to fix anything for: what the league's
+        # next season will get (or, if results exist, what it plays now).
+        return _new_season_generation(base, seasons), False
+    entry = seasons.get(season_key)
+    if isinstance(entry, dict):
+        stored = entry.get(ENGINE_GENERATION_KEY)
+        generation = (
+            normalize_engine_generation(stored)
+            if stored is not None
+            # Written before generations existed: the season was already
+            # under way on the legacy engine, and finishes on it.
+            else LEGACY_ENGINE_GENERATION
+        )
+        _GENERATION_CACHE[(root, season_key)] = generation
+        return generation, False
+    generation = _new_season_generation(base, seasons)
+    entry = _generation_entry(generation, seasons)
+    if not store or not entry:
+        # Legacy is the absence of a generation, so there is nothing to
+        # write: a legacy league's file stays exactly as it is today. (Its
+        # season is pinned by its first game, which creates the entry.)
+        return generation, False
+    announce = _is_engine_switch(base, seasons, generation)
+    seasons[season_key] = entry
+    keep = sorted(seasons)[-_KEEP_SEASONS:]
+    _write_json_atomic(
+        path, {"version": VERSION, "seasons": {k: seasons[k] for k in keep}}
+    )
+    _GENERATION_CACHE[(root, season_key)] = generation
+    return generation, announce
+
+
+def _new_season_generation(base: Path, seasons: dict | None = None) -> int:
+    """The generation a season with no entry yet gets.
+
+    The new generation if none of its regular-season games has been played.
+    A season already under way keeps the engine it has been playing on: the
+    generation of the newest season in ``seasons`` (the file's other
+    entries), which is this same season when its key moved -- a schedule
+    regenerated with another year -- and legacy when the file has never
+    recorded one, the case of every league at deploy. A new generation whose
+    profile cannot be loaded is not handed out (every game of the season
+    would fail): the season starts on the legacy engine and the fault is
+    logged.
+    """
+
+    if _season_has_started(base):
+        return _newest_stored_generation(seasons or {})
+    wanted = _configured_new_season_generation()
+    if wanted <= LEGACY_ENGINE_GENERATION:
+        return LEGACY_ENGINE_GENERATION
+    try:
+        engine_profile(wanted)
+    except ValueError:
+        _LOGGER.exception(
+            "engine generation %s has no usable profile; season starts legacy",
+            wanted,
+        )
+        return LEGACY_ENGINE_GENERATION
+    return wanted
+
+
+def _generation_entry(generation: int, seasons: dict) -> Dict[str, int]:
+    """What a new season entry records of its generation.
+
+    The number -- or nothing at all for the legacy engine in a file that
+    has never recorded a generation (an entry without one IS legacy, and
+    such a file stays as it is today). Once a league has a season on a
+    later generation, a legacy season is written out too, so it can not
+    inherit that generation (:func:`_newest_stored_generation`).
+    """
+
+    if generation <= LEGACY_ENGINE_GENERATION and not _records_generations(seasons):
+        return {}
+    return {ENGINE_GENERATION_KEY: generation}
+
+
+def _records_generations(seasons: dict) -> bool:
+    return any(
+        isinstance(entry, dict) and entry.get(ENGINE_GENERATION_KEY) is not None
+        for entry in seasons.values()
+    )
+
+
+def _newest_stored_generation(seasons: dict) -> int:
+    """The generation of the highest season key in the file; legacy if the
+    file has no season or that season has no generation."""
+
+    known = [key for key, entry in seasons.items() if isinstance(entry, dict)]
+    if not known:
+        return LEGACY_ENGINE_GENERATION
+    stored = seasons[max(known)].get(ENGINE_GENERATION_KEY)
+    if stored is None:
+        return LEGACY_ENGINE_GENERATION
+    generation = normalize_engine_generation(stored)
+    if generation not in known_engine_generations():
+        return LEGACY_ENGINE_GENERATION
+    return generation
+
+
+def _configured_new_season_generation() -> int:
+    raw = str(os.getenv(NEW_SEASON_ENGINE_ENV, "") or "").strip()
+    if raw:
+        try:
+            wanted = int(raw)
+        except ValueError:
+            wanted = None
+        if wanted in known_engine_generations():
+            return wanted
+        _LOGGER.warning(
+            "%s=%r is not an engine generation", NEW_SEASON_ENGINE_ENV, raw
+        )
+    return CURRENT_ENGINE_GENERATION
+
+
+def _season_has_started(base: Path) -> bool:
+    """True when the league's current season has a regular-season result.
+
+    Any one of: a schedule row marked played or carrying a result; a
+    schedule cursor (``season_progress.json`` ``sim_index``) past the first
+    day; a club with a win or a loss in ``standings.json``. Three sources
+    because each can be wiped on its own mid-season -- a regenerated
+    schedule has no played rows but leaves the cursor and the standings, a
+    results reset leaves both -- while a rollover, a reset to Opening Day
+    and a new league clear all three. Cached on the files' mtimes: a lineup
+    action asks this for every club.
+    """
+
+    from utils.file_cache import cached_read
+
+    schedule = base / "schedule.csv"
+    progress = base / "season_progress.json"
+    standings = base / "standings.json"
+    return bool(
+        cached_read(
+            f"engine_generation_started|{base.resolve(strict=False)}",
+            (schedule, progress, standings),
+            lambda: _read_season_started(schedule, progress, standings),
+        )
+    )
+
+
+def _read_season_started(schedule: Path, progress: Path, standings: Path) -> bool:
+    try:
+        with schedule.open(newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                if str(row.get("played") or "").strip() == "1":
+                    return True
+                if str(row.get("result") or "").strip():
+                    return True
+    except OSError:
+        pass
+    try:
+        if int(_read_json(progress).get("sim_index") or 0) > 0:
+            return True
+    except (TypeError, ValueError):
+        pass
+    for record in _read_json(standings).values():
+        if not isinstance(record, dict):
+            continue
+        for key in ("wins", "losses", "w", "l"):
+            try:
+                if float(record.get(key) or 0) > 0:
+                    return True
+            except (TypeError, ValueError):
+                continue
+    return False
+
+
+def _is_engine_switch(base: Path, seasons: dict, generation: int) -> bool:
+    """True when a season starting on ``generation`` is the league's switch.
+
+    The league has finished a season before (``career_index.json`` lists an
+    archived one) and no season in the file was played on this generation
+    or a later one. A league created on the new engine has nothing to be
+    told.
+    """
+
+    if generation <= LEGACY_ENGINE_GENERATION:
+        return False
+    for entry in seasons.values():
+        if not isinstance(entry, dict):
+            continue
+        stored = entry.get(ENGINE_GENERATION_KEY)
+        if stored is not None and normalize_engine_generation(stored) >= generation:
+            return False
+    archived = _read_json(base / "career_index.json").get("seasons")
+    return isinstance(archived, list) and bool(archived)
+
+
+def _announce_engine_switch(base: Path) -> None:
+    """Log :data:`ENGINE_SWITCH_NEWS` to the league's news feed (best effort)."""
+
+    try:
+        from utils.news_logger import log_news_event
+
+        log_news_event(ENGINE_SWITCH_NEWS, file_path=base / "news_feed.txt")
+    except Exception:  # pragma: no cover - news must never stop a game
+        _LOGGER.exception("could not log the engine switch news item")
+
+
+def _is_active_league(base: Path) -> bool:
+    try:
+        return base.resolve(strict=False) == get_data_dir().resolve(strict=False)
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+def _engine_season_key(base: Path) -> str:
+    """The season a generation is asked for: ``_season_key``, and for a
+    league directory that is not the active one, the year of its own
+    schedule's current date."""
+
+    key = _season_key(base)
+    if key != _UNKNOWN_SEASON or _is_active_league(base):
+        return key
+    try:
+        from utils.sim_date import _compute_sim_date
+
+        token = str(
+            _compute_sim_date(base / "schedule.csv", base / "season_progress.json")
+            or ""
+        ).strip()
+    except Exception:  # pragma: no cover - defensive
+        return _UNKNOWN_SEASON
+    if len(token) >= 4 and token[:4].isdigit():
+        return token[:4]
+    return _UNKNOWN_SEASON
 
 
 def _stored_value(entry: dict, key: str) -> Optional[float]:

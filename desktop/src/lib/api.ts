@@ -2123,6 +2123,13 @@ export const api = {
       }>;
       defaults: Record<string, number>;
       overrides: Record<string, number>;
+      // Release 5: which game engine the league's season is played on
+      // (it changes at the start of a season, never during one).
+      engine?: {
+        generation: number;
+        latest_generation: number;
+        message: string;
+      };
     }>("/tuning"),
   saveTuning: (overrides: Record<string, number>) =>
     apiRequest<{

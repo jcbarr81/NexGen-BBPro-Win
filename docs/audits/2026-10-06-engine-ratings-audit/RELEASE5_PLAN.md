@@ -121,3 +121,15 @@ K .22, BB .082 (unintentional about .0795), SwStr .11, contact .76, P/PA 3.88, p
 ## 6. Owner decisions
 
 Taken 2026-10-12; see DECISIONS.md "Release 5 owner decisions". The one that changes this plan: **the switch-on (5b) waits for alpha-test's next season** rather than going live mid-season, so step 6 of the build order is held after it is green. Open technical choice for the build: one global default flip at that point, or a per-league, per-season engine profile (next to `rating_centers.json`) so every league switches at its own rollover.
+
+## 7. The switch-on mechanism (built: per-league, per-season engine generation)
+
+The second option was built. `DEFAULT_TUNING` does not change; the switch-on is a profile laid over it.
+
+- **Generations.** Legacy (today's engine) is generation 4; Release 5 is generation 5. `physics_sim/engine_generation.py` reads a generation's profile from `physics_sim/profiles/engine_<N>.json`: one plain data file per generation, in the package, so the backend image ships it. `scripts/kpi_profiles/r5.json` is the harness-facing copy and a test fails if the two differ. To retune: overwrite `engine_5.json` and copy it over `r5.json`.
+- **A season's generation** is stored in the season's entry of `<league>/rating_centers.json` as `engine_generation` (`services/league_rating_centers.py`). An entry with one plays it all season. An entry without one is legacy (it was written before generations existed, or the season started legacy; legacy is never written down, so a legacy league's file is unchanged). A season with no entry gets generation 5 only if no regular-season game of it has been played (no played schedule row, schedule cursor at 0, no wins or losses in the standings); otherwise it keeps the engine it has been on. So nothing changes for a league at deploy, it moves at its own rollover, and a new league starts on generation 5.
+- **Tuning order**, everywhere a league's games get their tuning (`services/league_tuning.py`): engine defaults, the generation's profile, the stored commissioner overrides, the rating centres.
+- **Sliders** follow the generation, not a key in the overrides file: generation 5 leagues get the rebased sliders and their stored legacy values are converted (and replaced) the first time the file is loaded or saved under generation 5.
+- **Holding the rollout.** `NEXGEN_NEW_SEASON_ENGINE=4` in the service's environment starts every new season on the legacy engine; a season that already has a generation is not moved by it. The test suite sets it, so existing tests run on the legacy engine.
+- **Harness.** `scripts/physics_sim_season_kpis.py --engine 5` applies the profile before `--tuning-overrides`; with no `--engine` the run is the legacy engine. `--gate-set r5` is a small set the profile already holds; the CI step that runs it is not blocking.
+- **Still to do at the switch-on:** the final profile numbers; drop `continue-on-error` from the CI step and gate the full strict set with `--engine 5`; help text and the tutorial for the rebased sliders; the VERSION bump and release notes.

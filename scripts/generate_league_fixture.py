@@ -325,6 +325,12 @@ def build_league(work_dir: Path, *, seed: int, teams: int, as_of: date,
         load_roster.cache_clear()
 
         player_rows = {r["player_id"]: r for r in _read_csv_rows(league_dir / "players.csv")}
+        # The fixture's lineups are built on the engine defaults, stated
+        # here so the result never depends on which league is active on the
+        # machine that regenerates it.
+        from physics_sim.config import load_tuning
+
+        fill_tuning = load_tuning()
         for team_id in team_ids:
             _write_pitching_staff(league_dir, team_id, player_rows)
             lineup_autofill.auto_fill_lineup_for_team(
@@ -332,6 +338,7 @@ def build_league(work_dir: Path, *, seed: int, teams: int, as_of: date,
                 players_file=players_file,
                 roster_dir=roster_dir,
                 lineup_dir=str(league_dir / "lineups"),
+                tuning=fill_tuning,
             )
         load_roster.cache_clear()
     return league_dir

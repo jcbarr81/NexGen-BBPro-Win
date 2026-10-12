@@ -18,6 +18,7 @@ from services.injury_settings import set_injury_level
 from services.training_settings import update_league_training_defaults
 from services.physics_tuning_settings import (
     reset_physics_tuning_overrides,
+    rule_preset_overrides,
     save_physics_tuning_overrides,
 )
 from utils.path_utils import get_base_dir, get_data_dir
@@ -31,11 +32,21 @@ class RulePreset:
     preset_id: str
     name: str
     description: str
+    # Absolute knob values. Never a rate a slider owns (walks, strikeouts,
+    # swings): those mean different things on different engines and go in
+    # ``physics_tuning_multipliers``.
     physics_tuning_overrides: Dict[str, float]
     injury_level: Optional[str] = None
     playoffs_config: Optional[Dict[str, Any]] = None
     training_focus_defaults: Optional[Dict[str, Dict[str, float]]] = None
     draft_config: Optional[Dict[str, Any]] = None
+    # What the preset changes, RELATIVE to the league's engine: a knob name
+    # multiplies that knob's normal value, and ``walk_rate`` /
+    # ``strikeout_rate`` are the Walk Rate and Strikeout Rate sliders (1.05 =
+    # about 5% more). Resolved to stored overrides when the preset is
+    # applied (services.physics_tuning_settings.rule_preset_overrides), so
+    # "High Offense" means the same thing on every engine generation.
+    physics_tuning_multipliers: Optional[Dict[str, float]] = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +108,9 @@ def load_rule_presets() -> List[RulePreset]:
                 playoffs_config=entry.get("playoffs_config"),
                 training_focus_defaults=entry.get("training_focus_defaults"),
                 draft_config=entry.get("draft_config"),
+                physics_tuning_multipliers=dict(
+                    entry.get("physics_tuning_multipliers", {}) or {}
+                ),
             )
         )
     return [p for p in presets if p.preset_id]
@@ -196,7 +210,11 @@ def apply_rule_preset(preset_id: str) -> Optional[RulePreset]:
     if preset is None:
         return None
 
-    overrides = preset.physics_tuning_overrides or {}
+    # The preset's relative changes become overrides on the scales of the
+    # league's own engine generation; the save converts anything a preset
+    # still states on a legacy slider scale.
+    overrides = dict(preset.physics_tuning_overrides or {})
+    overrides.update(rule_preset_overrides(preset.physics_tuning_multipliers or {}))
     if overrides:
         save_physics_tuning_overrides(overrides)
     else:

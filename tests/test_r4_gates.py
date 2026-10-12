@@ -120,9 +120,10 @@ def test_4b_gates_are_default_strict_gates():
         assert key not in kpis.REPORT_ONLY_TOLERANCES
     # SF/PA is a kpi_extras metric, promoted with its target.
     assert kpis.STRICT_EXTRAS_TARGETS["sf_per_pa"] == pytest.approx(0.0068)
-    # No gate set adds gates any more (the r4b profile set is gone).
-    assert kpis.GATE_SET_TOLERANCES == {}
-    assert kpis.GATE_SET_EXTRAS_TARGETS == {}
+    # No Release 4 gate set adds gates any more (the r4b profile set is
+    # gone); the only one that does is "r5", the engine generation 5 set.
+    assert set(kpis.GATE_SET_TOLERANCES) == {"r5"}
+    assert set(kpis.GATE_SET_EXTRAS_TARGETS) == {"r5"}
     assert kpis.strict_tolerances_for(None) == kpis.DEFAULT_TOLERANCES
     assert kpis.strict_tolerances_for("running") == kpis.DEFAULT_TOLERANCES
     assert kpis.strict_extras_targets_for(None) == kpis.STRICT_EXTRAS_TARGETS
@@ -161,7 +162,7 @@ def test_a_gate_set_can_still_add_gates(monkeypatch):
 
 
 def test_running_gate_set_contents():
-    assert set(kpis.GATE_SETS) == {"running"}
+    assert set(kpis.GATE_SETS) == {"running", "r5"}
     assert set(kpis.GATE_SETS["running"]) == {
         "sb_pct",
         "sba_per_pa",

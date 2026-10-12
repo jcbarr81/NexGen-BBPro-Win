@@ -1618,9 +1618,13 @@ def test_two_strike_sliders_merge_into_one():
     assert convert({"two_strike_zone_protect": 0.5})[key] < mixed.get(key, 1.0) < (
         more_aggressive[key]
     )
+    # Both old sliders at their maximum is still inside the new slider (it
+    # is not clipped); only values from outside the old ranges are held.
     spec = _SWING_MODEL_SLIDERS["two_strike_aggression_scale"]
     extreme = convert({"two_strike_aggression_scale": 1.4, "two_strike_zone_protect": 0.9})
-    assert extreme[key] == spec.max_value
+    assert both[key] < extreme[key] < spec.max_value
+    beyond = convert({"two_strike_aggression_scale": 9.0, "two_strike_zone_protect": 1.0})
+    assert beyond[key] == spec.max_value
 
 
 def test_conversion_never_overwrites_a_value_already_on_the_new_scale():
@@ -1631,136 +1635,7 @@ def test_conversion_never_overwrites_a_value_already_on_the_new_scale():
     assert out["swing_chase_scale"] < 1.0
 
 
-@pytest.fixture
-def overrides_file(tmp_path, monkeypatch):
-    path = tmp_path / "physics_tuning_overrides.json"
-    monkeypatch.setattr(settings, "TUNING_OVERRIDES_PATH", path)
-    return path
-
-
-LEGACY_FILE = {
-    "walk_scale": 1.0, "zone_swing_scale": 0.8, "two_strike_zone_protect": 0.8,
-    "hr_scale": 1.1, settings.STEAL_FREQ_REBASE_MARKER: True,
-}
-
-
-def test_a_league_on_the_old_model_keeps_its_file_and_values(overrides_file):
-    overrides_file.write_text(json.dumps(LEGACY_FILE))
-    before = overrides_file.read_text()
-    assert settings.effective_swing_model(settings.load_physics_tuning_overrides()) == 0.0
-    loaded = settings.load_physics_tuning_overrides()
-    assert loaded == {
-        "walk_scale": 1.0, "zone_swing_scale": 0.8,
-        "two_strike_zone_protect": 0.8, "hr_scale": 1.1,
-    }
-    # Nothing converted, nothing written, at deploy or on any later load.
-    assert overrides_file.read_text() == before
-    # A save from the old sliders does not claim the new scale either.
-    settings.save_physics_tuning_overrides({"walk_scale": 0.9})
-    stored = json.loads(overrides_file.read_text())
-    assert settings.SWING_SLIDER_REBASE_MARKER not in stored
-    assert stored["walk_scale"] == 0.9 and "swing_walk_scale" not in stored
-
-
-def test_stored_sliders_are_converted_once_when_the_league_moves(overrides_file):
-    # The league moves by its own stored switch ...
-    overrides_file.write_text(json.dumps({**LEGACY_FILE, "swing_model": 1.0}))
-    loaded = settings.load_physics_tuning_overrides()
-    expected = settings.convert_swing_slider_overrides(
-        {k: v for k, v in LEGACY_FILE.items() if not k.startswith("_")}
-    )
-    assert loaded == {**expected, "swing_model": 1.0}
-    assert loaded["swing_walk_scale"] > 1.0 and loaded["swing_zone_scale"] < 1.0
-    assert loaded["swing_two_strike_scale"] > 1.0
-    assert "swing_chase_scale" not in loaded
-    # ... the old values are kept beside the new ones ...
-    assert loaded["walk_scale"] == 1.0 and loaded["zone_swing_scale"] == 0.8
-    stored = json.loads(overrides_file.read_text())
-    assert stored[settings.SWING_SLIDER_REBASE_MARKER] is True
-    assert stored[settings.STEAL_FREQ_REBASE_MARKER] is True
-    assert stored["swing_walk_scale"] == loaded["swing_walk_scale"]
-    # ... and never converted again, even after the commissioner sets the
-    # new Walk Rate back to 1.0 (so it is no longer stored).
-    assert settings.load_physics_tuning_overrides() == loaded
-    del stored["swing_walk_scale"]
-    overrides_file.write_text(json.dumps(stored))
-    again = settings.load_physics_tuning_overrides()
-    assert "swing_walk_scale" not in again and again["walk_scale"] == 1.0
-
-
-def test_stored_sliders_are_converted_when_the_default_flips(
-    overrides_file, monkeypatch
-):
-    overrides_file.write_text(json.dumps(LEGACY_FILE))
-    before = overrides_file.read_text()
-    assert "swing_walk_scale" not in settings.load_physics_tuning_overrides()
-    assert overrides_file.read_text() == before
-    # Release 5b: the engine default becomes swing_model 1.
-    monkeypatch.setitem(DEFAULT_TUNING, "swing_model", 1.0)
-    loaded = settings.load_physics_tuning_overrides()
-    assert loaded["swing_walk_scale"] > 1.0
-    assert json.loads(overrides_file.read_text())[settings.SWING_SLIDER_REBASE_MARKER]
-    assert settings.load_physics_tuning_values()["swing_walk_scale"] == (
-        loaded["swing_walk_scale"]
-    )
-    # A league pinned to the old model by its own file is left alone.
-    overrides_file.write_text(json.dumps({**LEGACY_FILE, "swing_model": 0.0}))
-    before = overrides_file.read_text()
-    assert "swing_walk_scale" not in settings.load_physics_tuning_overrides()
-    assert overrides_file.read_text() == before
-
-
-def test_a_save_under_the_new_model_is_on_the_new_scale(overrides_file):
-    settings.save_physics_tuning_overrides({"swing_model": 1.0, "swing_walk_scale": 1.1})
-    stored = json.loads(overrides_file.read_text())
-    assert stored[settings.SWING_SLIDER_REBASE_MARKER] is True
-    assert settings.load_physics_tuning_overrides() == {
-        "swing_model": 1.0, "swing_walk_scale": 1.1,
-    }
-
-
-def test_both_migrations_run_together_and_each_only_once(overrides_file):
-    overrides_file.write_text(
-        json.dumps({"steal_freq_scale": 4.5, "chase_scale": 0.9, "swing_model": 1.0})
-    )
-    loaded = settings.load_physics_tuning_overrides()
-    assert loaded["steal_freq_scale"] == pytest.approx(1.5)
-    assert loaded["swing_chase_scale"] > 1.0
-    assert settings.load_physics_tuning_overrides() == loaded
-    stored = json.loads(overrides_file.read_text())
-    assert stored[settings.STEAL_FREQ_REBASE_MARKER] is True
-    assert stored[settings.SWING_SLIDER_REBASE_MARKER] is True
-    # The steal rebase alone (old model) does not claim the swing rebase.
-    overrides_file.write_text(json.dumps({"steal_freq_scale": 4.5, "chase_scale": 0.9}))
-    assert "swing_chase_scale" not in settings.load_physics_tuning_overrides()
-    stored = json.loads(overrides_file.read_text())
-    assert settings.SWING_SLIDER_REBASE_MARKER not in stored
-    assert stored["steal_freq_scale"] == pytest.approx(1.5)
-
-
-def test_conversion_survives_a_read_only_file(overrides_file, monkeypatch):
-    overrides_file.write_text(json.dumps({**LEGACY_FILE, "swing_model": 1.0}))
-    before = overrides_file.read_text()
-
-    def fail(*_args, **_kwargs):
-        raise OSError("read-only")
-
-    monkeypatch.setattr(settings, "_write_atomic", fail)
-    first = settings.load_physics_tuning_overrides()
-    assert first["swing_walk_scale"] > 1.0
-    assert settings.load_physics_tuning_overrides() == first
-    assert overrides_file.read_text() == before
-
-
-def test_the_api_serves_the_slider_set_of_the_league_s_model(overrides_file):
-    router = pytest.importorskip("api.routers.tuning")
-
-    def served():
-        return [s["key"] for section in router._serialize_spec() for s in section["sliders"]]
-
-    assert served() == _slider_keys(_TUNING_SECTIONS)
-    overrides_file.write_text(json.dumps(LEGACY_FILE))
-    assert served() == _slider_keys(_TUNING_SECTIONS)
-    overrides_file.write_text(json.dumps({**LEGACY_FILE, "swing_model": 1.0}))
-    assert served() == _slider_keys(tuning_sections(1.0))
-    assert "two_strike_zone_protect" not in served()
+# The tests of the stored overrides file -- when a league's sliders are
+# converted, what a save keeps, the slider set the API serves -- are in
+# tests/test_r5_flip_sliders.py: all of that follows the league's ENGINE
+# GENERATION, not a ``swing_model`` key in the file.

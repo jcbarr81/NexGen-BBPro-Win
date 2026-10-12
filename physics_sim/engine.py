@@ -5086,23 +5086,32 @@ def simulate_matchup_from_files(
     home_lineup, home_positions, missing_home_batters = resolve_lineup(
         home_lineup_slots, batters_by_id
     )
+    # A lineup rebuilt here is scored with THIS game's tuning (its platoon
+    # terms), not with whatever league happens to be active: the auto-fill
+    # would otherwise read the active league's stored overrides.
+    fill_tuning = None
     if missing_away_batters or len(away_lineup) < 9:
+        fill_tuning = load_tuning(overrides=tuning_overrides)
         auto_fill_lineup_for_team(
             _normalize_team_id(away_team),
             players_file=str(players_csv),
             roster_dir=str(data_root / "rosters"),
             lineup_dir=str(data_root / "lineups"),
+            tuning=fill_tuning,
         )
         away_lineup_slots = load_lineup(away_team, away_lineup_hand, base_dir=data_root)
         away_lineup, away_positions, missing_away_batters = resolve_lineup(
             away_lineup_slots, batters_by_id
         )
     if missing_home_batters or len(home_lineup) < 9:
+        if fill_tuning is None:
+            fill_tuning = load_tuning(overrides=tuning_overrides)
         auto_fill_lineup_for_team(
             _normalize_team_id(home_team),
             players_file=str(players_csv),
             roster_dir=str(data_root / "rosters"),
             lineup_dir=str(data_root / "lineups"),
+            tuning=fill_tuning,
         )
         home_lineup_slots = load_lineup(home_team, home_lineup_hand, base_dir=data_root)
         home_lineup, home_positions, missing_home_batters = resolve_lineup(

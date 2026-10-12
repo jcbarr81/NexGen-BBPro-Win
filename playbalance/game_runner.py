@@ -29,7 +29,11 @@ from utils.team_loader import load_teams
 from services.injury_manager import place_on_injury_list
 from services.injury_history import record_injury_event
 from services.injury_settings import get_injury_tuning_overrides
-from services.league_rating_centers import get_rating_center_overrides
+from physics_sim.engine_generation import engine_profile
+from services.league_rating_centers import (
+    get_league_engine_generation,
+    get_rating_center_overrides,
+)
 from services.physics_tuning_settings import get_physics_tuning_overrides
 from services.decision_explanations import (
     append_decision_log,
@@ -1285,9 +1289,19 @@ def _run_physics_game(
     else:
         usage_state, game_day = _physics_usage_context(date_token)
 
-    tuning_overrides: Dict[str, Any] = {}
+    # The league's tuning, in this order (services.league_tuning): the
+    # profile of the season's engine generation over the engine defaults,
+    # then the stored commissioner overrides, then (below) the rating
+    # centres. A legacy season has no profile, so its tuning is what it has
+    # always been. A parallel-day worker uses the generation its parent
+    # fixed before the fan-out. A profile that cannot be loaded raises: a
+    # season on the new engine is never played on the old one in silence.
+    generation = getattr(jr, "engine_generation", None) if jr is not None else None
+    if generation is None:
+        generation = get_league_engine_generation()
+    tuning_overrides: Dict[str, Any] = engine_profile(generation)
     try:
-        tuning_overrides.update(get_physics_tuning_overrides())
+        tuning_overrides.update(get_physics_tuning_overrides(generation))
     except Exception:
         pass
     try:
