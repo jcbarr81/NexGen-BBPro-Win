@@ -24,6 +24,67 @@ LEAGUE = "r5flip"
 ADMIN = {"u": "commish", "r": "admin"}
 NEW_SEASON_ENGINE_ENV = "NEXGEN_NEW_SEASON_ENGINE"
 
+# The keys of a season entry as 7.50.3 (the code deployed before Release 5)
+# writes it to rating_centers.json, in its order. Written out here, not
+# taken from today's module: "nothing changes at deploy" has to be tested
+# against the file that is really on disk at deploy.
+KEYS_7_50_3 = (
+    "hitter_speed_center",
+    "pitcher_control_center",
+    "pitcher_hold_center",
+    "pitcher_arm_center",
+    "catcher_arm_center",
+    "catcher_fa_center",
+    "hitter_contact_center",
+    "hitter_eye_center",
+    "pitcher_movement_center",
+    "pitcher_grade_center",
+    "hitter_vl_center_l",
+    "hitter_vl_center_r",
+    "hitter_vl_center_s",
+    "hitter_bats_share_l",
+    "hitter_bats_share_r",
+    "hitter_bats_share_s",
+)
+
+
+def centres_as_7_50_3(data: Path) -> dict:
+    """A league's season entry exactly as 7.50.3 computes it.
+
+    Sixteen keys, no engine generation, no Power or usage centre, and the
+    hitter Contact and Eye centres as the means over EVERY ACT hitter (the
+    code since reads those two over the lineup regulars). The other
+    fourteen have kept their 7.50.3 definition, so they are today's
+    values; the two that changed are worked out here from the files.
+    """
+    from services import league_rating_centers as centers
+    from utils.roster_rules import counts_as_pitcher
+
+    today = centers.active_rating_centers(data)
+    active: set[str] = set()
+    for roster in sorted((data / "rosters").glob("*.csv")):
+        if roster.stem.endswith(("_pitching", "_lineup")):
+            continue
+        with roster.open(newline="", encoding="utf-8") as fh:
+            active.update(
+                row[0].strip()
+                for row in csv.reader(fh)
+                if len(row) >= 2 and row[1].strip().upper() == "ACT"
+            )
+    contact: list[float] = []
+    eye: list[float] = []
+    with (data / "players.csv").open(newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            if row["player_id"].strip() not in active or counts_as_pitcher(row):
+                continue
+            ch = float(row.get("ch") or 50.0)
+            contact.append(ch)
+            eye.append(float(row.get("eye") or ch))
+    entry = {key: today[key] for key in KEYS_7_50_3 if key in today}
+    entry["hitter_contact_center"] = round(sum(contact) / len(contact), 2)
+    entry["hitter_eye_center"] = round(sum(eye) / len(eye), 2)
+    return entry
+
 
 def copy_fixture(source: Path, dest: Path) -> Path:
     """A fixture's league files (teams, players, rosters, lineups) in ``dest``."""

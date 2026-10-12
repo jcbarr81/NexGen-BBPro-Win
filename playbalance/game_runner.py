@@ -1327,12 +1327,21 @@ def _run_physics_game(
     # stored overrides so the season's measured centre wins. A parallel-day
     # worker uses the value its parent computed before the fan-out, so every
     # game of the day reads the same centre.
+    #
+    # Only a season game (it has a date) FIXES the season's centres. An
+    # exhibition has none: it reads the stored centres, or works them out
+    # for itself, and stores nothing -- one played in the preseason, before
+    # the clubs' lineups are saved, used to pin the whole season's hitter
+    # centres to that day's nine-best stand-ins.
     worker_centers = getattr(jr, "rating_centers", None) if jr is not None else None
     if worker_centers is not None:
         tuning_overrides.update(worker_centers)
     else:
         try:
-            tuning_overrides.update(get_rating_center_overrides())
+            if date_token is not None:
+                tuning_overrides.update(get_rating_center_overrides())
+            else:
+                tuning_overrides.update(get_rating_center_overrides(store=False))
         except Exception:
             pass
     # Decision 11: the league's automatic-runner rule, written last so it

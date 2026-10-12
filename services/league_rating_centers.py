@@ -99,12 +99,33 @@ ACT means above are NOT redefined: the Release 4 running-game terms and
 every stored season file read ``pitcher_control_center``,
 ``pitcher_hold_center`` and ``pitcher_arm_center`` as they always did.
 
-A season's league-relative centres always share one definition: the Power
-centre and the four usage centres are computed only in the same step as the
-Contact and Eye centres. An entry that already holds one of those two
-(written before this change, on either engine) never gains them -- the
-engine reads 50.0 for them, and a league's stored file keeps its bytes for
-the rest of that season.
+What an existing season entry gains depends on the engine its season is
+played on:
+
+* A LEGACY season (no generation on record) never reads the Release 5
+  centres. Its entry is never recomputed, and once it holds its Contact or
+  Eye centre it never gains the Power centre or the usage centres: a league
+  whose season is under way keeps its stored file byte for byte.
+* A season on a later generation reads every one of them, so a half-set is
+  a different sport: hitters shifted by one definition's means, pitchers not
+  shifted at all, and the models comparing both against 50. Its entry
+  records which definition its Release 5 centres were computed with
+  (``centers_version``, beside ``engine_generation``). An entry of such a
+  season that holds any of them WITHOUT the current marker -- written by an
+  earlier build, or merged with the centres a stale instance of the old
+  code computed over an entry that already held the generation -- has all
+  seven recomputed from today's rosters and lineups and stored with the
+  marker. An entry with the marker that is missing one (no ACT pitcher
+  resolved when it was created) has the missing ones added. Both are
+  reported once (:func:`_shout`). This happens even when the season has
+  started: its centres move once, which is better than a season played
+  half-shifted to the end.
+
+A game is the last line of defence: with ``centred_ratings`` on, the engine
+refuses to shift a rating by a centre that was not delivered
+(``physics_sim.centred_ratings.RatingCenterMissing``), so a season whose
+centres cannot be worked out fails its games instead of playing them on
+50s.
 
 A league must never change engine in the middle of a season, in either
 direction, and one file is one point of failure: a lost, truncated or stale
@@ -188,6 +209,9 @@ __all__ = [
     "PITCHER_GRADE_CENTER_KEY",
     "HITTER_POWER_CENTER_KEY",
     "PITCHER_USAGE_CENTER_KEYS",
+    "RELATIVE_CENTER_KEYS",
+    "CENTERS_VERSION_KEY",
+    "CENTERS_VERSION",
     "HITTER_VL_CENTER_KEYS",
     "HITTER_BATS_SHARE_KEYS",
     "RATING_CENTER_KEYS",
@@ -290,9 +314,26 @@ RATING_CENTER_KEYS: tuple[str, ...] = (
     + (HITTER_POWER_CENTER_KEY,)
     + tuple(PITCHER_USAGE_CENTER_KEYS)
 )
-# Centres a stored entry gains only together with its Contact and Eye
-# centres (``_predates_league_relative_centers``).
+# Centres a LEGACY season's stored entry gains only together with its
+# Contact and Eye centres (``_predates_league_relative_centers``).
 _NEW_ENTRY_KEYS = frozenset((HITTER_POWER_CENTER_KEY, *PITCHER_USAGE_CENTER_KEYS))
+# The Release 5 centres: the ones the engine shifts a rating by under
+# ``centred_ratings`` (``physics_sim.centred_ratings.CENTRED_RATING_KEYS``).
+# A season on a generation above legacy must hold every one of them, all
+# computed with the current definition.
+RELATIVE_CENTER_KEYS: tuple[str, ...] = (
+    HITTER_CONTACT_CENTER_KEY,
+    HITTER_EYE_CENTER_KEY,
+    HITTER_POWER_CENTER_KEY,
+    *PITCHER_USAGE_CENTER_KEYS,
+)
+# Which definition a season entry's Release 5 centres were computed with,
+# stored in the entry beside its engine generation. 2: hitters over the
+# lineup regulars, pitchers weighted by workload. An entry without it holds
+# whatever an earlier build wrote (every-ACT-hitter Contact and Eye from
+# 7.50.3, or the regulars' without the usage centres).
+CENTERS_VERSION_KEY = "centers_version"
+CENTERS_VERSION = 2
 # Seasons kept in the file for reference; the current one rules.
 _KEEP_SEASONS = 5
 # The season key ``_season_key`` returns when the league has no schedule
@@ -458,7 +499,12 @@ def get_rating_center_overrides(*, store: bool = True) -> Dict[str, float]:
 
     try:
         return league_rating_centers(store=store)
-    except Exception:  # pragma: no cover - defensive; a game must still run
+    except Exception:  # pragma: no cover - defensive
+        # A legacy game still runs on the 50.0 defaults. A game of a season
+        # that reads ratings league-relative does not: the engine refuses
+        # to shift by a centre it was not given, so the cause is logged
+        # here for whoever reads that failure.
+        _LOGGER.exception("could not work out the league's rating centres")
         return {}
 
 
@@ -510,10 +556,12 @@ def _league_centers(
     """The centres in ``keys``: cache, then the season's file, then computed.
 
     Only keys missing from both are computed, and (``store``, known season)
-    merged into the season's stored entry; a stored centre is never
-    recomputed. A key with nothing to average is left out, and so are the
-    Power and usage centres of an entry that already holds its Contact or
-    Eye centre (:func:`_predates_league_relative_centers`).
+    merged into the season's stored entry. A key with nothing to average is
+    left out. A stored centre is never recomputed, with one exception: the
+    Release 5 centres of a season on a generation above legacy that were
+    not computed with the current definition (module docstring). A legacy
+    season's entry that already holds its Contact or Eye centre never gains
+    the Power and usage centres (:func:`_predates_league_relative_centers`).
     """
 
     base = Path(data_dir) if data_dir is not None else get_data_dir()
@@ -571,20 +619,59 @@ def _league_centers_locked(
     new_entry = not isinstance(entry, dict)
     if new_entry:
         entry = {}
+    # Which rule the stored entry lives under (module docstring). A season
+    # on a generation that reads ratings league-relative needs every one of
+    # its Release 5 centres, all on the current definition.
+    recorded = _recorded_generations(base, entry) if not new_entry else {}
+    relative = max(recorded.values(), default=LEGACY_ENGINE_GENERATION) > (
+        LEGACY_ENGINE_GENERATION
+    )
+    held = [key for key in RELATIVE_CENTER_KEYS if _stored_value(entry, key) is not None]
+    wanted = [key for key in missing if key in RELATIVE_CENTER_KEYS]
+    stale = bool(
+        relative and held and wanted and _centers_version(entry) != CENTERS_VERSION
+    )
     unstored = []
     for key in missing:
         value = _stored_value(entry, key)
-        if value is None:
+        if value is None or (stale and key in RELATIVE_CENTER_KEYS):
             unstored.append(key)
             continue
         found[key] = value
         _CENTER_CACHE[(root, season_key, key)] = value
-    if _predates_league_relative_centers(entry) and _NEW_ENTRY_KEYS & set(unstored):
+    if stale:
+        # Every Release 5 centre is recomputed together, asked for or not:
+        # the entry is marked as a whole.
+        unstored += [key for key in RELATIVE_CENTER_KEYS if key not in unstored]
+    elif (
+        not relative
+        and _predates_league_relative_centers(entry)
+        and _NEW_ENTRY_KEYS & set(unstored)
+    ):
         unstored = [key for key in unstored if key not in _NEW_ENTRY_KEYS]
         _WITHHELD.add((root, season_key))
     if unstored:
         computed = _computed(base, unstored)
         found.update(computed)
+        if stale:
+            entry = {k: v for k, v in entry.items() if k not in RELATIVE_CENTER_KEYS}
+        gained = [key for key in RELATIVE_CENTER_KEYS if key in computed]
+        if stale or (relative and held and gained):
+            _shout(
+                (root, season_key, "centres recomputed"),
+                "season %s of %s is on engine generation %s but its "
+                "league-relative rating centres were %s (%s); %s were computed "
+                "from today's rosters and lineups%s. A season fixed by an "
+                "earlier build, or one whose entry was merged with an older "
+                "instance's, plays differently from this point on.",
+                season_key,
+                base,
+                max(recorded.values()),
+                "not fixed by this build" if stale else "incomplete",
+                ", ".join(held),
+                ", ".join(gained) or "none",
+                " and stored" if store and not unreadable else "",
+            )
         if computed and store and unreadable:
             # The file is there but cannot be read (a disk or sync fault):
             # the season's stored centres may be in it. Writing would
@@ -598,7 +685,7 @@ def _league_centers_locked(
                 "(restore it, or delete it to have it rebuilt)",
                 path,
             )
-        elif computed and store:
+        elif store and (computed or stale):
             # The season's engine generation is settled with every write of
             # its entry (module docstring): a new entry gets the season's,
             # and an entry that lost its generation gets it back.
@@ -609,7 +696,13 @@ def _league_centers_locked(
                 _GENERATION_CACHE[(root, season_key)] = verdict.generation
             if new_entry and verdict.announce:
                 announce.append(True)
-            seasons[season_key] = {**entry, **computed}
+            merged = {**entry, **computed}
+            if verdict.generation > LEGACY_ENGINE_GENERATION and any(
+                key in merged for key in RELATIVE_CENTER_KEYS
+            ):
+                # Which definition this entry's Release 5 centres have.
+                merged[CENTERS_VERSION_KEY] = CENTERS_VERSION
+            seasons[season_key] = merged
             _write_seasons(path, seasons)
             if verdict.record:
                 _write_witness(base, season_key, verdict.generation)
@@ -1108,6 +1201,16 @@ def _stored_value(entry: dict, key: str) -> Optional[float]:
         return float(stored) if stored is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _centers_version(entry: dict) -> Optional[int]:
+    """The definition an entry's Release 5 centres were computed with, or
+    ``None`` when the entry does not say."""
+
+    stored = entry.get(CENTERS_VERSION_KEY)
+    if isinstance(stored, bool) or not isinstance(stored, (int, float)):
+        return None
+    return int(stored)
 
 
 def _predates_league_relative_centers(entry: dict) -> bool:

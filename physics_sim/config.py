@@ -1165,6 +1165,11 @@ class TuningConfig:
     """Container for all user-adjustable tuning knobs."""
 
     values: Dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_TUNING))
+    # The registered keys the overrides actually supplied. A league's rating
+    # centres default to 50.0, which cannot be told from "nobody delivered
+    # this league's centre"; physics_sim.centred_ratings refuses to shift a
+    # rating by a centre that is not in here.
+    delivered: frozenset = field(default_factory=frozenset, compare=False, repr=False)
 
     @classmethod
     def from_overrides(
@@ -1185,6 +1190,7 @@ class TuningConfig:
                 pass
         if overrides:
             data.update(overrides)
+        delivered = set()
         for k, v in data.items():
             if k in base:
                 base_value = base.get(k)
@@ -1195,7 +1201,8 @@ class TuningConfig:
                         continue
                 else:
                     base[k] = v
-        return cls(values=base)
+                delivered.add(k)
+        return cls(values=base, delivered=frozenset(delivered))
 
     def get(self, key: str, default: Optional[float] = None) -> float:
         """Numeric knob lookup, memoized per (key, default) (S1-09).
