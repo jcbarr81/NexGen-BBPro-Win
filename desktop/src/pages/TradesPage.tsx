@@ -969,7 +969,12 @@ function PlayerCompareCard({
               key={label}
               className="flex items-center justify-between gap-2"
             >
-              <dt className="truncate text-muted">{label}</dt>
+              <dt
+                className="truncate text-muted"
+                title={profile.rating_help?.[label]}
+              >
+                {label}
+              </dt>
               <dd className="font-medium text-ink">{value}</dd>
             </div>
           ))}

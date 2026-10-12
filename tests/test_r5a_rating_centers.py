@@ -482,9 +482,18 @@ def test_no_engine_module_reads_the_new_keys():
     # 5a registers the keys only; the engine starts reading them with the
     # Release 5 models. Until then a reference in physics_sim (outside the
     # registration in config.py) would be a behaviour change slipped in.
+    #
+    # Release 5 platoon: physics_sim/platoon.py reads the by-bats vl centres
+    # and the batting-side shares, behind switches that default off
+    # (tests/test_r5_platoon.py pins the switched-off games).
+    released = {
+        "platoon.py": set(centers.HITTER_VL_CENTER_KEYS.values()) | set(SHARE_KEYS),
+    }
     for path in (REPO / "physics_sim").glob("*.py"):
         if path.name == "config.py":
             continue
         text = path.read_text(encoding="utf-8")
         for key in R5A_KEYS:
+            if key in released.get(path.name, ()):
+                continue
             assert key not in text, f"{path.name} reads {key}"

@@ -60,6 +60,31 @@ def _power_bat_speed(power: float, tuning: TuningConfig) -> float:
         delta += (float(power) - knee) * knee_scale
     return delta
 
+
+def _batter_power_bat_speed(batter: Dict[str, Any], tuning: TuningConfig) -> float:
+    """Bat speed from the batter's Power in this plate appearance.
+
+    ``batter["power"]`` is his Power rating plus the situational bonuses
+    (handedness, his vl split, times through the order). Run through the
+    curve above, a bonus point is worth ``bat_speed_power_scale`` mph below
+    the knee and that plus ``bat_speed_power_knee_scale`` above it, so the
+    same platoon edge was a far bigger home-run edge for a hitter a point
+    above the knee than for one a point below (audit H7).
+
+    With ``platoon_power_after_knee`` on, the curve reads his own Power
+    (``power_base``) and every bonus point adds a flat
+    ``platoon_bat_speed_per_point`` mph, whatever his Power.
+    """
+
+    power = batter.get("power", 50.0)
+    if tuning.get("platoon_power_after_knee", 0.0) >= 0.5:
+        base = batter.get("power_base", power)
+        return _power_bat_speed(base, tuning) + (power - base) * tuning.get(
+            "platoon_bat_speed_per_point", 0.35
+        )
+    return _power_bat_speed(power, tuning)
+
+
 def _weighted_choice(weights: Dict[str, float]) -> str:
     total = sum(max(0.0, w) for w in weights.values())
     if total <= 0.0:
@@ -306,6 +331,10 @@ def choose_pitch_type(
     balls, strikes = count
     weights: Dict[str, float] = {}
     batter_power = batter.get("power", 50.0)
+    if tuning.get("platoon_power_after_knee", 0.0) >= 0.5:
+        # The pitcher sequences against the hitter's own Power, not against
+        # his platoon edge.
+        batter_power = batter.get("power_base", batter_power)
     batter_eye = batter.get("eye", 50.0)
     objective_bias = tuning.values.get("pitch_objective_group_bias")
     bias_map = {}
@@ -839,7 +868,7 @@ def simulate_pitch(
                 timing_quality * timing_weight + barrel_quality * barrel_weight
             ) / weight_sum
             bat_speed = tuning.get("bat_speed_base", 62.0)
-            bat_speed += _power_bat_speed(batter.get("power", 50.0), tuning)
+            bat_speed += _batter_power_bat_speed(batter, tuning)
             bat_speed += (batter.get("contact", 50.0) - 50.0) * tuning.get(
                 "bat_speed_contact_scale", 0.2
             )

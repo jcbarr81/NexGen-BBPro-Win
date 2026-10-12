@@ -1429,3 +1429,38 @@ Follow-ups:
   (older than #63; a preseason draft is now kept).
 - Tests still missing: `_simulate_n` crossing the July date end to end, the
   real rollover hook, a human owner on the clock in a preseason draft.
+
+## Release 5 platoon and handedness: follow-ups (2026-10-12)
+
+Built on branch `r5-platoon`, switched off; the switched-on values are in
+`scripts/kpi_profiles/r5_platoon.json`.
+
+- The KPI harness's matchup grid (`kpi_extras.matchup_grid_metrics`) gets the
+  tuning profile but not the fixture's rating centres, so under a Release 5
+  profile its right-handed platoon cells use `handedness_rhb_scale` alone
+  (shares unknown) and every centre is 50. Pass `with_rating_centers` to it
+  if the grid should describe the fixture rather than a neutral league.
+- With `handedness_balance_strength` 1.0 the league fixture's pooled platoon
+  gap is about .016 (LHB .023, RHB .012): its hitters are 65% right-handed,
+  so the balanced right-handed split is 0.42 of the left-handed one. That is
+  owner decision 5 as taken; the 0.006 platoon gate can only be held on a
+  league with an MLB-like mix until Release 7 regenerates the fixture.
+- `scripts/generate_league_fixture.py` pins the generator's pre-Release-5
+  batting-side table (`BATS_THROWS_PRE_R5`) so the committed fixture stays
+  reproducible. Drop the pin, and the table, when Release 7 regenerates it.
+- `platoon_rhp_counter_scale` (0.35) assumes 26% of PA come against LHP; the
+  league fixture runs 31-32%. It could be derived from the league's pitching
+  staffs like the batting-side shares.
+- The generator still tilts vl by batting side (hitters -4 / +4 for L / R,
+  pitchers +4 / -2 for L / R: `player_generator._bootstrap_hitter_ratings`,
+  `_bootstrap_pitcher_ratings`, `_sample_normalized_hitter`,
+  `_sample_normalized_pitcher`, and the dice ranges in `generate_player`).
+  It goes in Release 7 with the data recentring (decision 6).
+- `playbalance/archetypes.py::infer_hitter_archetype` reads vl as
+  "discipline" (speed_disc needs vl >= 70), and
+  `player_development._HITTER_TRACKS` trains vl with Contact. Both predate
+  "vl is the personal platoon split" and want a look in Release 7.
+- At the Release 5b flip the lineup auto-fill starts reading the centred vl
+  for the league fixture's own generation, so
+  `test_committed_fixture_matches_the_current_generator` will ask for a
+  regenerated fixture (or a pinned tuning) at that point.

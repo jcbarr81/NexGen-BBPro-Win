@@ -140,16 +140,20 @@ def _default_hitters(
         _assign_batting_order,
         build_lineup,
         lineup_hitter_score,
+        platoon_tuning,
     )
 
     by_id = {p.player_id: p for p in hitters}
+    tuning = platoon_tuning()
 
     def score(pid: str) -> float:
-        return lineup_hitter_score(by_id[pid], vs_hand="R")
+        return lineup_hitter_score(by_id[pid], vs_hand="R", tuning=tuning)
 
     picked, _counters = build_lineup(list(by_id), by_id, score=score)
     if len(picked) >= 9:
-        picked = _assign_batting_order(picked, by_id, vs_hand="R", overall_score=score)
+        picked = _assign_batting_order(
+            picked, by_id, vs_hand="R", overall_score=score, tuning=tuning
+        )
     lineup: List[Player] = []
     for pid, pos in picked:
         player = by_id[pid]

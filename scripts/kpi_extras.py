@@ -242,6 +242,9 @@ class ReportOnlyKpis:
         self._load_players(Path(players_path))
         # Release 4 (W1): pitcher control, for the wild-pitch response check.
         self.control = _load_pitcher_control(Path(players_path))
+        # Release 5: the pitcher ratings the engine reads, for the
+        # rating-adjusted LHP-minus-RHP run average.
+        self.pitcher_ratings = _load_pitcher_ratings(Path(players_path))
         # Release 5a: hitter Contact and Eye, for the rating-response slopes.
         self.ch, self.eye = _load_hitter_contact_eye(Path(players_path))
         self.lineup_pos = _load_lineup_positions(lineup_dir) if lineup_dir else {}
@@ -846,6 +849,11 @@ class ReportOnlyKpis:
         }
         metrics["lhp_minus_rhp_ra9"] = _diff(ra9.get("L"), ra9.get("R"))
         tables["ra9_by_hand"] = ra9
+        adjusted = _hand_ra9_rating_adjusted(
+            self.pitchers, self.throws, self.pitcher_ratings
+        )
+        metrics["lhp_minus_rhp_ra9_rating_adj"] = adjusted["gap"]
+        tables["ra9_by_hand_rating_adj"] = adjusted
         metrics["ibb_per_pa"] = _ratio(self.totals["ibb"], self.totals["pa"])
         metrics["hbp_per_pa"] = _ratio(self.totals["hbp"], self.totals["pa"])
         backups = self._backup_catcher_starts(gpt)
@@ -2082,6 +2090,112 @@ def _load_pitcher_control(path: Path) -> dict[str, float]:
             except ValueError:
                 pass
     return control
+
+
+# The pitcher ratings the engine's pitch model reads, as regressors of the
+# rating-adjusted LHP-minus-RHP run average (centred on 50).
+HAND_RA9_RATINGS = ("control", "movement", "arm", "endurance", "pitch_grade")
+HAND_RA9_MIN_OUTS = 60
+HAND_RA9_MIN_PITCHERS = 5
+
+
+def _load_pitcher_ratings(path: Path) -> dict[str, dict[str, float]]:
+    """pid -> the ``HAND_RA9_RATINGS`` of each pitcher (blank rating = 50;
+    ``pitch_grade`` is his mean grade over the pitches he throws)."""
+    from physics_sim.models import PITCH_KEYS
+
+    ratings: dict[str, dict[str, float]] = {}
+    if not path.exists():
+        return ratings
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            pid = str(row.get("player_id") or "")
+            if not pid or str(row.get("is_pitcher", "")).strip() not in {"1", "True", "true"}:
+                continue
+            values: dict[str, float] = {}
+            for key in HAND_RA9_RATINGS[:-1]:
+                try:
+                    values[key] = float(row.get(key) or 50.0)
+                except ValueError:
+                    values[key] = 50.0
+            grades = []
+            for key in PITCH_KEYS:
+                try:
+                    grade = float(row.get(key) or 0.0)
+                except ValueError:
+                    continue
+                if grade > 0.0:
+                    grades.append(grade)
+            values["pitch_grade"] = (sum(grades) / len(grades)) if grades else 50.0
+            ratings[pid] = values
+    return ratings
+
+
+def _solve_linear(matrix: list[list[float]], rhs: list[float]) -> list[float] | None:
+    """Gaussian elimination with partial pivoting; None when singular."""
+    n = len(rhs)
+    rows = [list(matrix[i]) + [rhs[i]] for i in range(n)]
+    for col in range(n):
+        pivot = max(range(col, n), key=lambda r: abs(rows[r][col]))
+        if abs(rows[pivot][col]) < 1e-9:
+            return None
+        rows[col], rows[pivot] = rows[pivot], rows[col]
+        for r in range(col + 1, n):
+            factor = rows[r][col] / rows[col][col]
+            for c in range(col, n + 1):
+                rows[r][c] -= factor * rows[col][c]
+    solution = [0.0] * n
+    for i in range(n - 1, -1, -1):
+        tail = sum(rows[i][j] * solution[j] for j in range(i + 1, n))
+        solution[i] = (rows[i][n] - tail) / rows[i][i]
+    return solution
+
+
+def _hand_ra9_rating_adjusted(
+    pitchers: dict[str, Counter],
+    throws: dict[str, str],
+    ratings: dict[str, dict[str, float]],
+) -> dict[str, Any]:
+    """LHP minus RHP run average at equal ratings (decision 7).
+
+    Outs-weighted least squares of each pitcher's RA9 on his
+    ``HAND_RA9_RATINGS`` and a left-hander flag, over the pitchers with
+    ``HAND_RA9_MIN_OUTS`` or more outs; ``gap`` is the flag's coefficient,
+    in runs per nine. The raw ``lhp_minus_rhp_ra9`` also moves when one
+    hand's pitchers are simply better; this does not. ``gap`` is None with
+    fewer than ``HAND_RA9_MIN_PITCHERS`` of either hand or ratings that do
+    not vary.
+    """
+    rows = []
+    for pid, c in pitchers.items():
+        if c["outs"] < HAND_RA9_MIN_OUTS or pid not in ratings:
+            continue
+        left = 1.0 if throws.get(pid, "R") == "L" else 0.0
+        x = [1.0, left] + [ratings[pid][key] - 50.0 for key in HAND_RA9_RATINGS]
+        rows.append((x, 27.0 * c["r"] / c["outs"], float(c["outs"])))
+    lefties = sum(1 for x, _y, _w in rows if x[1])
+    out: dict[str, Any] = {
+        "gap": None, "pitchers": len(rows), "lhp": lefties,
+        "min_outs": HAND_RA9_MIN_OUTS, "per10": {},
+    }
+    if min(lefties, len(rows) - lefties) < HAND_RA9_MIN_PITCHERS:
+        return out
+    size = len(rows[0][0])
+    normal = [[0.0] * size for _ in range(size)]
+    target = [0.0] * size
+    for x, y, w in rows:
+        for i in range(size):
+            target[i] += w * x[i] * y
+            for j in range(size):
+                normal[i][j] += w * x[i] * x[j]
+    beta = _solve_linear(normal, target)
+    if beta is None:
+        return out
+    out["gap"] = beta[1]
+    out["per10"] = {
+        key: 10.0 * beta[2 + i] for i, key in enumerate(HAND_RA9_RATINGS)
+    }
+    return out
 
 
 SPEED_TIERS = ("<40", "40-49", "50-59", "60-69", "70-84", "85+")

@@ -55,6 +55,7 @@ def auto_fill_lineup_for_team(
     strategy_profile: str | None = None,
     vs: str | None = None,
     persist: bool = True,
+    tuning: object | None = None,
 ) -> list[tuple[str, str]]:
     """Create sound, coverage-first lineups for ``team_id`` from ACT.
 
@@ -76,6 +77,8 @@ def auto_fill_lineup_for_team(
       Depth-chart-preferred slots still pin personnel (only order differs there).
     - Return the vs_rhp lineup (majority matchup; used as the salvage lineup).
     - ``persist=False`` builds the lineup(s) without writing any file.
+    - ``tuning`` is the engine tuning the platoon shifts are read from;
+      ``None`` resolves the league's own (:func:`platoon_tuning`).
     """
 
     players_path = resolve_app_path(players_file)
@@ -92,12 +95,16 @@ def auto_fill_lineup_for_team(
         data_dir_hint=data_dir_hint,
     )
     depth_chart = lineup_depth_chart(team_id)
+    if tuning is None:
+        tuning = platoon_tuning(data_dir_hint)
 
     def hitter_score(pid: str, *, vs_hand: str) -> float:
         p = players.get(pid)
         if not p:
             return -1.0
-        return lineup_hitter_score(p, vs_hand=vs_hand, profile=profile)
+        return lineup_hitter_score(
+            p, vs_hand=vs_hand, profile=profile, tuning=tuning
+        )
 
     def _build_lineup(hand: str) -> tuple[list[tuple[str, str]], dict[str, int]]:
         """One independent, handedness-aware coverage-first pass."""
@@ -122,7 +129,7 @@ def auto_fill_lineup_for_team(
         # 3-4 power, 9 second-leadoff speed tilt. Consumes the platoon-adjusted
         # overall score so vs-LHP / vs-RHP orders each reflect their matchup.
         ordered = _assign_batting_order(
-            lineup[:9], players, vs_hand=hand, overall_score=score
+            lineup[:9], players, vs_hand=hand, overall_score=score, tuning=tuning
         )
         return ordered, counters
 
@@ -204,9 +211,65 @@ def auto_fill_lineup_for_team(
     return result
 
 
-def lineup_hitter_score(player: object, *, vs_hand: str, profile: str = "balanced") -> float:
+def platoon_tuning(data_dir: Path | None = None) -> object:
+    """The engine tuning a league's games read the platoon terms from.
+
+    The league's stored physics overrides over the defaults and -- only when
+    a platoon term that reads them is switched on (the centred ``vl``, the
+    balanced handedness bonus) -- its rating centres, so the auto-fill
+    values a hitter against each hand exactly as the game will
+    (``physics_sim.platoon``). ``data_dir`` is the directory holding the
+    ``players.csv`` in use when that is not the active league (a fixture).
+    """
+
+    # Imported here: the engine imports this module.
+    from physics_sim.config import load_tuning
+    from physics_sim.platoon import platoon_needs_centers
+
+    overrides: dict = {}
+    try:
+        from services.physics_tuning_settings import get_physics_tuning_overrides
+
+        overrides.update(get_physics_tuning_overrides())
+    except Exception:
+        pass
+    tuning = load_tuning(overrides)
+    if not platoon_needs_centers(tuning):
+        return tuning
+    try:
+        from services.league_rating_centers import league_rating_centers
+
+        # Read-only: a lineup action never fixes the season's centres.
+        overrides.update(league_rating_centers(data_dir, store=False))
+    except Exception:
+        return tuning
+    return load_tuning(overrides)
+
+
+def _platoon_shift(
+    player: object, vs_hand: str, tuning: object | None
+) -> tuple[float, float]:
+    """The engine's ``(h, d_hand)`` for a ``players.csv`` player against a
+    pitcher hand (``physics_sim.platoon``); a blank ``vl`` reads as 50."""
+
+    # Imported here: the engine imports this module.
+    from physics_sim.platoon import platoon_shift_values
+
+    hand = "L" if str(vs_hand or "R").upper().startswith("L") else "R"
+    vl = float(getattr(player, "vl", 50) or 50)
+    return platoon_shift_values(getattr(player, "bats", ""), vl, hand, tuning)
+
+
+def lineup_hitter_score(
+    player: object,
+    *,
+    vs_hand: str,
+    profile: str = "balanced",
+    tuning: object | None = None,
+) -> float:
     """The auto-fill's hitter value: bat, speed and defence, the platoon
-    shift for ``vs_hand`` and the strategy-profile bonus."""
+    shift for ``vs_hand`` and the strategy-profile bonus. ``tuning`` None
+    reads the platoon knobs at their defaults."""
 
     ch = float(getattr(player, "ch", 0) or 0)
     ph = float(getattr(player, "ph", 0) or 0)
@@ -218,7 +281,7 @@ def lineup_hitter_score(player: object, *, vs_hand: str, profile: str = "balance
     base_score = (0.6 * off) + (0.2 * sp) + (0.2 * defense)
     return (
         base_score
-        + _platoon_adjustment(player, vs_hand=vs_hand)
+        + _platoon_adjustment(player, vs_hand=vs_hand, tuning=tuning)
         + _strategy_hitter_bonus(player, profile=profile)
     )
 
@@ -440,42 +503,27 @@ def _norm_rating(value: object) -> float:
     return max(0.0, min(99.0, numeric)) / 99.0
 
 
-def _platoon_adjustment(player: object, *, vs_hand: str) -> float:
-    """Mirror the physics engine's platoon scale (engine._batter_context /
-    _platoon_vl_delta) projected onto hitter_score's 0.6*(0.5*ch+0.5*ph) offense
-    weight: 0.6*(0.5*(2h+0.25d) + 0.5*(2h+0.20d)) = 1.2*h + 0.135*d. Keeping the
-    same constants makes lineup choices agree with in-game outcomes (S2-01/S2-06).
+def _platoon_adjustment(
+    player: object, *, vs_hand: str, tuning: object | None = None
+) -> float:
+    """Mirror the physics engine's platoon scale (engine._batter_context)
+    projected onto hitter_score's 0.6*(0.5*ch+0.5*ph) offense weight:
+    0.6*(0.5*(2h+0.25d) + 0.5*(2h+0.20d)) = 1.2*h + 0.135*d. h and d are the
+    engine's own (physics_sim.platoon), so lineup choices agree with in-game
+    outcomes (S2-01/S2-06).
     """
-    hand = "L" if str(vs_hand or "R").upper().startswith("L") else "R"
-    bats = str(getattr(player, "bats", "") or "R").upper()
-    if bats == "S":
-        h = 0.5
-    elif bats == hand:
-        h = -1.0
-    else:
-        h = 1.0
-    d = float(getattr(player, "vl", 50) or 50) - 50.0
-    if hand != "L":
-        d = -0.35 * d  # PLATOON_RHP_COUNTER_SCALE, see S2-06
+    h, d = _platoon_shift(player, vs_hand, tuning)
     return 1.2 * h + 0.135 * d
 
 
-def _slot_components(player: object, *, vs_hand: str) -> dict[str, float]:
+def _slot_components(
+    player: object, *, vs_hand: str, tuning: object | None = None
+) -> dict[str, float]:
     """Rating-space proxies for batting-slot fit. The platoon shifts reuse the
     engine's _batter_context scales (contact 0.25, power 0.20, eye 0.30 per point
     of vs-hand delta, plus the flat ±2.0 handedness shift) so slotting agrees
     with simulated outcomes (S2-02)."""
-    hand = "L" if str(vs_hand or "R").upper().startswith("L") else "R"
-    bats = str(getattr(player, "bats", "") or "R").upper()
-    if bats == "S":
-        h = 0.5
-    elif bats == hand:
-        h = -1.0
-    else:
-        h = 1.0
-    d = float(getattr(player, "vl", 50) or 50) - 50.0
-    if hand != "L":
-        d = -0.35 * d  # PLATOON_RHP_COUNTER_SCALE (S2-06)
+    h, d = _platoon_shift(player, vs_hand, tuning)
     ch = float(getattr(player, "ch", 0)) + 2.0 * h + 0.25 * d
     ph = float(getattr(player, "ph", 0)) + 2.0 * h + 0.20 * d
     eye = float(getattr(player, "eye", 0)) + 2.0 * h + 0.30 * d
@@ -512,13 +560,14 @@ def _assign_batting_order(
     *,
     vs_hand: str,
     overall_score,  # callable: (pid) -> float
+    tuning: object | None = None,
 ) -> list[tuple[str, str]]:
     """Assign the 9 selected (pid, pos) pairs to batting slots by slot-specific
     weighting of overall / obp / power / speed / contact proxies. Pure permutation
     of the input; deterministic (pid-ascending tie-break, no RNG)."""
     pool = list(selected[:9])
     comps = {
-        pid: _slot_components(players.get(pid), vs_hand=vs_hand)
+        pid: _slot_components(players.get(pid), vs_hand=vs_hand, tuning=tuning)
         for pid, _pos in pool
         if players.get(pid) is not None
     }

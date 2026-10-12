@@ -1431,6 +1431,8 @@ export interface PlayerProfile {
   header_metrics: Array<[string, string]>;
   defense_ratings: Array<[string, string]>;
   overview_ratings: Array<[string, string]>;
+  /** Rating label -> one sentence of help, for the labels that have one. */
+  rating_help?: Record<string, string>;
   training_focus: PlayerProfileTrainingFocus | null;
   recent_training_entries: PlayerProfileNote[];
   injury_history: PlayerProfileNote[];
