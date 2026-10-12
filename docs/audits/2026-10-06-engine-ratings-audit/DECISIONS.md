@@ -336,3 +336,42 @@ Release 5; the third-time-through-the-order effect is held for Release 6;
 the contact BABIP edge ships in its minimal direct form at +.010 per 10
 Contact (decision 4 of Release 0); the LHP-minus-RHP gate is read on a
 4-season mean; BB true-sd targets are gated as slopes per rating point.
+
+### As built (7.51.0, 2026-10-12)
+
+The build differs from these decisions in three places. The measurements
+are in `RELEASE5_PLAN.md` section 8.
+
+- **Contact hit edge is +.005 per 10 Contact, not +.010** (the technical
+  note above; decision 4 of Release 0). At .010 too many hitters batted
+  .300. Contact still tracks batting average clearly better than before
+  (correlation about .62, was about .49).
+- **The switch-on is per league, at each league's own next season**, not
+  tied to alpha-test's calendar (decision 12). A season already under way
+  finishes on the engine it started on, a league moves when it advances
+  into its next season and before its first regular-season game, and a new
+  league starts on the updated engine. No season's stats are split between
+  engines, which was the point of decision 12. **Awaiting the owner's
+  confirmation.**
+- **Future draft classes in existing leagues also get the new batting-side
+  mix** (decision 11 said existing leagues are not touched). Players
+  already in a league are not changed; only newly generated ones are.
+  **Awaiting the owner's confirmation.**
+
+Also awaiting the owner's confirmation: **the re-sized rule presets.**
+"High Offense" and "Pitcher Friendly" in the create-league wizard were
+badly mis-sized (Pitcher Friendly played at about 1 run per team-game and
+55% strikeouts). They are now modest: about 4.7 to 4.8 and about 3.8 to
+4.0 runs per team-game against about 4.4 for the standard setting, sized
+on one test season each. No existing league used one and existing leagues
+are untouched.
+
+Two smaller points, recorded for completeness. The help text for the
+relabelled `vl` rating ("Platoon vs L", decision 10) names no typical
+number (decision 10 said "50 = typical"), because the value shown averages
+about 63 for right-handed batters and 48 for left-handed ones on the league
+test fixture until the Release 7 recentring; it says to compare within a
+batting side. And against decisions 1 and 3
+the measured results are an 80 Contact hitter at about 4% strikeouts (3%
+decided) and home teams winning about 53% (.529 and .546 on the two test
+leagues; 53.5% decided).
