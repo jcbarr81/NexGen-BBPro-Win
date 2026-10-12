@@ -1871,6 +1871,8 @@ export const api = {
       commissioner_uid: string;
       team_id: string;
       teams_total: number;
+      /** Problems that did not stop the league from being created. */
+      warnings?: string[];
     }>("/leagues/create-as-commissioner", { method: "POST", body: payload }),
   generateInvite: (team_id?: string) =>
     apiRequest<{ code: string; league_id: string; team_id: string; status: string }>(
@@ -2100,6 +2102,8 @@ export const api = {
       mode: string;
       data_dir: string;
       teams_total: number;
+      /** Problems that did not stop the league from being created. */
+      warnings?: string[];
     }>("/leagues/create", { method: "POST", body: payload }),
   bootstrapAdmin: (password: string) =>
     apiRequest<{ status: string }>("/admin/bootstrap", {

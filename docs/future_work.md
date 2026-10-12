@@ -1593,3 +1593,51 @@ switched-on values are in `scripts/kpi_profiles/r5_discipline.json`,
 - **Live-path tools on a new scratch league now run generation 5**
   (`scripts/run_long_term_physics_sim.py` and the like). Set
   `NEXGEN_NEW_SEASON_ENGINE=4` to run them on the legacy engine.
+
+## Release 5 switch-on review fixes: follow-ups (2026-10-12)
+
+- **An image rollback past this release is unsafe once any league is on
+  generation 5.** The code before this release does not know engine
+  generations: it ignores `engine_generation` in `rating_centers.json` and
+  the witness in `season_progress.json`, so rolling the image back puts
+  every generation 5 league on the legacy engine in the middle of its
+  season (and its converted sliders are read as defaults: the old engine
+  does not read the new keys). Rolling forward again returns those leagues
+  to generation 5, a second mid-season change. Until every league is past
+  its first generation 5 season there is no safe rollback target older than
+  this release; fix forward, or hold NEW seasons on the legacy engine with
+  `NEXGEN_NEW_SEASON_ENGINE=4` (that does not move a season already on 5).
+  A rollback tool would have to refuse while any league records a
+  generation above legacy.
+- **The KPI harness reads park data through the ambient active league's
+  folder, not the fixture's.** `utils/park_utils._park_data_roots` starts
+  with `get_data_dir()`, so a harness run started while something else in
+  the same checkout changes the active league or rewrites `data/` can play
+  a whole season with different park data. Seen three times in agent
+  worktrees as a season with home runs per fly ball about 7% lower and
+  everything else unchanged; never reproduced in about 250 runs in a quiet
+  checkout, and the cause is not pinned down. This is probably the
+  "second season" of the repeatability item above. The harness should
+  resolve parks from the fixture it was given (`--base-dir`) only.
+- **The lost-`rating_centers.json` item above is closed** by the second
+  record of the generation (the witness in `season_progress.json`) and the
+  working-copy guard. What is left: (a) a season that loses BOTH records
+  reads as legacy unless its tuning overrides carry the generation 5
+  marker, and a season held back on the legacy engine after a generation 5
+  one that loses both reads as 5 from that marker; (b) a
+  `rating_centers.json` that exists and cannot be parsed is never
+  rewritten, so until someone restores or deletes it each game works its
+  rating centres out from that day's rosters (the fault is logged with the
+  path); (c) only `rating_centers.json` is pulled again after a failed
+  startup pull, every other file that fails to come down is still rebuilt
+  by the app and pushed.
+- **An exhibition played in the preseason fixes the season's engine
+  generation and rating centres** (it creates the season's entry, as it
+  has since Release 4), from that day's rosters. It no longer converts the
+  stored sliders. Making an exhibition read-only would change when a
+  legacy league's centres are fixed, so it was left as it is.
+- **Creating a league of five teams or fewer through the wizard failed
+  under pytest** with the players-file shrink guard ("Refusing to write
+  102 player(s) over 600"): the new league's folder is re-seeded with the
+  600-player reference `players.csv` after `create_league` has purged it.
+  The same call from a plain script succeeded; not investigated.

@@ -65,16 +65,31 @@ _STEAL_FREQ_REBASE_DIVISOR = 3.0
 # on comes from its season's ENGINE GENERATION
 # (services.league_rating_centers), never from a switch in this file.
 #
-# A league's stored legacy values are converted when its overrides are first
-# loaded -- or saved, e.g. by a rule preset -- under generation 5; a league
-# still on the legacy engine keeps its file and its sliders exactly as they
-# are. Conversion REPLACES the legacy keys: the new engine does not read
-# them, so a legacy slider key found in a generation 5 file is always a
-# value that still has to be converted, whatever the markers say, and a
+# A league's stored legacy values are read on the scales of the engine its
+# season is on: every load under generation 5 converts them, in memory. The
+# FILE is converted only once the season's generation is fixed on 5 -- by a
+# season game (``convert=True``) or by a save made while the season is
+# recorded as generation 5 -- because until then the league may still play
+# the season on the legacy engine (the operations hold), and a page load, a
+# watched game or an exhibition must not have rewritten its sliders by then.
+# A league still on the legacy engine keeps its file and its sliders exactly
+# as they are.
+#
+# Conversion REPLACES the legacy keys: the new engine does not read them,
+# so a legacy slider key found in a generation 5 file is always a value
+# that still has to be converted, whatever the markers say, and a
 # commissioner who sets a converted slider back to 1.0 leaves nothing behind
 # that could be converted again. The values that were replaced are kept
-# under ``LEGACY_SLIDERS_MARKER`` for reference. Every file written under
-# generation 5 carries ``SWING_SLIDER_REBASE_MARKER``.
+# under ``LEGACY_SLIDERS_MARKER``, and a league that is loaded as LEGACY
+# with a converted file (the hold, a season put back on the old engine)
+# gets them back from there, in memory, so a commissioner's settings are
+# not dropped in either direction; a save made on the legacy engine writes
+# the file back on the legacy scales.
+#
+# ``SWING_SLIDER_REBASE_MARKER`` is written only while the season is
+# recorded as generation 5, and removed by a save on the legacy engine, so
+# it is also evidence of the league's engine if the season's own records
+# are lost (``services.league_rating_centers``).
 SWING_SLIDER_REBASE_MARKER = "_swing_sliders_rebased_r5"
 LEGACY_SLIDERS_MARKER = "_legacy_sliders_r5"
 
@@ -105,6 +120,31 @@ _LEGACY_CONTACT_DEFAULTS = {
 }
 # Every slider key generation 5 replaces.
 LEGACY_SLIDER_KEYS = tuple(_LEGACY_SWING_DEFAULTS) + tuple(_LEGACY_CONTACT_DEFAULTS)
+# Legacy slider key -> the generation 5 key its value converts into (the
+# two two-strike sliders into one, Strikeout Rate and Contact Rate into one).
+_NEW_SLIDER_KEY = {
+    "walk_scale": _SWING_MODEL_SLIDERS["walk_scale"].key,
+    "zone_swing_scale": _SWING_MODEL_SLIDERS["zone_swing_scale"].key,
+    "chase_scale": _SWING_MODEL_SLIDERS["chase_scale"].key,
+    "two_strike_aggression_scale": (
+        _SWING_MODEL_SLIDERS["two_strike_aggression_scale"].key
+    ),
+    "two_strike_zone_protect": (
+        _SWING_MODEL_SLIDERS["two_strike_aggression_scale"].key
+    ),
+    "k_scale": _CONTACT_MODEL_SLIDERS["k_scale"].key,
+    "contact_prob_scale": _CONTACT_MODEL_SLIDERS["k_scale"].key,
+}
+# The other way: generation 5 key -> the legacy keys it replaced. The first
+# is the one a generation 5 value is converted back onto (``_legacy_view``).
+_LEGACY_KEYS_OF: Dict[str, Tuple[str, ...]] = {}
+for _legacy_key in LEGACY_SLIDER_KEYS:
+    _LEGACY_KEYS_OF[_NEW_SLIDER_KEY[_legacy_key]] = _LEGACY_KEYS_OF.get(
+        _NEW_SLIDER_KEY[_legacy_key], ()
+    ) + (_legacy_key,)
+del _legacy_key
+# The knobs a conversion reads besides the slider itself.
+_CONVERSION_GAIN_KEYS = ("swing_walk_logit_gain", "contact_strikeout_logit_gain")
 # The old model's swing chances for an average hitter (physics.simulate_pitch,
 # swing_model 0): 0.62 in the zone and 0.28 out of it before the sliders, and
 # with two strikes +0.10 x aggression plus a count bonus of about 0.08 in
@@ -147,10 +187,13 @@ def get_physics_tuning_overrides(
     *,
     path: Path | str | None = None,
     migrate: bool = True,
+    convert: bool = False,
 ) -> Dict[str, float]:
     """Return the current physics tuning overrides."""
 
-    return load_physics_tuning_overrides(generation, path=path, migrate=migrate)
+    return load_physics_tuning_overrides(
+        generation, path=path, migrate=migrate, convert=convert
+    )
 
 
 def effective_swing_model(generation: object | None = None) -> float:
@@ -173,6 +216,7 @@ def load_physics_tuning_overrides(
     *,
     path: Path | str | None = None,
     migrate: bool = True,
+    convert: bool = False,
 ) -> Dict[str, float]:
     """Load a league's tuning overrides, on the scales of its engine.
 
@@ -181,25 +225,38 @@ def load_physics_tuning_overrides(
     file of a league other than the current one; with it, pass its
     ``generation`` too.
 
-    A file that predates a slider rebase is migrated: the converted file is
-    written back, so it is migrated once; if the write fails (a read-only
-    copy) the conversion still applies in memory, from the unchanged file,
-    on every load. ``migrate`` False never writes -- it is for readers that
-    must not change a tuning file (a lineup action): they get the same
-    converted values, in memory only.
+    The values returned are always on ``generation``'s scales: under
+    generation 5 stored legacy sliders are converted, and under the legacy
+    generation a file that was converted gives the legacy values it
+    replaced back. What is WRITTEN is narrower:
+
+    * a file that predates the Release 4 Steal Frequency rebase is migrated
+      and written back, once, by any load, as it always was;
+    * the generation 5 slider conversion is written back only with
+      ``convert`` True, which is for the caller that has just fixed the
+      season on that generation -- a season game. Every other reader (a
+      page load, a watched game, an exhibition, a replay, a lineup action)
+      converts in memory, every time, and leaves the file on the scales it
+      is on: the season may yet be played on the legacy engine.
+
+    If a write fails (a read-only copy) the values still come back right,
+    from the unchanged file, on every load. ``migrate`` False never writes
+    at all -- for readers that must not touch a tuning file.
     """
 
     target = Path(path) if path is not None else Path(TUNING_OVERRIDES_PATH)
     number = _generation(generation)
-    cleaned, markers, changed = _migrated(_read_payload(target), number)
-    if changed and migrate:
+    cleaned, rewritten = _migrated(_read_payload(target), number, convert=convert)
+    if rewritten is not None and migrate:
         try:
             with _overrides_lock(target):
                 # Read again under the lock: a save (or another process's
                 # migration) may have replaced the file since the read above.
-                cleaned, markers, changed = _migrated(_read_payload(target), number)
-                if changed:
-                    _write_payload(target, cleaned, markers, number)
+                cleaned, rewritten = _migrated(
+                    _read_payload(target), number, convert=convert
+                )
+                if rewritten is not None:
+                    _write_atomic(target, rewritten)
         except OSError:
             pass
     return cleaned
@@ -237,25 +294,55 @@ def save_physics_tuning_overrides(
 
     The file is replaced by ``overrides``, and its internal markers (the
     keys starting with ``_``) are carried forward from the file being
-    replaced: a save can never make a migrated file look unmigrated. Under
-    generation 5 a legacy slider key in ``overrides`` (a rule preset, a
-    page that was loaded before the league changed engines) is converted,
-    not stored. A value that is not a finite number is rejected with
-    ``ValueError``. ``generation`` ``None`` is the current league's season,
-    which a save fixes: the file is now on that generation's scales.
+    replaced: a save can never make a migrated file look unmigrated. A
+    value that is not a finite number is rejected with ``ValueError``.
+    ``generation`` ``None`` is the current league's season, which a save
+    fixes when the season has a schedule: the file is now on that
+    generation's scales.
+
+    Under generation 5 a legacy slider key in ``overrides`` (a rule preset,
+    a page that was loaded before the league changed engines) is converted,
+    not stored, and the legacy sliders still in the file being replaced --
+    the page showed their conversions -- are kept under
+    ``LEGACY_SLIDERS_MARKER`` with them. The file is marked as rebased
+    (``SWING_SLIDER_REBASE_MARKER``) only when the season is recorded as
+    that generation: an offseason save, or a rule preset applied while a
+    league is being created, fixes nothing, and the season it is for may
+    still be played on the legacy engine, which then reads the kept legacy
+    values. Under the legacy generation the file goes back on the legacy
+    scales: what is saved is the whole legacy state, so the kept values
+    and the rebase marker are dropped.
     """
 
     target = Path(path) if path is not None else Path(TUNING_OVERRIDES_PATH)
     number = _generation(generation, store=True)
+    # A generation the caller names is the caller's word that the season is
+    # on it; the current league's is checked against what is written down.
+    fixed = generation is not None or _season_is_recorded_as(number)
     cleaned = _sanitize_overrides(overrides, strict=True)
     with _overrides_lock(target):
-        markers = _markers(_read_payload(target))
+        payload = _read_payload(target)
+        markers = _markers(payload)
         if number > LEGACY_ENGINE_GENERATION:
+            replaced = {
+                key: value
+                for key, value in _sanitize_overrides(payload).items()
+                if key in LEGACY_SLIDER_KEYS
+            }
+            if replaced:
+                markers = _with_kept_legacy_sliders(markers, replaced)
             cleaned, markers = _converted_for_new_sliders(cleaned, markers)
+        else:
+            markers = {
+                key: value
+                for key, value in markers.items()
+                if key not in (LEGACY_SLIDERS_MARKER, SWING_SLIDER_REBASE_MARKER)
+            }
         if not cleaned:
             _unlink(target)
             return
-        _write_payload(target, cleaned, markers, number)
+        rebased = number > LEGACY_ENGINE_GENERATION and fixed
+        _write_atomic(target, _file_payload(cleaned, markers, rebased=rebased))
 
 
 def reset_physics_tuning_overrides() -> None:
@@ -474,10 +561,16 @@ def rule_preset_overrides(
     return overrides
 
 
-def _legacy_slider_for(legacy_key: str, new_key: str, target: float) -> float:
+def _legacy_slider_for(
+    legacy_key: str,
+    new_key: str,
+    target: float,
+    gains: Dict[str, float] | None = None,
+) -> float:
     """The legacy slider value whose conversion is ``target`` on the new
     scale: a bisection over the legacy slider's range (every conversion
-    rises with its legacy slider), to the slider's 0.01 step."""
+    rises with its legacy slider), to the slider's 0.01 step. ``gains`` are
+    the league's stored conversion gains, if it overrides them."""
     from services.physics_tuning_spec import _TUNING_SECTIONS
 
     spec = next(
@@ -485,7 +578,9 @@ def _legacy_slider_for(legacy_key: str, new_key: str, target: float) -> float:
     )
 
     def converted(value: float) -> float:
-        return convert_slider_overrides({legacy_key: value}).get(new_key, 1.0)
+        return convert_slider_overrides({**(gains or {}), legacy_key: value}).get(
+            new_key, 1.0
+        )
 
     low, high = spec.min_value, spec.max_value
     for _ in range(40):
@@ -568,6 +663,30 @@ def _markers(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _season_is_recorded_as(generation: int) -> bool:
+    """True when the current league's season is written down as
+    ``generation``, a generation above legacy (the season is fixed on it)."""
+    if generation <= LEGACY_ENGINE_GENERATION:
+        return False
+    from services.league_rating_centers import recorded_league_engine_generation
+
+    return recorded_league_engine_generation() == generation
+
+
+def _with_kept_legacy_sliders(
+    markers: Dict[str, Any], replaced: Dict[str, float]
+) -> Dict[str, Any]:
+    """``markers`` with ``replaced`` (legacy slider values a conversion
+    removes) added to the values kept under ``LEGACY_SLIDERS_MARKER``."""
+    kept = markers.get(LEGACY_SLIDERS_MARKER)
+    markers = dict(markers)
+    markers[LEGACY_SLIDERS_MARKER] = {
+        **(kept if isinstance(kept, dict) else {}),
+        **replaced,
+    }
+    return markers
+
+
 def _converted_for_new_sliders(
     cleaned: Dict[str, float], markers: Dict[str, Any]
 ) -> Tuple[Dict[str, float], Dict[str, Any]]:
@@ -576,31 +695,104 @@ def _converted_for_new_sliders(
     replaced = {key: cleaned[key] for key in LEGACY_SLIDER_KEYS if key in cleaned}
     if not replaced:
         return cleaned, markers
+    return (
+        convert_slider_overrides(cleaned),
+        _with_kept_legacy_sliders(markers, replaced),
+    )
+
+
+def _legacy_view(
+    cleaned: Dict[str, float], markers: Dict[str, Any]
+) -> Dict[str, float]:
+    """A stored file's overrides as the LEGACY engine reads them.
+
+    ``cleaned`` itself for a file that has never been on generation 5's
+    scales (no kept legacy values, no generation 5 slider key): every
+    league that has not switched. For a file that has, slider by slider:
+
+    * a legacy key stored since (a save on the legacy engine) is the
+      setting;
+    * else, if the generation 5 value is still what the kept legacy values
+      converted to, the commissioner has not touched the slider since the
+      conversion and gets exactly those legacy values back;
+    * else the generation 5 value is his latest setting, and is converted
+      back onto the legacy slider (``_legacy_slider_for``; the slider's
+      range holds it). A slider set back to 1.0 is the legacy default, and
+      the old legacy value does not return.
+
+    The generation 5 keys themselves are left out: the legacy engine does
+    not read them, and a legacy page that sent them back would keep the
+    next conversion of the legacy values from applying.
+    """
     kept = markers.get(LEGACY_SLIDERS_MARKER)
-    markers = dict(markers)
-    markers[LEGACY_SLIDERS_MARKER] = {
-        **(kept if isinstance(kept, dict) else {}),
-        **replaced,
-    }
-    return convert_slider_overrides(cleaned), markers
+    kept = (
+        {
+            key: value
+            for key, value in _sanitize_overrides(kept).items()
+            if key in LEGACY_SLIDER_KEYS
+        }
+        if isinstance(kept, dict)
+        else {}
+    )
+    if not kept and not any(key in cleaned for key in _LEGACY_KEYS_OF):
+        return cleaned
+    gains = {key: cleaned[key] for key in _CONVERSION_GAIN_KEYS if key in cleaned}
+    view = dict(cleaned)
+    for new_key, legacy_keys in _LEGACY_KEYS_OF.items():
+        current = view.pop(new_key, None)
+        if any(key in cleaned for key in legacy_keys):
+            continue
+        replaced = {key: kept[key] for key in legacy_keys if key in kept}
+        if replaced and _same_setting(
+            convert_slider_overrides({**gains, **replaced}).get(new_key), current
+        ):
+            view.update(replaced)
+        elif current is not None:
+            primary = legacy_keys[0]
+            value = _legacy_slider_for(primary, new_key, current, gains)
+            if not _same_setting(value, float(DEFAULT_TUNING[primary])):
+                view[primary] = value
+    return view
+
+
+def _same_setting(first: float | None, second: float | None) -> bool:
+    """Two slider values are the same setting (``None``: not stored)."""
+    if first is None or second is None:
+        return first is None and second is None
+    return abs(first - second) < 1e-9
 
 
 def _migrated(
-    payload: Dict[str, Any], generation: int
-) -> Tuple[Dict[str, float], Dict[str, Any], bool]:
-    """(overrides, markers, the file needs rewriting) for a stored payload."""
-    cleaned = _sanitize_overrides(payload)
+    payload: Dict[str, Any], generation: int, *, convert: bool
+) -> Tuple[Dict[str, float], Dict[str, Any] | None]:
+    """(overrides on ``generation``'s scales, the payload to write back or
+    ``None``) for a stored payload.
+
+    The Release 4 Steal Frequency rebase is written back whenever it is
+    due. The generation 5 slider conversion is written back only with
+    ``convert`` (the season is fixed on that generation); without it the
+    file stays on the scales it is on and only the returned values are
+    converted. Nothing a legacy load returns is ever written.
+    """
+    stored = _sanitize_overrides(payload)
     markers = _markers(payload)
     changed = False
-    if not markers.get(STEAL_FREQ_REBASE_MARKER) and "steal_freq_scale" in cleaned:
+    if not markers.get(STEAL_FREQ_REBASE_MARKER) and "steal_freq_scale" in stored:
         # One-time Release 4 migration of a pre-rebase file (see the marker).
-        cleaned["steal_freq_scale"] /= _STEAL_FREQ_REBASE_DIVISOR
+        stored["steal_freq_scale"] /= _STEAL_FREQ_REBASE_DIVISOR
         changed = True
-    if generation > LEGACY_ENGINE_GENERATION:
-        before = cleaned
-        cleaned, markers = _converted_for_new_sliders(cleaned, markers)
-        changed = changed or cleaned is not before
-    return cleaned, markers, changed
+    if generation <= LEGACY_ENGINE_GENERATION:
+        view = _legacy_view(stored, markers)
+        return view, (_file_payload(stored, markers) if changed else None)
+    view, converted_markers = _converted_for_new_sliders(stored, markers)
+    if convert and stored:
+        # Also when nothing needs converting: a file read by a season game
+        # of a generation 5 season is marked as on that generation's scales.
+        marked = markers.get(SWING_SLIDER_REBASE_MARKER) is True
+        if changed or view is not stored or not marked:
+            return view, _file_payload(view, converted_markers, rebased=True)
+        return view, None
+    return view, (_file_payload(stored, markers) if changed else None)
 
 
 def _read_payload(path: Path) -> Dict[str, Any]:
@@ -611,15 +803,18 @@ def _read_payload(path: Path) -> Dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _write_payload(
-    path: Path, cleaned: Dict[str, float], markers: Dict[str, Any], generation: int
-) -> None:
+def _file_payload(
+    cleaned: Dict[str, float], markers: Dict[str, Any], *, rebased: bool = False
+) -> Dict[str, Any]:
+    """What an overrides file holds: the markers, the knobs, and the marks
+    of the rebases it has been through (``rebased``: written while the
+    season is fixed on generation 5)."""
     payload: Dict[str, Any] = dict(markers)
     payload.update(cleaned)
     payload[STEAL_FREQ_REBASE_MARKER] = True
-    if generation > LEGACY_ENGINE_GENERATION:
+    if rebased:
         payload[SWING_SLIDER_REBASE_MARKER] = True
-    _write_atomic(path, payload)
+    return payload
 
 
 def _unlink(path: Path) -> None:

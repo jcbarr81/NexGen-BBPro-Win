@@ -259,6 +259,11 @@ def _bootstrap_from_tracker(entry: _LeagueUsage, when: date) -> None:
         # stored overrides); a replay fixes nothing for the season.
         overrides = league_tuning_overrides(store=False)
     except Exception:
+        # The season's engine generation could not be read (the lookup
+        # raises), or its profile could not be loaded. The game about to be
+        # played fails on the same fault; this replay only rebuilds rest
+        # state, which the engine defaults do as well.
+        logger.exception("physics usage: league tuning unavailable for the replay")
         overrides = None
     tuning = load_tuning(overrides=overrides or None)
     durability = _pitcher_durability(entry.path.parent)

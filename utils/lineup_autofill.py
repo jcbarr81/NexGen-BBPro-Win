@@ -246,7 +246,14 @@ def platoon_tuning(data_dir: Path | None = None) -> object:
             league_tuning_overrides(data_dir, store=False, migrate=False)
         )
     except Exception:
-        pass
+        # The league's engine generation or tuning could not be read. A
+        # lineup is still filled, on the engine's default platoon values,
+        # and the fault is in the log: the page must not go down with it.
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "lineup auto-fill: league tuning unavailable; using the defaults"
+        )
     tuning = load_tuning(overrides)
     if not platoon_needs_centers(tuning):
         return tuning

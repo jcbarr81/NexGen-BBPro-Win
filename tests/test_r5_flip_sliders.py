@@ -38,7 +38,10 @@ from services.physics_tuning_spec import (
 from tests.r5_flip_support import (  # noqa: F401  (league is a fixture)
     ADMIN,
     NEW_SEASON_ENGINE_ENV,
+    drop_witness,
+    game_tuning,
     league,
+    play_days,
     roll_over,
     write_schedule,
 )
@@ -167,7 +170,14 @@ def test_a_legacy_league_keeps_its_file_and_values(overrides_file):
 
 def test_stored_sliders_are_converted_and_replaced(overrides_file):
     overrides_file.write_text(json.dumps(LEGACY_FILE))
-    loaded = S.load_physics_tuning_overrides(NEW)
+    before = overrides_file.read_text()
+    # Any reader gets the converted values; only a season game of a season
+    # fixed on generation 5 (``convert``) rewrites the file.
+    assert S.load_physics_tuning_overrides(NEW) == S.convert_slider_overrides(
+        _knobs(LEGACY_FILE)
+    )
+    assert overrides_file.read_text() == before
+    loaded = S.load_physics_tuning_overrides(NEW, convert=True)
     assert loaded == S.convert_slider_overrides(_knobs(LEGACY_FILE))
     assert loaded["hr_scale"] == 1.1
     assert loaded["swing_walk_scale"] > 1.0 and loaded["swing_zone_scale"] < 1.0
@@ -187,6 +197,7 @@ def test_stored_sliders_are_converted_and_replaced(overrides_file):
     }
     # Once: a second load reads the same and writes nothing.
     text = overrides_file.read_text()
+    assert S.load_physics_tuning_overrides(NEW, convert=True) == loaded
     assert S.load_physics_tuning_overrides(NEW) == loaded
     assert overrides_file.read_text() == text
     assert S.load_physics_tuning_values(NEW)["swing_walk_scale"] == (
@@ -239,8 +250,19 @@ def test_a_save_carries_every_marker_forward(overrides_file, generation):
     S.save_physics_tuning_overrides({"babip_scale": 0.95}, generation)
     stored = _stored(overrides_file)
     assert _knobs(stored) == {"babip_scale": 0.95}
+    # A save on the legacy engine puts the file back on the legacy scales:
+    # what it stores is the whole legacy state, so the two generation 5
+    # markers go. Every other marker is carried, on either engine.
+    dropped = (
+        {S.SWING_SLIDER_REBASE_MARKER, S.LEGACY_SLIDERS_MARKER}
+        if generation == LEGACY
+        else set()
+    )
     for key, value in markers.items():
-        assert stored[key] == value, key
+        if key in dropped:
+            assert key not in stored, key
+        else:
+            assert stored[key] == value, key
 
 
 def test_the_page_save_that_used_to_drop_the_marker(league):
@@ -356,7 +378,10 @@ def test_applying_a_preset_in_a_new_league_and_in_a_legacy_one(league, monkeypat
         "swing_walk_scale": 1.03,
         "contact_strikeout_scale": 0.95,
     }
-    assert stored[S.SWING_SLIDER_REBASE_MARKER] is True
+    # Nothing fixes a season's generation while the league is being made,
+    # so the file is not marked as rebased: the mark means "written while
+    # the season was recorded on generation 5".
+    assert S.SWING_SLIDER_REBASE_MARKER not in stored
     assert league_presets.apply_rule_preset("mlb_standard") is not None
     assert not path.exists()
 
@@ -406,9 +431,10 @@ def test_setting_a_converted_slider_back_to_1_stays_at_1(league, monkeypatch):
     assert T.get_tuning(ADMIN)["overrides"] == {"hr_scale": 1.1}
 
     # The league goes legacy: the save above fixed the season on generation
-    # 5, so it takes losing that record (a restore from before it) while new
-    # seasons are held on the legacy engine ...
+    # 5, so it takes losing BOTH records of that (a restore from before it)
+    # while new seasons are held on the legacy engine ...
     (league / centers.RATING_CENTERS_FILENAME).unlink()
+    drop_witness(league)
     monkeypatch.setenv(NEW_SEASON_ENGINE_ENV, "4")
     centers.clear_rating_center_cache()
     view = T.get_tuning(ADMIN)
@@ -534,8 +560,8 @@ def test_a_save_landing_during_the_migration_is_not_overwritten(
     real = S._migrated
     raced = []
 
-    def migrated_then_a_save_lands(payload, generation):
-        result = real(payload, generation)
+    def migrated_then_a_save_lands(payload, generation, **kwargs):
+        result = real(payload, generation, **kwargs)
         if not raced:
             raced.append(True)
             thread = threading.Thread(
@@ -547,7 +573,7 @@ def test_a_save_landing_during_the_migration_is_not_overwritten(
         return result
 
     monkeypatch.setattr(S, "_migrated", migrated_then_a_save_lands)
-    loaded = S.load_physics_tuning_overrides(NEW)
+    loaded = S.load_physics_tuning_overrides(NEW, convert=True)
     assert loaded == saved  # what is on disk now, not the stale conversion
     assert _knobs(_stored(overrides_file)) == saved
 
@@ -571,7 +597,9 @@ def test_the_migration_holds_the_lock_a_save_needs(overrides_file, monkeypatch):
         real_write(path, payload)
 
     monkeypatch.setattr(S, "_write_atomic", slow_write)
-    migrating = threading.Thread(target=S.load_physics_tuning_overrides, args=(NEW,))
+    migrating = threading.Thread(
+        target=S.load_physics_tuning_overrides, args=(NEW,), kwargs={"convert": True}
+    )
     migrating.start()
     assert inside.wait(timeout=30)
     saving = threading.Thread(
@@ -722,7 +750,7 @@ def test_stored_strikeout_sliders_are_converted_in_the_file(overrides_file):
     overrides_file.write_text(
         json.dumps({"k_scale": 0.6, "contact_prob_scale": 0.9, "hr_scale": 1.1})
     )
-    loaded = S.load_physics_tuning_overrides(NEW)
+    loaded = S.load_physics_tuning_overrides(NEW, convert=True)
     assert set(loaded) == {"contact_strikeout_scale", "hr_scale"}
     assert loaded["contact_strikeout_scale"] > 1.0
     stored = _stored(overrides_file)
@@ -789,7 +817,7 @@ def test_the_api_reports_a_generation_5_league(league):
     assert not path.exists()
 
 
-def test_a_league_s_sliders_change_at_its_rollover_not_before(league):
+def test_a_league_s_sliders_change_at_its_rollover_not_before(league, monkeypatch):
     path = league / S.TUNING_OVERRIDES_FILENAME
     write_schedule(league, 2026, played=6)
     path.write_text(json.dumps(LEGACY_FILE))
@@ -804,4 +832,10 @@ def test_a_league_s_sliders_change_at_its_rollover_not_before(league):
     view = T.get_tuning(ADMIN)
     assert view["engine"]["generation"] == NEW
     assert view["overrides"] == S.convert_slider_overrides(_knobs(LEGACY_FILE))
+    # The page shows the converted sliders; the FILE is converted by the
+    # season's first game, which is what fixes the season on generation 5.
+    assert path.read_text() == before
+    game_tuning(monkeypatch, "2027-04-01")
     assert not set(S.LEGACY_SLIDER_KEYS) & set(_stored(path))
+    assert _stored(path)[S.SWING_SLIDER_REBASE_MARKER] is True
+    assert T.get_tuning(ADMIN)["overrides"] == view["overrides"]

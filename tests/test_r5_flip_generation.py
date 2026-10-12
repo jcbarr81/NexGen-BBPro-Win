@@ -30,6 +30,7 @@ from services.injury_settings import get_injury_tuning_overrides
 from tests.r5_flip_support import (  # noqa: F401  (league is a fixture)
     ADMIN,
     NEW_SEASON_ENGINE_ENV,
+    drop_witness,
     game_tuning,
     league,
     play_days,
@@ -313,9 +314,17 @@ def test_a_copied_league_keeps_its_season_s_engine(league, monkeypatch, tmp_path
     # Read by its own files, without being the active league.
     assert centers.league_engine_generation(new_copy) == CURRENT_ENGINE_GENERATION
 
+    # A copy that lost rating_centers.json still has the season's witness.
+    partial = tmp_path / "copy_partial"
+    shutil.copytree(league, partial)
+    (partial / centers.RATING_CENTERS_FILENAME).unlink()
+    assert centers.league_engine_generation(partial) == CURRENT_ENGINE_GENERATION
+
+    # Only a copy with neither record reads as legacy.
     legacy = tmp_path / "copy_legacy"
     shutil.copytree(league, legacy)
     (legacy / centers.RATING_CENTERS_FILENAME).unlink()
+    drop_witness(legacy)
     assert centers.league_engine_generation(legacy) == LEGACY_ENGINE_GENERATION
 
 
@@ -329,8 +338,9 @@ def test_a_backup_restores_the_engine_with_the_league(league, monkeypatch):
     assert backup["status"] == "success"
 
     (league / centers.RATING_CENTERS_FILENAME).unlink()
+    drop_witness(league)
     centers.clear_rating_center_cache()
-    # The file is gone mid-season: nothing says the season was on 5.
+    # Both records are gone mid-season: nothing says the season was on 5.
     assert centers.league_engine_generation(store=False) == LEGACY_ENGINE_GENERATION
     from pathlib import Path
 

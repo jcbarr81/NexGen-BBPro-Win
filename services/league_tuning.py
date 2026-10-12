@@ -53,12 +53,16 @@ def league_tuning_overrides(
     its parent's); otherwise it is read, and with ``store`` fixed for the
     season -- pass ``store`` False for anything that is not a season game.
     ``migrate`` False reads the overrides file without ever rewriting it (a
-    lineup action must not change a tuning file).
+    lineup action must not change a tuning file). Whatever ``migrate`` is,
+    the stored sliders are put on the generation's scales in memory only:
+    nothing that goes through here converts the file (a season game does,
+    ``services.physics_tuning_settings``).
 
     A stored override wins over the profile. An overrides file that cannot
     be read leaves the profile alone, as it used to leave the defaults
-    alone. A generation whose profile cannot be loaded raises: a season on
-    the new engine is never played on the old one in silence.
+    alone. A generation that cannot be read, or whose profile cannot be
+    loaded, raises: a season on the new engine is never played on the old
+    one in silence.
     """
 
     if generation is None:
