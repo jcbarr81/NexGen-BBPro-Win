@@ -1704,6 +1704,10 @@ leaves, on purpose or because it was out of scope:
   calibration 0.70 mph, league fixture 0.83, product league 0.87), the
   one-sided pitch-difficulty terms, the clamps. The Release 7 re-spread is
   the place for it.
+- **Read "product-created league" / "product league" in this section as the
+  flat-ratings fixture** (`data/calibration_flat`, 7.51.1): it was generated
+  without the donor rating file and matches alpha-test's bunched active
+  rosters, not a league the product creates today.
 - **The product-created league's home runs still trail** (1.10 a team-game
   against 1.21 and 1.21 with the profile as it stands). Not explained by
   a centre. Seen

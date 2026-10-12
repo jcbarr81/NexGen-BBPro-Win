@@ -358,6 +358,8 @@ are in `RELEASE5_PLAN.md` section 8.
   already in a league are not changed; only newly generated ones are.
   **Confirmed by the owner, 2026-10-12:** all leagues.
 
+> **Correction (2026-10-12, 7.51.1).** The "product-created league" in this document is a flat-ratings league, now `data/calibration_flat`. It was generated in a scratch data root with no `players_normalized.csv`, so the generator fell back to template ratings around 50 (hitters gf sd 1.4, pl 1.8, fa and arm 1.4; pitchers movement sd 0.0, endurance 1.5, control 1.7). It is not what the product creates today: leagues created since 2026-08-31 draw from the donor file and look like `data/calibration_league` (stats-test does). alpha-test's active rosters are bunched like the flat fixture (staff movement sd 0.0, endurance about 1), so the fixture stands in for alpha-test. Measured on scratch copies of the live leagues, generation 5, three seasons each: alpha-test 4.50 runs per team-game, K 21.8%, BB 8.4%, HR 1.02, platoon gap .015 (legacy, one season: 4.90, 20.4%, 9.2%, 1.10); stats-test with auto-filled lineups 4.57, 21.6%, 8.4%, 1.10, platoon gap .016 (legacy 4.21, 23.7%, 9.1%, 0.97). stats-test's stored lineups are stale (67 of 180 slots point at minor leaguers; the league has not played since 2026-09-04) and give 5.47 if played as written, which the live game path does not do.
+
 **Owner decision 13 (2026-10-12): make the ratings league-relative before
 the release ships.** A product-created league measured about 0.1 runs per
 team-game under the 4.47 target on the updated engine (4.37 over two full

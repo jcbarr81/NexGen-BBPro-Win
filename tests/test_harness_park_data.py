@@ -108,8 +108,8 @@ def test_the_harness_pins_the_lookup_and_refuses_missing_park_data(
     assert "park data missing" in capsys.readouterr().err
 
 
-def test_the_product_fixture_is_what_the_harness_needs():
-    fixture = REPO / "data" / "calibration_product"
+def test_the_flat_fixture_is_what_the_harness_needs():
+    fixture = REPO / "data" / "calibration_flat"
     assert (fixture / "players.csv").exists() and (fixture / "teams.csv").exists()
     teams = [
         line.split(",")[0]
