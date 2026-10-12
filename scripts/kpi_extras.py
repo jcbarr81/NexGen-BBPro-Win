@@ -2530,9 +2530,10 @@ GRID_MIN_EVENTS = 20
 # anchor strikes out a little more than the league (the same-hand penalty).
 # With centred_ratings on the engine shifts each rating by 50 minus its
 # centre before the pitch (a cell goes through the engine's own
-# _batter_context and _pitcher_context), so the centres of every rating it
-# shifts are pinned too: Power and the pitcher's arm at the grid's 50, and
-# the grid's pitches then read as the league-average 50 pitch.
+# _batter_context and _pitcher_context), so the centres it shifts by are
+# pinned too: Power at the grid's 50 and the pitcher's workload-weighted
+# centres (pitcher_*_usage_center) at the same anchor as the plain ones.
+# The grid's pitches then read as the league-average 50 pitch.
 GRID_PITCH_GRADE = 55.0
 GRID_CATCHER_FIELDING = 50.0
 GRID_RATING_CENTERS = {
@@ -2544,6 +2545,10 @@ GRID_RATING_CENTERS = {
     "pitcher_movement_center": 50.0,
     "pitcher_arm_center": 50.0,
     "pitcher_grade_center": GRID_PITCH_GRADE,
+    "pitcher_control_usage_center": 50.0,
+    "pitcher_movement_usage_center": 50.0,
+    "pitcher_arm_usage_center": 50.0,
+    "pitcher_grade_usage_center": GRID_PITCH_GRADE,
     "catcher_fa_center": GRID_CATCHER_FIELDING,
 }
 

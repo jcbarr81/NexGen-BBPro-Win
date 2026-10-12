@@ -1364,7 +1364,11 @@ def fixture_rating_centers(
     Power centres are the means over the lineup regulars -- the hitters in
     the fixture's ``lineups/`` files, as a live league's are -- not over
     every ACT hitter. data/calibration ~ contact 50.3, eye 50.3, power 50.2;
-    data/calibration_league ~ 51.1, 50.4, 50.9.
+    data/calibration_league ~ 51.1, 50.4, 50.9. The pitcher_*_usage_center
+    keys weight the ACT pitchers by expected workload (a rotation starter
+    2.5 times a reliever, the rotation from the fixture's staff files):
+    data/calibration ~ control 51.6, movement 52.5, grade 54.9, arm 55.3;
+    data/calibration_league ~ 53.4, 55.4, 57.2, 57.7.
     """
     from services.league_rating_centers import active_rating_centers
 

@@ -907,9 +907,9 @@ def _reliever_score(
     # pitch does, league-relative, so the role bonuses and the freshness
     # weight below mean the same in every league.
     stuff = (
-        _league_relative(pitcher.control, "pitcher_control_center", tuning)
-        + _league_relative(pitcher.movement, "pitcher_movement_center", tuning)
-        + _league_relative(pitcher.arm, "pitcher_arm_center", tuning)
+        _league_relative(pitcher.control, "pitcher_control_usage_center", tuning)
+        + _league_relative(pitcher.movement, "pitcher_movement_usage_center", tuning)
+        + _league_relative(pitcher.arm, "pitcher_arm_usage_center", tuning)
     ) / 3.0
     endurance = pitcher.endurance
     freshness = 1.0 - min(0.7, pitcher_state.pregame_penalty)
@@ -2065,9 +2065,11 @@ def _league_relative(
     few terms around it that read the same ratings straight off the player
     against an absolute level (the doubles gap, the bunt, the balk, the
     manager's view of a hitter or a reliever) read them through this, so
-    they see the same number. ``key`` is the rating's centre. Unchanged
-    while the switch is off, and not for the Release 4 terms above, which
-    centre a raw rating themselves.
+    they see the same number. ``key`` is the centre the rating is shifted
+    by: a hitter's ``hitter_*_center``, a pitcher's workload-weighted
+    ``pitcher_*_usage_center``. Unchanged while the switch is off, and not
+    for the Release 4 terms above, which centre a raw rating themselves on
+    the plain ACT means.
     """
     if not ratings_centred(tuning):
         return value
@@ -4949,7 +4951,9 @@ def _batter_context(
         batter.power, "hitter_power_center", tuning
     )
     own_eye = _league_relative(batter.eye, "hitter_eye_center", tuning)
-    control = _league_relative(pitcher.control, "pitcher_control_center", tuning)
+    control = _league_relative(
+        pitcher.control, "pitcher_control_usage_center", tuning
+    )
     eye = own_eye * (1.0 - eye_blend) + (100.0 - control) * eye_blend
     handedness, vs_left_diff = platoon_shift(batter, pitcher_hand, tuning)
     contact += handedness * tuning.get("handedness_contact_bonus", 2.0)
@@ -5007,12 +5011,12 @@ def _pitcher_context(pitcher: PitcherRatings, tuning: TuningConfig) -> Dict[str,
     league's average pitch.
     """
     repertoire = pitcher.repertoire or {"fb": 50}
-    grade_shift = source_shift(tuning, "pitcher_grade_center")
+    grade_shift = source_shift(tuning, "pitcher_grade_usage_center")
     if pitcher.repertoire and grade_shift:
         repertoire = {
             pitch: grade + grade_shift for pitch, grade in repertoire.items()
         }
-    arm = _league_relative(pitcher.arm, "pitcher_arm_center", tuning)
+    arm = _league_relative(pitcher.arm, "pitcher_arm_usage_center", tuning)
     return {
         "repertoire": repertoire,
         # Fastball velocity; per-type offsets are subtracted in
@@ -5021,10 +5025,10 @@ def _pitcher_context(pitcher: PitcherRatings, tuning: TuningConfig) -> Dict[str,
         # are slower (QW-13).
         "velocity": 83.0 + (arm * 0.2),
         "control": _league_relative(
-            pitcher.control, "pitcher_control_center", tuning
+            pitcher.control, "pitcher_control_usage_center", tuning
         ),
         "movement": _league_relative(
-            pitcher.movement, "pitcher_movement_center", tuning
+            pitcher.movement, "pitcher_movement_usage_center", tuning
         ),
         "fatigue_factor": 1.0,
         "hand": pitcher.throws,
@@ -6546,8 +6550,12 @@ def simulate_game(
             # league-relative each pitch, before the fresh-arm bonus and
             # the fatigue factors (0.0 while the switch is off).
             _pa_centred = ratings_centred(tuning)
-            _pa_control_shift = source_shift(tuning, "pitcher_control_center")
-            _pa_movement_shift = source_shift(tuning, "pitcher_movement_center")
+            _pa_control_shift = source_shift(
+                tuning, "pitcher_control_usage_center"
+            )
+            _pa_movement_shift = source_shift(
+                tuning, "pitcher_movement_usage_center"
+            )
             while True:
                 pitcher_state.pitches += 1
                 penalty = _fatigue_penalty(pitcher_state, tuning) + pitcher_state.pregame_penalty
@@ -7691,7 +7699,9 @@ def simulate_game(
                         balk_rate *= 1.0 + (
                             50.0
                             - _league_relative(
-                                pitcher.control, "pitcher_control_center", tuning
+                                pitcher.control,
+                                "pitcher_control_usage_center",
+                                tuning,
                             )
                         ) / 200.0
                         if random.random() < balk_rate:

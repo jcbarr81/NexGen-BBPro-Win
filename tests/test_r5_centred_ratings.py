@@ -7,6 +7,11 @@ by 50 minus its league centre (``physics_sim.centred_ratings``), and the
 hitter centres are means over the lineup regulars
 (``services.league_rating_centers``).
 
+A pitcher's four ratings are shifted by workload-weighted centres (the
+``pitcher_*_usage_center`` keys: a rotation starter counts 2.5 times a
+reliever); the plain ACT means stay what the Release 4 running-game terms
+read.
+
 The acceptance test is INVARIANCE: add one constant to every hitter's
 Contact, Power and Eye and to the three hitter centres -- or to every
 pitcher's control, movement, arm and pitch grades and to their centres --
@@ -35,6 +40,7 @@ import physics_sim.physics as physics
 from physics_sim import centred_ratings
 from physics_sim.centred_ratings import (
     CENTRED_RATING_KEYS,
+    MODEL_CENTER_KEYS,
     rating_center,
     ratings_centred,
     source_shift,
@@ -56,12 +62,23 @@ HITTER_CENTRES = (
     "hitter_power_center",
     "hitter_eye_center",
 )
-PITCHER_CENTRES = (
+# The workload-weighted centres the shift reads ...
+PITCHER_USAGE_CENTRES = (
+    "pitcher_control_usage_center",
+    "pitcher_movement_usage_center",
+    "pitcher_arm_usage_center",
+    "pitcher_grade_usage_center",
+)
+# ... and the plain ACT means: what the Release 4 running-game terms read
+# (control and arm) and what the Release 5 models read with the switch off.
+PITCHER_PLAIN_CENTRES = (
     "pitcher_control_center",
     "pitcher_movement_center",
     "pitcher_arm_center",
     "pitcher_grade_center",
 )
+# A league whose pitchers all move by a constant moves both sets.
+PITCHER_CENTRES = PITCHER_USAGE_CENTRES + PITCHER_PLAIN_CENTRES
 HITTER_COLUMNS = ("ch", "ph", "eye")
 PITCHER_COLUMNS = ("control", "movement", "arm") + tuple(PITCH_KEYS)
 # Centres that are exact in binary floating point, so a shifted league's
@@ -70,6 +87,10 @@ EXACT_CENTRES = {
     "hitter_contact_center": 51.5,
     "hitter_power_center": 50.25,
     "hitter_eye_center": 49.75,
+    "pitcher_control_usage_center": 52.75,
+    "pitcher_movement_usage_center": 52.5,
+    "pitcher_arm_usage_center": 55.25,
+    "pitcher_grade_usage_center": 55.75,
     "pitcher_control_center": 52.5,
     "pitcher_movement_center": 53.25,
     "pitcher_arm_center": 56.0,
@@ -131,8 +152,14 @@ def test_the_switch_and_the_power_centre_are_registered_off():
     assert tuning.get("hitter_power_center") == 52.25
     assert not ratings_centred(load_tuning()) and ratings_centred(tuning)
     assert not ratings_centred(None)
-    for key in CENTRED_RATING_KEYS:
+    for key in CENTRED_RATING_KEYS | set(MODEL_CENTER_KEYS):
         assert DEFAULT_TUNING[key] == 50.0, key
+    # The shift reads the hitters' own centres and the pitchers' usage
+    # centres; the models name the plain pitcher means.
+    assert CENTRED_RATING_KEYS == set(HITTER_CENTRES) | set(PITCHER_USAGE_CENTRES)
+    assert set(MODEL_CENTER_KEYS) == set(HITTER_CENTRES) | set(PITCHER_PLAIN_CENTRES)
+    for plain, usage in MODEL_CENTER_KEYS.items():
+        assert usage in (plain, plain.replace("_center", "_usage_center"))
 
 
 def test_generation_5_switches_it_on_and_legacy_does_not():
@@ -155,6 +182,14 @@ def test_source_shift_is_fifty_minus_the_centre_only_with_the_switch_on():
     assert source_shift(on, "hitter_contact_center") == -2.5
     assert source_shift(on, "hitter_power_center") == 0.0  # centre 50
     assert source_shift(off, "hitter_contact_center") == 0.0
+    # A pitcher's rating is shifted by its usage centre, never by the plain
+    # ACT mean (the Release 4 terms' centre), whatever that holds.
+    arms = _tuning(
+        centred_ratings=1, pitcher_arm_usage_center=57.75, pitcher_arm_center=59.5
+    )
+    assert source_shift(arms, "pitcher_arm_usage_center") == -7.75
+    with pytest.raises(KeyError):
+        source_shift(arms, "pitcher_arm_center")
     # A rating that is not shifted at its source has no shift to ask for.
     with pytest.raises(KeyError):
         source_shift(on, "catcher_fa_center")
@@ -163,11 +198,12 @@ def test_source_shift_is_fifty_minus_the_centre_only_with_the_switch_on():
 
 
 def test_rating_center_reads_fifty_for_a_rating_already_shifted():
-    values = {key: 57.0 for key in CENTRED_RATING_KEYS}
+    values = {key: 57.0 for key in CENTRED_RATING_KEYS | set(MODEL_CENTER_KEYS)}
     values["catcher_fa_center"] = 54.5
     on = _tuning(centred_ratings=1, **values)
     off = _tuning(**values)
-    for key in CENTRED_RATING_KEYS:
+    # The centre a model names: 50 once its rating arrives shifted.
+    for key in MODEL_CENTER_KEYS:
         assert rating_center(on, key) == 50.0, key
         assert rating_center(off, key) == 57.0, key
     # Catcher fielding is not shifted: its centre is always the league's.
@@ -177,11 +213,15 @@ def test_rating_center_reads_fifty_for_a_rating_already_shifted():
 
 # --- no centre is read twice ------------------------------------------------------
 
-# Calls a covered centre key may be handed to. ``_centred_rating`` and
-# ``_clipped_battery`` are the Release 4 terms: they centre a RAW rating
-# themselves, so they must keep the league's own centre -- and may only be
-# given the two covered centres they read today.
-SHIFT_CALLS = {"rating_center", "source_shift", "_league_relative", "tired"}
+# Every centre the switch has a say in: the ones the shift reads and the
+# ones a model names for a shifted rating.
+COVERED_KEYS = CENTRED_RATING_KEYS | set(MODEL_CENTER_KEYS)
+# The helpers that shift a raw rating: they take the centre it is shifted
+# by (a pitcher's usage centre, never his plain ACT mean).
+SHIFT_CALLS = {"source_shift", "_league_relative", "tired"}
+# ``_centred_rating`` and ``_clipped_battery`` are the Release 4 terms: they
+# centre a RAW rating themselves, so they keep the league's plain ACT mean
+# -- and may only be given the two covered centres they read today.
 R4_CALLS = {"_centred_rating", "_clipped_battery"}
 R4_COVERED_KEYS = {"pitcher_control_center", "pitcher_arm_center"}
 # Every other place a covered key may appear: (module, function, key).
@@ -214,10 +254,8 @@ def _centre_key_uses(package: Path = PACKAGE):
                 how = "call:" + (
                     func.attr if isinstance(func, ast.Attribute) else func.id
                 )
-            elif isinstance(parent, ast.Dict) and node in parent.keys:
-                how = "dict key"
-            elif isinstance(parent, ast.Set):
-                how = "set"
+            elif isinstance(parent, ast.Dict):
+                how = "dict key" if node in parent.keys else "dict value"
             scope = parent
             while scope is not None and not isinstance(
                 scope, (ast.FunctionDef, ast.AsyncFunctionDef)
@@ -230,7 +268,7 @@ def _centre_key_uses(package: Path = PACKAGE):
 def _check_centre_reads(package: Path = PACKAGE) -> None:
     uses = _centre_key_uses(package)
     seen = {key for _module, _function, key, _how in uses}
-    assert CENTRED_RATING_KEYS <= seen
+    assert COVERED_KEYS <= seen
     for module, function, key, how in uses:
         where = f"{module}:{function} {key!r} ({how})"
         if module == "physics.py":
@@ -238,15 +276,16 @@ def _check_centre_reads(package: Path = PACKAGE) -> None:
             # covered or not, so a new one cannot be missed.
             assert how == "call:rating_center", where
             continue
-        if key not in CENTRED_RATING_KEYS:
+        if key not in COVERED_KEYS:
             continue
+        call = how.removeprefix("call:")
         if module == "config.py":
             assert how == "dict key", where
         elif module == "centred_ratings.py":
-            assert how == "set", where
-        elif how.removeprefix("call:") in SHIFT_CALLS:
-            continue
-        elif how.removeprefix("call:") in R4_CALLS:
+            assert how in {"dict key", "dict value"}, where
+        elif call in SHIFT_CALLS:
+            assert key in CENTRED_RATING_KEYS, where
+        elif call in R4_CALLS:
             assert key in R4_COVERED_KEYS, where
         else:
             assert (module, function, key) in OTHER_USES, where
@@ -268,11 +307,27 @@ def test_every_covered_centre_is_read_through_the_accessor():
         # Any direct centre read in the pitch kernel, covered or not.
         ("physics.py", 'def f(t):\n    return t.get("catcher_arm_center", 50.0)\n'),
         ("engine.py", 'def f(t, x):\n    return x - t.get("pitcher_grade_center")\n'),
-        # A Release 4 style term on a rating the switch already shifts.
+        # A Release 4 style term on a rating the switch already shifts, or
+        # on a usage centre.
         (
             "engine.py",
             "def f(t, x):\n"
             '    return _centred_rating(x, "pitcher_movement_center", t)\n',
+        ),
+        (
+            "engine.py",
+            "def f(t, x):\n"
+            '    return _centred_rating(x, "pitcher_arm_usage_center", t)\n',
+        ),
+        # A shift by the plain ACT mean instead of the usage centre.
+        (
+            "engine.py",
+            "def f(t, x):\n"
+            '    return _league_relative(x, "pitcher_control_center", t)\n',
+        ),
+        (
+            "engine.py",
+            'def f(t, x):\n    return x - t.get("pitcher_arm_usage_center")\n',
         ),
         ("fielding.py", 'KEY = "hitter_eye_center"\n'),
     ],
@@ -304,7 +359,7 @@ def test_the_pitch_kernel_has_no_direct_centre_read():
 def test_under_the_switch_the_models_compare_against_fifty():
     """The formulas that subtract a centre themselves: with the switch on a
     league's centres must not move them (their inputs arrive shifted)."""
-    wild = {key: 63.0 for key in CENTRED_RATING_KEYS}
+    wild = {key: 63.0 for key in COVERED_KEYS}
     models = dict(
         swing_model=1, contact_model=1, command_model=1,
         swing_two_strike_contact_logit=0.06, two_strike_protect_contact=0.06,
@@ -347,7 +402,9 @@ def test_under_the_switch_the_models_compare_against_fifty():
 def test_batter_context_shifts_contact_power_and_eye_before_everything():
     centres = dict(
         hitter_contact_center=53.0, hitter_power_center=47.5,
-        hitter_eye_center=51.0, pitcher_control_center=56.0,
+        hitter_eye_center=51.0, pitcher_control_usage_center=56.0,
+        # The plain ACT mean is not what the shift reads.
+        pitcher_control_center=71.0,
     )
     quiet = dict(
         handedness_contact_bonus=0.0, handedness_power_bonus=0.0,
@@ -392,11 +449,16 @@ def test_batter_context_shifts_contact_power_and_eye_before_everything():
 
 def test_pitcher_context_shifts_control_movement_arm_and_grades():
     centres = dict(
-        pitcher_control_center=52.0, pitcher_movement_center=54.5,
-        pitcher_arm_center=57.5, pitcher_grade_center=58.0,
+        pitcher_control_usage_center=52.0, pitcher_movement_usage_center=54.5,
+        pitcher_arm_usage_center=57.5, pitcher_grade_usage_center=58.0,
     )
     pitcher = _pitcher(control=60.0, movement=50.0, arm=65.0)
     on = engine._pitcher_context(pitcher, _tuning(centred_ratings=1, **centres))
+    # The plain ACT means (the Release 4 terms' centres) have no say in it.
+    plain = {key: 77.0 for key in PITCHER_PLAIN_CENTRES}
+    assert on == engine._pitcher_context(
+        pitcher, _tuning(centred_ratings=1, **centres, **plain)
+    )
     assert on["control"] == 58.0
     assert on["movement"] == 45.5
     assert on["velocity"] == 83.0 + (65.0 - 7.5) * 0.2
@@ -453,6 +515,11 @@ def test_every_pitch_gets_the_shift_before_the_bonus_and_the_fatigue(monkeypatch
     result, pitches = _traced_pitches(monkeypatch, overrides, seed=2)
     entries = [e for e in result.pitch_log if "pitch_count" in e]
     assert len(entries) == len(pitches) > 200
+    # 50 minus the usage centres: control 52.75, movement 52.5, arm 55.25,
+    # grade 55.75 (the plain means in EXACT_CENTRES differ from every one).
+    shift = {
+        key: 50.0 - EXACT_CENTRES[key] for key in PITCHER_USAGE_CENTRES
+    }
     tired = fresh = 0
     for entry, pitch in zip(entries, pitches):
         rating = pitchers[entry["pitcher_id"]]
@@ -462,16 +529,21 @@ def test_every_pitch_gets_the_shift_before_the_bonus_and_the_fatigue(monkeypatch
         tired += command_factor < 1.0
         fresh += pitch["fresh"] > 0.0
         assert pitch["control"] == (
-            rating.control - 2.5 + pitch["fresh"]
+            rating.control + shift["pitcher_control_usage_center"] + pitch["fresh"]
         ) * command_factor
         assert pitch["movement"] == (
-            rating.movement - 3.25 + pitch["fresh"]
+            rating.movement
+            + shift["pitcher_movement_usage_center"]
+            + pitch["fresh"]
         ) * movement_factor
         # The arm rating is shifted, not the fatigued velocity.
-        assert pitch["velocity"] == 83.0 + (rating.arm - 6.0) * 0.2
+        assert pitch["velocity"] == 83.0 + (
+            (rating.arm + shift["pitcher_arm_usage_center"]) * 0.2
+        )
         assert pitch["fatigue_factor"] == velocity_factor
         assert pitch["repertoire"] == {
-            name: grade - 5.5 for name, grade in rating.repertoire.items()
+            name: grade + shift["pitcher_grade_usage_center"]
+            for name, grade in rating.repertoire.items()
         }
     assert tired and fresh
 
@@ -616,6 +688,57 @@ def test_a_seeded_game_is_invariant_to_a_league_wide_shift(tmp_path, fixture, te
     assert _digest(both) == want
 
 
+def _pin_release_4_reader(monkeypatch, centres: dict) -> None:
+    """Make the Release 4 running-game terms read ``centres``, whatever the
+    game's tuning holds (the same arithmetic as ``engine._centred_rating``)."""
+    monkeypatch.setattr(
+        engine,
+        "_centred_rating",
+        lambda value, key, tuning: value - centres[key] + 50.0,
+    )
+
+
+@pytest.mark.parametrize("fixture, teams", GAME_CASES)
+def test_the_plain_pitcher_means_act_only_through_the_release_4_terms(
+    tmp_path, monkeypatch, fixture, teams
+):
+    """The shift reads the usage centres alone. The plain ACT means still
+    move the Release 4 running-game terms (wild pitches, steals), which is
+    their job, and nothing else in a generation 5 game."""
+    on = _generation_5(**EXACT_CENTRES)
+    root = _shifted_league(tmp_path / "plain", fixture)
+    want = _digest(_play(root, on, teams, SEEDS))
+    # The plain movement and pitch-grade means: nothing reads them.
+    unread = dict(on)
+    unread["pitcher_movement_center"] += 6.0
+    unread["pitcher_grade_center"] -= 4.0
+    assert _digest(_play(root, unread, teams, SEEDS)) == want
+    # Every plain pitcher mean moved, with the Release 4 reader held on the
+    # centres it had: the same game, so the shift did not read them.
+    wild = dict(on)
+    for key in PITCHER_PLAIN_CENTRES + ("pitcher_hold_center",):
+        wild[key] += 6.0
+    _pin_release_4_reader(monkeypatch, on)
+    assert _digest(_play(root, wild, teams, SEEDS)) == want
+    # Every pitcher 6 points better and only the USAGE centres following:
+    # the pitch is the same pitch. (The Release 4 reader is given the plain
+    # means such a league would have, which the tuning here does not hold.)
+    better = _shifted_league(tmp_path / "better", fixture, pitchers=6.0)
+    followed = dict(on)
+    for key in PITCHER_USAGE_CENTRES:
+        followed[key] += 6.0
+    _pin_release_4_reader(monkeypatch, _shifted_centres(on, pitchers=6.0))
+    assert _digest(_play(better, followed, teams, SEEDS)) == want
+    monkeypatch.undo()
+    # And the Release 4 terms do read the plain means, not the usage ones.
+    assert engine._missed_pitch_rates(
+        45.0, 50.0, 0.2, load_tuning(wild)
+    ) != engine._missed_pitch_rates(45.0, 50.0, 0.2, load_tuning(on))
+    assert engine._missed_pitch_rates(
+        45.0, 50.0, 0.2, load_tuning(followed)
+    ) == engine._missed_pitch_rates(45.0, 50.0, 0.2, load_tuning(on))
+
+
 @pytest.mark.parametrize("fixture, teams", GAME_CASES)
 def test_with_the_switch_off_the_same_shift_changes_the_game(tmp_path, fixture, teams):
     off = _generation_5(0.0, **EXACT_CENTRES)
@@ -724,8 +847,10 @@ def test_the_offence_score_and_the_reliever_score_shift_with_the_league():
     pitcher = _pitcher()
     centres = dict(
         hitter_contact_center=54.0, hitter_power_center=52.0,
-        pitcher_control_center=53.0, pitcher_movement_center=56.0,
-        pitcher_arm_center=59.0,
+        pitcher_control_usage_center=53.0, pitcher_movement_usage_center=56.0,
+        pitcher_arm_usage_center=59.0,
+        # Not read: the manager's view follows the pitch's.
+        pitcher_control_center=70.0, pitcher_arm_center=30.0,
     )
     on = _tuning(centred_ratings=1, **centres)
     off = _tuning(**centres)
@@ -799,7 +924,11 @@ def test_the_contact_hit_edge_still_reads_the_raw_rating_against_its_centre():
 
 
 def test_release_4_terms_keep_reading_the_raw_rating_against_their_centre():
-    centres = dict(pitcher_control_center=56.0, pitcher_arm_center=58.0)
+    centres = dict(
+        pitcher_control_center=56.0, pitcher_arm_center=58.0,
+        # The usage centres are the shift's, never these terms'.
+        pitcher_control_usage_center=44.0, pitcher_arm_usage_center=66.0,
+    )
     on = _tuning(centred_ratings=1, **centres)
     off = _tuning(**centres)
     for key, value in (("pitcher_control_center", 61.0), ("pitcher_arm_center", 49.0)):
@@ -817,8 +946,9 @@ def test_release_4_terms_keep_reading_the_raw_rating_against_their_centre():
 
 def test_the_legacy_engine_reads_none_of_it():
     """With the switch off (the defaults) the three hitter centres -- the
-    ones this release redefines -- and the power centre change nothing."""
-    wild = {key: 71.0 for key in HITTER_CENTRES}
+    ones this release redefines -- and the new Power and pitcher usage
+    centres change nothing."""
+    wild = {key: 71.0 for key in HITTER_CENTRES + PITCHER_USAGE_CENTRES}
     plain = _play(CALIBRATION, {}, ("CAL01", "CAL02"), SEEDS)
     moved = _play(CALIBRATION, wild, ("CAL01", "CAL02"), SEEDS)
     assert _digest(moved) == _digest(plain)
@@ -836,7 +966,8 @@ def test_the_legacy_engine_reads_none_of_it():
 
 PLAYER_FIELDS = [
     "player_id", "primary_position", "is_pitcher", "bats", "sp", "ch", "ph",
-    "eye", "vl", "fa", "arm", "control", "movement", "hold_runner", "fb",
+    "eye", "vl", "fa", "arm", "control", "movement", "hold_runner", "fb", "sl",
+    "endurance", "role", "preferred_pitching_role",
 ]
 
 
@@ -1000,6 +1131,124 @@ def test_a_league_without_hitters_has_no_hitter_centres(tmp_path):
     assert not set(found) & set(HITTER_CENTRES)
 
 
+# --- the pitcher usage centres weigh a starter 2.5 times a reliever -----------------
+
+
+def _arm(pid, *, control, movement, endurance, **pitches):
+    # A stale stored role ("RP" for every arm, as in an older league) and a
+    # plain "P" position: neither says who starts.
+    return {
+        "player_id": pid, "primary_position": "P", "is_pitcher": "1",
+        "bats": "R", "role": "RP", "control": str(control),
+        "movement": str(movement), "arm": "55", "endurance": str(endurance),
+        **{pitch: str(grade) for pitch, grade in pitches.items()},
+    }
+
+
+def _staff_league(root: Path, *, staff_file: bool = True) -> Path:
+    """One club, eight ACT arms. S1-S5 are the staff file's SP1-SP5
+    (control 60, movement 40, one 70 pitch, endurance 30); R1-R3 its
+    closer, setup man and middle reliever (control 40, movement 60, pitches
+    50 and 30, endurance 90). A minor leaguer the file also calls SP1."""
+    root.mkdir(parents=True, exist_ok=True)
+    starters = [
+        _arm(f"S{i}", control=60, movement=40, endurance=30, fb=70)
+        for i in range(1, 6)
+    ]
+    relievers = [
+        _arm(f"R{i}", control=40, movement=60, endurance=90, fb=50, sl=30)
+        for i in range(1, 4)
+    ]
+    minor = _arm("M9", control=99, movement=99, endurance=99, fb=99)
+    _write_players(root, starters + relievers + [minor])
+    _write_club(root, "AAA", starters + relievers + [minor], levels={"M9": "AAA"})
+    if staff_file:
+        rows = [("M9", "SP1")] + [(f"S{i}", f"SP{i}") for i in range(1, 6)]
+        rows += [("R1", "CL"), ("R2", "SU"), ("R3", "MR1")]
+        with (root / "rosters" / "AAA_pitching.csv").open(
+            "w", newline="", encoding="utf-8"
+        ) as fh:
+            csv.writer(fh).writerows(rows)
+    return root
+
+
+def _weighted(starters: float, n_starters: int, relievers: float, n_relievers: int):
+    heavy = 2.5 * n_starters
+    return round(
+        (heavy * starters + n_relievers * relievers) / (heavy + n_relievers), 2
+    )
+
+
+def test_usage_centres_weigh_the_staff_files_rotation(tmp_path):
+    base = _staff_league(tmp_path / "league")
+    found = centers.active_rating_centers(base)
+    # Five starters at 2.5 and three relievers at 1.
+    assert found["pitcher_control_usage_center"] == _weighted(60, 5, 40, 3) == 56.13
+    assert found["pitcher_movement_usage_center"] == _weighted(40, 5, 60, 3) == 43.87
+    assert found["pitcher_grade_usage_center"] == _weighted(70, 5, 40, 3) == 64.19
+    assert found["pitcher_arm_usage_center"] == 55.0
+    # The plain ACT means are what they were: every arm counts once.
+    assert found["pitcher_control_center"] == 52.5
+    assert found["pitcher_movement_center"] == 47.5
+    assert found["pitcher_grade_center"] == 58.75
+    assert found["pitcher_arm_center"] == 55.0
+    assert list(found)[-4:] == list(centers.PITCHER_USAGE_CENTER_KEYS)
+    assert list(centers.RATING_CENTER_KEYS)[-4:] == list(
+        centers.PITCHER_USAGE_CENTER_KEYS
+    )
+
+
+def test_a_club_with_no_staff_file_gets_the_rotation_a_game_would_build(tmp_path):
+    base = _staff_league(tmp_path / "league", staff_file=False)
+    # No file: utils.rotation.staff_rotation fills the five from the arms
+    # that can start (endurance above 55: R1-R3), then by endurance (S1, S2
+    # on the id). S3-S5 are the relievers.
+    found = centers.active_rating_centers(base)
+    control = round((2.5 * (3 * 40 + 2 * 60) + 3 * 60) / 15.5, 2)
+    assert found["pitcher_control_usage_center"] == control == 50.32
+    assert found["pitcher_control_center"] == 52.5
+    # The same five the engine's own staff builder starts.
+    from physics_sim.data_loader import load_players_by_id
+    from physics_sim.team_data import build_staff
+
+    _batters, pitchers = load_players_by_id(base / "players.csv")
+    act = {pid for pid in pitchers if pid != "M9"}
+    _ordered, roles, _missing = build_staff([], pitchers, active_ids=act)
+    assert {pid for pid, role in roles.items() if role.startswith("SP")} == {
+        "R1", "R2", "R3", "S1", "S2",
+    }
+
+
+def test_a_declared_role_beats_endurance_and_the_stored_role_is_not_read(tmp_path):
+    base = _staff_league(tmp_path / "league", staff_file=False)
+    with (base / "players.csv").open(newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    for row in rows:
+        # The stored column now says the opposite of the declared role.
+        if row["player_id"].startswith("S"):
+            row.update(preferred_pitching_role="SP", role="RP")
+        elif row["player_id"].startswith("R"):
+            row.update(preferred_pitching_role="CL", role="SP")
+    _write_players(base, rows)
+    found = centers.active_rating_centers(base)
+    assert found["pitcher_control_usage_center"] == 56.13
+
+
+def test_fixture_usage_centres_sit_between_starters_and_the_plain_mean():
+    cal = centers.active_rating_centers(CALIBRATION)
+    assert [cal[key] for key in centers.PITCHER_USAGE_CENTER_KEYS] == [
+        51.59, 52.52, 54.87, 55.27,
+    ]
+    league = centers.active_rating_centers(CALIBRATION_LEAGUE)
+    assert [league[key] for key in centers.PITCHER_USAGE_CENTER_KEYS] == [
+        53.41, 55.43, 57.17, 57.72,
+    ]
+    # The league fixture's relievers out-rate its starters: the usage
+    # centres are well under the plain means (59.66 arm, 56.41 movement).
+    assert league["pitcher_arm_center"] - league["pitcher_arm_usage_center"] > 1.5
+    assert league["pitcher_movement_center"] > league["pitcher_movement_usage_center"]
+
+
 def test_fixture_centres_are_the_regulars():
     cal = centers.active_rating_centers(CALIBRATION)
     assert (
@@ -1033,7 +1282,12 @@ def test_a_new_season_entry_holds_the_three_regulars_centres(tmp_path):
     found = centers.league_rating_centers(base, season="2027")
     assert found["hitter_contact_center"] == REGULARS_CH
     assert found["hitter_power_center"] == REGULARS_CH + 10.0
+    # One ACT pitcher: his usage centres are his ratings.
+    assert found["pitcher_control_usage_center"] == 60.0
+    assert found["pitcher_arm_usage_center"] == 70.0
+    assert found["pitcher_grade_usage_center"] == 65.0
     assert _stored(base)["seasons"]["2027"] == found
+    assert list(found)[-4:] == list(centers.PITCHER_USAGE_CENTER_KEYS)
     # Fixed for the season: a new lineup does not move them.
     _write_lineup(base, "BBB", "lhp", [f"BBBH{i:02d}" for i in range(9)])
     assert centers.league_rating_centers(base, season="2027") == found
@@ -1057,19 +1311,42 @@ def test_an_existing_season_entry_is_not_recomputed_and_gains_no_key(tmp_path):
     path = base / centers.RATING_CENTERS_FILENAME
     path.write_text(json.dumps({"version": 1, "seasons": {"2026": entry}}, indent=2))
     before = path.read_bytes()
+    new_keys = {"hitter_power_center", *PITCHER_USAGE_CENTRES}
     for _ in range(2):
         found = centers.league_rating_centers(base, season="2026")
         assert found == entry
-        assert "hitter_power_center" not in found
+        assert not new_keys & set(found)
         assert path.read_bytes() == before
         centers.clear_rating_center_cache()
     assert centers.league_rating_centers(base, season="2026", store=False) == entry
-    # The engine reads the default for the missing centre.
-    assert load_tuning(found).get("hitter_power_center") == 50.0
-    # The file is not re-read for it game after game.
+    # The engine reads the default for the missing centres.
+    for key in new_keys:
+        assert load_tuning(found).get(key) == 50.0
+    # The file is not re-read for them game after game.
     centers.league_rating_centers(base, season="2026")
     path.unlink()
     assert centers.league_rating_centers(base, season="2026") == entry
+
+
+def test_an_entry_holding_the_hitter_centres_never_gains_the_usage_centres(tmp_path):
+    base = _staff_league(tmp_path / "league")
+    # An entry fixed with the regulars' hitter centres and the Power centre
+    # but before the pitcher usage centres existed.
+    entry = {
+        "hitter_speed_center": 50.0, "pitcher_control_center": 52.5,
+        "hitter_contact_center": 51.5, "hitter_eye_center": 49.5,
+        "hitter_power_center": 50.25, "engine_generation": 5,
+    }
+    path = base / centers.RATING_CENTERS_FILENAME
+    path.write_text(json.dumps({"version": 1, "seasons": {"2027": entry}}, indent=2))
+    found = centers.league_rating_centers(base, season="2027")
+    assert not set(PITCHER_USAGE_CENTRES) & set(found)
+    assert found["hitter_power_center"] == 50.25
+    # Centres older than these are still filled in, as they always were.
+    assert found["pitcher_movement_center"] == 47.5
+    stored = _stored(base)["seasons"]["2027"]
+    assert not set(PITCHER_USAGE_CENTRES) & set(stored)
+    assert {key: stored[key] for key in entry} == entry
 
 
 def test_an_entry_holding_only_the_generation_gains_all_three_together(tmp_path):
@@ -1081,6 +1358,7 @@ def test_an_entry_holding_only_the_generation_gains_all_three_together(tmp_path)
     found = centers.league_rating_centers(base, season="2027")
     assert found["hitter_contact_center"] == REGULARS_CH
     assert found["hitter_power_center"] == REGULARS_CH + 10.0
+    assert set(PITCHER_USAGE_CENTRES) <= set(found)
     stored = _stored(base)["seasons"]["2027"]
     assert stored["engine_generation"] == 5
     assert {key: stored[key] for key in found} == found
@@ -1114,10 +1392,12 @@ def test_the_harness_plays_a_fixture_on_its_regulars_centres():
 def test_the_matchup_grid_pins_every_centre_the_switch_reads():
     from scripts import kpi_extras as kx
 
-    assert CENTRED_RATING_KEYS <= set(kx.GRID_RATING_CENTERS)
-    for key in CENTRED_RATING_KEYS - {"pitcher_grade_center"}:
+    assert COVERED_KEYS <= set(kx.GRID_RATING_CENTERS)
+    grades = {"pitcher_grade_center", "pitcher_grade_usage_center"}
+    for key in COVERED_KEYS - grades:
         assert kx.GRID_RATING_CENTERS[key] == 50.0, key
-    assert kx.GRID_RATING_CENTERS["pitcher_grade_center"] == kx.GRID_PITCH_GRADE
+    for key in grades:
+        assert kx.GRID_RATING_CENTERS[key] == kx.GRID_PITCH_GRADE
     # A grid cell goes through the engine's own contexts, so under the
     # switch its pitches are the league-average 50 pitch.
     seen = []

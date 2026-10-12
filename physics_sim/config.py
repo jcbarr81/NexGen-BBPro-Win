@@ -813,8 +813,20 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # hitter_eye_center are means over the lineup REGULARS (the hitters in
     # the clubs' saved lineups), not over every ACT hitter, for a season
     # whose centres are fixed from this release on.
+    #
+    # The pitcher's four ratings are shifted by workload-weighted centres,
+    # the pitcher_*_usage_center keys: a rotation starter counts 2.5 times
+    # a reliever, because that is about how the innings are shared, and how
+    # a league's starters compare with its relievers differs by league. The
+    # plain ACT means above (pitcher_control_center, pitcher_arm_center, ...)
+    # are not redefined: the Release 4 running-game terms read those, and so
+    # do the Release 5 models while centred_ratings is off.
     "centred_ratings": 0.0,
     "hitter_power_center": 50.0,
+    "pitcher_control_usage_center": 50.0,
+    "pitcher_movement_usage_center": 50.0,
+    "pitcher_grade_usage_center": 50.0,
+    "pitcher_arm_usage_center": 50.0,
     # Release 5 (plan 2.1, plate discipline). Five switches, all OFF: at 0
     # each path is the code it replaces, byte for byte, and draws no extra
     # random number. The values beside them are the design's starting

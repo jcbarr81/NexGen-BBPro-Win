@@ -55,6 +55,13 @@ SHARE_KEYS = ("hitter_bats_share_l", "hitter_bats_share_r", "hitter_bats_share_s
 # Release 5 (league-relative ratings): the Power centre, stored after them.
 POWER_KEY = "hitter_power_center"
 R5A_KEYS = CENTER_KEYS + SHARE_KEYS + (POWER_KEY,)
+# ... and the pitcher centres weighted by expected workload, after that.
+USAGE_KEYS = (
+    "pitcher_control_usage_center",
+    "pitcher_movement_usage_center",
+    "pitcher_grade_usage_center",
+    "pitcher_arm_usage_center",
+)
 
 PLAYER_FIELDS = [
     "player_id", "primary_position", "is_pitcher", "bats", "sp", "ch", "eye",
@@ -165,6 +172,17 @@ EXPECTED = {
 }
 
 
+# The four ACT pitchers are one club's whole staff, so all four start and
+# weigh the same: the usage centres equal the plain means (no control or arm
+# column: 50).
+USAGE_EXPECTED = {
+    "pitcher_control_usage_center": 50.0,
+    "pitcher_movement_usage_center": 51.5,
+    "pitcher_grade_usage_center": 61.67,
+    "pitcher_arm_usage_center": 50.0,
+}
+
+
 def _stored(base: Path) -> dict:
     return json.loads((base / centers.RATING_CENTERS_FILENAME).read_text())
 
@@ -174,9 +192,10 @@ def _stored(base: Path) -> dict:
 
 def test_the_release_4_keys_keep_their_place_and_the_5a_keys_follow():
     assert centers.RATING_CENTER_KEYS[:6] == R4_KEYS
-    assert set(centers.RATING_CENTER_KEYS[6:]) == set(R5A_KEYS)
-    assert len(centers.RATING_CENTER_KEYS) == len(set(centers.RATING_CENTER_KEYS)) == 17
-    assert centers.RATING_CENTER_KEYS[-1] == POWER_KEY
+    assert set(centers.RATING_CENTER_KEYS[6:17]) == set(R5A_KEYS)
+    assert len(centers.RATING_CENTER_KEYS) == len(set(centers.RATING_CENTER_KEYS)) == 21
+    assert centers.RATING_CENTER_KEYS[16] == POWER_KEY
+    assert centers.RATING_CENTER_KEYS[17:] == USAGE_KEYS
     assert tuple(centers.HITTER_VL_CENTER_KEYS.values()) == CENTER_KEYS[4:]
     assert tuple(centers.HITTER_BATS_SHARE_KEYS.values()) == SHARE_KEYS
 
@@ -339,9 +358,11 @@ def test_an_existing_season_file_gains_the_keys_without_changing_a_value(tmp_pat
     assert centers.active_rating_centers(base)["hitter_speed_center"] == 50.0
 
     found = centers.league_rating_centers(base, season="2026")
-    assert found == {**r4_season, **EXPECTED}
+    # No Contact or Eye centre yet, so the Release 5 centres come with them.
+    gained = {**EXPECTED, **USAGE_EXPECTED}
+    assert found == {**r4_season, **gained}
     stored = _stored(base)["seasons"]
-    assert stored["2026"] == {**r4_season, **EXPECTED}
+    assert stored["2026"] == {**r4_season, **gained}
     assert {key: stored["2026"][key] for key in r4_season} == r4_season
     assert stored["2025"] == {"hitter_speed_center": 44.0}
 
@@ -349,7 +370,7 @@ def test_an_existing_season_file_gains_the_keys_without_changing_a_value(tmp_pat
     _set(base, "L1", vl="99", bats="S")
     centers.clear_rating_center_cache()
     assert centers.league_rating_centers(base, season="2026") == found
-    assert _stored(base)["seasons"]["2026"] == {**r4_season, **EXPECTED}
+    assert _stored(base)["seasons"]["2026"] == {**r4_season, **gained}
 
 
 def test_a_partly_stored_season_keeps_what_it_has(tmp_path):
