@@ -135,7 +135,7 @@ jobs:
           name: physics-kpis-league-running
           path: tmp/physics_kpis_league_running.json
           if-no-files-found: warn
-      - name: Run KPI harness (engine generation 5, NOT blocking)
+      - name: Run KPI harness (strict, engine generation 5)
         # Release 5. The steps above run the legacy engine every league
         # plays today (no --engine). This one runs engine generation 5
         # (physics_sim/profiles/engine_5.json over the defaults) so the path
@@ -143,12 +143,11 @@ jobs:
         # set against generation 5's own references (ENGINE_GATES in the
         # harness: Statcast chase rate, starters-only TTO gap, the platoon
         # gap back at +/- .006, swing rate at each count, intentional walks,
-        # the home edge). The profile passes it on calibration seeds 1-8
-        # locally. It is continue-on-error until it has passed here: this
-        # runner may roll a different season than a Windows machine. Drop
-        # continue-on-error once it has, so a miss fails the job.
+        # the home edge). Blocking since it passed on this runner with
+        # 7.51.0 (it was continue-on-error until then, because the runner
+        # could have rolled a different season than the machine the profile
+        # was tuned on).
         if: ${{ !cancelled() }}
-        continue-on-error: true
         env:
           PYTHONHASHSEED: "0"
         run: |
@@ -170,7 +169,7 @@ jobs:
               tail -n 40 tmp/kpi_engine5.log
             } > tmp/kpi_engine5_failure.txt
             msg=$(sed -e 's/%/%25/g' -e 's/\r//g' tmp/kpi_engine5_failure.txt | sed ':a;N;$!ba;s/\n/%0A/g')
-            echo "::warning title=KPI engine generation 5 gates missed (not blocking)::${msg}"
+            echo "::error title=KPI engine generation 5 gates failed::${msg}"
             exit 1
           fi
       - name: Upload engine generation 5 KPI report

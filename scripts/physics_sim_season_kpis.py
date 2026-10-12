@@ -6,6 +6,7 @@ import argparse
 import copy
 import csv
 import json
+import os
 import math
 import random
 import re
@@ -29,7 +30,11 @@ from physics_sim.engine import _resolve_data_root, simulate_matchup_from_files
 from physics_sim.usage import UsageState, calendar_day
 from scripts import kpi_extras
 from utils.team_loader import load_teams
-from utils.park_utils import park_lookup_name_for_team
+from utils.park_utils import (
+    PARK_DATA_ROOT_ENV,
+    missing_park_data_files,
+    park_lookup_name_for_team,
+)
 from utils.lineup_autofill import auto_fill_lineup_for_team
 
 
@@ -2216,6 +2221,20 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+
+    # Park dimensions and altitude come from the repository's own data/parks,
+    # whatever league happens to be active in this checkout: the lookup used
+    # to start with the active league's folder, so a run begun while a test
+    # or a scratch league had switched it played a whole season with no
+    # altitude (home runs about 5% lower, nothing else changed). A missing
+    # file is an error here, never a silent fall back to the generic park.
+    park_root = BASE_DIR / "data"
+    missing = missing_park_data_files(park_root)
+    if missing:
+        parser.error(
+            f"park data missing under {park_root / 'parks'}: {', '.join(missing)}"
+        )
+    os.environ[PARK_DATA_ROOT_ENV] = str(park_root)
 
     players_path = args.players
     if not players_path.is_absolute():

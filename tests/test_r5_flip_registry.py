@@ -280,21 +280,20 @@ def test_the_r5_gate_set():
         assert key in tolerances, key
 
 
-def test_the_ci_step_for_generation_5_is_not_blocking():
+def test_the_ci_step_for_generation_5_is_blocking():
     yaml = pytest.importorskip("yaml")
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     steps = workflow["jobs"]["physics-sim-kpis"]["steps"]
     engine_steps = [s for s in steps if "--engine 5" in s.get("run", "")]
     assert len(engine_steps) == 1
     step = engine_steps[0]
-    # Not blocking until it has passed on the CI runner (which may roll a
-    # different season than the machine the profile was tuned on).
-    assert step.get("continue-on-error") is True
+    # It passed on the CI runner with 7.51.0, so a miss now fails the job.
+    assert not step.get("continue-on-error")
     # The full strict set against generation 5's own references
     # (ENGINE_GATES), not a subset.
     assert "--gate-set" not in step["run"] and "--strict" in step["run"]
     assert "kpi_profiles" not in step["run"]
-    # The blocking steps still run the legacy engine: no --engine at all.
+    # The other blocking steps run the legacy engine: no --engine at all.
     for other in steps:
         if other is not step and "physics_sim_season_kpis.py" in other.get("run", ""):
             assert "--engine" not in other["run"]

@@ -1611,7 +1611,10 @@ switched-on values are in `scripts/kpi_profiles/r5_discipline.json`,
   `NEXGEN_NEW_SEASON_ENGINE=4` (that does not move a season already on 5).
   A rollback tool would have to refuse while any league records a
   generation above legacy.
-- **The KPI harness finds park data through the ambient active league,
+- **FIXED 7.51.1** (the harness pins the lookup to the repository's
+  `data/parks` through `NEXGEN_PARK_DATA_ROOT`, `Parks.csv` is tracked
+  there, and a missing park file stops the run; kept for the diagnosis):
+  **the KPI harness found park data through the ambient active league,
   not the fixture.** `utils/park_utils._park_data_roots` starts with
   `get_data_dir()`, the active league's folder, then the data root.
   `data/parks/Parks.csv` (the altitudes) is git-ignored and exists only in

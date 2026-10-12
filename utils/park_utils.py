@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import csv
 import functools
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,7 +36,32 @@ class ParkInfo:
     foul_territory: Optional[str]
 
 
+# A caller that must not depend on which league happens to be active sets
+# this to one data folder (the KPI harness does: its results are compared
+# to the last digit, and the altitude file used to be found only while the
+# active league was one that carried a copy). An environment variable, not
+# a module global, so worker processes inherit it. Games played by the
+# product never set it.
+PARK_DATA_ROOT_ENV = "NEXGEN_PARK_DATA_ROOT"
+PARK_DATA_FILES = ("ParkConfig.csv", "ParkFactors.csv", "Parks.csv")
+
+
+def _pinned_park_root() -> Optional[Path]:
+    value = (os.environ.get(PARK_DATA_ROOT_ENV) or "").strip()
+    return Path(value).resolve() if value else None
+
+
+def missing_park_data_files(root: Path) -> list[str]:
+    """The park data files ``root`` does not hold (under ``parks/``)."""
+    return [
+        name for name in PARK_DATA_FILES if not (Path(root) / "parks" / name).exists()
+    ]
+
+
 def _park_data_roots() -> list[Path]:
+    pinned = _pinned_park_root()
+    if pinned is not None:
+        return [pinned]
     roots: list[Path] = []
     seen: set[Path] = set()
 
@@ -56,6 +82,9 @@ def _find_park_data_file(filename: str) -> Path:
         legacy = root / "ballparks" / filename
         if legacy.exists():
             return legacy
+    pinned = _pinned_park_root()
+    if pinned is not None:
+        return pinned / "parks" / filename
     return get_data_dir() / "parks" / filename
 
 
