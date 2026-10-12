@@ -1018,7 +1018,10 @@ def test_throw_error_results_in_roe(monkeypatch):
     pitcher = make_pitcher("p")
     defense = TeamState(lineup=[make_player("d")], bench=[], pitchers=[pitcher])
     offense = TeamState(lineup=[batter], bench=[], pitchers=[make_pitcher("op")])
-    sim = GameSimulation(offense, defense, cfg, random.Random())
+    # Seeded: with an unseeded generator about one run in six drew a swing
+    # outcome other than a ball in play, and the test failed for a reason
+    # it does not test.
+    sim = GameSimulation(offense, defense, cfg, random.Random(0))
     batter_state = BatterState(batter)
     offense.lineup_stats[batter.player_id] = batter_state
 
