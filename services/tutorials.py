@@ -91,7 +91,8 @@ TUTORIALS: List[Tutorial] = [
                 "Phase transitions",
                 "<p>Click <b>Advance Phase</b> to move on (Preseason → Regular Season → Amateur Draft mid-season → finish the schedule → Playoffs → Offseason). The button is only enabled when the phase is actually ready — the schedule is fully played, the draft is committed, or a champion has been crowned — so it never skips a stage. After the amateur draft commits, the regular season resumes automatically; you don't have to advance out of it.</p>"
                 "<p>If the commissioner has set the league to draft in the <b>preseason</b>, the order is different: advancing out of the Offseason opens the amateur draft straight away, before spring training. When the last pick is made the league returns to the Preseason, spring training can be run (<b>Run Training Camp</b>), and that season is not paused for a draft in July.</p>"
-                "<p>While any amateur draft is open the season waits for it: no games are simulated, a scheduled run does not fire (a one-time deadline runs once the draft is over; a recurring one skips to its next slot), and free-agent signings and contract extensions are paused until the last pick.</p>",
+                "<p>While any amateur draft is open the season waits for it: no games are simulated, a scheduled run does not fire (a one-time deadline runs once the draft is over; a recurring one skips to its next slot), and free-agent signings and contract extensions are paused until the last pick.</p>"
+                "<p>After the last pick an <b>automatic</b> scheduled run waits a little longer — 24 hours unless the commissioner changes <b>Wait after the draft</b> — so owners can sort out their draft class before the CPU fills unready rosters. The Season page shows when the wait ends. The commissioner's own <b>Run now</b> is not held.</p>",
             ),
             TutorialStep(
                 "Schedules generate automatically",
@@ -374,6 +375,7 @@ TUTORIALS: List[Tutorial] = [
                 "<li>With a preseason draft, next year's draft class is generated when the season ends, so owners can scout it on the Draft page all offseason.</li>"
                 "</ul>"
                 "<p>Draft picks always go to <b>Low-A</b>. CPU clubs sort out their own roster limits; an owner whose club is over a limit must fix it before Opening Day (the readiness board shows who is not ready). Nobody is released just to make room for a draft pick.</p>"
+                "<p><b>Wait after the draft</b> (Draft configuration, on the Draft page's Admin tab) is how long an automatic scheduled run waits after the last pick before it fills unready rosters and sims: 24 hours by default, 0 for no wait. A run that comes due during the wait fires when the wait ends; your own <b>Run now</b> is never held.</p>"
                 "<p>Two things to know as commissioner: a finished draft stays finished (changing the number of rounds afterwards applies to next year), and <b>Reset to Opening Day</b> keeps a draft that was held in the preseason, because that draft came before Opening Day.</p>",
             ),
             TutorialStep(
@@ -398,7 +400,7 @@ TUTORIALS: List[Tutorial] = [
                 "<p><b>Advance to next owner</b> runs the CPU teams' picks and stops the moment an owner-controlled team is on the clock. Advancing stops at owners, so nobody spends an owner's pick by accident. The one exception is the commissioner's <b>Auto-finish draft</b>, which makes every remaining pick, owners included, after a confirmation that lists whose picks will be made. If an owner isn't responding, the commissioner can still take the pick deliberately — <b>Auto-pick</b> and <b>Make pick</b> relabel to <b>Pick for TEAM</b> when it isn't your own team.</p>"
                 "<p>Admins also see a third <b>Admin</b> tab with the commissioner tools:</p>"
                 "<ul>"
-                "<li><b>Draft configuration</b> — rounds, pool size and the pick clock.</li>"
+                "<li><b>Draft configuration</b> — rounds, pool size, the pick clock and the wait after the draft.</li>"
                 "<li><b>Amateur draft timing</b> — mid-season or preseason (see Draft timing above).</li>"
                 "<li><b>Initialize</b> — seed draft state with worst-first order from season stats.</li>"
                 "<li><b>Generate pool</b> — write a fresh amateur draft pool for the year.</li>"

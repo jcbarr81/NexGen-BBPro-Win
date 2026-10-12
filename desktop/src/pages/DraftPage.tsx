@@ -1438,12 +1438,14 @@ function DraftSettingsCard() {
   const [rounds, setRounds] = useState<string>("");
   const [pool, setPool] = useState<string>("");
   const [clock, setClock] = useState<string>("");
+  const [wait, setWait] = useState<string>("");
 
   useEffect(() => {
     if (settings.data) {
       setRounds(String(settings.data.rounds));
       setPool(String(settings.data.pool_size));
       setClock(String(settings.data.pick_clock_hours ?? 0));
+      setWait(String(settings.data.post_draft_wait_hours ?? 24));
     }
   }, [settings.data]);
 
@@ -1453,10 +1455,15 @@ function DraftSettingsCard() {
         Number(rounds) || 10,
         Number(pool) || 200,
         Number(clock) || 0,
+        // Blank means "leave it alone"; 0 is a real value (no wait).
+        wait.trim() === "" || !Number.isFinite(Number(wait))
+          ? undefined
+          : Math.max(0, Math.floor(Number(wait))),
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["draft-settings"] });
       queryClient.invalidateQueries({ queryKey: ["draft-state"] });
+      queryClient.invalidateQueries({ queryKey: ["season-schedule"] });
     },
   });
 
@@ -1465,7 +1472,8 @@ function DraftSettingsCard() {
     settings.data &&
     (Number(rounds) !== settings.data.rounds ||
       Number(pool) !== settings.data.pool_size ||
-      Number(clock) !== (settings.data.pick_clock_hours ?? 0));
+      Number(clock) !== (settings.data.pick_clock_hours ?? 0) ||
+      Number(wait) !== (settings.data.post_draft_wait_hours ?? 24));
 
   return (
     <Card>
@@ -1473,11 +1481,12 @@ function DraftSettingsCard() {
         <CardTitle className="text-base">Draft configuration</CardTitle>
         <CardDescription>
           How many rounds the amateur draft runs, how many prospects to
-          generate for the pool, and how long an owner has to pick. Saved per
-          league, re-usable every season.
+          generate for the pool, how long an owner has to pick, and how long
+          owners get with their draft class before an automatic run. Saved
+          per league, re-usable every season.
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-[auto_auto_auto_1fr]">
+      <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-[auto_auto_auto_auto_1fr]">
         <div>
           <Label htmlFor="draft-rounds">Rounds</Label>
           <Input
@@ -1518,6 +1527,23 @@ function DraftSettingsCard() {
             {Number(clock) > 0
               ? `Each owner gets ${clock}h once on the clock; after that the CPU picks for them and the draft moves on.`
               : "0 — no deadline. The draft waits indefinitely for each owner."}
+          </p>
+        </div>
+        <div>
+          <Label htmlFor="draft-wait">Wait after the draft (hours)</Label>
+          <Input
+            id="draft-wait"
+            type="number"
+            min={limits?.post_draft_wait_hours?.min ?? 0}
+            max={limits?.post_draft_wait_hours?.max ?? 336}
+            value={wait}
+            onChange={(e) => setWait(e.target.value)}
+            className="w-32"
+          />
+          <p className="mt-1 max-w-[16rem] text-[11px] text-muted">
+            {Number(wait) > 0
+              ? `After the last pick, an automatic scheduled run waits ${wait}h before it fills unready rosters and sims, so owners can sort out their draft class. Your own Run now is not held.`
+              : "0 — no wait. An automatic scheduled run can fire a few minutes after the last pick."}
           </p>
         </div>
         <div className="flex items-start gap-2 pt-5">

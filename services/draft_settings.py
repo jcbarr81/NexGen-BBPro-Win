@@ -41,6 +41,14 @@ DRAFT_TIMING_PRESEASON = "preseason"
 DRAFT_TIMINGS = (DRAFT_TIMING_MIDSEASON, DRAFT_TIMING_PRESEASON)
 DEFAULT_DRAFT_TIMING = DRAFT_TIMING_MIDSEASON
 
+# How long the automatic scheduled run waits after the last pick of a draft
+# before it may fill unready owner rosters and sim (owner decision
+# 2026-10-11). Owners get this long with their draft class. 0 = no wait. The
+# commissioner's own "Run now" is not held.
+DEFAULT_POST_DRAFT_WAIT_HOURS = 24
+MIN_POST_DRAFT_WAIT_HOURS = 0
+MAX_POST_DRAFT_WAIT_HOURS = 336  # two weeks
+
 
 @dataclass
 class DraftSettings:
@@ -48,6 +56,7 @@ class DraftSettings:
     pool_size: int = DEFAULT_POOL_SIZE
     pick_clock_hours: int = DEFAULT_PICK_CLOCK_HOURS
     timing: str = DEFAULT_DRAFT_TIMING
+    post_draft_wait_hours: int = DEFAULT_POST_DRAFT_WAIT_HOURS
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -55,6 +64,7 @@ class DraftSettings:
             "pool_size": int(self.pool_size),
             "pick_clock_hours": int(self.pick_clock_hours),
             "timing": normalize_timing(self.timing),
+            "post_draft_wait_hours": int(self.post_draft_wait_hours),
         }
 
 
@@ -98,11 +108,18 @@ def load_draft_settings(data_dir: Path | None = None) -> DraftSettings:
         MAX_PICK_CLOCK_HOURS,
         DEFAULT_PICK_CLOCK_HOURS,
     )
+    wait = _clamp(
+        payload.get("post_draft_wait_hours", DEFAULT_POST_DRAFT_WAIT_HOURS),
+        MIN_POST_DRAFT_WAIT_HOURS,
+        MAX_POST_DRAFT_WAIT_HOURS,
+        DEFAULT_POST_DRAFT_WAIT_HOURS,
+    )
     return DraftSettings(
         rounds=rounds,
         pool_size=pool,
         pick_clock_hours=clock,
         timing=normalize_timing(payload.get("timing")),
+        post_draft_wait_hours=wait,
     )
 
 
@@ -117,11 +134,18 @@ def save_draft_settings(
         MAX_PICK_CLOCK_HOURS,
         DEFAULT_PICK_CLOCK_HOURS,
     )
+    wait = _clamp(
+        settings.post_draft_wait_hours,
+        MIN_POST_DRAFT_WAIT_HOURS,
+        MAX_POST_DRAFT_WAIT_HOURS,
+        DEFAULT_POST_DRAFT_WAIT_HOURS,
+    )
     normalized = DraftSettings(
         rounds=rounds,
         pool_size=pool,
         pick_clock_hours=clock,
         timing=normalize_timing(settings.timing),
+        post_draft_wait_hours=wait,
     )
     path = _settings_path(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -148,6 +172,9 @@ __all__ = [
     "DEFAULT_PICK_CLOCK_HOURS",
     "MIN_PICK_CLOCK_HOURS",
     "MAX_PICK_CLOCK_HOURS",
+    "DEFAULT_POST_DRAFT_WAIT_HOURS",
+    "MIN_POST_DRAFT_WAIT_HOURS",
+    "MAX_POST_DRAFT_WAIT_HOURS",
     "DRAFT_TIMING_MIDSEASON",
     "DRAFT_TIMING_PRESEASON",
     "DRAFT_TIMINGS",

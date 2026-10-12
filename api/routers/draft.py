@@ -435,11 +435,14 @@ def draft_settings_view() -> Dict[str, Any]:
         DEFAULT_PICK_CLOCK_HOURS,
         DEFAULT_POOL_SIZE,
         DEFAULT_ROUNDS,
+        DEFAULT_POST_DRAFT_WAIT_HOURS,
         MAX_PICK_CLOCK_HOURS,
         MAX_POOL_SIZE,
+        MAX_POST_DRAFT_WAIT_HOURS,
         MAX_ROUNDS,
         MIN_PICK_CLOCK_HOURS,
         MIN_POOL_SIZE,
+        MIN_POST_DRAFT_WAIT_HOURS,
         MIN_ROUNDS,
         load_draft_settings,
     )
@@ -449,6 +452,7 @@ def draft_settings_view() -> Dict[str, Any]:
         "rounds": settings.rounds,
         "pool_size": settings.pool_size,
         "pick_clock_hours": settings.pick_clock_hours,
+        "post_draft_wait_hours": settings.post_draft_wait_hours,
         "timing": settings.timing,
         "timing_options": _timing_options(),
         "limits": {
@@ -462,6 +466,11 @@ def draft_settings_view() -> Dict[str, Any]:
                 "min": MIN_PICK_CLOCK_HOURS,
                 "max": MAX_PICK_CLOCK_HOURS,
                 "default": DEFAULT_PICK_CLOCK_HOURS,
+            },
+            "post_draft_wait_hours": {
+                "min": MIN_POST_DRAFT_WAIT_HOURS,
+                "max": MAX_POST_DRAFT_WAIT_HOURS,
+                "default": DEFAULT_POST_DRAFT_WAIT_HOURS,
             },
         },
     }
@@ -484,10 +493,11 @@ def draft_settings_save(
 
     current = load_draft_settings()
     # Absent means "leave it alone", so an older client that does not know
-    # about the pick clock (or the draft timing) cannot silently reset it on
-    # save. Rounds and pool size follow the same rule so a caller can change
-    # the timing alone.
+    # about the pick clock (or the draft timing, or the wait after the
+    # draft) cannot silently reset it on save. Rounds and pool size follow
+    # the same rule so a caller can change the timing alone.
     clock = payload.get("pick_clock_hours", None)
+    wait = payload.get("post_draft_wait_hours", None)
     timing = payload.get("timing", None)
     if timing is not None:
         # normalize_timing falls back to the default on junk, which is right
@@ -511,17 +521,24 @@ def draft_settings_save(
                 current.pick_clock_hours if clock is None else int(clock or 0)
             ),
             timing=current.timing if timing is None else timing,
+            post_draft_wait_hours=(
+                current.post_draft_wait_hours if wait is None else int(wait or 0)
+            ),
         )
     except (TypeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="rounds, pool_size and pick_clock_hours must be whole numbers.",
+            detail=(
+                "rounds, pool_size, pick_clock_hours and post_draft_wait_hours "
+                "must be whole numbers."
+            ),
         ) from exc
     saved = save_draft_settings(incoming)
     out: Dict[str, Any] = {
         "rounds": saved.rounds,
         "pool_size": saved.pool_size,
         "pick_clock_hours": saved.pick_clock_hours,
+        "post_draft_wait_hours": saved.post_draft_wait_hours,
         "timing": saved.timing,
         "timing_options": _timing_options(),
     }
@@ -859,8 +876,13 @@ def _do_pick(
         if _draft_complete(state, _load_settings_rounds()):
             # Stamp it finished, so a later change to the round count (made
             # for next year's draft) cannot reopen this one.
+            # ``completed_at`` starts the wait before an automatic scheduled
+            # run may touch owner rosters (services.draft_settings).
             if state.get("completed") is not True:
+                from datetime import datetime, timezone
+
                 state["completed"] = True
+                state["completed_at"] = datetime.now(timezone.utc).isoformat()
                 draft_state.save_state(year, state)
             _resume_regular_season_after_draft()
             # Give the freshly-drafted players avatars in the SAME consistent AI

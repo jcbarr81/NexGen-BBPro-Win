@@ -1622,6 +1622,15 @@ function ProgressionSchedulePanel({ canEdit = false }: { canEdit?: boolean }) {
             ({sched.past_due ? "passed" : formatCountdown(sched.deadline_utc)})
           </span>
         )}
+        {sched.held_until && (
+          <div className="mt-1 text-muted">
+            The amateur draft has just finished: the automatic run waits until{" "}
+            <span className="font-semibold text-ink">
+              {new Date(sched.held_until).toLocaleString()}
+            </span>{" "}
+            so owners can set their rosters.
+          </div>
+        )}
       </div>
     );
   }
@@ -1746,6 +1755,16 @@ function ProgressionSchedulePanel({ canEdit = false }: { canEdit?: boolean }) {
                 : `Run now${sched.unready_count ? ` (CPU-fill ${sched.unready_count})` : ""} — ${sched.run_label}`}
             </Button>
           )}
+        </div>
+      )}
+      {sched.is_scheduled && sched.held_until && (
+        <div className="text-[11px] text-muted">
+          The amateur draft has just finished. The automatic run waits until{" "}
+          <span className="font-semibold text-ink">
+            {new Date(sched.held_until).toLocaleString()}
+          </span>{" "}
+          so owners can set their rosters (the “Wait after the draft” setting on
+          the Draft page’s Admin tab). Run now is not held.
         </div>
       )}
     </div>
