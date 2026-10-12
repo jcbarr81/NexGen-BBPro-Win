@@ -344,10 +344,18 @@ ENGINE_GATES: dict[int, dict[str, Any]] = {
         "tolerances": {
             "platoon_gap_woba": 0.006,
             # Wider than the all-pitcher gap's .025: starters only is fewer
-            # plate appearances (calibration seeds 1-8: .040-.082).
+            # plate appearances (calibration seeds 1-18: .035-.068, sd .010).
             "tto_ops_gap_starters": 0.035,
             "ibb_per_pa": 0.001,
-            "home_minus_away_woba": 0.008,
+            # 18 calibration seasons: mean .011, sd .0027; 6 league: .015.
+            "home_minus_away_woba": 0.009,
+            # Power-to-HR correlation: floor .45 here, .50 on the legacy
+            # engine. Generation 5 makes Contact a sharper skill, so who
+            # puts the ball in play varies more and the correlation is
+            # noisier (18 calibration seasons: mean .574, sd .030, min .500
+            # against the legacy engine's .56-.61). Release 6 gives Power its
+            # slope below the knee and restores the >= .60 target (decision 5).
+            "corr_hr_power": 0.30,
             **{key: 0.05 for key in _R5_SWING_BY_COUNT},
         },
         "extras_targets": {
