@@ -26,6 +26,11 @@ A game whose log lacks those keys is "not logged": every metric that needs
 the base-out state (RE24, run probability, XBT, GIDP per opportunity,
 late & close, RISP, runs on inning-ending plays) skips it and reports None
 when no game was logged. Everything else works on any engine version.
+
+Release 5a adds the plate-discipline, contact, platoon and situational rows
+Release 5 tunes against (``ReportOnlyKpis._add_r5`` / ``_r5_metrics`` and the
+extra matchup-grid tables). All of them read the pitch log and box lines the
+engine already writes; none is a gate.
 """
 from __future__ import annotations
 
@@ -237,6 +242,8 @@ class ReportOnlyKpis:
         self._load_players(Path(players_path))
         # Release 4 (W1): pitcher control, for the wild-pitch response check.
         self.control = _load_pitcher_control(Path(players_path))
+        # Release 5a: hitter Contact and Eye, for the rating-response slopes.
+        self.ch, self.eye = _load_hitter_contact_eye(Path(players_path))
         self.lineup_pos = _load_lineup_positions(lineup_dir) if lineup_dir else {}
 
         self.games = 0
@@ -439,6 +446,7 @@ class ReportOnlyKpis:
         self._add_bench(meta, teams)
         self._add_running_w1(totals, log, meta)  # Release 4 (W1)
         self._add_outs_in_play(log, pas, totals)
+        self._add_r5(meta, log, pas, starters)  # Release 5a
 
     def _add_bullpen_usage(
         self, meta: dict[str, Any], log: list[dict[str, Any]] | None = None
@@ -874,6 +882,7 @@ class ReportOnlyKpis:
         self._hit_speed_metrics(metrics, tables, gpt)
         self._hit_play_rule_metrics(metrics, tables)  # Release 4 F1
         self._outs_in_play_metrics(metrics, tables, team_games)
+        self._r5_metrics(metrics, tables, gpt, min_pa)  # Release 5a
         return {"metrics": metrics, "tables": tables, "coverage": coverage}
 
     def _situational(
@@ -1757,6 +1766,290 @@ class ReportOnlyKpis:
         slow, fast = table[0]["gidp_per_opp"], table[4]["gidp_per_opp"]
         metrics["gidp_fast_slow_ratio"] = (fast / slow) if (slow and fast is not None) else None
 
+    # -- Release 5a: plate discipline, contact, platoon and situations -------
+    # Report-only rows for the Release 5 retune. Everything is read from the
+    # pitch log and box lines the engine already writes.
+    def _r5(self) -> "_R5Tallies":
+        state = getattr(self, "r5", None)
+        if state is None:
+            state = self.r5 = _R5Tallies()
+        return state
+
+    def _add_r5(
+        self,
+        meta: dict[str, Any],
+        log: list[dict[str, Any]],
+        pas: list[PlateAppearance],
+        starters: set[str],
+    ) -> None:
+        """One game's Release 5a tallies.
+
+        Pitch level: swings in and out of the zone by count (``in_zone`` is
+        the rule-book zone, as in the gated z/o-swing), fouls, takes by
+        location and call, and hit batters. PA level: called third strikes,
+        home and away results, PA with a runner on first only, each
+        reliever's first six batters of the outing and the starters' PA by
+        times through the order. Box lines: saves and save chances, and
+        whether each lineup's hand was the opposing starter's.
+        """
+        r5 = self._r5()
+        pitch = r5.pitch
+        for entry in log:
+            count = entry.get("count")
+            if count is None or "pitch_type" not in entry:
+                continue
+            outcome = entry.get("outcome")
+            swing = bool(entry.get("swing"))
+            in_zone = bool(entry.get("in_zone"))
+            where = "zone" if in_zone else "chase"
+            r5.count_loc[(count, where)] += 1
+            r5.count_loc_swings[(count, where)] += swing
+            if str(count).endswith("-2"):
+                pitch["two_strike"] += 1
+                pitch["two_strike_foul"] += outcome == "foul"
+            pitch["foul"] += outcome == "foul"
+            pitch["in_play"] += outcome == "in_play"
+            if outcome == "hbp":
+                pitch["hbp"] += 1
+                pitch["hbp_in_zone"] += in_zone
+            elif not swing and outcome in ("ball", "strike"):
+                pitch[f"take_{where}"] += 1
+                pitch[f"take_{where}_strike"] += outcome == "strike"
+            bat = r5.batter_pitches[str(entry.get("batter_id", ""))]
+            bat[where] += 1
+            bat[f"{where}_swing"] += swing
+            pit = r5.pitcher_pitches[str(entry.get("pitcher_id", ""))]
+            pit["pitches"] += 1
+            pit["zone"] += in_zone
+
+        faced: Counter = Counter()  # this game's batters faced, per pitcher
+        for pa in pas:
+            token = pa.token
+            if not token:
+                continue
+            r5.pa["pa"] += 1
+            if token == "so" and pa.last.get("strikeout_type") == "called":
+                r5.pa["so_looking"] += 1
+            faced[pa.pitcher_id] += 1
+            if pa.pitcher_id in starters:
+                tto = _int(pa.first.get("tto"))
+                if tto >= 1:
+                    r5.starter_tto[min(tto, 3)][token] += 1
+            elif faced[pa.pitcher_id] <= RELIEF_FRESH_BF:
+                r5.relief_fresh[token] += 1
+            if pa.state is not None:
+                r5.half[pa.state[1]][token] += 1
+                if pa.state[3] == 1:
+                    r5.r1_only[token] += 1
+
+        pitcher_lines = meta.get("pitcher_lines") or {}
+        for side in ("away", "home"):
+            for line in pitcher_lines.get(side, []) or []:
+                r5.saves["sv"] += _int(line.get("sv"))
+                r5.saves["svo"] += _int(line.get("svo"))
+            for line in (meta.get("batting_lines") or {}).get(side, []) or []:
+                bl = r5.batter_lines[str(line.get("player_id", ""))]
+                bl["ab"] += _int(line.get("ab"))
+                bl["h"] += _int(line.get("h"))
+
+        # The harness picks each lineup (vs LHP / vs RHP) before the game;
+        # it must be the one for the starter the other club really used.
+        hands = meta.get("lineup_hand")
+        if isinstance(hands, dict):
+            for side, other in (("away", "home"), ("home", "away")):
+                hand = str(hands.get(side) or "").upper()
+                starter = next(
+                    (
+                        str(line.get("player_id", ""))
+                        for line in pitcher_lines.get(other, []) or []
+                        if _int(line.get("gs")) >= 1
+                    ),
+                    "",
+                )
+                if hand not in ("L", "R") or not starter:
+                    continue
+                faced_hand = "L" if self.throws.get(starter, "R") == "L" else "R"
+                r5.lineup_hand["n"] += 1
+                r5.lineup_hand["match"] += hand == faced_hand
+
+    def _r5_metrics(
+        self, metrics: dict[str, Any], tables: dict[str, Any], gpt: int, min_pa: int
+    ) -> None:
+        """The Release 5a report-only rows (plan section 2.5); never gated.
+
+        ``min_pa`` is the dispersion block's regular bar (400 PA or BF per
+        162 games). Slopes are in percentage points of the rate per 10
+        rating points, weighted by each player's PA (or BF). Rows that need
+        the base-out state are None when no game logged it.
+        """
+        r5 = self._r5()
+        pitch = r5.pitch
+
+        # Fouls, called third strikes and swings by count and location (M1).
+        metrics["foul_per_two_strike_pitch"] = _ratio(
+            pitch["two_strike_foul"], pitch["two_strike"]
+        )
+        metrics["foul_share_of_contact"] = _ratio(
+            pitch["foul"], pitch["foul"] + pitch["in_play"]
+        )
+        # Per engine PA: a catcher's-interference PA carries no result token
+        # in the log, so the token count runs about one PA in 4,000 short.
+        metrics["looking_k_per_pa"] = _ratio(
+            r5.pa["so_looking"], self.totals["pa"] or r5.pa["pa"]
+        )
+        by_count = {}
+        for count in COUNTS:
+            row = {}
+            for where in ("zone", "chase"):
+                n = r5.count_loc[(count, where)]
+                rate = _ratio(r5.count_loc_swings[(count, where)], n)
+                metrics[f"{where}_swing_rate_{count.replace('-', '_')}"] = rate
+                row[f"{where}_pitches"] = n
+                row[f"{where}_swing_rate"] = rate
+            by_count[count] = row
+        tables["zone_chase_swing_by_count"] = by_count
+
+        # Hit batters and the umpire: a pitch in the zone cannot be a hit
+        # batter, and a take is called by where the pitch was.
+        metrics["hbp_in_zone_share"] = _ratio(pitch["hbp_in_zone"], pitch["hbp"])
+        metrics["oz_take_called_strike_rate"] = _ratio(
+            pitch["take_chase_strike"], pitch["take_chase"]
+        )
+        metrics["iz_take_called_ball_rate"] = _ratio(
+            pitch["take_zone"] - pitch["take_zone_strike"], pitch["take_zone"]
+        )
+
+        # Rating response (H4, M20): walks on Eye and on Control, strikeouts
+        # on Contact. Unintentional walks; sacrifice bunts left out.
+        hitters = []
+        for pid, c in self.batters.items():
+            den = c["pa"] - c["ibb"] - c["sh"]
+            if den >= min_pa:
+                hitters.append((pid, c["bb"] - c["ibb"], c["so"], den))
+        pitchers = []
+        for pid, c in self.pitchers.items():
+            den = c["bf"] - c["ibb"]
+            if den >= min_pa and pid in self.control:
+                pitchers.append((self.control[pid], c["bb"] - c["ibb"], den))
+        eye_rows = [(self.eye[p], bb, n) for p, bb, _so, n in hitters if p in self.eye]
+        ch_rows = [(self.ch[p], so, n) for p, _bb, so, n in hitters if p in self.ch]
+        metrics["bb_pct_per10_eye"] = _rate_slope_pp_per10(eye_rows)
+        metrics["bb_pct_per10_control"] = _rate_slope_pp_per10(pitchers)
+        metrics["k_pct_per10_contact"] = _rate_slope_pp_per10(ch_rows)
+        tables["rating_slope_players"] = {
+            "min_pa": min_pa,
+            "bb_pct_per10_eye": len(eye_rows),
+            "bb_pct_per10_control": len(pitchers),
+            "k_pct_per10_contact": len(ch_rows),
+        }
+
+        # Do hitters who chase also swing in the zone? (one swing skill)
+        regulars = {pid for pid, _bb, _so, _n in hitters}
+        o_swing, z_swing = [], []
+        for pid, c in r5.batter_pitches.items():
+            if pid in regulars and c["zone"] and c["chase"]:
+                o_swing.append(c["chase_swing"] / c["chase"])
+                z_swing.append(c["zone_swing"] / c["zone"])
+        metrics["hitter_o_z_swing_corr"] = (
+            _pearson(o_swing, z_swing) if len(o_swing) >= 10 else None
+        )
+
+        # Dispersion: pitcher zone rate and hitter batting average.
+        min_pitches = max(200, round(1500 * gpt / 162))
+        zone_rows = [
+            (c["zone"], c["pitches"])
+            for c in r5.pitcher_pitches.values()
+            if c["pitches"] >= min_pitches
+        ]
+        avg_rows = [
+            (r5.batter_lines[pid]["h"], r5.batter_lines[pid]["ab"])
+            for pid, c in self.batters.items()
+            if c["pa"] >= min_pa and pid in r5.batter_lines
+        ]
+        disp = tables.setdefault("dispersion", {})
+        for name, rows, bar in (
+            ("pitcher_zone_pct", zone_rows, {"min_pitches": min_pitches}),
+            ("hitter_avg", avg_rows, {"min_pa": min_pa}),
+        ):
+            sd, var, n = true_sd(rows)
+            metrics[f"{name}_true_sd"] = sd
+            disp[name] = {"true_sd": sd, "true_var": var, "n": n, **bar}
+
+        # Contact and BABIP (decision 4): the speed rows' twins on Contact.
+        ch_bat = [(self.ch[pid], c) for pid, c in self.speed_bat.items() if pid in self.ch]
+        metrics["babip_contact_slope_per10"] = _babip_slope_per10(ch_bat)
+        min_pa_babip = max(50, round(300 * gpt / 162))
+        regs = [
+            (ch, c["h"] / c["bip"])
+            for ch, c in ch_bat
+            if c["pa"] >= min_pa_babip and c["bip"]
+        ]
+        metrics["r_ch_babip"] = _pearson([a for a, _ in regs], [b for _, b in regs])
+
+        # Platoon (H7): opposite-hand minus same-hand, switch hitters apart.
+        def bucket(*keys: str) -> Counter:
+            total: Counter = Counter()
+            for key in keys:
+                total.update(self.platoon.get(key) or {})
+            return total
+
+        same, opp = _token_rates(bucket("LL", "RR")), _token_rates(bucket("LR", "RL"))
+        for name in ("k_pct", "bb_pct", "iso"):
+            metrics[f"platoon_gap_{name}"] = _diff(opp[name], same[name])
+        metrics["switch_woba_vs_lhp"] = woba_from_tokens(bucket("SL"))[0]
+        metrics["switch_woba_vs_rhp"] = woba_from_tokens(bucket("SR"))[0]
+        vs_lhp = {side: sum(bucket(f"{side}L").values()) for side in ("L", "R", "S")}
+        metrics["rhb_share_of_pa_vs_lhp"] = _ratio(vs_lhp["R"], sum(vs_lhp.values()))
+        tables["platoon_rates"] = {"same": same, "opposite": opp, "pa_vs_lhp": vs_lhp}
+
+        # Situations (M19, L5): walks late and close and with first base
+        # occupied, intentional walks, the home side and the fresh reliever.
+        logged = bool(self.logged_games)
+        situ_all = self.situ.get("all") or Counter()
+        late = self.situ.get("late_close") or Counter()
+        empty = self.situ.get("empty") or Counter()
+        metrics["late_close_ubb_pct_delta"] = (
+            _diff(_token_rates(late)["bb_pct"], _token_rates(situ_all)["bb_pct"])
+            if logged else None
+        )
+        metrics["bb_pct_empty_minus_r1"] = (
+            _diff(_token_rates(empty)["bb_pct"], _token_rates(r5.r1_only)["bb_pct"])
+            if logged else None
+        )
+        metrics["ibb_late_close_share"] = (
+            _ratio(late["ibb"], situ_all["ibb"]) if logged else None
+        )
+        metrics["home_minus_away_woba"] = _diff(
+            woba_from_tokens(r5.half["bottom"])[0], woba_from_tokens(r5.half["top"])[0]
+        )
+        pass1, pass3 = r5.starter_tto[1], r5.starter_tto[3]
+        metrics["relief_bf1_6_minus_starter_pass1_woba"] = _diff(
+            woba_from_tokens(r5.relief_fresh)[0], woba_from_tokens(pass1)[0]
+        )
+        # The strict tto_ops_gap over starting pitchers' PA only (pass 1 of
+        # the league split is mostly relief PA). Same 500 pass-3 PA floor.
+        metrics["tto_ops_gap_starters"] = (
+            _diff(ops_from_tokens(pass3), ops_from_tokens(pass1))
+            if sum(pass3.values()) >= 500 else None
+        )
+        metrics["save_conversion"] = _ratio(r5.saves["sv"], r5.saves["svo"])
+        metrics["lineup_hand_match_rate"] = _ratio(
+            r5.lineup_hand["match"], r5.lineup_hand["n"]
+        )
+        tables["r5_counts"] = {
+            "pitch": dict(pitch),
+            "pa": dict(r5.pa),
+            "saves": dict(r5.saves),
+            "lineup_hand": dict(r5.lineup_hand),
+            "r1_only_pa": sum(r5.r1_only.values()),
+            "relief_fresh_pa": sum(r5.relief_fresh.values()),
+            "starter_pa_by_pass": {
+                str(k): sum(r5.starter_tto[k].values()) for k in (1, 2, 3)
+            },
+            "home_pa": sum(r5.half["bottom"].values()),
+            "away_pa": sum(r5.half["top"].values()),
+        }
+
 
 # Release 4 (W1): raw-speed tiers for the steal tables (the plan's tiers;
 # 47-53 is the "50", 68-77 the "fast 70", 78-89 the "burner 85").
@@ -1841,6 +2134,103 @@ class _OutsInPlay:
         self.tag3_short = 0
         self.go3: dict[tuple[int, int], Counter] = defaultdict(Counter)
         self.gidp_by_batter: dict[str, Counter] = defaultdict(Counter)
+
+
+class _R5Tallies:
+    """Release 5a accumulator for ``ReportOnlyKpis._add_r5``."""
+
+    def __init__(self) -> None:
+        # (count, "zone" | "chase") -> pitches / swings.
+        self.count_loc: Counter = Counter()
+        self.count_loc_swings: Counter = Counter()
+        self.pitch: Counter = Counter()
+        self.pa: Counter = Counter()
+        # Per player: zone / chase pitches and swings seen; pitches thrown.
+        self.batter_pitches: dict[str, Counter] = defaultdict(Counter)
+        self.pitcher_pitches: dict[str, Counter] = defaultdict(Counter)
+        self.batter_lines: dict[str, Counter] = defaultdict(Counter)
+        # PA result tokens: by half ("top" = the away side bats), with a
+        # runner on first only, a reliever's first batters of an outing and
+        # the starters' PA by times through the order (1, 2, 3+).
+        self.half: dict[str, Counter] = defaultdict(Counter)
+        self.r1_only: Counter = Counter()
+        self.relief_fresh: Counter = Counter()
+        self.starter_tto: dict[int, Counter] = defaultdict(Counter)
+        self.saves: Counter = Counter()
+        self.lineup_hand: Counter = Counter()
+
+
+# A reliever's "fresh" batters: the first six he faces in an outing.
+RELIEF_FRESH_BF = 6
+
+
+def _token_rates(counts: Counter) -> dict[str, float | None]:
+    """K%, unintentional BB% and ISO over PA result tokens. Intentional
+    walks and sacrifice bunts are left out of the PA."""
+    pa = sum(counts.values()) - counts["ibb"] - counts["sh"]
+    ab = sum(counts[t] for t in AB_TOKENS)
+    extra = counts["2b"] + 2 * counts["3b"] + 3 * counts["hr"]
+    return {
+        "pa": pa,
+        "k_pct": _ratio(counts["so"], pa),
+        "bb_pct": _ratio(counts["bb"], pa),
+        "iso": _ratio(extra, ab),
+    }
+
+
+def _rate_slope_pp_per10(rows: list[tuple[float, int, int]]) -> float | None:
+    """Trials-weighted least-squares slope of a rate on a rating.
+
+    ``rows`` are (rating, events, trials) per player. Percentage points of
+    the rate per 10 rating points; None with fewer than 10 players or no
+    spread in the rating.
+    """
+    rows = [(x, k, n) for x, k, n in rows if n > 0]
+    weight = sum(n for _x, _k, n in rows)
+    if len(rows) < 10 or not weight:
+        return None
+    mx = sum(x * n for x, _k, n in rows) / weight
+    my = sum(k for _x, k, _n in rows) / weight
+    num = sum(n * (x - mx) * (k / n - my) for x, k, n in rows)
+    den = sum(n * (x - mx) ** 2 for x, _k, n in rows)
+    return 1000.0 * num / den if den else None
+
+
+def _babip_slope_per10(rows: list[tuple[float, Counter]]) -> float | None:
+    """BIP-weighted least-squares BABIP slope per 10 rating points over the
+    players with 50+ balls in play (``babip_speed_slope_per10``'s rule)."""
+    sel = [(x, c) for x, c in rows if c["bip"] >= 50]
+    weight = sum(c["bip"] for _x, c in sel)
+    if len(sel) < 3 or not weight:
+        return None
+    mx = sum(x * c["bip"] for x, c in sel) / weight
+    my = sum(c["h"] for _x, c in sel) / weight
+    num = sum(c["bip"] * (x - mx) * (c["h"] / c["bip"] - my) for x, c in sel)
+    den = sum(c["bip"] * (x - mx) ** 2 for x, c in sel)
+    return 10.0 * num / den if den else None
+
+
+def _load_hitter_contact_eye(path: Path) -> tuple[dict[str, float], dict[str, float]]:
+    """Hitter Contact (``ch``) and Eye by player id. A blank Eye reads as
+    the Contact rating, as ``BatterRatings.from_row`` reads it."""
+    contact: dict[str, float] = {}
+    eye: dict[str, float] = {}
+    if not path.exists():
+        return contact, eye
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            pid = str(row.get("player_id") or "")
+            if not pid or str(row.get("is_pitcher", "")).strip() in {"1", "True", "true"}:
+                continue
+            try:
+                contact[pid] = float(row.get("ch") or "")
+            except ValueError:
+                continue
+            try:
+                eye[pid] = float(row.get("eye") or "")
+            except ValueError:
+                eye[pid] = contact[pid]
+    return contact, eye
 
 
 def _diff(a: float | None, b: float | None) -> float | None:
@@ -2000,20 +2390,26 @@ def _logit(p: float) -> float:
 
 def _simulate_cell(
     *, contact: float, power: float, pitcher_level: float, n: int, seed: int,
-    tuning: Any, park: Any,
+    tuning: Any, park: Any, bats: str = "R", throws: str = "R",
 ) -> Counter:
+    """One grid cell: ``n`` PA of one batter against one pitcher.
+
+    Counts ``pa``, ``bb``, ``k`` (split into ``k_looking`` and
+    ``k_swinging``, Release 5a) and ``hr``. ``bats`` / ``throws`` set the
+    hands for the platoon cells; both vs-left ratings are 50.
+    """
     from physics_sim.engine import _batter_context
     from physics_sim.models import BatterRatings, PitcherRatings
     from physics_sim.physics import resolve_batted_ball, simulate_pitch
 
     batter = BatterRatings(
-        player_id="grid_b", bats="R", primary_position="CF", other_positions=[],
+        player_id="grid_b", bats=bats, primary_position="CF", other_positions=[],
         contact=contact, power=power, gb_tendency=50.0, pull_tendency=50.0,
         vs_left=50.0, fielding=50.0, arm=50.0, speed=50.0, eye=50.0,
         height=73.0, durability=50.0,
     )
     pitcher = PitcherRatings(
-        player_id="grid_p", bats="R", throws="R", role="SP", preferred_role="SP",
+        player_id="grid_p", bats=throws, throws=throws, role="SP", preferred_role="SP",
         velocity=50.0, control=pitcher_level, movement=pitcher_level,
         gb_tendency=50.0, vs_left=50.0, hold_runner=50.0, endurance=50.0,
         durability=50.0, fielding=50.0, arm=50.0,
@@ -2058,6 +2454,7 @@ def _simulate_cell(
                 strikes += 1
                 if strikes >= 3:
                     out["k"] += 1
+                    out["k_looking" if o == "strike" else "k_swinging"] += 1
                     break
             elif o == "foul":
                 strikes = min(2, strikes + 1)
@@ -2110,7 +2507,7 @@ def matchup_grid_metrics(
     *,
     pa_per_cell: int,
     players_path: Path,
-    tuning_overrides: dict[str, float] | None = None,
+    tuning_overrides: dict[str, Any] | None = None,
     seed: int = 20261006,
 ) -> dict[str, Any]:
     """CH x pitcher K grid and PH x pitcher HR grid, log5 residuals (M20, M21).
@@ -2121,6 +2518,11 @@ def matchup_grid_metrics(
     spans 35-80 (the M20 gate range); the PH grid spans the fixture's own
     p5-p95 of hitter PH and pitcher composite (the M21 gate range), with 50 as
     the log5 anchor. Saves and restores the global random state.
+
+    Release 5a adds, from the same Monte Carlo: the CH grid's strikeouts
+    split into swinging and looking (``_k_split_grid``) and a platoon grid,
+    the HR rate against the opposite hand over the same hand by Power for
+    each batting side (``_platoon_hr_grid``; 20 more cells).
     """
     from physics_sim.config import load_tuning
     from physics_sim.park import load_park
@@ -2149,12 +2551,27 @@ def matchup_grid_metrics(
             for b in ph_levels for p in p_levels
         }
         hr_grid = _log5_grid(ph_cells, ph_levels, p_levels, 50.0, "hr")
+        # Release 5a: the same hitter from each side against each hand
+        # (pitcher level 50). Every cell reseeds, so the cells above are
+        # unchanged by these.
+        platoon_cells = {
+            (side, level, hand): _simulate_cell(
+                contact=50.0, power=level, pitcher_level=50.0, n=pa_per_cell,
+                seed=seed, tuning=tuning, park=park, bats=side, throws=hand,
+            )
+            for side in ("L", "R") for level in PLATOON_GRID_POWER
+            for hand in ("L", "R")
+        }
     finally:
         random.setstate(state)
+    k_split = _k_split_grid(ch_cells, ch_levels)
+    platoon = _platoon_hr_grid(platoon_cells)
     return {
         "metrics": {
             "matchup_k_log5_max_abs_resid": k_grid["max_abs_residual"],
             "matchup_hr_log5_max_abs_resid_logit": hr_grid["max_abs_residual_logit"],
+            **k_split["metrics"],
+            **platoon["metrics"],
         },
         "tables": {
             "matchup_k_grid": {"levels": ch_levels, "pa_per_cell": pa_per_cell, **k_grid},
@@ -2162,5 +2579,80 @@ def matchup_grid_metrics(
                 "ph_levels": ph_levels, "pitcher_levels": p_levels,
                 "pa_per_cell": pa_per_cell, **hr_grid,
             },
+            "matchup_k_split_grid": {
+                "levels": ch_levels, "pa_per_cell": pa_per_cell,
+                "cells": k_split["cells"],
+            },
+            "matchup_platoon_hr_grid": {
+                "power_levels": list(PLATOON_GRID_POWER),
+                "pa_per_cell": pa_per_cell, "cells": platoon["cells"],
+            },
         },
     }
+
+
+# Power levels of the platoon HR-ratio grid. Dense around 50: the platoon
+# power bonus is added before the bat-speed knee there, so the ratio steps
+# between a hitter just below it and one just above (audit H7).
+PLATOON_GRID_POWER = (40.0, 50.0, 55.0, 65.0, 80.0)
+
+
+def _k_split_grid(
+    cells: dict[tuple[float, float], Counter], levels: list[float]
+) -> dict[str, Any]:
+    """Swinging and looking strikeouts per cell of the CH x pitcher grid.
+
+    Release 5a: Contact should lower the called third strike as well as the
+    swinging one. The per-Contact rows pool the pitcher levels:
+    ``matchup_looking_k_share_ch<level>`` (looking K per strikeout) and
+    ``matchup_looking_k_per_pa_ch<level>``.
+    """
+    rows = []
+    metrics: dict[str, float | None] = {}
+    for b in levels:
+        pooled: Counter = Counter()
+        for p in levels:
+            c = cells[(b, p)]
+            pooled.update(c)
+            rows.append({
+                "batter": b, "pitcher": p,
+                "k_swinging_per_pa": _ratio(c["k_swinging"], c["pa"]),
+                "k_looking_per_pa": _ratio(c["k_looking"], c["pa"]),
+                "looking_share": _ratio(c["k_looking"], c["k"]),
+            })
+        metrics[f"matchup_looking_k_share_ch{int(b)}"] = _ratio(
+            pooled["k_looking"], pooled["k"]
+        )
+        metrics[f"matchup_looking_k_per_pa_ch{int(b)}"] = _ratio(
+            pooled["k_looking"], pooled["pa"]
+        )
+    return {"metrics": metrics, "cells": rows}
+
+
+def _platoon_hr_grid(
+    cells: dict[tuple[str, float, str], Counter]
+) -> dict[str, Any]:
+    """HR rate against the opposite hand over the same hand, by Power.
+
+    One ratio per batting side and Power level
+    (``matchup_platoon_hr_ratio_<lhb|rhb>_ph<level>``); None when either
+    cell has fewer than GRID_MIN_EVENTS home runs.
+    """
+    rows = []
+    metrics: dict[str, float | None] = {}
+    for side in ("L", "R"):
+        other = "R" if side == "L" else "L"
+        for level in PLATOON_GRID_POWER:
+            same, opp = cells[(side, level, side)], cells[(side, level, other)]
+            ratio = None
+            if same["hr"] and min(same["hr"], opp["hr"]) >= GRID_MIN_EVENTS:
+                ratio = (opp["hr"] / opp["pa"]) / (same["hr"] / same["pa"])
+            name = "lhb" if side == "L" else "rhb"
+            metrics[f"matchup_platoon_hr_ratio_{name}_ph{int(level)}"] = ratio
+            rows.append({
+                "bats": side, "power": level,
+                "hr_per_pa_same": _ratio(same["hr"], same["pa"]),
+                "hr_per_pa_opposite": _ratio(opp["hr"], opp["pa"]),
+                "ratio": ratio,
+            })
+    return {"metrics": metrics, "cells": rows}

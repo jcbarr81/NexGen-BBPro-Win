@@ -116,3 +116,35 @@ tagup_score_rate,0.75,1,"runner on 3rd with fewer than two out scores on an outf
 tagup_out_per_send,0.03,1,"runners thrown out per tag-up send from 3rd ~2-4% (Release 4 plan section E)"
 corr_control_wp9,-0.15,1,"gate bound, not an MLB value: pitcher control vs WP/9 among regulars should be <= -.15 (REPORT M10; Release 4 plan section B); report-only"
 corr_catcher_fa_pb,-0.4,1,"gate bound, not an MLB value: catcher fielding vs PB per start should be <= -.4 (REPORT M10; Release 4 plan section B); report-only"
+foul_per_two_strike_pitch,0.2432,0,statcast_counts_2023.csv fouls / pitches at the four two-strike counts
+foul_share_of_contact,0.5229,0,statcast_counts_2023.csv fouls / (fouls + ball_in_play)
+looking_k_per_pa,0.0523,1,statcast_counts_2023.csv called strikes at two-strike counts / 0-0 pitches (PA that saw a pitch)
+zone_swing_rate_0_0,0.4445,0,statcast_counts_2023.csv zone_swing_rate
+zone_swing_rate_0_1,0.7443,0,statcast_counts_2023.csv zone_swing_rate
+zone_swing_rate_0_2,0.8711,0,statcast_counts_2023.csv zone_swing_rate
+zone_swing_rate_1_0,0.5966,0,statcast_counts_2023.csv zone_swing_rate
+zone_swing_rate_1_1,0.7772,0,statcast_counts_2023.csv zone_swing_rate
+zone_swing_rate_1_2,0.8860,0,statcast_counts_2023.csv zone_swing_rate
+zone_swing_rate_2_0,0.5822,0,statcast_counts_2023.csv zone_swing_rate
+zone_swing_rate_2_1,0.7775,0,statcast_counts_2023.csv zone_swing_rate
+zone_swing_rate_2_2,0.8930,0,statcast_counts_2023.csv zone_swing_rate
+zone_swing_rate_3_0,0.1349,0,statcast_counts_2023.csv zone_swing_rate
+zone_swing_rate_3_1,0.7193,0,statcast_counts_2023.csv zone_swing_rate
+zone_swing_rate_3_2,0.8903,0,statcast_counts_2023.csv zone_swing_rate
+chase_swing_rate_0_0,0.1578,0,statcast_counts_2023.csv chase_rate
+chase_swing_rate_0_1,0.2801,0,statcast_counts_2023.csv chase_rate
+chase_swing_rate_0_2,0.3412,0,statcast_counts_2023.csv chase_rate
+chase_swing_rate_1_0,0.2227,0,statcast_counts_2023.csv chase_rate
+chase_swing_rate_1_1,0.3171,0,statcast_counts_2023.csv chase_rate
+chase_swing_rate_1_2,0.3858,0,statcast_counts_2023.csv chase_rate
+chase_swing_rate_2_0,0.2091,0,statcast_counts_2023.csv chase_rate
+chase_swing_rate_2_1,0.3254,0,statcast_counts_2023.csv chase_rate
+chase_swing_rate_2_2,0.4253,0,statcast_counts_2023.csv chase_rate
+chase_swing_rate_3_0,0.0362,0,statcast_counts_2023.csv chase_rate
+chase_swing_rate_3_1,0.2580,0,statcast_counts_2023.csv chase_rate
+chase_swing_rate_3_2,0.4493,0,statcast_counts_2023.csv chase_rate
+hbp_in_zone_share,0,0,"rule 5.05(b)(2): a pitch in the strike zone that touches the batter is a strike, not a hit batter (Release 5 plan 2.1); report-only"
+bb_pct_per10_eye,2.5,1,"gate target, not an MLB value: hitter BB% should rise 2.3-2.8 points per 10 Eye (Release 5 plan section 4); report-only"
+bb_pct_per10_control,-1.35,1,"gate target, not an MLB value: pitcher BB% should fall 1.2-1.5 points per 10 Control (Release 5 plan section 4); report-only"
+home_minus_away_woba,0.011,1,"tuning target: home wOBA minus away wOBA about +.011 (Release 5 plan 2.4); pool seeds before reading"
+lineup_hand_match_rate,1,0,"harness check, not an MLB value: each lineup (vs LHP / vs RHP) is the one for the hand of the starter it faced (Release 5a)"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import json
 import math
@@ -15,7 +16,7 @@ import time
 from collections import Counter, defaultdict
 from datetime import date
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(BASE_DIR))
@@ -1214,6 +1215,13 @@ def fixture_rating_centers(
     pitchers' control / hold / arm, ACT catchers' arm / fa), never written
     anywhere. data/calibration ~ control 51.3, hold 50.4, arm 55.8, catcher
     arm 55.1, fa 54.7; data/calibration_league ~ 53.6, 51.3, 59.7, 56.3, 56.4.
+
+    Release 5a: also the hitter Contact / Eye centres, the pitcher movement
+    and pitch-grade centres, the hitters' mean vl by batting side and the
+    batting-side shares (nothing in the engine reads them yet).
+    data/calibration ~ contact 48.8, eye 48.4, movement 53.0, grade 54.8, vl
+    L/R/S 49.9/49.1/49.4, shares .385/.513/.103; data/calibration_league ~
+    50.7, 50.2, 56.4, 58.1, 45.0/53.6/49.4, .239/.651/.110.
     """
     from services.league_rating_centers import active_rating_centers
 
@@ -1223,27 +1231,84 @@ def fixture_rating_centers(
 
 
 def with_rating_centers(
-    tuning_overrides: dict[str, float] | None,
+    tuning_overrides: dict[str, Any] | None,
     players_path: Path,
     base_dir: Path | None = None,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """``tuning_overrides`` plus the fixture's rating centres.
 
     An explicit centre in ``tuning_overrides`` (``hitter_speed_center``,
     ``catcher_fa_center``, ...) wins, so a profile can pin a centre for an
     experiment.
     """
-    merged: dict[str, float] = dict(fixture_rating_centers(players_path, base_dir))
+    merged: dict[str, Any] = dict(fixture_rating_centers(players_path, base_dir))
     merged.update(tuning_overrides or {})
     return merged
 
 
-def load_tuning_overrides_file(path: Path) -> dict[str, float]:
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _merged_table_override(
+    path: Path, name: str, default: dict[str, Any], value: object
+) -> dict[str, Any]:
+    """A dict-valued knob's default with the override ``value`` merged in.
+
+    ``value`` names only the entries it changes; every other entry keeps its
+    default. Tables nest (``count_swing_bonus`` is count -> zone/chase,
+    ``pitch_objective_count_weights`` count -> objective), so a dict entry is
+    merged the same way. An entry the default does not have, a leaf that is
+    not a number and a leaf whose default is not a number
+    (``pitch_objective_intent_map``) are errors. ``name`` is the dotted path
+    for the message. Returns a new dict; DEFAULT_TUNING is not touched.
+    """
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"--tuning-overrides {path}: {name} is a table in DEFAULT_TUNING and"
+            f" needs a JSON object, got {value!r}"
+        )
+    unknown = sorted(str(key) for key in value if key not in default)
+    if unknown:
+        raise ValueError(
+            f"--tuning-overrides {path}: unknown entry(ies)"
+            f" {', '.join(f'{name}.{key}' for key in unknown)}; {name} has"
+            f" {', '.join(sorted(default))} in physics_sim/config.py DEFAULT_TUNING"
+        )
+    merged = copy.deepcopy(default)
+    for key, entry in value.items():
+        base = default[key]
+        if isinstance(base, dict):
+            merged[key] = _merged_table_override(path, f"{name}.{key}", base, entry)
+        elif not _is_number(base):
+            raise ValueError(
+                f"--tuning-overrides {path}: {name}.{key} is not a number in"
+                " DEFAULT_TUNING and cannot be overridden here"
+            )
+        elif not _is_number(entry):
+            raise ValueError(
+                f"--tuning-overrides {path}: {name}.{key} must be a number,"
+                f" got {entry!r}"
+            )
+        else:
+            merged[key] = float(entry)
+    return merged
+
+
+def load_tuning_overrides_file(path: Path) -> dict[str, Any]:
     """Read a ``--tuning-overrides`` JSON dict, rejecting unknown keys.
 
     ``TuningConfig.from_overrides`` silently drops a key that is not in
     DEFAULT_TUNING, so a typo would run the baseline while claiming to test a
     profile. Every key must be registered and every value numeric.
+
+    Release 5a: a knob whose default is a table (``count_foul_scale``,
+    ``count_swing_bonus``, the ``pitch_objective_*`` tables) takes a JSON
+    object naming the entries to change, e.g. ``{"count_foul_scale":
+    {"0-2": 1.0}}``. The value returned for it is the WHOLE table, the
+    default with those entries replaced (see ``_merged_table_override``):
+    ``from_overrides`` replaces a table outright, so a partial one would
+    drop the entries it leaves out.
     """
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -1257,8 +1322,12 @@ def load_tuning_overrides_file(path: Path) -> dict[str, float]:
             f"--tuning-overrides {path}: unknown tuning key(s) {', '.join(unknown)}; "
             "register them in physics_sim/config.py DEFAULT_TUNING"
         )
-    overrides: dict[str, float] = {}
+    overrides: dict[str, Any] = {}
     for key, value in payload.items():
+        default = DEFAULT_TUNING[key]
+        if isinstance(default, dict):
+            overrides[key] = _merged_table_override(path, key, default, value)
+            continue
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(
                 f"--tuning-overrides {path}: {key} must be a number, got {value!r}"
@@ -1338,7 +1407,7 @@ def run_sim(
     games_per_team: int,
     seed: int,
     players_path: Path,
-    tuning_overrides: dict[str, float] | None = None,
+    tuning_overrides: dict[str, Any] | None = None,
     base_dir: Path | None = None,
 ) -> dict[str, object]:
     teams_csv = (Path(base_dir) / "teams.csv") if base_dir is not None else None
@@ -1928,7 +1997,9 @@ def main() -> None:
         help=(
             "JSON object of engine tuning knobs merged over DEFAULT_TUNING for "
             "this run (e.g. scripts/kpi_profiles/r4a_legacy.json). Keys not in "
-            "DEFAULT_TUNING are rejected."
+            "DEFAULT_TUNING are rejected. A table knob (count_foul_scale, the "
+            "pitch_objective_* tables) takes an object naming only the entries "
+            "to change."
         ),
     )
     parser.add_argument(
