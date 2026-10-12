@@ -351,14 +351,28 @@ are in `RELEASE5_PLAN.md` section 8.
   finishes on the engine it started on, a league moves when it advances
   into its next season and before its first regular-season game, and a new
   league starts on the updated engine. No season's stats are split between
-  engines, which was the point of decision 12. **Awaiting the owner's
-  confirmation.**
+  engines, which was the point of decision 12. **Confirmed by the owner,
+  2026-10-12:** deploy with the per-league switch.
 - **Future draft classes in existing leagues also get the new batting-side
   mix** (decision 11 said existing leagues are not touched). Players
   already in a league are not changed; only newly generated ones are.
-  **Awaiting the owner's confirmation.**
+  **Confirmed by the owner, 2026-10-12:** all leagues.
 
-Also awaiting the owner's confirmation: **the re-sized rule presets.**
+**Owner decision 13 (2026-10-12): make the ratings league-relative before
+the release ships.** A product-created league measured about 0.1 runs per
+team-game under the 4.47 target on the updated engine (4.37 over two full
+seasons; a 420-game sample through the live game path read 4.21) and the
+league test fixture 0.34 under, against 4.39 on the calibration fixture.
+The owner chose to close that gap now rather than in Release 6. The
+measurements showed the cause is not Power alone: hitters were read against
+the average of every active hitter although the regulars who bat sit above
+it by a different amount in each league, and the batted-ball path read
+pitcher and hitter ratings as absolute numbers. The build therefore reads
+every rating that feeds a plate appearance relative to its league, hitters
+against the lineup regulars (Release 0 decision 2 in full).
+
+**The re-sized rule presets were confirmed by the owner (2026-10-12), at
+the modest sizes below.**
 "High Offense" and "Pitcher Friendly" in the create-league wizard were
 badly mis-sized (Pitcher Friendly played at about 1 run per team-game and
 55% strikeouts). They are now modest: about 4.7 to 4.8 and about 3.8 to
