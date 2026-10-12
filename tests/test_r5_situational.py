@@ -363,6 +363,240 @@ def test_engine_gives_the_edge_to_relievers_only(monkeypatch):
     assert seen_starter and seen_full and seen_partial and seen_gone
 
 
+# The edge in the cases where "who started" and "how many batters has he
+# faced" could go wrong: a reliever who starts the game, an emergency or
+# rest-flagged arm, a pitcher who comes in for an injured one, a plate
+# appearance cut short, and a bunt or intentional walk as a reliever's first
+# batter. Each game is replayed from its pitch log alone -- who started is
+# the box score's GS, batters faced is the count of plate appearances the
+# pitcher was charged with -- and every pitch must have been given exactly
+# the bonus that replay says.
+
+def _plate_appearances(pitch_log):
+    """The log split at each ``pa_start`` entry."""
+    groups = []
+    for entry in pitch_log:
+        if entry.get("pa_start"):
+            groups.append([entry])
+        else:
+            groups[-1].append(entry)
+    return groups
+
+
+def _cut_short(pa) -> bool:
+    """Ended by the third out on the bases or a walk-off run, not by the
+    batter: no result (catcher's interference has none either)."""
+    return (
+        not any(entry.get("pa_result") for entry in pa)
+        and pa[-1].get("outcome") != "interference"
+    )
+
+
+def _pitch_trace(monkeypatch, play):
+    """``play()``'s result and the control and movement each pitch was
+    thrown with."""
+    given: list[tuple[float, float]] = []
+    real = engine.simulate_pitch
+
+    def pitch(**kwargs):
+        given.append((kwargs["pitcher"]["control"], kwargs["pitcher"]["movement"]))
+        return real(**kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(engine, "simulate_pitch", pitch)
+        result = play()
+    return result, given
+
+
+def _replay_fresh_edge(result, given, ratings, bonus=1.0):
+    """Check every pitch against the fresh-arm bonus the pitch log implies.
+
+    Returns one row per plate appearance: ``(pitcher_id, started, batters
+    faced, kind, cut short, bonus)``, ``kind`` being "ibb", "bunt" or
+    "pitch".
+    """
+    starters = {
+        line["player_id"]
+        for side in ("away", "home")
+        for line in result.metadata["pitcher_lines"][side]
+        if line["gs"] >= 1
+    }
+    assert len(starters) == 2
+    thrown = iter(given)
+    faced: dict[str, int] = {}
+    rows = []
+    for pa in _plate_appearances(result.pitch_log):
+        pid = pa[0]["pitcher_id"]
+        # Batters faced counts this batter; a plate appearance cut short is
+        # not charged, so it does not use up one of the fresh batters.
+        batters_faced = faced.get(pid, 0) + 1
+        cut = _cut_short(pa)
+        if not cut:
+            faced[pid] = batters_faced
+        started = pid in starters
+        expected = 0.0
+        if not started:
+            expected = bonus * max(0.0, min(1.0, (7.0 - batters_faced) / 3.0))
+        kind = "pitch" if "pitch_type" in pa[0] else pa[0]["outcome"]
+        rows.append((pid, started, batters_faced, kind, cut, expected))
+        for entry in pa:
+            if "pitch_type" not in entry:
+                continue
+            control, movement = next(thrown)
+            # The pitcher never changes inside a plate appearance.
+            assert entry["pitcher_id"] == pid
+            _velo, command_factor, movement_factor = engine._fatigue_factors(
+                entry["fatigue_penalty"]
+            )
+            rating = ratings[pid]
+            assert control == pytest.approx(
+                (rating.control + expected) * command_factor
+            ), (pid, batters_faced, kind)
+            assert movement == pytest.approx(
+                (rating.movement + expected) * movement_factor
+            ), (pid, batters_faced, kind)
+    assert next(thrown, None) is None
+    # The replay's count is the box score's.
+    for side in ("away", "home"):
+        for line in result.metadata["pitcher_lines"][side]:
+            assert line["bf"] == faced.get(line["player_id"], 0)
+    return rows
+
+
+RELIEVER_ON = SWITCHES["reliever"]
+
+
+def test_a_reliever_who_starts_the_game_gets_no_fresh_edge(monkeypatch):
+    _batters, ratings = load_players_by_id(CALIBRATION / "players.csv")
+    opener: list[str] = []
+    real_game = engine.simulate_game
+
+    def game(**kwargs):
+        # The home club starts a middle reliever (an opener): the rotation
+        # tracker's assigned starter is not one of the five.
+        roles = kwargs["home_pitcher_roles"]
+        opener.append(
+            next(p.player_id for p in kwargs["home_pitchers"]
+                 if roles.get(p.player_id, "").upper().startswith("MR"))
+        )
+        return real_game(**{**kwargs, "home_starter_id": opener[0]})
+
+    monkeypatch.setattr(engine, "simulate_game", game)
+    result, given = _pitch_trace(monkeypatch, lambda: _play_cal(1, RELIEVER_ON))
+    rows = _replay_fresh_edge(result, given, ratings)
+    home = {line["player_id"]: line for line in result.metadata["pitcher_lines"]["home"]}
+    assert home[opener[0]]["gs"] == 1
+    opener_rows = [row for row in rows if row[0] == opener[0]]
+    # He faced batters, the first of them included, with no bonus...
+    assert len(opener_rows) >= 3 and opener_rows[0][2] == 1
+    assert all(started and bonus == 0.0 for _p, started, _bf, _k, _c, bonus in opener_rows)
+    # ...and the men who followed him got theirs.
+    followers = [row for row in rows if row[0] in home and row[0] != opener[0]]
+    assert any(bonus == 1.0 and bf == 1 for _p, _s, bf, _k, _c, bonus in followers)
+
+
+def test_emergency_and_rest_flagged_arms_get_the_fresh_edge(monkeypatch):
+    # Four games on one usage state empty the bullpens: on the fourth day
+    # the road club uses a rest-flagged reliever and a rested starter out of
+    # the pen. Neither started this game, so both get the edge.
+    _batters, ratings = load_players_by_id(CALIBRATION / "players.csv")
+    usage_state = UsageState()
+    flagged = {}
+    for day in range(4):
+        def play(day=day):
+            return engine.simulate_matchup_from_files(
+                away_team="CAL03", home_team="CAL04", base_dir=CALIBRATION,
+                players_path=CALIBRATION / "players.csv", seed=100 + day,
+                tuning_overrides=dict(RELIEVER_ON), usage_state=usage_state,
+                game_day=day,
+            )
+
+        result, given = _pitch_trace(monkeypatch, play)
+        rows = _replay_fresh_edge(result, given, ratings)
+        for side in ("away", "home"):
+            for arm in result.metadata["pitcher_usage"][side]:
+                if not arm["pitches"] or not (arm["fallback"] or arm["emergency"]):
+                    continue
+                kind = "emergency" if arm["emergency"] else "fallback"
+                first = next(row for row in rows if row[0] == arm["player_id"])
+                assert first[1] is False and first[2] == 1 and first[5] == 1.0
+                flagged.setdefault(kind, []).append((day, arm["staff_role"]))
+    assert flagged.get("fallback") and flagged.get("emergency"), flagged
+    # The emergency arm is a starter by role, pitching in relief.
+    assert all(role.upper().startswith("SP") for _day, role in flagged["emergency"])
+
+
+def test_the_man_who_replaces_an_injured_pitcher_gets_the_fresh_edge(monkeypatch):
+    _batters, ratings = load_players_by_id(CALIBRATION_LEAGUE / "players.csv")
+    result, given = _pitch_trace(monkeypatch, lambda: _play_league(26, RELIEVER_ON))
+    rows = _replay_fresh_edge(result, given, ratings)
+    hurt = [
+        event for event in result.metadata["injury_events"]
+        if event.get("trigger") == "pitcher_overuse"
+    ]
+    assert len(hurt) == 1
+    injured = hurt[0]["player_id"]
+    order = [row[0] for row in rows]
+    last = len(order) - 1 - order[::-1].index(injured)
+    side = hurt[0]["team"]
+    staff = {line["player_id"] for line in result.metadata["pitcher_lines"][side]}
+    relief = next(row for row in rows[last + 1:] if row[0] in staff)
+    # The injured man started; his replacement's first batter is batter one
+    # of a fresh arm.
+    assert rows[last][1] is True
+    assert relief[0] != injured and relief[1] is False
+    assert relief[2] == 1 and relief[5] == 1.0
+
+
+def test_a_plate_appearance_cut_short_does_not_use_up_a_fresh_batter(monkeypatch):
+    _batters, ratings = load_players_by_id(CALIBRATION / "players.csv")
+    checked = 0
+    # Seed 39: a reliever's fourth batter; seed 16 (with intentional walks
+    # switched on and eager): a reliever's first.
+    for seed, overrides in ((39, RELIEVER_ON), (16, EAGER_IBB)):
+        result, given = _pitch_trace(monkeypatch, lambda: _play_cal(seed, overrides))
+        rows = _replay_fresh_edge(result, given, ratings)
+        cut = [
+            (index, row) for index, row in enumerate(rows)
+            if row[4] and not row[1] and row[2] <= 6
+        ]
+        assert cut, f"seed {seed}: no plate appearance cut short on a fresh reliever"
+        for index, (pid, _started, batters_faced, _kind, _cut, bonus) in cut:
+            assert bonus > 0.0
+            # The next batter he faces has the same number and the same bonus.
+            later = next((row for row in rows[index + 1:] if row[0] == pid), None)
+            if later is not None:
+                assert later[2] == batters_faced and later[5] == bonus
+                checked += 1
+    assert checked
+
+
+# The Release 5 intentional walk made eager, with the reliever edge on.
+EAGER_IBB = {
+    **RELIEVER_ON, "ibb_model": 1.0, "ibb_chance": 0.9, "ibb_gap_min": 0.0,
+    "ibb_gap_full": 1.0, "ibb_early_scale": 1.0, "ibb_no_out_scale": 1.0,
+}
+
+
+def test_a_bunt_or_intentional_walk_counts_as_a_reliever_s_first_batter(monkeypatch):
+    # No pitch is thrown on either, so no pitch gets the bonus; the batter
+    # still counts, and the next one is the reliever's second.
+    _batters, ratings = load_players_by_id(CALIBRATION / "players.csv")
+    eager = EAGER_IBB
+    seen = set()
+    for seed in (16, 30):
+        result, given = _pitch_trace(monkeypatch, lambda: _play_cal(seed, eager))
+        rows = _replay_fresh_edge(result, given, ratings)
+        for index, (pid, started, batters_faced, kind, _cut, _bonus) in enumerate(rows):
+            if started or batters_faced != 1 or kind == "pitch":
+                continue
+            seen.add(kind)
+            later = next((row for row in rows[index + 1:] if row[0] == pid), None)
+            if later is not None:
+                assert later[2] == 2 and later[5] == 1.0
+    assert seen == {"ibb", "bunt"}
+
+
 # --- home field ---------------------------------------------------------------
 
 
@@ -572,7 +806,8 @@ def _play_series(overrides=None):
 
 def _canon(value):
     if isinstance(value, float):
-        return round(value, 6)
+        # Full precision: a rating moved in its last bit changes the digest.
+        return float.__repr__(value)
     if isinstance(value, dict):
         return {str(k): _canon(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -602,31 +837,68 @@ def _all_digests(overrides=None) -> dict[str, str]:
     digests["cal_series"] = _digest(*_play_series(overrides))
     for seed in (1, 2):
         digests[f"league{seed}"] = _digest(_play_league(seed, overrides))
+    for name, extra in EXTRA_INNING_GAMES.items():
+        digests[name] = _digest(
+            _play_cal(EXTRA_INNING_SEED, {**(overrides or {}), **extra})
+        )
     return digests
 
 
-# sha256 of the canonical JSON (floats rounded to 6 places) of the pitch log,
-# totals and metadata of seeded games at the default tuning, taken on
-# ``r5a-merge`` (7.50.2) BEFORE any Release 5 situational code existed. They
+# One seed that goes past the ninth three ways: a regular-season game (the
+# automatic runner from the 10th), a postseason game (no runner) and a league
+# that switched the runner off.
+EXTRA_INNING_SEED = 6
+EXTRA_INNING_GAMES = {
+    "cal_extras": {},
+    "cal_postseason_extras": {"_postseason": True},
+    "cal_extras_no_runner": {"extra_innings_runner": 0.0},
+}
+
+
+# sha256 of the canonical JSON (every float at full precision, as its repr)
+# of the pitch log, totals and metadata of seeded games at the default
+# tuning, computed on the Release 5a tree (2b1a37952, 7.50.2; exported with
+# git archive), which has no Release 5 situational code. They
 # are the check that every new knob's default reproduces the old engine and
 # draws no extra random number. RE-BASELINE only when the default-tuning
 # stream changes on purpose (run this file and copy the "got" digests from
 # the failure message); at the Release 5 switch-on, pass the legacy profile
 # to ``_all_digests`` instead, as Release 4 did with r4a_legacy.json.
 PINNED_DIGESTS = {
-    "cal1": "6801d33f08f2371126ce0c650bda44c1561132b5f7bb4919f9a3d2ec6a5f4e09",
-    "cal2": "ffc96279b688bb8b6c4888115c9ae2f330ab1045bf6d1f245cf7c7e72935f680",
-    "cal3": "66cd7a9dce865fa2daf1ac2494a6a0f1e1590b6f3d3c530a2109212815921445",
-    "cal_postseason": "7ce596c86feda4303acacff31ccb1ed4fa323ba40d9587bcc982563961cf0fbf",
-    "cal_series": "413893a9cd783120854a6b0573deaefe5fdd57beab18b5a1af3edd49cde3220d",
-    "league1": "3bfff8bea99e8b02a2af8e6447c83c12a37b520683ac2306a3b9d0a9ff73553a",
-    "league2": "3a04be9e856af0a926ccd2c3a9a126bcd598e7d5da36e04657b4120fdb1c1abf",
+    "cal1": "1cde32343e485050a6d5208955d4d69f5e39c9b9e9c147629e88244dfdaf5f4b",
+    "cal2": "81e435e3f0935ed4415db2fc7bdbaaedce464da1e7e541436bcf63ff900ef5a8",
+    "cal3": "141c531deb229125ad35ac8524381337f0e48c45193955b856bf6db730c54161",
+    "cal_postseason": "ce55ca4eae740a3ca0ec84713d642f0d2fbc3e4c8a43ff552537afafec9f3805",
+    "cal_series": "47c90108f37807c19a8bb8fa67c1cf7f4a76a8bfb01037ae99bdd0b22884ad80",
+    "league1": "c9c2b7741a7eb3317c66d3e00c1324855f6b68797d023d46324913f01fcc404e",
+    "league2": "e99b8b674c36e29854670ff2dd1d20d0fbd6a2f7b30012c7bbdf385921c02593",
+    "cal_extras": "7d607d110776d28313863dfc606ae62be6ea2329ed9ea6fd627257cffec4128d",
+    "cal_postseason_extras":
+        "81a68f4f0f99421a1f504aad2e15bb521c5b88a7e60bec1399f6af891758a1fd",
+    "cal_extras_no_runner":
+        "59328bb5e310e0cfe1a3043dfea4d07010db8e1128bd47581ec14b2ed487cfa2",
 }
 
 
 def test_default_tuning_games_match_the_pinned_digests():
     got = _all_digests()
     assert got == PINNED_DIGESTS, f"got {got}"
+
+
+def test_the_extra_inning_pins_are_extra_inning_games():
+    # The automatic runner, the postseason hooks and the tied-game closer
+    # rules are only reached past the ninth.
+    expected = {"cal_extras": 2, "cal_postseason_extras": 0, "cal_extras_no_runner": 0}
+    for name, extra in EXTRA_INNING_GAMES.items():
+        result = _play_cal(EXTRA_INNING_SEED, extra)
+        assert result.metadata["innings"] >= 11, name
+        firsts = {}
+        for entry in result.pitch_log:
+            if entry.get("pa_start") and entry["inning"] >= 10:
+                firsts.setdefault((entry["inning"], entry["half"]), entry)
+        assert len(firsts) >= 3, name
+        # Runner on second to open every extra half, or nobody on.
+        assert {e["bases_before"] for e in firsts.values()} == {expected[name]}, name
 
 
 def test_explicit_off_values_are_the_defaults():
@@ -641,7 +913,9 @@ def test_each_switch_reaches_the_engine(name):
     got = _all_digests(SWITCHES[name])
     changed = {key for key, value in got.items() if value != PINNED_DIGESTS[key]}
     if name == "foul":
-        assert changed == {"cal1", "cal2", "cal3", "cal_postseason"}
+        assert changed == {
+            "cal1", "cal2", "cal3", "cal_postseason", *EXTRA_INNING_GAMES
+        }
     else:
         assert {"cal1", "cal2", "cal3"} & changed, name
         assert changed & {"league1", "league2"}, name

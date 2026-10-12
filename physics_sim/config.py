@@ -882,11 +882,19 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # hbp_model 1: a pitch can hit the batter only when it is more than
     # hbp_inside_min_ft inside the zone edge on HIS side of the plate; the
     # chance ramps to hbp_inside_rate over hbp_inside_span_ft. Replaces
-    # hbp_rate (and its roll on every pitch).
+    # hbp_rate (and its roll on every pitch). The chance is then multiplied
+    # by hbp_same_hand_scale (RvR, LvL) or hbp_opposite_hand_scale: on
+    # location alone the model hits the opposite-hand batter more often
+    # (same / opposite about 0.6 per batter faced), where MLB hits the
+    # same-hand batter about twice as often. 1.0 / 1.0 is location alone;
+    # the tuned pair is in scripts/kpi_profiles/r5_discipline*.json. Read
+    # only under hbp_model 1.
     "hbp_model": 0.0,
     "hbp_inside_min_ft": 0.35,
     "hbp_inside_span_ft": 0.6,
     "hbp_inside_rate": 0.2,
+    "hbp_same_hand_scale": 1.0,
+    "hbp_opposite_hand_scale": 1.0,
     # ibb_model 1: the intentional walk is decided by the gap between the
     # batter and the on-deck hitter (offense score against this pitcher):
     # no chance below ibb_gap_min, ibb_chance at ibb_gap_full and beyond,

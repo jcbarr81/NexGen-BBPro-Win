@@ -88,17 +88,27 @@ _PITCHING_STATS: List[str] = [
 ]
 
 # ``vl`` is the hitter's platoon split (audit decision 6; Release 5 owner
-# decision 10). It was shown as "Vision", which it has never been. The help
-# text holds for the engine before and after it reads vl against the
-# league's own mean by batting side: generated right-handed batters carry a
-# few points more vl than left-handed ones, so "typical" is for his side.
+# decision 10). It was shown as "Vision", which it has never been.
+#
+# The help text names no number on purpose. The value shown is not the
+# stored rating: ``_display_rating`` blends it with its percentile among all
+# hitters (and the club's scouting error), and generated right-handed
+# batters carry more vl than left-handed ones, so on the league fixture the
+# shown value averages about 63 for right-handed batters and 48 for
+# left-handed ones. "50 is typical" would be false for both. What does hold,
+# for the engine before and after it reads vl against the league's own mean
+# by batting side: the shown value rises with the stored one, more vl is
+# more against left-handers and (the counter-shift) a little less against
+# right-handers, and the fair comparison is with hitters who bat from the
+# same side.
 PLATOON_SPLIT_LABEL = "Platoon vs L"
 RATING_HELP: Dict[str, str] = {
     PLATOON_SPLIT_LABEL: (
-        "Platoon split: how well he handles left-handed pitching. Around 50 "
-        "is typical; higher is better than a typical hitter who bats from "
-        "his side, lower is worse. Right-handed batters usually sit a few "
-        "points above left-handed batters."
+        "Platoon split: how he handles left-handed pitching. Read it against "
+        "other hitters who bat from his side: higher means he hits "
+        "left-handers better than they do and gives a little of that back "
+        "against right-handers; lower is the reverse. Compare within a "
+        "batting side only, because the stored numbers still lean by side."
     ),
 }
 

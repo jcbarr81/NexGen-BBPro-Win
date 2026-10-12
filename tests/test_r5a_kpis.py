@@ -28,6 +28,7 @@ R5A_METRICS = (
     + [
         "bb_pct_per10_eye", "bb_pct_per10_control", "k_pct_per10_contact",
         "hitter_o_z_swing_corr", "pitcher_zone_pct_true_sd", "hbp_in_zone_share",
+        "hbp_same_over_opposite_hand",
         "oz_take_called_strike_rate", "iz_take_called_ball_rate",
         "ibb_late_close_share", "hitter_avg_true_sd", "babip_contact_slope_per10",
         "r_ch_babip", "platoon_gap_k_pct", "platoon_gap_bb_pct", "platoon_gap_iso",
@@ -377,6 +378,35 @@ def test_platoon_gaps_switch_hitters_and_the_right_handed_share():
     assert m["rhb_share_of_pa_vs_lhp"] == pytest.approx(45 / 95)
     # Reading the buckets created none (finalize twice gives the same rows).
     assert acc.finalize({})["metrics"]["platoon_gap_k_pct"] == m["platoon_gap_k_pct"]
+
+
+def test_hit_batters_by_matchup_hand_per_batter_faced():
+    acc = _acc()
+    assert acc.finalize({})["metrics"]["hbp_same_over_opposite_hand"] is None
+    # Same hand (LL + RR): 12 hit batters in 800 batters faced.
+    acc.platoon["LL"].update(hbp=4, out=250, bb=46)
+    acc.platoon["RR"].update(hbp=8, out=400, so=92)
+    # Opposite hand: 6 in 800, with a switch hitter (who always bats from
+    # the opposite side) and the pitchless PA (ibb, sh) counted as faced.
+    acc.platoon["LR"].update(hbp=2, out=298)
+    acc.platoon["RL"].update(hbp=3, out=280, ibb=10, sh=7)
+    acc.platoon["SL"].update(hbp=1, out=99)
+    acc.platoon["SR"].update(out=100)
+    report = _finalize(acc)
+    table = report["tables"]["hbp_by_matchup_hand"]
+    assert table["same"] == {"bf": 800, "hbp": 12, "hbp_per_bf": 12 / 800}
+    assert table["opposite"] == {"bf": 800, "hbp": 6, "hbp_per_bf": 6 / 800}
+    assert report["metrics"]["hbp_same_over_opposite_hand"] == pytest.approx(2.0)
+    # Report-only, with the review's target beside it.
+    kx.attach_reference(report, kx.load_reference())
+    assert report["reference"]["hbp_same_over_opposite_hand"]["value"] == 2.0
+    assert report["reference"]["hbp_same_over_opposite_hand"]["approximate"] is True
+    assert report["deltas"]["hbp_same_over_opposite_hand"] == pytest.approx(0.0)
+    # No hit batter on one side of the ratio: not a number.
+    lonely = _acc()
+    lonely.platoon["RR"].update(hbp=3, out=97)
+    lonely.platoon["LR"].update(out=100)
+    assert lonely.finalize({})["metrics"]["hbp_same_over_opposite_hand"] is None
 
 
 # --- situations --------------------------------------------------------------------

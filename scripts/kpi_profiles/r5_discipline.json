@@ -22,6 +22,8 @@
   "hbp_inside_min_ft": 0.35,
   "hbp_inside_span_ft": 0.6,
   "hbp_inside_rate": 0.2,
+  "hbp_same_hand_scale": 1.75,
+  "hbp_opposite_hand_scale": 0.57,
   "ibb_model": 1,
   "ibb_chance": 0.44,
   "ibb_gap_min": 2.0,

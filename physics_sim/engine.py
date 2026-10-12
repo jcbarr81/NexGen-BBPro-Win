@@ -2916,6 +2916,24 @@ def _catcher_context(
     return fielding, arm
 
 
+def _framing_fielding(
+    defense: Dict[str, BatterRatings],
+    catcher_fielding: float,
+    tuning: TuningConfig,
+) -> float:
+    """The catcher fielding the called-strike edge reads for framing.
+
+    ``_catcher_context`` gives a defence with no catcher a flat 50. Under
+    ``umpire_model`` 1 the edge reads fielding against the league's mean
+    catcher (``catcher_fa_center``), so in a league whose mean is not 50
+    that flat 50 would be a poor receiver; no catcher reads as the mean
+    instead, which is no framing at all. Unchanged under ``umpire_model`` 0.
+    """
+    if defense.get("C") is None and tuning.get("umpire_model", 0.0) >= 1.0:
+        return tuning.get("catcher_fa_center", 50.0)
+    return catcher_fielding
+
+
 def _effective_batter_side(batter_hand: str | None, pitcher_hand: str | None) -> str:
     hand = (batter_hand or "R").upper()
     pitcher = (pitcher_hand or "R").upper()
@@ -4411,9 +4429,9 @@ def _should_intentional_walk(
         # is made unless the gap is big enough to consider it.
         if on_deck is None:
             return False
-        gap = _batter_offense_score(batter, pitcher) - _batter_offense_score(
-            on_deck, pitcher
-        )
+        gap = _batter_offense_score(
+            batter, pitcher, tuning
+        ) - _batter_offense_score(on_deck, pitcher, tuning)
         gap_min = tuning.get("ibb_gap_min", 2.0)
         if gap <= gap_min:
             return False
@@ -5844,6 +5862,7 @@ def simulate_game(
         catcher_fielding, catcher_arm = _catcher_context(
             defense_map, defense_ratings, tuning
         )
+        framing_fielding = _framing_fielding(defense_map, catcher_fielding, tuning)
         walkoff = False
 
         # Decision 11: the automatic runner on 2nd from the 10th, in the
@@ -6468,7 +6487,7 @@ def simulate_game(
                         "second": bases.second is not None,
                         "third": bases.third is not None,
                     },
-                    "catcher_fielding": catcher_fielding,
+                    "catcher_fielding": framing_fielding,
                     "batter_pitches_seen": pitches_seen,
                     "batter_swing_rate": swing_rate,
                     "batter_chase_rate": chase_rate,

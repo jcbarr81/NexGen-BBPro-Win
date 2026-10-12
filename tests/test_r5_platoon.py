@@ -42,6 +42,7 @@ from physics_sim.platoon import (
     handedness_scales,
     platoon_needs_centers,
     platoon_shift,
+    platoon_shift_row,
     platoon_shift_values,
 )
 from utils import lineup_autofill
@@ -313,34 +314,36 @@ def test_default_lineup_shift_is_the_old_one():
 
 # --- whole games at the defaults: pinned digests ----------------------------
 
-# sha256 of the canonical JSON (floats rounded to 6 places) of pitch log,
-# totals and metadata for default-tuning games on both KPI fixtures, taken on
-# the Release 5a tree BEFORE any platoon code changed. A switched-off platoon
+# sha256 of the canonical JSON (every float at full precision, as its repr)
+# of pitch log, totals and metadata for default-tuning games on both KPI
+# fixtures, computed on the Release 5a tree (2b1a37952, exported with git
+# archive), which has no Release 5 engine code. A switched-off platoon
 # term that draws a random number, or moves a rating in the last bit, changes
 # them. RE-BASELINE only when the default random stream changes on purpose
 # (another Release 5 area, the 5b flip): run this file and copy the "got"
 # digests from the failure message.
 PINNED_DIGESTS = {
     ("calibration", "CAL01", "CAL02", 1):
-        "101a3c77cd41fefda9ab829557db15cf1b9cdc124d0d7ff073b1447cf0f32b0f",
+        "214e0fe7d148bfaa05a60bc4ea90ae00491f369806b15ed130b8964d8e7647a1",
     ("calibration", "CAL03", "CAL04", 2):
-        "7c14d03671c83e50ed72a0710f408e58ce573402eb9e0c4607a185283bb5826a",
+        "b6ea4dba7e859862989a9969883ec6f9bb920ad4b02ccfe8d9bc857789d72f8d",
     ("calibration", "CAL02", "CAL03", 3):
-        "7f9adf6113cc0ac436bf609693b8f592b9c5bfbcc4c509c963682f8847047028",
+        "fa44990d688cde68f013dd16e1d43ab77636090d55c7c9f051bf5552cc771703",
     ("calibration_league", "ALB", "DET", 1):
-        "0880c218022e30b04877bda75f3984b387e22cc549ea8e9faa7ed0d49318da0e",
+        "fbbb1c819a218fb7b033d9d010fc57b185f16a2bda49975b8f2e7feb96fcf967",
     ("calibration_league", "LOU", "OKL", 2):
-        "849a23407ffc1375d7455680cd2963e95785b581249a37a3b635997848344eb4",
+        "031d6c6824b201e1016993d66d2f04f28b7e79cfe024cc019aca510acf0759c2",
     ("calibration_league", "POR", "ELP", 3):
-        "42166aad5eb497de3210aa5c6389a4b36a6b58646d59282657ab0d47ed10d8b7",
+        "31bbf19cc60432b1bce2eb41fe563175c3f3db5c9bad708874a0426d35e3c7e8",
     ("calibration_league", "SEA", "DEN", 4):
-        "e9904667f18b5530b558b19bdb37204af7db6d653dd88cfada4c09e06d7a5729",
+        "869d8554c85b21d46ec5c30499082e2f00400b78b093c3bd1c6cdea444469d79",
 }
 
 
 def _canon(value):
     if isinstance(value, float):
-        return round(value, 6)
+        # Full precision: a rating moved in its last bit changes the digest.
+        return float.__repr__(value)
     if isinstance(value, dict):
         return {str(k): _canon(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -917,8 +920,14 @@ def test_vl_is_labelled_as_a_platoon_split_with_help():
     assert "Vision" not in labels.values()
     assert "vl" not in {key for _label, key in vm._PITCHER_RATINGS}
     help_text = vm.RATING_HELP[vm.PLATOON_SPLIT_LABEL]
-    assert "left-handed pitching" in help_text and "50" in help_text
-    assert "bats from his side" in help_text
+    assert "left-handed pitching" in help_text
+    assert "bat from his side" in help_text
+    assert "right-handers" in help_text
+    # No absolute claim: the number shown is not on a scale where one value
+    # is "typical" (see test_the_shown_vl_matches_its_help_text).
+    assert not any(ch.isdigit() for ch in help_text)
+    assert "typical" not in help_text.lower()
+    assert len(help_text) < 400
 
 
 def test_profile_rows_carry_the_help_for_their_labels(monkeypatch):
@@ -1006,3 +1015,377 @@ def test_rating_adjusted_hand_gap_is_reported_and_never_gated(tmp_path):
     ratings = kx._load_pitcher_ratings(REPO / "data" / "calibration" / "players.csv")
     assert len(ratings) > 100
     assert all(set(row) == set(kx.HAND_RA9_RATINGS) for row in ratings.values())
+
+
+# --- malformed rows: a blank or zero vl, an unknown batting side ------------
+
+# What a ``vl`` cell can hold when the player has no vs-left rating.
+NO_VL = ("", None, "0", 0, 0.0, "abc", "nan")
+
+
+def _row_batter(bats, vl) -> BatterRatings:
+    """The engine's batter for a ``players.csv`` row with this raw ``vl``."""
+    row = {
+        "player_id": "raw", "bats": bats, "primary_position": "LF",
+        "ch": "50", "ph": "50", "eye": "50", "gf": "50", "pl": "50",
+        "fa": "50", "arm": "50", "sp": "50",
+    }
+    if vl is not None:
+        row["vl"] = str(vl)
+    return BatterRatings.from_row(row)
+
+
+def test_a_blank_or_zero_vl_is_no_personal_split_once_vl_is_centred():
+    tuning = load_tuning(ON)
+    for raw in NO_VL:
+        for side in SIDES:
+            batter = _row_batter(side, raw)
+            assert batter.vs_left_known is False, raw
+            player = SimpleNamespace(bats=side, vl=raw)
+            for hand in HANDS:
+                h = platoon_shift_values(side, 50.0, hand, tuning)[0]
+                # No split, whichever side he bats from: a left-handed
+                # batter used to read 50 against his side's 45, a five-point
+                # edge against left-handers that nothing in his row gave him.
+                assert platoon_shift_values(side, raw, hand, tuning) == (h, 0.0)
+                assert platoon_shift(batter, hand, tuning) == (h, 0.0)
+                assert platoon_shift_row(player, hand, tuning) == (h, 0.0)
+                assert lineup_autofill._platoon_shift(player, hand, tuning) == (
+                    h, 0.0
+                )
+    # A real rating is still read against his side's centre, 50 included.
+    real = _row_batter("L", 50)
+    assert real.vs_left_known is True
+    assert platoon_shift(real, "L", tuning)[1] == 50.0 - LEAGUE["hitter_vl_center_l"]
+    assert platoon_shift_row(SimpleNamespace(bats="L", vl=50), "L", tuning)[1] == 5.0
+
+
+def test_the_engine_and_the_auto_fill_read_every_row_alike_once_centred():
+    tuning = load_tuning(ON)
+    for bats in ("L", "R", "S", "", " l", "r ", "s", "B", "X", None):
+        for vl in (0, 20, 45, 50, 54, 99):
+            row_bats = "" if bats is None else bats
+            batter = _row_batter(row_bats, vl)
+            player = SimpleNamespace(bats=bats, vl=vl)
+            for hand in HANDS:
+                assert platoon_shift(batter, hand, tuning) == (
+                    lineup_autofill._platoon_shift(player, hand, tuning)
+                ), (bats, vl, hand)
+
+
+def test_batting_side_is_normalised_once_vl_is_centred():
+    tuning = load_tuning(ON)
+    a_left, a_right = handedness_scales(tuning)
+    assert a_right < a_left
+    for raw, side in (
+        (" l", "L"), ("l ", "L"), ("L", "L"), ("r", "R"), (" S ", "S"),
+        # Unknown sides bat right, as the league's centres count them.
+        ("B", "R"), ("X", "R"), ("", "R"), (None, "R"),
+    ):
+        for hand in HANDS:
+            assert platoon_shift_values(raw, 52.0, hand, tuning) == (
+                platoon_shift_values(side, 52.0, hand, tuning)
+            ), (raw, hand)
+    # Nobody who is not a switch hitter holds the edge against both hands
+    # ("B" and " l" did: neither equals a pitcher's hand).
+    for raw in (" l", "B", "X", "L", "R"):
+        against_left = platoon_shift_values(raw, 50.0, "L", tuning)[0]
+        against_right = platoon_shift_values(raw, 50.0, "R", tuning)[0]
+        assert against_left * against_right < 0.0, raw
+
+
+def test_malformed_rows_read_as_they_always_did_at_the_defaults():
+    # The default path is byte-identical to the engine before Release 5,
+    # odd rows included, so these stay as they were until the switch-on.
+    for tuning in (load_tuning(), load_tuning(LEAGUE), None):
+        for raw in (" l", "B", "X"):
+            for hand in HANDS:
+                h, d = platoon_shift_values(raw, 58.0, hand, tuning)
+                assert h == _legacy_handedness(raw.upper(), hand) == 1.0
+                assert d == _legacy_vl_delta(58.0, hand)
+        # A blank vl is 50 in the engine and in the auto-fill...
+        blank = _row_batter("L", "")
+        assert blank.vs_left == 50.0
+        assert platoon_shift(blank, "L", tuning)[1] == 0.0
+        assert lineup_autofill._platoon_shift(
+            SimpleNamespace(bats="L", vl=""), "L", tuning
+        )[1] == 0.0
+        # ...and a stored 0 is 0 in the engine and 50 in the auto-fill.
+        zero = _row_batter("R", 0)
+        assert platoon_shift(zero, "L", tuning) == (1.0, -50.0)
+        assert _legacy_platoon_bonus(zero, _pitcher("L")) == (
+            _platoon_bonus(zero, _pitcher("L"), tuning)
+        )
+        player = SimpleNamespace(bats="R", vl=0, ch=47, ph=58, eye=52, sp=61)
+        assert lineup_autofill._platoon_shift(player, "L", tuning) == (
+            _legacy_lineup_shift(player, "L")
+        ) == (1.0, 0.0)
+
+
+# --- every in-game reader takes the game's own tuning -----------------------
+#
+# The pinch-hit choice, the intentional-walk threat, the rest-day substitute
+# and the bullpen's matchup score each get their platoon shift from the
+# tuning of the game being played. Each case below is built so the choice
+# under the Release 5 profile differs from the choice at the defaults: a
+# reader that dropped its tuning argument would make the default choice.
+
+LHB_CENTRE = LEAGUE["hitter_vl_center_l"]
+RHB_CENTRE = LEAGUE["hitter_vl_center_r"]
+SWITCH_CENTRE = LEAGUE["hitter_vl_center_s"]
+
+
+def _bench_pair():
+    """A left-handed bat and a slightly better switch hitter. Against a
+    right-hander the left-hander's full edge beats the switch hitter's half
+    edge at the defaults; with the full switch bonus the better bat wins."""
+    lefty = _batter("L", LHB_CENTRE, ch=60.0, ph=60.0, pid="lefty")
+    switch = _batter("S", SWITCH_CENTRE, ch=60.7, ph=60.7, pid="switch")
+    return lefty, switch
+
+
+def _pinch(batter, bench, pitcher, tuning):
+    state = engine.LineupState(
+        lineup=[batter], positions={batter.player_id: "LF"}, bench=list(bench)
+    )
+    return engine._select_pinch_hitter(
+        lineup_state=state, batter=batter, pitcher=pitcher, inning=8, outs=1,
+        score_diff=0, bases=engine.BaseState(), tuning=tuning,
+    )
+
+
+def test_the_pinch_hit_choice_reads_the_games_tuning():
+    off, on = load_tuning(), load_tuning(ON)
+    righty = _pitcher("R")
+    lefty, switch = _bench_pair()
+    due_up = _batter("R", RHB_CENTRE, pid="due")
+    # Which bat comes off the bench.
+    assert _pinch(due_up, [lefty, switch], righty, off) is lefty
+    assert _pinch(due_up, [switch, lefty], righty, off) is lefty
+    assert _pinch(due_up, [lefty, switch], righty, on) is switch
+    assert _pinch(due_up, [switch, lefty], righty, on) is switch
+    # Whether anyone does: a 52 left-handed bat is six points better than
+    # the right-handed batter due up at the defaults, and less than six in a
+    # league whose right-handed batters give up a smaller platoon split.
+    modest = _batter("L", LHB_CENTRE, ch=52.0, ph=52.0, pid="modest")
+    assert _pinch(due_up, [modest], righty, off) is modest
+    assert _pinch(due_up, [modest], righty, on) is None
+    need = on.get("pinch_hit_advantage_min")
+    for tuning, pinch_hits in ((off, True), (on, False)):
+        edge = _batter_offense_score(modest, righty, tuning) - (
+            _batter_offense_score(due_up, righty, tuning)
+        )
+        assert (edge >= need) is pinch_hits
+
+
+def test_the_intentional_walk_threat_reads_the_games_tuning(monkeypatch):
+    off, on = load_tuning(), load_tuning(ON)
+    lefty = _pitcher("L")
+    slugger = _batter("R", RHB_CENTRE, ch=63.5, ph=63.5, pid="slugger")
+    runner = _batter(pid="runner")
+    monkeypatch.setattr(engine.random, "random", lambda: 0.0)
+
+    def walked(tuning, **extra):
+        return engine._should_intentional_walk(
+            bases=engine.BaseState(second=runner), batter=slugger, pitcher=lefty,
+            inning=8, outs=1, score_diff=0, tuning=tuning, **extra,
+        )
+
+    # The old rule: a right-handed 63.5 against a left-hander clears the 65
+    # threat line with the full platoon edge, and not with the smaller one.
+    threshold = off.get("ibb_batter_threshold")
+    assert _batter_offense_score(slugger, lefty, off) >= threshold
+    assert _batter_offense_score(slugger, lefty, on) < threshold
+    assert walked(off) is True
+    assert walked(on) is False
+    # The Release 5 rule: the gap to the on-deck hitter, both scored against
+    # this pitcher with the game's tuning.
+    seen = []
+
+    class Roll:
+        def __lt__(self, chance):
+            seen.append(chance)
+            return False
+
+    monkeypatch.setattr(engine.random, "random", lambda: Roll())
+    on_deck = _batter("L", LHB_CENTRE, ch=60.0, ph=60.0, pid="on_deck")
+    for overrides in ({"ibb_model": 1.0}, {**ON, "ibb_model": 1.0}):
+        tuning = load_tuning(overrides)
+        assert walked(tuning, on_deck=on_deck) is False
+        gap = _batter_offense_score(slugger, lefty, tuning) - (
+            _batter_offense_score(on_deck, lefty, tuning)
+        )
+        want = tuning.get("ibb_chance") * min(
+            1.0, (gap - tuning.get("ibb_gap_min"))
+            / (tuning.get("ibb_gap_full") - tuning.get("ibb_gap_min"))
+        )
+        assert seen[-1] == pytest.approx(want)
+    # A gap past the full chance at the defaults, short of it under the
+    # profile (the slugger's edge on the left-hander is smaller).
+    default_chance, profile_chance = seen
+    assert default_chance == pytest.approx(0.35)
+    assert 0.0 < profile_chance < 0.33
+
+
+def test_the_rest_day_substitute_reads_the_games_tuning():
+    from physics_sim.usage import UsageState
+
+    off, on = load_tuning(), load_tuning(ON)
+    righty = _pitcher("R")
+    lefty, switch = _bench_pair()
+
+    def substitute(tuning, bench):
+        return engine._best_rest_replacement(
+            list(bench), "LF", opposing_starter=righty, usage_state=UsageState(),
+            threshold_ratio=0.5, tuning=tuning,
+        )
+
+    for bench in ([lefty, switch], [switch, lefty]):
+        assert substitute(off, bench) is lefty
+        assert substitute(on, bench) is switch
+    assert engine._rest_bench_value(lefty, righty, off) > (
+        engine._rest_bench_value(switch, righty, off)
+    )
+    assert engine._rest_bench_value(lefty, righty, on) < (
+        engine._rest_bench_value(switch, righty, on)
+    )
+
+
+def test_the_bullpen_matchup_score_reads_the_games_tuning():
+    off, on = load_tuning(), load_tuning(ON)
+
+    def arm(pid, throws):
+        pitcher = PitcherRatings.from_row({
+            "player_id": pid, "bats": throws, "throws": throws, "control": "50",
+            "movement": "50", "arm": "50", "endurance": "40", "vl": "50",
+            "fb": "60",
+        })
+        return engine.PitcherState(pitcher=pitcher, staff_role="MR", rest_role="MR")
+
+    starter = arm("starter", "R")
+    starter.used = True
+    southpaw, northpaw = arm("southpaw", "L"), arm("northpaw", "R")
+    due_up = [
+        _batter("R", RHB_CENTRE, pid="r1"), _batter("R", RHB_CENTRE, pid="r2"),
+        _batter("L", LHB_CENTRE, pid="l1"),
+    ]
+    # Two right-handed batters and a left-handed one: at the defaults the
+    # right-hander has the hands (2 to 1); once a right-handed batter's
+    # split is under half a left-handed batter's, the left-hander does.
+    assert _matchup_score(southpaw, due_up, off) < _matchup_score(northpaw, due_up, off)
+    assert _matchup_score(southpaw, due_up, on) > _matchup_score(northpaw, due_up, on)
+    for pen in ([southpaw, northpaw], [northpaw, southpaw]):
+        staff = engine.TeamPitchingState(
+            starter=starter, bullpen=list(pen), current=starter
+        )
+        kwargs = dict(inning=7, score_diff=0, upcoming_batters=due_up)
+        assert engine._select_reliever(staff, "mid", tuning=off, **kwargs) is northpaw
+        assert engine._select_reliever(staff, "mid", tuning=on, **kwargs) is southpaw
+
+
+def test_a_game_hands_every_reader_its_own_tuning(monkeypatch):
+    """In a whole game under the profile, the four readers above and the
+    per-PA batter context all get the game's tuning object -- not ``None``
+    and not the defaults."""
+    tunings = []
+    callers = set()
+    real = engine.platoon_shift
+
+    def spy(batter, pitcher_hand, tuning=None):
+        import sys
+
+        tunings.append(tuning)
+        callers.add(sys._getframe(1).f_code.co_name)
+        return real(batter, pitcher_hand, tuning)
+
+    monkeypatch.setattr(engine, "platoon_shift", spy)
+    eager = {
+        **ON, "ibb_model": 1.0, "ibb_gap_min": -5.0, "pinch_hit_advantage_min": 0.0,
+    }
+    for seed in (1, 2, 3):
+        _play(("calibration_league", "ALB", "DET", seed), eager)
+    # The batter context, the offence score behind the pinch hitter and the
+    # intentional walk, and the bullpen's matchup score were all reached.
+    assert callers == {"_batter_context", "_platoon_bonus", "_matchup_score"}
+    assert len(tunings) > 500
+    assert all(tuning is not None for tuning in tunings)
+    assert all(tuning.get("platoon_vl_center_enabled") == 1.0 for tuning in tunings)
+    assert all(
+        tuning.get("hitter_vl_center_l") == LEAGUE["hitter_vl_center_l"]
+        for tuning in tunings
+    )
+
+
+# --- the number shown for vl, against its help text --------------------------
+
+
+def test_the_shown_vl_matches_its_help_text(tmp_path, monkeypatch):
+    """The profile shows vl through ``_display_rating`` (a blend with the
+    percentile among all hitters), so no number is "typical": on the league
+    fixture right-handed batters are shown about 63 on average and
+    left-handed ones about 48. The help text says what is true of the
+    number shown: within a batting side, more is more against left-handers
+    and a little less against right-handers."""
+    import shutil
+
+    from services import player_profile_view_model as vm
+    from utils import path_utils
+
+    fixture = REPO / "data" / "calibration_league"
+    root = tmp_path / "root"
+    data = root / "leagues" / "vlhelp" / "data"
+    data.mkdir(parents=True)
+    # The league's own files go in before anything resolves the data dir.
+    (root / "players.csv").write_text("player_id\n", encoding="utf-8")
+    shutil.copy(fixture / "players.csv", data / "players.csv")
+    shutil.copy(fixture / "teams.csv", data / "teams.csv")
+    (data / "users.txt").write_text("", encoding="utf-8")
+    shutil.copytree(fixture / "rosters", data / "rosters")
+    monkeypatch.setenv("NEXGEN_DATA_ROOT", str(root))
+    monkeypatch.delenv("NEXGEN_ACTIVE_LEAGUE", raising=False)
+    path_utils._DATA_DIR_CACHE.clear()
+    token = path_utils.set_request_league("vlhelp")
+    try:
+        assert path_utils.get_data_dir().resolve() == data.resolve()
+        shown: dict[str, list[tuple[int, int]]] = {"L": [], "R": [], "S": []}
+        with (data / "players.csv").open(newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                if str(row["is_pitcher"]).strip().lower() in {"1", "true", "yes"}:
+                    continue
+                player = SimpleNamespace(
+                    player_id=row["player_id"], vl=int(row["vl"]),
+                    bats=row["bats"], primary_position=row["primary_position"],
+                    is_pitcher=False,
+                )
+                shown[row["bats"]].append(
+                    (player.vl, int(vm._display_rating(player, "vl")))
+                )
+    finally:
+        path_utils.reset_request_league(token)
+        path_utils._DATA_DIR_CACHE.clear()
+    assert all(len(rows) > 50 for rows in shown.values())
+    mean = {
+        side: sum(value for _vl, value in rows) / len(rows)
+        for side, rows in shown.items()
+    }
+    # No single "typical" number: the sides sit far apart on the shown
+    # scale (about 63 and 48), and neither is 50.
+    assert mean["R"] - mean["L"] > 10.0
+    assert abs(mean["R"] - 50.0) > 8.0
+    # What the help text does say holds for the number shown. Within a
+    # batting side it rises with the stored rating...
+    for side, rows in shown.items():
+        ordered = sorted(rows)
+        assert all(a[1] <= b[1] for a, b in zip(ordered, ordered[1:])), side
+        assert len({value for _vl, value in rows}) > 10, side
+    # ...and more of the stored rating is more against left-handers and a
+    # little less against right-handers, today and once vl is centred.
+    for tuning in (load_tuning(), load_tuning(ON)):
+        for side in SIDES:
+            low, high = _batter(side, 45.0), _batter(side, 60.0)
+            gain = platoon_shift(high, "L", tuning)[1] - platoon_shift(low, "L", tuning)[1]
+            cost = platoon_shift(high, "R", tuning)[1] - platoon_shift(low, "R", tuning)[1]
+            assert gain == 15.0
+            assert -gain < cost < 0.0
+    help_text = vm.RATING_HELP[vm.PLATOON_SPLIT_LABEL]
+    assert not any(ch.isdigit() for ch in help_text)

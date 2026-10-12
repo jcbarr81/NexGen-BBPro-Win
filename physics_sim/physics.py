@@ -853,7 +853,12 @@ def _umpire_strike_probability(
 
 
 def _hbp_inside_chance(
-    *, x: float, batter_side: str, zone_half_width: float, tuning: TuningConfig
+    *,
+    x: float,
+    batter_side: str,
+    zone_half_width: float,
+    tuning: TuningConfig,
+    pitcher_hand: str | None = None,
 ) -> float:
     """``hbp_model`` 1: the chance this pitch hits the batter.
 
@@ -863,13 +868,28 @@ def _hbp_inside_chance(
     right and -x for one hitting left. Zero until the pitch is
     ``hbp_inside_min_ft`` inside the zone edge on his side, then a ramp to
     ``hbp_inside_rate`` over ``hbp_inside_span_ft``.
+
+    The chance is then scaled by matchup hand: ``hbp_same_hand_scale`` when
+    the batter stands on the pitcher's arm side, ``hbp_opposite_hand_scale``
+    when he does not. Pitch targets are the same on both sides of the plate
+    and the break is added to the aim point, so on location alone the
+    far-inside pitches are mostly glove-side ones and the opposite-hand
+    batter is hit more often; in MLB it is the same-hand batter, about twice
+    as often. The two scales carry that and leave where pitches go alone.
+    With no ``pitcher_hand`` the chance is not scaled.
     """
     inside_ft = (x if batter_side == "R" else -x) - zone_half_width
     inside_ft -= tuning.get("hbp_inside_min_ft", 0.35)
     if inside_ft <= 0.0:
         return 0.0
     span = max(0.01, tuning.get("hbp_inside_span_ft", 0.6))
-    return tuning.get("hbp_inside_rate", 0.2) * min(1.0, inside_ft / span)
+    chance = tuning.get("hbp_inside_rate", 0.2) * min(1.0, inside_ft / span)
+    if pitcher_hand is not None:
+        if batter_side == pitcher_hand:
+            chance *= tuning.get("hbp_same_hand_scale", 1.0)
+        else:
+            chance *= tuning.get("hbp_opposite_hand_scale", 1.0)
+    return max(0.0, min(1.0, chance))
 
 
 def simulate_pitch(
@@ -1000,12 +1020,17 @@ def simulate_pitch(
     umpire_model = tuning.get("umpire_model", 0.0) >= 1.0
     edge_signed = edge_even = 0.0
     if umpire_model:
-        catcher_fielding = 50.0
+        # No catcher in the context reads as the league's average receiver:
+        # no framing, whatever the league's centre is.
+        catcher_center = tuning.get("catcher_fa_center", 50.0)
+        catcher_fielding = catcher_center
         if context:
             try:
-                catcher_fielding = float(context.get("catcher_fielding", 50.0))
+                catcher_fielding = float(
+                    context.get("catcher_fielding", catcher_center)
+                )
             except (TypeError, ValueError):
-                catcher_fielding = 50.0
+                catcher_fielding = catcher_center
         edge_signed = _signed_edge_distance(
             location=loc,
             zone_bottom=zone_bottom - ball_radius,
@@ -1030,6 +1055,7 @@ def simulate_pitch(
             batter_side=batter_side,
             zone_half_width=plate_half + ball_radius,
             tuning=tuning,
+            pitcher_hand=pitcher_hand,
         )
         hit_batter = hbp_rate > 0.0 and random.random() < hbp_rate
     else:

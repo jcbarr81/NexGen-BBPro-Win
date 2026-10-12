@@ -73,6 +73,8 @@ NEW_KEYS = {
     "hbp_inside_min_ft": 0.35,
     "hbp_inside_span_ft": 0.6,
     "hbp_inside_rate": 0.2,
+    "hbp_same_hand_scale": 1.0,
+    "hbp_opposite_hand_scale": 1.0,
     "ibb_model": 0.0,
     "ibb_gap_min": 2.0,
     "ibb_gap_full": 7.0,
@@ -169,10 +171,13 @@ def test_swing_table_is_tunable_through_the_harness_overrides(tmp_path):
 
 # --- identity: the switches off ------------------------------------------------------
 
-# sha256 of the canonical JSON (floats rounded to 6 places) of pitch_log +
-# totals + metadata for one game, at the DEFAULT tuning. Captured on the
-# Release 5a tree (2b1a37952) BEFORE any Release 5 discipline code was
-# written, so they pin "switches off = the engine as it was": a changed
+# sha256 of the canonical JSON (every float at full precision, as its repr)
+# of pitch_log + totals + metadata for one game, at the DEFAULT tuning.
+# Computed on the Release 5a tree (2b1a37952, exported with git archive),
+# which has no Release 5 engine code, and equal on the integrated branch.
+# They were first taken with floats rounded to 6 places, which a change in
+# a rating's last bits could slip under. They pin "switches off = the
+# engine as it was": a changed
 # value, an extra random draw or a reordered draw in any off path moves
 # every digest after it. The last three force the legacy intentional-walk
 # rule to fire (it never does at the defaults: the threshold is above every
@@ -185,33 +190,34 @@ def test_swing_table_is_tunable_through_the_harness_overrides(tmp_path):
 LEGACY_IBB = {"ibb_batter_threshold": 40.0, "ibb_inning": 1.0, "ibb_chance": 0.9}
 PINNED_DIGESTS = {
     ("calibration", "CAL01", "CAL02", 1, None):
-        "a74f3920a28b3b6589f74ced75ba12b3ad0b98681a928ff924b7586905fb4e2f",
+        "52c8f538d4053a4b1c920432491272a4b6fa5f6c1854d005750326294090f8cb",
     ("calibration", "CAL01", "CAL02", 2, None):
-        "f27b5ba688c103312440e7ed694147965f94af776bf270cc0b01c3f32b7c7b85",
+        "50bf57034e8703bd1bca879382566fba8377e5a489d481604e2f68e8de42a33d",
     ("calibration", "CAL01", "CAL02", 3, None):
-        "9e36981f6bf7e785daed3b13cabba1861c212ae5f9db73ab158a9f105366c667",
+        "45c579301769bff5b03684d1e1e9fdc7467827146aad667e18e2f458bda57622",
     ("calibration", "CAL01", "CAL02", 4, None):
-        "0b4b350d548c44b5de04bd31e23fedfd873cfd17e2168d9f0d3ec983c732e5b5",
+        "42e56bbf332586ae06848be82f600fcbfc203980b69daf51bcdd05353124a5f9",
     ("calibration", "CAL07", "CAL12", 5, None):
-        "01a944355f4964361845c017aa94131a615ee3dec4073fd11432f91204af3852",
+        "be20d3cb8f0cded157cca806378c0e740fa4d95980714805164246b612c4bbec",
     ("calibration", "CAL07", "CAL12", 6, None):
-        "4590f63af5589a2b395b94ce741847d014ede9130c2af8eb6c6d1afaeb2dfc90",
+        "e15b923fcd1312429865c6a2a2d4499400d307469a4744d7a805294d4bc1ef2c",
     ("calibration_league", "ALB", "DET", 1, None):
-        "8be3e546564b8e9c1bc8e5ca2240a0cd0ff4f8f11d85c3f7986ec14c9739ff03",
+        "9464f264b60018c334d95be029483f8c96f982101a154a15366a600a4529ce7d",
     ("calibration_league", "ALB", "DET", 2, None):
-        "b5d2899b207a54aace444aba732f0068a3b389d27a10897bc2fbc2a0c09db3da",
+        "54d9c6386ce7db1f3b7e7b9600b097ced38712f6dfcfd456283e96e7152e7dcd",
     ("calibration", "CAL03", "CAL04", 1, "legacy_ibb"):
-        "2d530988048f9a83013f1cf95dca630036925f87c0b22504ded2b5ba6a3e5200",
+        "7d2506e89bc40c29fd69600e902711ab13804ee8300205235c52b3ea5b522bf7",
     ("calibration", "CAL03", "CAL04", 2, "legacy_ibb"):
-        "e5428319a055348af682c5963a05de51de4eeda2915416dd5cecd2ca7751953a",
+        "6952a23317d18169dc3abb268231b5a036dd70ac7deec55a360e0971b8f0b8fd",
     ("calibration", "CAL03", "CAL04", 3, "legacy_ibb"):
-        "f793f0180f4606507aaea2f97f9125488f621c52372fa209a48b5bead26dc852",
+        "7978c1539c464721f720d2b918b03d6507424890f6c24f9d3e382a1d9d9b0528",
 }
 
 
 def _canon(value):
     if isinstance(value, float):
-        return round(value, 6)
+        # Full precision: a rating moved in its last bit changes the digest.
+        return float.__repr__(value)
     if isinstance(value, dict):
         return {str(k): _canon(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -286,6 +292,8 @@ def test_knobs_a_switched_off_model_owns_are_not_read():
         "hbp_inside_min_ft": 0.0,
         "hbp_inside_span_ft": 0.1,
         "hbp_inside_rate": 0.9,
+        "hbp_same_hand_scale": 4.0,
+        "hbp_opposite_hand_scale": 0.0,
         "ibb_gap_min": -50.0,
         "ibb_gap_full": -40.0,
         "ibb_early_scale": 1.0,
@@ -756,6 +764,121 @@ def test_umpire_model_does_not_read_the_knobs_it_replaces():
     assert results[0] == results[1]
 
 
+def _edge_catchers(monkeypatch, tuning, context, n=40):
+    """The catcher fielding the edge read on each of ``n`` pitches."""
+    seen = []
+    real = physics._umpire_even_distance
+
+    def spy(**kwargs):
+        seen.append(kwargs["catcher_fielding"])
+        return real(**kwargs)
+
+    monkeypatch.setattr(physics, "_umpire_even_distance", spy)
+    batter = {"contact": 50.0, "power": 50.0, "eye": 50.0, "bats": "R"}
+    pitcher = {"repertoire": {"fb": 55.0, "sl": 55.0}, "control": 50.0}
+    random.seed(5)
+    for _ in range(n):
+        physics.simulate_pitch(
+            batter=batter, pitcher=pitcher, tuning=tuning, count=(1, 1),
+            context=context,
+        )
+    monkeypatch.undo()
+    assert len(seen) == n
+    return set(seen)
+
+
+def test_no_catcher_is_no_framing_whatever_the_league_centre(monkeypatch):
+    # A league whose catchers average 62: with no catcher in the context the
+    # edge used to read a flat 50, a poor receiver (-0.0604 ft, not -0.055).
+    tuning = _tuning(umpire_model=1.0, catcher_fa_center=62.0)
+    for context in (None, {}, {"catcher_fielding": None}, {"catcher_fielding": "x"}):
+        assert _edge_catchers(monkeypatch, tuning, context) == {62.0}
+    assert physics._umpire_even_distance(
+        catcher_fielding=62.0, balls=0, strikes=0, tuning=tuning
+    ) == pytest.approx(-0.055)
+    # A catcher who is there is still read as he is.
+    assert _edge_catchers(monkeypatch, tuning, {"catcher_fielding": 50.0}) == {50.0}
+    assert physics._umpire_even_distance(
+        catcher_fielding=50.0, balls=0, strikes=0, tuning=tuning
+    ) == pytest.approx(-0.0604)
+    # At the default centre nothing changed: no catcher was already 50.
+    assert _edge_catchers(monkeypatch, _tuning(umpire_model=1.0), None) == {50.0}
+
+
+def test_engine_framing_reads_the_centre_for_a_defence_with_no_catcher():
+    on = _tuning(umpire_model=1.0, catcher_fa_center=62.0)
+    off = _tuning(catcher_fa_center=62.0)
+    catcher = _batter("c")
+    # _catcher_context's flat 50 for "no catcher" becomes the centre...
+    assert engine._framing_fielding({}, 50.0, on) == 62.0
+    assert engine._framing_fielding({"SS": catcher}, 50.0, on) == 62.0
+    # ...a real catcher is passed through, and the old umpire is untouched.
+    assert engine._framing_fielding({"C": catcher}, 44.0, on) == 44.0
+    assert engine._framing_fielding({}, 50.0, off) == 50.0
+    assert engine._framing_fielding({}, 50.0, _tuning(umpire_model=1.0)) == 50.0
+
+
+def _framing_seen_in_a_game(monkeypatch, overrides, *, drop_home_catcher):
+    """Play a game and collect the framing fielding each pitch was given,
+    by the side in the field. With ``drop_home_catcher`` the home club's
+    defence is built with nobody at C (a real nine always gets one: the
+    builder fills an open position from whoever is left)."""
+    real_game, real_pitch = engine.simulate_game, engine.simulate_pitch
+    real_defense = engine.build_defense_from_lineup
+    home_pitchers = set()
+    home_hitters = set()
+    given = []
+
+    def game(**kwargs):
+        home_pitchers.update(p.player_id for p in kwargs["home_pitchers"])
+        home_hitters.update(b.player_id for b in kwargs["home_lineup"])
+        home_hitters.update(b.player_id for b in kwargs["home_bench"])
+        return real_game(**kwargs)
+
+    def defense(batters, positions):
+        built = real_defense(batters, positions)
+        if drop_home_catcher and batters[0].player_id in home_hitters:
+            built.pop("C", None)
+        return built
+
+    def pitch(**kwargs):
+        given.append(kwargs["context"]["catcher_fielding"])
+        return real_pitch(**kwargs)
+
+    monkeypatch.setattr(engine, "simulate_game", game)
+    monkeypatch.setattr(engine, "build_defense_from_lineup", defense)
+    monkeypatch.setattr(engine, "simulate_pitch", pitch)
+    result = _play("calibration", "CAL01", "CAL02", 2, overrides)
+    monkeypatch.undo()
+    # Every pitch is one log entry, in order.
+    entries = [e for e in result.pitch_log if "pitch_type" in e]
+    assert len(entries) == len(given)
+    by_side = {"away": set(), "home": set()}
+    for entry, fielding in zip(entries, given):
+        side = "home" if entry["pitcher_id"] in home_pitchers else "away"
+        by_side[side].add(fielding)
+    return by_side
+
+
+def test_a_game_with_no_catcher_gets_no_framing_under_the_umpire_model(monkeypatch):
+    centre = 62.0
+    on = {"umpire_model": 1.0, "catcher_fa_center": centre}
+    with_catcher = _framing_seen_in_a_game(monkeypatch, on, drop_home_catcher=False)
+    without = _framing_seen_in_a_game(monkeypatch, on, drop_home_catcher=True)
+    # The road club's catcher is read as he is in both games.
+    assert len(with_catcher["away"]) == 1 and with_catcher["away"] != {centre}
+    assert without["away"] == with_catcher["away"]
+    # The home club has nobody behind the plate: the league's average
+    # receiver, not a flat 50.
+    assert len(with_catcher["home"]) == 1 and with_catcher["home"] != {centre}
+    assert without["home"] == {centre}
+    # The old umpire still gets the flat 50 it always got.
+    legacy = _framing_seen_in_a_game(
+        monkeypatch, {"catcher_fa_center": centre}, drop_home_catcher=True
+    )
+    assert legacy["home"] == {50.0}
+
+
 # --- hit by pitch -------------------------------------------------------------------
 
 
@@ -852,6 +975,102 @@ def test_hbp_rate_falls_with_control_through_location_alone():
     wild = len(_hbp_sample(tuning, control=35.0, bats="R", n=40000))
     sharp = len(_hbp_sample(tuning, control=65.0, bats="R", n=40000))
     assert wild > 1.3 * sharp > 0
+
+
+def test_hbp_hand_scales_default_to_location_alone():
+    tuning = _tuning(hbp_model=1.0)
+    edge = 0.708 + 0.12
+    for side, x in (("R", edge + 0.8), ("L", -(edge + 0.8))):
+        plain = physics._hbp_inside_chance(
+            x=x, batter_side=side, zone_half_width=edge, tuning=tuning
+        )
+        assert plain > 0.0
+        for hand in ("L", "R"):
+            assert physics._hbp_inside_chance(
+                x=x, batter_side=side, zone_half_width=edge, tuning=tuning,
+                pitcher_hand=hand,
+            ) == plain
+
+
+def test_hbp_hand_scales_multiply_the_chance_by_matchup_hand():
+    tuning = _tuning(
+        hbp_model=1.0, hbp_same_hand_scale=1.75, hbp_opposite_hand_scale=0.57
+    )
+    edge = 0.708 + 0.12
+
+    def chance(x, side, hand=None, cfg=tuning):
+        return physics._hbp_inside_chance(
+            x=x, batter_side=side, zone_half_width=edge, tuning=cfg,
+            pitcher_hand=hand,
+        )
+
+    for side, sign in (("R", 1.0), ("L", -1.0)):
+        other = "L" if side == "R" else "R"
+        for inside in (0.4, 0.7, 1.5):
+            x = sign * (edge + inside)
+            plain = chance(x, side)
+            assert chance(x, side, side) == pytest.approx(1.75 * plain)
+            assert chance(x, side, other) == pytest.approx(0.57 * plain)
+        # The scales never make a pitch on the far side, or in the zone, a
+        # hit batter.
+        assert chance(-sign * (edge + 0.8), side, side) == 0.0
+        assert chance(0.0, side, side) == 0.0
+    # Bounded, and a scale of 0 is no chance (and so no roll).
+    huge = _tuning(hbp_model=1.0, hbp_same_hand_scale=50.0)
+    assert chance(edge + 1.5, "R", "R", huge) == 1.0
+    none = _tuning(hbp_model=1.0, hbp_same_hand_scale=0.0)
+    assert chance(edge + 1.5, "R", "R", none) == 0.0
+    assert chance(edge + 1.5, "R", "L", none) == pytest.approx(0.2)
+
+
+def _hbp_hand_rates(tuning, n=40000):
+    """Hit batters per pitch, pooled over the two same-hand and the two
+    opposite-hand matchups (a switch hitter bats opposite)."""
+    hits = {"same": 0, "opposite": 0}
+    for bats, hand, seed in (
+        ("R", "R", 31), ("L", "L", 32), ("L", "R", 33), ("R", "L", 34),
+    ):
+        key = "same" if bats == hand else "opposite"
+        hits[key] += len(
+            _hbp_sample(tuning, control=50.0, bats=bats, n=n, seed=seed, hand=hand)
+        )
+    return hits["same"] / (2 * n), hits["opposite"] / (2 * n)
+
+
+def test_profile_hand_scales_put_same_hand_batters_at_twice_the_rate(monkeypatch):
+    profile = kpis.load_tuning_overrides_file(PROFILE)
+    assert profile["hbp_same_hand_scale"] == pytest.approx(1.75)
+    assert profile["hbp_opposite_hand_scale"] == pytest.approx(0.57)
+    combined = kpis.load_tuning_overrides_file(
+        PROFILE.with_name("r5_discipline_contact.json")
+    )
+    for key in ("hbp_same_hand_scale", "hbp_opposite_hand_scale"):
+        assert combined[key] == profile[key]
+    # On location alone the far-inside pitches are mostly glove-side ones,
+    # so the opposite-hand batter is hit more often: the review's finding.
+    alone = dict(profile, hbp_same_hand_scale=1.0, hbp_opposite_hand_scale=1.0)
+    same, opposite = _hbp_hand_rates(TuningConfig.from_overrides(overrides=alone))
+    assert opposite > 0.0 and same / opposite < 0.85
+    plain_total = same + opposite
+    # With the profile's scales the same-hand batter is hit about twice as
+    # often (MLB), and the overall rate is about where it was.
+    same, opposite = _hbp_hand_rates(TuningConfig.from_overrides(overrides=profile))
+    assert 1.5 < same / opposite < 2.7
+    assert (same + opposite) / plain_total == pytest.approx(1.0, abs=0.2)
+    # A switch hitter stands opposite the pitcher's hand, so he takes the
+    # opposite-hand scale against both.
+    tuning = TuningConfig.from_overrides(overrides=profile)
+    seen = []
+    real = physics._hbp_inside_chance
+
+    def spy(**kwargs):
+        seen.append((kwargs["batter_side"], kwargs["pitcher_hand"]))
+        return real(**kwargs)
+
+    monkeypatch.setattr(physics, "_hbp_inside_chance", spy)
+    for hand in ("L", "R"):
+        _hbp_sample(tuning, control=50.0, bats="S", n=50, hand=hand)
+    assert set(seen) == {("R", "L"), ("L", "R")}
 
 
 def test_hbp_model_rolls_only_for_a_pitch_that_can_reach_the_batter(monkeypatch):
@@ -997,6 +1216,117 @@ def test_ibb_is_mostly_late_and_close_and_rare_with_nobody_out(monkeypatch):
     assert chance(inning=2, outs=0) == pytest.approx(0.35 * 0.1 * 0.3)
 
 
+# The rule made eager, so a handful of games holds dozens of intentional
+# walks in every base state it allows.
+IBB_OFTEN = {
+    "ibb_model": 1.0, "ibb_chance": 0.9, "ibb_gap_min": 0.0, "ibb_gap_full": 1.0,
+    "ibb_early_scale": 1.0, "ibb_no_out_scale": 1.0,
+}
+
+
+def test_intentional_walks_are_scored_as_walks_with_no_pitch_thrown():
+    walks = 0
+    states = set()
+    for seed in (6, 11, 21, 26, 36, 54):
+        result = _play("calibration", "CAL01", "CAL02", seed, IBB_OFTEN)
+        begun = _plate_appearances(result.pitch_log)
+        charged = [pa for pa in begun if not _cut_short(pa)]
+        intentional = [pa for pa in begun if pa[0].get("outcome") == "ibb"]
+        walks += len(intentional)
+        for index, pa in enumerate(begun):
+            if pa[0].get("outcome") != "ibb":
+                continue
+            # One log entry, no pitch in it, scored as an intentional walk.
+            assert len(pa) == 1
+            entry = pa[0]
+            assert "pitch_type" not in entry and "count" not in entry
+            assert entry["pa_result"] == "ibb"
+            # Only with first base open and a runner in scoring position.
+            before = entry["bases_before"]
+            assert before & 1 == 0 and before & 6, before
+            states.add(before)
+            # Nobody is forced (first was open): the batter takes first,
+            # the runners stay, no run scores and no out is made, so the
+            # next batter of the same half sees exactly that.
+            after = begun[index + 1][0]
+            for key in ("inning", "half", "outs_before", "bat_score_before",
+                        "fld_score_before"):
+                assert after[key] == entry[key], key
+            assert after["bases_before"] == before | 1
+        lines = result.metadata["batting_lines"]
+        batting = [line for side in ("away", "home") for line in lines[side]]
+        pitching = [
+            line for side in ("away", "home")
+            for line in result.metadata["pitcher_lines"][side]
+        ]
+        totals = result.totals
+        # IBB: the log, the totals and both box scores agree.
+        assert totals["ibb"] == len(intentional) > 0
+        assert sum(line["ibb"] for line in batting) == totals["ibb"]
+        assert sum(line["ibb"] for line in pitching) == totals["ibb"]
+        # BB includes the intentional ones.
+        all_walks = sum(
+            1 for pa in charged
+            if any(e.get("pa_result") in ("bb", "ibb") for e in pa)
+        )
+        assert totals["bb"] == all_walks > totals["ibb"]
+        assert sum(line["bb"] for line in batting) == totals["bb"]
+        assert sum(line["bb"] for line in pitching) == totals["bb"]
+        # A plate appearance and a batter faced, but not an at bat.
+        assert totals["pa"] == len(charged)
+        assert sum(line["pa"] for line in batting) == totals["pa"]
+        assert sum(line["bf"] for line in pitching) == totals["pa"]
+        for line in pitching:
+            assert line["bf"] == sum(
+                1 for pa in charged if pa[0]["pitcher_id"] == line["player_id"]
+            )
+            assert line["ibb"] == sum(
+                1 for pa in intentional
+                if pa[0]["pitcher_id"] == line["player_id"]
+            )
+        for line in batting:
+            assert line["ab"] <= line["pa"] - line["bb"]
+        # No pitch is charged for one: every pitch thrown is a log entry.
+        thrown = [e for e in result.pitch_log if "pitch_type" in e]
+        assert totals["pitches"] == len(thrown)
+        assert sum(line["pitches"] for line in batting) == len(thrown)
+        for line in pitching:
+            assert line["pitches"] == sum(
+                1 for e in thrown if e["pitcher_id"] == line["player_id"]
+            )
+    # A runner on second, on third, and on both.
+    assert walks >= 20 and states == {2, 4, 6}
+
+
+def test_ibb_model_gap_reads_the_games_own_tuning(monkeypatch):
+    # The gap is each hitter's offence score against this pitcher, platoon
+    # shift included, and that shift must be the game's (a league that
+    # balances its right-handed split reads a smaller one).
+    from physics_sim.platoon import platoon_shift
+
+    batter = _batter("lhb", bats="L", contact=52.0, power=52.0)
+    on_deck = _batter("rhb", bats="R", contact=50.0, power=50.0)
+    plain = _tuning(ibb_model=1.0)
+    league = _tuning(
+        ibb_model=1.0, handedness_rhb_scale=0.4, handedness_switch_bonus=1.0
+    )
+
+    def expected(tuning):
+        gap = (52.0 - 50.0) + 2.0 * (
+            platoon_shift(batter, "R", tuning)[0]
+            - platoon_shift(on_deck, "R", tuning)[0]
+        )
+        return 0.35 * min(1.0, (gap - 2.0) / 5.0)
+
+    got_plain = _ibb_chance(monkeypatch, plain, batter=batter, on_deck=on_deck)
+    got_league = _ibb_chance(monkeypatch, league, batter=batter, on_deck=on_deck)
+    # Default: L against R is +1, R against R is -1, so the gap is 2 + 4.
+    assert got_plain == pytest.approx(expected(plain)) == pytest.approx(0.35 * 0.8)
+    # The league's right-handed split is 0.4 of that: the gap is 2 + 2.8.
+    assert got_league == pytest.approx(expected(league))
+    assert got_league == pytest.approx(0.35 * 2.8 / 5.0)
+
+
 def test_the_engine_hands_the_rule_the_real_on_deck_hitter(monkeypatch):
     calls = []
     real = engine._should_intentional_walk
@@ -1006,26 +1336,69 @@ def test_the_engine_hands_the_rule_the_real_on_deck_hitter(monkeypatch):
         return real(**kwargs)
 
     monkeypatch.setattr(engine, "_should_intentional_walk", spy)
-    result = _play("calibration", "CAL01", "CAL02", 3, {"ibb_model": 1.0})
-    assert len(calls) == result.totals["pa"]
-    assert all(batter != on_deck for batter, on_deck in calls)
-    # Each club's plate appearances in order: the on-deck hitter of one is
-    # the batter of the next, innings apart or not. The only misses are
-    # pinch hitters (the man on deck was replaced before he batted). The
-    # hitter two spots down -- the off-by-one this guards -- never matches.
-    side_of = {
-        line["player_id"]: side
-        for side, lines in result.metadata["batting_lines"].items()
-        for line in lines
-    }
-    for side in ("away", "home"):
-        club = [call for call in calls if side_of[call[0]] == side]
-        assert len(club) >= 27
-        assert all(side_of[on_deck] == side for _batter_id, on_deck in club)
-        misses = sum(
-            on_deck != nxt[0] for (_b, on_deck), nxt in zip(club, club[1:])
-        )
-        assert misses <= 3, (side, misses)
+    cut_short_seen = 0
+    # Seed 3 has no plate appearance cut short; seeds 1 and 10 have one and
+    # two (the third out made on the bases with the batter still up).
+    for seed in (3, 1, 10):
+        del calls[:]
+        result = _play("calibration", "CAL01", "CAL02", seed, {"ibb_model": 1.0})
+        # The rule is asked once for every plate appearance that begins.
+        begun = _plate_appearances(result.pitch_log)
+        assert len(calls) == len(begun)
+        # A plate appearance cut short is not charged (rule 5.04(a)(2)), so
+        # the box score counts fewer than began.
+        cut_short = [pa for pa in begun if _cut_short(pa)]
+        assert result.totals["pa"] == len(begun) - len(cut_short)
+        cut_short_seen += len(cut_short)
+        assert all(batter != on_deck for batter, on_deck in calls)
+        # Each club's plate appearances in order: the on-deck hitter of one
+        # is the batter of the next, innings apart or not -- or, after a
+        # plate appearance cut short, the same batter again (he leads off
+        # the next inning). The only other misses are pinch hitters (the man
+        # on deck was replaced before he batted). The hitter two spots down
+        # -- the off-by-one this guards -- never matches.
+        side_of = {
+            line["player_id"]: side
+            for side, lines in result.metadata["batting_lines"].items()
+            for line in lines
+        }
+        repeats = 0
+        for side in ("away", "home"):
+            club = [call for call in calls if side_of[call[0]] == side]
+            assert len(club) >= 27
+            assert all(side_of[on_deck] == side for _batter_id, on_deck in club)
+            pairs = list(zip(club, club[1:]))
+            repeats += sum(call == nxt for call, nxt in pairs)
+            misses = sum(
+                on_deck != nxt[0] for (batter, on_deck), nxt in pairs
+                if (batter, on_deck) != nxt
+            )
+            assert misses <= 3, (seed, side, misses)
+        # A cut-short batter is asked about again, unless his was the last
+        # plate appearance of the game (a walk-off run on the bases).
+        assert len(cut_short) - 1 <= repeats <= len(cut_short), seed
+    assert cut_short_seen >= 3
+
+
+def _plate_appearances(pitch_log):
+    """The log split at each ``pa_start`` entry."""
+    groups = []
+    for entry in pitch_log:
+        if entry.get("pa_start"):
+            groups.append([entry])
+        else:
+            groups[-1].append(entry)
+    return groups
+
+
+def _cut_short(pa) -> bool:
+    """Ended by the third out on the bases or a walk-off run, not by the
+    batter: no result, and not catcher's interference (which has none
+    either)."""
+    return (
+        not any(entry.get("pa_result") for entry in pa)
+        and pa[-1].get("outcome") != "interference"
+    )
 
 
 # --- commissioner sliders (owner decision 9) -----------------------------------------
