@@ -2967,13 +2967,46 @@ def _run_label(run_kind: str, run_n: int) -> str:
     return "get every team ready"
 
 
+def _post_draft_hold_until() -> Any:
+    """When automatic scheduled runs may resume after this year's draft.
+
+    ``None`` unless a draft finished less than the league's "wait after the
+    draft" ago. Owners get that long with their draft class before an
+    unattended run fills unready rosters and sims (owner decision
+    2026-10-11); the commissioner's own "Run now" is not held. Never raises.
+    """
+
+    try:
+        from datetime import timedelta
+
+        from services import draft_state as _ds
+        from services.draft_settings import load_draft_settings
+
+        hours = int(load_draft_settings().post_draft_wait_hours or 0)
+        if hours <= 0:
+            return None
+        year = _current_draft_year()
+        if year is None:
+            return None
+        ended = _parse_iso_utc((_ds.load_state(year) or {}).get("completed_at"))
+        if ended is None:
+            return None
+        until = ended + timedelta(hours=hours)
+        return until if _now_utc() < until else None
+    except Exception:  # pragma: no cover - the hold must never break a tick
+        return None
+
+
 def _schedule_view() -> Dict[str, Any]:
     sched = _read_schedule()
     dt = _parse_iso_utc(sched["deadline"])
     now = _now_utc()
     unready = _league_readiness()["unready"] if len(_human_team_ids()) >= 2 else []
+    hold = _post_draft_hold_until()
     return {
         **sched,
+        # An automatic run is held until this time: the draft has just ended.
+        "held_until": hold.isoformat() if hold is not None else None,
         "deadline_utc": dt.isoformat() if dt else None,
         "is_scheduled": dt is not None,
         "past_due": bool(dt and now >= dt),
@@ -3571,6 +3604,16 @@ def tick_season_schedule(
                 continue
             if league in drafted_this_tick:
                 row["skipped"] = "The amateur draft advanced on this tick."
+                continue
+            # Owners get the league's "wait after the draft" with their draft
+            # class before an unattended run sets rosters. The deadline is
+            # left alone, so the run fires on the first tick after the wait.
+            hold = _post_draft_hold_until()
+            if hold is not None:
+                row["held_until"] = hold.isoformat()
+                row["skipped"] = (
+                    "Waiting after the amateur draft until " + hold.isoformat() + "."
+                )
                 continue
             try:
                 result = _run_schedule(_SCHEDULER_IDENTITY, force=False)

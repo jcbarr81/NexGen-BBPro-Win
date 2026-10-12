@@ -1188,6 +1188,9 @@ export interface SeasonScheduleInput {
 
 export interface SeasonSchedule extends SeasonScheduleInput {
   deadline_utc: string | null;
+  /** An automatic run is held until this time: the amateur draft has just
+   *  ended and owners get the league's "wait after the draft" first. */
+  held_until?: string | null;
   is_scheduled: boolean;
   past_due: boolean;
   seconds_remaining: number | null;
@@ -3207,22 +3210,29 @@ export const api = {
       rounds: number;
       pool_size: number;
       pick_clock_hours: number;
+      /** Hours an automatic scheduled run waits after a draft's last pick. */
+      post_draft_wait_hours?: number;
       timing?: DraftTiming;
       timing_options?: DraftTimingOption[];
       limits: {
         rounds: { min: number; max: number; default: number };
         pool_size: { min: number; max: number; default: number };
         pick_clock_hours: { min: number; max: number; default: number };
+        post_draft_wait_hours?: { min: number; max: number; default: number };
       };
     }>("/draft/settings"),
   saveDraftSettings: (
     rounds: number,
     pool_size: number,
     pick_clock_hours?: number,
+    post_draft_wait_hours?: number,
   ) =>
     apiRequest<{ rounds: number; pool_size: number; pick_clock_hours: number }>(
       "/draft/settings",
-      { method: "PUT", body: { rounds, pool_size, pick_clock_hours } },
+      {
+        method: "PUT",
+        body: { rounds, pool_size, pick_clock_hours, post_draft_wait_hours },
+      },
     ),
   // Timing alone: the server leaves rounds, pool size and the clock as they
   // are when they are absent from the body.

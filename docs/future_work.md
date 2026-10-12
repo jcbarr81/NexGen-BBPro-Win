@@ -1410,16 +1410,17 @@ Follow-ups:
   from the season context. Make the helper itself context-aware.
 - Sim-to-milestone: a "To Draft" button still appears for a mid-season
   league only; nothing to change, but the label could say "July draft".
-- **Owner call: time between the last pick and a scheduled CPU fill.** A
-  one-shot deadline that passed during a draft runs on the next tick after
-  the last pick (about ten minutes), which fills unready owner rosters. A
-  minimum gap (say 24 hours after the last pick) would give owners time
-  with their draft class. Not built: it changes when a commissioner's
-  deadline fires.
-- Free-agent signings and extensions are blocked for the whole of a draft
-  (`free_agency.py`, `contract_negotiator.py`). In July that is a day; a
-  preseason draft on a long pick clock can run for days during the busiest
-  signing period. Consider allowing them during a preseason draft.
+- **DONE 7.50.1 (owner decision 2026-10-11: the commissioner sets it):**
+  `post_draft_wait_hours` in `draft_settings.json` (default 24, 0 = none),
+  edited in Draft configuration. The draft state records `completed_at` at
+  the last pick; `season._post_draft_hold_until` holds the AUTOMATIC tick
+  until then (the deadline is kept and fires after the wait). The
+  commissioner's Run now and manual sims are not held.
+- **DECIDED 2026-10-11, no change:** free-agent signings and extensions stay
+  blocked for the whole of any draft, preseason included
+  (`free_agency.py`, `contract_negotiator.py`).
+- **CONFIRMED 2026-10-11:** a new preseason-draft league has no draft in its
+  first season (decision 6 as built).
 - Forcing the phase past an unfinished preseason draft: spring training
   reopens it; forced past twice, the draft is finished in July. There is no
   "cancel this year's draft" action, by design so far.

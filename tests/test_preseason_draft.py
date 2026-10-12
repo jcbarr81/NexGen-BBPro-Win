@@ -933,3 +933,101 @@ def test_an_archive_without_records_falls_back_to_july_not_to_no_draft(league):
     assert "draft_skipped_year" not in out
     assert draft_state.skipped_years() == []
     assert S._draft_day_pause_due(_july(), _july()) is True
+
+
+# --- owners get time with their draft class before an automatic run ----------------
+
+
+def test_the_wait_after_the_draft_defaults_to_24_hours_and_round_trips(league, tmp_path):
+    _preseason_2027(league)
+    view = D.draft_settings_view()
+    assert view["post_draft_wait_hours"] == 24
+    assert view["limits"]["post_draft_wait_hours"]["default"] == 24
+
+    saved = D.draft_settings_save({"post_draft_wait_hours": 6}, ADMIN)
+    assert saved["post_draft_wait_hours"] == 6 and saved["rounds"] == 1
+    # A client that does not know about the wait cannot reset it.
+    assert D.draft_settings_save({"rounds": 2}, ADMIN)["post_draft_wait_hours"] == 6
+    # 0 is a real value: no wait.
+    assert D.draft_settings_save({"post_draft_wait_hours": 0}, ADMIN)[
+        "post_draft_wait_hours"
+    ] == 0
+
+    # A settings file from before the setting existed.
+    (tmp_path / "draft_settings.json").write_text(
+        json.dumps({"rounds": 12, "pool_size": 300}), encoding="utf-8"
+    )
+    assert ds.load_draft_settings(tmp_path).post_draft_wait_hours == 24
+
+
+def _tick(monkeypatch) -> dict:
+    monkeypatch.setenv("NEXGEN_SCHEDULER_TOKEN", "secret")
+    monkeypatch.setattr(S, "_sim_running", lambda: False)
+    monkeypatch.setattr(S, "_iter_league_ids", lambda: [LEAGUE])
+    monkeypatch.setattr(S, "_tick_fa_windows", lambda: [])
+    return S.tick_season_schedule(x_scheduler_token="secret")
+
+
+def test_the_automatic_run_waits_after_the_last_pick(league, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    _hold_the_preseason_draft(league)
+    now = datetime.now(timezone.utc)
+    ended = S._parse_iso_utc(draft_state.load_state(2027)["completed_at"])
+    assert abs((now - ended).total_seconds()) < 120
+
+    hold = S._post_draft_hold_until()
+    assert timedelta(hours=23) < hold - now <= timedelta(hours=24)
+    stale = (now - timedelta(days=1)).isoformat()
+    S._write_schedule(_schedule(deadline=stale))
+    assert S._schedule_view()["held_until"] == hold.isoformat()
+
+    ran = []
+    monkeypatch.setattr(
+        S, "_run_schedule",
+        lambda identity, *, force=False: ran.append(1) or {"started": None},
+    )
+    out = _tick(monkeypatch)
+    assert ran == [] and out["fired"] == []
+    assert out["considered"][0]["held_until"] == hold.isoformat()
+    # The deadline is left alone: it fires on the first tick after the wait.
+    assert S._read_schedule()["deadline"] == stale
+
+    state = draft_state.load_state(2027)
+    state["completed_at"] = (now - timedelta(hours=25)).isoformat()
+    draft_state.save_state(2027, state)
+    assert S._post_draft_hold_until() is None
+    assert S._schedule_view()["held_until"] is None
+    out = _tick(monkeypatch)
+    assert ran == [1] and [f["league"] for f in out["fired"]] == [LEAGUE]
+
+
+def test_no_wait_when_the_commissioner_sets_it_to_zero(league, monkeypatch):
+    _hold_the_preseason_draft(league)
+    D.draft_settings_save({"post_draft_wait_hours": 0}, ADMIN)
+    assert S._post_draft_hold_until() is None
+
+
+def test_the_commissioners_run_now_is_not_held(league, monkeypatch):
+    """The wait protects owners from an unattended run, not from his decision."""
+    from datetime import datetime, timedelta, timezone
+
+    _hold_the_preseason_draft(league)
+    assert S._post_draft_hold_until() is not None
+    stale = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    S._write_schedule(_schedule(deadline=stale, run_kind=""))
+    filled = []
+    monkeypatch.setattr(S, "_sim_running", lambda: False)
+    monkeypatch.setattr(S, "_cpu_fill_all_unready", lambda: filled.append("fill") or [])
+    monkeypatch.setattr(S, "_cpu_activate_eligible", lambda: filled.append("il") or [])
+    S._run_schedule(ADMIN)
+    assert filled == ["il", "fill"]
+
+
+def test_a_draft_that_finished_before_the_setting_existed_holds_nothing(league):
+    """No ``completed_at``: nothing to count from."""
+    _hold_the_preseason_draft(league)
+    state = draft_state.load_state(2027)
+    state.pop("completed_at")
+    draft_state.save_state(2027, state)
+    assert S._post_draft_hold_until() is None
