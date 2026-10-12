@@ -35,8 +35,8 @@
   "ibb_early_scale": 0.1,
   "ibb_no_out_scale": 0.3,
   "contact_model": 1,
-  "contact_logit_zone": 1.49,
-  "contact_logit_chase": 0.23,
+  "contact_logit_zone": 1.63,
+  "contact_logit_chase": 0.37,
   "contact_logit_ch": 0.09,
   "contact_logit_pq": 0.04,
   "contact_logit_break": 0.4,
@@ -59,62 +59,62 @@
   "home_field_power_ratio": 0.6,
   "tto_pass2_weight": 4.5,
   "tto_pass3_weight": 2.0,
-  "babip_scale": 0.941,
-  "handedness_contact_bonus": 1.85,
-  "handedness_eye_bonus": 1.35,
-  "handedness_power_bonus": 2.0,
+  "babip_scale": 0.925,
+  "handedness_contact_bonus": 1.8,
+  "handedness_eye_bonus": 1.3,
+  "handedness_power_bonus": 1.95,
   "hbp_opposite_hand_scale": 0.57,
   "hbp_same_hand_scale": 1.75,
-  "hr_scale": 0.93,
+  "hr_scale": 0.912,
   "swing_count_table": {
     "0-0": {
       "zone": 0.444,
-      "chase": 0.1659
+      "chase": 0.1603
     },
     "0-1": {
       "zone": 0.744,
-      "chase": 0.2919
+      "chase": 0.2835
     },
     "0-2": {
       "zone": 0.886,
-      "chase": 0.3542
+      "chase": 0.3449
     },
     "1-0": {
       "zone": 0.597,
-      "chase": 0.2333
+      "chase": 0.2261
     },
     "1-1": {
       "zone": 0.777,
-      "chase": 0.3297
+      "chase": 0.3207
     },
     "1-2": {
       "zone": 0.9,
-      "chase": 0.3999
+      "chase": 0.3901
     },
     "2-0": {
       "zone": 0.582,
-      "chase": 0.2188
+      "chase": 0.2119
     },
     "2-1": {
       "zone": 0.778,
-      "chase": 0.3379
+      "chase": 0.3288
     },
     "2-2": {
       "zone": 0.905,
-      "chase": 0.4393
+      "chase": 0.4293
     },
     "3-0": {
       "zone": 0.135,
-      "chase": 0.0381
+      "chase": 0.0366
     },
     "3-1": {
       "zone": 0.719,
-      "chase": 0.2693
+      "chase": 0.2613
     },
     "3-2": {
       "zone": 0.903,
-      "chase": 0.4635
+      "chase": 0.4534
     }
   },
-  "zone_target_base": 0.34
+  "zone_target_base": 0.32
 }
