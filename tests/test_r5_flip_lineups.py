@@ -94,7 +94,13 @@ def test_a_game_rebuilds_a_broken_lineup_with_its_own_tuning(
     for hand in ("lhp", "rhp"):
         (fixture / "lineups" / f"CAL01_vs_{hand}.csv").unlink()
     calls = _spy_on_fill(monkeypatch)
-    game_overrides = {**engine_profile(5), "hitter_vl_center_l": 61.0}
+    # A generation 5 game is handed its league's centres (it refuses to
+    # play league-relative ratings without them).
+    game_overrides = {
+        **engine_profile(5),
+        **centers.active_rating_centers(fixture),
+        "hitter_vl_center_l": 61.0,
+    }
     engine.simulate_matchup_from_files(
         away_team="CAL01", home_team="CAL02",
         players_path=fixture / "players.csv", base_dir=fixture, seed=3,

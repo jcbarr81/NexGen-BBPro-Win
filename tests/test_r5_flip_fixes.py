@@ -39,6 +39,7 @@ from tests.r5_flip_support import (  # noqa: F401  (league is a fixture)
     CALIBRATION,
     LEAGUE,
     NEW_SEASON_ENGINE_ENV,
+    centres_as_7_50_3,
     drop_witness,
     game_tuning,
     league,
@@ -84,9 +85,10 @@ def _write_overrides(data, values=LEGACY_SLIDERS) -> str:
 
 
 def _legacy_centres_file(data, season) -> str:
-    """``rating_centers.json`` as the code deployed today leaves it: the
-    season's centres and no generation. Returns its text."""
-    seasons = {str(season): centers.active_rating_centers(data)}
+    """``rating_centers.json`` as the code deployed today (7.50.3) leaves
+    it: the season's sixteen centres, Contact and Eye over every ACT hitter,
+    and no generation (``centres_as_7_50_3``). Returns its text."""
+    seasons = {str(season): centres_as_7_50_3(data)}
     path = _centres_path(data)
     path.write_text(_centres_json(seasons), encoding="utf-8")
     return path.read_text(encoding="utf-8")

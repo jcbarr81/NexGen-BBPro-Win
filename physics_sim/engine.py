@@ -25,7 +25,12 @@ from .fielding import (
     error_probability,
     select_error_type,
 )
-from .centred_ratings import ratings_centred, source_shift
+from .centred_ratings import (
+    league_relative,
+    ratings_centred,
+    require_rating_centers,
+    source_shift,
+)
 from .park import load_park, Park
 from .platoon import platoon_shift
 from .physics import (
@@ -947,7 +952,7 @@ def _reliever_score(
             score += 2.0
         elif role == "CL":
             score -= 4.0
-    return score * freshness
+    return _choice_score(score * freshness, tuning)
 
 
 def _matchup_score(
@@ -1066,9 +1071,11 @@ def _select_reliever(
         if tuning is None or not upcoming_batters:
             return base
         matchup = _matchup_score(candidate, upcoming_batters, tuning)
-        return base + matchup * tuning.get("bullpen_platoon_weight", 2.0)
+        return _choice_score(
+            base + matchup * tuning.get("bullpen_platoon_weight", 2.0), tuning
+        )
 
-    return max(candidates, key=score)
+    return _pick_best(candidates, score, _pitcher_state_id, tuning)
 
 
 def _least_worn(
@@ -1077,13 +1084,16 @@ def _least_worn(
     score_diff: int,
     tuning: TuningConfig | None = None,
 ) -> PitcherState:
-    """Least worn first, then the usual leverage fit."""
+    """Least worn first, then the usual leverage fit (under centred_ratings
+    an exact tie goes to the lower player id, as in ``_pick_best``)."""
 
+    centred = ratings_centred(tuning)
     return min(
         arms,
         key=lambda c: (
             round(c.pregame_penalty, 3),
             -_reliever_score(c, leverage, score_diff=score_diff, tuning=tuning),
+            _pitcher_state_id(c) if centred else "",
         ),
     )
 
@@ -2069,11 +2079,67 @@ def _league_relative(
     by: a hitter's ``hitter_*_center``, a pitcher's workload-weighted
     ``pitcher_*_usage_center``. Unchanged while the switch is off, and not
     for the Release 4 terms above, which centre a raw rating themselves on
-    the plain ACT means.
+    the plain ACT means. The shifted rating is rounded
+    (``centred_ratings.league_relative``), and a centre that was not
+    delivered raises instead of reading 50.
+    """
+    return league_relative(value, key, tuning)
+
+
+# Decimal places a manager's score is rounded to under centred_ratings.
+_CHOICE_DECIMALS = 6
+
+
+def _choice_score(score: float, tuning: TuningConfig | None) -> float:
+    """A score a manager's choice is made on (an arm for the bullpen, a
+    hitter for the bench, the gap an intentional walk weighs).
+
+    Release 5 (centred_ratings): rounded, so that two candidates who are
+    level are level -- not split by the last bit of a float -- and the
+    choice between them is the one ``_pick_best`` states. Unchanged while
+    the switch is off.
+    """
+    if not ratings_centred(tuning):
+        return score
+    return round(score, _CHOICE_DECIMALS)
+
+
+def _pick_best(candidates, score, ident, tuning: TuningConfig | None):
+    """The candidate with the highest ``score``.
+
+    Legacy: the first of them in ``candidates``, as it has always been.
+    Under centred_ratings a tie goes to the lowest ``ident`` (the player
+    id), so the choice does not depend on the order a caller listed them
+    in. ``score`` is expected to be rounded already (``_choice_score``).
+    """
+    if not ratings_centred(tuning):
+        return max(candidates, key=score)
+    return min(candidates, key=lambda c: (-score(c), ident(c)))
+
+
+def _pitcher_state_id(state: PitcherState) -> str:
+    return str(state.pitcher.player_id)
+
+
+def _batter_id(batter: BatterRatings) -> str:
+    return str(batter.player_id)
+
+
+def _pickoff_rating(value: float, key: str, tuning: TuningConfig) -> float:
+    """The pitcher's hold or arm as the pickoff reads it.
+
+    Legacy: the raw rating, against 50. Release 5 (centred_ratings):
+    against the league's plain ACT mean in ``key`` through the Release 4
+    reader (``pitcher_hold_center``, ``pitcher_arm_center``), like the steal
+    deterrents and the steal success chance on the same runners. Not the
+    workload-weighted arm centre the pitch's velocity is shifted by: the
+    running game is centred on every ACT pitcher, hold has no other centre,
+    and one reader for the whole running game keeps a league whose
+    pitchers all move by a constant on the same pickoffs.
     """
     if not ratings_centred(tuning):
         return value
-    return value + source_shift(tuning, key)
+    return _centred_rating(value, key, tuning)
 
 
 def _out_on_base_prob(
@@ -3135,6 +3201,7 @@ def _pickoff_attempt_rate(
     pitcher_hold: float,
     tuning: TuningConfig,
 ) -> float:
+    pitcher_hold = _pickoff_rating(pitcher_hold, "pitcher_hold_center", tuning)
     rate = base_rate * tuning.get("pickoff_freq_scale", 1.0)
     rate *= 0.7 + (speed - 50.0) / 120.0
     rate *= 0.8 + (pitcher_hold - 50.0) / 140.0
@@ -3149,6 +3216,8 @@ def _pickoff_success_prob(
     defense_arm: float,
     tuning: TuningConfig,
 ) -> float:
+    pitcher_hold = _pickoff_rating(pitcher_hold, "pitcher_hold_center", tuning)
+    pitcher_arm = _pickoff_rating(pitcher_arm, "pitcher_arm_center", tuning)
     base = tuning.get("pickoff_success_base", 0.06)
     base += (pitcher_hold - 50.0) / 240.0
     base += (pitcher_arm - 50.0) / 320.0
@@ -4119,10 +4188,11 @@ def _platoon_bonus(
 def _batter_offense_score(
     batter: BatterRatings, pitcher: PitcherRatings, tuning: TuningConfig | None = None
 ) -> float:
-    return (
+    return _choice_score(
         _league_relative(batter.contact, "hitter_contact_center", tuning) * 0.55
         + _league_relative(batter.power, "hitter_power_center", tuning) * 0.45
-        + _platoon_bonus(batter, pitcher, tuning)
+        + _platoon_bonus(batter, pitcher, tuning),
+        tuning,
     )
 
 
@@ -4320,8 +4390,9 @@ def _select_pinch_hitter(
         return score
 
     current_score = _batter_offense_score(batter, pitcher, tuning)
-    best = max(candidates, key=ph_score)
-    if ph_score(best) - current_score < tuning.get("pinch_hit_advantage_min", 6.0):
+    best = _pick_best(candidates, ph_score, _batter_id, tuning)
+    advantage = _choice_score(ph_score(best) - current_score, tuning)
+    if advantage < tuning.get("pinch_hit_advantage_min", 6.0):
         return None
     return best
 
@@ -4466,9 +4537,11 @@ def _should_intentional_walk(
         # is made unless the gap is big enough to consider it.
         if on_deck is None:
             return False
-        gap = _batter_offense_score(
-            batter, pitcher, tuning
-        ) - _batter_offense_score(on_deck, pitcher, tuning)
+        gap = _choice_score(
+            _batter_offense_score(batter, pitcher, tuning)
+            - _batter_offense_score(on_deck, pitcher, tuning),
+            tuning,
+        )
         gap_min = tuning.get("ibb_gap_min", 2.0)
         if gap <= gap_min:
             return False
@@ -4817,10 +4890,10 @@ def _apply_batter_fatigue(
             # bounds, the rating as the plate appearance will read it,
             # league-relative; it is handed back on the rating's own scale
             # (the shift itself is applied once, in _batter_context).
-            shift = source_shift(tuning, key)
-            if not shift:
+            if not ratings_centred(tuning):
                 return clamp(value * scale)
-            return clamp((value + shift) * scale) - shift
+            relative = _league_relative(value, key, tuning)
+            return clamp(relative * scale) - source_shift(tuning, key)
 
         updated = replace(
             batter,
@@ -5006,15 +5079,15 @@ def _pitcher_context(pitcher: PitcherRatings, tuning: TuningConfig) -> Dict[str,
 
     Release 5 (centred_ratings): his ratings become league-relative here,
     once -- control and movement, the arm rating behind his velocity (the
-    rating, not the fatigued velocity) and every pitch grade. A staff with
-    no repertoire throws the stand-in 50 fastball, which is already the
-    league's average pitch.
+    rating, not the fatigued velocity) and every pitch grade. A pitcher
+    with no repertoire throws the stand-in 50 fastball, which is already
+    the league's average pitch (and asks for no pitch-grade centre).
     """
     repertoire = pitcher.repertoire or {"fb": 50}
-    grade_shift = source_shift(tuning, "pitcher_grade_usage_center")
-    if pitcher.repertoire and grade_shift:
+    if pitcher.repertoire and ratings_centred(tuning):
         repertoire = {
-            pitch: grade + grade_shift for pitch, grade in repertoire.items()
+            pitch: _league_relative(grade, "pitcher_grade_usage_center", tuning)
+            for pitch, grade in repertoire.items()
         }
     arm = _league_relative(pitcher.arm, "pitcher_arm_usage_center", tuning)
     return {
@@ -5263,7 +5336,14 @@ def _rest_bench_value(
 ) -> float:
     if opposing_starter is not None:
         return _batter_offense_score(b, opposing_starter, tuning)
-    return b.contact * 0.55 + b.power * 0.45
+    # No starter to face: the same score without the platoon shift (the
+    # ratings league-relative and the score rounded under centred_ratings,
+    # so a league-wide shift cannot reorder two bench players).
+    return _choice_score(
+        _league_relative(b.contact, "hitter_contact_center", tuning) * 0.55
+        + _league_relative(b.power, "hitter_power_center", tuning) * 0.45,
+        tuning,
+    )
 
 
 def _rest_is_rested(
@@ -5636,6 +5716,10 @@ def simulate_game(
     rng = random.Random(seed)
     random.seed(seed)
     tuning: TuningConfig = load_tuning(overrides=tuning_overrides)
+    # Release 5 (centred_ratings): a game is never played half-shifted. With
+    # the switch on, the league's centres must have been delivered with the
+    # tuning; this raises before a workload or a pitch is touched.
+    require_rating_centers(tuning)
     park: Park = load_park(park_name)
     injury_sim: InjurySimulator | None = None
     if tuning.get("injuries_enabled", 1.0) > 0.5:
@@ -6022,14 +6106,16 @@ def simulate_game(
                         and pitcher.available
                     ]
                     if available_closers:
-                        next_pitcher = max(
+                        next_pitcher = _pick_best(
                             available_closers,
-                            key=lambda candidate: _reliever_score(
+                            lambda candidate: _reliever_score(
                                 candidate,
                                 leverage,
                                 score_diff=lead,
                                 tuning=tuning,
                             ),
+                            _pitcher_state_id,
+                            tuning,
                         )
                     else:
                         next_pitcher = _select_reliever(
@@ -6546,16 +6632,6 @@ def simulate_game(
                 tuning=tuning,
             )
             _pa_pitcher_ctx = _pitcher_context(pitcher_state.pitcher, tuning)
-            # Release 5 (centred_ratings): what makes control and movement
-            # league-relative each pitch, before the fresh-arm bonus and
-            # the fatigue factors (0.0 while the switch is off).
-            _pa_centred = ratings_centred(tuning)
-            _pa_control_shift = source_shift(
-                tuning, "pitcher_control_usage_center"
-            )
-            _pa_movement_shift = source_shift(
-                tuning, "pitcher_movement_usage_center"
-            )
             while True:
                 pitcher_state.pitches += 1
                 penalty = _fatigue_penalty(pitcher_state, tuning) + pitcher_state.pregame_penalty
@@ -6599,11 +6675,15 @@ def simulate_game(
                     "last_pitch_repeat": last_pitch_repeat,
                     "foul_territory_scale": park.foul_territory_scale,
                 }
-                _pa_control = pitcher.control
-                _pa_movement = pitcher.movement
-                if _pa_centred:
-                    _pa_control += _pa_control_shift
-                    _pa_movement += _pa_movement_shift
+                # Release 5 (centred_ratings): control and movement become
+                # league-relative before the fresh-arm bonus and the
+                # fatigue factors (the ratings themselves while it is off).
+                _pa_control = _league_relative(
+                    pitcher.control, "pitcher_control_usage_center", tuning
+                )
+                _pa_movement = _league_relative(
+                    pitcher.movement, "pitcher_movement_usage_center", tuning
+                )
                 _pa_pitcher_ctx["control"] = _pa_control * command_factor
                 _pa_pitcher_ctx["movement"] = _pa_movement * movement_factor
                 if _pa_fresh:

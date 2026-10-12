@@ -35,7 +35,31 @@ and keep reading the real centre: the Release 4 running-game terms
 (``engine._centred_rating`` / ``_centred_speed``, which read the plain
 ACT means ``pitcher_control_center``, ``pitcher_hold_center`` and
 ``pitcher_arm_center``) and the Contact hit edge
-(``engine._contact_babip_edge``).
+(``engine._contact_babip_edge``). Under the switch the pickoff joins them
+(``engine._pickoff_rating``): its attempt rate and its success chance read
+the pitcher's hold and arm through the same Release 4 reader, against
+those plain means, like the steal terms beside them. With the switch off
+the pickoff reads both raw against 50, as it always has.
+
+A rating is only ever treated as league-relative if its centre was
+DELIVERED. Every centre defaults to 50.0, which cannot be told from "nobody
+supplied this league's centre", and a game that shifts its hitters but not
+its pitchers -- or shifts nothing while the models compare against 50 --
+plays a different sport. So :func:`source_shift` raises
+:class:`RatingCenterMissing` when the switch is on and the centre it is
+asked for is not among the keys the tuning's overrides supplied
+(``TuningConfig.delivered``), and ``engine.simulate_game`` checks the ones
+every game needs before anything is played
+(:func:`require_rating_centers`). Every shifted input reaches the pitch
+through :func:`source_shift`, so a model's "compare against 50" never
+applies to a rating that was not shifted.
+
+The shifted rating is rounded to ``SHIFT_DECIMALS`` places
+(:func:`league_relative`). ``rating + (50 - centre)`` is not exact in
+binary for a two-decimal centre, so two leagues that differ by a constant
+would otherwise read the same player a last bit apart, and that bit can
+decide a near-tie between two relievers or the side of a threshold a
+rating falls on. Rounded, they read the identical number.
 
 The switch is off (0.0) by default: the legacy engine reads its ratings
 exactly as before. Generation 5's profile turns it on.
@@ -43,12 +67,17 @@ exactly as before. Generation 5's profile turns it on.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable
 
 __all__ = [
     "CENTRED_RATING_KEYS",
     "MODEL_CENTER_KEYS",
+    "REQUIRED_CENTER_KEYS",
+    "SHIFT_DECIMALS",
+    "RatingCenterMissing",
+    "league_relative",
     "ratings_centred",
+    "require_rating_centers",
     "source_shift",
     "rating_center",
 ]
@@ -68,6 +97,18 @@ MODEL_CENTER_KEYS = {
 }
 # The centres the shift itself reads.
 CENTRED_RATING_KEYS = frozenset(MODEL_CENTER_KEYS.values())
+# The ones no game can be played without under the switch. The pitch-grade
+# centre is asked for only when a pitcher has a repertoire to shift: a
+# league whose pitchers carry no pitch grades has no such centre, and every
+# pitch there is the stand-in 50.
+REQUIRED_CENTER_KEYS = CENTRED_RATING_KEYS - {"pitcher_grade_usage_center"}
+# Decimal places a shifted rating is rounded to (module docstring).
+SHIFT_DECIMALS = 9
+
+
+class RatingCenterMissing(RuntimeError):
+    """``centred_ratings`` is on and a league centre it needs was not
+    delivered with the tuning."""
 
 
 def ratings_centred(tuning: Any) -> bool:
@@ -76,19 +117,58 @@ def ratings_centred(tuning: Any) -> bool:
     return tuning is not None and tuning.get("centred_ratings", 0.0) >= 0.5
 
 
+def require_rating_centers(tuning: Any) -> None:
+    """Raise :class:`RatingCenterMissing` unless every centre a game needs
+    was delivered. Nothing to check with the switch off."""
+
+    if not ratings_centred(tuning):
+        return
+    delivered = getattr(tuning, "delivered", ())
+    missing = sorted(key for key in REQUIRED_CENTER_KEYS if key not in delivered)
+    if missing:
+        raise RatingCenterMissing(_missing_message(missing))
+
+
+def _missing_message(missing: Iterable[str]) -> str:
+    return (
+        "centred_ratings is on but the league's rating centres were not "
+        f"delivered with the tuning ({', '.join(missing)}); the game would be "
+        "played on ratings that are not league-relative. The centres come "
+        "from services.league_rating_centers (KPI harness: "
+        "with_rating_centers)."
+    )
+
+
 def source_shift(tuning: Any, key: str) -> float:
     """Points to add to a raw rating where it enters the pitch kernel.
 
     ``key`` is the centre the rating is shifted by (one of
     ``CENTRED_RATING_KEYS``): ``50 - centre`` with the switch on, so the
-    league's average reads as 50; 0.0 with it off.
+    league's average reads as 50; 0.0 with it off. With the switch on and
+    the centre not delivered this raises :class:`RatingCenterMissing`: the
+    50.0 default is never taken for a league's centre.
     """
 
     if key not in CENTRED_RATING_KEYS:
         raise KeyError(f"{key} is not the centre of a rating shifted at its source")
     if not ratings_centred(tuning):
         return 0.0
+    if key not in getattr(tuning, "delivered", ()):
+        raise RatingCenterMissing(_missing_message([key]))
     return 50.0 - tuning.get(key, 50.0)
+
+
+def league_relative(value: float, key: str, tuning: Any) -> float:
+    """A raw rating as the plate appearance reads it.
+
+    ``value`` itself with the switch off. With it on, ``value`` plus
+    :func:`source_shift`, rounded to ``SHIFT_DECIMALS`` places so that two
+    leagues a constant apart read the identical number.
+    """
+
+    if not ratings_centred(tuning):
+        return value
+    return round(value + source_shift(tuning, key), SHIFT_DECIMALS)
 
 
 def rating_center(tuning: Any, key: str) -> float:
@@ -97,9 +177,13 @@ def rating_center(tuning: Any, key: str) -> float:
     The league's centre named by ``key`` -- or 50.0 when the rating was
     already shifted at its source (the switch is on and ``key`` is in
     ``MODEL_CENTER_KEYS``). A centre the switch does not cover
-    (``catcher_fa_center``) is always the league's.
+    (``catcher_fa_center``) is always the league's. A usage centre is the
+    shift's, never a model's: asking for one here is an error.
     """
 
-    if key in MODEL_CENTER_KEYS and ratings_centred(tuning):
-        return 50.0
+    if key in MODEL_CENTER_KEYS:
+        if ratings_centred(tuning):
+            return 50.0
+    elif key in CENTRED_RATING_KEYS:
+        raise KeyError(f"{key} is a shift centre; a model names the plain centre")
     return tuning.get(key, 50.0)

@@ -1577,7 +1577,9 @@ switched-on values are in `scripts/kpi_profiles/r5_discipline.json`,
   launched one to three at a time agreed. The harness writes nothing in the
   repository, so the cause is not a shared output file; a loader that
   swallows a read error and falls back (park data?) is the first suspect.
-  Until it is found, judge a gate on runs made one at a time.
+  (Cause established since: the park altitude file, found only through the
+  active league. See "The KPI harness finds park data through the ambient
+  active league" below.)
 - **`utils.roster_loader.load_roster` reads the ACTIVE league for any
   roster.** Observed: `load_roster("ELP", data/calibration_league/rosters)`
   in a checkout whose active league is `cbl` returns six ACT players that
@@ -1609,16 +1611,32 @@ switched-on values are in `scripts/kpi_profiles/r5_discipline.json`,
   `NEXGEN_NEW_SEASON_ENGINE=4` (that does not move a season already on 5).
   A rollback tool would have to refuse while any league records a
   generation above legacy.
-- **The KPI harness reads park data through the ambient active league's
-  folder, not the fixture's.** `utils/park_utils._park_data_roots` starts
-  with `get_data_dir()`, so a harness run started while something else in
-  the same checkout changes the active league or rewrites `data/` can play
-  a whole season with different park data. Seen three times in agent
-  worktrees as a season with home runs per fly ball about 7% lower and
-  everything else unchanged; never reproduced in about 250 runs in a quiet
-  checkout, and the cause is not pinned down. This is probably the
-  "second season" of the repeatability item above. The harness should
-  resolve parks from the fixture it was given (`--base-dir`) only.
+- **The KPI harness finds park data through the ambient active league,
+  not the fixture.** `utils/park_utils._park_data_roots` starts with
+  `get_data_dir()`, the active league's folder, then the data root.
+  `data/parks/Parks.csv` (the altitudes) is git-ignored and exists only in
+  a developer's main checkout; the copies that are tracked sit in three
+  league folders (`data/leagues/cbl`, `usabl` and `test-league`, each
+  `/data/parks/Parks.csv`). So in a clean checkout or a worktree a harness
+  run finds altitude only while the active league is one of those (`cbl`
+  by default), and a run that starts while something in the same checkout
+  has switched the active league to one without park files -- a test, a
+  scratch league -- plays the whole season with no altitude. Measured on
+  calibration seed 1, `--engine 5`, same code, only `active_league.txt`
+  changed: home runs per team-game 1.121 with altitude and 1.060 without,
+  home runs per fly ball .119 and .112, runs 4.40 and 4.34; K and BB move
+  only as much as two different random streams do (22.06% / 22.08%, 8.10%
+  / 8.17%). That is the "season with home runs per fly ball about 7% low"
+  seen in agent worktrees and the "second season" of the repeatability
+  item above. Two things follow for LIVE leagues: the production image
+  excludes `/data/` (`.dockerignore`), and the live leagues' cloud folders
+  are reported to hold no `parks/` folder at all (from an inspection of
+  the bucket on 2026-10-12; not re-checked for this note), so live games
+  are played with no park dimensions and no altitude. The calibration
+  fixture's real parks are not what live leagues play in. Proposed fix
+  for a later release: the harness resolves park data from the fixture's
+  own folder (`--base-dir`), and a park file it cannot find is an error in
+  the harness, not a silent fallback to the generic park.
 - **The lost-`rating_centers.json` item above is closed** by the second
   record of the generation (the witness in `season_progress.json`) and the
   working-copy guard. What is left: (a) a season that loses BOTH records
@@ -1632,10 +1650,16 @@ switched-on values are in `scripts/kpi_profiles/r5_discipline.json`,
   startup pull, every other file that fails to come down is still rebuilt
   by the app and pushed.
 - **An exhibition played in the preseason fixes the season's engine
-  generation and rating centres** (it creates the season's entry, as it
-  has since Release 4), from that day's rosters. It no longer converts the
-  stored sliders. Making an exhibition read-only would change when a
-  legacy league's centres are fixed, so it was left as it is.
+  generation** (it creates the season's entry). It no longer converts the
+  stored sliders, and since the league-relative ratings review it no longer
+  fixes the rating centres either: a game with no date reads the stored
+  centres, or works them out for itself, and stores nothing
+  (`playbalance.game_runner._run_physics_game`: `store=False` when the
+  game has no date). One played
+  before the clubs' lineups were saved used to pin the season's hitter
+  centres to that day's nine-best stand-ins (Contact 51.38 against 51.13
+  on Opening Day, league fixture). The generation is still recorded by an
+  exhibition; it is the same answer a season game would get.
 - **Creating a league of five teams or fewer through the wizard failed
   under pytest** with the players-file shrink guard ("Refusing to write
   102 player(s) over 600"): the new league's folder is re-seeded with the
@@ -1689,20 +1713,55 @@ leaves, on purpose or because it was out of scope:
   centres are fixed when the season's entry is created, from the lineup
   files as they are on disk that day; a CPU club's stale file reads as its
   nine best.
-- **A season entry created before this change keeps what it has.** A
-  generation 5 season whose entry already holds Contact and Eye centres
-  (possible only for a league that started a generation 5 season on a
-  7.51.0 build before this change) plays `centred_ratings` on the Contact
-  and Eye centres it has and reads Power and the four pitcher usage
-  centres as 50, so its pitchers are not shifted at all while the models
-  compare them against 50. Delete the season's entry before its first
-  game to have it rebuilt.
+- **A generation 5 season entry that is not whole is recomputed, even
+  mid-season.** The entry records which definition its Release 5 centres
+  have (`centers_version`). One without the current marker that holds any
+  of the seven (an earlier build of this release wrote it; or this build
+  recorded the generation and a stale 7.50.3 instance then merged its own
+  every-ACT-hitter centres into the entry) has all seven recomputed from
+  that day's rosters and lineups; one with the marker that is missing some
+  (no ACT pitcher resolved when it was created) has those added. Both are
+  reported once (`[engine-generation]` on stdout and in the log). A season
+  already under way therefore changes its centres once. That was chosen
+  over leaving it: half-shifted, the league fixture played 3.79 runs a
+  game with 25.6% strikeouts against 4.56 and 23.2% (one season, measured
+  in the review). A LEGACY season's entry is still never touched. What is
+  left: (a) the stale 7.50.3 instance of a deploy overlap still plays its
+  own games of a generation 5 season on the legacy engine -- that build
+  knows no generations; (b) a read-only caller (a page, a
+  watched game) gets the recomputed centres without storing them, so until
+  a season game runs they follow the day's rosters.
+- **A generation 5 game refuses to play without its centres**
+  (`physics_sim.centred_ratings.RatingCenterMissing`, raised before a
+  workload or a pitch is touched). Every centre defaults to 50.0, and the
+  engine used to take that for the league's. Any tool that plays games on
+  the generation 5 profile must now hand it the league's centres
+  (`with_rating_centers` in the harness, `get_rating_center_overrides` on
+  the live path); `utils.lineup_autofill.platoon_tuning` and the other
+  readers that only score hitters are unaffected. A league whose pitchers
+  carry no pitch grades at all has no grade centre and needs none.
 - **Left absolute on purpose:** the pitcher's `vl` (`platoon_pitcher_scale`
-  reads it against 50), ground-ball and pull tendencies, speed outside the Release 4 terms (the doubles and
-  triples speed terms, the bunt), everything about fielding (range, arm,
+  reads it against 50), ground-ball and pull tendencies, speed outside the
+  Release 4 terms (the doubles and triples speed terms, the bunt, the
+  runner's speed in the pickoff), the lead a runner takes (hold against a
+  70 threshold, `_lead_level`), everything about fielding (range, arm,
   double plays, tag-ups, errors), the catcher's glove under the legacy
-  umpire model, endurance, durability and hold. The Release 4
-  running-game terms keep their own raw-rating-against-the-centre form.
+  umpire model, endurance and durability. The Release 4
+  running-game terms keep their own raw-rating-against-the-centre form,
+  and under `centred_ratings` the pickoff has joined them: it read the
+  pitcher's hold and arm raw against 50 (the one term that made a
+  "pitchers +3" season diverge) and now reads both against the plain ACT
+  means, like the steals. With the profile as it stands that lowers
+  pickoffs (calibration .0071 to .0058 a team-game over four seeds, league
+  fixture .0062 to .0042 over two): those leagues' pitchers have arms well
+  above 50, which the raw read was crediting. Not retuned.
+- **The static guard on centre and rating reads has limits**
+  (`tests/test_r5_centred_guard.py`, `test_what_the_guard_cannot_see`): a
+  key built with no "center" in any literal or passed in a variable, a
+  rating read by `getattr`, a raw rating under a parameter name the guard
+  does not list, a read in a module other than `engine.py`, the pitch
+  kernel reading an input the engine never shifted, a reader called after
+  the raw use. The invariance tests are what catches those.
   The lineup auto-fill and the rest-day replacement rank hitters on raw
   Contact and Power (an order, so a league-wide shift cannot change it).
 - **Not retuned.** The generation 5 profile was tuned with Contact and Eye

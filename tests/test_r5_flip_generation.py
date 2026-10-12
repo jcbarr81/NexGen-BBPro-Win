@@ -29,7 +29,9 @@ from services import physics_tuning_settings as settings
 from services.injury_settings import get_injury_tuning_overrides
 from tests.r5_flip_support import (  # noqa: F401  (league is a fixture)
     ADMIN,
+    KEYS_7_50_3,
     NEW_SEASON_ENGINE_ENV,
+    centres_as_7_50_3,
     drop_witness,
     game_tuning,
     league,
@@ -54,20 +56,29 @@ def _write_stored_overrides(data, values=STORED) -> str:
 
 
 def _write_centres_as_today(data, season) -> str:
-    """``rating_centers.json`` as the code deployed today leaves it after a
-    season's first game: every centre, no generation. Returns its text."""
+    """``rating_centers.json`` as the code deployed today (7.50.3) leaves it
+    after a season's first game: its sixteen centres, the hitter Contact
+    and Eye centres over every ACT hitter, no generation
+    (``centres_as_7_50_3``). Returns its text."""
     path = data / centers.RATING_CENTERS_FILENAME
-    payload = {"version": 1, "seasons": {str(season): centers.active_rating_centers(data)}}
+    payload = {"version": 1, "seasons": {str(season): centres_as_7_50_3(data)}}
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return path.read_text(encoding="utf-8")
 
 
-def _tuning_as_today(data) -> dict:
+def _tuning_as_today(data, *, on_file: bool = True) -> dict:
     """The dict today's game runner builds: the stored overrides, the
-    injury settings, the rating centres, the extra-innings rule."""
+    injury settings, the rating centres, the extra-innings rule.
+
+    ``on_file``: the season's centres are the ones 7.50.3 left in
+    ``rating_centers.json``. False is a season with no entry yet, whose
+    centres this build works out (the legacy engine reads none of the ones
+    whose definition changed)."""
     expected = dict(sorted(STORED.items()))
     expected.update(get_injury_tuning_overrides())
-    expected.update(centers.active_rating_centers(data))
+    expected.update(
+        centres_as_7_50_3(data) if on_file else centers.active_rating_centers(data)
+    )
     expected["extra_innings_runner"] = 1.0
     return expected
 
@@ -109,9 +120,23 @@ def test_a_league_mid_season_that_never_had_the_file_stays_legacy(league, monkey
     _write_stored_overrides(league)
     assert centers.league_engine_generation(store=False) == LEGACY_ENGINE_GENERATION
     assert not (league / centers.RATING_CENTERS_FILENAME).exists()
-    assert game_tuning(monkeypatch) == _tuning_as_today(league)
-    # Its first game since the deploy writes the season's entry as today's
-    # code would: centres only. Legacy is the absence of a generation.
+    # An exhibition (no date) reads the centres and fixes nothing.
+    exhibition = game_tuning(monkeypatch)
+    assert exhibition == _tuning_as_today(league, on_file=False)
+    assert not (league / centers.RATING_CENTERS_FILENAME).exists()
+    tuning = game_tuning(monkeypatch, "2026-04-04")
+    assert tuning == exhibition
+    # Every centre the legacy engine reads is what 7.50.3 computes; only
+    # the two it never reads (Contact and Eye, now the regulars') and the
+    # Release 5 centres beside them differ.
+    old = centres_as_7_50_3(league)
+    changed = {"hitter_contact_center", "hitter_eye_center"}
+    assert {k: tuning[k] for k in KEYS_7_50_3 if k not in changed} == {
+        k: v for k, v in old.items() if k not in changed
+    }
+    assert tuning["hitter_contact_center"] != old["hitter_contact_center"]
+    # Its first game since the deploy writes the season's entry: centres
+    # only. Legacy is the absence of a generation (and of its marker).
     stored = json.loads((league / centers.RATING_CENTERS_FILENAME).read_text())
     assert stored == {
         "version": 1, "seasons": {"2026": centers.active_rating_centers(league)},
@@ -268,7 +293,8 @@ def test_the_operations_switch_holds_new_seasons_on_the_legacy_engine(
 ):
     monkeypatch.setenv(NEW_SEASON_ENGINE_ENV, str(LEGACY_ENGINE_GENERATION))
     write_schedule(league, 2026)
-    assert not _has_profile(game_tuning(monkeypatch))
+    # A season game (it has a date) creates the season's entry.
+    assert not _has_profile(game_tuning(monkeypatch, "2026-04-01"))
     assert stored_generation(league, 2026) is None
     # Lifting it later does not move a season that has an entry.
     monkeypatch.delenv(NEW_SEASON_ENGINE_ENV)
