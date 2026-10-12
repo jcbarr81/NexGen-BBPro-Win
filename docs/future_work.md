@@ -1429,3 +1429,351 @@ Follow-ups:
   (older than #63; a preseason draft is now kept).
 - Tests still missing: `_simulate_n` crossing the July date end to end, the
   real rollover hook, a human owner on the clock in a preseason draft.
+
+## Release 5 platoon and handedness: follow-ups (2026-10-12)
+
+Built on branch `r5-platoon`, switched off; the switched-on values are in
+`scripts/kpi_profiles/r5_platoon.json`.
+
+- The KPI harness's matchup grid (`kpi_extras.matchup_grid_metrics`) gets the
+  tuning profile but not the fixture's rating centres, so under a Release 5
+  profile its right-handed platoon cells use `handedness_rhb_scale` alone
+  (shares unknown) and every centre is 50. Pass `with_rating_centers` to it
+  if the grid should describe the fixture rather than a neutral league.
+- With `handedness_balance_strength` 1.0 the league fixture's pooled platoon
+  gap is about .016 (LHB .023, RHB .012): its hitters are 65% right-handed,
+  so the balanced right-handed split is 0.42 of the left-handed one. That is
+  owner decision 5 as taken; the 0.006 platoon gate can only be held on a
+  league with an MLB-like mix until Release 7 regenerates the fixture.
+- `scripts/generate_league_fixture.py` pins the generator's pre-Release-5
+  batting-side table (`BATS_THROWS_PRE_R5`) so the committed fixture stays
+  reproducible. Drop the pin, and the table, when Release 7 regenerates it.
+- `platoon_rhp_counter_scale` (0.35) assumes 26% of PA come against LHP; the
+  league fixture runs 31-32%. It could be derived from the league's pitching
+  staffs like the batting-side shares.
+- The generator still tilts vl by batting side (hitters -4 / +4 for L / R,
+  pitchers +4 / -2 for L / R: `player_generator._bootstrap_hitter_ratings`,
+  `_bootstrap_pitcher_ratings`, `_sample_normalized_hitter`,
+  `_sample_normalized_pitcher`, and the dice ranges in `generate_player`).
+  It goes in Release 7 with the data recentring (decision 6).
+- `playbalance/archetypes.py::infer_hitter_archetype` reads vl as
+  "discipline" (speed_disc needs vl >= 70). It predates "vl is the personal
+  platoon split"; the archetype should read Eye. Release 7.
+- **Training contradicts the "Platoon vs L" label.**
+  `player_development._HITTER_TRACKS["contact"]` is `("ch", "vl", "pl")`, so
+  the "Barrel Control" track trains the two of those with the most room, and
+  vl is often one of them. The profile now
+  tells the owner vl is how a hitter handles left-handed pitching, and that
+  more of it gives a little back against right-handers; so a contact drill
+  quietly tilts a hitter toward left-handed pitching and costs him against
+  right-handers, and nothing on the training page says so. Not changed in
+  Release 5 (training is outside it). For Release 7: take vl out of the
+  track, or give the split its own track and say what it does.
+- At the Release 5b flip the lineup auto-fill starts reading the centred vl
+  for the league fixture's own generation, so
+  `test_committed_fixture_matches_the_current_generator` will ask for a
+  regenerated fixture (or a pinned tuning) at that point.
+
+## Release 5 discipline, contact and situational: follow-ups (2026-10-12)
+
+Raised by the area builders and reviewers; none is fixed in Release 5. The
+switched-on values are in `scripts/kpi_profiles/r5_discipline.json`,
+`r5_contact.json`, `r5_discipline_contact.json` and `r5_situational.json`.
+
+- **The fresh-arm bonus reaches the pitch only.** `reliever_fresh_bonus` is
+  added to the control and movement `simulate_pitch` sees. It does not reach
+  the pitcher's share of the batter's eye (`eye_control_blend` in
+  `_batter_context`, which reads the raw control) or the wild-pitch and balk
+  rolls. Decide whether a fresh arm should also throw fewer wild pitches.
+- **A long reliever past nine batters gets the second-pass familiarity
+  weight with no fresh edge left.** `tto_pass2_weight` (4.5 in the profile)
+  applies to anyone's second trip through the order, and the fresh edge is
+  gone by the seventh batter. Check the size against MLB long relief before
+  the flip.
+- **The league fixture's relievers are rated well above its starters,** so
+  its late innings overshoot with the fresh edge on. The fixture is
+  regenerated with the Release 7 re-spread; until then read the late-inning
+  KPIs on the calibration fixture.
+- **An 80 Contact hitter strikes out about 4%, not the owner's 3%** (owner
+  decision 1). Under `umpire_model` 1 about 2% of PA end in a called third
+  strike whatever the hitter's Contact, and that floor sits under the
+  strikeouts the contact model does move. Closing it needs Contact (or Eye)
+  in the two-strike take on the edge, not a steeper contact slope.
+- **`batter_fatigue_eye_scale` has no effect in the KPI harness.** The
+  profile moves it 0.7 -> 0.25 and the harness numbers do not change, so the
+  retune is unmeasured. The cause was not run down; find it (or measure
+  through the live-path driver) before the flip.
+- **Malformed rows are read strictly only once the centred vl is on.** At
+  the defaults (kept byte-identical) a batting side that is not L, R or S
+  ("B", " l") still takes the platoon edge against both hands, and a stored
+  vl of 0 reads as 0 in the engine and as 50 in the lineup auto-fill. With
+  `platoon_vl_center_enabled` 1 the side is normalised and a blank or zero
+  vl is no personal split, in both. Leftovers: `BatterRatings.from_row` and
+  pitch physics (`physics._effective_batter_side`) do not strip the side,
+  so " l" still stands in the right-handed box for pitch location and hit
+  batters; and a pitcher's own blank vl is untouched (the plan says do not
+  fill pitcher vl). A data check at league load would retire all of it.
+- **No catcher is "average" for framing only.** `_catcher_context` still
+  hands steals, wild pitches and passed balls a flat 50 for a defence with
+  no catcher, which reads as below average in a league whose catcher centre
+  is above 50 (Release 4 behaviour, live today). Framing under
+  `umpire_model` 1 reads the centre instead (`engine._framing_fielding`).
+  A real nine always has a catcher (`build_defense_from_lineup` fills an
+  open position from whoever is left), so this only shows with a short
+  lineup.
+- **A live game is reproducible only under a fixed hash seed.**
+  `game_runner._apply_bullpen_usage_order` seeds the bullpen's tie-break
+  order from `hash((team_id, date, seed))`, and `hash()` of a string changes
+  with `PYTHONHASHSEED`; the staff order handed to the engine changes with
+  it, and so do some games (at least two of the six in
+  `tests/test_r5_live_path.py`, whose digests are pinned under
+  `PYTHONHASHSEED=0` and skipped otherwise). `parallel_day` sets it to 0
+  for its workers; the Dockerfile does not set it, so a parent process
+  started without it does not match them. Seed the order from a stable
+  digest (`zlib.crc32` or `hashlib`) instead. Older than Release 5.
+- **The hit-batter hand scales are a correction, not a mechanism.**
+  `hbp_same_hand_scale` 1.75 / `hbp_opposite_hand_scale` 0.57 put same-hand
+  batters at twice the opposite-hand rate with the total unchanged. The
+  cause is upstream: pitch targets are side-symmetric and break is added to
+  the aim point, so far-inside pitches are mostly glove-side. If Release 6
+  gives pitchers arm-side and glove-side aim, re-measure with both scales
+  at 1.0 (`hbp_same_over_opposite_hand` in the report-only KPIs).
+  regenerated fixture (or a pinned tuning) at that point. (Pinned with the
+  switch-on mechanism: the generator now passes the engine defaults to the
+  auto-fill, so the fixture does not depend on the active league.)
+
+## Release 5 switch-on mechanism: follow-ups (2026-10-12)
+
+- **Leagues created with a rule preset before this fix.** "High Offense" and
+  "Pitcher Friendly" wrote `walk_scale` 1.05 / 0.90 and `k_scale` 0.92 / 1.08
+  as if 1.0 were normal; the engine's defaults are 0.83 and 0.51. On the
+  legacy engine (calibration fixture, 162 games, seed 1) that is a league
+  striking out in 48% (High Offense) or 55% (Pitcher Friendly) of plate
+  appearances, against 21.5%, with 5.40 and 0.96 runs per team-game against
+  4.43. The other three values were as badly sized: 1% of `offense_scale`
+  is about 9% of the runs and 1% of `hr_scale` about 2.6%, so with the
+  strikeouts right the old 1.08 / 1.12 / 1.04 gave 11.3 runs a game. The
+  presets are fixed for leagues created from now on: they state small
+  changes relative to the engine (`physics_tuning_multipliers`), sized to
+  about 8-11% more runs for High Offense (4.79 legacy, 4.71 generation 5)
+  and 9% fewer for Pitcher Friendly (4.02, 3.84). Those sizes are a first
+  calibration on one seed and are the owner's to change. Nothing was
+  changed in existing leagues:
+  find any whose `physics_tuning_overrides.json` holds those values and
+  decide with the commissioner what to do. At such a league's rollover the
+  stored values are converted faithfully, so the strikeouts stay until
+  someone moves the slider.
+- **A lost `rating_centers.json` mid-season.** The season's engine
+  generation lives only there. A generation 5 league that loses the file
+  after games have been played reads as legacy from then on (a running
+  process keeps what it last read, a fresh one does not). A league copy and
+  a backup both carry the file. A second record of the generation (the
+  season context, say) would close it.
+- **The KPI harness is not always repeatable when several seasons run at
+  once on one machine.** Two of thirteen identical `--engine 5` /
+  `--tuning-overrides r5.json` calibration seed-1 seasons, launched eight at
+  a time on Windows, came out as a second season (K .2131, R/G 4.20, HR/G
+  .99 against .2138, 4.23, 1.17), the same alternative both times. Runs
+  launched one to three at a time agreed. The harness writes nothing in the
+  repository, so the cause is not a shared output file; a loader that
+  swallows a read error and falls back (park data?) is the first suspect.
+  (Cause established since: the park altitude file, found only through the
+  active league. See "The KPI harness finds park data through the ambient
+  active league" below.)
+- **`utils.roster_loader.load_roster` reads the ACTIVE league for any
+  roster.** Observed: `load_roster("ELP", data/calibration_league/rosters)`
+  in a checkout whose active league is `cbl` returns six ACT players that
+  are not in the fixture's file, in place of six that are, and the
+  auto-fill then cannot field nine for that club. The likely cause, not
+  confirmed: `_ensure_pitcher_depth` and the placeholder pool decide who is
+  a pitcher from the active league's `data/players.csv`. The lineup
+  auto-fill's TUNING no longer comes from the active league; its ROSTER and
+  depth chart (`lineup_depth_chart`) still do.
+- **Help text and tutorial for the rebased sliders** (the labels and
+  descriptions marked SWITCH-ON TEXT in `services/physics_tuning_spec.py`)
+  are to be reviewed with the news post at the switch-on.
+- **Live-path tools on a new scratch league now run generation 5**
+  (`scripts/run_long_term_physics_sim.py` and the like). Set
+  `NEXGEN_NEW_SEASON_ENGINE=4` to run them on the legacy engine.
+
+## Release 5 switch-on review fixes: follow-ups (2026-10-12)
+
+- **An image rollback past this release is unsafe once any league is on
+  generation 5.** The code before this release does not know engine
+  generations: it ignores `engine_generation` in `rating_centers.json` and
+  the witness in `season_progress.json`, so rolling the image back puts
+  every generation 5 league on the legacy engine in the middle of its
+  season (and its converted sliders are read as defaults: the old engine
+  does not read the new keys). Rolling forward again returns those leagues
+  to generation 5, a second mid-season change. Until every league is past
+  its first generation 5 season there is no safe rollback target older than
+  this release; fix forward, or hold NEW seasons on the legacy engine with
+  `NEXGEN_NEW_SEASON_ENGINE=4` (that does not move a season already on 5).
+  A rollback tool would have to refuse while any league records a
+  generation above legacy.
+- **The KPI harness finds park data through the ambient active league,
+  not the fixture.** `utils/park_utils._park_data_roots` starts with
+  `get_data_dir()`, the active league's folder, then the data root.
+  `data/parks/Parks.csv` (the altitudes) is git-ignored and exists only in
+  a developer's main checkout; the copies that are tracked sit in three
+  league folders (`data/leagues/cbl`, `usabl` and `test-league`, each
+  `/data/parks/Parks.csv`). So in a clean checkout or a worktree a harness
+  run finds altitude only while the active league is one of those (`cbl`
+  by default), and a run that starts while something in the same checkout
+  has switched the active league to one without park files -- a test, a
+  scratch league -- plays the whole season with no altitude. Measured on
+  calibration seed 1, `--engine 5`, same code, only `active_league.txt`
+  changed: home runs per team-game 1.121 with altitude and 1.060 without,
+  home runs per fly ball .119 and .112, runs 4.40 and 4.34; K and BB move
+  only as much as two different random streams do (22.06% / 22.08%, 8.10%
+  / 8.17%). That is the "season with home runs per fly ball about 7% low"
+  seen in agent worktrees and the "second season" of the repeatability
+  item above. LIVE leagues are not affected: the production image
+  excludes `/data/` (`.dockerignore`) and a league's own cloud folder has
+  no `parks/` folder, but the three park files sit at the top of the data
+  bucket (`gs://nexgen-bbpro-data/parks/`, checked 2026-10-12), which is
+  the data root, the second place the lookup searches. So a live team with
+  a park chosen plays with its dimensions and altitude. (An earlier note
+  here said live leagues had no park data; that came from checking only
+  the per-league folders and was wrong.) Proposed fix
+  for a later release: the harness resolves park data from the fixture's
+  own folder (`--base-dir`), and a park file it cannot find is an error in
+  the harness, not a silent fallback to the generic park.
+- **The lost-`rating_centers.json` item above is closed** by the second
+  record of the generation (the witness in `season_progress.json`) and the
+  working-copy guard. What is left: (a) a season that loses BOTH records
+  reads as legacy unless its tuning overrides carry the generation 5
+  marker, and a season held back on the legacy engine after a generation 5
+  one that loses both reads as 5 from that marker; (b) a
+  `rating_centers.json` that exists and cannot be parsed is never
+  rewritten, so until someone restores or deletes it each game works its
+  rating centres out from that day's rosters (the fault is logged with the
+  path); (c) only `rating_centers.json` is pulled again after a failed
+  startup pull, every other file that fails to come down is still rebuilt
+  by the app and pushed.
+- **An exhibition played in the preseason fixes the season's engine
+  generation** (it creates the season's entry). It no longer converts the
+  stored sliders, and since the league-relative ratings review it no longer
+  fixes the rating centres either: a game with no date reads the stored
+  centres, or works them out for itself, and stores nothing
+  (`playbalance.game_runner._run_physics_game`: `store=False` when the
+  game has no date). One played
+  before the clubs' lineups were saved used to pin the season's hitter
+  centres to that day's nine-best stand-ins (Contact 51.38 against 51.13
+  on Opening Day, league fixture). The generation is still recorded by an
+  exhibition; it is the same answer a season game would get.
+- **Creating a league of five teams or fewer through the wizard failed
+  under pytest** with the players-file shrink guard ("Refusing to write
+  102 player(s) over 600"): the new league's folder is re-seeded with the
+  600-player reference `players.csv` after `create_league` has purged it.
+  The same call from a plain script succeeded; not investigated.
+
+## Release 5 league-relative ratings: follow-ups (2026-10-12)
+
+`centred_ratings` (generation 5) shifts every rating that feeds a plate
+appearance by 50 minus its league centre (RELEASE5_PLAN section 8). What it
+leaves, on purpose or because it was out of scope:
+
+- **The pitcher usage centres are a two-weight proxy for innings.** A
+  rotation starter counts 2.5 and every other ACT arm 1
+  (`pitcher_*_usage_center`). Against the innings-weighted means of a
+  played generation 5 season the proxy is within 0.30 of every rating on
+  all three test leagues (worst: calibration control, 51.59 against 51.89;
+  the plain ACT mean missed by up to 1.79, the league fixture's arm). In
+  those seasons a starter threw 164-168 innings and a reliever 75-78
+  (closers about 53, long men 91-118), so the measured ratio is nearer
+  2.2; any ratio from 2.0 to 2.5 and a weight per relief role all fit
+  equally well (rms 0.14-0.17), so the weights were left at two. An
+  experiment that pinned the centres to the innings-weighted means
+  themselves closed the spread between the leagues a little further than
+  the proxy does on the same seeds 1-2 (.13 runs against .16, 0.67 pp of K
+  against 0.81, 0.05 pp of BB against 0.18); the BB difference is nearly
+  all on calibration (7.72% against 7.81%). Not weighted: the batters a
+  pitcher faces by hand, or leverage.
+- **The Release 4 running-game terms still read the plain ACT means**
+  (`pitcher_control_center`, `pitcher_arm_center`, `pitcher_hold_center`):
+  wild pitches, steals and the dropped third strike are centred on every
+  ACT pitcher, the pitch itself on the usage centres. Both are right for
+  what they were calibrated on; if the running game is retuned, decide
+  whether it should follow the usage centres too.
+- **Only the mean is centred, not the spread.** Curves that bend still see
+  a league's spread: the Power knee (mean bat speed added after the shift:
+  calibration 0.70 mph, league fixture 0.83, product league 0.87), the
+  one-sided pitch-difficulty terms, the clamps. The Release 7 re-spread is
+  the place for it.
+- **The product-created league's home runs still trail** (1.10 a team-game
+  against 1.21 and 1.21 with the profile as it stands). Not explained by
+  a centre. Seen
+  and not followed up: its regulars' pull and ground-ball tendencies are
+  bunched (sd 1.7 and 1.4, against about 6 and 3 on the fixtures) and its
+  average exit velocity is 0.5 to 1.0 mph lower.
+- **The regulars are counted by lineup spot, not by plate appearance** (the
+  leadoff man bats more than the ninth hitter), pinch hitters and rest-day
+  substitutes are left out, and a club with no usable lineup file counts
+  its nine best ACT hitters by the auto-fill's base score, with no position
+  coverage (the auto-fill would start a weaker catcher or shortstop). The
+  centres are fixed when the season's entry is created, from the lineup
+  files as they are on disk that day; a CPU club's stale file reads as its
+  nine best.
+- **A generation 5 season entry that is not whole is recomputed, even
+  mid-season.** The entry records which definition its Release 5 centres
+  have (`centers_version`). One without the current marker that holds any
+  of the seven (an earlier build of this release wrote it; or this build
+  recorded the generation and a stale 7.50.3 instance then merged its own
+  every-ACT-hitter centres into the entry) has all seven recomputed from
+  that day's rosters and lineups; one with the marker that is missing some
+  (no ACT pitcher resolved when it was created) has those added. Both are
+  reported once (`[engine-generation]` on stdout and in the log). A season
+  already under way therefore changes its centres once. That was chosen
+  over leaving it: half-shifted, the league fixture played 3.79 runs a
+  game with 25.6% strikeouts against 4.56 and 23.2% (one season, measured
+  in the review). A LEGACY season's entry is still never touched. What is
+  left: (a) the stale 7.50.3 instance of a deploy overlap still plays its
+  own games of a generation 5 season on the legacy engine -- that build
+  knows no generations; (b) a read-only caller (a page, a
+  watched game) gets the recomputed centres without storing them, so until
+  a season game runs they follow the day's rosters.
+- **A generation 5 game refuses to play without its centres**
+  (`physics_sim.centred_ratings.RatingCenterMissing`, raised before a
+  workload or a pitch is touched). Every centre defaults to 50.0, and the
+  engine used to take that for the league's. Any tool that plays games on
+  the generation 5 profile must now hand it the league's centres
+  (`with_rating_centers` in the harness, `get_rating_center_overrides` on
+  the live path); `utils.lineup_autofill.platoon_tuning` and the other
+  readers that only score hitters are unaffected. A league whose pitchers
+  carry no pitch grades at all has no grade centre and needs none.
+- **Left absolute on purpose:** the pitcher's `vl` (`platoon_pitcher_scale`
+  reads it against 50), ground-ball and pull tendencies, speed outside the
+  Release 4 terms (the doubles and triples speed terms, the bunt, the
+  runner's speed in the pickoff), the lead a runner takes (hold against a
+  70 threshold, `_lead_level`), everything about fielding (range, arm,
+  double plays, tag-ups, errors), the catcher's glove under the legacy
+  umpire model, endurance and durability. The Release 4
+  running-game terms keep their own raw-rating-against-the-centre form,
+  and under `centred_ratings` the pickoff has joined them: it read the
+  pitcher's hold and arm raw against 50 (the one term that made a
+  "pitchers +3" season diverge) and now reads both against the plain ACT
+  means, like the steals. With the profile as it stands that lowers
+  pickoffs (calibration .0071 to .0058 a team-game over four seeds, league
+  fixture .0062 to .0042 over two): those leagues' pitchers have arms well
+  above 50, which the raw read was crediting. Not retuned.
+- **The static guard on centre and rating reads has limits**
+  (`tests/test_r5_centred_guard.py`, `test_what_the_guard_cannot_see`): a
+  key built with no "center" in any literal or passed in a variable, a
+  rating read by `getattr`, a raw rating under a parameter name the guard
+  does not list, a read in a module other than `engine.py`, the pitch
+  kernel reading an input the engine never shifted, a reader called after
+  the raw use. The invariance tests are what catches those.
+  The lineup auto-fill and the rest-day replacement rank hitters on raw
+  Contact and Power (an order, so a league-wide shift cannot change it).
+- **Not retuned.** The generation 5 profile was tuned with Contact and Eye
+  centred on the ACT mean (so calibration's regulars read about 1.5 points
+  above the centre) and Power, velocity and pitch quality absolute. With
+  the profile untouched the run level rose (4.39 / 4.13 / 4.37 to 4.43 /
+  4.57 / 4.60), K rose (calibration 22.0% to 24.0%) and BB fell (8.2% to
+  7.7%). The retune, the gates and the release notes follow it (the
+  7.51.0 draft still carries the measurements taken before this change).
+- **The matchup grid's pitches read 50, not 55, under the switch** (the
+  grid pins its grade centre to its own 55, and a cell now goes through
+  the engine's own pitcher context). Not re-measured: re-read the log5
+  gate with the retune.

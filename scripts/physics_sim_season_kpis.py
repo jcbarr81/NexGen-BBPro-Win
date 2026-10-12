@@ -23,7 +23,8 @@ sys.path.append(str(BASE_DIR))
 
 from playbalance.schedule_generator import generate_mlb_schedule
 from services.league_rating_centers import RATING_CENTER_KEYS
-from physics_sim.config import DEFAULT_TUNING
+from physics_sim.config import DEFAULT_TUNING, load_tuning
+from physics_sim.engine_generation import engine_profile, known_engine_generations
 from physics_sim.engine import _resolve_data_root, simulate_matchup_from_files
 from physics_sim.usage import UsageState, calendar_day
 from scripts import kpi_extras
@@ -267,17 +268,129 @@ _RUNNING_GATES: list[str] = [
     "sf_per_pa",
 ]
 
+# "r5" keeps the engine generation 5 path from rotting while its profile is
+# still being tuned (``--engine 5 --gate-set r5``): the rates the profile
+# already holds on both fixtures -- strikeouts, walks, and intentional
+# walks, which the legacy engine never issues -- and the rule gates that
+# must stay at exactly 0 whatever the engine. It is a subset for a fixture
+# that cannot take the whole strict set: the full check is every strict
+# gate with ``--engine 5`` (ENGINE_GATES below) on calibration seeds 1-8,
+# which the generation 5 profile passes, and this set or "running" on the
+# league fixture (RELEASE5_PLAN.md section 3).
+_R5_GATES: list[str] = [
+    "k_pct",
+    "bb_pct",
+    "ibb_per_pa",
+    "runs_on_inning_ending_plays",
+    "steal_events_on_foul",
+    "wp_pb_on_foul",
+    "wp_pb_bases_empty",
+    "double_steal_two_out_plays",
+    "illegal_k_reach",
+]
+
 GATE_SETS: dict[str, list[str]] = {
     "running": list(_RUNNING_GATES),
+    "r5": list(_R5_GATES),
 }
 
 # Tolerances a gate set adds to the strict group when it runs: gates for a
 # feature that is built but still switched off, run with its tuning profile
-# (--tuning-overrides) until it becomes the default. Targets come from the
-# benchmark CSV or GATE_SET_EXTRAS_TARGETS. Release 4b used this as "r4b"
-# until 7.49.0 made it the default; empty since.
-GATE_SET_TOLERANCES: dict[str, dict[str, float]] = {}
-GATE_SET_EXTRAS_TARGETS: dict[str, dict[str, float]] = {}
+# (--tuning-overrides, or --engine for a whole generation) until it becomes
+# the default. Targets come from the benchmark CSV or
+# GATE_SET_EXTRAS_TARGETS. Release 4b used this as "r4b" until 7.49.0 made
+# it the default. "r5": intentional walks at MLB's rate (owner decision 7,
+# about 15 per team-season = .0025 per PA; .0025 on calibration seed 1).
+GATE_SET_TOLERANCES: dict[str, dict[str, float]] = {
+    "r5": {"ibb_per_pa": 0.001},
+}
+GATE_SET_EXTRAS_TARGETS: dict[str, dict[str, float]] = {
+    "r5": {"ibb_per_pa": 0.0025},
+}
+
+# Release 5: what the strict set gates differently for an engine generation
+# (``--engine N --strict``). The legacy engine keeps every gate above as it
+# is; these apply on top when the run plays generation N, because that engine
+# is built to different references:
+#
+# * ``o_swing_pct`` is read against Statcast 2023's chase rate (.286), the
+#   table the swing model is fitted to, not the .32 the old model was tuned
+#   to (the two disagree; RELEASE5_PLAN.md 2.1).
+# * the times-through-the-order gap is gated on starting pitchers only
+#   (``tto_ops_gap_starters``): pass 1 is 64% relief plate appearances, so
+#   the reliever fresh-arm edge moved the all-pitcher gap by itself.
+# * ``platoon_gap_woba`` is back at +/- .006 (Release 3 widened it to .009
+#   "until Release 5"): calibration seeds 1-8 read .023-.031.
+# * new gates the legacy engine cannot pass: swing rate at each of the 12
+#   counts within .05 of MLB 2023, intentional walks at MLB's rate, and a
+#   home-field edge, gated as home-minus-road wOBA (+.012 +/- .008; 24
+#   calibration seasons read .006-.015, 12 league seasons .012-.017). Home
+#   W% itself stays report-only: one season's value has a standard error of
+#   about .011 (24 seasons: .505-.549 around a mean of .528), so it is read
+#   pooled over seeds (RELEASE5_PLAN.md section 4).
+#
+# ``benchmarks`` replace the benchmark CSV's value, ``drop`` removes a legacy
+# gate, ``extras_targets`` promote kpi_extras metrics with their tolerances.
+_R5_SWING_BY_COUNT: dict[str, float] = {
+    "swing_rate_0_0": 0.310, "swing_rate_0_1": 0.488, "swing_rate_0_2": 0.514,
+    "swing_rate_1_0": 0.427, "swing_rate_1_1": 0.543, "swing_rate_1_2": 0.575,
+    "swing_rate_2_0": 0.427, "swing_rate_2_1": 0.576, "swing_rate_2_2": 0.640,
+    "swing_rate_3_0": 0.097, "swing_rate_3_1": 0.536, "swing_rate_3_2": 0.701,
+}
+ENGINE_GATES: dict[int, dict[str, Any]] = {
+    5: {
+        "benchmarks": {"o_swing_pct": 0.286},
+        "drop": ["tto_ops_gap"],
+        "tolerances": {
+            "platoon_gap_woba": 0.006,
+            # Wider than the all-pitcher gap's .025: starters only is fewer
+            # plate appearances, and one season's value moves a lot (18
+            # calibration seasons: mean .046, range .014-.083).
+            "tto_ops_gap_starters": 0.045,
+            "ibb_per_pa": 0.001,
+            # 18 calibration seasons: mean .011, sd .0027; 6 league: .015.
+            "home_minus_away_woba": 0.009,
+            # Power-to-HR correlation: floor .45 here, .50 on the legacy
+            # engine. Generation 5 makes Contact a sharper skill, so who
+            # puts the ball in play varies more and the correlation is
+            # noisier (18 calibration seasons: mean .574, sd .030, min .500
+            # against the legacy engine's .56-.61). Release 6 gives Power its
+            # slope below the knee and restores the >= .60 target (decision 5).
+            "corr_hr_power": 0.30,
+            **{key: 0.05 for key in _R5_SWING_BY_COUNT},
+        },
+        "extras_targets": {
+            "tto_ops_gap_starters": 0.05,
+            "ibb_per_pa": 0.0025,
+            "home_minus_away_woba": 0.012,
+            **_R5_SWING_BY_COUNT,
+        },
+        # Only when the matchup grid ran (--matchup-grid-pa): the Contact x
+        # pitcher strikeout grid follows log5 within 2 points in every cell.
+        "grid_tolerances": {"matchup_k_log5_max_abs_resid": 0.02},
+        "grid_extras_targets": {"matchup_k_log5_max_abs_resid": 0.0},
+    },
+}
+
+
+def engine_gates_for(engine: int | None, *, grid: bool = False) -> dict[str, Any]:
+    """The strict-gate changes for engine generation ``engine`` (see
+    ENGINE_GATES); empty for the legacy engine. ``grid`` adds the gates that
+    need the matchup grid."""
+    spec = ENGINE_GATES.get(int(engine)) if engine is not None else None
+    if not spec:
+        return {"benchmarks": {}, "drop": [], "tolerances": {}, "extras_targets": {}}
+    tolerances = dict(spec.get("tolerances", {}))
+    extras = dict(spec.get("extras_targets", {}))
+    if grid:
+        tolerances.update(spec.get("grid_tolerances", {}))
+        extras.update(spec.get("grid_extras_targets", {}))
+    return {
+        "benchmarks": dict(spec.get("benchmarks", {})),
+        "drop": list(spec.get("drop", [])),
+        "tolerances": tolerances,
+        "extras_targets": extras,
+    }
 
 # Metric keys that were renamed; a --tolerances override using the old name
 # still applies to the new one instead of being silently dropped.
@@ -527,7 +640,15 @@ def _ensure_team_files(
     *,
     players_path: Path,
     base_dir: Path,
+    tuning: object | None = None,
 ) -> None:
+    """Alias and, where missing, auto-fill a team's lineup files.
+
+    ``tuning`` is the run's own tuning: a lineup built here is scored with
+    the platoon terms the season will be played on, not with whatever the
+    active league has stored (``None`` leaves the auto-fill to resolve the
+    league of ``players_path``).
+    """
     roster_dir = base_dir / "data" / "rosters"
     lineup_dir = base_dir / "data" / "lineups"
     for suffix in ("", "_pitching"):
@@ -551,6 +672,7 @@ def _ensure_team_files(
                 players_file=str(players_path),
                 roster_dir=str(roster_dir),
                 lineup_dir=str(lineup_dir),
+                tuning=tuning,
             )
             break
 
@@ -1052,10 +1174,20 @@ def _usage_metrics(
     return metrics
 
 
-def _season_schedule(teams: list[str], games_per_team: int) -> list[dict[str, str]]:
+def _season_schedule(
+    teams: list[str], games_per_team: int, balanced: bool = False
+) -> list[dict[str, str]]:
     """The harness season: the layout new leagues get from the ``mlb_162``
     template (owner decision Q4: MLB-dense), from 2025-04-01. Rest is counted
-    in calendar days, so the harness must see the off days owners see."""
+    in calendar days, so the harness must see the off days owners see.
+
+    ``balanced`` (``--balanced-schedule``) gives every club the same number
+    of home games, as new leagues get from Release 5 on. It is off by default
+    because every calibration baseline and CI gate was measured on the
+    schedule from before that, where a club's place in the team list decided
+    its home games (75 to 87 of 162 on the 30-team fixture); the dates and
+    opponents are the same either way, but a different host re-rolls the
+    game."""
     layout: dict[str, object] = {}
     try:
         from services.league_presets import get_schedule_template
@@ -1070,7 +1202,13 @@ def _season_schedule(teams: list[str], games_per_team: int) -> list[dict[str, st
             "extra_off_every_n_rounds": template.extra_off_every_n_rounds,
             "series_off_day": template.series_off_day,
         }
-    return generate_mlb_schedule(teams, date(2025, 4, 1), games_per_team, **layout)
+    return generate_mlb_schedule(
+        teams,
+        date(2025, 4, 1),
+        games_per_team,
+        balance_home_games=balanced,
+        **layout,
+    )
 
 
 def _is_barrel(exit_velo: float, launch_angle: float) -> bool:
@@ -1219,9 +1357,19 @@ def fixture_rating_centers(
     Release 5a: also the hitter Contact / Eye centres, the pitcher movement
     and pitch-grade centres, the hitters' mean vl by batting side and the
     batting-side shares (nothing in the engine reads them yet).
-    data/calibration ~ contact 48.8, eye 48.4, movement 53.0, grade 54.8, vl
-    L/R/S 49.9/49.1/49.4, shares .385/.513/.103; data/calibration_league ~
-    50.7, 50.2, 56.4, 58.1, 45.0/53.6/49.4, .239/.651/.110.
+    data/calibration ~ movement 53.0, grade 54.8, vl L/R/S 49.9/49.1/49.4,
+    shares .385/.513/.103; data/calibration_league ~ 56.4, 58.1,
+    45.0/53.6/49.4, .239/.651/.110.
+
+    Release 5 (league-relative ratings): the hitter Contact, Eye and (new)
+    Power centres are the means over the lineup regulars -- the hitters in
+    the fixture's ``lineups/`` files, as a live league's are -- not over
+    every ACT hitter. data/calibration ~ contact 50.3, eye 50.3, power 50.2;
+    data/calibration_league ~ 51.1, 50.4, 50.9. The pitcher_*_usage_center
+    keys weight the ACT pitchers by expected workload (a rotation starter
+    2.5 times a reliever, the rotation from the fixture's staff files):
+    data/calibration ~ control 51.6, movement 52.5, grade 54.9, arm 55.3;
+    data/calibration_league ~ 53.4, 55.4, 57.2, 57.7.
     """
     from services.league_rating_centers import active_rating_centers
 
@@ -1295,7 +1443,9 @@ def _merged_table_override(
     return merged
 
 
-def load_tuning_overrides_file(path: Path) -> dict[str, Any]:
+def load_tuning_overrides_file(
+    path: Path, base: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Read a ``--tuning-overrides`` JSON dict, rejecting unknown keys.
 
     ``TuningConfig.from_overrides`` silently drops a key that is not in
@@ -1308,7 +1458,9 @@ def load_tuning_overrides_file(path: Path) -> dict[str, Any]:
     {"0-2": 1.0}}``. The value returned for it is the WHOLE table, the
     default with those entries replaced (see ``_merged_table_override``):
     ``from_overrides`` replaces a table outright, so a partial one would
-    drop the entries it leaves out.
+    drop the entries it leaves out. ``base`` holds tables the run has
+    already changed (an ``--engine`` profile): the file's entries go over
+    THOSE, so a retune of one count keeps the profile's other counts.
     """
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -1326,7 +1478,10 @@ def load_tuning_overrides_file(path: Path) -> dict[str, Any]:
     for key, value in payload.items():
         default = DEFAULT_TUNING[key]
         if isinstance(default, dict):
-            overrides[key] = _merged_table_override(path, key, default, value)
+            # Merged into the table the run starts from: the default, or
+            # the --engine profile's when it changes this table.
+            table = (base or {}).get(key, default)
+            overrides[key] = _merged_table_override(path, key, table, value)
             continue
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(
@@ -1334,6 +1489,30 @@ def load_tuning_overrides_file(path: Path) -> dict[str, Any]:
             )
         overrides[key] = float(value)
     return overrides
+
+
+def resolve_run_overrides(
+    *,
+    engine: int | None = None,
+    overrides_path: Path | None = None,
+    disable_park_factors: bool = False,
+) -> dict[str, Any] | None:
+    """The tuning overrides of a run, layered as a league's games are.
+
+    The profile of engine generation ``engine`` first (``--engine``; none
+    for the legacy generation or when it is not given), then the
+    ``--tuning-overrides`` file on top, then the park switch. ``None`` when
+    nothing is asked for, which is the plain DEFAULT_TUNING run. Raises
+    ``ValueError`` for a profile or a file that does not load.
+    """
+    overrides: dict[str, Any] = {}
+    if engine is not None:
+        overrides.update(engine_profile(engine))
+    if overrides_path is not None:
+        overrides.update(load_tuning_overrides_file(overrides_path, base=overrides))
+    if disable_park_factors:
+        overrides["park_factor_scale"] = 0.0
+    return overrides or None
 
 
 def _is_finite_number(value: object) -> bool:
@@ -1409,11 +1588,12 @@ def run_sim(
     players_path: Path,
     tuning_overrides: dict[str, Any] | None = None,
     base_dir: Path | None = None,
+    balanced_schedule: bool = False,
 ) -> dict[str, object]:
     teams_csv = (Path(base_dir) / "teams.csv") if base_dir is not None else None
     teams = _team_ids(teams_csv)
     parks_by_team = _team_parks(teams_csv)
-    schedule = _season_schedule(teams, games_per_team)
+    schedule = _season_schedule(teams, games_per_team, balanced_schedule)
     # Release 4 (decision 2): the engine reads speed and the battery against
     # the league's ACT means, which a live league gets from
     # services.league_rating_centers.
@@ -1945,6 +2125,16 @@ def _report_only_block(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--games", type=int, default=162)
+    parser.add_argument(
+        "--balanced-schedule",
+        action="store_true",
+        help=(
+            "Give every club the same number of home games, as new leagues "
+            "get. Off by default: the calibration baselines and CI gates "
+            "were measured on the schedule from before that, and a different "
+            "host re-rolls every game."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--players", type=Path, default=_default_players_path())
     parser.add_argument("--output", type=Path, default=None)
@@ -2003,6 +2193,20 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--engine",
+        type=int,
+        choices=known_engine_generations(),
+        default=None,
+        help=(
+            "Engine generation to run (physics_sim.engine_generation): its "
+            "profile is laid over DEFAULT_TUNING first and --tuning-overrides "
+            "goes on top, the order a league's games use. Default: the "
+            "legacy engine (DEFAULT_TUNING as it is), so every existing run "
+            "and gate is unchanged. --engine 5 alone equals "
+            "--tuning-overrides scripts/kpi_profiles/r5.json."
+        ),
+    )
+    parser.add_argument(
         "--gate-set",
         choices=sorted(GATE_SETS),
         default=None,
@@ -2021,19 +2225,33 @@ def main() -> None:
     if base_dir is not None and not base_dir.is_absolute():
         base_dir = (BASE_DIR / base_dir).resolve()
 
-    if args.ensure_lineups:
-        for team in load_teams():
-            _ensure_team_files(team.team_id, players_path=players_path, base_dir=BASE_DIR)
+    try:
+        tuning_overrides = resolve_run_overrides(
+            engine=args.engine,
+            overrides_path=args.tuning_overrides,
+            disable_park_factors=args.disable_park_factors,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
-    tuning_overrides = None
-    if args.tuning_overrides is not None:
-        try:
-            tuning_overrides = load_tuning_overrides_file(args.tuning_overrides)
-        except ValueError as exc:
-            parser.error(str(exc))
-    if args.disable_park_factors:
-        tuning_overrides = {**(tuning_overrides or {}), "park_factor_scale": 0.0}
-    summary = run_sim(args.games, args.seed, players_path, tuning_overrides, base_dir)
+    if args.ensure_lineups:
+        # A lineup built here is scored with the run's own tuning (and the
+        # fixture's rating centres), as the games will be played.
+        fill_tuning = load_tuning(
+            with_rating_centers(tuning_overrides, players_path, base_dir)
+        )
+        for team in load_teams():
+            _ensure_team_files(
+                team.team_id,
+                players_path=players_path,
+                base_dir=BASE_DIR,
+                tuning=fill_tuning,
+            )
+
+    summary = run_sim(
+        args.games, args.seed, players_path, tuning_overrides, base_dir,
+        balanced_schedule=args.balanced_schedule,
+    )
     report_only = summary["report_only"]
     if args.matchup_grid_pa > 0:
         started = time.perf_counter()
@@ -2063,6 +2281,15 @@ def main() -> None:
         args.tolerances, strict_tolerances_for(args.gate_set)
     )
     extras_targets = strict_extras_targets_for(args.gate_set)
+    # Release 5: an engine generation is gated against its own references.
+    engine_gates = engine_gates_for(
+        args.engine, grid=bool(getattr(args, "matchup_grid_pa", 0))
+    )
+    for key in engine_gates["drop"]:
+        tolerances.pop(key, None)
+    tolerances.update(engine_gates["tolerances"])
+    extras_targets = {**extras_targets, **engine_gates["extras_targets"]}
+    benchmarks = {**benchmarks, **engine_gates["benchmarks"]}
     # Release 3: promoted kpi_extras gates join the strict metrics here.
     not_computed = _promote_extras_metrics(summary, tolerances, extras_targets)
     targets = {

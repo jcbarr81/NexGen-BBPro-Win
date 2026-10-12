@@ -168,6 +168,11 @@ export function TuningPage() {
         <ErrorCard message={(tuning.error as Error).message} />
       ) : tuning.data ? (
         <div className="space-y-6">
+          {tuning.data.engine?.message && (
+            <p className="text-sm text-muted">
+              {tuning.data.engine.message}
+            </p>
+          )}
           {tuning.data.sections.map((section: Section) => (
             <SectionCard
               key={section.label}

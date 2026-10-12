@@ -1,0 +1,8 @@
+{
+  "handedness_rhb_scale": 0.6,
+  "handedness_balance_strength": 1.0,
+  "handedness_switch_bonus": 1.0,
+  "platoon_power_after_knee": 1,
+  "platoon_bat_speed_per_point": 0.35,
+  "platoon_vl_center_enabled": 1
+}

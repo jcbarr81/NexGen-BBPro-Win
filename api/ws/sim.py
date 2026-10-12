@@ -44,20 +44,29 @@ _MIN_SPEED_MS = 0
 
 
 def _league_tuning_overrides() -> Dict[str, Any]:
-    """The tuning a league game gets: stored overrides, injuries, centres.
+    """The tuning a league game gets: the engine generation's profile, the
+    stored overrides, injuries, centres.
 
-    The same getters ``playbalance.game_runner`` layers, in the same order,
-    so a watched game reads speed against the league's own mean (Release 4,
+    The same layers ``playbalance.game_runner`` builds, in the same order,
+    so a watched game is played on the engine the league's season is on
+    (Release 5) and reads speed against the league's own mean (Release 4,
     decision 2) instead of the engine's absolute default.
     """
 
+    from physics_sim.engine_generation import engine_profile
     from services.injury_settings import get_injury_tuning_overrides
-    from services.league_rating_centers import get_rating_center_overrides
+    from services.league_rating_centers import (
+        get_league_engine_generation,
+        get_rating_center_overrides,
+    )
     from services.physics_tuning_settings import get_physics_tuning_overrides
 
-    overrides: Dict[str, Any] = {}
+    # A replay is not a season game: it reads the season's generation and
+    # centres, and never fixes either.
+    generation = get_league_engine_generation(store=False)
+    overrides: Dict[str, Any] = engine_profile(generation)
     for getter in (
-        get_physics_tuning_overrides,
+        lambda: get_physics_tuning_overrides(generation),
         get_injury_tuning_overrides,
         # A replay is not a season game: read the stored centre, never fix it.
         lambda: get_rating_center_overrides(store=False),

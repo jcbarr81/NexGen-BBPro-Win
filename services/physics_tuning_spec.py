@@ -7,7 +7,7 @@ reuse the exact same slider definitions without pulling in PyQt6.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -281,4 +281,169 @@ _TUNING_SECTIONS: List[Tuple[str, List[TuningSliderSpec]]] = [
 ]
 
 
-__all__ = ["TuningSliderSpec", "_TUNING_SECTIONS"]
+# Release 5 (owner decision 9): the plate-discipline sliders of the new swing
+# model. A league running ``swing_model`` 1 does not read walk_scale,
+# zone_swing_scale, chase_scale or the two-strike knobs, so its Walk Rate,
+# Zone Swing and Chase sliders move the keys below instead: odds multipliers
+# on the engine's per-count swing table, 1.0 = MLB. Two-Strike Aggression and
+# Two-Strike Protect become ONE slider. ``tuning_sections`` swaps them in,
+# slot for slot; while a league runs ``swing_model`` 0 it gets
+# ``_TUNING_SECTIONS`` untouched. A stored legacy value is converted once
+# when the league first loads its overrides under the new model
+# (services/physics_tuning_settings.convert_swing_slider_overrides).
+#
+# SWITCH-ON TEXT: the labels and descriptions below are what commissioners
+# see from the Release 5 switch-on. Review them with the help page and the
+# news post at the flip; nothing shows them before a league runs model 1.
+_SWING_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
+    "walk_scale": TuningSliderSpec(
+        key="swing_walk_scale",
+        label="Walk Rate",
+        description=(
+            "Walk frequency. 1.0 = MLB; 1.10 is about 10% more walks, 0.90 "
+            "about 10% fewer. Works by making hitters chase less (or more). "
+            "(Earlier versions ran 0.6-1.2 with 0.83 as normal; a saved "
+            "setting was converted.)"
+        ),
+        # The ranges of these four cover what the whole range of the slider
+        # each replaces converts to, so no stored setting is clipped.
+        min_value=0.6,
+        max_value=1.6,
+        step=0.01,
+        fmt="{:.2f}",
+    ),
+    "zone_swing_scale": TuningSliderSpec(
+        key="swing_zone_scale",
+        label="Zone Swing",
+        description=(
+            "Swings at strikes. 1.0 = MLB swing rates in every count; "
+            "higher is more aggressive, lower takes more strikes. (Earlier "
+            "versions ran 0.6-1.2 with 0.91 as normal; a saved setting was "
+            "converted.)"
+        ),
+        min_value=0.4,
+        max_value=2.5,
+        step=0.01,
+        fmt="{:.2f}",
+    ),
+    "chase_scale": TuningSliderSpec(
+        key="swing_chase_scale",
+        label="Chase",
+        description=(
+            "Swings at balls out of the zone. 1.0 = MLB chase rates in "
+            "every count; higher chases more. (Earlier versions ran "
+            "0.4-1.0 with 0.69 as normal; a saved setting was converted.)"
+        ),
+        min_value=0.5,
+        max_value=2.0,
+        step=0.01,
+        fmt="{:.2f}",
+    ),
+    "two_strike_aggression_scale": TuningSliderSpec(
+        key="swing_two_strike_scale",
+        label="Two-Strike Approach",
+        description=(
+            "How much hitters expand and protect with two strikes. 1.0 = "
+            "MLB; higher swings more with two strikes (fewer called third "
+            "strikes, more chases), lower takes more. Replaces Two-Strike "
+            "Aggression and Two-Strike Protect; saved settings were "
+            "combined."
+        ),
+        # Two-Strike Protect at its old maximum (0.9) alone is 4 times the
+        # normal odds of swinging at a two-strike pitch in the zone.
+        min_value=0.5,
+        max_value=5.0,
+        step=0.01,
+        fmt="{:.2f}",
+    ),
+    # Merged into Two-Strike Approach: no slider of its own.
+    "two_strike_zone_protect": None,
+}
+
+
+# Release 5 (owner decision 9), the contact model: a league running
+# ``contact_model`` 1 does not read k_scale or contact_prob_scale. Under the
+# log-odds contact roll the two are ONE lever (how often a swing meets the
+# ball), so Strikeout Rate moves ``contact_strikeout_scale`` -- it divides
+# the contact odds, 1.0 = MLB, higher = more strikeouts as before -- and
+# Contact Rate has no slider of its own. Swapped in by ``tuning_sections``
+# like the swing sliders; stored values are converted once
+# (services/physics_tuning_settings.convert_slider_overrides).
+#
+# SWITCH-ON TEXT, as above.
+_CONTACT_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
+    "k_scale": TuningSliderSpec(
+        key="contact_strikeout_scale",
+        label="Strikeout Rate",
+        description=(
+            "Strikeout frequency. 1.0 = MLB; 1.10 is about 10% more "
+            "strikeouts, 0.90 about 10% fewer. Works by making every swing "
+            "miss a little more (or less) often, so it is also the contact "
+            "rate: it replaces Strikeout Rate and Contact Rate. (Earlier "
+            "versions ran 0.4-1.2 with 0.51 as normal; saved settings were "
+            "combined and converted.)"
+        ),
+        # The old Strikeout Rate ran from 0.6 to 3.0 on this scale.
+        min_value=0.5,
+        max_value=3.2,
+        step=0.01,
+        fmt="{:.2f}",
+    ),
+    # Merged into Strikeout Rate: no slider of its own.
+    "contact_prob_scale": None,
+}
+
+
+def tuning_sections(
+    swing_model: float = 0.0,
+    contact_model: float = 0.0,
+) -> List[Tuple[str, List[TuningSliderSpec]]]:
+    """The slider catalog for a league running these engine models.
+
+    With both below 1 it is ``_TUNING_SECTIONS`` itself. From
+    ``swing_model`` 1 the five legacy plate-discipline sliders are replaced
+    by the four in ``_SWING_MODEL_SLIDERS``, and from ``contact_model`` 1
+    Strikeout Rate and Contact Rate by the one in ``_CONTACT_MODEL_SLIDERS``
+    (same sections, same order). The models come from the league's engine
+    generation (:func:`tuning_sections_for_generation`), never from a key in
+    its overrides file.
+    """
+    replaced: Dict[str, Optional[TuningSliderSpec]] = {}
+    if swing_model >= 1.0:
+        replaced.update(_SWING_MODEL_SLIDERS)
+    if contact_model >= 1.0:
+        replaced.update(_CONTACT_MODEL_SLIDERS)
+    if not replaced:
+        return _TUNING_SECTIONS
+    sections: List[Tuple[str, List[TuningSliderSpec]]] = []
+    for label, specs in _TUNING_SECTIONS:
+        swapped: List[TuningSliderSpec] = []
+        for spec in specs:
+            if spec.key not in replaced:
+                swapped.append(spec)
+            elif replaced[spec.key] is not None:
+                swapped.append(replaced[spec.key])
+        sections.append((label, swapped))
+    return sections
+
+
+def tuning_sections_for_generation(
+    generation: object,
+) -> List[Tuple[str, List[TuningSliderSpec]]]:
+    """The slider catalog of a league season on engine ``generation``."""
+    from physics_sim.engine_generation import engine_defaults
+
+    defaults = engine_defaults(generation)
+    return tuning_sections(
+        defaults.get("swing_model", 0.0), defaults.get("contact_model", 0.0)
+    )
+
+
+__all__ = [
+    "TuningSliderSpec",
+    "_CONTACT_MODEL_SLIDERS",
+    "_SWING_MODEL_SLIDERS",
+    "_TUNING_SECTIONS",
+    "tuning_sections",
+    "tuning_sections_for_generation",
+]

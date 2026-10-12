@@ -430,7 +430,9 @@ def _capture_physics_call(monkeypatch, *, runner_on: bool, stored_overrides: dic
     batters = {f"B{i}": SimpleNamespace(player_id=f"B{i}") for i in range(18)}
     arms = {f"P{i}": SimpleNamespace(player_id=f"P{i}") for i in range(2)}
     monkeypatch.setattr(loader, "load_players_by_id", lambda path: (batters, arms))
-    monkeypatch.setattr(gr, "get_physics_tuning_overrides", lambda: dict(stored_overrides))
+    monkeypatch.setattr(
+        gr, "get_physics_tuning_overrides", lambda *_a, **_k: dict(stored_overrides)
+    )
     monkeypatch.setattr(gr, "get_injury_tuning_overrides", lambda: {})
     monkeypatch.setattr(ls, "load_league_settings", lambda path=None: {"extra_innings_runner": runner_on})
     seen = {}

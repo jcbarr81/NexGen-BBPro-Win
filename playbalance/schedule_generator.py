@@ -137,6 +137,7 @@ def generate_mlb_schedule(
     extra_off_every_n_rounds: int = 0,
     series_off_day: bool = False,
     max_consecutive_days: int | None = 10,
+    balance_home_games: bool = True,
 ) -> List[Dict[str, str]]:
     """Generate a full 162-game schedule for each team.
 
@@ -180,6 +181,16 @@ def generate_mlb_schedule(
         league-wide day off is forced. Rounds of 4-game series can run
         through the weekly off day; this keeps an off day at least every
         ``max_consecutive_days`` days. ``None`` or ``0`` disables it.
+    balance_home_games:
+        When True (the default) every club hosts exactly half of its games,
+        or within one of half when *games_per_team* is odd. Dates, opponents
+        and series lengths are the same either way: balancing only decides
+        which club hosts which leg of a home-and-home pair of series (see
+        :func:`_balance_home_games`). ``False`` keeps the layout from before
+        Release 5, where the club's place in *teams* decided how many of its
+        shortened or lengthened series were at home (75 to 87 home games in
+        a 30-team, 162-game season); the KPI harness uses it so its
+        calibration baselines keep their schedule.
 
     Returns
     -------
@@ -203,6 +214,7 @@ def generate_mlb_schedule(
         extra_off_every_n_rounds=extra_off_every_n_rounds,
         series_off_day=series_off_day,
         max_consecutive_days=max_consecutive_days,
+        balance_home_games=balance_home_games,
     )
 
 
@@ -330,6 +342,96 @@ def _series_remaining(
     return any(queue for queue in queues.values())
 
 
+def _chain_to_poorer(
+    favoured: Dict[str, List[str]], surplus: Dict[str, int], start: str
+) -> List[str] | None:
+    """Return the shortest chain of clubs from *start*, each hosting the next
+    for one game more than it visits, that ends at a club at least three
+    home games worse off than *start* -- or ``None`` when there is none."""
+
+    target = surplus[start] - 3
+    previous: Dict[str, str | None] = {start: None}
+    frontier = deque([start])
+    while frontier:
+        club = frontier.popleft()
+        if surplus[club] <= target:
+            chain = [club]
+            while previous[chain[-1]] is not None:
+                chain.append(previous[chain[-1]])
+            return chain[::-1]
+        for opponent in favoured[club]:
+            if opponent not in previous:
+                previous[opponent] = club
+                frontier.append(opponent)
+    return None
+
+
+def _balance_home_games(
+    teams: List[str], queues: Dict[tuple[str, str], deque[Series]]
+) -> None:
+    """Exchange hosts between pairs of clubs until home games come out even.
+
+    Every club hosts each opponent for as many series as it visits them, so
+    home games are uneven only because series were shortened or lengthened
+    to reach the season total: a club that hosts the longer series against
+    many opponents and the shorter against few plays more at home. Exchanging
+    the hosts of every series between two such clubs moves one home game from
+    one to the other and changes nothing else: the dates, the opponents, the
+    series lengths and the count of series each hosts against the other all
+    stay as they were, and the two clubs still alternate parks.
+
+    A club with a surplus passes a home game down a chain of such pairs to a
+    club with a deficit; the clubs in between give one and take one, and
+    pairs off the chain keep their hosts. This repeats until no chain helps,
+    which leaves every club within one game of an even split (exactly even
+    when it plays an even number of games) provided no two clubs' home games
+    against each other differ by more than one -- true of every plan
+    :func:`_build_series_plan` makes.
+
+    *queues* is keyed by each series' place in the calendar, which is why
+    the place does not move when ``home`` and ``away`` do. The result depends
+    only on the order of *teams* and the series lengths.
+    """
+
+    hosted: Dict[tuple[str, str], int] = {}
+    surplus = {team: 0 for team in teams}
+    for (home, away), queue in queues.items():
+        games = sum(series.length for series in queue)
+        hosted[(home, away)] = games
+        surplus[home] += games
+        surplus[away] -= games
+
+    # favoured[club]: the opponents it hosts for exactly one game more than
+    # it visits. Exchanging hosts with one of them hands that game over.
+    favoured: Dict[str, List[str]] = {team: [] for team in teams}
+    for index, club in enumerate(teams):
+        for opponent in teams[index + 1:]:
+            edge = hosted.get((club, opponent), 0) - hosted.get(
+                (opponent, club), 0
+            )
+            if edge == 1:
+                favoured[club].append(opponent)
+            elif edge == -1:
+                favoured[opponent].append(club)
+
+    while True:
+        chain = None
+        for club in sorted(teams, key=lambda team: -surplus[team]):
+            chain = _chain_to_poorer(favoured, surplus, club)
+            if chain:
+                break
+        if not chain:
+            return
+        for giver, taker in zip(chain, chain[1:]):
+            for key in ((giver, taker), (taker, giver)):
+                for series in queues.get(key, ()):
+                    series.home, series.away = series.away, series.home
+            favoured[giver].remove(taker)
+            favoured[taker].append(giver)
+        surplus[chain[0]] -= 2
+        surplus[chain[-1]] += 2
+
+
 def _build_series_schedule(
     teams: List[str],
     plan: List[Series],
@@ -341,6 +443,7 @@ def _build_series_schedule(
     extra_off_every_n_rounds: int = 0,
     series_off_day: bool = False,
     max_consecutive_days: int | None = 10,
+    balance_home_games: bool = True,
 ) -> List[Dict[str, str]]:
     """Expand a series plan into a day-by-day schedule."""
 
@@ -367,6 +470,8 @@ def _build_series_schedule(
     queues: Dict[tuple[str, str], deque[Series]] = defaultdict(deque)
     for series in plan:
         queues[(series.home, series.away)].append(series)
+    if balance_home_games:
+        _balance_home_games(teams, queues)
 
     total_games = sum(series.length for series in plan)
     schedule: List[Dict[str, str]] = []

@@ -87,6 +87,31 @@ _PITCHING_STATS: List[str] = [
     "fip",
 ]
 
+# ``vl`` is the hitter's platoon split (audit decision 6; Release 5 owner
+# decision 10). It was shown as "Vision", which it has never been.
+#
+# The help text names no number on purpose. The value shown is not the
+# stored rating: ``_display_rating`` blends it with its percentile among all
+# hitters (and the club's scouting error), and generated right-handed
+# batters carry more vl than left-handed ones, so on the league fixture the
+# shown value averages about 63 for right-handed batters and 48 for
+# left-handed ones. "50 is typical" would be false for both. What does hold,
+# for the engine before and after it reads vl against the league's own mean
+# by batting side: the shown value rises with the stored one, more vl is
+# more against left-handers and (the counter-shift) a little less against
+# right-handers, and the fair comparison is with hitters who bat from the
+# same side.
+PLATOON_SPLIT_LABEL = "Platoon vs L"
+RATING_HELP: Dict[str, str] = {
+    PLATOON_SPLIT_LABEL: (
+        "Platoon split: how he handles left-handed pitching. Read it against "
+        "other hitters who bat from his side: higher means he hits "
+        "left-handers better than they do and gives a little of that back "
+        "against right-handers; lower is the reverse. Compare within a "
+        "batting side only, because the stored numbers still lean by side."
+    ),
+}
+
 _HITTER_RATINGS: Tuple[Tuple[str, str], ...] = (
     ("Contact", "ch"),
     ("Power", "ph"),
@@ -95,7 +120,7 @@ _HITTER_RATINGS: Tuple[Tuple[str, str], ...] = (
     ("Arm", "arm"),
     ("Eye", "eye"),
     ("Plate Lab", "pl"),
-    ("Vision", "vl"),
+    (PLATOON_SPLIT_LABEL, "vl"),
     ("Scouting", "sc"),
     ("GB/FB", "gf"),
 )
@@ -180,6 +205,9 @@ class PlayerProfileViewModel:
     awards_history: Tuple[Dict[str, str], ...] = ()
     transactions_log: Tuple[Dict[str, str], ...] = ()
     trade_log: Tuple[Dict[str, str], ...] = ()
+    # Rating label -> a sentence of help, for the ``overview_ratings``
+    # labels that have one.
+    rating_help: Dict[str, str] = None  # type: ignore[assignment]
 
 
 def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
@@ -235,6 +263,7 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
     # One pass over the (potentially ~18 MB) transactions ledger yields both
     # the full log and the trade-only view — the old code scanned it twice.
     transactions_entries, trade_entries = _collect_transactions_and_trades(player)
+    overview_ratings = tuple(_overview_ratings(player, is_pitcher=is_pitcher))
     return PlayerProfileViewModel(
         player_id=str(getattr(player, "player_id", "") or ""),
         full_name=_full_name(player),
@@ -255,7 +284,12 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
         health_status=_build_injury_status(player),
         header_metrics=tuple(_header_metrics(player, team_id=team_id)),
         defense_ratings=tuple(_defense_ratings(player)),
-        overview_ratings=tuple(_overview_ratings(player, is_pitcher=is_pitcher)),
+        overview_ratings=overview_ratings,
+        rating_help={
+            label: RATING_HELP[label]
+            for label, _value in overview_ratings
+            if label in RATING_HELP
+        },
         training_focus=training_focus,
         recent_training_entries=tuple(_recent_training_notes(player)),
         injury_history=tuple(_injury_notes(player)),

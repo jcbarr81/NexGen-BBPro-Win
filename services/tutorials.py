@@ -96,7 +96,8 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Schedules generate automatically",
-                "<p>Each new season's schedule is created for you when you advance into the new year — no manual regeneration needed. The Season page shows the next date to play and the <b>Draft Day</b> tile: the July date, <b>Preseason</b> when this year's draft is held before spring training, or <b>None this year</b> in a new preseason-draft league's first season.</p>",
+                "<p>Each new season's schedule is created for you when you advance into the new year — no manual regeneration needed. The Season page shows the next date to play and the <b>Draft Day</b> tile: the July date, <b>Preseason</b> when this year's draft is held before spring training, or <b>None this year</b> in a new preseason-draft league's first season.</p>"
+                "<p>Every club gets exactly half its games at home in a new schedule. The new season is also when a league moves to the updated game engine, if it is not on it already: see the tutorial <b>The Updated Game Engine</b>.</p>",
             ),
             TutorialStep(
                 "Simulating the playoffs",
@@ -540,6 +541,104 @@ TUTORIALS: List[Tutorial] = [
         ],
     ),
     Tutorial(
+        tutorial_id="updated_engine",
+        title="The Updated Game Engine",
+        summary="When your league moves to the updated game engine, what changes in the numbers, what each rating now does, and the commissioner's sliders and presets.",
+        route=None,
+        steps=[
+            TutorialStep(
+                "When your league moves to it",
+                "<p>Nothing changes for a season that is already under way. Your league moves to the <b>updated game engine</b> at the start of its own next season: when the commissioner advances the league into the new season, before its first regular-season game. A brand-new league starts on it. A season's stats are never split between two engines, and resetting to Opening Day or regenerating the schedule does not change the engine a season is played on.</p>"
+                "<p>How to tell: when the league moves, one item in <b>Today → News</b> says the league now plays on the updated game engine. Commissioners can also check the line at the top of <b>Admin → Physics Tuning</b>, which reads either <i>This league uses the new game engine.</i> or <i>This league moves to the new game engine at the start of next season.</i></p>"
+                "<p>Three changes do not wait for the new season; the step <b>Changes every league sees right away</b> lists them.</p>",
+            ),
+            TutorialStep(
+                "What changes in the numbers",
+                "<p>Expect scoring to come down by about half a run per team per game, to MLB's level, with a few more strikeouts and fewer walks. Measured on a 30-team league created the way a real league is (420 games on each engine through the real game path; sampling error about 0.11 runs either way):</p>"
+                "<ul>"
+                "<li>Runs per team per game: 4.95 on the earlier engine, 4.40 on the updated one (MLB 4.47).</li>"
+                "<li>Strikeouts: 20.8% of plate appearances, now 22.0%.</li>"
+                "<li>Walks: 9.5% of plate appearances, now 8.2%.</li>"
+                "<li>Home runs per team per game: 1.03, now 0.99.</li>"
+                "<li>Intentional walks: none, now about 12 per team per season in that sample (about 15 on the test leagues, MLB's rate).</li>"
+                "<li>Hit batters: 1.4% of plate appearances, now 0.9%.</li>"
+                "<li>Home teams win about 53% of games: .529 in that sample against .490 on the earlier engine (sampling error about .024 either way).</li>"
+                "</ul>"
+                "<p>Scoring comes down because the earlier engine read ratings as absolute numbers, which ran hot in live leagues. The updated game engine reads them against your league; the next step explains what that means.</p>",
+            ),
+            TutorialStep(
+                "Ratings are read against your league",
+                "<p>On the updated game engine every rating that decides a plate appearance is read relative to your league. A hitter's <b>Contact</b>, <b>Power</b> and <b>Eye</b> are compared with the average of the league's lineup regulars, the hitters who actually bat. A pitcher's <b>Control</b>, <b>Movement</b>, pitch grades and arm are compared with the average of the league's pitching staffs, weighted by workload: a rotation starter counts 2.5 times a reliever.</p>"
+                "<p>What that means for you: a 60 is good because it is ten points above the league's regulars, not because of the number 60. When the whole league is strong, an average player is still average, and a league whose players are all rated higher or lower than another's plays the same baseball. In testing, adding the same amount to every hitter's ratings in a league gave an identical season. Judge a player by how he compares with the rest of your league.</p>"
+                "<p>The league's averages are set when the season starts and stay fixed for that season.</p>"
+                "<p>Two differences between leagues are not evened out by this. A league created by the product hits about 10% fewer home runs than the two test leagues the engine was tuned on, because its hitters' pull and ground-ball tendencies are bunched together; the next engine release reworks batted balls. And in a league whose relievers are not rated above its starters, the late innings are barely harder for hitters than the rest of the game.</p>",
+            ),
+            TutorialStep(
+                "Contact",
+                "<p><b>Contact</b> is a sharper skill. Against an average pitcher:</p>"
+                "<ul>"
+                "<li>An 80 Contact hitter strikes out about 4% of the time (11% on the earlier engine).</li>"
+                "<li>A 65 Contact hitter about 9% (it was 14%).</li>"
+                "<li>A 50 Contact hitter about 24%.</li>"
+                "<li>A 35 Contact hitter about half the time.</li>"
+                "</ul>"
+                "<p>A good contact hitter is also called out on strikes less often. An ace's strikeout edge now applies equally to every hitter; before, elite contact hitters felt only about half of it.</p>"
+                "<p>Contact also earns a few more hits on balls in play: about 5 points of batting average on balls in play for every 10 points of Contact. A hitter's batting average now follows his Contact clearly more closely than it did.</p>",
+            ),
+            TutorialStep(
+                "Eye and Control",
+                "<p><b>Eye</b> decides walks. Every 10 points of Eye is worth about 2.5 points of walk rate (0.7 on the earlier engine): a 60 Eye hitter walks about 11.5% of the time and a 40 Eye hitter about 6.5%. In an existing league the change is modest for now, because generated Eye ratings are bunched close together; a later release widens them.</p>"
+                "<p><b>Control</b> decides a pitcher's walks: every 10 points of Control takes about 1.3 points off his walk rate (0.8 before). Control now works through where the pitch goes, so a tired pitcher misses his spot by more and walks more hitters. Wild pitchers also hit more batters.</p>"
+                "<p>Hitters now swing differently at every count, close to MLB's rates: they rarely swing at 3-0 and usually swing at 3-1. Before, they swung about as often in every count until they had two strikes.</p>",
+            ),
+            TutorialStep(
+                "Catcher fielding and the strike zone",
+                "<p>Balls and strikes at the edge of the zone are no longer certain: the same pitch on the corner is sometimes a strike and sometimes a ball. A catcher with a high <b>Fielding</b> rating earns his pitchers extra strikes there. The size is modest: about 5 runs a season for every 10 points of catcher Fielding, counted from your league's average catcher. That figure is an estimate from the size of the effect, not a measured season total.</p>"
+                "<p>A batter is hit only by a pitch that actually runs in on him, never by one in the strike zone, and a hitter facing a same-handed pitcher is hit about twice as often as one facing an opposite-handed pitcher, as in MLB.</p>",
+            ),
+            TutorialStep(
+                "Platoon vs L and handedness",
+                "<p>The hitter rating that used to be labelled <b>Vision</b> is now <b>Platoon vs L</b>, in every league. It was never vision: it is how well a hitter handles left-handed pitching. Read it against other hitters who bat from the same side: higher means he hits left-handers better than they do and gives a little of that back against right-handers. Compare within a batting side only. There is no typical number, because right-handed batters carry higher numbers than left-handed ones. Hover the rating on the player profile for the same explanation. No player's rating changed.</p>"
+                "<p>On the updated game engine:</p>"
+                "<ul>"
+                "<li>Right-handed hitters have a smaller platoon split than left-handed hitters.</li>"
+                "<li>The split is sized from your league's own mix of batting sides, so left- and right-handed pitchers with the same ratings are equally good on average. Before, left-handers could run up to about 0.5 runs per nine innings worse in a league heavy with right-handed hitters.</li>"
+                "<li>Switch hitters get the full platoon edge from either side.</li>"
+                "<li>The extra home-run power against an opposite-handed pitcher no longer jumps for hitters of middling Power.</li>"
+                "</ul>"
+                "<p>Lineup auto-fill, pinch-hitting and the bullpen's matchup choices read the platoon edge the same way the game does.</p>",
+            ),
+            TutorialStep(
+                "Home field, late innings and intentional walks",
+                "<p><b>Home field.</b> Home teams win about 53% of the time, the same for every club and park, in the playoffs too. The All-Star game is not affected. The earlier engine had no home edge.</p>"
+                "<p><b>Late innings.</b> A reliever is a little tougher for his first four batters: about 0.2 runs per nine innings better than a starter with the same ratings, fading to nothing by his seventh batter. The pitcher who starts the game never gets it. Pitchers no longer pitch around hitters just because first base is open with nobody in scoring position, or because the game is late and close; both habits were adding walks. On the two test leagues hitters do a little worse late in close games, by about as much as MLB hitters do; in a league whose relievers are not rated above its starters the difference is close to nothing.</p>"
+                "<p><b>Second time through the order.</b> Hitters gain about 9 to 12 points of wOBA the second time they face a starter (MLB about 10; it was about 2).</p>"
+                "<p><b>Intentional walks.</b> Managers now issue them: about 12 to 15 per team per season, around MLB's rate. They come with first base open and a runner in scoring position, mostly late in close games, and only when the hitter is clearly better than the man on deck. Lineup protection matters: a strong bat behind your best hitter means he gets pitched to.</p>"
+                "<p><b>Parks.</b> A park's foul territory no longer changes strikeouts and walks. It returns in a later release as caught foul pop-ups.</p>",
+            ),
+            TutorialStep(
+                "Changes every league sees right away",
+                "<p>Three changes do not wait for the new season:</p>"
+                "<ul>"
+                "<li><b>Platoon vs L</b> replaces the Vision label (see the step above).</li>"
+                "<li><b>Schedules:</b> any new schedule gives every club exactly half its games at home. Before, a club got between 75 and 87 home games in a 162-game, 30-team league, the same clubs every year. A season already under way keeps the schedule it has.</li>"
+                "<li><b>New players' batting sides:</b> newly generated catchers, second basemen, third basemen and shortstops are about 60% right-handed, 27% left-handed and 13% switch (it was 75 / 15 / 10). That covers new leagues and future draft classes in every league. Players already in your league are not changed.</li>"
+                "</ul>",
+            ),
+            TutorialStep(
+                "For commissioners: tuning sliders and rule presets",
+                "<p>On the updated game engine the sliders on <b>Admin → Physics Tuning</b> change:</p>"
+                "<ul>"
+                "<li><b>Walk Rate</b>, <b>Zone Swing</b> and <b>Chase</b> are rebased so that <b>1.0 means MLB</b>. On Walk Rate, 1.10 is about 10% more walks and 0.90 about 10% fewer.</li>"
+                "<li><b>Two-Strike Aggression</b> and <b>Two-Strike Protect</b> become one slider, <b>Two-Strike Approach</b>.</li>"
+                "<li><b>Strikeout Rate</b> and <b>Contact Rate</b> become one <b>Strikeout Rate</b> slider, where 1.0 also means MLB.</li>"
+                "</ul>"
+                "<p>You do not have to redo anything. Settings your league had stored are converted once, when the league moves, to settings that play the same. Until your league moves, the sliders are exactly as before. Saving the page keeps every setting you did not touch.</p>"
+                "<p><b>Rule presets.</b> In the create-league wizard, <b>High Offense</b> and <b>Pitcher Friendly</b> are now modest: High Offense plays at about 4.7 to 4.8 runs per team per game and Pitcher Friendly at about 3.8 to 4.0, against about 4.4 for <b>MLB Standard</b>. Those sizes come from one test season each, so treat them as estimates. Before this version the two presets were badly mis-sized (Pitcher Friendly produced about 1 run per team per game). No existing league used one, and existing leagues are untouched.</p>",
+            ),
+        ],
+    ),
+    Tutorial(
         tutorial_id="command_center",
         title="Admin Command Center",
         summary="League-wide attention cards and workflow shortcuts.",
@@ -600,7 +699,8 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Physics tuning",
-                "<p><b>Admin → Physics Tuning</b> exposes every tunable knob from the physics engine (offense/pitching scales, discipline, fatigue, defense). Overrides are stored separately from defaults so Reset is always safe.</p>",
+                "<p><b>Admin → Physics Tuning</b> exposes every tunable knob from the physics engine (offense/pitching scales, discipline, fatigue, defense). Overrides are stored separately from defaults so Reset is always safe, and a save keeps every setting you did not touch.</p>"
+                "<p>A line at the top of the page says which game engine the league is on. Once a league is on the updated game engine, Walk Rate, Zone Swing, Chase and Strikeout Rate read 1.0 = MLB, Two-Strike Aggression and Two-Strike Protect are one slider (Two-Strike Approach), and Contact Rate is part of Strikeout Rate; stored settings are converted for you. See the tutorial <b>The Updated Game Engine</b>.</p>",
             ),
             TutorialStep(
                 "Utilities",
@@ -644,7 +744,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Regenerate schedule",
-                "<p>Picks a schedule template (MLB-162, etc.) and overwrites <code>schedule.csv</code>. All played results are cleared. Use this after major structural changes (division realignment, team count change).</p>",
+                "<p>Picks a schedule template (MLB-162, etc.) and overwrites <code>schedule.csv</code>. All played results are cleared. Use this after major structural changes (division realignment, team count change). The new schedule gives every club exactly half its games at home. Regenerating does not change which game engine the season is played on.</p>",
             ),
             TutorialStep(
                 "Reset stats / clear results",

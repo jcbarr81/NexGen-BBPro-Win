@@ -199,6 +199,13 @@ DEFAULT_TUNING: Dict[str, Any] = {
         "putaway": 1.1,
     },
     "pitch_objective_late_inning": 7.0,
+    # Release 5 (audit M19), both off by default. With requires_risp 1 the
+    # first-base-open modifier applies only with a runner in scoring
+    # position (today it fires with the bases empty too, on about 65% of
+    # PA). late_close_strength scales the late-and-close table's distance
+    # from 1.0: 1.0 = the table as written, 0.0 = no late-and-close change.
+    "pitch_objective_fbo_requires_risp": 0.0,
+    "pitch_objective_late_close_strength": 1.0,
     "batter_aggression_min_pitches": 6.0,
     "batter_aggression_high": 0.52,
     "batter_aggression_low": 0.42,
@@ -639,12 +646,69 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "tto_eye_bonus": 0.32,
     "tto_power_bonus": 0.2,
     "tto_max_passes": 3.0,
+    # Release 5: how many times the three bonuses above apply on the second
+    # and on the third pass (the defaults are the old linear count: one per
+    # pass beyond the first). A pass beyond the third adds 1.0 each.
+    "tto_pass2_weight": 1.0,
+    "tto_pass3_weight": 2.0,
+    # Release 5 (owner decision 3): zero-sum home-field edge in rating
+    # points, added to the home side's contact and eye (times power_ratio
+    # to power) and subtracted from the road side's. The same for every
+    # club and park, postseason included. 0.0 = off.
+    "home_field_edge": 0.0,
+    "home_field_power_ratio": 0.6,
+    # Release 5 (owner decision 4): a pitcher who did not start the game
+    # gets this many points of control and movement, in full through his
+    # first bf_full batters of the appearance and fading linearly to
+    # nothing at bf_end. Applied before the fatigue factors. 0.0 = off.
+    "reliever_fresh_bonus": 0.0,
+    "reliever_fresh_bf_full": 4.0,
+    "reliever_fresh_bf_end": 7.0,
     "platoon_contact_scale": 0.25,
     "platoon_power_scale": 0.2,
     "platoon_eye_scale": 0.3,
     "platoon_chase_scale": 0.0015,
     "platoon_pitcher_scale": 0.25,
     "bullpen_platoon_weight": 2.0,
+    # Release 5 (audit H7; decisions 6-7; Release 5 owner decision 5), all
+    # read through physics_sim.platoon.platoon_shift. The values here are the
+    # ones the engine hard-coded before, so the defaults change nothing; the
+    # switched-on values live in scripts/kpi_profiles/r5_platoon.json.
+    #
+    # The handedness bonus by batting side: a left-handed batter's is
+    # handedness_lhb_scale (a_L) times the three handedness_*_bonus knobs, a
+    # right-handed batter's a_L * clamp((1 - w) * handedness_rhb_scale
+    # + w * rho + handedness_balance_bias, _min, _max). rho is the ratio that
+    # makes LHP and RHP equal for the league's own mix of batting sides
+    # (hitter_bats_share_*; unknown shares read as w = 0) and w is
+    # handedness_balance_strength: 0 = a fixed right-handed split, 1 = LHP
+    # and RHP equal in every league. A switch hitter takes
+    # handedness_switch_bonus (above) times the bonus of the side he bats
+    # from.
+    "handedness_lhb_scale": 1.0,
+    "handedness_rhb_scale": 1.0,
+    "handedness_balance_strength": 0.0,
+    "handedness_balance_bias": 0.0,
+    "handedness_balance_min": 0.35,
+    "handedness_balance_max": 1.0,
+    # A hitter's vl shifts his ratings by (vl - centre) against a LHP and by
+    # the opposite sign times this against a RHP. About 26% of PA come
+    # against LHP, and 0.26 / 0.74 = 0.35 keeps the season-weighted effect of
+    # vl near zero: 0.74 * (-0.35 * d) + 0.26 * d = 0.
+    "platoon_rhp_counter_scale": 0.35,
+    # 1 = read vl against the league's own mean for the hitter's batting side
+    # (hitter_vl_center_l/_r/_s below) instead of 50, so vl is the hitter's
+    # personal split and a by-bats tilt in a league's data adds nothing to the
+    # handedness bonus (decision 6).
+    "platoon_vl_center_enabled": 0.0,
+    # 1 = the situational Power bonuses (handedness, vl, times through the
+    # order) no longer pass through the bat-speed knee, where a point is
+    # worth 0.15 mph below bat_speed_power_knee and 0.95 above it. Bat speed
+    # reads the hitter's own Power on the curve and adds
+    # platoon_bat_speed_per_point mph per bonus point; barrel accuracy still
+    # reads Power plus the bonus, pitch selection Power without it.
+    "platoon_power_after_knee": 0.0,
+    "platoon_bat_speed_per_point": 0.35,
     "pitch_seq_fastball_bias": 1.0,
     "pitch_seq_breaking_bias": 1.0,
     "pitch_seq_offspeed_bias": 1.0,
@@ -711,8 +775,12 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "catcher_arm_center": 50.0,
     "catcher_fa_center": 50.0,
     # Release 5a: the centres and batting-side shares Release 5 will read,
-    # from the same source (services/league_rating_centers). NOTHING READS
-    # THEM YET. The ACT hitters' mean Contact and Eye, the ACT pitchers'
+    # from the same source (services/league_rating_centers). Read only by
+    # the Release 5 models while they are switched on (so far swing_model:
+    # hitter_eye_center and hitter_contact_center; contact_model and the
+    # two contact knobs beside it: hitter_contact_center,
+    # pitcher_movement_center and pitcher_grade_center); nothing else reads
+    # them yet. The ACT hitters' mean Contact and Eye, the ACT pitchers'
     # mean movement and mean pitch grade (each pitcher's average over the
     # pitches he throws), and the ACT hitters' mean vl by batting side (a
     # side with fewer than 10 hitters reads the all-hitter mean).
@@ -724,10 +792,234 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "hitter_vl_center_r": 50.0,
     "hitter_vl_center_s": 50.0,
     # The share of ACT hitters batting left / right / switch (sum 1.0).
-    # 0 / 0 / 0, the default, means "unknown".
+    # 0 / 0 / 0, the default, means "unknown". Release 5:
+    # physics_sim.platoon reads these (handedness_balance_strength) and the
+    # three vl centres above (platoon_vl_center_enabled), both off by default.
     "hitter_bats_share_l": 0.0,
     "hitter_bats_share_r": 0.0,
     "hitter_bats_share_s": 0.0,
+    # Release 5 (league-relative ratings). centred_ratings 1 shifts every
+    # rating that feeds a plate appearance by (50 - its league centre) once,
+    # where it enters the pitch kernel -- the hitter's Contact, Power and
+    # Eye (engine._batter_context) and the pitcher's control, movement,
+    # pitch grades and the arm behind his velocity (engine._pitcher_context)
+    # -- so the batted-ball path, written against an absolute 50, reads the
+    # league's own average as 50 too. The formulas that subtract a centre
+    # themselves then compare against 50 (physics_sim.centred_ratings).
+    # 0, the default, is the legacy engine: nothing is shifted.
+    #
+    # hitter_power_center is the Power centre that shift reads, from the
+    # same source as the others. It, hitter_contact_center and
+    # hitter_eye_center are means over the lineup REGULARS (the hitters in
+    # the clubs' saved lineups), not over every ACT hitter, for a season
+    # whose centres are fixed from this release on.
+    #
+    # The pitcher's four ratings are shifted by workload-weighted centres,
+    # the pitcher_*_usage_center keys: a rotation starter counts 2.5 times
+    # a reliever, because that is about how the innings are shared, and how
+    # a league's starters compare with its relievers differs by league. The
+    # plain ACT means above (pitcher_control_center, pitcher_arm_center, ...)
+    # are not redefined: the Release 4 running-game terms read those, and so
+    # do the Release 5 models while centred_ratings is off.
+    "centred_ratings": 0.0,
+    "hitter_power_center": 50.0,
+    "pitcher_control_usage_center": 50.0,
+    "pitcher_movement_usage_center": 50.0,
+    "pitcher_grade_usage_center": 50.0,
+    "pitcher_arm_usage_center": 50.0,
+    # Release 5 (plan 2.1, plate discipline). Five switches, all OFF: at 0
+    # each path is the code it replaces, byte for byte, and draws no extra
+    # random number. The values beside them are the design's starting
+    # values and are read only while their switch is on; the switched-on
+    # profile is scripts/kpi_profiles/r5_discipline.json.
+    #
+    # THE SWITCH-ON IS NOT A CHANGE TO THIS FILE. A league season is played
+    # on an engine GENERATION; generation 5 is all four Release 5 areas,
+    # switched on by the profile physics_sim/profiles/engine_5.json laid
+    # over these defaults (physics_sim/engine_generation.py). These stay
+    # the legacy engine, which a league plays until its next season starts.
+    #
+    # swing_model 1: one log-odds swing roll per pitch from the per-count
+    # table below (MLB 2023 zone swing / chase by count),
+    #   zone:  logit(table) + e * swing_eye_zone_logit
+    #          (+ (contact - hitter_contact_center)
+    #             * swing_two_strike_contact_logit with two strikes)
+    #   chase: logit(table) - e * swing_eye_chase_logit
+    #          + platoon_chase * swing_platoon_chase_logit
+    # with e = the batter's eye in context minus the league centre of that
+    # quantity (hitter_eye_center when eye_control_blend is 0), clamped to
+    # swing_prob_floor..swing_prob_cap. There is no second "protect" roll,
+    # and zone_swing_scale, chase_scale, walk_scale, take_on_3_*,
+    # count_swing_bonus and the two_strike_* swing knobs are not read.
+    "swing_model": 0.0,
+    "swing_count_table": {
+        "0-0": {"zone": 0.444, "chase": 0.158},
+        "0-1": {"zone": 0.744, "chase": 0.280},
+        "0-2": {"zone": 0.871, "chase": 0.341},
+        "1-0": {"zone": 0.597, "chase": 0.223},
+        "1-1": {"zone": 0.777, "chase": 0.317},
+        "1-2": {"zone": 0.886, "chase": 0.386},
+        "2-0": {"zone": 0.582, "chase": 0.209},
+        "2-1": {"zone": 0.778, "chase": 0.325},
+        "2-2": {"zone": 0.893, "chase": 0.425},
+        "3-0": {"zone": 0.135, "chase": 0.036},
+        "3-1": {"zone": 0.719, "chase": 0.258},
+        "3-2": {"zone": 0.890, "chase": 0.449},
+    },
+    "swing_eye_chase_logit": 0.035,
+    "swing_eye_zone_logit": -0.005,
+    "swing_platoon_chase_logit": 5.0,
+    # Hook for the contact model (plan 2.2): set there, 0.0 = no term.
+    "swing_two_strike_contact_logit": 0.0,
+    "swing_prob_floor": 0.01,
+    "swing_prob_cap": 0.99,
+    # The commissioner sliders under swing_model 1 (owner decision 9): odds
+    # multipliers on the table, 1.0 = MLB. Zone and chase scale their own
+    # odds, the two-strike scale both with two strikes, and the walk scale
+    # divides the chase odds to the power swing_walk_logit_gain. The gain
+    # makes the slider read as a walk multiplier: walks move about -0.75%
+    # per +1% of chase odds (162-game runs at chase scale 0.8 and 1.25,
+    # both fixtures), so 1.33 = 1 / 0.75. The swing_model 0 sliders keep
+    # their own keys (services/physics_tuning_spec).
+    "swing_zone_scale": 1.0,
+    "swing_chase_scale": 1.0,
+    "swing_walk_scale": 1.0,
+    "swing_two_strike_scale": 1.0,
+    "swing_walk_logit_gain": 1.33,
+    # The pitcher's share of the batter's eye (engine._batter_context):
+    # eye = batter eye * (1 - blend) + (100 - control) * blend. 0.2 is the
+    # value that was hard-coded; at 0.0 control acts through location only.
+    "eye_control_blend": 0.2,
+    # command_model 1: the command error multiplier is
+    # command_error_ref_mult * exp(-c * command_error_control_log_slope)
+    # with c = fatigued control - pitcher_control_center (2.55 is the old
+    # multiplier at control 50), and the zone-target term reads the same c.
+    "command_model": 0.0,
+    "command_error_ref_mult": 2.55,
+    "command_error_control_log_slope": 0.02,
+    # umpire_model 1: every take is called by one roll,
+    #   P(strike) = 1 / (1 + exp((d - d0) / umpire_edge_width_ft)),
+    # d = the pitch's distance outside the zone edge in feet (negative
+    # inside), d0 = umpire_edge_offset_ft
+    #   + (catcher fa - catcher_fa_center) / 100 * umpire_framing_offset_ft
+    #   + (balls - strikes) * umpire_count_offset_ft.
+    # The offset must stay negative (a symmetric edge costs about 2 pp of
+    # walks). Replaces called_zone_shrink_ft, umpire_margin_ft and the
+    # framing_* keys. Framing (owner decision 6: about 5 runs a season per
+    # 10 points of catcher fielding): moving the edge 0.04 ft is worth 0.28
+    # runs per team-game (162-game runs, both fixtures, seeds 1-2), so 10
+    # points x 0.045 / 100 = 0.0045 ft is about 0.031 runs a game.
+    "umpire_model": 0.0,
+    "umpire_edge_offset_ft": -0.055,
+    "umpire_edge_width_ft": 0.07,
+    "umpire_framing_offset_ft": 0.045,
+    "umpire_count_offset_ft": 0.012,
+    # hbp_model 1: a pitch can hit the batter only when it is more than
+    # hbp_inside_min_ft inside the zone edge on HIS side of the plate; the
+    # chance ramps to hbp_inside_rate over hbp_inside_span_ft. Replaces
+    # hbp_rate (and its roll on every pitch). The chance is then multiplied
+    # by hbp_same_hand_scale (RvR, LvL) or hbp_opposite_hand_scale: on
+    # location alone the model hits the opposite-hand batter more often
+    # (same / opposite about 0.6 per batter faced), where MLB hits the
+    # same-hand batter about twice as often. 1.0 / 1.0 is location alone;
+    # the tuned pair is in scripts/kpi_profiles/r5_discipline*.json. Read
+    # only under hbp_model 1.
+    "hbp_model": 0.0,
+    "hbp_inside_min_ft": 0.35,
+    "hbp_inside_span_ft": 0.6,
+    "hbp_inside_rate": 0.2,
+    "hbp_same_hand_scale": 1.0,
+    "hbp_opposite_hand_scale": 1.0,
+    # ibb_model 1: the intentional walk is decided by the gap between the
+    # batter and the on-deck hitter (offense score against this pitcher):
+    # no chance below ibb_gap_min, ibb_chance at ibb_gap_full and beyond,
+    # times ibb_early_scale outside late-and-close (ibb_inning,
+    # ibb_close_run_diff) and ibb_no_out_scale with nobody out.
+    # ibb_batter_threshold is not read.
+    "ibb_model": 0.0,
+    "ibb_gap_min": 2.0,
+    "ibb_gap_full": 7.0,
+    "ibb_early_scale": 0.1,
+    "ibb_no_out_scale": 0.3,
+    # Release 5 (plan 2.2, contact, whiffs and strikeouts). All OFF: the
+    # switch is 0 and the two knobs outside it are 0.0, so the contact roll,
+    # the two-strike take and the hit chance are the code they were, byte
+    # for byte, with no extra random number. The switched-on profiles are
+    # scripts/kpi_profiles/r5_contact.json (this area alone) and
+    # r5_discipline_contact.json (with plate discipline, retuned together).
+    #
+    # contact_model 1: one log-odds roll for contact on a swing,
+    #   logit = contact_logit_zone (in the zone) | contact_logit_chase
+    #     + contact_logit_ch * (contact in context - hitter_contact_center)
+    #     - contact_logit_pq * (pq - pq centre)
+    #     - contact_logit_break * break in feet
+    #     - contact_logit_velo * (velocity - reference for the pitch type)
+    #     + contact_logit_two_strike with two strikes,
+    # pq = 0.4 control + 0.4 movement + 0.2 pitch grade (x
+    # pitching_dom_scale), its centre the same mix of pitcher_control_center,
+    # pitcher_movement_center and pitcher_grade_center. No ceiling, no
+    # separate whiff roll, no clamp: the hitter and the pitcher each move
+    # the odds by a fixed factor, so strikeouts follow log5 (audit M20).
+    # k_scale, contact_prob_scale, chase_contact_scale, count_contact_scale
+    # and the whiff_* keys are NOT read under model 1 (break_contact_penalty
+    # still is: contact_base feeds exit velocity under both models).
+    #
+    # The slopes are owner decision 1 (0.090: an 80 Contact hitter strikes
+    # out about 3% against an average pitcher, a 40 about 37%) and today's
+    # ace effect (0.040). Do not refit them to today's surface: that gives
+    # 0.073 / 0.029 and shrinks the hitter and pitcher strikeout spread
+    # below their gates. The two-strike term must stay positive (MLB contact
+    # rises with two strikes). The intercepts and the two-strike term set
+    # the league strikeout level; the values here are the K-neutral start on
+    # today's swing model (r5_contact.json: K .234 / .240 against .234 /
+    # .234 on the two fixtures with neutral parks, seeds 1-2), retuned for
+    # swing_model 1 in r5_discipline_contact.json (1.52 / 0.26 / 0.20). The
+    # design's 1.94 / 0.68 were solved with every centre at 50; against the
+    # fixtures' own centres they give K .210 / .217.
+    "contact_model": 0.0,
+    "contact_logit_zone": 1.74,
+    "contact_logit_chase": 0.48,
+    "contact_logit_ch": 0.09,
+    "contact_logit_pq": 0.04,
+    "contact_logit_break": 0.4,
+    "contact_logit_two_strike": 0.22,
+    # The commissioner's Strikeout Rate slider under contact_model 1 (owner
+    # decision 9, 1.0 = MLB): it divides the contact odds of every swing, in
+    # and out of the zone, to the power contact_strikeout_logit_gain, so
+    # higher = more strikeouts. The gain makes the slider read as a
+    # strikeout multiplier: strikeouts move about 0.55% per 1% of contact
+    # odds (162-game runs at odds / 1.25 and / 0.8 on the generation 5
+    # profile: K .243 and .190 against .214), so 1.8 = 1 / 0.55; walks do
+    # not move. k_scale and contact_prob_scale, the contact_model 0
+    # sliders, keep their own keys and are not read under model 1
+    # (services/physics_tuning_spec).
+    "contact_strikeout_scale": 1.0,
+    "contact_strikeout_logit_gain": 1.8,
+    # Velocity is registered but off until Release 6 retunes fatigue (a
+    # two-sided term on top of today's velocity fade is wrong-signed). The
+    # reference is a 50-arm fastball (83 + 0.2 * arm) plus the pitch type's
+    # pitch_type_velocity_offset.
+    "contact_logit_velo": 0.0,
+    "contact_velo_ref": 93.0,
+    # The called third strike depends on Contact (independent of the
+    # switch above; 0.0 = today's flat two_strike_zone_protect). Under
+    # swing_model 0, for a two-strike take of a zone pitch:
+    #   logit(protect) = logit(two_strike_zone_protect)
+    #     + two_strike_protect_contact * (contact - hitter_contact_center)
+    #     + two_strike_protect_eye * (eye - the league's eye in context)
+    # 0.06 gives protect .41 / .63 / .81 / .91 at Contact 35 / 50 / 65 / 80;
+    # the eye slope stays 0 (owner: Contact only). Under swing_model 1 there
+    # is no protect roll and the term is swing_two_strike_contact_logit.
+    "two_strike_protect_contact": 0.0,
+    "two_strike_protect_eye": 0.0,
+    # Contact's BABIP edge (Release 0 decision 4), minimal direct form: on a
+    # ball in play that is not a home run,
+    #   hit chance += contact_babip_per10
+    #                 * clip(Contact - hitter_contact_center, -25, 25) / 10
+    # after babip_scale and before the hit-chance clamp. The hitter's own
+    # rating, not his contact in context. Profile value 0.010; Release 6
+    # replaces it with a batted-ball channel.
+    "contact_babip_per10": 0.0,
     # Release 4 (W1): wild pitches, passed balls and the dropped third strike
     # (audit M10). Rating terms are exponential, e^((50 - rating) / k), on the
     # rating centred on the league's ACT mean (F4) and clipped to [20, 95]:
@@ -873,6 +1165,11 @@ class TuningConfig:
     """Container for all user-adjustable tuning knobs."""
 
     values: Dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_TUNING))
+    # The registered keys the overrides actually supplied. A league's rating
+    # centres default to 50.0, which cannot be told from "nobody delivered
+    # this league's centre"; physics_sim.centred_ratings refuses to shift a
+    # rating by a centre that is not in here.
+    delivered: frozenset = field(default_factory=frozenset, compare=False, repr=False)
 
     @classmethod
     def from_overrides(
@@ -893,6 +1190,7 @@ class TuningConfig:
                 pass
         if overrides:
             data.update(overrides)
+        delivered = set()
         for k, v in data.items():
             if k in base:
                 base_value = base.get(k)
@@ -903,7 +1201,8 @@ class TuningConfig:
                         continue
                 else:
                     base[k] = v
-        return cls(values=base)
+                delivered.add(k)
+        return cls(values=base, delivered=frozenset(delivered))
 
     def get(self, key: str, default: Optional[float] = None) -> float:
         """Numeric knob lookup, memoized per (key, default) (S1-09).
@@ -930,6 +1229,7 @@ class TuningConfig:
         """Drop memoized lookups after an in-place ``values`` mutation."""
         self.__dict__.pop("_num_cache", None)
         self.__dict__.pop("_objective_table", None)
+        self.__dict__.pop("_swing_table", None)
 
 
 def load_tuning(

@@ -1431,6 +1431,8 @@ export interface PlayerProfile {
   header_metrics: Array<[string, string]>;
   defense_ratings: Array<[string, string]>;
   overview_ratings: Array<[string, string]>;
+  /** Rating label -> one sentence of help, for the labels that have one. */
+  rating_help?: Record<string, string>;
   training_focus: PlayerProfileTrainingFocus | null;
   recent_training_entries: PlayerProfileNote[];
   injury_history: PlayerProfileNote[];
@@ -1869,6 +1871,8 @@ export const api = {
       commissioner_uid: string;
       team_id: string;
       teams_total: number;
+      /** Problems that did not stop the league from being created. */
+      warnings?: string[];
     }>("/leagues/create-as-commissioner", { method: "POST", body: payload }),
   generateInvite: (team_id?: string) =>
     apiRequest<{ code: string; league_id: string; team_id: string; status: string }>(
@@ -2098,6 +2102,8 @@ export const api = {
       mode: string;
       data_dir: string;
       teams_total: number;
+      /** Problems that did not stop the league from being created. */
+      warnings?: string[];
     }>("/leagues/create", { method: "POST", body: payload }),
   bootstrapAdmin: (password: string) =>
     apiRequest<{ status: string }>("/admin/bootstrap", {
@@ -2121,6 +2127,13 @@ export const api = {
       }>;
       defaults: Record<string, number>;
       overrides: Record<string, number>;
+      // Release 5: which game engine the league's season is played on
+      // (it changes at the start of a season, never during one).
+      engine?: {
+        generation: number;
+        latest_generation: number;
+        message: string;
+      };
     }>("/tuning"),
   saveTuning: (overrides: Record<string, number>) =>
     apiRequest<{

@@ -242,6 +242,9 @@ class ReportOnlyKpis:
         self._load_players(Path(players_path))
         # Release 4 (W1): pitcher control, for the wild-pitch response check.
         self.control = _load_pitcher_control(Path(players_path))
+        # Release 5: the pitcher ratings the engine reads, for the
+        # rating-adjusted LHP-minus-RHP run average.
+        self.pitcher_ratings = _load_pitcher_ratings(Path(players_path))
         # Release 5a: hitter Contact and Eye, for the rating-response slopes.
         self.ch, self.eye = _load_hitter_contact_eye(Path(players_path))
         self.lineup_pos = _load_lineup_positions(lineup_dir) if lineup_dir else {}
@@ -846,6 +849,11 @@ class ReportOnlyKpis:
         }
         metrics["lhp_minus_rhp_ra9"] = _diff(ra9.get("L"), ra9.get("R"))
         tables["ra9_by_hand"] = ra9
+        adjusted = _hand_ra9_rating_adjusted(
+            self.pitchers, self.throws, self.pitcher_ratings
+        )
+        metrics["lhp_minus_rhp_ra9_rating_adj"] = adjusted["gap"]
+        tables["ra9_by_hand_rating_adj"] = adjusted
         metrics["ibb_per_pa"] = _ratio(self.totals["ibb"], self.totals["pa"])
         metrics["hbp_per_pa"] = _ratio(self.totals["hbp"], self.totals["pa"])
         backups = self._backup_catcher_starts(gpt)
@@ -2002,6 +2010,26 @@ class ReportOnlyKpis:
         metrics["rhb_share_of_pa_vs_lhp"] = _ratio(vs_lhp["R"], sum(vs_lhp.values()))
         tables["platoon_rates"] = {"same": same, "opposite": opp, "pa_vs_lhp": vs_lhp}
 
+        # Hit batters by matchup hand, per batter faced (every PA result).
+        # A switch hitter bats from the opposite side, so he counts there.
+        # MLB hits the same-hand batter about twice as often.
+        hbp_hand = {}
+        for name, keys in (
+            ("same", ("LL", "RR")), ("opposite", ("LR", "RL", "SL", "SR"))
+        ):
+            counts = bucket(*keys)
+            faced = sum(counts.values())
+            hbp_hand[name] = {
+                "bf": faced, "hbp": counts["hbp"],
+                "hbp_per_bf": _ratio(counts["hbp"], faced),
+            }
+        same_rate = hbp_hand["same"]["hbp_per_bf"]
+        opp_rate = hbp_hand["opposite"]["hbp_per_bf"]
+        metrics["hbp_same_over_opposite_hand"] = (
+            same_rate / opp_rate if same_rate is not None and opp_rate else None
+        )
+        tables["hbp_by_matchup_hand"] = hbp_hand
+
         # Situations (M19, L5): walks late and close and with first base
         # occupied, intentional walks, the home side and the fresh reliever.
         logged = bool(self.logged_games)
@@ -2082,6 +2110,112 @@ def _load_pitcher_control(path: Path) -> dict[str, float]:
             except ValueError:
                 pass
     return control
+
+
+# The pitcher ratings the engine's pitch model reads, as regressors of the
+# rating-adjusted LHP-minus-RHP run average (centred on 50).
+HAND_RA9_RATINGS = ("control", "movement", "arm", "endurance", "pitch_grade")
+HAND_RA9_MIN_OUTS = 60
+HAND_RA9_MIN_PITCHERS = 5
+
+
+def _load_pitcher_ratings(path: Path) -> dict[str, dict[str, float]]:
+    """pid -> the ``HAND_RA9_RATINGS`` of each pitcher (blank rating = 50;
+    ``pitch_grade`` is his mean grade over the pitches he throws)."""
+    from physics_sim.models import PITCH_KEYS
+
+    ratings: dict[str, dict[str, float]] = {}
+    if not path.exists():
+        return ratings
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            pid = str(row.get("player_id") or "")
+            if not pid or str(row.get("is_pitcher", "")).strip() not in {"1", "True", "true"}:
+                continue
+            values: dict[str, float] = {}
+            for key in HAND_RA9_RATINGS[:-1]:
+                try:
+                    values[key] = float(row.get(key) or 50.0)
+                except ValueError:
+                    values[key] = 50.0
+            grades = []
+            for key in PITCH_KEYS:
+                try:
+                    grade = float(row.get(key) or 0.0)
+                except ValueError:
+                    continue
+                if grade > 0.0:
+                    grades.append(grade)
+            values["pitch_grade"] = (sum(grades) / len(grades)) if grades else 50.0
+            ratings[pid] = values
+    return ratings
+
+
+def _solve_linear(matrix: list[list[float]], rhs: list[float]) -> list[float] | None:
+    """Gaussian elimination with partial pivoting; None when singular."""
+    n = len(rhs)
+    rows = [list(matrix[i]) + [rhs[i]] for i in range(n)]
+    for col in range(n):
+        pivot = max(range(col, n), key=lambda r: abs(rows[r][col]))
+        if abs(rows[pivot][col]) < 1e-9:
+            return None
+        rows[col], rows[pivot] = rows[pivot], rows[col]
+        for r in range(col + 1, n):
+            factor = rows[r][col] / rows[col][col]
+            for c in range(col, n + 1):
+                rows[r][c] -= factor * rows[col][c]
+    solution = [0.0] * n
+    for i in range(n - 1, -1, -1):
+        tail = sum(rows[i][j] * solution[j] for j in range(i + 1, n))
+        solution[i] = (rows[i][n] - tail) / rows[i][i]
+    return solution
+
+
+def _hand_ra9_rating_adjusted(
+    pitchers: dict[str, Counter],
+    throws: dict[str, str],
+    ratings: dict[str, dict[str, float]],
+) -> dict[str, Any]:
+    """LHP minus RHP run average at equal ratings (decision 7).
+
+    Outs-weighted least squares of each pitcher's RA9 on his
+    ``HAND_RA9_RATINGS`` and a left-hander flag, over the pitchers with
+    ``HAND_RA9_MIN_OUTS`` or more outs; ``gap`` is the flag's coefficient,
+    in runs per nine. The raw ``lhp_minus_rhp_ra9`` also moves when one
+    hand's pitchers are simply better; this does not. ``gap`` is None with
+    fewer than ``HAND_RA9_MIN_PITCHERS`` of either hand or ratings that do
+    not vary.
+    """
+    rows = []
+    for pid, c in pitchers.items():
+        if c["outs"] < HAND_RA9_MIN_OUTS or pid not in ratings:
+            continue
+        left = 1.0 if throws.get(pid, "R") == "L" else 0.0
+        x = [1.0, left] + [ratings[pid][key] - 50.0 for key in HAND_RA9_RATINGS]
+        rows.append((x, 27.0 * c["r"] / c["outs"], float(c["outs"])))
+    lefties = sum(1 for x, _y, _w in rows if x[1])
+    out: dict[str, Any] = {
+        "gap": None, "pitchers": len(rows), "lhp": lefties,
+        "min_outs": HAND_RA9_MIN_OUTS, "per10": {},
+    }
+    if min(lefties, len(rows) - lefties) < HAND_RA9_MIN_PITCHERS:
+        return out
+    size = len(rows[0][0])
+    normal = [[0.0] * size for _ in range(size)]
+    target = [0.0] * size
+    for x, y, w in rows:
+        for i in range(size):
+            target[i] += w * x[i] * y
+            for j in range(size):
+                normal[i][j] += w * x[i] * x[j]
+    beta = _solve_linear(normal, target)
+    if beta is None:
+        return out
+    out["gap"] = beta[1]
+    out["per10"] = {
+        key: 10.0 * beta[2 + i] for i, key in enumerate(HAND_RA9_RATINGS)
+    }
+    return out
 
 
 SPEED_TIERS = ("<40", "40-49", "50-59", "60-69", "70-84", "85+")
@@ -2382,6 +2516,42 @@ def _p5_50_p95(values: list[float]) -> list[float]:
 # --matchup-grid-pa if cells are skipped.
 GRID_MIN_EVENTS = 20
 
+# The grid is its own league: the anchor cell (a 50 hitter against a pitcher
+# with control and movement 50 throwing GRID_PITCH_GRADE pitches to a
+# GRID_CATCHER_FIELDING catcher) is the league-average hitter, pitcher and
+# catcher. The Release 5 models read ratings against the league's centres
+# (contact_model: Contact and the pitch-quality mix; swing_model: Eye;
+# command_model: control; umpire_model: catcher fielding), so the grid pins
+# every centre to its own anchor. A fixture's centres would put the anchor
+# hitter and pitcher off average (calibration: Contact 48.8, pitch quality
+# 52.7), and so would a centre pinned in the profile. With the models off
+# nothing in a cell reads a centre that is not already 50. The K and HR
+# cells are right-handed batter against right-handed pitcher, so the
+# anchor strikes out a little more than the league (the same-hand penalty).
+# With centred_ratings on the engine shifts each rating by 50 minus its
+# centre before the pitch (a cell goes through the engine's own
+# _batter_context and _pitcher_context), so the centres it shifts by are
+# pinned too: Power at the grid's 50 and the pitcher's workload-weighted
+# centres (pitcher_*_usage_center) at the same anchor as the plain ones.
+# The grid's pitches then read as the league-average 50 pitch.
+GRID_PITCH_GRADE = 55.0
+GRID_CATCHER_FIELDING = 50.0
+GRID_RATING_CENTERS = {
+    "hitter_contact_center": 50.0,
+    "hitter_eye_center": 50.0,
+    "hitter_power_center": 50.0,
+    "hitter_speed_center": 50.0,
+    "pitcher_control_center": 50.0,
+    "pitcher_movement_center": 50.0,
+    "pitcher_arm_center": 50.0,
+    "pitcher_grade_center": GRID_PITCH_GRADE,
+    "pitcher_control_usage_center": 50.0,
+    "pitcher_movement_usage_center": 50.0,
+    "pitcher_arm_usage_center": 50.0,
+    "pitcher_grade_usage_center": GRID_PITCH_GRADE,
+    "catcher_fa_center": GRID_CATCHER_FIELDING,
+}
+
 
 def _logit(p: float) -> float:
     p = min(max(p, 1e-6), 1 - 1e-6)
@@ -2398,7 +2568,11 @@ def _simulate_cell(
     ``k_swinging``, Release 5a) and ``hr``. ``bats`` / ``throws`` set the
     hands for the platoon cells; both vs-left ratings are 50.
     """
-    from physics_sim.engine import _batter_context
+    from physics_sim.engine import (
+        _batter_context,
+        _league_relative,
+        _pitcher_context,
+    )
     from physics_sim.models import BatterRatings, PitcherRatings
     from physics_sim.physics import resolve_batted_ball, simulate_pitch
 
@@ -2413,19 +2587,15 @@ def _simulate_cell(
         velocity=50.0, control=pitcher_level, movement=pitcher_level,
         gb_tendency=50.0, vs_left=50.0, hold_runner=50.0, endurance=50.0,
         durability=50.0, fielding=50.0, arm=50.0,
-        repertoire={"fb": 55.0, "sl": 55.0, "cu": 55.0, "cb": 55.0},
+        repertoire={pitch: GRID_PITCH_GRADE for pitch in ("fb", "sl", "cu", "cb")},
     )
     ctx_b = _batter_context(batter, pitcher, tuning, tto=1)
-    # Mirrors the engine's per-PA pitcher context (fresh pitcher).
-    ctx_p = {
-        "repertoire": pitcher.repertoire, "velocity": 83.0 + pitcher.arm * 0.2,
-        "control": pitcher.control, "movement": pitcher.movement,
-        "fatigue_factor": 1.0, "hand": pitcher.throws, "vs_left": pitcher.vs_left,
-    }
+    # The engine's own per-PA pitcher context (a fresh pitcher).
+    ctx_p = _pitcher_context(pitcher, tuning)
     context = {
         "inning": 1, "outs": 0, "score_diff": 0,
         "bases": {"first": False, "second": False, "third": False},
-        "catcher_fielding": 50.0, "batter_pitches_seen": 0,
+        "catcher_fielding": GRID_CATCHER_FIELDING, "batter_pitches_seen": 0,
         "batter_swing_rate": None, "batter_chase_rate": None,
         "last_pitch_type": None, "last_pitch_repeat": 0,
         "foul_territory_scale": 1.0,
@@ -2464,7 +2634,12 @@ def _simulate_cell(
                     launch_angle=res.launch_angle or 12.0,
                     spray_angle=res.spray_angle or 0.0,
                     park=park, tuning=tuning, batter_speed=batter.speed,
-                    batter_contact=batter.contact, batter_power=batter.power,
+                    batter_contact=_league_relative(
+                        batter.contact, "hitter_contact_center", tuning
+                    ),
+                    batter_power=_league_relative(
+                        batter.power, "hitter_power_center", tuning
+                    ),
                 )
                 out["hr"] += bool(is_hr)
                 break
@@ -2523,11 +2698,15 @@ def matchup_grid_metrics(
     split into swinging and looking (``_k_split_grid``) and a platoon grid,
     the HR rate against the opposite hand over the same hand by Power for
     each batting side (``_platoon_hr_grid``; 20 more cells).
+
+    Release 5: the rating centres are the grid's own (``GRID_RATING_CENTERS``),
+    whatever the overrides hold, so a 50 is the league-average rating under
+    the models that read ratings against a centre.
     """
     from physics_sim.config import load_tuning
     from physics_sim.park import load_park
 
-    tuning = load_tuning(tuning_overrides)
+    tuning = load_tuning({**(tuning_overrides or {}), **GRID_RATING_CENTERS})
     park = load_park(None)
     ph_pop, comp_pop = _population_levels(players_path)
     state = random.getstate()

@@ -4,7 +4,10 @@
 battery centres and delivered the same way (the season's
 ``rating_centers.json``, the live game's tuning, the KPI harness):
 
-- ``hitter_contact_center`` / ``hitter_eye_center``: ACT hitters' means;
+- ``hitter_contact_center`` / ``hitter_eye_center``: ACT hitters' means
+  (since Release 5's league-relative ratings: the lineup regulars' means,
+  with ``hitter_power_center`` beside them --
+  tests/test_r5_centred_ratings.py);
 - ``pitcher_movement_center`` / ``pitcher_grade_center``: ACT pitchers' mean
   movement and mean pitch grade (each pitcher's average over his pitches);
 - ``hitter_vl_center_l/_r/_s``: ACT hitters' mean ``vl`` by batting side,
@@ -49,7 +52,16 @@ CENTER_KEYS = (
     "hitter_vl_center_s",
 )
 SHARE_KEYS = ("hitter_bats_share_l", "hitter_bats_share_r", "hitter_bats_share_s")
-R5A_KEYS = CENTER_KEYS + SHARE_KEYS
+# Release 5 (league-relative ratings): the Power centre, stored after them.
+POWER_KEY = "hitter_power_center"
+R5A_KEYS = CENTER_KEYS + SHARE_KEYS + (POWER_KEY,)
+# ... and the pitcher centres weighted by expected workload, after that.
+USAGE_KEYS = (
+    "pitcher_control_usage_center",
+    "pitcher_movement_usage_center",
+    "pitcher_grade_usage_center",
+    "pitcher_arm_usage_center",
+)
 
 PLAYER_FIELDS = [
     "player_id", "primary_position", "is_pitcher", "bats", "sp", "ch", "eye",
@@ -139,11 +151,16 @@ def _league(root: Path) -> Path:
     return root
 
 
-# Hitter means: ch (12*51 + 10*50 + 3*56) / 25 = 51.2; eye (12*55 + 10*50 +
-# 3*56) / 25 = 53.12; vl overall (12*60 + 10*40 + 3*90) / 25 = 55.6.
+# Hitter means: vl overall (12*60 + 10*40 + 3*90) / 25 = 55.6. Contact and
+# Eye are the lineup regulars' (Release 5): no lineup is saved, so each
+# club's nine best ACT hitters, once per pitcher hand. AAA (R0-R11, L0-L2):
+# R6-R11 and three of the 50s, ch 492 / eye 516; BBB (L3-L9, S0-S2): the
+# three 56s and six 50s, 468 / 468. ch 960 / 18 = 53.33, eye 984 / 18 =
+# 54.67 (every ACT hitter: 51.2 and 53.12). No ``ph`` column: Power 50.
 EXPECTED = {
-    "hitter_contact_center": 51.2,
-    "hitter_eye_center": 53.12,
+    "hitter_contact_center": 53.33,
+    "hitter_eye_center": 54.67,
+    POWER_KEY: 50.0,
     "pitcher_movement_center": 51.5,  # 60, 40, 56, blank -> 50
     "pitcher_grade_center": 61.67,  # P1 50, P2 70, P4 65; P3 has none
     "hitter_vl_center_l": 40.0,
@@ -152,6 +169,17 @@ EXPECTED = {
     "hitter_bats_share_l": 0.4,
     "hitter_bats_share_r": 0.48,
     "hitter_bats_share_s": 0.12,
+}
+
+
+# The four ACT pitchers are one club's whole staff, so all four start and
+# weigh the same: the usage centres equal the plain means (no control or arm
+# column: 50).
+USAGE_EXPECTED = {
+    "pitcher_control_usage_center": 50.0,
+    "pitcher_movement_usage_center": 51.5,
+    "pitcher_grade_usage_center": 61.67,
+    "pitcher_arm_usage_center": 50.0,
 }
 
 
@@ -164,8 +192,10 @@ def _stored(base: Path) -> dict:
 
 def test_the_release_4_keys_keep_their_place_and_the_5a_keys_follow():
     assert centers.RATING_CENTER_KEYS[:6] == R4_KEYS
-    assert set(centers.RATING_CENTER_KEYS[6:]) == set(R5A_KEYS)
-    assert len(centers.RATING_CENTER_KEYS) == len(set(centers.RATING_CENTER_KEYS)) == 16
+    assert set(centers.RATING_CENTER_KEYS[6:17]) == set(R5A_KEYS)
+    assert len(centers.RATING_CENTER_KEYS) == len(set(centers.RATING_CENTER_KEYS)) == 21
+    assert centers.RATING_CENTER_KEYS[16] == POWER_KEY
+    assert centers.RATING_CENTER_KEYS[17:] == USAGE_KEYS
     assert tuple(centers.HITTER_VL_CENTER_KEYS.values()) == CENTER_KEYS[4:]
     assert tuple(centers.HITTER_BATS_SHARE_KEYS.values()) == SHARE_KEYS
 
@@ -254,8 +284,9 @@ def test_fixture_centres_match_the_plan():
     assert cal["hitter_vl_center_l"] == pytest.approx(49.86)
     assert cal["hitter_vl_center_r"] == pytest.approx(49.05)
     assert cal["hitter_vl_center_s"] == pytest.approx(49.35)
-    assert cal["hitter_contact_center"] == pytest.approx(48.81)
-    assert cal["hitter_eye_center"] == pytest.approx(48.41)
+    # Release 5: the lineup regulars' means (every ACT hitter: 48.81, 48.41).
+    assert cal["hitter_contact_center"] == pytest.approx(50.28)
+    assert cal["hitter_eye_center"] == pytest.approx(50.33)
     assert cal["pitcher_movement_center"] == pytest.approx(52.96)
     assert cal["pitcher_grade_center"] == pytest.approx(54.76)
     assert [cal[key] for key in SHARE_KEYS] == [0.3846, 0.5128, 0.1026]
@@ -263,8 +294,9 @@ def test_fixture_centres_match_the_plan():
     assert league["hitter_vl_center_l"] == pytest.approx(44.97)
     assert league["hitter_vl_center_r"] == pytest.approx(53.58)
     assert league["hitter_vl_center_s"] == pytest.approx(49.42)
-    assert league["hitter_contact_center"] == pytest.approx(50.68)
-    assert league["hitter_eye_center"] == pytest.approx(50.23)
+    # The regulars again (every ACT hitter: 50.68, 50.23).
+    assert league["hitter_contact_center"] == pytest.approx(51.13)
+    assert league["hitter_eye_center"] == pytest.approx(50.37)
     assert league["pitcher_movement_center"] == pytest.approx(56.41)
     assert league["pitcher_grade_center"] == pytest.approx(58.08)
     assert [league[key] for key in SHARE_KEYS] == [0.2385, 0.6513, 0.1102]
@@ -326,9 +358,11 @@ def test_an_existing_season_file_gains_the_keys_without_changing_a_value(tmp_pat
     assert centers.active_rating_centers(base)["hitter_speed_center"] == 50.0
 
     found = centers.league_rating_centers(base, season="2026")
-    assert found == {**r4_season, **EXPECTED}
+    # No Contact or Eye centre yet, so the Release 5 centres come with them.
+    gained = {**EXPECTED, **USAGE_EXPECTED}
+    assert found == {**r4_season, **gained}
     stored = _stored(base)["seasons"]
-    assert stored["2026"] == {**r4_season, **EXPECTED}
+    assert stored["2026"] == {**r4_season, **gained}
     assert {key: stored["2026"][key] for key in r4_season} == r4_season
     assert stored["2025"] == {"hitter_speed_center": 44.0}
 
@@ -336,7 +370,7 @@ def test_an_existing_season_file_gains_the_keys_without_changing_a_value(tmp_pat
     _set(base, "L1", vl="99", bats="S")
     centers.clear_rating_center_cache()
     assert centers.league_rating_centers(base, season="2026") == found
-    assert _stored(base)["seasons"]["2026"] == {**r4_season, **EXPECTED}
+    assert _stored(base)["seasons"]["2026"] == {**r4_season, **gained}
 
 
 def test_a_partly_stored_season_keeps_what_it_has(tmp_path):
@@ -478,13 +512,36 @@ def test_a_game_is_identical_whatever_the_new_keys_hold():
         assert game.metadata["score"] == base.metadata["score"]
 
 
+# Keys a Release 5 model now reads, and only while its switch is on (the
+# game-identity test above still holds at the defaults). Plate discipline
+# (swing_model, tests/test_r5_discipline.py): the swing decision reads eye
+# and, through the contact hook, contact against the league centre.
+READ_BY_R5_MODELS = {"hitter_eye_center", "hitter_contact_center"}
+# Contact (contact_model, tests/test_r5_contact.py): the contact roll reads
+# contact and the pitch-quality mix (control, movement, pitch grade) against
+# the league centres; the protect term and the BABIP edge read contact.
+READ_BY_R5_MODELS |= {"pitcher_movement_center", "pitcher_grade_center"}
+# League-relative ratings (centred_ratings, tests/test_r5_centred_ratings.py):
+# Power is shifted by its centre where it enters the plate appearance.
+READ_BY_R5_MODELS |= {POWER_KEY}
+
+
 def test_no_engine_module_reads_the_new_keys():
     # 5a registers the keys only; the engine starts reading them with the
     # Release 5 models. Until then a reference in physics_sim (outside the
     # registration in config.py) would be a behaviour change slipped in.
+    #
+    # Release 5 platoon: physics_sim/platoon.py reads the by-bats vl centres
+    # and the batting-side shares, behind switches that default off
+    # (tests/test_r5_platoon.py pins the switched-off games).
+    released = {
+        "platoon.py": set(centers.HITTER_VL_CENTER_KEYS.values()) | set(SHARE_KEYS),
+    }
     for path in (REPO / "physics_sim").glob("*.py"):
         if path.name == "config.py":
             continue
         text = path.read_text(encoding="utf-8")
         for key in R5A_KEYS:
+            if key in READ_BY_R5_MODELS or key in released.get(path.name, ()):
+                continue
             assert key not in text, f"{path.name} reads {key}"

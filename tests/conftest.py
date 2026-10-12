@@ -16,6 +16,7 @@ _ENV_KEYS = (
     "NEXGEN_ACTIVE_LEAGUE",
     "PB_SIM_DATE",
     "PB_SIM_YEAR",
+    "NEXGEN_NEW_SEASON_ENGINE",
 )
 
 
@@ -44,6 +45,12 @@ def pytest_sessionstart(session):
     """Ensure a non-deterministic RNG for tests depending on randomness."""
     random.seed()
     os.environ.setdefault("PB_DISABLE_ROLLOVER", "1")
+    # Release 5: a season that has not started gets the newest engine
+    # generation, and nearly every test builds a league that has not started.
+    # The suite's seeded results and tuning assertions were written on the
+    # legacy engine, so new seasons start on it here; the tests of the
+    # switch-on itself (test_r5_flip_*.py) set the variable they need.
+    os.environ.setdefault("NEXGEN_NEW_SEASON_ENGINE", "4")
     _remove_stray_usage_files()
 
 

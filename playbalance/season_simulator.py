@@ -432,8 +432,26 @@ class SeasonSimulator:
         usage_in = parallel_day.usage_state_to_payload(usage_state, game_day)
         # Release 4 (decision 2): fix the league's rating centres here, once,
         # so no two workers race to compute (and write) the season's value.
-        from services.league_rating_centers import get_rating_center_overrides
+        from services.league_rating_centers import (
+            get_league_engine_generation,
+            get_rating_center_overrides,
+            recorded_league_engine_generation,
+        )
+        from services.physics_tuning_settings import get_physics_tuning_overrides
 
+        # Release 5: the season's engine generation is fixed here too, before
+        # the centres, and handed to every worker. Loading the stored
+        # overrides once in the parent runs any one-time slider conversion
+        # here -- written to the file only once the season is recorded on
+        # that generation -- so no worker has a tuning file to rewrite.
+        engine_generation = get_league_engine_generation()
+        try:
+            get_physics_tuning_overrides(
+                engine_generation,
+                convert=recorded_league_engine_generation() == engine_generation,
+            )
+        except Exception:
+            pass
         rating_centers = get_rating_center_overrides()
 
         payloads = []
@@ -450,6 +468,7 @@ class SeasonSimulator:
                     league_id=league_id,
                     usage_in=usage_in,
                     rating_centers=rating_centers,
+                    engine_generation=engine_generation,
                 )
             )
 

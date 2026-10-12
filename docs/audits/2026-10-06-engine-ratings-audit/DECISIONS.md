@@ -336,3 +336,73 @@ Release 5; the third-time-through-the-order effect is held for Release 6;
 the contact BABIP edge ships in its minimal direct form at +.010 per 10
 Contact (decision 4 of Release 0); the LHP-minus-RHP gate is read on a
 4-season mean; BB true-sd targets are gated as slopes per rating point.
+
+### As built (7.51.0, 2026-10-12)
+
+The build differs from these decisions in three places. The measurements
+are in `RELEASE5_PLAN.md` section 8.
+
+- **Contact hit edge is +.005 per 10 Contact, not +.010** (the technical
+  note above; decision 4 of Release 0). At .010 too many hitters batted
+  .300. Contact still tracks batting average clearly better than before
+  (correlation about .62, was about .49).
+- **The switch-on is per league, at each league's own next season**, not
+  tied to alpha-test's calendar (decision 12). A season already under way
+  finishes on the engine it started on, a league moves when it advances
+  into its next season and before its first regular-season game, and a new
+  league starts on the updated engine. No season's stats are split between
+  engines, which was the point of decision 12. **Confirmed by the owner,
+  2026-10-12:** deploy with the per-league switch.
+- **Future draft classes in existing leagues also get the new batting-side
+  mix** (decision 11 said existing leagues are not touched). Players
+  already in a league are not changed; only newly generated ones are.
+  **Confirmed by the owner, 2026-10-12:** all leagues.
+
+**Owner decision 13 (2026-10-12): make the ratings league-relative before
+the release ships.** A product-created league measured about 0.1 runs per
+team-game under the 4.47 target on the updated engine (4.37 over two full
+seasons; a 420-game sample through the live game path read 4.21) and the
+league test fixture 0.34 under, against 4.39 on the calibration fixture.
+The owner chose to close that gap now rather than in Release 6. The
+measurements showed the cause is not Power alone: hitters were read against
+the average of every active hitter although the regulars who bat sit above
+it by a different amount in each league, and the batted-ball path read
+pitcher and hitter ratings as absolute numbers. The build therefore reads
+every rating that feeds a plate appearance relative to its league, hitters
+against the lineup regulars (Release 0 decision 2 in full).
+
+As built and retuned: hitters' Contact, Power and Eye are read against the
+average of the league's lineup regulars, and pitchers' control, movement,
+pitch grades and arm against the average of the league's staffs weighted
+by workload (a rotation starter counts 2.5 times a reliever); the averages
+are fixed when the season starts. Adding the same amount to every hitter's
+ratings in a league gives an identical season. The three test leagues now
+score 4.35 (calibration fixture, 18 seasons), 4.45 (league fixture, 6) and
+4.52 (product-created league, 6) runs per team-game, all inside the 4.47
++/- .25 target and within 0.17 of each other, and the product-created
+league reads 4.40 through the live game path (420 games; it read 4.95 on
+today's engine). Two differences between leagues remain that league
+averages do not remove: the product-created league hits about 10% fewer
+home runs than the two fixtures (its hitters' pull and ground-ball
+tendencies are bunched; Release 6 reworks batted balls), and its late
+innings show almost no extra difficulty because its relievers are not
+rated above its starters.
+
+**The re-sized rule presets were confirmed by the owner (2026-10-12), at
+the modest sizes below.**
+"High Offense" and "Pitcher Friendly" in the create-league wizard were
+badly mis-sized (Pitcher Friendly played at about 1 run per team-game and
+55% strikeouts). They are now modest: about 4.7 to 4.8 and about 3.8 to
+4.0 runs per team-game against about 4.4 for the standard setting, sized
+on one test season each, before the league-relative retune. No existing
+league used one and existing leagues are untouched.
+
+Two smaller points, recorded for completeness. The help text for the
+relabelled `vl` rating ("Platoon vs L", decision 10) names no typical
+number (decision 10 said "50 = typical"), because the value shown averages
+about 63 for right-handed batters and 48 for left-handed ones on the league
+test fixture until the Release 7 recentring; it says to compare within a
+batting side. And against decisions 1 and 3
+the measured results are an 80 Contact hitter at about 4% strikeouts (3%
+decided) and home teams winning about 53% (.531, .540 and .536 on the
+three test leagues; 53.5% decided).

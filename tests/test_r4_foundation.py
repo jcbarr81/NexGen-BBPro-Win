@@ -224,9 +224,11 @@ def test_overrides_for_the_active_league(active_league):
     # catcher carry no battery columns, so every one of them reads 50.
     # Release 5a: so do the contact / eye / movement / vl centres (50 here)
     # and the batting-side shares (no bats column: everyone bats right).
-    # No pitch columns, so no pitcher_grade_center.
+    # No pitch columns, so no pitcher_grade_center (and no workload-weighted
+    # pitcher_grade_usage_center, Release 5).
     expected = {key: 50.0 for key in centers.RATING_CENTER_KEYS}
     del expected["pitcher_grade_center"]
+    del expected["pitcher_grade_usage_center"]
     expected.update(
         hitter_bats_share_l=0.0, hitter_bats_share_r=1.0, hitter_bats_share_s=0.0
     )
@@ -356,12 +358,16 @@ def _capture_physics_call(monkeypatch, *, centre_overrides, stored_overrides):
     batters = {f"B{i}": SimpleNamespace(player_id=f"B{i}") for i in range(18)}
     arms = {f"P{i}": SimpleNamespace(player_id=f"P{i}") for i in range(2)}
     monkeypatch.setattr(loader, "load_players_by_id", lambda path: (batters, arms))
-    monkeypatch.setattr(gr, "get_physics_tuning_overrides", lambda: dict(stored_overrides))
+    monkeypatch.setattr(
+        gr, "get_physics_tuning_overrides", lambda *_a, **_k: dict(stored_overrides)
+    )
     monkeypatch.setattr(gr, "get_injury_tuning_overrides", lambda: {})
     calls = []
 
-    def fake_centres():
-        calls.append(1)
+    def fake_centres(*, store=True):
+        # Recorded: whether the game asked for the season's centres to be
+        # fixed (a season game) or only read (a game with no date).
+        calls.append(store)
         return dict(centre_overrides)
 
     monkeypatch.setattr(gr, "get_rating_center_overrides", fake_centres)
@@ -391,12 +397,12 @@ def _capture_physics_call(monkeypatch, *, centre_overrides, stored_overrides):
             team=None,
         )
 
-    def run():
+    def run(date_token=None):
         with pytest.raises(_Captured):
             gr._run_physics_game(
                 home_id="H", away_id="A", home_state=state(0), away_state=state(9),
                 players_file=str(CALIBRATION / "players.csv"), roster_dir="rosters",
-                seed=1, date_token=None, tracker=None, players_lookup={},
+                seed=1, date_token=date_token, tracker=None, players_lookup={},
                 persist_stats=False, postseason=False,
             )
 
@@ -409,12 +415,26 @@ def test_centre_reaches_game_runner_tuning(monkeypatch):
         centre_overrides={"hitter_speed_center": 54.41},
         stored_overrides={"hitter_speed_center": 40.0, "hr_scale": 1.0},
     )
-    run()
+    run("2026-04-01")
     # The season's measured centre wins over a stored override.
     assert seen["tuning_overrides"]["hitter_speed_center"] == 54.41
     assert seen["tuning_overrides"]["hr_scale"] == 1.0
     assert seen["tuning_overrides"]["extra_innings_runner"] == 1.0
-    assert calls == [1]
+    # A season game (it has a date) fixes the season's centres.
+    assert calls == [True]
+
+
+def test_a_game_with_no_date_reads_the_centres_and_fixes_none(monkeypatch):
+    """Release 5: an exhibition (no date) played in the preseason, before
+    the clubs' lineups are saved, used to pin the season's centres."""
+    run, seen, calls = _capture_physics_call(
+        monkeypatch,
+        centre_overrides={"hitter_speed_center": 54.41},
+        stored_overrides={},
+    )
+    run()
+    assert seen["tuning_overrides"]["hitter_speed_center"] == 54.41
+    assert calls == [False]
 
 
 def test_parallel_worker_uses_the_parents_centre(monkeypatch):
@@ -490,7 +510,7 @@ def test_watch_a_game_layers_the_league_getters(monkeypatch):
 
     monkeypatch.setattr(
         "services.physics_tuning_settings.get_physics_tuning_overrides",
-        lambda: {"hr_scale": 1.0, "hitter_speed_center": 40.0},
+        lambda *_a, **_k: {"hr_scale": 1.0, "hitter_speed_center": 40.0},
     )
     monkeypatch.setattr(
         "services.injury_settings.get_injury_tuning_overrides",
