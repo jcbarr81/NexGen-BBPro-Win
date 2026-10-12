@@ -348,8 +348,11 @@ def test_applying_a_preset_in_a_new_league_and_in_a_legacy_one(league, monkeypat
     assert league_presets.apply_rule_preset("high_offense") is not None
     stored = _stored(path)
     assert _knobs(stored) == {
-        "hr_scale": pytest.approx(0.925 * 1.02, abs=1e-4),
-        "babip_scale": pytest.approx(0.925 * 1.01, abs=1e-4),
+        # A preset multiplies the league's own base: generation 5's profile.
+        "hr_scale": pytest.approx(engine_defaults(NEW)["hr_scale"] * 1.02, abs=1e-4),
+        "babip_scale": pytest.approx(
+            engine_defaults(NEW)["babip_scale"] * 1.01, abs=1e-4
+        ),
         "swing_walk_scale": 1.03,
         "contact_strikeout_scale": 0.95,
     }

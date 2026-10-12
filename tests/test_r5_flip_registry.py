@@ -140,7 +140,11 @@ def test_generation_5_switches_on_all_four_areas():
     for key, value in profile.items():
         assert tuning.values[key] == value, key
     defaults = generations.engine_defaults(5)
-    assert defaults["swing_model"] == 1.0 and defaults["hr_scale"] == DEFAULT_TUNING["hr_scale"]
+    assert defaults["swing_model"] == 1.0
+    # A knob the profile leaves alone keeps the engine default; one it
+    # sets (the run level is retuned for the new models) reads the profile.
+    assert defaults["offense_scale"] == DEFAULT_TUNING["offense_scale"]
+    assert defaults["hr_scale"] == profile.get("hr_scale", DEFAULT_TUNING["hr_scale"])
 
 
 def test_a_table_knob_comes_back_whole():
@@ -246,7 +250,7 @@ def test_the_command_line_takes_engine(monkeypatch, capsys):
     assert "--engine" in capsys.readouterr().err
     captured = {}
 
-    def fake_run_sim(games, seed, players_path, tuning_overrides, base_dir):
+    def fake_run_sim(games, seed, players_path, tuning_overrides, base_dir, **kwargs):
         captured["overrides"] = tuning_overrides
         raise KeyboardInterrupt
 
@@ -283,11 +287,42 @@ def test_the_ci_step_for_generation_5_is_not_blocking():
     engine_steps = [s for s in steps if "--engine 5" in s.get("run", "")]
     assert len(engine_steps) == 1
     step = engine_steps[0]
-    # The profile is not final: this step reports, it never fails the job.
+    # Not blocking until it has passed on the CI runner (which may roll a
+    # different season than the machine the profile was tuned on).
     assert step.get("continue-on-error") is True
-    assert "--gate-set r5" in step["run"] and "--strict" in step["run"]
+    # The full strict set against generation 5's own references
+    # (ENGINE_GATES), not a subset.
+    assert "--gate-set" not in step["run"] and "--strict" in step["run"]
     assert "kpi_profiles" not in step["run"]
     # The blocking steps still run the legacy engine: no --engine at all.
     for other in steps:
         if other is not step and "physics_sim_season_kpis.py" in other.get("run", ""):
             assert "--engine" not in other["run"]
+
+
+def test_generation_5_is_gated_against_its_own_references():
+    """``--engine 5 --strict`` judges the new engine by what it is built to."""
+    gates = kpis.engine_gates_for(5)
+    # Statcast's chase rate, not the figure the old swing model was tuned to.
+    assert gates["benchmarks"] == {"o_swing_pct": 0.286}
+    # Times through the order on starters only; the all-pitcher gap is out.
+    assert gates["drop"] == ["tto_ops_gap"]
+    assert gates["extras_targets"]["tto_ops_gap_starters"] == 0.05
+    # The platoon tolerance Release 3 widened is restored.
+    assert gates["tolerances"]["platoon_gap_woba"] == 0.006
+    assert kpis.strict_tolerances_for(None)["platoon_gap_woba"] == 0.009
+    # Swing rate at each of the 12 counts, intentional walks, the home edge.
+    swing = [k for k in gates["tolerances"] if k.startswith("swing_rate_")]
+    assert len(swing) == 12 and all(gates["tolerances"][k] == 0.05 for k in swing)
+    assert gates["extras_targets"]["ibb_per_pa"] == 0.0025
+    assert "home_minus_away_woba" in gates["tolerances"]
+    assert "home_wpct" not in gates["tolerances"]  # read pooled, never per season
+    # Every promoted gate has both a target and a tolerance.
+    assert set(gates["extras_targets"]) <= set(gates["tolerances"])
+    # The grid gate only when the grid ran.
+    assert "matchup_k_log5_max_abs_resid" not in gates["tolerances"]
+    assert "matchup_k_log5_max_abs_resid" in kpis.engine_gates_for(5, grid=True)["tolerances"]
+    # The legacy engine is gated exactly as before.
+    assert kpis.engine_gates_for(None) == {
+        "benchmarks": {}, "drop": [], "tolerances": {}, "extras_targets": {},
+    }

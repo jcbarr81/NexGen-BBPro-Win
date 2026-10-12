@@ -1,12 +1,12 @@
 {
   "foul_territory_scale": 0,
   "swing_model": 1,
-  "swing_eye_chase_logit": 0.035,
+  "swing_eye_chase_logit": 0.039,
   "swing_eye_zone_logit": -0.005,
   "swing_platoon_chase_logit": 5.0,
   "eye_control_blend": 0.0,
   "batter_fatigue_eye_scale": 0.25,
-  "foul_rate": 0.385,
+  "foul_rate": 0.395,
   "two_strike_foul_scale": 1.0,
   "count_foul_scale": {
     "0-2": 1.0,
@@ -16,7 +16,7 @@
   },
   "command_model": 1,
   "command_error_ref_mult": 2.55,
-  "command_error_control_log_slope": 0.02,
+  "command_error_control_log_slope": 0.023,
   "zone_target_control_scale": 0.004,
   "umpire_model": 1,
   "umpire_edge_offset_ft": -0.055,
@@ -34,15 +34,15 @@
   "ibb_early_scale": 0.1,
   "ibb_no_out_scale": 0.3,
   "contact_model": 1,
-  "contact_logit_zone": 1.52,
-  "contact_logit_chase": 0.26,
+  "contact_logit_zone": 1.49,
+  "contact_logit_chase": 0.23,
   "contact_logit_ch": 0.09,
   "contact_logit_pq": 0.04,
   "contact_logit_break": 0.4,
   "contact_logit_velo": 0.0,
   "contact_logit_two_strike": 0.2,
   "swing_two_strike_contact_logit": 0.06,
-  "contact_babip_per10": 0.01,
+  "contact_babip_per10": 0.006,
   "handedness_rhb_scale": 0.6,
   "handedness_balance_strength": 1.0,
   "handedness_switch_bonus": 1.0,
@@ -51,11 +51,69 @@
   "platoon_vl_center_enabled": 1,
   "pitch_objective_fbo_requires_risp": 1.0,
   "pitch_objective_late_close_strength": 0.0,
-  "reliever_fresh_bonus": 1.2,
+  "reliever_fresh_bonus": 1.0,
   "reliever_fresh_bf_full": 4.0,
   "reliever_fresh_bf_end": 7.0,
-  "home_field_edge": 0.8,
+  "home_field_edge": 0.72,
   "home_field_power_ratio": 0.6,
   "tto_pass2_weight": 4.5,
-  "tto_pass3_weight": 2.0
+  "tto_pass3_weight": 2.0,
+  "babip_scale": 0.941,
+  "handedness_contact_bonus": 1.8,
+  "handedness_eye_bonus": 1.3,
+  "handedness_power_bonus": 2.0,
+  "hbp_opposite_hand_scale": 0.57,
+  "hbp_same_hand_scale": 1.75,
+  "hr_scale": 0.93,
+  "swing_count_table": {
+    "0-0": {
+      "zone": 0.444,
+      "chase": 0.1659
+    },
+    "0-1": {
+      "zone": 0.744,
+      "chase": 0.2919
+    },
+    "0-2": {
+      "zone": 0.886,
+      "chase": 0.3542
+    },
+    "1-0": {
+      "zone": 0.597,
+      "chase": 0.2333
+    },
+    "1-1": {
+      "zone": 0.777,
+      "chase": 0.3297
+    },
+    "1-2": {
+      "zone": 0.9,
+      "chase": 0.3999
+    },
+    "2-0": {
+      "zone": 0.582,
+      "chase": 0.2188
+    },
+    "2-1": {
+      "zone": 0.778,
+      "chase": 0.3379
+    },
+    "2-2": {
+      "zone": 0.905,
+      "chase": 0.4393
+    },
+    "3-0": {
+      "zone": 0.135,
+      "chase": 0.0381
+    },
+    "3-1": {
+      "zone": 0.719,
+      "chase": 0.2693
+    },
+    "3-2": {
+      "zone": 0.903,
+      "chase": 0.4635
+    }
+  },
+  "zone_target_base": 0.34
 }

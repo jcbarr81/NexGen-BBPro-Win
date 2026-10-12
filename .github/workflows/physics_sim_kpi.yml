@@ -139,12 +139,14 @@ jobs:
         # Release 5. The steps above run the legacy engine every league
         # plays today (no --engine). This one runs engine generation 5
         # (physics_sim/profiles/engine_5.json over the defaults) so the path
-        # a league takes at its next season does not rot, strict on
-        # GATE_SETS["r5"] only (strikeouts, walks, intentional walks and the
-        # rule zero gates). It is continue-on-error: the profile is still
-        # being tuned, so a miss annotates the run and never fails the job.
-        # TODO at the switch-on: drop continue-on-error, and gate the full
-        # strict set with --engine 5 on both fixtures.
+        # a league takes at its next season is gated too: the full strict
+        # set against generation 5's own references (ENGINE_GATES in the
+        # harness: Statcast chase rate, starters-only TTO gap, the platoon
+        # gap back at +/- .006, swing rate at each count, intentional walks,
+        # the home edge). The profile passes it on calibration seeds 1-8
+        # locally. It is continue-on-error until it has passed here: this
+        # runner may roll a different season than a Windows machine. Drop
+        # continue-on-error once it has, so a miss fails the job.
         if: ${{ !cancelled() }}
         continue-on-error: true
         env:
@@ -158,12 +160,11 @@ jobs:
               --base-dir data/calibration \
               --players data/calibration/players.csv \
               --engine 5 \
-              --gate-set r5 \
               --output tmp/physics_kpis_engine5.json \
               --strict 2>&1 | tee tmp/kpi_engine5.log; then
             {
               if [ -f tmp/physics_kpis_engine5.json ]; then
-                python -c "import json; d=json.load(open('tmp/physics_kpis_engine5.json')); [print(f\"{f['metric']}: {f['value']:.4f} (target {f['target']} +/- {f['tolerance']}) {f.get('reason', '')}\") for f in d.get('gate_set', {}).get('failures', [])]"
+                python -c "import json; d=json.load(open('tmp/physics_kpis_engine5.json')); [print(f\"{f['metric']}: {f['value']:.4f} (target {f['target']} +/- {f['tolerance']}) {f.get('reason', '')}\") for f in d.get('tolerance_failures', [])]"
               fi
               echo "--- last lines of output ---"
               tail -n 40 tmp/kpi_engine5.log

@@ -272,13 +272,11 @@ _RUNNING_GATES: list[str] = [
 # still being tuned (``--engine 5 --gate-set r5``): the rates the profile
 # already holds on both fixtures -- strikeouts, walks, and intentional
 # walks, which the legacy engine never issues -- and the rule gates that
-# must stay at exactly 0 whatever the engine. It is NOT the flip check:
-# that is every strict gate with ``--engine 5`` on calibration seeds 1-8
-# and league seeds 1-4 (RELEASE5_PLAN.md section 3), which the profile
-# does not pass yet (zone%, O-swing% and the TTO gap on seed 1). Grow this
-# set toward the full one as the profile settles, and add the plan's
-# pooled gates (per-count swing, the K log5 residual, TTO pass 2, home W%,
-# LHP - RHP) when they are promoted.
+# must stay at exactly 0 whatever the engine. It is a subset for a fixture
+# that cannot take the whole strict set: the full check is every strict
+# gate with ``--engine 5`` (ENGINE_GATES below) on calibration seeds 1-8,
+# which the generation 5 profile passes, and this set or "running" on the
+# league fixture (RELEASE5_PLAN.md section 3).
 _R5_GATES: list[str] = [
     "k_pct",
     "bb_pct",
@@ -309,6 +307,81 @@ GATE_SET_TOLERANCES: dict[str, dict[str, float]] = {
 GATE_SET_EXTRAS_TARGETS: dict[str, dict[str, float]] = {
     "r5": {"ibb_per_pa": 0.0025},
 }
+
+# Release 5: what the strict set gates differently for an engine generation
+# (``--engine N --strict``). The legacy engine keeps every gate above as it
+# is; these apply on top when the run plays generation N, because that engine
+# is built to different references:
+#
+# * ``o_swing_pct`` is read against Statcast 2023's chase rate (.286), the
+#   table the swing model is fitted to, not the .32 the old model was tuned
+#   to (the two disagree; RELEASE5_PLAN.md 2.1).
+# * the times-through-the-order gap is gated on starting pitchers only
+#   (``tto_ops_gap_starters``): pass 1 is 64% relief plate appearances, so
+#   the reliever fresh-arm edge moved the all-pitcher gap by itself.
+# * ``platoon_gap_woba`` is back at +/- .006 (Release 3 widened it to .009
+#   "until Release 5"): calibration seeds 1-8 read .023-.031.
+# * new gates the legacy engine cannot pass: swing rate at each of the 12
+#   counts within .05 of MLB 2023, intentional walks at MLB's rate, and a
+#   home-field edge, gated as home-minus-road wOBA (+.012 +/- .008; 24
+#   calibration seasons read .006-.015, 12 league seasons .012-.017). Home
+#   W% itself stays report-only: one season's value has a standard error of
+#   about .011 (24 seasons: .505-.549 around a mean of .528), so it is read
+#   pooled over seeds (RELEASE5_PLAN.md section 4).
+#
+# ``benchmarks`` replace the benchmark CSV's value, ``drop`` removes a legacy
+# gate, ``extras_targets`` promote kpi_extras metrics with their tolerances.
+_R5_SWING_BY_COUNT: dict[str, float] = {
+    "swing_rate_0_0": 0.310, "swing_rate_0_1": 0.488, "swing_rate_0_2": 0.514,
+    "swing_rate_1_0": 0.427, "swing_rate_1_1": 0.543, "swing_rate_1_2": 0.575,
+    "swing_rate_2_0": 0.427, "swing_rate_2_1": 0.576, "swing_rate_2_2": 0.640,
+    "swing_rate_3_0": 0.097, "swing_rate_3_1": 0.536, "swing_rate_3_2": 0.701,
+}
+ENGINE_GATES: dict[int, dict[str, Any]] = {
+    5: {
+        "benchmarks": {"o_swing_pct": 0.286},
+        "drop": ["tto_ops_gap"],
+        "tolerances": {
+            "platoon_gap_woba": 0.006,
+            # Wider than the all-pitcher gap's .025: starters only is fewer
+            # plate appearances (calibration seeds 1-8: .040-.082).
+            "tto_ops_gap_starters": 0.035,
+            "ibb_per_pa": 0.001,
+            "home_minus_away_woba": 0.008,
+            **{key: 0.05 for key in _R5_SWING_BY_COUNT},
+        },
+        "extras_targets": {
+            "tto_ops_gap_starters": 0.05,
+            "ibb_per_pa": 0.0025,
+            "home_minus_away_woba": 0.012,
+            **_R5_SWING_BY_COUNT,
+        },
+        # Only when the matchup grid ran (--matchup-grid-pa): the Contact x
+        # pitcher strikeout grid follows log5 within 2 points in every cell.
+        "grid_tolerances": {"matchup_k_log5_max_abs_resid": 0.02},
+        "grid_extras_targets": {"matchup_k_log5_max_abs_resid": 0.0},
+    },
+}
+
+
+def engine_gates_for(engine: int | None, *, grid: bool = False) -> dict[str, Any]:
+    """The strict-gate changes for engine generation ``engine`` (see
+    ENGINE_GATES); empty for the legacy engine. ``grid`` adds the gates that
+    need the matchup grid."""
+    spec = ENGINE_GATES.get(int(engine)) if engine is not None else None
+    if not spec:
+        return {"benchmarks": {}, "drop": [], "tolerances": {}, "extras_targets": {}}
+    tolerances = dict(spec.get("tolerances", {}))
+    extras = dict(spec.get("extras_targets", {}))
+    if grid:
+        tolerances.update(spec.get("grid_tolerances", {}))
+        extras.update(spec.get("grid_extras_targets", {}))
+    return {
+        "benchmarks": dict(spec.get("benchmarks", {})),
+        "drop": list(spec.get("drop", [])),
+        "tolerances": tolerances,
+        "extras_targets": extras,
+    }
 
 # Metric keys that were renamed; a --tolerances override using the old name
 # still applies to the new one instead of being silently dropped.
@@ -2189,6 +2262,15 @@ def main() -> None:
         args.tolerances, strict_tolerances_for(args.gate_set)
     )
     extras_targets = strict_extras_targets_for(args.gate_set)
+    # Release 5: an engine generation is gated against its own references.
+    engine_gates = engine_gates_for(
+        args.engine, grid=bool(getattr(args, "matchup_grid_pa", 0))
+    )
+    for key in engine_gates["drop"]:
+        tolerances.pop(key, None)
+    tolerances.update(engine_gates["tolerances"])
+    extras_targets = {**extras_targets, **engine_gates["extras_targets"]}
+    benchmarks = {**benchmarks, **engine_gates["benchmarks"]}
     # Release 3: promoted kpi_extras gates join the strict metrics here.
     not_computed = _promote_extras_metrics(summary, tolerances, extras_targets)
     targets = {

@@ -105,7 +105,11 @@ def test_a_game_rebuilds_a_broken_lineup_with_its_own_tuning(
     assert tuning.values == load_tuning(game_overrides).values
     assert tuning.get("platoon_vl_center_enabled") == 1.0
     assert tuning.get("hitter_vl_center_l") == 61.0
-    assert tuning.get("hr_scale") == DEFAULT_TUNING["hr_scale"]  # not the league's
+    # The game's own value (the profile's, or the default), not the league's.
+    assert tuning.get("hr_scale") == engine_profile(5).get(
+        "hr_scale", DEFAULT_TUNING["hr_scale"]
+    )
+    assert tuning.get("hr_scale") != 1.2
     assert (fixture / "lineups" / "CAL01_vs_rhp.csv").exists()
 
 
