@@ -199,6 +199,13 @@ DEFAULT_TUNING: Dict[str, Any] = {
         "putaway": 1.1,
     },
     "pitch_objective_late_inning": 7.0,
+    # Release 5 (audit M19), both off by default. With requires_risp 1 the
+    # first-base-open modifier applies only with a runner in scoring
+    # position (today it fires with the bases empty too, on about 65% of
+    # PA). late_close_strength scales the late-and-close table's distance
+    # from 1.0: 1.0 = the table as written, 0.0 = no late-and-close change.
+    "pitch_objective_fbo_requires_risp": 0.0,
+    "pitch_objective_late_close_strength": 1.0,
     "batter_aggression_min_pitches": 6.0,
     "batter_aggression_high": 0.52,
     "batter_aggression_low": 0.42,
@@ -639,6 +646,24 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "tto_eye_bonus": 0.32,
     "tto_power_bonus": 0.2,
     "tto_max_passes": 3.0,
+    # Release 5: how many times the three bonuses above apply on the second
+    # and on the third pass (the defaults are the old linear count: one per
+    # pass beyond the first). A pass beyond the third adds 1.0 each.
+    "tto_pass2_weight": 1.0,
+    "tto_pass3_weight": 2.0,
+    # Release 5 (owner decision 3): zero-sum home-field edge in rating
+    # points, added to the home side's contact and eye (times power_ratio
+    # to power) and subtracted from the road side's. The same for every
+    # club and park, postseason included. 0.0 = off.
+    "home_field_edge": 0.0,
+    "home_field_power_ratio": 0.6,
+    # Release 5 (owner decision 4): a pitcher who did not start the game
+    # gets this many points of control and movement, in full through his
+    # first bf_full batters of the appearance and fading linearly to
+    # nothing at bf_end. Applied before the fatigue factors. 0.0 = off.
+    "reliever_fresh_bonus": 0.0,
+    "reliever_fresh_bf_full": 4.0,
+    "reliever_fresh_bf_end": 7.0,
     "platoon_contact_scale": 0.25,
     "platoon_power_scale": 0.2,
     "platoon_eye_scale": 0.3,

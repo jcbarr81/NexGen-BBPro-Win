@@ -276,7 +276,11 @@ def choose_pitch_objective(
             weights = _apply_weight_mods(
                 weights, _weight_map(tuning.values.get("pitch_objective_risp_mod"))
             )
-        if not bases.get("first"):
+        # Release 5: with the switch on, an open first base matters only with
+        # a runner in scoring position (not with the bases empty).
+        if not bases.get("first") and (
+            risp or tuning.get("pitch_objective_fbo_requires_risp", 0.0) <= 0.5
+        ):
             weights = _apply_weight_mods(
                 weights,
                 _weight_map(tuning.values.get("pitch_objective_first_base_open_mod")),
@@ -286,9 +290,17 @@ def choose_pitch_objective(
         close_diff = int(tuning.get("close_game_run_diff", 2.0))
         late_inning = int(tuning.get("pitch_objective_late_inning", 7.0))
         if inning >= late_inning and abs(score_diff) <= close_diff:
-            weights = _apply_weight_mods(
-                weights, _weight_map(tuning.values.get("pitch_objective_late_close_mod"))
-            )
+            late_mods = _weight_map(tuning.values.get("pitch_objective_late_close_mod"))
+            # Release 5: the strength scales each entry's distance from 1.0.
+            # At exactly 1.0 the table is used untouched, because
+            # 1 + (m - 1) * 1.0 is not bit-equal to m.
+            late_strength = tuning.get("pitch_objective_late_close_strength", 1.0)
+            if late_strength != 1.0:
+                late_mods = {
+                    key: 1.0 + (value - 1.0) * late_strength
+                    for key, value in late_mods.items()
+                }
+            weights = _apply_weight_mods(weights, late_mods)
         pitches_seen = int(context.get("batter_pitches_seen", 0) or 0)
         min_pitches = int(tuning.get("batter_aggression_min_pitches", 6.0))
         swing_rate = context.get("batter_swing_rate")

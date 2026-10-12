@@ -670,6 +670,46 @@ def _times_through_order(batters_faced: int, lineup_size: int) -> int:
     return ((batters_faced - 1) // lineup_size) + 1
 
 
+def _tto_pass_weight(passes: int, tuning: TuningConfig) -> float:
+    """How many times the familiarity bonuses apply on pass ``passes``.
+
+    Release 5: the second and third passes carry their own weights
+    (``tto_pass2_weight`` / ``tto_pass3_weight``); the defaults 1.0 and 2.0
+    are the old linear count, one per pass beyond the first. A pass beyond
+    the third (``tto_max_passes`` above 3) adds 1.0 each.
+    """
+
+    if passes <= 1:
+        return 0.0
+    if passes == 2:
+        return tuning.get("tto_pass2_weight", 1.0)
+    return tuning.get("tto_pass3_weight", 2.0) + float(passes - 3)
+
+
+def _reliever_fresh_bonus(
+    *, started: bool, batters_faced: int, tuning: TuningConfig
+) -> float:
+    """Rating points a fresh reliever adds to control and movement.
+
+    Release 5 (owner decision 4): nothing for the pitcher who started the
+    game; anyone else gets ``reliever_fresh_bonus`` in full through his
+    first ``reliever_fresh_bf_full`` batters of the appearance, falling
+    linearly to nothing at ``reliever_fresh_bf_end``. ``batters_faced``
+    counts the batter at the plate.
+    """
+
+    bonus = tuning.get("reliever_fresh_bonus", 0.0)
+    if started or not bonus:
+        return 0.0
+    full = tuning.get("reliever_fresh_bf_full", 4.0)
+    end = tuning.get("reliever_fresh_bf_end", 7.0)
+    if batters_faced <= full:
+        return bonus
+    if batters_faced >= end:
+        return 0.0
+    return bonus * (end - batters_faced) / (end - full)
+
+
 def _is_perfect(line: PitcherLine) -> bool:
     return line.hits == 0 and line.walks == 0 and line.hbp == 0
 
@@ -4784,7 +4824,7 @@ def _maybe_pitcher_overuse_injury(
 
 def _batter_context(
     batter: BatterRatings, pitcher: PitcherRatings, tuning: TuningConfig,
-    *, tto: int = 1,
+    *, tto: int = 1, home: bool | None = None,
 ) -> Dict[str, Any]:
     pitcher_hand = (pitcher.throws or "R").upper()
     batter_hand = (batter.bats or "R").upper()
@@ -4798,11 +4838,19 @@ def _batter_context(
     # S2-07: familiarity — batters improve on the 2nd/3rd look (defaults 0.0 so a
     # legacy TuningConfig without the knobs stays behavior-neutral).
     max_passes = int(tuning.get("tto_max_passes", 3.0))
-    tto_extra = float(max(0, min(tto, max_passes) - 1))
+    tto_extra = _tto_pass_weight(min(tto, max_passes), tuning)
     if tto_extra:
         contact += tto_extra * tuning.get("tto_contact_bonus", 0.0)
         eye += tto_extra * tuning.get("tto_eye_bonus", 0.0)
         power += tto_extra * tuning.get("tto_power_bonus", 0.0)
+    # Release 5: zero-sum home-field edge (``home`` None = no side, no edge).
+    home_edge = tuning.get("home_field_edge", 0.0)
+    if home_edge and home is not None:
+        if not home:
+            home_edge = -home_edge
+        contact += home_edge
+        eye += home_edge
+        power += home_edge * tuning.get("home_field_power_ratio", 0.6)
     platoon_chase = 0.0
     contact += vs_left_diff * tuning.get("platoon_contact_scale", 0.25)
     power += vs_left_diff * tuning.get("platoon_power_scale", 0.2)
@@ -6310,7 +6358,15 @@ def simulate_game(
             # batter/pitcher pairing, and most of the pitcher dict is static
             # (the three fatigue-scaled entries update per pitch below).
             _pa_batter_ctx = _batter_context(
-                batter, pitcher_state.pitcher, tuning, tto=_pa_tto
+                batter, pitcher_state.pitcher, tuning, tto=_pa_tto,
+                home=(batting_team == "home"),
+            )
+            # Release 5: a reliever's fresh-arm edge for this batter (0.0
+            # for the game's starter, and for everyone while the knob is off).
+            _pa_fresh = _reliever_fresh_bonus(
+                started=pitcher_state is pitching_state.starter,
+                batters_faced=line.batters_faced,
+                tuning=tuning,
             )
             _pa_pitcher_ctx = {
                 "repertoire": pitcher_state.pitcher.repertoire or {"fb": 50},
@@ -6370,6 +6426,13 @@ def simulate_game(
                 }
                 _pa_pitcher_ctx["control"] = pitcher.control * command_factor
                 _pa_pitcher_ctx["movement"] = pitcher.movement * movement_factor
+                if _pa_fresh:
+                    _pa_pitcher_ctx["control"] = (
+                        pitcher.control + _pa_fresh
+                    ) * command_factor
+                    _pa_pitcher_ctx["movement"] = (
+                        pitcher.movement + _pa_fresh
+                    ) * movement_factor
                 _pa_pitcher_ctx["fatigue_factor"] = velocity_factor
                 res: PitchResult = simulate_pitch(
                     batter=_pa_batter_ctx,
