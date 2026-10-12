@@ -12,12 +12,13 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from services.physics_tuning_settings import (
+    effective_swing_model,
     load_physics_tuning_overrides,
     load_physics_tuning_values,
     reset_physics_tuning_overrides,
     save_physics_tuning_overrides,
 )
-from services.physics_tuning_spec import _TUNING_SECTIONS
+from services.physics_tuning_spec import tuning_sections
 
 from ..security import require_bearer
 
@@ -37,8 +38,11 @@ AdminIdentity = Depends(_require_admin)
 
 
 def _serialize_spec() -> List[Dict[str, Any]]:
+    # Release 5: a league running swing_model 1 gets the rebased swing
+    # sliders; every other league gets the catalog it always had.
+    swing_model = effective_swing_model(load_physics_tuning_overrides())
     sections: List[Dict[str, Any]] = []
-    for label, specs in _TUNING_SECTIONS:
+    for label, specs in tuning_sections(swing_model):
         sections.append(
             {
                 "label": label,

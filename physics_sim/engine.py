@@ -4350,11 +4350,38 @@ def _should_intentional_walk(
     outs: int,
     score_diff: int,
     tuning: TuningConfig,
+    on_deck: BatterRatings | None = None,
 ) -> bool:
     if bases.first is not None:
         return False
     if bases.second is None and bases.third is None:
         return False
+    if tuning.get("ibb_model", 0.0) >= 1.0:
+        # Release 5 (owner decision 7): first base open with a runner in
+        # scoring position, and the walk is for the matchup -- how much
+        # better this hitter is than the one behind him against this
+        # pitcher. Mostly late and close, rarely with nobody out. No roll
+        # is made unless the gap is big enough to consider it.
+        if on_deck is None:
+            return False
+        gap = _batter_offense_score(batter, pitcher) - _batter_offense_score(
+            on_deck, pitcher
+        )
+        gap_min = tuning.get("ibb_gap_min", 2.0)
+        if gap <= gap_min:
+            return False
+        gap_full = tuning.get("ibb_gap_full", 7.0)
+        chance = tuning.get("ibb_chance", 0.35) * min(
+            1.0, (gap - gap_min) / max(0.1, gap_full - gap_min)
+        )
+        late_close = inning >= int(tuning.get("ibb_inning", 7.0)) and abs(
+            score_diff
+        ) <= tuning.get("ibb_close_run_diff", 2.0)
+        if not late_close:
+            chance *= tuning.get("ibb_early_scale", 0.1)
+        if outs == 0:
+            chance *= tuning.get("ibb_no_out_scale", 0.3)
+        return random.random() < chance
     if outs >= 2 and bases.third is None:
         return False
     if inning < int(tuning.get("ibb_inning", 7.0)):
@@ -4807,7 +4834,10 @@ def _batter_context(
 ) -> Dict[str, Any]:
     pitcher_hand = (pitcher.throws or "R").upper()
     batter_hand = (batter.bats or "R").upper()
-    eye = batter.eye * 0.8 + (100.0 - pitcher.control) * 0.2
+    # Release 5: the pitcher's share of the eye is a knob. 0.2 is the old
+    # hard-coded blend (1.0 - 0.2 is exactly the 0.8 it multiplied by).
+    eye_blend = tuning.get("eye_control_blend", 0.2)
+    eye = batter.eye * (1.0 - eye_blend) + (100.0 - pitcher.control) * eye_blend
     contact = batter.contact
     power = batter.power
     handedness = _handedness_advantage(batter_hand, pitcher_hand, tuning)
@@ -6169,6 +6199,10 @@ def simulate_game(
                 outs=outs,
                 score_diff=score_diff,
                 tuning=tuning,
+                # batter_index already points past this batter.
+                on_deck=offense_state.lineup[
+                    batter_index % len(offense_state.lineup)
+                ],
             ):
                 totals["bb"] += 1
                 totals["ibb"] += 1
