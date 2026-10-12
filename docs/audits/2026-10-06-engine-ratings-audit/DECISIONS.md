@@ -283,3 +283,56 @@ infield hits, batter GIDP, ground-out R3) and raw for race-against-a-throw
 terms until the general decision-2 re-centring; WP/PB are recorded only when
 a runner advances (rule 9.13); the dropped-third-strike eligibility and
 volume fixes ship in 4a.
+
+## Release 5 owner decisions (2026-10-12)
+
+Taken after the Release 5 design pass (plate discipline, contact, platoon,
+situational effects). The full plan is `RELEASE5_PLAN.md` in this folder.
+
+1. **Elite-contact hitters rarely strike out.** Against an average pitcher
+   in a 22% strikeout league: 80 Contact about 3%, 65 about 9%, 60 about
+   12%, 40 about 37% (contact slope 0.090 per point in the log-odds model).
+2. **Eye drives walks at MLB size per rating point:** a 60 Eye hitter walks
+   about 11.5%, a 40 Eye hitter about 6.5%. Not overshot to compensate for
+   today's narrow Eye ratings; the spread in live leagues arrives with the
+   Release 7 re-spread.
+3. **Home-field advantage at MLB size (home teams win about 53.5%), the
+   same for every club and park, in the playoffs too.**
+4. **Relievers get a short fresh-arm edge:** about 0.2 runs per nine better
+   than a starter with the same ratings for the first four batters, gone by
+   the seventh.
+5. **LHP = RHP in every league now.** Each league's right-handed-hitter
+   platoon split is sized from its own mix of batting sides
+   (`handedness_balance_strength` 1.0), so left- and right-handed pitchers
+   are equal on average everywhere, even where that makes the RHB split
+   smaller than MLB's.
+6. **Catcher framing is real but modest:** about 5 runs a season per 10
+   points of catcher fielding, with help text.
+7. **Intentional walks at MLB's rate** (about 15 per team-season), decided
+   by the gap between the hitter and the on-deck hitter.
+8. **Park foul territory stops changing strikeouts and walks**
+   (`foul_territory_scale` 0) until Release 6 brings it back as caught foul
+   pop-ups.
+9. **Commissioner sliders are rebased, 1.0 = MLB** (Walk Rate, Zone Swing,
+   Chase), and Two-Strike Aggression and Two-Strike Protect merge into one.
+   Stored overrides are converted once.
+10. **`vl` is relabelled now** from "Vision" to a platoon-split rating with
+    help text (50 = typical, higher = handles left-handers better than
+    typical). The data is recentred in Release 7; the engine reads it
+    against the league's own by-bats mean from Release 5.
+11. **New leagues are generated with MLB's mix of batting sides** (more
+    left-handed and switch-hitting catchers and infielders). Existing
+    leagues are not touched.
+12. **Rollout: build and test now, switch on at alpha-test's next season.**
+    The tooling ships at once and the engine changes are built switched
+    off; the switch-on waits for alpha-test's rollover so one season's
+    stats are not split between two engines. (This differs from Releases 3
+    and 4, which went live mid-season.)
+
+Taken as recommended (technical): an ace's strikeout edge keeps today's
+size until Release 6 (pitch-quality slope 0.040); avoiding the called third
+strike depends on Contact only, not Eye; sluggers do not strike out more in
+Release 5; the third-time-through-the-order effect is held for Release 6;
+the contact BABIP edge ships in its minimal direct form at +.010 per 10
+Contact (decision 4 of Release 0); the LHP-minus-RHP gate is read on a
+4-season mean; BB true-sd targets are gated as slopes per rating point.
