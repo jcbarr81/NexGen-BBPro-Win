@@ -16,6 +16,7 @@ import pytest
 import api.routers.tuning as T
 import services.physics_tuning_settings as S
 from physics_sim.config import DEFAULT_TUNING
+from services.physics_tuning_spec import tuning_sections
 
 ADMIN = {"u": "commish", "r": "admin"}
 
@@ -87,7 +88,7 @@ def test_a_key_set_outside_the_sliders_survives_a_save(overrides_file):
         key
         for key, value in DEFAULT_TUNING.items()
         if isinstance(value, float)
-        and key not in {s.key for _, specs in T._TUNING_SECTIONS for s in specs}
+        and key not in {s.key for _, specs in tuning_sections(0) for s in specs}
     )
     S.save_physics_tuning_overrides({hidden: DEFAULT_TUNING[hidden] + 0.01})
     view = T.get_tuning(ADMIN)
