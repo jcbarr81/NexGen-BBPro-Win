@@ -201,5 +201,5 @@ The product's own game path (a product-created 30-team league, 420 games per eng
 - **Only the mean is league-relative, not the spread** (`docs/future_work.md`, "Release 5 league-relative ratings").
 - **Catcher framing (about 5 runs a season per 10 points)** is an estimate from the size of the effect, not a measured season total.
 - **The matchup grid** was measured on one seed.
-- **Parks.** Live leagues are reported to hold no park dimension or altitude data, so live games are played in a neutral park on either engine; the calibration fixture's real parks are a test condition (`docs/future_work.md`).
+- **Parks.** The KPI harness finds park data through the ambient active league rather than the fixture, so a harness run started while something else in the checkout has switched the active league can play a whole season with no altitude (home runs about 5% lower, nothing else changed); this explained the one odd season seen during review. Live leagues are not affected: their park files sit at the top of the cloud data folder, which the lookup also searches (`docs/future_work.md`).
 - **The rule presets** (High Offense, Pitcher Friendly) were re-sized on one seed each, before the retune; the owner confirmed the sizes.

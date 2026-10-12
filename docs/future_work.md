@@ -1628,12 +1628,14 @@ switched-on values are in `scripts/kpi_profiles/r5_discipline.json`,
   only as much as two different random streams do (22.06% / 22.08%, 8.10%
   / 8.17%). That is the "season with home runs per fly ball about 7% low"
   seen in agent worktrees and the "second season" of the repeatability
-  item above. Two things follow for LIVE leagues: the production image
-  excludes `/data/` (`.dockerignore`), and the live leagues' cloud folders
-  are reported to hold no `parks/` folder at all (from an inspection of
-  the bucket on 2026-10-12; not re-checked for this note), so live games
-  are played with no park dimensions and no altitude. The calibration
-  fixture's real parks are not what live leagues play in. Proposed fix
+  item above. LIVE leagues are not affected: the production image
+  excludes `/data/` (`.dockerignore`) and a league's own cloud folder has
+  no `parks/` folder, but the three park files sit at the top of the data
+  bucket (`gs://nexgen-bbpro-data/parks/`, checked 2026-10-12), which is
+  the data root, the second place the lookup searches. So a live team with
+  a park chosen plays with its dimensions and altitude. (An earlier note
+  here said live leagues had no park data; that came from checking only
+  the per-league folders and was wrong.) Proposed fix
   for a later release: the harness resolves park data from the fixture's
   own folder (`--base-dir`), and a park file it cannot find is an error in
   the harness, not a silent fallback to the generic park.
