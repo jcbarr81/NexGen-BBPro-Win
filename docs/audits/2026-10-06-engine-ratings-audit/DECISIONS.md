@@ -408,3 +408,63 @@ batting side. And against decisions 1 and 3
 the measured results are an 80 Contact hitter at about 4% strikeouts (3%
 decided) and home teams winning about 53% (.531, .540 and .536 on the
 three test leagues; 53.5% decided).
+
+## Release 6 owner decisions (2026-10-13)
+
+Taken after the Release 6 design pass (`RELEASE6_PLAN.md`), answered one set
+at a time.
+
+1. **Shape: two steps.** First the ratings work (pitch grades drive stuff,
+   velocity, fatigue, the Power curve, doubles, defence), then ball-flight
+   physics (drag, pop-ups, parks, foul-outs) as its own release.
+2. **Arm becomes a strikeout rating.** +10 Arm is worth about +1.5 to +1.8
+   points of strikeout rate and about 0.2 off FIP (slope .06).
+3. **Fatigue: the moderate set.** At 91-105 pitches the fastball is down
+   about 1.3 mph and hitters gain about +11 wOBA points; left in to the cap,
+   +18.
+4. **Weak bats: 5 to 10 home runs.** Power 30 to 40 (today's scale) hits
+   about 5 to 10 home runs per 600 PA; the bottom-quintile target is restated
+   as 0.75 or less of the middle quintile.
+5. **Ratings use the full scale, and the change comes with the next engine
+   step.** The owner's point: ratings are meant to run up to 99, and today no
+   hitter in any league is above 65 Power (Contact tops out at 59 to 73, Eye
+   at 52 to 58, pitcher control at 58 to 69), because new players copy a
+   donor file squeezed around 50 and the engine was tuned to that band. Each
+   league's stored ratings are re-spread, keeping every player's rank, at the
+   moment it moves to the next engine generation, so owners see one change.
+   A design pass on the re-spread (target spread per rating, potentials and
+   development, overall rating, salaries, CPU logic, the generator) comes
+   back to the owner before it is built. This is a major version (8.0.0) and
+   is confirmed again before it ships. It replaces the audit's Release 7
+   order (engine first, re-spread after).
+6. **The top of the Power scale.** On the new scale a hitter with Power in
+   the 90s hits 45 to 55 home runs a year depending on his Contact and Eye;
+   60 or more is a rare event. The curve's upper anchors are fitted to that
+   rather than to today's steepening curve (Power 80 on today's scale
+   projects to 68).
+7. **Fielding is read against the league's regulars at the same position.**
+8. **Out of position: the MLB-style table** (cost depends on the move;
+   listed second positions cost a quarter of it).
+9. **Errors at MLB volume** (about .53 per team-game), with the new error
+   types in box scores. The new types are sized by arithmetic and need
+   season testing before they ship.
+10. **Size of defence: 5 to 7 outs per rating SD at each position** (first
+    base a little less). Team DER sd is then about .009; the .010 to .012
+    band of decision 12 is dropped.
+11. **Doubles: contact-led, with Power and batted-ball profile counting.**
+    The owner's rule: a hitter with high Contact and above-average Power (60
+    or more on the new scale) should hit a lot of doubles, depending on his
+    ground-ball / fly-ball ratio; line-drive hitters hit more doubles. So
+    the gap credit is not Contact-only: Power keeps a smaller share in the
+    first step, and the ball-flight step makes doubles come from hard line
+    drives into the gaps. League doubles come down to the MLB level either
+    way.
+
+Not asked yet, because they belong to the ball-flight step: how strongly
+real parks play, and how much ground-ball pitchers suppress home runs.
+
+Taken as given unless the owner objects: control becomes mostly command
+(decision 10 as written); foul-outs return as caught fouls; the infield
+shift bonus is dropped; batted-ball splits are shown Statcast style;
+sluggers striking out more waits for the generator's Contact-Power
+correlation; OVR weights are re-derived and brought back with numbers.

@@ -1,6 +1,6 @@
 # Release 6 implementation plan: pitching stuff and fatigue, power, fielding, batted ball
 
-Design pass 2026-10-12 on 7.51.0 (engine generation 5). Four design briefs, each with prototypes run in memory (the repo was not changed): pitching, power, fielding, batted ball and parks. The full briefs, prototype code and season outputs are in the session scratch folder `r6/<area>/BRIEF.md`; this plan is the merged result. Owner decisions are in section 7 and are **not yet taken**. Nothing here is built.
+Design pass 2026-10-12 on 7.51.0 (engine generation 5). Four design briefs, each with prototypes run in memory (the repo was not changed): pitching, power, fielding, batted ball and parks. The full briefs, prototype code and season outputs are in the session scratch folder `r6/<area>/BRIEF.md`; this plan is the merged result. Owner decisions were taken on 2026-10-13 (section 7 and `DECISIONS.md`); they add a rating re-spread to the first step. Nothing here is built yet.
 
 Evidence labels: **season** = 162-game KPI runs; **MC** = Monte Carlo on the real kernel (30k to 100k PA per cell); **arith** = arithmetic. Fixtures: calibration (`data/calibration`), league (`data/calibration_league`), flat (`data/calibration_flat`, bunched ratings, the stand-in for alpha-test; see its README). Nothing is designed only to close a gap seen on the flat fixture alone.
 
@@ -179,7 +179,9 @@ Whole prototype (season, seeds 1-2; generation 5 in brackets): runs per team-gam
 - Reference numbers taken from memory, not from data in the repo: every Statcast per-class figure, the foul-out rate, per-position error shares, MLB quintile ratios. Pull them before gating on them.
 - A league that has played a season on generation 6 cannot be safely rolled back past this release (as with generation 5).
 
-## 7. Owner decisions (to be taken before the build)
+## 7. Owner decisions
+
+**Taken 2026-10-13; the answers are in `DECISIONS.md`, "Release 6 owner decisions".** In short: two steps (1); Arm yes (2); moderate fatigue (3); weak bats 5 to 10 HR (4); taper replaced by the owner's rule that Power in the 90s on a full rating scale hits 45 to 55 home runs a year, 60+ rare (5); fielding by position yes (6); the table (7); MLB error volume (8); 5 to 7 outs (9); doubles contact-led with Power and line-drive profile counting, not Contact-only (10); 11 and 12 wait for the ball-flight step. **New, from the owner:** ratings must use the full scale (best players in the 90s); each league's ratings are re-spread when it moves to the next engine generation, as a major version, after its own design pass. The questions as asked:
 
 1. **One release or two.** Recommend two: 6a now (stuff, velocity, fatigue, Power, defence), 6b after (batted-ball physics).
 2. **Arm becomes a strikeout rating.** +10 arm is about +1.5 to +1.8 pp of K and -.2 FIP (today slightly harmful). Recommend yes.
