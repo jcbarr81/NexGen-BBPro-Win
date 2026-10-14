@@ -105,9 +105,9 @@ __all__ = [
 LEGACY_RATING_SCALE = 1
 FULL_RATING_SCALE = 2
 KNOWN_RATING_SCALES: Tuple[int, ...] = (LEGACY_RATING_SCALE, FULL_RATING_SCALE)
-# The scale a fabricated player (a new league, a draft class, a placeholder
-# roster) is written on. Scale 2 is built and proved but switched on for no
-# one: moving this is the migration step's decision, not this module's.
+# The scale a NEW league is created on (a draft class takes the scale of the
+# league it is for). Scale 2 is built and proved but switched on for no one:
+# moving this is the migration step's decision, not this module's.
 GENERATED_RATING_SCALE = LEGACY_RATING_SCALE
 
 RATING_SCALE_FIELD = "rating_scale"
@@ -238,10 +238,27 @@ def normalize_rating_scale(value: object) -> int:
     return int(number)
 
 
+# type -> is it a row mapping. ``isinstance(x, Mapping)`` goes through the
+# abstract base class machinery, several times the cost of the read itself,
+# and the accessors below run on every rating a consumer reads.
+_ROW_TYPES: Dict[type, bool] = {dict: True}
+
+
+def _is_row(player: Any) -> bool:
+    """True for a row mapping, False for a player object."""
+
+    kind = type(player)
+    try:
+        return _ROW_TYPES[kind]
+    except KeyError:
+        known = _ROW_TYPES[kind] = isinstance(player, Mapping)
+        return known
+
+
 def rating_scale_of(player: Any) -> int:
     """The scale a player object or a row mapping is stored on."""
 
-    if isinstance(player, Mapping):
+    if _is_row(player):
         raw = player.get(RATING_SCALE_FIELD)
     else:
         raw = getattr(player, RATING_SCALE_FIELD, None)
@@ -286,7 +303,7 @@ def player_is_pitcher(player: Any) -> bool:
     :func:`stretch_row` keyed on when the row was written.
     """
 
-    if isinstance(player, Mapping):
+    if _is_row(player):
         return is_pitcher_flag(player.get("is_pitcher"))
     return is_pitcher_flag(getattr(player, "is_pitcher", False))
 
@@ -584,7 +601,7 @@ _MISSING: Any = object()
 
 
 def _raw(player: Any, key: str, default: Any) -> Any:
-    if isinstance(player, Mapping):
+    if _is_row(player):
         return player.get(key, default)
     return getattr(player, key, default)
 
@@ -630,7 +647,16 @@ def engine_rating(player: Any, key: str, default: Any = None) -> Any:
     bars and the lineup builder are all in engine points.
     """
 
-    scale = rating_scale_of(player)
+    # Scale 1 first and flat: this is every read in every league today.
+    if _is_row(player):
+        raw_scale = player.get(RATING_SCALE_FIELD)
+        if raw_scale is None or raw_scale == "" or raw_scale == LEGACY_RATING_SCALE:
+            return player.get(key, default)
+    else:
+        raw_scale = getattr(player, RATING_SCALE_FIELD, None)
+        if raw_scale is None or raw_scale == LEGACY_RATING_SCALE or raw_scale == "":
+            return getattr(player, key, default)
+    scale = normalize_rating_scale(raw_scale)
     if scale == LEGACY_RATING_SCALE:
         return _raw(player, key, default)
     value = _raw(player, key, _MISSING)
@@ -655,7 +681,7 @@ def engine_potential(player: Any, key: str, default: Any = None) -> Any:
     would shrink every gap about threefold and reprice every prospect.
     """
 
-    if isinstance(player, Mapping):
+    if _is_row(player):
         value = player.get(_POTENTIAL_PREFIX + key, _MISSING)
     else:
         blob = getattr(player, "potential", None)
