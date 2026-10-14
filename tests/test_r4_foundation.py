@@ -558,9 +558,12 @@ def test_harness_passes_the_fixture_centre(kpis, monkeypatch):
     # F4: the battery centres travel with the speed centre. Release 6a: so
     # do the centres only the harness supplies
     # (tests/test_r6a_tools_centers.py).
+    # Release 6a (fielding): the harness also turns the engine's passive
+    # fielding chance log on.
     fixture = {
         **centers.active_rating_centers(CALIBRATION),
         **centers.unstored_rating_centers(CALIBRATION),
+        "fielding_chance_log": 1.0,
     }
     assert fixture["hitter_speed_center"] == pytest.approx(47.72)
     with pytest.raises(_Captured):

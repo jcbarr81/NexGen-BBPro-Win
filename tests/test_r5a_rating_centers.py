@@ -478,7 +478,10 @@ def test_harness_passes_and_records_the_new_keys(monkeypatch):
         kpis.run_sim(
             162, 1, CALIBRATION_LEAGUE / "players.csv", None, CALIBRATION_LEAGUE
         )
-    assert seen["tuning_overrides"] == {**fixture, **unstored}
+    # Release 6a (fielding): and the engine's passive fielding chance log.
+    assert seen["tuning_overrides"] == {
+        **fixture, **unstored, "fielding_chance_log": 1.0
+    }
     # A profile may pin one, like any other knob.
     assert kpis.RATING_CENTER_KEYS == centers.RATING_CENTER_KEYS
 
