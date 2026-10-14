@@ -14,6 +14,11 @@ the KPI harness only:
 Every key is registered at 50.0 and nothing reads one yet. They are not in
 a league's ``rating_centers.json``, not in a league game's tuning and not a
 centre a game refuses to start without: that is the generation 6 switch-on.
+
+The power build wired the first one in: ``hitter_gf_center`` is read by the
+line-drive credit on doubles (off below generation 6) and a season on
+generation 6 or later stores it (tests/test_r6a_power_centers.py). Below
+generation 6 everything here still holds for it.
 """
 
 from __future__ import annotations
@@ -161,10 +166,11 @@ def test_they_are_not_stored_centres_and_no_game_requires_them():
 
 def test_nothing_in_the_engine_reads_them_yet():
     """The Release 6 build branches remove a key from here as they wire it
-    in (and add the test of what reads it)."""
+    in (and add the test of what reads it). ``hitter_gf_center`` is wired:
+    the line-drive credit on doubles reads it, and a generation 6 season
+    stores it (tests/test_r6a_power_doubles.py, test_r6a_power_centers.py)."""
     pattern = re.compile(
-        r"fielder_(fa|arm)_center|pitcher_gf_usage_center|hitter_gf_center"
-        r"|hitter_pull_center"
+        r"fielder_(fa|arm)_center|pitcher_gf_usage_center|hitter_pull_center"
     )
     for path in sorted((REPO / "physics_sim").glob("*.py")):
         if path.name == "config.py":

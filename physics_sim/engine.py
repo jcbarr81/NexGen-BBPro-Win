@@ -7002,6 +7002,7 @@ def simulate_game(
                         batter_power=_league_relative(
                             batter.power, "hitter_power_center", tuning
                         ),
+                        batter_gb_tendency=batter.gb_tendency,
                     )
                     res.distance = dist
                     res.ball_type = ball_type

@@ -177,6 +177,18 @@ stores them in ``rating_centers.json``, delivers them to a league game or
 caches them, and no engine generation a league can be given reads them.
 Storing them (with a season rule like the Release 5 centres') belongs to
 the generation 6 switch-on.
+
+Release 6a (power and doubles) wires the first of them into the engine:
+``hitter_gf_center``, which the line-drive credit on doubles reads
+(``physics_sim.physics.resolve_batted_ball``, off below generation 6). It
+is a GENERATION centre (``GENERATION_CENTER_KEYS``): a season stores it and
+its games are given it only when the season is played on generation 6 or
+later -- in the same entry, fixed for the season and read from the cache
+and the file exactly as the centres above are
+(:func:`league_rating_centers`). A legacy or generation 5 season's entry
+never gains it and its games are never given it, so those leagues' files
+and tunings are what they were. It is still not in ``RATING_CENTER_KEYS``,
+and the harness still works it out with the other unstored centres.
 """
 
 from __future__ import annotations
@@ -234,6 +246,8 @@ __all__ = [
     "HITTER_GF_CENTER_KEY",
     "HITTER_PULL_CENTER_KEY",
     "UNSTORED_CENTER_KEYS",
+    "GENERATION_CENTER_KEYS",
+    "generation_center_keys",
     "unstored_rating_centers",
     "active_pitcher_workloads",
     "ENGINE_GENERATION_KEY",
@@ -362,6 +376,13 @@ UNSTORED_CENTER_KEYS: tuple[str, ...] = (
     + (PITCHER_GF_USAGE_CENTER_KEY,)
     + tuple(_UNSTORED_REGULARS_SPECS)
 )
+# Engine generation -> the centres a season stores, and its games are given,
+# from that generation on (module docstring). Computed as the unstored
+# centres are (``unstored_rating_centers``); a season on an earlier
+# generation never holds one.
+GENERATION_CENTER_KEYS: Dict[int, tuple[str, ...]] = {
+    6: (HITTER_GF_CENTER_KEY,),
+}
 # Centres a LEGACY season's stored entry gains only together with its
 # Contact and Eye centres (``_predates_league_relative_centers``).
 _NEW_ENTRY_KEYS = frozenset((HITTER_POWER_CENTER_KEY, *PITCHER_USAGE_CENTER_KEYS))
@@ -568,9 +589,34 @@ def league_rating_centers(
     already stored for the season is read and never recomputed, and only the
     missing ones are computed from the current ACT rosters and added (so a
     file written before the battery centres existed keeps its speed centre).
+
+    Release 6a: a season on generation 6 or later also gets its generation
+    centres (:func:`generation_center_keys`), under the same rules. The
+    season's generation is only read here, after the centres above have
+    settled it for a game that stores.
     """
 
-    return _league_centers(data_dir, season, RATING_CENTER_KEYS, store=store)
+    centres = _league_centers(data_dir, season, RATING_CENTER_KEYS, store=store)
+    extra = generation_center_keys(
+        league_engine_generation(data_dir, season, store=False)
+    )
+    if extra:
+        centres.update(_league_centers(data_dir, season, extra, store=store))
+    return centres
+
+
+def generation_center_keys(generation: object) -> tuple[str, ...]:
+    """The centres a season on ``generation`` stores beyond
+    ``RATING_CENTER_KEYS``: those of every generation up to it
+    (``GENERATION_CENTER_KEYS``). ``()`` below generation 6."""
+
+    number = normalize_engine_generation(generation)
+    return tuple(
+        key
+        for since in sorted(GENERATION_CENTER_KEYS)
+        if since <= number
+        for key in GENERATION_CENTER_KEYS[since]
+    )
 
 
 def league_hitter_speed_center(
@@ -1282,7 +1328,11 @@ def _predates_league_relative_centers(entry: dict) -> bool:
 
 def _computed(base: Path, keys: Iterable[str]) -> Dict[str, float]:
     wanted = set(keys)
-    return {k: v for k, v in active_rating_centers(base).items() if k in wanted}
+    centres = dict(active_rating_centers(base))
+    if wanted & set(UNSTORED_CENTER_KEYS):
+        # A generation centre (``GENERATION_CENTER_KEYS``).
+        centres.update(unstored_rating_centers(base))
+    return {k: v for k, v in centres.items() if k in wanted}
 
 
 def _ordered(values: Dict[str, float], keys: tuple[str, ...]) -> Dict[str, float]:

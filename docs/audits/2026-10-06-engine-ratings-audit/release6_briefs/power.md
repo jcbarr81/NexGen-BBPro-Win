@@ -214,3 +214,50 @@ To add:
 - Real-park effects in the Monte Carlo, which uses the generic park.
 
 Scratch files: `mc.py`, `table.py`, `grid.py`, `pop.py`, `kiso.py`, `kpow.py`, `season.py`, `launch.py`, `rows.py`, `cmp.py`. Season outputs are in `runs\`; `P4` is the proposal, `P2` the `hr_scale` variant, and `T55`, `T70`, `T55k`, `P3` the other variants.
+## As built (branch `r6a-power`, 2026-10-13)
+
+Off by default; generation 6's values are in
+`scripts/kpi_profiles/r6_power.json` (run with `--engine 6
+--tuning-overrides`) until they are folded into the generation 6 profile.
+Three owner decisions taken after this brief changed it (`DECISIONS.md`,
+"Release 6 owner decisions", 4, 6 and 11).
+
+**Power curve** (`power_curve_model`, `bat_speed_power_table`). The
+registered table has thirteen anchors on today's curve, because a profile
+can change an anchor but not add one. Generation 6:
+
+| Power | 30 | 40 | 45 | 50 | 52 | 55 | 57 | 60 | 61.67 | 63.33 | 65 | 66.33 | 80 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Today, mph | -3.0 | -1.5 | -0.75 | 0 | 0.3 | 3.15 | 5.05 | 7.9 | 9.49 | 11.06 | 12.65 | 13.91 | 26.9 |
+| Generation 6 | -10.15 | -5.15 | -2.15 | 0.85 | 1.15 | 3.15 | 5.05 | 9.9 | 12.3 | 14.5 | 14.75 | 15.0 | 17.05 |
+
+- Below 50 the slope is 0.55 on average, bent: 0.6 from 50 down to 40 and
+  0.5 from 40 down to 30. On the straight line a Power 40 hitter sits on
+  the edge of the 5-to-10 band (10.1 home runs per 600 PA) and the
+  tie-neutral bottom-fifth ratio reads .76 on calibration; bent, 9.2 and
+  .73.
+- The taper above 65 is gone (decision 6). The top anchors are solved for
+  home runs per 650 PA on the generation 5 kernel: 35 / 40 / 45 at engine
+  60 / 61.67 / 63.33 (stored 80 / 85 / 90) with average Contact, and 55 at
+  66.33 (stored 99) with Contact 60 (stored 80). Together the last two
+  leave half a mph between stored 90 and 99. `scripts/fit_power_table.py`
+  re-solves them.
+- The centre offset that holds league home runs is +0.85 mph (seasons;
+  the population model said +0.72 to +0.81). `hr_scale` is untouched.
+
+**Doubles** (`double_gap_power_weight` 0.25, `double_gap_scale` 0.30,
+`double_distance_scale` 0.76, `double_line_drive_scale` 0.07,
+`double_line_drive_span` 8). Decision 11 replaced the Contact-only
+proposal: Contact keeps today's credit per point and Power a third of it,
+and the hitter whose ground-ball rating is the league's average
+(`hitter_gf_center`) needs 7% less distance for a double, the credit
+gone 8 points away on either side. The credit reads the rating because a
+point of gf moves launch angle 0.1 degree. `hitter_gf_center` is stored
+for and delivered to a season on generation 6 or later
+(`services.league_rating_centers.GENERATION_CENTER_KEYS`).
+
+**`contact_logit_power`**: built, 0 in generation 6.
+
+Measured results, the targets met and missed, and the gates proposed are
+in the build report; open items are in `docs/future_work.md`, "Release 6a
+power and doubles: follow-ups".

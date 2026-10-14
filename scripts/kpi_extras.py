@@ -3927,12 +3927,14 @@ def power_hr600_table(
 
 def _simulate_staff_cell(
     *, power: float, n: int, seed: int, tuning: Any, staff: list[tuple[Any, float]],
-    park: Any,
+    park: Any, contact: float = 50.0,
 ) -> Counter:
     """One Power-table cell: ``n`` PA of the league's average hitter at
     league-relative Power ``power`` against ``staff`` ((pitcher, workload)
     pairs). Counts ``pa``, ``bb``, ``k`` and ``hr``. See
-    :func:`power_hr600_table`."""
+    :func:`power_hr600_table`. ``contact`` is his league-relative Contact
+    (50, the league's average, for the table; ``scripts/fit_power_table.py``
+    moves it for the anchors that name a Contact)."""
     from physics_sim.engine import (
         _batter_context,
         _league_relative,
@@ -3947,7 +3949,8 @@ def _simulate_staff_cell(
     batters = {
         side: BatterRatings(
             player_id="table_b", bats=side, primary_position="CF",
-            other_positions=[], contact=centre("hitter_contact_center"),
+            other_positions=[],
+            contact=contact - 50.0 + centre("hitter_contact_center"),
             power=power - 50.0 + centre("hitter_power_center"),
             gb_tendency=centre("hitter_gf_center"),
             pull_tendency=centre("hitter_pull_center"),

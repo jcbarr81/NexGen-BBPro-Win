@@ -1856,3 +1856,64 @@ grid). Nothing here changes a game.
   (Power 30 / 50 / 80: 11.0 / 15.8 / 69.3 against 10.9 / 15.9 / 68.0).
 - **CI does not run `--engine 6`.** Add a step when generation 6 has
   values of its own (it is a copy of generation 5 until then).
+
+## Release 6a power and doubles: follow-ups (2026-10-13)
+
+Built on branch `r6a-power`, off by default (`scripts/kpi_profiles/r6_power.json`
+over `--engine 6`). Numbers are calibration / league / flat fixture means
+(8 / 4 / 2 seasons) unless noted.
+
+- **Thirty-homer hitters.** Weak bats lose home runs and the league total
+  is held, so home runs move up the order, and owner decision 6 lifts
+  stored Power 80 to 99. `qualified_hr30_count` reads 20.6 / 17.8 / 16.5
+  (generation 5: 19.4 / 15.5 / 9.5), but one season's count has a spread of
+  about 4: two near-identical tables read 20.5 and 24.4 on the same eight
+  calibration seeds, one season at 33. The strict gate (20 +/- 8) fails
+  about one season in eight. Gate the pooled share or re-centre the count
+  (see the build report) before generation 6 is gated in CI.
+- **`corr_avg_contact` is lower** (.59 / .62 / .64 against .63 / .63 /
+  .64; three profile variants average -.04 / -.02 / -.02). A steeper Power
+  curve makes Power matter more to batting average through exit velocity,
+  which dilutes Contact's share. The lever is the Contact hit edge
+  (`contact_babip_per10`) or the fielding hit table, at the joint retune.
+- **Stored Power 90 to 99 is worth about 1 to 2 home runs a year at the same
+  Contact** (engine 63.33 to 66.33: 14.5 to 15.0 mph). That is what the
+  two anchors of decision 6 give together (45 at Power 90 with average
+  Contact, 55 at Power 99 with Contact 80). If development should keep
+  paying in the 90s, raise the Power 99 anchor (15.5 mph is about 48 with
+  average Contact and 57 with Contact 80) and say so to the owner.
+- **The line-drive credit reads the rating, not the ball.** A hitter's
+  mean launch angle moves 0.1 degree per point of gf and the regulars' gf
+  spread is about 3 points, so no rule on launch angle can separate their
+  profiles (today's model already gives the fly-ball end 5% more doubles
+  and the ground-ball end 5% fewer over 8 points of gf, in a straight
+  line). It also sits on that slope, so an extreme ground-ball hitter loses
+  more doubles (about 24% at 8 points) than an extreme fly-ball hitter
+  (about 15%). The ball-flight release replaces it with hit types from
+  landing spots and should delete `double_line_drive_scale` / `_span`.
+- **`hitter_gf_center` is the first generation centre**
+  (`services.league_rating_centers.GENERATION_CENTER_KEYS`): stored for and
+  delivered to a season on generation 6 or later only. The fielding
+  centres can join it the same way. `league_rating_centers` now reads the
+  season's generation on every call (one more small JSON read per game);
+  cache it if it shows in a profile of the season simulator. The stored
+  path is tested with a hand-written generation 6 entry, because no league
+  can be given generation 6 yet: re-test through `game_runner` at the
+  switch-on.
+- **A profile cannot add an anchor to `bat_speed_power_table`** (the
+  merged-table rule), only change a registered one. The registered table
+  therefore carries thirteen anchors on today's curve. A fit that needs a
+  new one adds it to `DEFAULT_TUNING` at the knee formula's value.
+- **`scripts/fit_power_table.py` re-fits the top anchors only.** The
+  weak-bat side and the centre are set with seasons (its docstring). The
+  design's population model put the centre at +0.72 to +0.81 mph; seasons
+  put it at +0.85. Re-run both after the batted-ball model changes.
+- **`pitch_seq_power_avoid_fastball` is a step at Power 60** (stored 80):
+  a hitter one point above it sees 8% fewer fastballs. It predates this
+  work and was not touched; smooth it when sequencing is next opened.
+- **Runs fall about .03 per team-game** with league doubles down to 1.61 /
+  1.68 / 1.69: for the joint retune.
+- **Consumers still assume the old curve:** overall rating, CPU lineup and
+  trade scores and salary read Power linearly. Under the table a point of
+  Power is worth 0.5 to 0.6 mph below 50, about 0.75 from 52 to 57, about
+  1.5 from 57 to 63 and almost nothing above 63.
