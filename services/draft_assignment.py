@@ -16,7 +16,6 @@ from utils.rating_scale import (
     MixedRatingScaleError,
     describe_rating_scales,
     majority_rating_scale,
-    note_players_file_written,
     players_file_rating_scales,
     rating_scale_of,
     stretch_row,
@@ -24,6 +23,7 @@ from utils.rating_scale import (
     to_stored,
     to_stored_exact,
 )
+from utils.players_file_writes import note_players_file_written
 from utils.roster_loader import load_roster, save_roster
 from utils.roster_rules import LOW_CAP as LOW_MAX
 

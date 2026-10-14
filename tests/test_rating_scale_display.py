@@ -694,8 +694,8 @@ def test_a_promotion_suggestion_quotes_what_it_is_given(tmp_path, monkeypatch):
 # --- the display-scale cache --------------------------------------------------
 
 def test_back_to_back_same_size_writes_are_seen(tmp_path):
+    from utils.players_file_writes import note_players_file_written
     from utils.rating_display import league_display_scale
-    from utils.rating_scale import note_players_file_written
 
     path = tmp_path / "players.csv"
     on_2 = "player_id,is_pitcher,ch,rating_scale\nA,0,50,2\nB,0,50,2\nC,0,50,1\n"
@@ -713,7 +713,7 @@ def test_back_to_back_same_size_writes_are_seen(tmp_path):
 def test_every_players_file_writer_tells_the_cache(tmp_path, twin):
     from utils.player_loader import load_players_from_csv
     from utils.player_writer import save_players_to_csv
-    from utils.rating_scale import players_file_write_count
+    from utils.players_file_writes import players_file_write_count
 
     path = tmp_path / "players.csv"
     players = load_players_from_csv(str(twin[0] / "players.csv"))[:5]

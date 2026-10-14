@@ -28,6 +28,7 @@ from models.pitcher import Pitcher
 from models.player import Player
 from utils.path_utils import get_data_dir
 from utils.pitcher_role import get_role
+from utils.players_file_writes import players_file_write_count
 from utils.player_overall import (
     hitter_overall_score,
     pitcher_overall_score,
@@ -44,7 +45,6 @@ from utils.rating_scale import (
     majority_rating_scale,
     player_is_pitcher,
     players_file_rating_scales,
-    players_file_write_count,
     rating_map,
     rating_scale_of,
     stretch_row,
@@ -154,7 +154,7 @@ def _players_file() -> Path:
 def _file_key(path: Path) -> tuple:
     """A cache key for one file: its path, its modification time in
     nanoseconds, its size, and how many times this process has written it
-    (``utils.rating_scale.note_players_file_written``). The write count is
+    (``utils.players_file_writes``). The write count is
     what catches two writes that land in one timestamp tick with the same
     size, which the clock alone cannot tell apart."""
 

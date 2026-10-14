@@ -244,7 +244,7 @@ def _note_written(dst: Path) -> None:
     source's mtime, so the file's clock alone may not show the change."""
 
     if dst.name == "players.csv":
-        from utils.rating_scale import note_players_file_written
+        from utils.players_file_writes import note_players_file_written
 
         note_players_file_written(dst)
 

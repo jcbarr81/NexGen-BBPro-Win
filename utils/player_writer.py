@@ -4,11 +4,11 @@ import logging
 from models.player import Player
 from models.pitcher import Pitcher
 from utils.atomic_write import atomic_text_writer
+from utils.players_file_writes import note_players_file_written
 from utils.rating_scale import (
     LEGACY_RATING_SCALE,
     RATING_SCALE_FIELD,
     describe_rating_scales,
-    note_players_file_written,
     rating_scale_counts,
     rating_scale_of,
 )
