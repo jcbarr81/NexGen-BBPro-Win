@@ -41,11 +41,14 @@ scale 2. ``tests/test_rating_scale_reads.py`` walks the code for reads of a
 moved rating that go round these.
 
 **Potentials** are not mapped. A scale 2 potential keeps the player's GAP in
-points (:func:`stretch_row`), so the engine view of a potential is the
-engine view of the current rating plus that stored gap. That reproduces the
-scale 1 potential wherever it was at or above the current rating and the
-result fits under 99, and is NOT an exact inverse otherwise (a potential
-below current is raised to current; a gap that would pass 99 is cut).
+points (:func:`stretch_row`): the gap the generator rolled, in engine
+points. :func:`engine_row` gives the engine the engine view of the current
+rating plus that whole gap (a scale 1 row, as it was converted). The
+consumer accessor :func:`engine_potential` gives what the development model
+(``playbalance.development``) can still make of the player: the engine
+rating plus the gap less :data:`POTENTIAL_GAP_DISCOUNT`, the generator's
+optimism no player closes. So a CPU club values a young player's upside as
+far as development will deliver it; on scale 1 nothing changes.
 
 Nothing here makes a league scale 2 while the switch below is off:
 :data:`GENERATED_RATING_SCALE` is 1.
@@ -107,6 +110,7 @@ __all__ = [
     "LEGACY_RATING_SCALE",
     "MIXED_RATING_SCALES",
     "MixedRatingScaleError",
+    "POTENTIAL_GAP_DISCOUNT",
     "describe_rating_scales",
     "RATING_MAX",
     "RATING_MIN",
@@ -159,6 +163,10 @@ MIXED_RATING_SCALES = "mixed"
 RATING_MIN = 1
 RATING_MAX = 99
 _POTENTIAL_PREFIX = "pot_"
+# Engine points of every scale 2 potential gap that development never
+# closes (``playbalance.development``; the generator rolls a young player's
+# potential 10-30 over his talent). :func:`engine_potential` leaves them out.
+POTENTIAL_GAP_DISCOUNT = 20.5
 
 
 class MixedRatingScaleError(ValueError):
@@ -726,9 +734,11 @@ def engine_row(row: Mapping[str, Any]) -> Mapping[str, Any]:
     THE row boundary. A scale 1 row (every row today) is returned as it is,
     the same object, so the engine, the centres and the harness read exactly
     what they read before. A row on another scale is copied with its moved
-    ratings un-stretched (never rounded), its potentials given the engine
-    view (:func:`engine_potential`) and its ``rating_scale`` cleared, so the
-    result is an honest scale 1 row and converting twice is harmless.
+    ratings un-stretched (never rounded), its potentials the engine rating
+    plus the whole stored gap (the row as it was converted; the CPU's view,
+    :func:`engine_potential`, discounts the gap) and its ``rating_scale``
+    cleared, so the result is an honest scale 1 row and converting twice is
+    harmless.
 
     A row of a file in the scale 2 format (``height_in``, module docstring)
     also gets its height back under ``height``, the name the engine reads;
@@ -888,12 +898,10 @@ def engine_potential(player: Any, key: str, default: Any = None) -> Any:
     ``row["pot_<key>"]`` on a mapping; ``default`` when there is none. On a
     scale 1 player that stored value is returned untouched.
 
-    On another scale the potential of a moved rating is the engine view of
-    the current rating plus the STORED gap in points -- the inverse of how
-    :func:`stretch_row` wrote it, so a consumer sees the potential it saw on
-    scale 1 (see the module docstring for the two cases where it cannot).
-    It is deliberately not the map's inverse of the stored potential, which
-    would shrink every gap about threefold and reprice every prospect.
+    On scale 2 it is the engine view of the current rating plus the part of
+    the stored gap (engine points) the development model closes
+    (:func:`engine_potential_value`). It is deliberately not the map's
+    inverse of the stored potential: the gap is in engine points already.
     """
 
     if _is_row(player):
@@ -909,8 +917,18 @@ def engine_potential(player: Any, key: str, default: Any = None) -> Any:
 def engine_potential_value(player: Any, key: str, stored_potential: Any) -> Any:
     """:func:`engine_potential` for a potential the caller has already read
     (some consumers look in more than one place for it): ``stored_potential``
-    of rating ``key`` of ``player``, on the engine scale. A scale 1 player,
-    a rating that is not moved and an unset value come back as given."""
+    of rating ``key`` of ``player``, on the engine scale. A scale 1 player
+    and an unset value come back as given.
+
+    On scale 2 this is what the player can still become under the
+    development model (``playbalance.development``): his engine rating plus
+    the part of his stored gap that development closes, the gap less
+    :data:`POTENTIAL_GAP_DISCOUNT` engine points. For every rating, moved
+    or not. A scale 2 gap is in engine points (the generator's roll, kept
+    by :func:`stretch_row`), and the first 20.5 of them are the generator's
+    optimism, which no player closes; reading the whole gap would show a
+    CPU club 20 points of upside in every young player that never come.
+    """
 
     scale = rating_scale_of(player)
     if scale == LEGACY_RATING_SCALE:
@@ -918,10 +936,10 @@ def engine_potential_value(player: Any, key: str, stored_potential: Any) -> Any:
     spec = _scale_tables(scale)[
         _PITCHER if player_is_pitcher(player) else _HITTER
     ].get(key)
-    if spec is None:
-        return stored_potential
     potential = _set_number(stored_potential)
     stored = _set_number(_raw(player, key, None))
     if potential is None or stored is None:
         return stored_potential
-    return _tidy(spec.engine(stored) + (potential - stored))
+    engine_now = stored if spec is None else spec.engine(stored)
+    closable = max(0.0, potential - stored - POTENTIAL_GAP_DISCOUNT)
+    return _tidy(engine_now + closable)

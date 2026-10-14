@@ -77,6 +77,12 @@ def test_a_player_on_scale_2_is_the_stretch_of_the_same_player(kwargs, caplog):
         full = _player(seed, rating_scale=2, **kwargs)
         source = _floored(plain) if kwargs.get("for_draft") else plain
         expected, clips = stretch_row(source, 2)
+        if kwargs.get("for_draft") and not kwargs.get("is_pitcher"):
+            # A scale 2 draft class marks Eye down less (player_generator.
+            # SCALE2_DRAFT_EYE_MARKDOWN); everything else is the stretch of
+            # the floored player.
+            assert full["eye"] >= expected["eye"]
+            full, expected = _without_eye(full), _without_eye(expected)
         assert full == expected and full["rating_scale"] == 2
         if kwargs.get("for_draft"):
             assert [c for c in clips if c.kind == "rating"] == []
@@ -110,6 +116,10 @@ def test_a_rating_that_does_not_fit_is_logged_not_silent(monkeypatch, caplog):
     assert "eye does not fit rating scale 2" in caplog.text
 
 
+def _without_eye(player):
+    return {k: v for k, v in player.items() if k not in ("eye", "pot_eye")}
+
+
 def _draft_class(scale):
     from playbalance.draft_pool import generate_draft_pool
 
@@ -124,7 +134,14 @@ def test_a_draft_class_on_scale_2_is_the_stretch_of_the_same_class():
     plain, full = _draft_class(1), _draft_class(2)
     assert _draft_class(1) == plain  # the seed fixes the class
     stretched, clips = stretch_rows([_floored(p) for p in plain], 2)
-    assert full == stretched
+    # Eye is marked down less for a scale 2 class; the rest is the stretch
+    # of the floored class.
+    assert [_without_eye(p) for p in full] == [_without_eye(p) for p in stretched]
+    hitters = [(a, b) for a, b in zip(full, stretched) if not a["is_pitcher"]]
+    assert sum(a["eye"] > b["eye"] for a, b in hitters) > 0.8 * len(hitters)
+    # No stored Eye of the class sits at the clip either (its floor is the
+    # scale's, as every other rating's).
+    assert all(a["eye"] > 1 for a, _ in hitters)
     assert {p["rating_scale"] for p in plain} == {1}
     assert {p["rating_scale"] for p in full} == {2}
     # 8.0.0: every prospect fits scale 2 (the raised draft floors).

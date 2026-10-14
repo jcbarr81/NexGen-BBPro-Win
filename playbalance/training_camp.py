@@ -5,12 +5,19 @@ before the season begins.  For the purposes of this project the training
 camp simply marks each player as ``ready`` which can be used by other
 parts of the system to determine if a player is prepared for the regular
 season.
+
+Players on rating scale 2 do not gain ratings in camp: their year's
+development (growth shared out by the training focus, budgets, decline)
+ran at the season rollover (``playbalance.development``,
+``services.offseason_development``). Camp marks them ready and reports
+that development, so the camp summary and the "(+x)" badges keep showing
+the year's gains. Players on scale 1 train exactly as they did in 7.51.2.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Mapping, Sequence
+from typing import Any, Dict, Iterable, Mapping, Sequence
 
 from models.base_player import BasePlayer
 from playbalance.player_development import (
@@ -21,6 +28,7 @@ from playbalance.player_development import (
     require_engine_scale_players,
 )
 from services.training_history import record_training_session
+from utils.rating_scale import LEGACY_RATING_SCALE, rating_scale_of
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +46,23 @@ def run_training_camp(
     provided, the per-track weightings influence which development focus is
     selected for each player. When ``intensity_by_player`` is provided, each
     player's gains are scaled by the configured multiplier.
+
+    A scale 2 player's ratings are not touched (module docstring); his
+    report carries the last offseason's development.
     """
 
     players = list(players)
-    # Every participant first: a scale 2 player stops the whole camp before
-    # anyone is developed or marked ready (utils.rating_scale).
-    require_engine_scale_players(players, "Training camp")
+    legacy = [p for p in players if rating_scale_of(p) == LEGACY_RATING_SCALE]
+    # Scale 1 players only: the training mechanics refuse anyone else.
+    require_engine_scale_players(legacy, "Training camp")
+    developed = _offseason_development() if len(legacy) < len(players) else {}
     reports: list[TrainingReport] = []
+    trained: list[TrainingReport] = []
     for player in players:
+        if rating_scale_of(player) != LEGACY_RATING_SCALE:
+            player.ready = True
+            reports.append(_development_report(player, developed))
+            continue
         weights = None
         if allocations is not None:
             pid = getattr(player, "player_id", None)
@@ -64,11 +81,64 @@ def run_training_camp(
         )
         player.ready = True
         reports.append(report)
+        trained.append(report)
     try:
-        record_training_session(reports)
+        # The offseason development is already in the training history (it
+        # was recorded when it ran); only what camp itself did goes in.
+        record_training_session(trained)
     except Exception as exc:  # pragma: no cover - defensive, persistence should not block flow
         logger.exception("Failed to record training camp session: %s", exc)
     return reports
+
+
+def _offseason_development() -> Dict[str, Any]:
+    """player id -> {"focus", "changes"} of this season's offseason
+    development; empty when the record is missing or from another year."""
+
+    try:
+        from services.offseason_development import load_development_record
+
+        record = load_development_record()
+    except Exception:
+        return {}
+    players = record.get("players")
+    if not isinstance(players, dict):
+        return {}
+    try:
+        from playbalance.season_context import SeasonContext
+
+        year = (SeasonContext.load().current or {}).get("league_year")
+    except Exception:
+        year = None
+    if year is not None and record.get("season") is not None:
+        try:
+            if int(year) != int(record["season"]):
+                return {}
+        except (TypeError, ValueError):
+            return {}
+    return players
+
+
+def _development_report(player: BasePlayer, developed: Mapping[str, Any]) -> TrainingReport:
+    from services.offseason_development import DEVELOPMENT_NOTE, DEVELOPMENT_TIER
+
+    pid = str(getattr(player, "player_id", "") or "")
+    entry = developed.get(pid) if isinstance(developed, Mapping) else None
+    entry = entry if isinstance(entry, Mapping) else {}
+    changes = {
+        str(key): int(value)
+        for key, value in (entry.get("changes") or {}).items()
+        if isinstance(value, (int, float)) and value
+    }
+    return TrainingReport(
+        player_id=pid,
+        player_name=f"{getattr(player, 'first_name', '')} {getattr(player, 'last_name', '')}".strip(),
+        focus=str(entry.get("focus") or "Offseason development"),
+        tier=DEVELOPMENT_TIER,
+        attributes=tuple(sorted(changes)),
+        note=DEVELOPMENT_NOTE,
+        changes=changes,
+    )
 
 
 def _normalize_intensity(value: object) -> float:
@@ -77,4 +147,3 @@ def _normalize_intensity(value: object) -> float:
     except Exception:
         numeric = 1.0
     return max(0.75, min(1.35, numeric))
-

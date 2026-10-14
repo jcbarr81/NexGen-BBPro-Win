@@ -224,6 +224,18 @@ def test_a_clipped_rating_is_reported():
     assert out["ch"] == "99" and clips[0].unclipped == 106.0
 
 
+def _whole_gap(player, key):
+    """The engine view of the current rating plus the WHOLE stored gap: what
+    the stretch keeps (``engine_potential`` leaves out the part development
+    never closes, ``test_potentials_engine_view``)."""
+
+    if isinstance(player, dict):
+        cur, pot = float(player[key]), float(player[f"pot_{key}"])
+    else:
+        cur, pot = float(getattr(player, key)), float(player.potential[key])
+    return engine_rating(player, key) + (pot - cur)
+
+
 def test_blank_and_zero_are_not_ratings():
     out, clips = stretch_row(_hitter(fa="0", sp="", pot_fa=""), 2)
     assert out["fa"] == "0" and out["sp"] == "" and clips == []
@@ -245,7 +257,7 @@ def test_a_blank_eye_is_filled_from_contact_on_the_engine_scale(blank):
     # Engine Eye 55 (= Contact), stored 50 + 5 * 5; the potential keeps its
     # gap over the FILLED Eye: 75 + (61 - 55).
     assert (out["eye"], out["pot_eye"], clips) == ("75", "81", [])
-    assert engine_rating(out, "eye") == 55 and engine_potential(out, "eye") == 61
+    assert engine_rating(out, "eye") == 55 and _whole_gap(out, "eye") == 61
     assert float(engine_row(out)["eye"]) == 55.0
 
 
@@ -270,7 +282,7 @@ def test_a_missing_pitcher_arm_is_filled_from_his_fastball(arm):
     out, clips = stretch_row(row, 2)
     # Engine arm 70 (= fastball), stored 50 + 2 * 14; potential gap 6.
     assert (out["arm"], out["pot_arm"], out["fb"], clips) == ("78", "84", "70", [])
-    assert engine_rating(out, "arm") == 70 and engine_potential(out, "arm") == 76
+    assert engine_rating(out, "arm") == 70 and _whole_gap(out, "arm") == 76
     # Fastball 85 is past the 80.5 that stored arm 99 means: reported.
     out, clips = stretch_row(_pitcher(arm=arm or "", fb="85", pot_arm="0"), 2)
     assert out["arm"] == "99" and out["pot_arm"] == "0"
@@ -320,7 +332,7 @@ def test_generated_dicts_keep_their_types():
     assert out["rating_scale"] == 2 and out["pot_fielding"] == {"P": 50}
     assert all(isinstance(out[k], int) for k in ("control", "arm", "pot_arm"))
     assert engine_rating(out, "control") == 52
-    assert engine_potential(out, "control") == 60
+    assert _whole_gap(out, "control") == 60
 
 
 def test_engine_row_is_the_exact_inverse_for_ratings():
@@ -348,19 +360,29 @@ def test_engine_row_text_values_parse_as_the_loaders_parse_them():
 def test_potentials_engine_view():
     row = _hitter()
     stretched, _ = stretch_row(row, 2)
-    # At or above current and under 99: the scale 1 potential comes back.
-    assert engine_potential(stretched, "ch") == 64
-    assert engine_potential(stretched, "eye") == 59
+    # The stretch keeps the gap: at or above current and under 99 the whole
+    # gap over the engine rating is the scale 1 potential.
+    assert _whole_gap(stretched, "ch") == 64
+    assert _whole_gap(stretched, "eye") == 59
     # Below current: raised to current (not an exact inverse, by design).
-    assert engine_potential(stretched, "arm") == 49
-    assert engine_potential(stretched, "ph") == 68
+    assert _whole_gap(stretched, "arm") == 49
+    assert _whole_gap(stretched, "ph") == 68
     # Cut at 99: the gap that survived.
     cut, _ = stretch_row(_hitter(pot_ph="80"), 2)
-    assert engine_potential(cut, "ph") == 65 + (99 - 95)
-    # Unmoved rating: the stored potential.
-    assert engine_potential(stretched, "sp") == "40"
+    assert _whole_gap(cut, "ph") == 65 + (99 - 95)
+    # The consumer view: the engine rating plus what development can close,
+    # the gap less POTENTIAL_GAP_DISCOUNT (these gaps are all smaller).
+    for key in ("ch", "eye", "arm", "ph"):
+        assert engine_potential(stretched, key) == engine_rating(stretched, key)
+    young, _ = stretch_row(_hitter(ch="45", pot_ch="75"), 2)
+    assert engine_potential(young, "ch") == pytest.approx(45 + 30 - rs.POTENTIAL_GAP_DISCOUNT)
+    # Unmoved rating: the stored rating plus the same closable part.
+    assert engine_potential(stretched, "sp") == 40
+    speedy, _ = stretch_row(_hitter(sp="40", pot_sp="70"), 2)
+    assert engine_potential(speedy, "sp") == pytest.approx(70 - rs.POTENTIAL_GAP_DISCOUNT)
     assert engine_potential(row, "ch") == "64"  # scale 1: as stored
     assert engine_potential(stretched, "nope", 5) == 5
+    # The engine's own row keeps the whole gap (it plays no potential).
     assert float(engine_row(stretched)["pot_ch"]) == 64.0
 
 
@@ -383,8 +405,9 @@ def test_the_accessor_on_objects():
     assert engine_rating(full, "fa") == 43
     assert engine_rating(full, "sp") == 40
     assert engine_rating(full, "missing", 0) == 0
-    assert engine_potential(full, "ch") == 64
-    assert engine_potential(full, "sp") == 44
+    assert _whole_gap(full, "ch") == 64
+    assert engine_potential(full, "ch") == 54  # gap 10: none of it closes
+    assert engine_potential(full, "sp") == 40
     assert engine_potential(full, "ph", 0) == 0
     arm = _Obj(arm=58, fa=60, control=95, is_pitcher=True, rating_scale=2)
     assert engine_rating(arm, "arm") == 60  # the pitcher map, not the hitter one

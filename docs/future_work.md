@@ -2393,3 +2393,69 @@ behind `NEXGEN_GENERATION6_SCALE2`, OFF. Open:
   resolved before the first call** in a fresh process (seen while checking
   scale 1 identity against `r6a-int`; both trees behaved the same once it
   was). Not investigated.
+
+## Player development on rating scale 2: follow-ups (2026-10-14)
+
+Branch `r8-develop`: `playbalance/development.py` (the model),
+`services/offseason_development.py` (the rollover step),
+`scripts/development_population_sim.py` (the 20-season population gate).
+Scale 1 is untouched (aging stays paused, camp as in 7.51.2).
+
+- **Generated players are now dated from the league's year (fixed on this
+  branch).** `player_generator.reference_datetime`: today moved into the
+  league's year (draft classes: into the draft year). A league whose year is
+  the real year generates exactly what it did. Other places that still age
+  players by the real calendar (`draft_ai._player_age`,
+  `roster_auto_assign` line ~532, `player_profile_view_model`,
+  `scouting_service`, `dl_automation`, `finance_ai`, `contracts_service`
+  fallbacks) are out of this change; they misjudge ages in a league ahead of
+  the calendar and should take the sim date.
+- **The players file has no declared encoding.** `utils.player_loader` and
+  `utils.player_writer` open it in the platform's encoding (UTF-8 on Cloud
+  Run, cp1252 on a Windows desktop), so a file moved between the two reads
+  accented names wrongly. The development step matches them on purpose
+  (`offseason_development._encoding`); the fix is one explicit encoding for
+  the whole product, with a migration.
+- **Every league converges to what the draft generator produces.** The
+  regulars' Contact starts at 62.9 in stats-test and 56.8 in the league
+  fixture; both end near 60, so stats-test drifts down about 4 and the
+  fixture up about 4-5 over 10-15 seasons. Power, Eye, control and movement
+  hold within about 3 in both. A league whose ratings were made by an older
+  generator moves toward today's; the model cannot hold two leagues that
+  start 6 points apart.
+- **alpha-test needs its re-spread (decision 15) before development.** On
+  the stretch alone its bunched staff (movement sd 0.9) drifts to the
+  generator's level: movement +16, control +10, Eye +9 over 15 seasons.
+- **Eye's spread (addressed).** A scale 2 draft class now takes a quarter of
+  the age markdown on Eye, without jitter
+  (`player_generator.SCALE2_DRAFT_EYE_MARKDOWN`); the regulars' Eye sd ends
+  about 13-14.5 (start 11.2-11.7) instead of about 18. Scale 1 generation is
+  unchanged.
+- **Order at the switch-on rollover (decided).** The conversion runs at the
+  rollover before the development step (r8-switch), so a league's first
+  offseason on the new scale is developed.
+- **Development marker and the players file are two writes.** A crash
+  between writing `players.csv` and `development_last.json` lets a re-run
+  develop that season again. Small window; a marker inside the archived
+  season record written in the same lock would close it.
+- **A growing player's stored potential rises.** The scale 2 potential is
+  stored current plus the gap in ENGINE points, so as Contact grows by
+  three stored points per engine point the stored potential climbs with
+  it. Hidden from owners (decision 14); any future display of potential
+  must show `engine_potential` mapped, not the column.
+- **Two views of a scale 2 potential.** `engine_row` (the engine, which
+  plays no potential) keeps the whole gap; `engine_potential` (CPU
+  consumers) leaves out `POTENTIAL_GAP_DISCOUNT` (20.5 engine points).
+- **Speed barely declines** (0.1 + 0.06 a year from 28): tuned for the
+  regulars' speed to hold. Revisit with the generator's speed tiers (the
+  league fixture's archetype tiers are not in draft classes, so its speed
+  falls about 6 regardless).
+- **The training budget's description** ("Boosts spring-training rating
+  gains at preseason camp", `desktop/src/pages/FinancePage.tsx`) is wrong
+  for a scale 2 league: there the training and development budgets speed
+  offseason growth, and development also slows decline. Same for the
+  Training page, which should say the focus shapes offseason development.
+- **Population sim simplifications.** Active rosters are 13 + 13 by
+  overall with no position balance; free agents never retire (as in a
+  league) and are not signed past 35; injuries, trades and playing time are
+  ignored; the draft order is random.

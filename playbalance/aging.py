@@ -162,8 +162,22 @@ def age_player(
     *,
     development_multiplier: float = 1.0,
 ) -> None:
-    """Apply aging adjustments to ``player`` in place."""
+    """Apply aging adjustments to ``player`` in place.
 
+    Scale 1 players only: the table is in engine points. A player stored on
+    rating scale 2 develops through ``playbalance.development`` and is
+    refused here rather than aged wrongly.
+    """
+
+    from utils.rating_scale import LEGACY_RATING_SCALE, rating_scale_of
+
+    scale = rating_scale_of(player)
+    if scale != LEGACY_RATING_SCALE:
+        raise ValueError(
+            f"player {getattr(player, 'player_id', '?')!r} is stored on rating "
+            f"scale {scale}; the aging table is for scale 1 "
+            "(playbalance.development develops scale 2 players)"
+        )
     age = calculate_age(player.birthdate)
     adjustments = AGE_ADJUSTMENTS.get(age)
     development = _normalize_development_multiplier(development_multiplier)

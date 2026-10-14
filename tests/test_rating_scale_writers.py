@@ -55,6 +55,13 @@ PLAYER_ROW_WRITERS = {
         "scale 2 in the scale 2 format (and open draft pools), atomically; "
         "the rollback writes scale 1 back"
     ),
+    "services/offseason_development.py": (
+        "rewrites players.csv under its own header (rating_scale kept), only "
+        "rating cells changed, ids and row count checked, atomic"
+    ),
+    "scripts/development_population_sim.py": (
+        "temp files of a simulated league, header (rating_scale) kept"
+    ),
     # -- not player rows
     "api/routers/trades.py": OTHER_FILE + " (trades_pending.csv)",
     "services/player_retirement.py": OTHER_FILE + " (roster files)",

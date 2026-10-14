@@ -22,6 +22,7 @@ import os
 import random
 import time
 from dataclasses import dataclass, asdict, field
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List
 
@@ -300,6 +301,7 @@ def generate_draft_pool(
     seed: int | None = None,
     rating_profile: str | None = None,
     rating_scale: int | None = None,
+    reference: datetime | None = None,
 ) -> List[DraftProspect]:
     """A draft class for the active league.
 
@@ -308,8 +310,15 @@ def generate_draft_pool(
     ``players.csv``, the file the picks are appended to. A league whose rows
     are on more than one scale gets its MAJORITY scale (a few stray rows
     must not stop the draft; logged), and one split evenly is refused with
-    ``MixedRatingScaleError``. The same seed gives the same class on any
-    scale: the stretch draws no random number.
+    ``MixedRatingScaleError``. The same seed gives the same players on any
+    scale (the stretch draws no random number); a class for a scale 2 league
+    has its Eye marked down less (``player_generator.
+    SCALE2_DRAFT_EYE_MARKDOWN``).
+
+    Ages are counted back from ``reference``, by default today moved into
+    the draft ``year`` (``player_generator.reference_datetime``): a class
+    for the league year is 17-21 in that year, however far the league's
+    calendar has run ahead of the real one.
     """
 
     if rating_scale is None:
@@ -327,6 +336,7 @@ def generate_draft_pool(
         seed_value = random.SystemRandom().randint(0, 2**32 - 1)
     random.seed(seed_value)
     profile = _rating_profile(rating_profile)
+    as_of = reference if reference is not None else pg.reference_datetime(year)
     rows = _name_source()
     if not rows:
         rows = [
@@ -371,6 +381,7 @@ def generate_draft_pool(
                     pitcher_archetype=archetype,
                     rating_profile=profile,
                     rating_scale=rating_scale,
+                    reference=as_of,
                 )
             else:
                 player = pg.generate_player(
@@ -380,6 +391,7 @@ def generate_draft_pool(
                     primary_position=pos,
                     rating_profile=profile,
                     rating_scale=rating_scale,
+                    reference=as_of,
                 )
             if player.get("birthdate"):
                 birthdate = str(player.get("birthdate"))
