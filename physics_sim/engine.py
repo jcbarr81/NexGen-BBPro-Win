@@ -24,10 +24,22 @@ from .fielding import (
     select_out_type,
     error_probability,
     select_error_type,
+    average_error_probability,
+    draw_infield_liner,
+    extra_error_probability,
+    field_direction,
+    fielder_arm_rating,
+    infield_position,
+    league_average_defense,
+    neutral_out_probability,
+    outfield_position,
+    responsible_position,
 )
 from .centred_ratings import (
+    fielders_centred,
     league_relative,
     ratings_centred,
+    require_fielder_centers,
     require_rating_centers,
     source_shift,
 )
@@ -79,7 +91,17 @@ class GameResult:
     #   "starting_positions": {"away" | "home": {player id: position}} --
     #       who started where (DH included), after any pre-game rest swap;
     #   "fld_pos": {pitch_log index: position} -- the position the engine
-    #       credited an out in play to, or charged the error on it to.
+    #       credited an out in play to, or charged the error on it to;
+    #   "errors": [(pitch_log index, source, position, fielder id, fielding
+    #       side)] -- every error charged; source is "roe" (a batter safe on
+    #       a batted ball), "advance" or "tag_up" (a throw on a runner) or,
+    #       under error_model 2, "steal", "pickoff", "of_hit" or "relay";
+    #   "bip_chances" / "error_chances": None unless the game was played
+    #       with fielding_chance_log on. One row per ball in play that
+    #       stayed in the park (engine._ball_chance_record) and one per
+    #       error roll: (pitch_log index, fielding side, position, fielder
+    #       id, error chance used, a league-average fielder's). With them,
+    #       "babip_scale": the game's, which turns an out chance into hits.
     play_records: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -2542,6 +2564,7 @@ def _credit_outs_on_base(
     batter_side: str,
     tuning: TuningConfig,
     fielder_pos: str | None = None,
+    mound: PitcherRatings | None = None,
 ) -> None:
     """Credit runners thrown out on a hit: an assist to the fielder who threw
     and a putout at the plate (``oobH``) or third (``oob3``).
@@ -2549,6 +2572,7 @@ def _credit_outs_on_base(
     ``fielder_pos`` is the fielder the runners advanced on (Release 4 L21:
     the hit path passes the outfielder who picked up a ground-ball single).
     Without it the position is re-derived from the ball, as before.
+    ``mound`` is the pitcher, for a ball ``infield_band_model`` 1 gives him.
     """
     if not events:
         return
@@ -2567,8 +2591,8 @@ def _credit_outs_on_base(
     else:
         infield_play = fielder_pos in _INFIELD_THROW_POSITIONS
     fallback = ["SS", "2B", "3B", "1B"] if infield_play else ["CF", "LF", "RF"]
-    _, assist_fielder = _find_fielder(
-        defense_map, fielder_pos, fallback_positions=fallback
+    _, assist_fielder = _fielder_at(
+        defense_map, fielder_pos, fallback, pitcher=mound
     )
     for event in out_events:
         putout_pos = "C" if event == "oobH" else "3B"
@@ -2726,7 +2750,12 @@ def _credit_throw_error(
     infield_play: bool,
     tuning: TuningConfig,
     fielder_pos: str | None = None,
-) -> None:
+    mound: PitcherRatings | None = None,
+) -> tuple[str | None, str | None]:
+    """Charge a throwing error on an advance to the fielder who threw;
+    returns his (position, player id), ``(None, None)`` if nobody is there.
+    ``mound`` is the pitcher, for a ball ``infield_band_model`` 1 gives him.
+    """
     fallback = ["SS", "2B", "3B", "1B"] if infield_play else ["CF", "LF", "RF"]
     if fielder_pos is None:
         fielder_pos = _fielder_position_for_ball(
@@ -2736,11 +2765,13 @@ def _credit_throw_error(
             tuning=tuning,
             infield_play=infield_play,
         )
-    _, fielder = _find_fielder(
-        defense_map, fielder_pos, fallback_positions=fallback
+    charged_pos, fielder = _fielder_at(
+        defense_map, fielder_pos, fallback, pitcher=mound
     )
-    if fielder is not None:
-        _fielding_line(defense_state, fielder.player_id).e += 1
+    if fielder is None:
+        return None, None
+    _fielding_line(defense_state, fielder.player_id).e += 1
+    return charged_pos, fielder.player_id
 
 
 def _advance_on_error(
@@ -3056,30 +3087,28 @@ def _effective_batter_side(batter_hand: str | None, pitcher_hand: str | None) ->
     return "R"
 
 
-def _spray_dir(angle: float, batter_side: str) -> float:
-    spray = float(angle)
-    if batter_side == "R":
-        spray = -spray
-    return spray
+def _spray_dir(
+    angle: float, batter_side: str, tuning: TuningConfig | None = None
+) -> float:
+    """A ball's direction for fielder credit (degrees toward the left-field
+    side): ``fielding.field_direction``. Release 6a
+    (``spray_direction_model`` 1): the same for both hands, minus the stored
+    physical angle."""
+    return field_direction(angle, batter_side, tuning)
 
 
-def _infield_pos_for_spray(spray_dir: float) -> str:
-    if spray_dir >= 25:
-        return "3B"
-    if spray_dir <= -25:
-        return "1B"
-    if spray_dir >= 6:
-        return "SS"
-    if spray_dir <= -6:
-        return "2B"
-    return "SS" if spray_dir >= 0 else "2B"
+def _infield_pos_for_spray(
+    spray_dir: float, tuning: TuningConfig | None = None
+) -> str:
+    """The infielder a ball in ``spray_dir`` goes to
+    (``fielding.infield_position``). Under ``infield_band_model`` 1 that can
+    be the pitcher, ``"P"``, who is not in a defence map: callers find him
+    through ``_fielder_at``."""
+    return infield_position(spray_dir, tuning)
 
 
 def _outfield_pos_for_spray(spray_dir: float, tuning: TuningConfig) -> str:
-    center_band = tuning.get("spray_center_band_deg", 8.0)
-    if abs(spray_dir) <= center_band:
-        return "CF"
-    return "LF" if spray_dir > 0 else "RF"
+    return outfield_position(spray_dir, tuning)
 
 
 def _fielder_position_for_ball(
@@ -3091,12 +3120,31 @@ def _fielder_position_for_ball(
     infield_play: bool,
 ) -> str:
     angle = spray_angle or 0.0
-    spray_dir = _spray_dir(angle, batter_side)
+    spray_dir = _spray_dir(angle, batter_side, tuning)
     if ball_type == "gb":
-        return _infield_pos_for_spray(spray_dir)
+        return _infield_pos_for_spray(spray_dir, tuning)
     if infield_play:
-        return _infield_pos_for_spray(spray_dir)
+        return _infield_pos_for_spray(spray_dir, tuning)
     return _outfield_pos_for_spray(spray_dir, tuning)
+
+
+def _fielder_at(
+    defense_map: Dict[str, BatterRatings],
+    position: str,
+    fallback_positions: list[str] | None = None,
+    *,
+    pitcher: PitcherRatings | None = None,
+) -> tuple[str, Any] | tuple[None, None]:
+    """``_find_fielder``, with the pitcher on the mound for ``"P"``.
+
+    Release 6a (``infield_band_model`` 1) sends balls up the middle to the
+    pitcher, who is not in ``defense_map``. With ``pitcher`` given he is the
+    fielder at ``"P"``; without one (or for any other position) this is
+    ``_find_fielder``, which falls back through ``fallback_positions``.
+    """
+    if position == "P" and pitcher is not None:
+        return "P", pitcher
+    return _find_fielder(defense_map, position, fallback_positions=fallback_positions)
 
 
 _INFIELD_THROW_POSITIONS = frozenset({"1B", "2B", "3B", "SS"})
@@ -3116,9 +3164,9 @@ def _hit_advance_position(
     of hit-advance rolls used an infielder's arm through 7.47.0). Only an
     infield single (``infield_hit``) stays with the infielder.
     """
-    spray_dir = _spray_dir(spray_angle or 0.0, batter_side)
+    spray_dir = _spray_dir(spray_angle or 0.0, batter_side, tuning)
     if infield_hit:
-        return _infield_pos_for_spray(spray_dir)
+        return _infield_pos_for_spray(spray_dir, tuning)
     return _outfield_pos_for_spray(spray_dir, tuning)
 
 
@@ -3189,6 +3237,136 @@ def _hit_advance_log(
         error = int(any(other is runner for other in error_advances))
         rows.append([runner.player_id, start, end, error])
     return rows
+
+
+# Release 6a: bases a hit gives the batter (and so, at least, every runner
+# ahead of him in the reconstruction of rule 9.16(a)).
+_HIT_BASES = {"single": 1, "double": 2, "triple": 3, "hr": 4}
+
+
+def _advance_all_on_error(
+    bases: BaseState,
+) -> tuple[int, list[BatterRatings], list[BatterRatings]]:
+    """Every runner moves up one base on an error (Release 6a,
+    ``error_model`` 2): the runner on 3rd scores. Returns (runs, scored,
+    every runner who moved). No draws."""
+    scored: list[BatterRatings] = []
+    moved: list[BatterRatings] = []
+    if bases.third is not None:
+        scored.append(bases.third)
+        moved.append(bases.third)
+        bases.third = None
+    if bases.second is not None:
+        moved.append(bases.second)
+        bases.third = bases.second
+        bases.second = None
+    if bases.first is not None:
+        moved.append(bases.first)
+        bases.second = bases.first
+        bases.first = None
+    return len(scored), scored, moved
+
+
+def _error_roll_ratings(
+    *,
+    fielder: Any,
+    position: str | None,
+    tuning: TuningConfig,
+) -> tuple[float, float]:
+    """The fielding and arm ``error_model`` 1 and 2 read for an error roll:
+    the fielder's rating as he plays ``position`` and his arm against the
+    league's regulars there (``fielding.fielder_arm_rating``). Nobody
+    there reads as an average fielder; the pitcher has no arm term (his
+    arm rating is his velocity)."""
+    if fielder is None or position is None:
+        return 50.0, 50.0
+    fielding = adjusted_fielding_rating(fielder, position, tuning)
+    if isinstance(fielder, PitcherRatings):
+        return fielding, 50.0
+    return fielding, fielder_arm_rating(fielder, position, tuning)
+
+
+def _additive_chance_positions(
+    ball_type: str, spray_angle: float, batter_side: str, tuning: TuningConfig
+) -> tuple[str, ...]:
+    """The fielders whose ratings the additive out chance (``range_model``
+    0) read for a ball: the two infielders on the ball's physical side, or
+    the one outfielder (``fielding._additive_out_probability``)."""
+    if ball_type == "gb":
+        # The side pick of fielding._infield_rating, ties included.
+        left = spray_angle <= 0 if batter_side == "R" else spray_angle < 0
+        return ("3B", "SS") if left else ("1B", "2B")
+    if abs(spray_angle) <= tuning.get("spray_center_band_deg", 8.0):
+        return ("CF",)
+    left = spray_angle <= 0 if batter_side == "R" else spray_angle < 0
+    return ("LF",) if left else ("RF",)
+
+
+def _ball_chance_record(
+    *,
+    index: int,
+    side: str,
+    ball_type: str,
+    res: PitchResult,
+    batter: BatterRatings,
+    batter_hand: str,
+    out_prob: float,
+    hit_prob: float,
+    defense_map: Dict[str, BatterRatings],
+    average_defense: DefenseRatings | None,
+    mound: PitcherRatings | None,
+    tuning: TuningConfig,
+    infield_play: bool | None = None,
+) -> tuple:
+    """One ball in play for ``play_records["bip_chances"]`` (Release 6a,
+    ``fielding_chance_log``): ``(pitch_log index, fielding side, ball type,
+    responsible positions, their fielders' ids, out chance used, the out
+    chance league-average fielders there would have had, hit chance
+    rolled)``.
+
+    Under ``range_model`` 1 one fielder is responsible (an infielder on a
+    liner drawn as an infield play, ``infield_play``) and the average
+    chance is the neutral ``out0``. Under the additive chance the two
+    infielders on the ball's side share a ground ball, and the average
+    chance is the additive one behind ``average_defense``
+    (``fielding.league_average_defense``). Draws nothing.
+    """
+    spray = res.spray_angle
+    ball = dict(
+        ball_type=ball_type,
+        exit_velo=res.exit_velo or 90.0,
+        launch_angle=res.launch_angle or 12.0,
+        spray_angle=spray,
+        batter_side=batter_hand,
+        pull_tendency=batter.pull_tendency,
+        tuning=tuning,
+        batter_speed=batter.speed,
+    )
+    if tuning.get("range_model", 0.0) >= 0.5:
+        neutral = neutral_out_probability(**ball)
+        positions: tuple[str, ...] = ()
+        if spray is not None:
+            positions = (
+                responsible_position(
+                    ball_type=ball_type, spray_angle=spray, tuning=tuning,
+                    infield_play=infield_play,
+                ),
+            )
+    else:
+        neutral = out_probability(defense=average_defense, **ball)
+        positions = ()
+        if spray is not None:
+            positions = _additive_chance_positions(
+                ball_type, float(spray), batter_hand, tuning
+            )
+    fielders = []
+    for pos in positions:
+        _, fielder = _fielder_at(defense_map, pos, pitcher=mound)
+        fielders.append(fielder.player_id if fielder is not None else None)
+    return (
+        index, side, ball_type, positions, tuple(fielders),
+        out_prob, neutral, hit_prob,
+    )
 
 
 def _find_fielder(
@@ -4044,6 +4222,7 @@ def _resolve_ground_out(
     tuning: TuningConfig,
     inning: int = 1,
     fielding_lead: int = 0,
+    mound: PitcherRatings | None = None,
 ) -> tuple[int, int, list[str], list[BatterRatings]]:
     """Resolve a ground-ball out with runners on.
 
@@ -4051,13 +4230,21 @@ def _resolve_ground_out(
     triple-play roll to ``_ground_out_runners_v2`` (audit M8), which reads
     ``inning`` and ``fielding_lead`` (fielding score minus batting score)
     for the infield-in rule.
+
+    Release 6a: ``mound`` is the pitcher, who fields the ball
+    ``infield_band_model`` 1 sends back to him (his fa in the range the
+    double play reads; his arm, a velocity rating, is left out of the
+    turn). Under ``fielder_centred_ratings`` the turn reads each fielder's
+    arm against the league's regulars at his position, and with nobody to
+    read both inputs are an average 50.
     """
     runs = 0
     outs_added = 1
     events: list[str] = []
     scored: list[BatterRatings] = []
-    infield_range = defense_ratings.infield
-    turn_arm = defense_ratings.arm
+    centred = fielders_centred(tuning)
+    infield_range = 50.0 if centred else defense_ratings.infield
+    turn_arm = 50.0 if centred else defense_ratings.arm
 
     primary_pos = _fielder_position_for_ball(
         ball_type="gb",
@@ -4066,10 +4253,11 @@ def _resolve_ground_out(
         tuning=tuning,
         infield_play=True,
     )
-    primary_pos, primary_fielder = _find_fielder(
+    primary_pos, primary_fielder = _fielder_at(
         defense_map,
         primary_pos,
-        fallback_positions=["SS", "2B", "3B", "1B"],
+        ["SS", "2B", "3B", "1B"],
+        pitcher=mound,
     )
     pivot_pos = "2B" if primary_pos in {"SS", "3B"} else "SS"
     _, pivot_fielder = _find_fielder(
@@ -4092,12 +4280,12 @@ def _resolve_ground_out(
         infield_range = sum(range_values) / len(range_values)
 
     arm_values = []
-    if primary_fielder is not None:
-        arm_values.append(adjusted_arm_rating(primary_fielder, tuning))
+    if primary_fielder is not None and primary_pos != "P":
+        arm_values.append(fielder_arm_rating(primary_fielder, primary_pos, tuning))
     if pivot_fielder is not None:
-        arm_values.append(adjusted_arm_rating(pivot_fielder, tuning))
+        arm_values.append(fielder_arm_rating(pivot_fielder, pivot_pos, tuning))
     if oneb_fielder is not None:
-        arm_values.append(adjusted_arm_rating(oneb_fielder, tuning))
+        arm_values.append(fielder_arm_rating(oneb_fielder, "1B", tuning))
     if arm_values:
         turn_arm = sum(arm_values) / len(arm_values)
     # A triple play needs three outs left: with one out a ground ball can
@@ -4222,14 +4410,11 @@ def _upcoming_batters(
 def _defense_rating_for_pos(
     player: BatterRatings, position: str, tuning: TuningConfig
 ) -> float:
-    rating = player.fielding
-    if position == player.primary_position:
-        rating *= tuning.get("defense_primary_pos_scale", 1.0)
-    elif position in player.other_positions:
-        rating *= tuning.get("defense_secondary_pos_scale", 0.9)
-    else:
-        rating *= tuning.get("defense_out_of_pos_scale", 0.75)
-    return rating
+    """A player's fielding at ``position`` as a manager weighs it (the
+    defensive substitution, the injury replacement): the rating the plays
+    themselves read (``fielding.adjusted_fielding_rating``), so a stand-in
+    is judged by the out-of-position rule the engine fields him under."""
+    return adjusted_fielding_rating(player, position, tuning)
 
 
 def _can_play(player: BatterRatings, position: str) -> bool:
@@ -5730,6 +5915,9 @@ def simulate_game(
     # the switch on, the league's centres must have been delivered with the
     # tuning; this raises before a workload or a pitch is touched.
     require_rating_centers(tuning)
+    # Release 6a (fielder_centred_ratings): the same rule for the centres
+    # the fielding terms read.
+    require_fielder_centers(tuning)
     park: Park = load_park(park_name)
     injury_sim: InjurySimulator | None = None
     if tuning.get("injuries_enabled", 1.0) > 0.5:
@@ -5793,6 +5981,18 @@ def simulate_game(
     # Release 6a (tooling): pitch_log index -> the position an out or error
     # in play went to, for the KPI harness (GameResult.play_records).
     fielded_positions: Dict[int, str | None] = {}
+    # Release 6a (fielding): more records for the harness, in play_records
+    # too. Every error charged, as (pitch_log index, source, position,
+    # fielder id, fielding side); and, only under ``fielding_chance_log``,
+    # one row per ball in play (``bip_chances``) and per error roll
+    # (``error_chances``). Read by nothing in the engine, no draws.
+    error_records: List[tuple] = []
+    chance_log = tuning.get("fielding_chance_log", 0.0) >= 0.5
+    bip_chances: List[tuple] = []
+    error_chances: List[tuple] = []
+    average_defense = league_average_defense(tuning) if chance_log else None
+    error_model = tuning.get("error_model", 0.0)
+    range_model = tuning.get("range_model", 0.0) >= 0.5
     score_away = 0
     score_home = 0
     inning_runs_away: List[int] = []
@@ -6037,6 +6237,16 @@ def simulate_game(
         # entering pitcher is not charged with an inherited runner.
         auto_runner_ids: set[str] = set()
         unearned_outs = 0
+        # Release 6a (error_model 2): runner id -> the base he would hold
+        # had an extra-base error not moved him up (``extra_base_error``);
+        # the base he was on when that shadow was last moved on; the
+        # shadows made on the play under way; and the bases the batter's
+        # hit on that play gave every runner (4 for a home run). Empty
+        # unless an extra-base error happened: nothing reads them then.
+        shadow_bases: dict[str, int] = {}
+        shadow_seen: dict[str, int] = {}
+        shadow_fresh: set[str] = set()
+        play_hit_value = 0
         if batting_team == "away":
             offense_score = score_away
             defense_score = score_home
@@ -6214,6 +6424,18 @@ def simulate_game(
                         runner.player_id in unearned_runners
                         or outs + unearned_outs >= 3
                     )
+                    shadow = shadow_bases.pop(runner.player_id, None)
+                    shadow_seen.pop(runner.player_id, None)
+                    if shadow is not None and not unearned:
+                        # Release 6a (rule 9.16(a)): an extra-base error
+                        # moved him up. Earned only if he would have scored
+                        # without it -- his shadow carried home by this
+                        # play's hit (not by the error, if it came on this
+                        # same play).
+                        carried = (
+                            0 if runner.player_id in shadow_fresh else play_hit_value
+                        )
+                        unearned = shadow + carried < 4
                     if not unearned:
                         responsible_line.earned_runs += 1
                     unearned_runners.discard(runner.player_id)
@@ -6285,13 +6507,16 @@ def simulate_game(
             if not error_runners:
                 return
             runner_ids: list[str] = []
+            # The entry these errors belong to: the one handed in (a bunt's,
+            # appended after this) or the last one logged.
+            log_index = len(pitch_log) if log_entry is not None else len(pitch_log) - 1
             for runner in error_runners:
                 totals["e"] += 1
                 totals["e_throw"] += 1
                 unearned_outs += 1
                 unearned_runners.add(runner.player_id)
                 runner_ids.append(runner.player_id)
-                _credit_throw_error(
+                charged = _credit_throw_error(
                     defense_state=defense_state,
                     defense_map=defense_map,
                     ball_type=ball_type,
@@ -6300,6 +6525,11 @@ def simulate_game(
                     infield_play=infield_play,
                     tuning=tuning,
                     fielder_pos=fielder_pos,
+                    mound=pitching_state.current.pitcher,
+                )
+                charged_pos, charged_id = charged or (None, None)
+                error_records.append(
+                    (log_index, error_on, charged_pos, charged_id, defense_team)
                 )
             entry = log_entry
             if entry is None and pitch_log:
@@ -6315,13 +6545,119 @@ def simulate_game(
                 else:
                     entry["error_runners"] = runner_ids
 
+        def extra_base_error(
+            *,
+            fielder: Any,
+            position: str,
+            error_type: str,
+            source: str,
+        ) -> tuple[int, list[BatterRatings], list[BatterRatings]]:
+            """Release 6a (``error_model`` 2): an error that turns nobody's
+            out into a safe call but gives every runner a base (a throw
+            that gets away, a hit an outfielder lets through).
+
+            Charged to ``fielder`` at ``position`` (the box score's E, the
+            game totals, the last log entry's ``error_type`` / ``error_on``
+            / ``error_runners``). No out is added to the inning's
+            reconstruction, because none was lost. Each runner it moved up
+            gets a SHADOW base -- where he would stand without the error
+            (``shadow_bases``) -- and his run is unearned only if the
+            shadow would not have scored (rule 9.16(a): see
+            ``sync_unearned_runners`` and ``record_runs``). Returns (runs,
+            scored, moved); the caller records the runs.
+            """
+            totals["e"] += 1
+            totals["e_throw" if error_type == "throwing" else "e_field"] += 1
+            fielder_id = fielder.player_id if fielder is not None else None
+            if fielder_id is not None:
+                _fielding_line(defense_state, fielder_id).e += 1
+            error_records.append(
+                (len(pitch_log) - 1, source, position, fielder_id, defense_team)
+            )
+            standing = {
+                runner.player_id: base
+                for base, runner in (
+                    (3, bases.third), (2, bases.second), (1, bases.first)
+                )
+                if runner is not None
+            }
+            runs, scored_on_error, moved = _advance_all_on_error(bases)
+            for runner in moved:
+                pid = runner.player_id
+                # A runner the error moved again keeps the shadow he had.
+                shadow_bases.setdefault(pid, standing[pid])
+                shadow_fresh.add(pid)
+            if pitch_log:
+                entry = pitch_log[-1]
+                _append_entry_value(entry, "error_type", error_type)
+                _append_entry_value(entry, "error_on", source)
+                listed = entry.get("error_runners")
+                if not isinstance(listed, list):
+                    listed = entry["error_runners"] = []
+                for runner in moved:
+                    if runner.player_id not in listed:
+                        listed.append(runner.player_id)
+            return runs, scored_on_error, moved
+
+        def ends_the_game(runs: int) -> bool:
+            """Release 6a: whether ``runs`` more for the batting side (not
+            yet recorded) end the game, or it is already over -- no
+            ``error_model`` 2 roll after a walk-off."""
+            if walkoff:
+                return True
+            return (
+                walkoff_allowed
+                and batting_team == "home"
+                and score_home + runs > score_away
+            )
+
         def sync_unearned_runners() -> None:
+            nonlocal play_hit_value
             base_ids = {
                 runner.player_id
                 for runner in (bases.first, bases.second, bases.third)
                 if runner is not None
             }
             unearned_runners.intersection_update(base_ids)
+            if shadow_bases:
+                _advance_shadows()
+            play_hit_value = 0
+
+        def _advance_shadows() -> None:
+            """Release 6a (error_model 2): move each shadow base on with the
+            play just finished (rule 9.16(a), the inning reconstructed
+            without the extra-base errors). The shadow advances as far as
+            the runner himself did, or as far as the batter's hit carried
+            every runner (``play_hit_value``: a double moves the shadow two
+            bases), and never past the runner; a shadow that catches him up
+            is dropped, and so is a runner no longer on base. Benefit of the
+            doubt to the pitcher: on anything else the shadow moves no
+            further than the runner did. A shadow made on this play (the
+            error came after the play's own advances) starts from here."""
+            standing = {
+                runner.player_id: base
+                for base, runner in (
+                    (1, bases.first), (2, bases.second), (3, bases.third)
+                )
+                if runner is not None
+            }
+            for pid in list(shadow_bases):
+                now = standing.get(pid)
+                if now is None:
+                    shadow_bases.pop(pid, None)
+                    shadow_seen.pop(pid, None)
+                    continue
+                if pid not in shadow_fresh:
+                    moved = max(0, now - shadow_seen.get(pid, now))
+                    shadow_bases[pid] = min(
+                        now, shadow_bases[pid] + max(moved, play_hit_value)
+                    )
+                if shadow_bases[pid] >= now:
+                    shadow_bases.pop(pid, None)
+                    shadow_seen.pop(pid, None)
+                else:
+                    shadow_seen[pid] = now
+            shadow_fresh.clear()
 
         open_pa: list[tuple[BatterLine, dict[str, int]]] = []
 
@@ -6575,6 +6911,7 @@ def simulate_game(
                         spray_angle=0.0,
                         batter_side=batter_side,
                         tuning=tuning,
+                        mound=pitcher_state.pitcher,
                     )
                     apply_advance_errors(
                         error_runners=error_advances,
@@ -7039,6 +7376,8 @@ def simulate_game(
                             defense_arm=defense_ratings.arm,
                             tuning=tuning,
                         )
+                        # Release 6a: a home run brings every shadow home.
+                        play_hit_value = 4
                         record_runs(runs_scored, line, scored)
                         if scored:
                             rbi_runs = rbi_credit(scored, error_advances)
@@ -7056,6 +7395,18 @@ def simulate_game(
                         pitcher_hand = (pitcher.throws or "R").upper()
                         if batter_hand == "S":
                             batter_hand = "L" if pitcher_hand == "R" else "R"
+                        # Release 6a (range_model 1): whether a low liner is
+                        # played in the infield is drawn before its out
+                        # chance, so its responsible fielder is the one
+                        # credited and charged. Off: drawn as before, after
+                        # the hit roll and only for an out.
+                        liner_infield: dict[str, bool] = {}
+                        if range_model:
+                            drawn = draw_infield_liner(
+                                ball_type, res.launch_angle or 12.0
+                            )
+                            if drawn is not None:
+                                liner_infield = {"infield_play": drawn}
                         out_prob = out_probability(
                             ball_type=ball_type,
                             exit_velo=res.exit_velo or 90.0,
@@ -7066,12 +7417,34 @@ def simulate_game(
                             defense=defense_ratings,
                             tuning=tuning,
                             batter_speed=batter.speed,
+                            **liner_infield,
                         )
                         hit_prob = (1.0 - out_prob) * tuning.get("babip_scale", 1.0)
                         babip_edge = _contact_babip_edge(batter, tuning)
                         if babip_edge:
                             hit_prob += babip_edge
                         hit_prob = max(0.02, min(0.95, hit_prob))
+                        if chance_log:
+                            # Release 6a play record (no draws): who the
+                            # ball belonged to and what an average fielder
+                            # there would have made of it.
+                            bip_chances.append(
+                                _ball_chance_record(
+                                    index=len(pitch_log) - 1,
+                                    side=defense_team,
+                                    ball_type=ball_type,
+                                    res=res,
+                                    batter=batter,
+                                    batter_hand=batter_hand,
+                                    out_prob=out_prob,
+                                    hit_prob=hit_prob,
+                                    defense_map=defense_map,
+                                    average_defense=average_defense,
+                                    mound=pitcher_state.pitcher,
+                                    tuning=tuning,
+                                    infield_play=liner_infield.get("infield_play"),
+                                )
+                            )
                         if rng.random() < hit_prob:
                             totals["h"] += 1
                             line.hits += 1
@@ -7209,6 +7582,43 @@ def simulate_game(
                                 pitch_log[-1]["hit_rule"] = hit_rule
                             if advance_infield:
                                 pitch_log[-1]["infield_hit"] = True
+                            # Release 6a (error_model 2): the outfielder
+                            # lets the hit get by him and every runner, the
+                            # batter included, takes one more base. After
+                            # the hit's own advances are logged above; not
+                            # on a play that ended the inning or the game,
+                            # nor with nobody there to charge. One draw,
+                            # only under the model.
+                            if (
+                                error_model >= 1.5
+                                and not advance_infield
+                                and advance_fielder is not None
+                                and outs + outs_added < 3
+                                and not ends_the_game(runs_scored)
+                            ):
+                                misplay_fa, _ = _error_roll_ratings(
+                                    fielder=advance_fielder,
+                                    position=advance_pos,
+                                    tuning=tuning,
+                                )
+                                if random.random() < extra_error_probability(
+                                    "error_of_hit_rate",
+                                    fielding=misplay_fa,
+                                    tuning=tuning,
+                                ):
+                                    e_runs, e_scored, e_moved = extra_base_error(
+                                        fielder=advance_fielder,
+                                        position=advance_pos,
+                                        error_type="fielding",
+                                        source="of_hit",
+                                    )
+                                    runs_scored += e_runs
+                                    scored = scored + e_scored
+                                    error_advances = error_advances + e_moved
+                                    events = events + ["e_of"]
+                            # Release 6a: what the hit itself carried every
+                            # runner (the shadow bases of rule 9.16(a)).
+                            play_hit_value = _HIT_BASES.get(resolved_hit, 1)
                             record_runs(runs_scored, line, scored)
                             if scored:
                                 rbi_runs = rbi_credit(scored, error_advances)
@@ -7222,7 +7632,7 @@ def simulate_game(
                                 pitch_log[-1]["runner_event"] = "+".join(events)
                         else:
                             out_type, infield_play = select_out_type(
-                                ball_type, res.launch_angle or 12.0
+                                ball_type, res.launch_angle or 12.0, **liner_infield
                             )
                             res.out_type = out_type
                             error_pos = _fielder_position_for_ball(
@@ -7237,10 +7647,11 @@ def simulate_game(
                                 if infield_play
                                 else ["CF", "LF", "RF"]
                             )
-                            error_pos, error_fielder = _find_fielder(
+                            error_pos, error_fielder = _fielder_at(
                                 defense_map,
                                 error_pos,
-                                fallback_positions=error_fallback,
+                                error_fallback,
+                                pitcher=pitcher_state.pitcher,
                             )
                             fallback_fielding = (
                                 defense_ratings.infield
@@ -7254,28 +7665,81 @@ def simulate_game(
                                 fallback_arm=defense_ratings.arm,
                                 tuning=tuning,
                             )
+                            if error_pos == "P":
+                                # The runners test the defence's arm, not
+                                # the pitcher's velocity rating.
+                                error_arm = defense_ratings.arm
+                            # Release 6a (error_model 1 and 2): the roll
+                            # reads the fielder as he plays this position.
+                            roll_fielding, roll_arm = error_fielding, error_arm
+                            roll_position: dict[str, str] = {}
+                            if error_model >= 0.5 and error_pos is not None:
+                                roll_fielding, roll_arm = _error_roll_ratings(
+                                    fielder=error_fielder,
+                                    position=error_pos,
+                                    tuning=tuning,
+                                )
+                                roll_position = {"position": error_pos}
                             error_prob = error_probability(
                                 out_type=out_type,
                                 infield_play=infield_play,
-                                fielding=error_fielding,
-                                arm=error_arm,
+                                fielding=roll_fielding,
+                                arm=roll_arm,
                                 tuning=tuning,
+                                **roll_position,
                             )
+                            if chance_log:
+                                # Release 6a play record (no draws): this
+                                # error roll and an average fielder's.
+                                error_chances.append(
+                                    (
+                                        len(pitch_log) - 1,
+                                        defense_team,
+                                        error_pos,
+                                        error_fielder.player_id
+                                        if error_fielder is not None
+                                        else None,
+                                        error_prob,
+                                        average_error_probability(
+                                            out_type=out_type,
+                                            infield_play=infield_play,
+                                            position=error_pos,
+                                            tuning=tuning,
+                                        ),
+                                    )
+                                )
                             if rng.random() < error_prob:
                                 totals["roe"] += 1
                                 totals["e"] += 1
                                 error_type = select_error_type(
                                     out_type=out_type,
                                     infield_play=infield_play,
-                                    fielding=error_fielding,
-                                    arm=error_arm,
+                                    fielding=roll_fielding,
+                                    arm=roll_arm,
                                     tuning=tuning,
                                 )
                                 if error_type == "throwing":
                                     totals["e_throw"] += 1
                                 else:
                                     totals["e_field"] += 1
-                                if error_fielder is not None:
+                                error_records.append(
+                                    (
+                                        len(pitch_log) - 1,
+                                        "roe",
+                                        error_pos,
+                                        error_fielder.player_id
+                                        if error_fielder is not None
+                                        else None,
+                                        defense_team,
+                                    )
+                                )
+                                if error_pos == "P":
+                                    # The pitcher's error: charged to his
+                                    # fielding line, no fielder injury roll.
+                                    _fielding_line(
+                                        defense_state, error_fielder.player_id
+                                    ).e += 1
+                                elif error_fielder is not None:
                                     _fielding_line(
                                         defense_state, error_fielder.player_id
                                     ).e += 1
@@ -7369,6 +7833,7 @@ def simulate_game(
                                     spray_angle=res.spray_angle,
                                     batter_side=batter_side,
                                     tuning=tuning,
+                                    mound=pitcher_state.pitcher,
                                 )
                                 apply_advance_errors(
                                     error_runners=error_advances,
@@ -7410,6 +7875,7 @@ def simulate_game(
                                         tuning=tuning,
                                         inning=inning,
                                         fielding_lead=fielding_lead,
+                                        mound=pitcher_state.pitcher,
                                     )
                                     if go_runner3 is not None and outs < 2:
                                         # Release 4 (W3) play record for the
@@ -7437,10 +7903,11 @@ def simulate_game(
                                         tuning=tuning,
                                         infield_play=True,
                                     )
-                                    primary_pos, primary_fielder = _find_fielder(
+                                    primary_pos, primary_fielder = _fielder_at(
                                         defense_map,
                                         primary_guess,
-                                        fallback_positions=["SS", "2B", "3B", "1B"],
+                                        ["SS", "2B", "3B", "1B"],
+                                        pitcher=pitcher_state.pitcher,
                                     )
                                     # Release 6a (tooling) play record: the
                                     # infielder the ground out is credited
@@ -7590,6 +8057,44 @@ def simulate_game(
                                         pitch_log[-1]["runner_event"] = "+".join(events)
                                     if runs_scored and "dp" not in events:
                                         batter_line.rbi += len(scored)
+                                    # Release 6a (error_model 2): on a force
+                                    # at second the relay to first gets away
+                                    # and every runner, the batter included,
+                                    # takes a base. No RBI for a run it lets
+                                    # in. Not after a walk-off, nor with
+                                    # nobody to throw. One draw, only under
+                                    # the model.
+                                    if (
+                                        error_model >= 1.5
+                                        and events == ["fc"]
+                                        and outs + outs_added < 3
+                                        and not ends_the_game(runs_scored)
+                                    ):
+                                        relay_pos = (
+                                            "2B" if primary_pos in {"SS", "3B"} else "SS"
+                                        )
+                                        _, relay_fielder = _find_fielder(
+                                            defense_map, relay_pos, fallback_positions=["2B", "SS"]
+                                        )
+                                        _, relay_arm = _error_roll_ratings(
+                                            fielder=relay_fielder,
+                                            position=relay_pos,
+                                            tuning=tuning,
+                                        )
+                                        if relay_fielder is not None and random.random() < extra_error_probability(
+                                            "error_relay_throw_rate",
+                                            arm=relay_arm,
+                                            tuning=tuning,
+                                        ):
+                                            e_runs, e_scored, _ = extra_base_error(
+                                                fielder=relay_fielder,
+                                                position=relay_pos,
+                                                error_type="throwing",
+                                                source="relay",
+                                            )
+                                            runs_scored += e_runs
+                                            scored = scored + e_scored
+                                            pitch_log[-1]["runner_event"] = "fc+e_rel"
                                 else:
                                     before_ids = _base_runner_ids(bases)
                                     fielder_pos = _fielder_position_for_ball(
@@ -7604,8 +8109,11 @@ def simulate_game(
                                         if infield_play
                                         else ["CF", "LF", "RF"]
                                     )
-                                    pos, fielder = _find_fielder(
-                                        defense_map, fielder_pos, fallback_positions=fallback
+                                    pos, fielder = _fielder_at(
+                                        defense_map,
+                                        fielder_pos,
+                                        fallback,
+                                        pitcher=pitcher_state.pitcher,
                                     )
                                     # Release 6a (tooling) play record: the
                                     # fielder's position on an air out; no
@@ -7623,6 +8131,10 @@ def simulate_game(
                                         fallback_arm=defense_ratings.arm,
                                         tuning=tuning,
                                     )
+                                    if pos == "P":
+                                        # A liner back to the mound: the
+                                        # defence's arm, not his velocity.
+                                        thrower_arm = defense_ratings.arm
                                     tag_runner3 = bases.third if outs < 2 else None
                                     tag_runner2 = bases.second if outs < 2 else None
                                     (
@@ -7924,6 +8436,29 @@ def simulate_game(
                                 )
                                 if injury_event:
                                     pitch_log[-1]["injury"] = injury_event
+                            elif error_model >= 1.5:
+                                # Release 6a (error_model 2): a pickoff
+                                # throw that gets away from the fielder --
+                                # the pitcher's error, every runner up a
+                                # base. One draw, only under the model.
+                                pickoff_fa, _ = _error_roll_ratings(
+                                    fielder=pitcher_state.pitcher,
+                                    position="P",
+                                    tuning=tuning,
+                                )
+                                if random.random() < extra_error_probability(
+                                    "error_pickoff_throw_rate",
+                                    fielding=pickoff_fa,
+                                    tuning=tuning,
+                                ):
+                                    e_runs, e_scored, _ = extra_base_error(
+                                        fielder=pitcher_state.pitcher,
+                                        position="P",
+                                        error_type="throwing",
+                                        source="pickoff",
+                                    )
+                                    record_runs(e_runs, line, e_scored)
+                                    runner_event = f"{pickoff_event}+e1"
                         elif live_pitch:
                             events, outs_added, runs_scored, scored = _attempt_steal(
                                 bases=bases,
@@ -7977,6 +8512,38 @@ def simulate_game(
                                     line.outs += outs_added
                                 record_runs(runs_scored, line, scored)
                                 runner_event = "+".join(event_code for _, event_code in events)
+                                # Release 6a (error_model 2): the catcher's
+                                # throw on a stolen base sails into the
+                                # outfield and every runner takes one more.
+                                # Only with a catcher to charge. One draw,
+                                # only under the model.
+                                if (
+                                    error_model >= 1.5
+                                    and catcher is not None
+                                    and outs < 3
+                                    and not walkoff
+                                    and any(
+                                        code in ("sb2", "sb3") for _, code in events
+                                    )
+                                ):
+                                    if random.random() < extra_error_probability(
+                                        "error_steal_throw_rate",
+                                        fielding=_centred_rating(
+                                            catcher_fielding, "catcher_fa_center", tuning
+                                        ),
+                                        arm=_centred_rating(
+                                            catcher_arm, "catcher_arm_center", tuning
+                                        ),
+                                        tuning=tuning,
+                                    ):
+                                        e_runs, e_scored, _ = extra_base_error(
+                                            fielder=catcher,
+                                            position="C",
+                                            error_type="throwing",
+                                            source="steal",
+                                        )
+                                        record_runs(e_runs, line, e_scored)
+                                        runner_event += "+e2"
                                 for runner, event_code in events:
                                     if event_code.startswith("cs") or event_code == "csh":
                                         injury_event = _maybe_injure_player(
@@ -8315,5 +8882,10 @@ def simulate_game(
                 "home": dict(home_positions),
             },
             "fld_pos": fielded_positions,
+            "errors": error_records,
+            # None unless the game was played with fielding_chance_log on.
+            "bip_chances": bip_chances if chance_log else None,
+            "error_chances": error_chances if chance_log else None,
+            "babip_scale": tuning.get("babip_scale", 1.0) if chance_log else None,
         },
     )

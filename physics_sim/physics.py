@@ -1334,6 +1334,12 @@ def simulate_pitch(
                 pull_bias + timing_error * tuning.get("timing_spray_scale", 12.0),
                 18.0,
             )
+            # Release 6a (spray_direction_model 1, audit M4): the draw above
+            # is batter-relative (positive = pull); it is stored once as a
+            # physical angle (positive = the right-field side), so a
+            # right-handed batter's is mirrored. Off: stored hand-blind.
+            if batter_side == "R" and tuning.get("spray_direction_model", 0.0) >= 0.5:
+                spray_angle = -spray_angle
             foul_rate = tuning.get("foul_rate", 0.26)
             quality_penalty = 1.0 - contact_quality
             foul_rate *= 1.0 + quality_penalty * tuning.get("foul_quality_scale", 0.5)

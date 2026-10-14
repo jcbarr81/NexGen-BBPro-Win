@@ -478,7 +478,7 @@ class ReportOnlyKpis:
         if getattr(self, "r6_error", None) is None:
             try:
                 records = getattr(result, "play_records", None)
-                self._add_r6(meta, log, pas, starters, records or {})
+                self._add_r6(meta, log, pas, starters, records or {}, teams)
             except Exception as exc:
                 self.r6_error = f"{type(exc).__name__}: {exc}"
 
@@ -2153,6 +2153,7 @@ class ReportOnlyKpis:
         pas: list[PlateAppearance],
         starters: set[str],
         records: dict[str, Any],
+        teams: dict[str, str] | None = None,
     ) -> None:
         """One game's Release 6a tallies.
 
@@ -2166,7 +2167,8 @@ class ReportOnlyKpis:
         bucket and time through the order. Box lines: runs and earned runs,
         hitter doubles and strikeouts, errors by the position each fielder
         started at (``records["starting_positions"]``). ``records`` is the
-        game's ``play_records``; ``{}`` for a result without them.
+        game's ``play_records``; ``{}`` for a result without them. ``teams``
+        maps the game's sides to its clubs (for the fielding records).
         """
         r6 = self._r6()
         fielded = records.get("fld_pos")
@@ -2293,6 +2295,95 @@ class ReportOnlyKpis:
                     # else who did not start in the field came off the bench.
                     pos = "P" if pid in arms else "SUB"
                 r6.errors_by_pos[pos] += errors
+
+        self._add_r6_chances(records, teams or {}, log)
+
+    def _add_r6_chances(
+        self,
+        records: dict[str, Any],
+        teams: dict[str, str],
+        log: list[dict[str, Any]],
+    ) -> None:
+        """One game's fielding records (Release 6a, fielding).
+
+        ``errors``: every error the engine charged, with its source; a
+        batter safe on a ball the pitcher fielded is a ``comebacker``.
+        ``bip_chances`` / ``error_chances`` (a game played with
+        ``fielding_chance_log``): for each ball in play the out chance used
+        and a league-average fielder's, credited to the responsible fielder
+        (shared when two are); for each error roll the same pair. Outs are
+        counted in hits saved: an out chance times ``babip_scale``.
+        """
+        r6 = self._r6()
+        charged = records.get("errors")
+        if isinstance(charged, list):
+            r6.errors_logged = True
+            for row in charged:
+                source, pos = str(row[1]), str(row[2] or "?").upper()
+                if source == "roe" and pos == "P":
+                    source = "comebacker"
+                r6.error_sources[source] += 1
+                r6.errors_charged[f"{source}|{pos}"] += 1
+        chances = records.get("bip_chances")
+        if not isinstance(chances, list):
+            return
+        r6.chance_logged = True
+        scale = float(records.get("babip_scale") or 1.0)
+        game = self.games
+        for row in chances:
+            side, positions, fielders = row[1], row[3], row[4]
+            out_used, out_avg, hit_prob = float(row[5]), float(row[6]), float(row[7])
+            gained = scale * (out_used - out_avg)
+            r6.level["n"] += 1
+            r6.level["shift"] += out_used - out_avg
+            r6.level["neutral"] += out_avg
+            team = r6.team_chance[teams.get(side, side)]
+            team["bip"] += 1
+            team["out"] += 1.0 - hit_prob
+            team["range"] += gained
+            for pos, pid in zip(positions, fielders):
+                if pid is None:
+                    continue
+                key = (str(pid), str(pos))
+                r6.fielder_chance[key]["range"] += gained / len(positions)
+                r6.fielder_chance[key]["balls"] += 1
+                r6.fielder_games[key].add(game)
+            # What scripts/fit_fielding_slopes.py reads: by responsible
+            # position (a shared ball split), balls and the sum of
+            # out0 * (1 - out0), line drives apart; and where the ground
+            # balls go (0.5 degree bins toward the left-field side).
+            ball_type = str(row[2])
+            entry = log[row[0]] if 0 <= row[0] < len(log) else {}
+            # How the ball came out (1b / 2b / 3b / out / roe), for what an
+            # out at each position is worth in runs.
+            result = str(entry.get("pa_result") or "")
+            spread = out_avg * (1.0 - out_avg) / max(1, len(positions))
+            for pos in positions:
+                sums = r6.chance_sums[str(pos)]
+                sums[f"balls_{ball_type}"] += 1.0 / len(positions)
+                sums["spread_ld" if ball_type == "ld" else "spread"] += spread
+                if result:
+                    sums[f"result_{result}"] += 1.0 / len(positions)
+            if ball_type == "gb":
+                spray = entry.get("spray_angle")
+                if spray is not None:
+                    bucket = math.floor(-float(spray) * 2.0) / 2.0
+                    r6.grounder_direction[bucket] += 1
+        for row in records.get("error_chances") or []:
+            side, pos, pid = row[1], row[2], row[3]
+            used, average = float(row[4]), float(row[5])
+            team = r6.team_chance[teams.get(side, side)]
+            team["err"] += used
+            team["err_saved"] += average - used
+            if pos is not None and 0 <= row[0] < len(log):
+                grounder = log[row[0]].get("out_type") == "groundout"
+                r6.chance_sums[str(pos)]["rolls_gb" if grounder else "rolls_air"] += 1
+            if pid is None or pos is None:
+                continue
+            key = (str(pid), str(pos))
+            r6.fielder_chance[key]["err"] += average - used
+            r6.fielder_chance[key]["rolls"] += 1
+            r6.fielder_games[key].add(game)
 
     def _slot_status(self, player_id: str, position: str) -> str:
         """How a starter is listed for the position he started at:
@@ -2644,6 +2735,135 @@ class ReportOnlyKpis:
         metrics["unearned_run_share"] = _ratio(
             r6.runs["r"] - r6.runs["er"], r6.runs["r"]
         )
+        self._r6_fielding_records(metrics, tables, team_games)
+
+    def _r6_fielding_records(
+        self, metrics: dict[str, Any], tables: dict[str, Any], team_games: int
+    ) -> None:
+        """The rows read from the engine's fielding records (Release 6a,
+        fielding): errors by source, and from the chance log what a fielding
+        rating is worth by position, the league level and the spread of
+        team defence with the luck taken out."""
+        r6 = self._r6()
+        gpt = self.games_per_team
+
+        # Errors per team-game by where they came from: a batter safe on a
+        # batted ball (roe; comebacker when the pitcher fielded it), a throw
+        # on a runner taking a base (advance) or tagging up (tag_up) and,
+        # under error_model 2, the catcher's throw on a steal, a pickoff
+        # throw, an outfielder letting a hit through and the relay on a
+        # force play. By the position charged in the table.
+        logged = r6.errors_logged and team_games
+        for source in R6_ERROR_SOURCES:
+            metrics[f"e_per_team_game_src_{source}"] = (
+                r6.error_sources[source] / team_games if logged else None
+            )
+        charged: dict[str, dict[str, int]] = defaultdict(dict)
+        by_position: Counter = Counter()
+        for key, count in sorted(r6.errors_charged.items()):
+            source, pos = key.split("|", 1)
+            charged[source][pos] = count
+            by_position[pos] += count
+        tables["errors_by_source"] = {
+            "by_source": dict(charged),
+            "by_position_charged": dict(by_position),
+            "per_team_game_by_position_charged": {
+                pos: count / team_games for pos, count in sorted(by_position.items())
+            } if team_games else {},
+        }
+        grounders = sum(r6.gb_plays.values())
+        metrics["gb_play_share_p"] = (
+            _ratio(r6.gb_plays["P"], grounders) if r6.fld_logged else None
+        )
+
+        for pos in R6_RANGE_POSITIONS:
+            metrics[f"oaa_per_fa_sd_{pos.lower()}"] = None
+            metrics[f"oaa_per_8pt_{pos.lower()}"] = None
+        metrics["team_der_true_sd"] = None
+        metrics["range_level_shift"] = None
+        metrics["neutral_out_prob_mean"] = None
+        if not r6.chance_logged:
+            return
+
+        # League level: the mean out chance less the mean of what average
+        # fielders would have made of the same balls (0 = the ratings as a
+        # whole neither add nor take outs), and that neutral mean.
+        metrics["range_level_shift"] = _ratio(r6.level["shift"], r6.level["n"])
+        metrics["neutral_out_prob_mean"] = _ratio(r6.level["neutral"], r6.level["n"])
+        # The sums the slope re-fit reads (scripts/fit_fielding_slopes.py).
+        tables["fielding_chance_sums"] = {
+            "team_games": team_games,
+            "by_position": {
+                pos: dict(sums) for pos, sums in sorted(r6.chance_sums.items())
+            },
+            "grounder_direction": {
+                f"{bucket:g}": count
+                for bucket, count in sorted(r6.grounder_direction.items())
+            },
+        }
+
+        # Outs above an average fielder per 150 games, range plus errors,
+        # against the fa rating: per rating SD of the regulars at the
+        # position and per 8 points. Expected outs from the logged chances,
+        # so there is no luck in them (a season's realised outs carry 9 to
+        # 12 outs of it). A regular has a chance in half the club's games.
+        min_games = max(10, round(81 * gpt / 162))
+        value_table = {}
+        for pos in R6_RANGE_POSITIONS:
+            rows = []
+            for (pid, where), c in r6.fielder_chance.items():
+                games = len(r6.fielder_games[(pid, where)])
+                if where != pos or games < min_games or pid not in self.fa:
+                    continue
+                per150 = 150.0 / games
+                rows.append((self.fa[pid], c["range"] * per150, c["err"] * per150))
+            row: dict[str, Any] = {"fielders": len(rows)}
+            if len(rows) >= R6_MIN_FIELDERS:
+                xs = [r[0] for r in rows]
+                sd = statistics.pstdev(xs)
+                range_slope = _slope(xs, [r[1] for r in rows])
+                error_slope = _slope(xs, [r[2] for r in rows])
+                row["fa_sd"] = sd
+                row["range_outs_per_point"] = range_slope
+                row["error_outs_per_point"] = error_slope
+                if range_slope is not None and error_slope is not None:
+                    slope = range_slope + error_slope
+                    metrics[f"oaa_per_fa_sd_{pos.lower()}"] = slope * sd
+                    metrics[f"oaa_per_8pt_{pos.lower()}"] = slope * 8.0
+                    row["range_outs_per_fa_sd"] = range_slope * sd
+                    row["error_outs_per_fa_sd"] = error_slope * sd
+            value_table[pos] = row
+        tables["fielding_value_by_position"] = value_table
+
+        # Team defence with the luck taken out: each club's expected DER
+        # from the chances its balls in play were given (outs before errors
+        # less expected errors, per ball), and the SD of it across clubs.
+        # Split in the table into what the fielders' range adds, what their
+        # error rates add and what is left (the balls their pitchers and
+        # opponents gave them).
+        ders, ranges, errors, rest = [], [], [], []
+        for team, c in r6.team_chance.items():
+            if c["bip"] <= 0:
+                continue
+            ders.append((c["out"] - c["err"]) / c["bip"])
+            ranges.append(c["range"] / c["bip"])
+            errors.append(c["err_saved"] / c["bip"])
+            rest.append((c["out"] - c["err"] - c["range"] - c["err_saved"]) / c["bip"])
+        if len(ders) >= 2:
+            metrics["team_der_true_sd"] = statistics.pstdev(ders)
+            mean_bip = sum(c["bip"] for c in r6.team_chance.values()) / len(ders)
+            mean_der = statistics.fmean(ders)
+            tables["team_der_true"] = {
+                "teams": len(ders),
+                "mean": mean_der,
+                "sd": statistics.pstdev(ders),
+                "range_sd": statistics.pstdev(ranges),
+                "error_sd": statistics.pstdev(errors),
+                "pitchers_and_opponents_sd": statistics.pstdev(rest),
+                "binomial_noise_sd": math.sqrt(
+                    max(0.0, mean_der * (1.0 - mean_der)) / mean_bip
+                ),
+            }
 
     def _r6_batted_ball(
         self, metrics: dict[str, Any], tables: dict[str, Any], gpt: int
@@ -3098,6 +3318,25 @@ R6_POWER_BANDS = (
 )
 # Fewer players than this and a regression, a fifth or a third is None.
 R6_MIN_REGRESSION_ROWS = 30
+# Release 6a (fielding). The seven positions a fielder's range is read at;
+# the error sources of ``play_records["errors"]`` (``comebacker`` is a
+# batter safe on a ball the pitcher fielded; the last four exist only under
+# ``error_model`` 2); and the fewest fielders at a position for its
+# outs-per-rating regression.
+R6_RANGE_POSITIONS = ("1B", "2B", "3B", "SS", "LF", "CF", "RF")
+R6_ERROR_SOURCES = (
+    "roe", "comebacker", "advance", "tag_up", "steal", "pickoff", "of_hit",
+    "relay",
+)
+R6_MIN_FIELDERS = 8
+# The rows that come from the engine's fielding records (None without them).
+R6_FIELDING_LOG_KEYS: tuple[str, ...] = tuple(
+    [f"oaa_per_fa_sd_{pos.lower()}" for pos in R6_RANGE_POSITIONS]
+    + [f"oaa_per_8pt_{pos.lower()}" for pos in R6_RANGE_POSITIONS]
+    + ["team_der_true_sd", "range_level_shift", "neutral_out_prob_mean"]
+    + [f"e_per_team_game_src_{source}" for source in R6_ERROR_SOURCES]
+    + ["gb_play_share_p"]
+)
 # Every metric the Release 6a block reports (None when it has no data).
 R6_METRIC_KEYS: tuple[str, ...] = tuple(
     [f"pitcher_fip_per10_{name}" for name in R6_PITCHER_RATINGS]
@@ -3135,6 +3374,7 @@ R6_METRIC_KEYS: tuple[str, ...] = tuple(
     ]
     + ["r_pull_rating_pull_angle_rhb", "r_pull_rating_pull_angle_lhb"]
     + [f"{third}_pct" for third in SPRAY_THIRDS]
+    + list(R6_FIELDING_LOG_KEYS)
 )
 
 
@@ -3209,6 +3449,32 @@ class _R6Tallies:
         self.positions_logged = False
         self.slots: Counter = Counter()
         self.errors_by_pos: Counter = Counter()
+        # Every error the engine charged (``errors``): by source, and by
+        # (source, position charged).
+        self.errors_logged = False
+        self.error_sources: Counter = Counter()
+        self.errors_charged: Counter = Counter()
+        # The chance log (``bip_chances`` / ``error_chances``, only from a
+        # game played with ``fielding_chance_log``). League: balls ``n``,
+        # the out chance used minus an average fielder's (``shift``) and the
+        # average fielder's (``neutral``). Team: balls ``bip``, expected outs
+        # ``out`` (before errors), the fielders' share of them ``range``,
+        # expected errors ``err`` and errors saved against average fielders
+        # ``err_saved``. (fielder, position): outs above average on range
+        # ``range`` and on errors ``err``, and the games he had a chance in.
+        self.chance_logged = False
+        self.level: Counter = Counter()
+        self.team_chance: dict[str, Counter] = defaultdict(Counter)
+        self.fielder_chance: dict[tuple[str, str], Counter] = defaultdict(Counter)
+        self.fielder_games: dict[tuple[str, str], set[int]] = defaultdict(set)
+        # For the slope re-fit: position -> balls by class, the sum of
+        # out0 * (1 - out0) (``spread``; line drives in ``spread_ld``) and
+        # error rolls on ground outs and in the air, and the balls by how
+        # they came out (``result_1b``, ``result_out``, ...); and ground
+        # balls by direction (degrees toward the left-field side, 0.5
+        # degree bins).
+        self.chance_sums: dict[str, Counter] = defaultdict(Counter)
+        self.grounder_direction: Counter = Counter()
 
 
 def _load_r6_ratings(path: Path) -> dict[str, dict[str, Any]]:

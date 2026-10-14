@@ -827,19 +827,24 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "pitcher_movement_usage_center": 50.0,
     "pitcher_grade_usage_center": 50.0,
     "pitcher_arm_usage_center": 50.0,
-    # Release 6a (tooling): the centres the generation 6 fielding and
-    # batted-ball work will read. NOTHING reads them yet, and only the KPI
-    # harness supplies them (services.league_rating_centers
-    # .unstored_rating_centers, through with_rating_centers): they are not
-    # in a league's rating_centers.json, not delivered to a league game and
-    # not a centre a game refuses to start without. Storing them is part of
-    # the generation 6 switch-on.
+    # Release 6a: the centres the generation 6 fielding and batted-ball work
+    # reads. The fielder centres below are read by the fielding switches
+    # further down (fielder_centred_ratings); the batted-ball ones
+    # (pitcher_gf_usage_center, hitter_gf_center, hitter_pull_center) by
+    # nothing yet. The KPI harness supplies all of them
+    # (services.league_rating_centers.unstored_rating_centers, through
+    # with_rating_centers). A league game is given the fielder centres only
+    # when its season is on a generation that reads them (6 and later:
+    # services.league_rating_centers.GENERATION_CENTER_KEYS), stored in that
+    # season's rating_centers.json entry; a legacy or generation 5 season
+    # is given none and its file is not touched.
     #
     # fielder_fa_center_<pos> / fielder_arm_center_<pos>: the mean fielding
     # (fa) and arm of the lineup regulars at each of the seven positions a
     # batted ball is fielded from, by the position the saved lineup plays
     # them at (a club with no usable saved lineup: its best hitter at each
-    # primary position).
+    # primary position). fielder_fa_center_p: the pitchers' fielding,
+    # weighted by expected workload like the pitcher_*_usage_center keys.
     "fielder_fa_center_1b": 50.0,
     "fielder_fa_center_2b": 50.0,
     "fielder_fa_center_3b": 50.0,
@@ -854,12 +859,104 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "fielder_arm_center_lf": 50.0,
     "fielder_arm_center_cf": 50.0,
     "fielder_arm_center_rf": 50.0,
+    "fielder_fa_center_p": 50.0,
     # The pitchers' ground-ball rating (gf), weighted by expected workload
     # like the pitcher_*_usage_center keys above, and the lineup regulars'
     # mean ground-ball (gf) and pull (pl) ratings.
     "pitcher_gf_usage_center": 50.0,
     "hitter_gf_center": 50.0,
     "hitter_pull_center": 50.0,
+    # Release 6a (fielding; RELEASE6_PLAN.md 2.3 and 2.4). Every switch is
+    # OFF: at 0 each path is the code it replaces and draws no extra random
+    # number. The values beside them are read only while their switch is on;
+    # the generation 6 values are in scripts/kpi_profiles/r6_fielding.json.
+    #
+    # fielding_chance_log 1: for each ball in play the engine records, in
+    # GameResult.play_records["bip_chances"] (never the pitch log or the
+    # metadata), the responsible position and fielder, the out chance used
+    # and the out chance a league-average fielder there would have had; and
+    # in play_records["error_chances"], for each error roll, the chance
+    # used and an average fielder's. Passive: it draws nothing and changes
+    # nothing. The KPI harness turns it on.
+    "fielding_chance_log": 0.0,
+    # fielder_centred_ratings 1 (owner decision 7): a fielder's fa at one of
+    # the seven fielder_fa_center positions reads as 50 + (fa - the league
+    # regulars' mean there), where it enters the range, error and double-play
+    # terms (fielding.adjusted_fielding_rating); the arm the error and
+    # double-play terms read is centred on fielder_arm_center_<pos> the same
+    # way. The Release 4 arm reads (tag-ups, extra bases) and the catcher
+    # (catcher_fa_center, in the terms that read him) are unchanged. The
+    # engine refuses to play a game whose centres were not delivered.
+    "fielder_centred_ratings": 0.0,
+    # position_fit_model 1 (owner decision 8): out of position a fielder
+    # loses the points of utils.position_fit.POSITION_MOVE_PENALTY instead
+    # of the defense_*_pos_scale multipliers; a listed second position costs
+    # position_secondary_penalty_scale of the table value.
+    "position_fit_model": 0.0,
+    "position_secondary_penalty_scale": 0.25,
+    # spray_direction_model 1 (plan 2.4): spray is drawn batter-relative
+    # (positive = pull) and stored once as a physical angle (positive = the
+    # right-field side), and every reader takes the stored angle as
+    # physical. 0: the hand-blind draw, with fielder credit mirrored for
+    # left-handed batters.
+    "spray_direction_model": 0.0,
+    # infield_band_model 1: a ground ball belongs to the infielder whose
+    # band its direction falls in (degrees toward the left-field side, at or
+    # above each lower bound): 3B, SS, the pitcher, 2B, else 1B. 0: the old
+    # bands (3B and 1B only beyond 25 degrees, no pitcher).
+    "infield_band_model": 0.0,
+    "infield_band_3b_min_deg": 16.0,
+    "infield_band_ss_min_deg": 1.5,
+    "infield_band_p_min_deg": -1.5,
+    "infield_band_2b_min_deg": -19.5,
+    # range_model 1 (owner decision 10): one responsible fielder per ball
+    # (the band owner on the ground, LF / CF / RF in the air) shifts the
+    # neutral out chance in log-odds,
+    #   logit(out) = logit(out0) + range_logit_slope_<pos> * (eff - 50)
+    #                * range_scale * (range_ld_ratio on a line drive),
+    # so routine balls and sure hits barely move and coin-flip balls move
+    # most. out0 is today's out_probability behind a defence of 50s. The
+    # slopes are re-fitted by scripts/fit_fielding_slopes.py.
+    "range_model": 0.0,
+    "range_logit_slope_1b": 0.0078,
+    "range_logit_slope_2b": 0.0050,
+    "range_logit_slope_3b": 0.0081,
+    "range_logit_slope_ss": 0.0064,
+    "range_logit_slope_lf": 0.0068,
+    "range_logit_slope_cf": 0.0060,
+    "range_logit_slope_rf": 0.0066,
+    "range_ld_ratio": 0.6,
+    # error_model 1 (owner decision 9), on the same roll as today:
+    #   p = error_base_<pos> * exp(-error_fa_log_slope * (eff - 50)
+    #                              - error_arm_log_slope * (arm - 50))
+    #       * error_rate_scale, kept within .0005 and .15,
+    # eff and arm as the fielder plays that position (centred under
+    # fielder_centred_ratings); an infielder's chance on a ball in the air
+    # is times error_infield_liner_scale. The pitcher makes no error.
+    # error_model 2 adds the sources that need rolls of their own: the
+    # pitcher on a comebacker (error_base_p, his fa against
+    # fielder_fa_center_p), the catcher's throw on a stolen base, an
+    # outfielder letting a hit through for an extra base, a pickoff throw
+    # that gets away and the relay on a force play. Each is a rate times
+    # exp() of the same slopes; the runners move up a base. A run is
+    # unearned only if the runner would not have scored without the error
+    # (rule 9.16(a); engine.play_half_inning's shadow bases).
+    "error_model": 0.0,
+    "error_base_1b": 0.029,
+    "error_base_2b": 0.020,
+    "error_base_3b": 0.049,
+    "error_base_ss": 0.036,
+    "error_base_lf": 0.0069,
+    "error_base_cf": 0.0037,
+    "error_base_rf": 0.0068,
+    "error_base_p": 0.045,
+    "error_fa_log_slope": 0.025,
+    "error_arm_log_slope": 0.02,
+    "error_infield_liner_scale": 0.25,
+    "error_steal_throw_rate": 0.04,
+    "error_of_hit_rate": 0.009,
+    "error_pickoff_throw_rate": 0.01,
+    "error_relay_throw_rate": 0.03,
     # Release 5 (plan 2.1, plate discipline). Five switches, all OFF: at 0
     # each path is the code it replaces, byte for byte, and draws no extra
     # random number. The values beside them are the design's starting

@@ -578,6 +578,11 @@ const RUNNER_EVENT_LABELS: Record<string, string> = {
   tag_dp: "thrown out tagging up (DP)",
   fc_home: "force at home",
   dp_home: "home to first",
+  // Release 6a (error_model 2): the errors that give the runners a base.
+  e2: "catcher's throw gets away (E2)",
+  e1: "pickoff throw gets away (E1)",
+  e_of: "outfielder lets it through (error)",
+  e_rel: "relay gets away (error)",
 };
 
 function runnerEventLabel(event: string): string {
