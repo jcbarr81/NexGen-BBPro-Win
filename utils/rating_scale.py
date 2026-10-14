@@ -82,7 +82,9 @@ __all__ = [
     "RatingClip",
     "RatingMap",
     "engine_potential",
+    "engine_potential_value",
     "engine_rating",
+    "engine_value",
     "engine_row",
     "engine_rows",
     "is_pitcher_flag",
@@ -578,10 +580,37 @@ def players_file_rating_scale(path: Any) -> int:
 # The consumer accessor: one rating of a player, on the engine scale
 # ---------------------------------------------------------------------------
 
+_MISSING: Any = object()
+
+
 def _raw(player: Any, key: str, default: Any) -> Any:
     if isinstance(player, Mapping):
         return player.get(key, default)
     return getattr(player, key, default)
+
+
+def engine_value(
+    rating_key: str, stored_value: Any, scale: object, *, pitcher: bool = False
+) -> Any:
+    """One stored value as a consumer reads it: on the engine scale.
+
+    :func:`to_engine` with the data's conventions: a rating ``scale`` does
+    not move, a blank, a zero and anything that is not a number come back
+    exactly as given (they are "no rating", and each consumer has its own
+    fallback for that); a whole-number result is an ``int``. For a caller
+    that holds a value and its row's scale but not the row;
+    :func:`engine_rating` is this for a player.
+    """
+
+    if scale is None or scale == "" or scale == LEGACY_RATING_SCALE:
+        return stored_value
+    spec = rating_map(rating_key, scale, pitcher=pitcher)
+    if spec is None:
+        return stored_value
+    stored = _set_number(stored_value)
+    if stored is None:
+        return stored_value
+    return _tidy(spec.engine(stored))
 
 
 def engine_rating(player: Any, key: str, default: Any = None) -> Any:
@@ -601,19 +630,14 @@ def engine_rating(player: Any, key: str, default: Any = None) -> Any:
     bars and the lineup builder are all in engine points.
     """
 
-    value = _raw(player, key, default)
     scale = rating_scale_of(player)
     if scale == LEGACY_RATING_SCALE:
-        return value
-    spec = _scale_tables(scale)[
-        _PITCHER if player_is_pitcher(player) else _HITTER
-    ].get(key)
-    if spec is None:
-        return value
-    stored = _set_number(value)
-    if stored is None:
-        return value
-    return _tidy(spec.engine(stored))
+        return _raw(player, key, default)
+    value = _raw(player, key, _MISSING)
+    if value is _MISSING:
+        # The caller's fallback is its own, already an engine number.
+        return default
+    return engine_value(key, value, scale, pitcher=player_is_pitcher(player))
 
 
 def engine_potential(player: Any, key: str, default: Any = None) -> Any:
@@ -632,20 +656,31 @@ def engine_potential(player: Any, key: str, default: Any = None) -> Any:
     """
 
     if isinstance(player, Mapping):
-        value = player.get(_POTENTIAL_PREFIX + key, default)
+        value = player.get(_POTENTIAL_PREFIX + key, _MISSING)
     else:
         blob = getattr(player, "potential", None)
-        value = blob.get(key, default) if isinstance(blob, Mapping) else default
+        value = blob.get(key, _MISSING) if isinstance(blob, Mapping) else _MISSING
+    if value is _MISSING:
+        return default  # the caller's own fallback, not a stored potential
+    return engine_potential_value(player, key, value)
+
+
+def engine_potential_value(player: Any, key: str, stored_potential: Any) -> Any:
+    """:func:`engine_potential` for a potential the caller has already read
+    (some consumers look in more than one place for it): ``stored_potential``
+    of rating ``key`` of ``player``, on the engine scale. A scale 1 player,
+    a rating that is not moved and an unset value come back as given."""
+
     scale = rating_scale_of(player)
     if scale == LEGACY_RATING_SCALE:
-        return value
+        return stored_potential
     spec = _scale_tables(scale)[
         _PITCHER if player_is_pitcher(player) else _HITTER
     ].get(key)
     if spec is None:
-        return value
-    stored_potential = _set_number(value)
+        return stored_potential
+    potential = _set_number(stored_potential)
     stored = _set_number(_raw(player, key, None))
-    if stored_potential is None or stored is None:
-        return value
-    return _tidy(spec.engine(stored) + (stored_potential - stored))
+    if potential is None or stored is None:
+        return stored_potential
+    return _tidy(spec.engine(stored) + (potential - stored))

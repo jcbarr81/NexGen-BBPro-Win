@@ -9,6 +9,14 @@ from utils.exceptions import DraftRosterError
 from utils.news_logger import log_news_event
 from utils.path_utils import get_data_dir
 from utils.pitcher_role import role_from_endurance
+from utils.rating_scale import (
+    LEGACY_RATING_SCALE,
+    RATING_SCALE_FIELD,
+    MixedRatingScaleError,
+    players_file_rating_scale,
+    rating_scale_of,
+    stretch_row,
+)
 from utils.roster_loader import load_roster, save_roster
 from utils.roster_rules import LOW_CAP as LOW_MAX
 
@@ -49,6 +57,7 @@ def _read_players_header() -> list[str]:
     return header
 
 
+# rating-scale: copies the pool entry's stored values into the row as is
 def _default_row_from_pool(pool_row: Dict[str, Any]) -> Dict[str, Any]:
     # Map DraftProspect fields to players.csv schema; fill with defaults where needed
     row: Dict[str, Any] = {}
@@ -185,6 +194,11 @@ def _default_row_from_pool(pool_row: Dict[str, Any]) -> Dict[str, Any]:
             "return_date": "",
         }
     )
+    # The pool entry's ratings are on the scale the pool was generated on
+    # (utils.rating_scale); the row carries it so _append_players can tell.
+    # Blank on a scale 1 pool, as the column is on a scale 1 players.csv.
+    pool_scale = rating_scale_of(pool_row)
+    row[RATING_SCALE_FIELD] = "" if pool_scale == LEGACY_RATING_SCALE else pool_scale
     return row
 
 
@@ -195,11 +209,42 @@ def _players_index() -> Dict[str, Dict[str, Any]]:
         return {row.get("player_id", ""): row for row in reader}
 
 
+def _rows_on_file_scale(
+    rows: list[Dict[str, Any]], path: Path
+) -> list[Dict[str, Any]]:
+    """``rows`` on the rating scale ``players.csv`` is stored on.
+
+    Appending keeps the file's own header, so a row from a pool on another
+    scale would be written as if it were on the file's: a scale 2 pick in a
+    scale 1 file loses its marker and plays as a superstar. A scale 1 row
+    going into a scale 2 file is stretched here (the same exact map the
+    league's own rows went through); the reverse has no exact answer for
+    potentials and is refused, before anything is written.
+    """
+
+    file_scale = players_file_rating_scale(path)
+    out: list[Dict[str, Any]] = []
+    for row in rows:
+        row_scale = rating_scale_of(row)
+        if row_scale == file_scale:
+            out.append(row)
+        elif row_scale == LEGACY_RATING_SCALE:
+            stretched, _clips = stretch_row(row, file_scale)
+            out.append(stretched)
+        else:
+            raise MixedRatingScaleError(
+                f"draft pick {row.get('player_id')!r} is on rating scale "
+                f"{row_scale} but players.csv is on scale {file_scale}"
+            )
+    return out
+
+
 def _append_players(rows: list[Dict[str, Any]]) -> None:
     if not rows:
         return
     path = _players_csv_path()
     header = _read_players_header()
+    rows = _rows_on_file_scale(rows, path)
     with path.open("a", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=header)
         for row in rows:

@@ -27,6 +27,7 @@ from ._rating_presentation import compute_overall, rating_context, scale_rating
 
 router = APIRouter(prefix="/players", tags=["players"], dependencies=[CurrentIdentity])
 
+# rating-scale: display keys; the browser shows the stored ratings
 _HEADLINE_RATINGS = ("ch", "ph", "sp", "eye", "arm", "fa", "control", "movement", "endurance")
 
 

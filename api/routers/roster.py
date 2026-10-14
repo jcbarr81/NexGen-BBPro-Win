@@ -33,6 +33,7 @@ from ._rating_presentation import compute_overall, rating_context, scale_rating
 
 router = APIRouter(prefix="/teams/{team_id}", tags=["roster"], dependencies=[CurrentIdentity])
 
+# rating-scale: display keys; the roster page shows the stored ratings
 _RATING_FIELDS = (
     "ch",
     "ph",
@@ -45,6 +46,7 @@ _RATING_FIELDS = (
     "fa",
     "arm",
 )
+# rating-scale: display keys; the roster page shows the stored ratings
 _PITCHER_RATING_FIELDS = (
     "endurance",
     "control",

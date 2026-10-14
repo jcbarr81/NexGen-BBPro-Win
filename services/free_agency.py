@@ -28,6 +28,7 @@ from services.roster_validation import LOW_LEVEL_MAX_AGE
 from services.transaction_log import record_transaction
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.rating_scale import engine_rating
 from utils.roster_io import read_roster_csv
 from utils.roster_loader import (
     active_pitcher_cap,
@@ -549,11 +550,16 @@ def _quality_score(player: Player) -> int:
     is_pitcher = bool(getattr(player, "is_pitcher", False)) or str(
         getattr(player, "primary_position", "") or ""
     ).strip().upper() == "P"
+    # rating-scale: fields read through engine_rating below
     if is_pitcher:
         fields = ("arm", "control", "movement", "endurance")
     else:
         fields = ("ch", "ph", "sp", "eye", "fa", "arm")
-    values = [int(round(float(getattr(player, field, 0) or 0))) for field in fields]
+    # Engine scale: the 20-95 clamp and every user of this score are in
+    # engine points.
+    values = [
+        int(round(float(engine_rating(player, field, 0) or 0))) for field in fields
+    ]
     values = [value for value in values if value > 0]
     if not values:
         return 55

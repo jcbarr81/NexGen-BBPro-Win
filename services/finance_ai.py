@@ -25,6 +25,7 @@ from services.team_strategy_profiles import (
 )
 from services.standings_repository import invalidate_standings, load_standings
 from utils.path_utils import get_data_dir
+from utils.rating_scale import engine_rating
 
 __all__ = [
     "TeamFinanceStrategy",
@@ -620,19 +621,19 @@ def _free_agent_quality_score(player: object) -> int:
     ).strip().upper() == "P"
     if is_pitcher:
         values = [
-            _safe_int(getattr(player, "arm", 0), fallback=0),
-            _safe_int(getattr(player, "control", 0), fallback=0),
-            _safe_int(getattr(player, "movement", 0), fallback=0),
+            _safe_int(engine_rating(player, "arm", 0), fallback=0),
+            _safe_int(engine_rating(player, "control", 0), fallback=0),
+            _safe_int(engine_rating(player, "movement", 0), fallback=0),
             _safe_int(getattr(player, "endurance", 0), fallback=0),
         ]
     else:
         values = [
-            _safe_int(getattr(player, "ch", 0), fallback=0),
-            _safe_int(getattr(player, "ph", 0), fallback=0),
+            _safe_int(engine_rating(player, "ch", 0), fallback=0),
+            _safe_int(engine_rating(player, "ph", 0), fallback=0),
             _safe_int(getattr(player, "sp", 0), fallback=0),
-            _safe_int(getattr(player, "eye", 0), fallback=0),
-            _safe_int(getattr(player, "fa", 0), fallback=0),
-            _safe_int(getattr(player, "arm", 0), fallback=0),
+            _safe_int(engine_rating(player, "eye", 0), fallback=0),
+            _safe_int(engine_rating(player, "fa", 0), fallback=0),
+            _safe_int(engine_rating(player, "arm", 0), fallback=0),
         ]
     values = [value for value in values if value > 0]
     if not values:
@@ -689,9 +690,9 @@ def _strategy_fit_score(player: object, *, raw_strategy_profile: str) -> float:
     veteran = 0.0 if age is None else _clamp01(float(age - 24) / 10.0)
 
     if is_pitcher:
-        arm = _norm_rating(getattr(player, "arm", getattr(player, "fb", 0)))
-        control = _norm_rating(getattr(player, "control", 0))
-        movement = _norm_rating(getattr(player, "movement", 0))
+        arm = _norm_rating(engine_rating(player, "arm", getattr(player, "fb", 0)))
+        control = _norm_rating(engine_rating(player, "control", 0))
+        movement = _norm_rating(engine_rating(player, "movement", 0))
         endurance = _norm_rating(getattr(player, "endurance", 0))
         hold = _norm_rating(getattr(player, "hold_runner", 0))
         if profile == "win_now":
@@ -707,12 +708,12 @@ def _strategy_fit_score(player: object, *, raw_strategy_profile: str) -> float:
             return _clamp01((1.4 * arm + 1.0 * movement + 0.8 * endurance + 0.4 * veteran) / 3.6)
         return 0.5
 
-    ch = _norm_rating(getattr(player, "ch", 0))
-    ph = _norm_rating(getattr(player, "ph", 0))
+    ch = _norm_rating(engine_rating(player, "ch", 0))
+    ph = _norm_rating(engine_rating(player, "ph", 0))
     sp = _norm_rating(getattr(player, "sp", 0))
-    eye = _norm_rating(getattr(player, "eye", 0))
-    fa = _norm_rating(getattr(player, "fa", 0))
-    arm = _norm_rating(getattr(player, "arm", 0))
+    eye = _norm_rating(engine_rating(player, "eye", 0))
+    fa = _norm_rating(engine_rating(player, "fa", 0))
+    arm = _norm_rating(engine_rating(player, "arm", 0))
     gf = _norm_rating(getattr(player, "gf", 0))
     if profile == "win_now":
         return _clamp01((1.2 * ch + 1.1 * ph + 0.9 * eye + 0.7 * fa + 0.5 * veteran) / 4.4)

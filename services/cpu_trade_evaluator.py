@@ -15,6 +15,7 @@ from services.trade_settings import current_league_year
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.player_overall import player_overall_score
+from utils.rating_scale import engine_potential_value, engine_rating
 from utils.roster_loader import load_roster
 from utils.roster_rules import MAX_ACTIVE_PITCHERS, counts_as_pitcher
 from utils.team_loader import load_teams
@@ -461,8 +462,8 @@ def _fit_value(
         if pitcher_count >= _PITCHER_FULL_AT:
             fit -= _FULL_STAFF_PENALTY
         if profile in {"win_now", "defense_first"}:
-            fit += _norm(getattr(player, "control", 0)) * 0.8
-            fit += _norm(getattr(player, "movement", 0)) * 0.7
+            fit += _norm(engine_rating(player, "control", 0)) * 0.8
+            fit += _norm(engine_rating(player, "movement", 0)) * 0.7
         if profile == "development_focus":
             age = _player_age(player)
             if age is not None and age <= 24:
@@ -478,13 +479,13 @@ def _fit_value(
     if int(pos_counts.get(primary, 0) or 0) == 0:
         fit += 0.5
     if profile == "defense_first":
-        fit += _norm(getattr(player, "fa", 0)) * 0.9
-        fit += _norm(getattr(player, "arm", 0)) * 0.6
+        fit += _norm(engine_rating(player, "fa", 0)) * 0.9
+        fit += _norm(engine_rating(player, "arm", 0)) * 0.6
         if primary in _KEY_POSITIONS:
             fit += 0.4
     elif profile == "power_offense":
-        fit += _norm(getattr(player, "ph", 0)) * 0.9
-        fit += _norm(getattr(player, "ch", 0)) * 0.4
+        fit += _norm(engine_rating(player, "ph", 0)) * 0.9
+        fit += _norm(engine_rating(player, "ch", 0)) * 0.4
     elif profile == "development_focus":
         age = _player_age(player)
         if age is not None and age <= 24:
@@ -966,20 +967,29 @@ def _overall_score(player: object, *, potential: bool) -> float:
 
 
 def _rating_value(player: object, key: str, *, potential: bool) -> float | None:
+    """One rating of ``player``, current or potential, on the ENGINE scale
+    (``utils.rating_scale``): every weight in this module is in engine
+    points, so a trade is valued the same whatever scale the rows are on."""
+
     if potential:
         pot_key = f"pot_{key}"
-        val = _safe_float(getattr(player, pot_key, None), fallback=None)
+        val = _safe_float(
+            engine_potential_value(player, key, getattr(player, pot_key, None)),
+            fallback=None,
+        )
         if val is not None:
             return max(0.0, min(99.0, val))
         potential_blob = getattr(player, "potential", {})
         if isinstance(potential_blob, Mapping):
             val = _safe_float(
-                potential_blob.get(pot_key, potential_blob.get(key)),
+                engine_potential_value(
+                    player, key, potential_blob.get(pot_key, potential_blob.get(key))
+                ),
                 fallback=None,
             )
             if val is not None:
                 return max(0.0, min(99.0, val))
-    val = _safe_float(getattr(player, key, None), fallback=None)
+    val = _safe_float(engine_rating(player, key), fallback=None)
     if val is None:
         return None
     return max(0.0, min(99.0, val))

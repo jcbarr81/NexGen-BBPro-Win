@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Set, Tuple
 
 from utils.path_utils import ensure_writable
+from utils import rating_scale as rating_scales
 from models.player import Player
 from models.pitcher import Pitcher
 from models.roster import Roster
@@ -81,6 +82,7 @@ def _unique_color_pair(used: set) -> tuple[str, str]:
         idx += 1
 
 
+# rating-scale: copies the generator's stored values onto the model as is
 def _dict_to_model(data: dict):
     potentials = {k[4:]: v for k, v in data.items() if k.startswith("pot_")}
     other_pos = data.get("other_positions")
@@ -105,6 +107,8 @@ def _dict_to_model(data: dict):
         injured=bool(data.get("injured", 0)),
         injury_description=data.get("injury_description"),
         return_date=data.get("return_date"),
+        # The generator's dict says which scale its ratings are stored on.
+        rating_scale=rating_scales.rating_scale_of(data),
     )
     if data.get("is_pitcher"):
         arm = data.get("arm") or data.get("fb", 0)
@@ -386,7 +390,22 @@ def create_league(
     league_name: str,
     rating_profile: str | None = None,
     progress_callback: Callable[[str], None] | None = None,
+    rating_scale: int | None = None,
 ):
+    """Create a league under ``base_dir``.
+
+    ``rating_scale`` is the scale its players' ratings are stored on
+    (``utils.rating_scale``); ``None`` takes
+    ``GENERATED_RATING_SCALE``, which is 1 today. The same random seed gives
+    the same league on any scale: the players are generated on the engine
+    scale and re-expressed at the end, and everything that ranks them while
+    the league is built reads the engine value.
+    """
+
+    if rating_scale is None:
+        rating_scale = rating_scales.GENERATED_RATING_SCALE
+    rating_scale = rating_scales.normalize_rating_scale(rating_scale)
+
     def _report_progress(phase: str) -> None:
         if progress_callback is None:
             return
@@ -450,6 +469,7 @@ def create_league(
                 age_range=age_range,
                 pitcher_archetype="closer",
                 rating_profile=profile,
+                rating_scale=rating_scale,
             )
             data["is_pitcher"] = True
             players.append(_ensure_unique_id(data))
@@ -458,6 +478,7 @@ def create_league(
                 is_pitcher=True,
                 age_range=age_range,
                 rating_profile=profile,
+                rating_scale=rating_scale,
             )
             data["is_pitcher"] = True
             players.append(_ensure_unique_id(data))
@@ -476,6 +497,7 @@ def create_league(
                     age_range=age_range,
                     primary_position=pos,
                     rating_profile=profile,
+                    rating_scale=rating_scale,
                 )
                 data["is_pitcher"] = False
                 if index >= 8 and spares.get(pos):
@@ -492,6 +514,7 @@ def create_league(
                 is_pitcher=False,
                 age_range=age_range,
                 rating_profile=profile,
+                rating_scale=rating_scale,
             )
             data["is_pitcher"] = False
             players.append(_ensure_unique_id(data))

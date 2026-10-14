@@ -18,6 +18,7 @@ from utils.position_fit import (
     in_fill_family,
     player_positions,
 )
+from utils.rating_scale import engine_rating
 from utils.roster_rules import counts_as_pitcher, is_catcher
 from services.decision_explanations import (
     append_decision_log,
@@ -292,11 +293,11 @@ def lineup_hitter_score(
     shift for ``vs_hand`` and the strategy-profile bonus. ``tuning`` None
     reads the platoon knobs at their defaults."""
 
-    ch = float(getattr(player, "ch", 0) or 0)
-    ph = float(getattr(player, "ph", 0) or 0)
+    ch = float(engine_rating(player, "ch", 0) or 0)
+    ph = float(engine_rating(player, "ph", 0) or 0)
     sp = float(getattr(player, "sp", 0) or 0)
-    fa = float(getattr(player, "fa", 0) or 0)
-    arm = float(getattr(player, "arm", 0) or 0)
+    fa = float(engine_rating(player, "fa", 0) or 0)
+    arm = float(engine_rating(player, "arm", 0) or 0)
     off = 0.5 * ch + 0.5 * ph
     defense = 0.5 * fa + 0.5 * arm
     base_score = (0.6 * off) + (0.2 * sp) + (0.2 * defense)
@@ -545,9 +546,9 @@ def _slot_components(
     of vs-hand delta, plus the flat ±2.0 handedness shift) so slotting agrees
     with simulated outcomes (S2-02)."""
     h, d = _platoon_shift(player, vs_hand, tuning)
-    ch = float(getattr(player, "ch", 0)) + 2.0 * h + 0.25 * d
-    ph = float(getattr(player, "ph", 0)) + 2.0 * h + 0.20 * d
-    eye = float(getattr(player, "eye", 0)) + 2.0 * h + 0.30 * d
+    ch = float(engine_rating(player, "ch", 0)) + 2.0 * h + 0.25 * d
+    ph = float(engine_rating(player, "ph", 0)) + 2.0 * h + 0.20 * d
+    eye = float(engine_rating(player, "eye", 0)) + 2.0 * h + 0.30 * d
     sp = float(getattr(player, "sp", 0))
     return {
         "obp": 0.6 * eye + 0.4 * ch,
@@ -624,12 +625,12 @@ def _strategy_hitter_bonus(player: object, *, profile: str) -> float:
     token = str(profile or "balanced").strip().lower()
     if token == "balanced":
         return 0.0
-    ch = _norm_rating(getattr(player, "ch", 0))
-    ph = _norm_rating(getattr(player, "ph", 0))
+    ch = _norm_rating(engine_rating(player, "ch", 0))
+    ph = _norm_rating(engine_rating(player, "ph", 0))
     sp = _norm_rating(getattr(player, "sp", 0))
-    eye = _norm_rating(getattr(player, "eye", 0))
-    fa = _norm_rating(getattr(player, "fa", 0))
-    arm = _norm_rating(getattr(player, "arm", 0))
+    eye = _norm_rating(engine_rating(player, "eye", 0))
+    fa = _norm_rating(engine_rating(player, "fa", 0))
+    arm = _norm_rating(engine_rating(player, "arm", 0))
     gf = _norm_rating(getattr(player, "gf", 0))
     age = _player_age(player)
 

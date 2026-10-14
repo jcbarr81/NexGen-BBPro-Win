@@ -36,6 +36,7 @@ from services.payroll_policy import (
 from utils.league_settings import is_owner_league, load_league_settings
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.rating_scale import engine_rating
 
 __all__ = [
     "build_arbitration_queue",
@@ -1410,19 +1411,19 @@ def _player_talent_score(player: object | None) -> int:
     ).upper() == "P"
     if is_pitcher:
         values = [
-            _safe_int(getattr(player, "arm", 0), fallback=0),
-            _safe_int(getattr(player, "control", 0), fallback=0),
-            _safe_int(getattr(player, "movement", 0), fallback=0),
+            _safe_int(engine_rating(player, "arm", 0), fallback=0),
+            _safe_int(engine_rating(player, "control", 0), fallback=0),
+            _safe_int(engine_rating(player, "movement", 0), fallback=0),
             _safe_int(getattr(player, "endurance", 0), fallback=0),
         ]
     else:
         values = [
-            _safe_int(getattr(player, "ch", 0), fallback=0),
-            _safe_int(getattr(player, "ph", 0), fallback=0),
+            _safe_int(engine_rating(player, "ch", 0), fallback=0),
+            _safe_int(engine_rating(player, "ph", 0), fallback=0),
             _safe_int(getattr(player, "sp", 0), fallback=0),
-            _safe_int(getattr(player, "eye", 0), fallback=0),
-            _safe_int(getattr(player, "fa", 0), fallback=0),
-            _safe_int(getattr(player, "arm", 0), fallback=0),
+            _safe_int(engine_rating(player, "eye", 0), fallback=0),
+            _safe_int(engine_rating(player, "fa", 0), fallback=0),
+            _safe_int(engine_rating(player, "arm", 0), fallback=0),
         ]
     ratings = [value for value in values if value > 0]
     if not ratings:

@@ -39,6 +39,7 @@ from utils.park_utils import (
 from playbalance.state import PitcherState
 from utils.path_utils import get_base_dir, get_data_dir
 from utils.putout_probabilities import load_putout_probabilities
+from utils.rating_scale import LEGACY_RATING_SCALE, rating_scale_of
 from utils.stats_persistence import save_stats
 from services.injury_simulator import InjurySimulator
 from .stats import (
@@ -206,6 +207,19 @@ class GameSimulation:
         stadium: Stadium | None = None,
         game_date: str | None = None,
     ) -> None:
+        # This archived engine (and batter_ai, pitch_resolution, the
+        # substitution managers behind it) reads ratings straight off the
+        # player objects and was built on scale 1 only. Refuse anything
+        # else rather than play stored ratings as if they were the engine's.
+        for team in (home, away):
+            for group in (team.lineup, team.bench, team.pitchers):
+                for player in group:
+                    if rating_scale_of(player) != LEGACY_RATING_SCALE:
+                        raise RuntimeError(
+                            "The archived playbalance engine cannot play a "
+                            "league stored on rating scale "
+                            f"{rating_scale_of(player)} (utils.rating_scale)."
+                        )
         self.home = home
         self.away = away
         self.config = config

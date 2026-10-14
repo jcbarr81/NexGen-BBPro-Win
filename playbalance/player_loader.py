@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Dict, Iterable, Mapping
 import csv
 
+from utils.rating_scale import engine_row
+
 from .ratings import clamp_rating
 
 
@@ -30,6 +32,7 @@ def _to_rating(value: str | float) -> float:
         return 50.0
 
 
+# rating-scale: every row goes through engine_row before it is read
 def load_players(path: str | Path) -> Dict[str, Player]:
     """Load players from ``path`` returning a mapping by ``player_id``.
 
@@ -48,6 +51,8 @@ def load_players(path: str | Path) -> Dict[str, Player]:
             if not pid:
                 # Skip rows without a primary identifier.
                 continue
+            # Ratings here feed an engine: read the row on the engine scale.
+            row = engine_row(row)
             is_pitcher = row.get("is_pitcher", "0") == "1"
             # Combine first and last name fields; ``strip`` handles missing parts.
             name = f"{row.get('first_name','')} {row.get('last_name','')}".strip()

@@ -9,6 +9,7 @@ from models.player import Player
 from models.pitcher import Pitcher
 from models.roster import Roster
 from utils.path_utils import resolve_app_path
+from utils.rating_scale import engine_rating
 from .player_loader import load_players_from_csv
 from .roster_loader import load_roster
 from .pitcher_role import get_role
@@ -140,7 +141,7 @@ def _default_hitters(
         minor_hitters, _ = _separate_players(
             _resolve_players(list(roster.aaa) + list(roster.low), all_players, seen_ids)
         )
-        minor_hitters.sort(key=lambda p: getattr(p, "ph", 0), reverse=True)
+        minor_hitters.sort(key=lambda p: engine_rating(p, "ph", 0), reverse=True)
         hitters.extend(minor_hitters[: max(0, 9 - len(hitters))])
 
     from utils.lineup_autofill import (

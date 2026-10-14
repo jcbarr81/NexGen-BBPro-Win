@@ -18,11 +18,21 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping, Optional
 
 from utils.pitcher_role import get_role
+from utils.rating_scale import (
+    LEGACY_RATING_SCALE,
+    RATING_SCALE_FIELD,
+    engine_rating,
+    engine_value,
+    is_pitcher_flag,
+    normalize_rating_scale,
+    rating_scale_of,
+)
 
 PITCH_KEYS = ("fb", "cu", "cb", "sl", "si", "scb", "kn")
 
 # Offense weights follow what the engine rewards (H8): contact and power carry
 # production, eye a little, speed a little.
+# rating-scale: weights by key; read through an engine reader (_hitter_score)
 _OFFENSE_WEIGHTS = {"ch": 0.45, "ph": 0.45, "eye": 0.07, "sp": 0.03}
 
 # PROVISIONAL defense weights per point of (rating - 50), DECISIONS.md #12:
@@ -77,14 +87,56 @@ def _clamp(score: float) -> float:
     return max(0.0, min(99.0, score))
 
 
+def _engine_reader(
+    get_raw: Callable[[str], Any], *, pitcher: bool
+) -> Callable[[str], Any]:
+    """``get_raw`` (a reader of a row's STORED values) as a reader of
+    engine ratings.
+
+    The weights and the ``- 50`` terms below are in engine points, so the
+    overall is always worked out on the engine scale and is the same number
+    whatever scale the player's row is stored on. The row's scale is read
+    through ``get_raw`` itself (``rating_scale``, and ``is_pitcher`` for
+    which table applies; ``pitcher`` when the reader has no such field). A
+    scale 1 row, every row today, gets ``get_raw`` back untouched.
+    """
+
+    try:
+        raw_scale = get_raw(RATING_SCALE_FIELD)
+    except Exception:
+        raw_scale = None
+    if raw_scale is None or raw_scale == "" or raw_scale == LEGACY_RATING_SCALE:
+        return get_raw
+    scale = normalize_rating_scale(raw_scale)
+    if scale == LEGACY_RATING_SCALE:
+        return get_raw
+    flag = get_raw("is_pitcher")
+    if flag is not None and flag != "":
+        pitcher = is_pitcher_flag(flag)
+    return lambda key: engine_value(key, get_raw(key), scale, pitcher=pitcher)
+
+
 def hitter_overall_score(
     get_raw: Callable[[str], Any],
     position: Optional[str] = None,
 ) -> Optional[float]:
-    """Continuous hitter overall on the rating scale (None without ch/ph)."""
+    """Continuous hitter overall on the rating scale (None without ch/ph).
 
-    ch = _rating(get_raw, "ch")
-    ph = _rating(get_raw, "ph")
+    ``get_raw(key)`` reads the player's STORED value for ``key`` (a row's
+    ``.get``, an attribute getter); see :func:`_engine_reader`.
+    """
+
+    return _hitter_score(_engine_reader(get_raw, pitcher=False), position)
+
+
+def _hitter_score(
+    get_raw: Callable[[str], Any],
+    position: Optional[str] = None,
+) -> Optional[float]:
+    """:func:`hitter_overall_score` for a reader of ENGINE ratings."""
+
+    ch = _rating(get_raw, "ch")  # rating-scale: get_raw is an engine reader
+    ph = _rating(get_raw, "ph")  # rating-scale: get_raw is an engine reader
     if ch is None and ph is None:
         return None
     offense = 0.0
@@ -95,8 +147,8 @@ def hitter_overall_score(
     fa_weight, arm_weight = _DEFENSE_WEIGHTS.get(
         str(position or "").strip().upper(), _DEFAULT_DEFENSE_WEIGHTS
     )
-    fa = _rating(get_raw, "fa")
-    arm = _rating(get_raw, "arm")
+    fa = _rating(get_raw, "fa")  # rating-scale: get_raw is an engine reader
+    arm = _rating(get_raw, "arm")  # rating-scale: get_raw is an engine reader
     defense = fa_weight * ((fa if fa is not None else _NEUTRAL) - _NEUTRAL)
     defense += arm_weight * ((arm if arm is not None else _NEUTRAL) - _NEUTRAL)
     return _clamp(offense + defense)
@@ -111,9 +163,22 @@ def pitcher_overall_score(
     Only thrown pitches (grade > 0) enter the pitch-grade mean, so a pitcher
     with two pitches and one with five of the same grade score the same
     (M14). With no graded pitch the weight falls back onto control/movement.
+
+    ``get_raw`` reads STORED values, as in :func:`hitter_overall_score`.
     """
 
+    return _pitcher_score(_engine_reader(get_raw, pitcher=True), role)
+
+
+def _pitcher_score(
+    get_raw: Callable[[str], Any],
+    role: Optional[str] = None,
+) -> Optional[float]:
+    """:func:`pitcher_overall_score` for a reader of ENGINE ratings."""
+
+    # rating-scale: get_raw is an engine reader
     control = _rating(get_raw, "control")
+    # rating-scale: get_raw is an engine reader
     movement = _rating(get_raw, "movement")
     if control is None and movement is None:
         return None
@@ -140,9 +205,19 @@ def pitcher_overall_score(
 
 
 def _getter(player: Any) -> Callable[[str], Any]:
+    """A reader of ``player``'s fields as stored (object or row dict)."""
+
     if isinstance(player, Mapping):
         return player.get
     return lambda key: getattr(player, key, None)
+
+
+def _engine_getter(player: Any) -> Callable[[str], Any]:
+    """A reader of ``player``'s ratings on the engine scale."""
+
+    if rating_scale_of(player) == LEGACY_RATING_SCALE:
+        return _getter(player)
+    return lambda key: engine_rating(player, key)
 
 
 def is_pitcher_like(player: Any) -> bool:
@@ -178,15 +253,19 @@ def player_overall_score(
 
     ``get_raw`` overrides where ratings are read from (the trade evaluator
     passes one that reads potential ratings); position and role still come
-    from ``player``.
+    from ``player``. Unlike the readers the functions above take, an
+    override must return ENGINE ratings already
+    (``utils.rating_scale.engine_rating`` / ``engine_potential``): it is
+    used as given. Without one the player's own ratings are read on the
+    engine scale, so the score does not depend on the scale his row is on.
     """
 
     if player is None:
         return None
-    reader = get_raw or _getter(player)
+    reader = get_raw or _engine_getter(player)
     if is_pitcher_like(player):
-        return pitcher_overall_score(reader, get_role(player))
-    return hitter_overall_score(reader, _getter(player)("primary_position"))
+        return _pitcher_score(reader, get_role(player))
+    return _hitter_score(reader, _getter(player)("primary_position"))
 
 
 __all__ = [

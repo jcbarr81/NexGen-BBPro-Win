@@ -40,6 +40,7 @@ from utils.roster_loader import (
 )
 from utils.pitcher_role import get_role
 from utils.player_overall import player_overall_score
+from utils.rating_scale import engine_rating
 from services.team_ownership import human_owned_team_ids_strict
 
 
@@ -214,11 +215,11 @@ def _strategy_assignment_bonus(
         return 0.0
 
     if counts_as_pitcher(player):
-        control = _norm_rating(getattr(player, "control", 0))
-        movement = _norm_rating(getattr(player, "movement", 0))
+        control = _norm_rating(engine_rating(player, "control", 0))
+        movement = _norm_rating(engine_rating(player, "movement", 0))
         endurance = _norm_rating(getattr(player, "endurance", 0))
         hold = _norm_rating(getattr(player, "hold_runner", 0))
-        arm = _norm_rating(getattr(player, "arm", getattr(player, "fb", 0)))
+        arm = _norm_rating(engine_rating(player, "arm", getattr(player, "fb", 0)))
         if profile == "win_now":
             bonus = (2.2 * control) + (2.0 * movement) + (1.7 * endurance)
             if isinstance(age, int) and age <= 23:
@@ -237,11 +238,11 @@ def _strategy_assignment_bonus(
             return (1.8 * arm) + (1.4 * endurance) - (0.5 * hold)
         return 0.0
 
-    ch = _norm_rating(getattr(player, "ch", 0))
-    ph = _norm_rating(getattr(player, "ph", 0))
+    ch = _norm_rating(engine_rating(player, "ch", 0))
+    ph = _norm_rating(engine_rating(player, "ph", 0))
     sp = _norm_rating(getattr(player, "sp", 0))
-    fa = _norm_rating(getattr(player, "fa", 0))
-    arm = _norm_rating(getattr(player, "arm", 0))
+    fa = _norm_rating(engine_rating(player, "fa", 0))
+    arm = _norm_rating(engine_rating(player, "arm", 0))
     gf = _norm_rating(getattr(player, "gf", 0))
     if profile == "win_now":
         bonus = (2.3 * ch) + (2.7 * ph) + (0.8 * sp) - (0.6 * fa)
@@ -265,10 +266,10 @@ def _strategy_assignment_bonus(
 def _pitcher_score(p) -> float:
     # Preserve a role-aware score for tie-breaks and staff shaping
     endurance = float(getattr(p, "endurance", 0))
-    control = float(getattr(p, "control", 0))
-    movement = float(getattr(p, "movement", 0))
+    control = float(engine_rating(p, "control", 0))
+    movement = float(engine_rating(p, "movement", 0))
     hold = float(getattr(p, "hold_runner", 0))
-    arm = float(getattr(p, "arm", getattr(p, "fb", 0)))
+    arm = float(engine_rating(p, "arm", getattr(p, "fb", 0)))
     role = get_role(p)
     if role == "SP":
         return 0.5 * endurance + 0.25 * control + 0.2 * movement + 0.05 * hold
