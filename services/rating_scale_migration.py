@@ -159,12 +159,14 @@ RESPREAD_CANDIDATES: Dict[str, Tuple[str, ...]] = {
 # The measured rule: a rating is BUNCHED in a league when the standard
 # deviation over its ACT players is below this share of the reference
 # league's (``data/calibration_league``, a league as the product creates
-# one). On alpha-test it picks Eye (.55), fielding (.23), arm (.18),
-# ground-ball (.54) and pull (.31) of the hitters and control (.35),
-# movement (0), arm (.24), endurance (.10), hold (.16), fielding (.36) and
-# ground-ball (.44) of the pitchers; it leaves Contact (1.31), Power (.90),
-# speed (.77) and every pitch grade (.68 and up). On stats-clean and the
-# three fixtures it picks nothing.
+# one). On alpha-test it picks Eye (.57), fielding (.22), arm (.17),
+# ground-ball (.53) and pull (.31) of the hitters and control (.35),
+# movement (0), arm (.24), endurance (.11), hold (.16), fielding (.36) and
+# ground-ball (.44) of the pitchers; it leaves Contact (1.32), Power (.90),
+# speed (.77) and every pitch grade (.68 and up). The flat fixture
+# (``data/calibration_flat``, bunched the same way) gives the same twelve;
+# stats-clean (lowest ratio .64), the calibration fixture and the league
+# fixture give none.
 BUNCHED_SD_RATIO = 0.6
 # The fixed seed of the last tie-break (a hash, so no random stream and no
 # PYTHONHASHSEED is involved).

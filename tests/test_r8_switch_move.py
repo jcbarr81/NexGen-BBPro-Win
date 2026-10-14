@@ -392,3 +392,65 @@ def test_a_scale_2_file_in_the_older_format_is_rewritten_in_the_new_one(
         assert after[pid] == row, pid
     assert [e["event"] for e in scale_log(data)["events"]] == ["reformatted"]
     assert news(data) == ""
+
+
+# --- open draft pools and the news text ----------------------------------------
+
+
+def test_an_open_draft_pool_is_converted_and_history_is_not(scratch, monkeypatch):
+    data = scratch
+    prospect = {
+        "player_id": "D20260001", "first_name": "A", "last_name": "B",
+        "is_pitcher": False, "height": 72, "ch": 45, "ph": 40, "eye": 44,
+        "fa": 50, "arm": 50, "pot_ch": 60,
+    }
+    old_pool = json.dumps([dict(prospect, player_id="D20250001")])
+    (data / "draft_pool_2025.json").write_text(old_pool, encoding="utf-8")
+    (data / "draft_pool_2026.json").write_text(json.dumps([prospect]), encoding="utf-8")
+    (data / "draft_pool_2026.csv").write_text(
+        "player_id,is_pitcher,height,ch,ph,eye\nD20260001,False,72,45,40,44\n",
+        encoding="utf-8",
+    )
+    switch_on(monkeypatch)
+    write_schedule(data, 2026)
+    _first_game(monkeypatch)
+    (converted,) = json.loads((data / "draft_pool_2026.json").read_text())
+    assert converted["rating_scale"] == 2
+    assert converted == stretch_row(prospect, 2)[0]
+    rows = read_rows(data / "draft_pool_2026.csv")[1]
+    assert rows[0]["rating_scale"] == "2" and rows[0]["ch"] == "40"  # 50 + 2 * (45 - 50)
+    assert (data / "draft_pool_2025.json").read_text(encoding="utf-8") == old_pool
+    assert (data / "draft_pool_2026.scale1.2026.json").exists()
+    (event,) = scale_log(data)["events"]
+    assert sorted(event["draft_pools"]) == ["draft_pool_2026.csv", "draft_pool_2026.json"]
+
+
+def test_the_news_items_quote_the_leagues_own_numbers():
+    summary = {
+        "Contact": {"before_max": 62, "after_max": 86},
+        "Power": {"before_max": 65, "after_max": 95},
+        "Control": {"before_max": 67, "after_max": 93},
+    }
+    text = migration.engine_and_scale_news(
+        summary, players=1100, season="2027", backup=None, previous_generation=4
+    )
+    assert "Contact 62 to 86, Power 65 to 95, Control 67 to 93" in text
+    assert "1100 players were converted" in text and "Season 2027" in text
+    # A league coming from the legacy engine is also told about generation
+    # 5's changes; one coming from generation 5 is not.
+    assert "intentional walks" in text
+    later = migration.engine_and_scale_news(
+        summary, players=1100, season="2027", backup=None, previous_generation=5
+    )
+    assert "intentional walks" not in later
+    record = {"respread": {"ratings": [
+        {"group": "pitcher", "key": "movement", "act_range_before": [52, 52],
+         "act_range_after": [39, 63], "stored_range_unspread": [46, 46],
+         "stored_range": [20, 77]},
+    ]}}
+    spread = migration.respread_news(record, league="alpha-test", season="2027")
+    assert "alpha-test's ratings were spread out" in spread
+    assert "Movement 20-77 (would have been 46-46)" in spread
+    assert "Stamina" not in spread
+    refused = migration.refusal_news("2 ratings would not fit", season="2027")
+    assert "2 ratings would not fit" in refused and "next season" in refused
