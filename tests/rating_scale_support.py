@@ -63,13 +63,20 @@ def write_player_rows(
 def stretch_players_file(
     src: Path, dst: Path, *, scale: int = FULL_RATING_SCALE
 ) -> List[RatingClip]:
-    """Write ``src`` (a players.csv) to ``dst`` on ``scale``; the clips."""
+    """Write ``src`` (a players.csv) to ``dst`` on ``scale``; the clips.
+
+    A column the stretch had to add (an Eye filled from Contact in a file
+    with no ``eye`` column) is written too, before ``rating_scale``."""
 
     fields, rows = read_player_rows(src)
     stretched, clips = stretch_rows(rows, scale)
-    if RATING_SCALE_FIELD not in fields:
-        fields = fields + [RATING_SCALE_FIELD]
-    write_player_rows(dst, fields, stretched)
+    added = sorted(
+        {key for row in stretched for key in row}
+        - set(fields)
+        - {RATING_SCALE_FIELD}
+    )
+    fields = [f for f in fields if f != RATING_SCALE_FIELD] + added
+    write_player_rows(dst, fields + [RATING_SCALE_FIELD], stretched)
     return clips
 
 

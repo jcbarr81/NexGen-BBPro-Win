@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 from pathlib import Path
 from typing import Any, Dict
 
@@ -13,12 +14,19 @@ from utils.rating_scale import (
     LEGACY_RATING_SCALE,
     RATING_SCALE_FIELD,
     MixedRatingScaleError,
-    players_file_rating_scale,
+    describe_rating_scales,
+    majority_rating_scale,
+    players_file_rating_scales,
     rating_scale_of,
     stretch_row,
+    to_engine,
+    to_stored,
+    to_stored_exact,
 )
 from utils.roster_loader import load_roster, save_roster
 from utils.roster_rules import LOW_CAP as LOW_MAX
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _data_dir() -> Path:
@@ -84,16 +92,42 @@ def _default_row_from_pool(pool_row: Dict[str, Any]) -> Dict[str, Any]:
     is_pitcher = str(pool_row.get("is_pitcher", "0")).lower() in {"1", "true", "yes"}
     primary = pool_row.get("primary_position", "P" if is_pitcher else "SS")
     other = pool_row.get("other_positions", "")
-    ch = _as_int("ch", 50)
-    ph = _as_int("ph", 50)
-    sp = _as_int("sp", 50)
-    eye = _as_int("eye", ch)
-    gf = _as_int("gf", 50)
-    pl = _as_int("pl", 50)
-    vl = _as_int("vl", 50)
-    sc = _as_int("sc", 50)
-    fa = _as_int("fa", 50)
-    arm = _as_int("arm", 50)
+    pool_scale = rating_scale_of(pool_row)
+
+    def _rating(key: str, engine_default: float) -> int:
+        """The pool's stored value for ``key``, or ``engine_default`` (an
+        ENGINE rating) stored on the pool's scale: a default of 50 is the
+        engine's average, which is 48 for a hitter's arm on scale 2. 0 is
+        "no rating" on any scale. On scale 1 this is ``_as_int``."""
+
+        value = _as_int(key, None)
+        if value is not None:
+            return value
+        if engine_default <= 0 or pool_scale == LEGACY_RATING_SCALE:
+            return int(engine_default)
+        exact = to_stored_exact(key, engine_default, pool_scale, pitcher=is_pitcher)
+        stored = int(to_stored(key, engine_default, pool_scale, pitcher=is_pitcher))
+        if exact != stored and not 1 <= exact <= 99:
+            _LOGGER.warning(
+                "draft pick %s: default %s %s does not fit rating scale %s "
+                "(%s stored as %s)",
+                pid, key, engine_default, pool_scale, exact, stored,
+            )
+        return stored
+
+    ch = _rating("ch", 50)
+    ph = _rating("ph", 50)
+    sp = _rating("sp", 50)
+    # A missing Eye is the player's Contact, on the ENGINE scale.
+    eye = _rating(
+        "eye", to_engine("ch", ch, pool_scale, pitcher=is_pitcher) if ch else 0
+    )
+    gf = _rating("gf", 50)
+    pl = _rating("pl", 50)
+    vl = _rating("vl", 50)
+    sc = _rating("sc", 50)
+    fa = _rating("fa", 50)
+    arm = _rating("arm", 50)
     endurance = _as_int("endurance", 0)
     control = _as_int("control", 0)
     movement = _as_int("movement", 0)
@@ -197,7 +231,6 @@ def _default_row_from_pool(pool_row: Dict[str, Any]) -> Dict[str, Any]:
     # The pool entry's ratings are on the scale the pool was generated on
     # (utils.rating_scale); the row carries it so _append_players can tell.
     # Blank on a scale 1 pool, as the column is on a scale 1 players.csv.
-    pool_scale = rating_scale_of(pool_row)
     row[RATING_SCALE_FIELD] = "" if pool_scale == LEGACY_RATING_SCALE else pool_scale
     return row
 
@@ -210,31 +243,51 @@ def _players_index() -> Dict[str, Dict[str, Any]]:
 
 
 def _rows_on_file_scale(
-    rows: list[Dict[str, Any]], path: Path
+    rows: list[Dict[str, Any]], path: Path, header: list[str]
 ) -> list[Dict[str, Any]]:
-    """``rows`` on the rating scale ``players.csv`` is stored on.
+    """``rows`` ready to append under ``players.csv``'s own ``header``.
 
-    Appending keeps the file's own header, so a row from a pool on another
-    scale would be written as if it were on the file's: a scale 2 pick in a
-    scale 1 file loses its marker and plays as a superstar. A scale 1 row
-    going into a scale 2 file is stretched here (the same exact map the
-    league's own rows went through); the reverse has no exact answer for
-    potentials and is refused, before anything is written.
+    The league's scale is the scale most of its rows are on (a few stray
+    rows do not stop a draft; a file split evenly is refused with
+    ``MixedRatingScaleError``). A pick on that scale goes in as he is. A
+    scale 1 pick going into a league on another scale is stretched (the
+    same map the league's own rows went through; clips are logged). Any
+    other pick keeps his own scale when the file has a ``rating_scale``
+    column to carry it (logged: the file becomes mixed). With no column, a
+    pick that is not on scale 1 is refused before anything is written:
+    appended unmarked, his stretched ratings would read as engine ratings.
     """
 
-    file_scale = players_file_rating_scale(path)
+    counts = players_file_rating_scales(path)
+    target = majority_rating_scale(counts)
+    marked = RATING_SCALE_FIELD in header
     out: list[Dict[str, Any]] = []
     for row in rows:
         row_scale = rating_scale_of(row)
-        if row_scale == file_scale:
+        pid = row.get("player_id")
+        if row_scale == target:
             out.append(row)
         elif row_scale == LEGACY_RATING_SCALE:
-            stretched, _clips = stretch_row(row, file_scale)
+            stretched, clips = stretch_row(row, target)
+            for clip in clips:
+                _LOGGER.warning(
+                    "draft pick %s: %s %s does not fit rating scale %s "
+                    "(%s stored as %s)",
+                    pid, clip.kind, clip.key, target, clip.unclipped, clip.stored,
+                )
             out.append(stretched)
+        elif marked:
+            _LOGGER.warning(
+                "draft pick %s is on rating scale %s in a league on scale %s "
+                "(%s); appended on his own scale",
+                pid, row_scale, target, describe_rating_scales(counts),
+            )
+            out.append(row)
         else:
             raise MixedRatingScaleError(
-                f"draft pick {row.get('player_id')!r} is on rating scale "
-                f"{row_scale} but players.csv is on scale {file_scale}"
+                f"draft pick {pid!r} is on rating scale {row_scale} but "
+                f"players.csv is on scale {target} with no rating_scale "
+                "column to mark him"
             )
     return out
 
@@ -244,7 +297,7 @@ def _append_players(rows: list[Dict[str, Any]]) -> None:
         return
     path = _players_csv_path()
     header = _read_players_header()
-    rows = _rows_on_file_scale(rows, path)
+    rows = _rows_on_file_scale(rows, path, header)
     with path.open("a", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=header)
         for row in rows:

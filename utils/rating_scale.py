@@ -75,7 +75,9 @@ __all__ = [
     "GENERATED_RATING_SCALE",
     "KNOWN_RATING_SCALES",
     "LEGACY_RATING_SCALE",
+    "MIXED_RATING_SCALES",
     "MixedRatingScaleError",
+    "describe_rating_scales",
     "RATING_MAX",
     "RATING_MIN",
     "RATING_SCALE_FIELD",
@@ -88,13 +90,15 @@ __all__ = [
     "engine_row",
     "engine_rows",
     "is_pitcher_flag",
+    "majority_rating_scale",
     "moved_rating_keys",
     "normalize_rating_scale",
     "player_is_pitcher",
     "players_file_rating_scale",
+    "players_file_rating_scales",
     "rating_map",
+    "rating_scale_counts",
     "rating_scale_of",
-    "single_rating_scale",
     "stretch_row",
     "stretch_rows",
     "to_engine",
@@ -111,6 +115,9 @@ KNOWN_RATING_SCALES: Tuple[int, ...] = (LEGACY_RATING_SCALE, FULL_RATING_SCALE)
 GENERATED_RATING_SCALE = LEGACY_RATING_SCALE
 
 RATING_SCALE_FIELD = "rating_scale"
+# What :func:`players_file_rating_scale` answers for a file whose rows are
+# not all on one scale.
+MIXED_RATING_SCALES = "mixed"
 RATING_MIN = 1
 RATING_MAX = 99
 _POTENTIAL_PREFIX = "pot_"
@@ -197,7 +204,8 @@ class RatingClip:
 
     ``kind`` is ``"rating"`` (the map left 1-99; the engine view of the
     stored value is no longer ``engine_value``) or ``"potential"`` (the gap
-    was cut at 99).
+    was cut at 99). ``source`` names the rating a blank one was filled from
+    (``"ch"`` for Eye, ``"fb"`` for a pitcher's arm), else ``""``.
     """
 
     player_id: str
@@ -206,6 +214,7 @@ class RatingClip:
     engine_value: float
     unclipped: float
     stored: int
+    source: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -267,24 +276,50 @@ def rating_scale_of(player: Any) -> int:
     return normalize_rating_scale(raw)
 
 
-def single_rating_scale(players: Iterable[Any]) -> int:
-    """The one scale every player in ``players`` is on (1 for none at all).
+def rating_scale_counts(players: Iterable[Any]) -> Dict[int, int]:
+    """scale -> how many of ``players`` (objects or rows) are stored on it.
 
-    Raises :class:`MixedRatingScaleError` otherwise: a file holding rows on
-    two scales has been half converted, or had rows from another league
-    appended to it, and nothing downstream can make it right.
+    A file can hold rows on two scales (half converted, or a row from
+    another league appended to it). Every row still reads correctly, because
+    it carries its own scale; this is for the code that has to notice.
     """
 
     seen: Dict[int, int] = {}
     for player in players:
         scale = rating_scale_of(player)
         seen[scale] = seen.get(scale, 0) + 1
-    if len(seen) > 1:
-        detail = ", ".join(f"{n} on scale {s}" for s, n in sorted(seen.items()))
-        raise MixedRatingScaleError(f"players on mixed rating scales: {detail}")
-    for scale in seen:
-        return scale
-    return LEGACY_RATING_SCALE
+    return seen
+
+
+def describe_rating_scales(counts: Mapping[int, int]) -> str:
+    """``"1490 on scale 2, 40 on scale 1"`` for a log line or an error."""
+
+    return ", ".join(
+        f"{n} on scale {s}"
+        for s, n in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    )
+
+
+def majority_rating_scale(counts: Mapping[int, int]) -> int:
+    """The scale most of a league's rows are on (1 for no rows at all).
+
+    For code that must fabricate or convert rows for a league and so needs
+    ONE scale (a draft class, a pick appended to players.csv): a few stray
+    rows must not stop the league, and the league is what most of its rows
+    are. An even split has no answer and raises
+    :class:`MixedRatingScaleError`: that file is a half-done conversion.
+    """
+
+    if not counts:
+        return LEGACY_RATING_SCALE
+    ranked = sorted(counts.items(), key=lambda item: -item[1])
+    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
+        raise MixedRatingScaleError(
+            "players.csv is split evenly between rating scales "
+            f"({describe_rating_scales(counts)}); finish or undo its "
+            "conversion before generating or adding players"
+        )
+    return ranked[0][0]
 
 
 def is_pitcher_flag(value: object) -> bool:
@@ -428,20 +463,77 @@ def _like(sample: object, value: float) -> object:
 # Rows: players.csv dicts, the generator's player dicts, draft pool entries
 # ---------------------------------------------------------------------------
 
+# Ratings the league loader (``utils.player_loader``) borrows from another
+# one when they are missing: rating -> (the rating it borrows, which kind of
+# row, whether a stored 0 also counts as missing). Each rule is a statement
+# about ENGINE ratings.
+_LOADER_FALLBACKS: Dict[Tuple[str, str], Tuple[str, bool]] = {
+    (_HITTER, "eye"): ("ch", False),  # a blank Eye reads as Contact
+    (_PITCHER, "arm"): ("fb", True),  # a missing or 0 arm reads as the fastball
+}
+
+
+def _fill_fallbacks(row: Dict[str, Any], group: str) -> Dict[str, str]:
+    """Write the loader's fallbacks into ``row`` (engine scale, in place).
+
+    Returns ``{rating: source}`` for every value filled. A scale 2 row must
+    never leave one to the loader: it would borrow a STORED value through
+    the wrong rating's map (a blank Eye from stored Contact), and the engine
+    and the loader would disagree about the player.
+    """
+
+    filled: Dict[str, str] = {}
+    for (kind, key), (source, zero_is_missing) in _LOADER_FALLBACKS.items():
+        if kind != group:
+            continue
+        raw = row.get(key)
+        missing = raw is None or (isinstance(raw, str) and not raw.strip())
+        if not missing and zero_is_missing:
+            number = _set_number(raw)
+            missing = number is None and _is_zero(raw)
+        if not missing:
+            continue
+        value = _set_number(row.get(source))
+        if value is None:
+            continue
+        sample = row.get(source)
+        row[key] = _like(sample, value)
+        filled[key] = source
+    return filled
+
+
+def _is_zero(value: object) -> bool:
+    try:
+        return float(value) == 0  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+
+
 def stretch_row(
-    row: Mapping[str, Any], scale: object = FULL_RATING_SCALE
+    row: Mapping[str, Any], scale: object
 ) -> Tuple[Dict[str, Any], List[RatingClip]]:
     """``row`` re-expressed on ``scale``, and every value that was clipped.
 
     ``row`` is a ``players.csv`` row (text values) or a generated player
     dict (numbers); values keep the form they came in. A row already on
     ``scale`` is returned as an unchanged copy (conversion is idempotent per
-    row); a row on any other scale than 1 is an error.
+    row); a row on any other scale than 1 is an error. ``scale`` is required:
+    nothing should land on scale 2 by default.
+
+    Fallbacks first: a rating the league loader would borrow from another
+    one (a blank Eye from Contact, a missing or 0 pitcher arm from his
+    fastball) is filled on the ENGINE scale, from the engine value, before
+    anything is mapped, and then mapped like any other (a fill that does not
+    fit 1-99 is reported, with its ``source``). So the stretched row never
+    asks the loader to borrow a stored value through another rating's map,
+    and the engine and the loader read the same player. On a scale 1 row the
+    engine reads a blank pitcher arm as 50 where the loader reads the
+    fastball; every save through ``utils.player_writer`` already writes the
+    loader's value, and the conversion does the same.
 
     Ratings: each moved rating that is set goes through the map; a mapped
-    value outside 1-99 is clipped and reported. Blank and zero stay as they
-    are, so the loaders' fallbacks (a blank ``eye`` reads as Contact) fire
-    exactly as before, in engine terms.
+    value outside 1-99 is clipped and reported. Other blanks and zeros stay
+    as they are ("no rating").
 
     Potentials (design section 3, item 2): for a moved rating, ``new
     potential = min(99, new current + max(0, old potential - old current))``;
@@ -462,8 +554,14 @@ def stretch_row(
             f"cannot stretch a row on rating scale {current} to scale {target}"
         )
     pitcher = player_is_pitcher(row)
-    table = _scale_tables(target)[_PITCHER if pitcher else _HITTER]
+    group = _PITCHER if pitcher else _HITTER
+    table = _scale_tables(target)[group]
     player_id = str(row.get("player_id", "") or "")
+    # The engine-scale row being converted, with the loader's fallbacks
+    # written in.
+    row = dict(row)
+    filled = _fill_fallbacks(row, group)
+    out = dict(row)
 
     for key in list(row):
         if not key.startswith(_POTENTIAL_PREFIX):
@@ -488,7 +586,10 @@ def stretch_row(
         stored = _clip(_round_half_up(exact))
         if not RATING_MIN <= exact <= RATING_MAX:
             clips.append(
-                RatingClip(player_id, key, "rating", engine_value, exact, stored)
+                RatingClip(
+                    player_id, key, "rating", engine_value, exact, stored,
+                    filled.get(key, ""),
+                )
             )
         out[key] = _like(row[key], stored)
         pot_key = _POTENTIAL_PREFIX + key
@@ -510,7 +611,7 @@ def stretch_row(
 
 
 def stretch_rows(
-    rows: Iterable[Mapping[str, Any]], scale: object = FULL_RATING_SCALE
+    rows: Iterable[Mapping[str, Any]], scale: object
 ) -> Tuple[List[Dict[str, Any]], List[RatingClip]]:
     """:func:`stretch_row` over ``rows``: the new rows and all the clips."""
 
@@ -573,24 +674,40 @@ def engine_rows(handle: Iterable[str]) -> Iterator[Mapping[str, Any]]:
         yield engine_row(row)
 
 
-def players_file_rating_scale(path: Any) -> int:
-    """The one rating scale the rows of a ``players.csv`` are on.
+def players_file_rating_scales(path: Any) -> Dict[int, int]:
+    """scale -> rows of a ``players.csv`` on it.
 
-    1 for a file with no ``rating_scale`` column (decided from the header
-    alone, so a league that has never been converted costs one line) and for
-    a missing or empty file; :class:`MixedRatingScaleError` for a file with
-    rows on two scales. For code that adds rows to a league or fabricates
-    players for it and must write them on the league's own scale.
+    A file with no ``rating_scale`` column is all scale 1, decided from the
+    header alone (``{1: 0}``: the rows are not counted), so a league that
+    has never been converted costs one line. ``{}`` for a missing file.
     """
 
     try:
         with open(path, newline="", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
             if RATING_SCALE_FIELD not in (reader.fieldnames or []):
-                return LEGACY_RATING_SCALE
-            return single_rating_scale(reader)
+                return {LEGACY_RATING_SCALE: 0}
+            return rating_scale_counts(reader)
     except FileNotFoundError:
-        return LEGACY_RATING_SCALE
+        return {}
+
+
+def players_file_rating_scale(path: Any) -> Any:
+    """The one rating scale the rows of a ``players.csv`` are on, or
+    :data:`MIXED_RATING_SCALES` when they are on more than one.
+
+    Never raises for a mixed file: each row reads correctly on its own
+    scale. 1 for a file with no column, an empty file or a missing one.
+    Code that needs one scale anyway uses :func:`majority_rating_scale`
+    over :func:`players_file_rating_scales`.
+    """
+
+    counts = players_file_rating_scales(path)
+    if len(counts) > 1:
+        return MIXED_RATING_SCALES
+    for scale in counts:
+        return scale
+    return LEGACY_RATING_SCALE
 
 
 # ---------------------------------------------------------------------------

@@ -1864,15 +1864,56 @@ the engine and centre boundary, the consumer accessor and the generator's
 final stretch are built and dark: no league is on scale 2. Found while
 building them:
 
-- **Draft classes do not all fit scale 2.** The draft markdown
-  (`_apply_draft_rating_scale`, floor 20) produces engine ratings below
-  what scale 2 can store: Eye under 33.67, Contact or Power under 25.5,
-  control under 27.5, movement under 29.5. 6 to 8 prospects in a class of
-  240 (three seeds) have one such rating, almost always Eye. They are
-  clipped to stored 1 (and logged), so those prospects play slightly
-  better than the same prospect on scale 1. Decide before any league is on
-  scale 2: raise the draft floors per rating to the scale's floor, in
-  engine points, or accept the clip.
+- **MIGRATION REQUIREMENT: no older build may touch a scale 2 file.** A
+  server on 7.51.3 or before loads a scale 2 `players.csv` as scale 1 (it
+  ignores the column) and its writer saves it back WITHOUT the column, so
+  every stretched value silently becomes an "engine" value (measured by the
+  review: one load-and-save on the 7.51.3 loader and writer turns a twin of
+  the league fixture into a scale 1 file). Cloud Run's deploy overlap (two
+  revisions serving at once) makes this realistic, and so does a rollback.
+  The migration must not run until this is impossible. Options, not
+  exclusive: (a) a fleet-wide minimum-version gate: the converter refuses
+  to run unless the league records that every serving revision is at or
+  above the first build that knows the column (written by each instance at
+  start-up, checked under the sim lock; pause the scheduler as in the
+  GCS-restore recipe); (b) a scale 2 file format an older build REFUSES to
+  load: rename a required column (say `height` -> `height_in`, which the
+  7.51.3 loader's `_required_int(row, "height")` rejects) or write scale 2
+  leagues to `players_v2.csv` with `players.csv` kept as a tripwire, so an
+  old build fails loudly instead of playing stretched numbers; (c) never
+  roll back past the column build once any league has converted. (b) is the
+  only one that also protects against a restored old binary.
+- **MIGRATION REQUIREMENT: check a league for clipping before converting
+  it.** The maps were fitted to today's generated leagues; older rating
+  distributions do not fit. The repo's `data/players.csv` (600 players)
+  clips 211 Eye, 50 Power, 38 Contact, 52 hitter arm, 13 fielding, 27
+  movement and 14 control values (and cuts 307 potential gaps at 99); the
+  tracked sample leagues under `data/leagues/{usabl,cbl,test-league}` hold
+  Contact and Power up to 99 (review figures; not re-measured here, those
+  leagues are not to be touched). A clipped value no longer plays as it
+  did. The converter must run `stretch_rows` dry first and refuse (or hand
+  the decision to the owner, e.g. a league re-spread before the stretch)
+  when any ACTIVE player's rating would clip; clips on minor leaguers and
+  potential cuts are reported with it.
+- **Draft classes must fit scale 2: raise the draft floors (decided).**
+  The draft markdown (`_apply_draft_rating_scale`, floor 20) produces
+  engine ratings below what scale 2 can store: Eye under 33.67, Contact or
+  Power under 25.5, control under 27.5, movement under 29.5. 6 to 8
+  prospects in a class of 240 (three seeds) have one such rating, almost
+  always Eye; today they are clipped to stored 1 (and logged), so those
+  prospects play slightly better than on scale 1. Decision: raise the draft
+  floors, per rating and in engine points, to the lowest value scale 2 can
+  store, so every prospect fits. Do it in the generator step, when draft
+  classes are first generated on scale 2, NOT now: it would change scale 1
+  generation.
+- **Mixed files are written, not refused (review fix).** Each row carries
+  its own scale and reads correctly, so `save_players_to_csv` writes every
+  row's own `rating_scale` and logs a warning naming the rows off the
+  majority scale; `players_file_rating_scale` answers `"mixed"`. Code that
+  needs ONE scale for a league (a new draft class, a pick appended to
+  `players.csv`) takes the MAJORITY scale and refuses a file split evenly.
+  The migration should still treat a mixed league as unfinished work and
+  convert its stray rows.
 - **The trade evaluator never sees a hitter's potential.**
   `services/cpu_trade_evaluator._rating_value` reads the `pot_<key>`
   attribute first; `models.player.Player` declares `pot_ch`, `pot_ph`,
@@ -1890,13 +1931,10 @@ building them:
   points to the stored attributes with constants in engine points (caps
   of 5, thresholds of 75 and 80). On a scale 2 league a "+3" would be one
   engine point of Contact and three of speed. The development model on the
-  stored scale (design section 3) replaces them.
-- **A pre-column build must never write a scale 2 league.** A server
-  running code from before the column loads a scale 2 `players.csv` as
-  scale 1 and writes it back without the column. Ship this (dark) build
-  everywhere, and keep the deploy-overlap rule (pause the scheduler,
-  `memory: restoring-gcs-under-a-live-instance`), before the migration
-  step converts anything.
+  stored scale (design section 3) replaces them. Until then training camp
+  REFUSES a scale 2 player (`require_engine_scale_players`, before anyone
+  is touched); yearly aging is paused at rollover (7.51.2) and has no
+  tripwire of its own.
 - **The player generator is not repeatable without a reset.** It
   remembers the names it has handed out, which moves its random stream:
   the same seed gives a different draft class on the second call in one

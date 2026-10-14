@@ -248,6 +248,34 @@ def test_the_archived_engine_refuses_a_scale_2_player():
         simulation.GameSimulation(team(1), team(2), config=None)
 
 
+def test_training_camp_refuses_a_scale_2_player_before_touching_anyone(tmp_path):
+    """Training adds engine-sized points to stored values; until the
+    development model is rebuilt on the stored scale it must not run on a
+    scale 2 player, and must not leave half a camp behind."""
+
+    import copy
+
+    from playbalance import player_development, training_camp
+
+    league = support.copy_league(support.FIXTURES["calibration_league"], tmp_path / "lg")
+    support.write_stretched_twin(league, tmp_path / "twin")
+    plain = list(support.load_player_objects(league).values())[:6]
+    full = list(support.load_player_objects(tmp_path / "twin").values())[:1]
+    before = copy.deepcopy(plain)
+    with pytest.raises(RuntimeError, match="rating scale 2"):
+        training_camp.run_training_camp(plain + full)
+    assert [vars(p) for p in plain] == [vars(p) for p in before]  # nobody touched
+    for call in (
+        lambda: player_development.execute_training_cycle(full),
+        lambda: player_development.build_training_plan(full[0]),
+    ):
+        with pytest.raises(RuntimeError, match="rating scale 2"):
+            call()
+    # A scale 1 camp runs as it always did.
+    reports = player_development.execute_training_cycle(copy.deepcopy(plain))
+    assert len(reports) == 6
+
+
 def test_the_archived_loader_reads_rows_on_the_engine_scale(tmp_path):
     from playbalance import player_loader
 

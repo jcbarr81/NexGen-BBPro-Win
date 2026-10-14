@@ -21,7 +21,6 @@ from utils.rating_scale import (
     moved_rating_keys,
     normalize_rating_scale,
     rating_scale_of,
-    single_rating_scale,
     stretch_row,
     to_engine,
     to_stored,
@@ -175,7 +174,7 @@ def _pitcher(**over):
 
 
 def test_stretch_row_hitter():
-    out, clips = stretch_row(_hitter())
+    out, clips = stretch_row(_hitter(), 2)
     assert clips == []
     assert (out["ch"], out["ph"], out["eye"], out["fa"], out["arm"]) == (
         "62", "95", "50", "41", "47",
@@ -192,9 +191,9 @@ def test_stretch_row_hitter():
 
 
 def test_a_potential_gap_cut_at_99_is_reported():
-    out, clips = stretch_row(_hitter(pot_ph="69"))  # Power 95 + 4
+    out, clips = stretch_row(_hitter(pot_ph="69"), 2)  # Power 95 + 4
     assert out["pot_ph"] == "99" and clips == []
-    out, clips = stretch_row(_hitter(pot_ph="80"))  # 95 + 15
+    out, clips = stretch_row(_hitter(pot_ph="80"), 2)  # 95 + 15
     assert out["pot_ph"] == "99"
     assert [(c.key, c.kind, c.unclipped, c.stored) for c in clips] == [
         ("pot_ph", "potential", 110.0, 99)
@@ -202,7 +201,7 @@ def test_a_potential_gap_cut_at_99_is_reported():
 
 
 def test_stretch_row_pitcher():
-    out, clips = stretch_row(_pitcher())
+    out, clips = stretch_row(_pitcher(), 2)
     assert clips == []
     assert (out["control"], out["movement"], out["arm"]) == ("95", "53", "58")
     assert out["fa"] == "45" and out["endurance"] == "70" and out["fb"] == "70"
@@ -215,34 +214,97 @@ def test_stretch_row_pitcher():
 
 
 def test_a_clipped_rating_is_reported():
-    out, clips = stretch_row(_hitter(ph="23", eye="33", pot_ph="", pot_eye=""))
+    out, clips = stretch_row(_hitter(ph="23", eye="33", pot_ph="", pot_eye=""), 2)
     assert out["ph"] == "1" and out["eye"] == "1"
     assert {(c.key, c.kind, c.engine_value, c.unclipped) for c in clips} == {
         ("ph", "rating", 23.0, -4.0),
         ("eye", "rating", 33.0, -1.0),
     }
-    out, clips = stretch_row(_hitter(ch="80", pot_ch=""))
+    out, clips = stretch_row(_hitter(ch="80", pot_ch=""), 2)
     assert out["ch"] == "99" and clips[0].unclipped == 106.0
 
 
 def test_blank_and_zero_are_not_ratings():
-    out, clips = stretch_row(_hitter(eye="", fa="0", pot_eye="", pot_fa=""))
-    assert out["eye"] == "" and out["fa"] == "0" and clips == []
+    out, clips = stretch_row(_hitter(fa="0", sp="", pot_fa=""), 2)
+    assert out["fa"] == "0" and out["sp"] == "" and clips == []
     back = engine_row(out)
-    assert back["eye"] == "" and back["fa"] == "0"
-    assert engine_rating(out, "eye", 0) == ""
+    assert back["fa"] == "0" and back["sp"] == ""
     assert engine_rating(out, "fa", 0) == "0"
     assert engine_rating(out, "nope", 7) == 7
+    # A zero Eye is not a blank one: the loader keeps it, and so does this.
+    out, _ = stretch_row(_hitter(eye="0", pot_eye=""), 2)
+    assert out["eye"] == "0"
+
+
+@pytest.mark.parametrize("blank", ["", None])
+def test_a_blank_eye_is_filled_from_contact_on_the_engine_scale(blank):
+    row = _hitter(ch="55", eye=blank, pot_eye="61")
+    if blank is None:
+        del row["eye"]  # no column at all reads the same way
+    out, clips = stretch_row(row, 2)
+    # Engine Eye 55 (= Contact), stored 50 + 5 * 5; the potential keeps its
+    # gap over the FILLED Eye: 75 + (61 - 55).
+    assert (out["eye"], out["pot_eye"], clips) == ("75", "81", [])
+    assert engine_rating(out, "eye") == 55 and engine_potential(out, "eye") == 61
+    assert float(engine_row(out)["eye"]) == 55.0
+
+
+def test_a_filled_value_that_does_not_fit_is_reported_with_its_source():
+    # Contact 62 is Eye 62, past the 59.8 that stored Eye 99 means.
+    out, clips = stretch_row(_hitter(ch="62", eye="", pot_eye="66"), 2)
+    assert (out["eye"], out["pot_eye"]) == ("99", "99")
+    assert [(c.key, c.kind, c.engine_value, c.source) for c in clips] == [
+        ("eye", "rating", 62.0, "ch"),
+        ("pot_eye", "potential", 66.0, ""),
+    ]
+    # Below the floor too (Contact 30 is Eye 30, stored 50 + 3 * -20).
+    out, clips = stretch_row(_hitter(ch="30", eye="", pot_eye=""), 2)
+    assert out["eye"] == "1" and clips[0].unclipped == -10.0
+
+
+@pytest.mark.parametrize("arm", ["", "0", None])
+def test_a_missing_pitcher_arm_is_filled_from_his_fastball(arm):
+    row = _pitcher(arm=arm, fb="70", pot_arm="76")
+    if arm is None:
+        del row["arm"]
+    out, clips = stretch_row(row, 2)
+    # Engine arm 70 (= fastball), stored 50 + 2 * 14; potential gap 6.
+    assert (out["arm"], out["pot_arm"], out["fb"], clips) == ("78", "84", "70", [])
+    assert engine_rating(out, "arm") == 70 and engine_potential(out, "arm") == 76
+    # Fastball 85 is past the 80.5 that stored arm 99 means: reported.
+    out, clips = stretch_row(_pitcher(arm=arm or "", fb="85", pot_arm="0"), 2)
+    assert out["arm"] == "99" and out["pot_arm"] == "0"
+    assert [(c.key, c.engine_value, c.source) for c in clips] == [("arm", 85.0, "fb")]
+    # No fastball either: nothing to borrow, nothing written.
+    out, clips = stretch_row(_pitcher(arm="", fb="0"), 2)
+    assert out["arm"] == "" and clips == []
+
+
+def test_generated_dicts_are_filled_in_their_own_form():
+    out, _ = stretch_row(
+        {"player_id": "H", "is_pitcher": False, "ch": 55, "ph": 50, "eye": None}, 2
+    )
+    assert out["eye"] == 75 and isinstance(out["eye"], int)
 
 
 def test_stretch_is_idempotent_and_refuses_an_unknown_scale():
-    once, _ = stretch_row(_hitter())
-    twice, clips = stretch_row(once)
+    once, _ = stretch_row(_hitter(), 2)
+    twice, clips = stretch_row(once, 2)
     assert twice == once and clips == []
     with pytest.raises(ValueError):
-        stretch_row(_hitter(rating_scale="3"))
+        stretch_row(_hitter(rating_scale="3"), 2)
     with pytest.raises(ValueError):
         stretch_row(once, LEGACY_RATING_SCALE)
+
+
+def test_the_target_scale_is_required():
+    import inspect
+
+    for function in (stretch_row, rs.stretch_rows):
+        scale = inspect.signature(function).parameters["scale"]
+        assert scale.default is inspect.Parameter.empty
+    with pytest.raises(TypeError):
+        stretch_row(_hitter())  # type: ignore[call-arg]
 
 
 def test_generated_dicts_keep_their_types():
@@ -251,7 +313,7 @@ def test_generated_dicts_keep_their_types():
         "control": 52, "movement": 54, "pot_control": 60, "pot_arm": 70,
         "pot_fielding": {"P": 50}, "other_positions": [],
     }
-    out, clips = stretch_row(row)
+    out, clips = stretch_row(row, 2)
     assert clips == []
     assert out["control"] == 50 and out["movement"] == 50 and out["arm"] == 58
     assert out["pot_control"] == 58 and out["pot_arm"] == 68
@@ -263,7 +325,7 @@ def test_generated_dicts_keep_their_types():
 
 def test_engine_row_is_the_exact_inverse_for_ratings():
     for row in (_hitter(), _pitcher()):
-        stretched, _ = stretch_row(row)
+        stretched, _ = stretch_row(row, 2)
         back = engine_row(stretched)
         keys = moved_rating_keys(2, pitcher=row["is_pitcher"] == "1")
         for key in keys:
@@ -276,7 +338,7 @@ def test_engine_row_is_the_exact_inverse_for_ratings():
 
 
 def test_engine_row_text_values_parse_as_the_loaders_parse_them():
-    stretched, _ = stretch_row(_hitter())
+    stretched, _ = stretch_row(_hitter(), 2)
     back = engine_row(stretched)
     assert back["ch"] == "54" and back["ph"] == "65"  # whole numbers stay ints
     stretched["ph"] = "96"  # a development point on the stored scale
@@ -285,7 +347,7 @@ def test_engine_row_text_values_parse_as_the_loaders_parse_them():
 
 def test_potentials_engine_view():
     row = _hitter()
-    stretched, _ = stretch_row(row)
+    stretched, _ = stretch_row(row, 2)
     # At or above current and under 99: the scale 1 potential comes back.
     assert engine_potential(stretched, "ch") == 64
     assert engine_potential(stretched, "eye") == 59
@@ -293,7 +355,7 @@ def test_potentials_engine_view():
     assert engine_potential(stretched, "arm") == 49
     assert engine_potential(stretched, "ph") == 68
     # Cut at 99: the gap that survived.
-    cut, _ = stretch_row(_hitter(pot_ph="80"))
+    cut, _ = stretch_row(_hitter(pot_ph="80"), 2)
     assert engine_potential(cut, "ph") == 65 + (99 - 95)
     # Unmoved rating: the stored potential.
     assert engine_potential(stretched, "sp") == "40"
@@ -331,28 +393,34 @@ def test_the_accessor_on_objects():
     assert rating_scale_of(full) == 2 and rating_scale_of(plain) == 1
 
 
-def test_single_rating_scale():
+def test_counting_and_the_majority_scale():
     one, two = _Obj(rating_scale=1), _Obj(rating_scale=2)
-    assert single_rating_scale([]) == 1
-    assert single_rating_scale([one, _Obj()]) == 1
-    assert single_rating_scale([two, two]) == 2
-    with pytest.raises(MixedRatingScaleError) as err:
-        single_rating_scale([one, two, two])
-    assert "1 on scale 1" in str(err.value) and "2 on scale 2" in str(err.value)
+    assert rs.rating_scale_counts([]) == {}
+    assert rs.rating_scale_counts([one, _Obj()]) == {1: 2}
+    assert rs.rating_scale_counts([one, two, two]) == {1: 1, 2: 2}
+    assert rs.describe_rating_scales({1: 1, 2: 2}) == "2 on scale 2, 1 on scale 1"
+    assert rs.majority_rating_scale({}) == 1
+    assert rs.majority_rating_scale({1: 1, 2: 2}) == 2
+    assert rs.majority_rating_scale({1: 40, 2: 3}) == 1
+    with pytest.raises(MixedRatingScaleError, match="split evenly"):
+        rs.majority_rating_scale({1: 5, 2: 5})
 
 
-def test_players_file_rating_scale(tmp_path):
+def test_players_file_rating_scale_never_raises_for_a_mixed_file(tmp_path):
     path = tmp_path / "players.csv"
     assert rs.players_file_rating_scale(path) == 1
+    assert rs.players_file_rating_scales(path) == {}
     path.write_text("player_id,ch\nA,50\n", encoding="utf-8")
     assert rs.players_file_rating_scale(path) == 1
     path.write_text("player_id,ch,rating_scale\nA,50,2\nB,60,2\n", encoding="utf-8")
     assert rs.players_file_rating_scale(path) == FULL_RATING_SCALE
     path.write_text("player_id,ch,rating_scale\nA,50,\nB,60,\n", encoding="utf-8")
     assert rs.players_file_rating_scale(path) == 1
-    path.write_text("player_id,ch,rating_scale\nA,50,2\nB,60,\n", encoding="utf-8")
-    with pytest.raises(MixedRatingScaleError):
-        rs.players_file_rating_scale(path)
+    path.write_text(
+        "player_id,ch,rating_scale\nA,50,2\nB,60,\nC,70,2\n", encoding="utf-8"
+    )
+    assert rs.players_file_rating_scale(path) == rs.MIXED_RATING_SCALES
+    assert rs.players_file_rating_scales(path) == {2: 2, 1: 1}
 
 
 def test_the_module_imports_only_the_standard_library():

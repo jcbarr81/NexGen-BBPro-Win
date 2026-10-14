@@ -17,6 +17,7 @@ gains features:
 
 import csv
 import json
+import logging
 import os
 import random
 import time
@@ -28,11 +29,15 @@ from utils.path_utils import get_data_dir
 from utils.rating_scale import (
     LEGACY_RATING_SCALE,
     RATING_SCALE_FIELD,
-    players_file_rating_scale,
+    describe_rating_scales,
+    majority_rating_scale,
+    players_file_rating_scales,
+    rating_scale_counts,
     rating_scale_of,
-    single_rating_scale,
 )
 from playbalance import player_generator as pg
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _base_dir() -> Path:
@@ -300,12 +305,22 @@ def generate_draft_pool(
 
     ``rating_scale`` is the scale the prospects' ratings are stored on;
     ``None`` (every caller) takes the scale of the league's own
-    ``players.csv``, the file the picks are appended to. The same seed gives
-    the same class on any scale: the stretch draws no random number.
+    ``players.csv``, the file the picks are appended to. A league whose rows
+    are on more than one scale gets its MAJORITY scale (a few stray rows
+    must not stop the draft; logged), and one split evenly is refused with
+    ``MixedRatingScaleError``. The same seed gives the same class on any
+    scale: the stretch draws no random number.
     """
 
     if rating_scale is None:
-        rating_scale = players_file_rating_scale(_players_path())
+        counts = players_file_rating_scales(_players_path())
+        rating_scale = majority_rating_scale(counts)
+        if len(counts) > 1:
+            _LOGGER.warning(
+                "%s holds players on mixed rating scales (%s); the draft "
+                "class is generated on scale %s",
+                _players_path(), describe_rating_scales(counts), rating_scale,
+            )
     state = random.getstate()
     seed_value = seed
     if seed_value is None:
@@ -388,15 +403,22 @@ def save_draft_pool(year: int, prospects: List[DraftProspect]) -> None:
     base.mkdir(parents=True, exist_ok=True)
     csv_path = base / f"draft_pool_{year}.csv"
     json_path = base / f"draft_pool_{year}.json"
-    # One scale per pool (a mixed pool raises before a file is opened). A
-    # scale 1 pool is written exactly as it always was, with no
-    # ``rating_scale`` entry; any other scale carries it on every prospect,
-    # in both files, so a pick keeps its scale on the way into players.csv.
-    pool_scale = single_rating_scale(prospects)
+    # A scale 1 pool is written exactly as it always was, with no
+    # ``rating_scale`` entry. Otherwise every prospect carries his own
+    # scale, in both files, so a pick keeps it on the way into players.csv.
+    # A pool on mixed scales can only come from a bug: written as it is
+    # (each entry still reads correctly) and logged.
+    counts = rating_scale_counts(prospects)
+    marked = any(scale != LEGACY_RATING_SCALE for scale in counts)
+    if len(counts) > 1:
+        _LOGGER.warning(
+            "draft pool %s: prospects on mixed rating scales (%s)",
+            year, describe_rating_scales(counts),
+        )
 
     def _record(prospect: DraftProspect) -> Dict[str, object]:
         record = asdict(prospect)
-        if pool_scale == LEGACY_RATING_SCALE:
+        if not marked:
             record.pop(RATING_SCALE_FIELD, None)
         return record
 

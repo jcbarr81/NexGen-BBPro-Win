@@ -126,18 +126,131 @@ def test_objects_hold_the_stored_values(league, twin):
     assert moved > 3000
 
 
-def test_the_writer_refuses_mixed_scales_and_leaves_the_file(league, twin, tmp_path):
+def test_a_mixed_list_is_written_row_by_row_with_a_warning(
+    league, twin, tmp_path, caplog
+):
+    """One stray row must not stop every save in a league: each row is
+    written on its own scale and reads back correctly."""
+
     plain = _read_players_from_csv(league / "players.csv")
     full = _read_players_from_csv(twin / "players.csv")
     target = tmp_path / "players.csv"
-    save_players_to_csv(full, str(target))
-    before = target.read_bytes()
-    with pytest.raises(MixedRatingScaleError):
-        save_players_to_csv(full[:-1] + plain[-1:], str(target))
-    assert target.read_bytes() == before
-    assert sorted(p.name for p in tmp_path.iterdir() if p.name.startswith("players")) == [
-        "players.csv"
-    ]
+    mixed = full[:-3] + plain[-3:]
+    with caplog.at_level("WARNING", logger="utils.player_writer"):
+        save_players_to_csv(mixed, str(target))
+    assert "mixed rating scales" in caplog.text
+    assert all(p.player_id in caplog.text for p in plain[-3:])
+    _f, rows = support.read_player_rows(target)
+    assert [row["rating_scale"] for row in rows[-4:]] == ["2", "1", "1", "1"]
+    assert rating_scale.players_file_rating_scale(target) == rating_scale.MIXED_RATING_SCALES
+    again = _read_players_from_csv(target)
+    for before, after in zip(mixed, again):
+        assert after.rating_scale == before.rating_scale
+        for key in ("ch", "ph", "eye", "arm", "control", "movement", "fa"):
+            assert rating_scale.engine_rating(
+                after, key, None
+            ) == rating_scale.engine_rating(before, key, None)
+
+
+def test_the_reviewers_mixed_file_still_saves(league, tmp_path):
+    """Ten stretched rows in a scale 1 league (review test, ported)."""
+
+    fields, rows = support.read_player_rows(league / "players.csv")
+    twin, _ = rating_scale.stretch_rows(rows[:10], 2)
+    mixed = twin + [dict(r, rating_scale="") for r in rows[10:]]
+    support.write_player_rows(tmp_path / "players.csv", fields + ["rating_scale"], mixed)
+    players = _read_players_from_csv(tmp_path / "players.csv")
+    save_players_to_csv(players, str(tmp_path / "out.csv"))
+    assert rating_scale.players_file_rating_scales(tmp_path / "out.csv") == {
+        2: 10, 1: len(rows) - 10,
+    }
+
+
+# --- the loader's fallbacks on a stretched file (review findings) ----------
+
+FALLBACK_HEADER = (
+    "player_id,first_name,last_name,birthdate,height,weight,bats,"
+    "primary_position,is_pitcher,ch,ph,sp,eye,gf,pl,vl,sc,fa,arm,endurance,"
+    "control,movement,hold_runner,fb,cu,cb,sl,si,scb,kn,pot_ch,pot_eye,pot_arm"
+).split(",")
+
+
+def _fallback_rows(contact, fastball, arm):
+    hitter = dict.fromkeys(FALLBACK_HEADER, "")
+    hitter.update(
+        player_id="H", first_name="A", last_name="B", birthdate="2000-01-01",
+        height="72", weight="190", bats="R", primary_position="SS",
+        is_pitcher="0", ch=contact, ph="50", sp="50", eye="", gf="50",
+        pl="50", vl="50", sc="50", fa="50", arm="50", pot_ch="66", pot_eye="66",
+    )
+    pitcher = dict.fromkeys(FALLBACK_HEADER, "")
+    pitcher.update(
+        player_id="P", first_name="C", last_name="D", birthdate="2000-01-01",
+        height="74", weight="200", bats="R", primary_position="P",
+        is_pitcher="1", gf="50", endurance="60", control="50", movement="56",
+        hold_runner="50", fb=fastball, cu="0", cb="0", sl="0", si="0",
+        scb="0", kn="0", arm=arm, pot_arm="0",
+    )
+    return [hitter, pitcher]
+
+
+def _fallback_pair(tmp_path, contact, fastball, arm):
+    one = tmp_path / "s1.csv"
+    support.write_player_rows(one, FALLBACK_HEADER, _fallback_rows(contact, fastball, arm))
+    clips = support.stretch_players_file(one, tmp_path / "s2.csv")
+    return clips, {
+        name: {p.player_id: p for p in _read_players_from_csv(tmp_path / f"{name}.csv")}
+        for name in ("s1", "s2")
+    }
+
+
+def _engine_reads(path):
+    from physics_sim.models import BatterRatings, PitcherRatings
+
+    with path.open(newline="", encoding="utf-8") as fh:
+        rows = {row["player_id"]: row for row in csv.DictReader(fh)}
+    return BatterRatings.from_row(rows["H"]).eye, PitcherRatings.from_row(rows["P"]).arm
+
+
+@pytest.mark.parametrize("arm", ["0", ""])
+def test_fallbacks_inside_the_scale_are_identical_everywhere(tmp_path, arm):
+    """Blank Eye, Contact 55; missing arm, fastball 70: both fit scale 2."""
+
+    clips, players = _fallback_pair(tmp_path, "55", "70", arm)
+    assert clips == []
+    one, two = players["s1"], players["s2"]
+    assert rating_scale.engine_rating(two["H"], "eye") == 55 == one["H"].eye
+    assert rating_scale.engine_potential(two["H"], "eye") == 66
+    assert rating_scale.engine_potential(one["H"], "eye") == 66
+    assert rating_scale.engine_rating(two["P"], "arm") == 70 == one["P"].arm
+    # The engine reads the stretched file as the loader does ...
+    assert _engine_reads(tmp_path / "s2.csv") == (55, 70)
+    # ... and after one save of each, both play the same player.
+    save_players_to_csv(list(one.values()), str(tmp_path / "s1b.csv"))
+    save_players_to_csv(list(two.values()), str(tmp_path / "s2b.csv"))
+    assert _engine_reads(tmp_path / "s1b.csv") == _engine_reads(tmp_path / "s2b.csv")
+
+
+def test_fallbacks_outside_the_scale_are_reported_and_read_one_way(tmp_path):
+    """Contact 62 (Eye 62 > 59.8) and fastball 85 (arm 85 > 80.5) cannot be
+    stored on scale 2: the conversion says so, and the loader and the
+    engine then agree on the value that was stored."""
+
+    clips, players = _fallback_pair(tmp_path, "62", "85", "0")
+    assert {(c.player_id, c.key, c.kind, c.source) for c in clips} == {
+        ("H", "eye", "rating", "ch"),
+        ("H", "pot_eye", "potential", ""),
+        ("P", "arm", "rating", "fb"),
+    }
+    two = players["s2"]
+    eye = rating_scale.engine_rating(two["H"], "eye")
+    arm = rating_scale.engine_rating(two["P"], "arm")
+    assert (eye, arm) == (pytest.approx(59.8), 80.5)
+    # The potential is the stored 99 (no longer an engine 66 left behind).
+    assert rating_scale.engine_potential(two["H"], "eye") == pytest.approx(59.8)
+    assert _engine_reads(tmp_path / "s2.csv") == (pytest.approx(59.8), 80.5)
+    save_players_to_csv(list(two.values()), str(tmp_path / "s2b.csv"))
+    assert _engine_reads(tmp_path / "s2b.csv") == (pytest.approx(59.8), 80.5)
 
 
 def test_an_unknown_scale_does_not_load(league, tmp_path):
@@ -210,16 +323,24 @@ def test_update_players_keeps_a_league_on_its_scale(twin, league):
         repo.invalidate_players(path)
 
 
-def test_a_scale_1_player_cannot_be_saved_into_a_scale_2_league(twin, league):
+def test_a_scale_1_player_saved_into_a_scale_2_league_keeps_his_scale(
+    twin, league, caplog
+):
     from services import players_repository as repo
 
     path = twin / "players.csv"
-    before = path.read_bytes()
     stranger = _read_players_from_csv(league / "players.csv")[0]
     stranger.player_id = "NEW1"
-    with pytest.raises(MixedRatingScaleError):
+    with caplog.at_level("WARNING", logger="utils.player_writer"):
         repo.update_players([stranger], path)
-    assert path.read_bytes() == before
+    assert "NEW1" in caplog.text
+    saved = {p.player_id: p for p in _read_players_from_csv(path)}
+    assert saved["NEW1"].rating_scale == 1
+    key = "control" if stranger.is_pitcher else "ch"
+    # Read as the engine rating it is, not through the scale 2 map.
+    assert getattr(saved["NEW1"], key) == getattr(stranger, key)
+    assert rating_scale.engine_rating(saved["NEW1"], key) == getattr(stranger, key)
+    assert {p.rating_scale for pid, p in saved.items() if pid != "NEW1"} == {2}
     repo.invalidate_players(path)
 
 
@@ -257,11 +378,12 @@ def test_a_scale_2_draft_pool_carries_the_field_in_both_files(tmp_path, monkeypa
     assert {p["rating_scale"] for p in saved} == {2}
     with (tmp_path / "draft_pool_2031.csv").open(newline="", encoding="utf-8") as fh:
         assert {row["rating_scale"] for row in csv.DictReader(fh)} == {"2"}
-    # A pool on two scales is refused before a file is opened.
+    # A pool on two scales (a bug) is written entry by entry, each on its
+    # own scale, rather than lost.
     mixed = _prospects(1)[:3] + pool[:3]
-    with pytest.raises(MixedRatingScaleError):
-        draft_pool.save_draft_pool(2032, mixed)
-    assert not (tmp_path / "draft_pool_2032.json").exists()
+    draft_pool.save_draft_pool(2032, mixed)
+    saved = draft_pool.load_draft_pool(2032)
+    assert [p["rating_scale"] for p in saved] == [1, 1, 1, 2, 2, 2]
 
 
 def test_a_draft_class_takes_the_scale_of_the_league_it_is_for(
@@ -274,6 +396,33 @@ def test_a_draft_class_takes_the_scale_of_the_league_it_is_for(
         player_generator.reset_name_cache()
         pool = draft_pool.generate_draft_pool(2031, size=12, seed=3)
         assert {p.rating_scale for p in pool} == {scale}
+
+
+def test_a_mixed_league_drafts_on_its_majority_scale(league, twin, tmp_path, monkeypatch):
+    from playbalance import draft_pool, player_generator
+
+    fields, plain = support.read_player_rows(league / "players.csv")
+    _f, full = support.read_player_rows(twin / "players.csv")
+    mixed = tmp_path / "mixed"
+    mixed.mkdir()
+    support.write_player_rows(
+        mixed / "players.csv",
+        fields + ["rating_scale"],
+        full[:-5] + [dict(r, rating_scale="") for r in plain[-5:]],
+    )
+    monkeypatch.setattr(draft_pool, "_base_dir", lambda: mixed)
+    player_generator.reset_name_cache()
+    pool = draft_pool.generate_draft_pool(2031, size=6, seed=3)
+    assert {p.rating_scale for p in pool} == {2}
+    # Split evenly, there is no league scale to pick: refused, and says why.
+    half = len(full) // 2
+    support.write_player_rows(
+        mixed / "players.csv",
+        fields + ["rating_scale"],
+        full[:half] + [dict(r, rating_scale="") for r in plain[half : 2 * half]],
+    )
+    with pytest.raises(MixedRatingScaleError, match="split evenly"):
+        draft_pool.generate_draft_pool(2031, size=6, seed=3)
 
 
 def _draft_setup(directory, monkeypatch, scale):
@@ -317,11 +466,16 @@ def test_picks_appended_to_a_scale_2_league_stay_on_scale_2(twin, monkeypatch):
 
 
 def test_a_scale_1_pick_is_stretched_on_its_way_into_a_scale_2_league(
-    twin, monkeypatch
+    twin, monkeypatch, caplog
 ):
     assign, rows = _draft_setup(twin, monkeypatch, 1)
     path = twin / "players.csv"
-    assign._append_players(rows)
+    # One pick whose Eye sits below what scale 2 can store: logged.
+    low = next(r for r in rows if r["is_pitcher"] == 0)
+    low["eye"] = 25
+    with caplog.at_level("WARNING", logger="services.draft_assignment"):
+        assign._append_players(rows)
+    assert f"draft pick {low['player_id']}: rating eye" in caplog.text
     assert rating_scale.players_file_rating_scale(path) == 2  # not a mixed file
     added = _read_players_from_csv(path)[-5:]
     for player, row in zip(added, rows):
@@ -338,6 +492,54 @@ def test_a_scale_2_pick_never_lands_unmarked_in_a_scale_1_league(league, monkeyp
     assign, rows = _draft_setup(league, monkeypatch, 2)
     path = league / "players.csv"
     before = path.read_bytes()
-    with pytest.raises(MixedRatingScaleError):
+    with pytest.raises(MixedRatingScaleError, match="no rating_scale column"):
         assign._append_players(rows)
     assert path.read_bytes() == before
+
+
+def test_a_scale_2_pick_keeps_his_marker_in_a_mixed_scale_1_league(
+    league, tmp_path, monkeypatch, caplog
+):
+    """A league mostly on scale 1 whose file has the column (a stray scale
+    2 row): the pick goes in on his own scale, never unmarked."""
+
+    fields, rows = support.read_player_rows(league / "players.csv")
+    stray, _ = rating_scale.stretch_row(rows[0], 2)
+    support.write_player_rows(
+        league / "players.csv",
+        fields + ["rating_scale"],
+        [stray] + [dict(r, rating_scale="") for r in rows[1:]],
+    )
+    assign, picks = _draft_setup(league, monkeypatch, 2)
+    with caplog.at_level("WARNING", logger="services.draft_assignment"):
+        assign._append_players(picks)
+    assert "appended on his own scale" in caplog.text
+    added = _read_players_from_csv(league / "players.csv")[-5:]
+    assert {p.rating_scale for p in added} == {2}
+
+
+def test_a_scale_2_pool_entry_missing_ratings_gets_scale_2_defaults(
+    twin, monkeypatch
+):
+    """The defaults are ENGINE numbers: 50 means the engine's average, and a
+    missing Eye is the player's Contact, on whatever scale the pool is."""
+
+    from services import draft_assignment
+
+    hitter = {
+        "player_id": "D1", "is_pitcher": "0", "ch": "62", "ph": "95",
+        "rating_scale": "2",
+    }
+    row = draft_assignment._default_row_from_pool(hitter)
+    assert (row["fa"], row["arm"]) == (48, 48)  # engine 50 vs pivot 52
+    assert (row["sp"], row["gf"]) == (50, 50)  # not moved
+    assert row["eye"] == 70  # Contact 62 is engine 54, Eye 54 is stored 70
+    assert rating_scale.engine_rating(row, "eye") == 54
+    assert rating_scale.engine_rating(row, "fa") == 50
+    pitcher = {"player_id": "D2", "is_pitcher": "1", "fb": "70", "rating_scale": "2"}
+    row = draft_assignment._default_row_from_pool(pitcher)
+    assert row["arm"] == 44 and rating_scale.engine_rating(row, "arm") == 50
+    assert (row["control"], row["movement"]) == (0, 0)  # "no rating" stays 0
+    # A scale 1 entry keeps the plain engine defaults, as before.
+    row = draft_assignment._default_row_from_pool(dict(hitter, rating_scale=""))
+    assert (row["fa"], row["arm"], row["eye"]) == (50, 50, 62)

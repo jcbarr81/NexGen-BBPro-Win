@@ -18,6 +18,7 @@ from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 from models.base_player import BasePlayer
 from playbalance.aging import AGE_ADJUSTMENTS, calculate_age, spring_training_pitch
+from utils.rating_scale import LEGACY_RATING_SCALE, rating_scale_of
 
 # Pitch fields are duplicated here instead of importing the private constant in
 # playbalance.aging.  Both modules need to stay in sync if the pitch model
@@ -113,12 +114,35 @@ class TrainingReport(TrainingPlan):
     changes: Dict[str, int]
 
 
+def require_engine_scale_players(players: Iterable[BasePlayer], context: str) -> None:
+    """Refuse any player whose ratings are not stored on scale 1.
+
+    Training adds whole points to the STORED attributes against constants
+    in engine points (a gain of 1-5, a cap of 5, the age table), so on a
+    scale 2 player a "+3" would be one engine point of Contact and three of
+    speed. Until the development model is rebuilt on the stored scale
+    (``RATING_SCALE_DESIGN.md`` section 3), it stops rather than develop
+    anyone wrongly; the same tripwire the archived engine has.
+    """
+
+    for player in players:
+        scale = rating_scale_of(player)
+        if scale != LEGACY_RATING_SCALE:
+            raise RuntimeError(
+                f"{context} cannot develop player "
+                f"{getattr(player, 'player_id', '?')!r}: his ratings are "
+                f"stored on rating scale {scale} (utils.rating_scale), and "
+                "training is built for scale 1 only."
+            )
+
+
 def build_training_plan(
     player: BasePlayer,
     weights: Optional[TrainingWeights] = None,
 ) -> TrainingPlan:
     """Create a training plan tailored to ``player``."""
 
+    require_engine_scale_players([player], "Training camp")
     age = calculate_age(player.birthdate)
     tier = _age_tier(age)
     aging_bias = AGE_ADJUSTMENTS.get(age, {})
@@ -148,6 +172,7 @@ def apply_training_plan(
 ) -> TrainingReport:
     """Apply ``plan`` to ``player`` and return a detailed report."""
 
+    require_engine_scale_players([player], "Training camp")
     age = calculate_age(player.birthdate)
     tier_gain = _TIER_GAINS[plan.tier]
     adjustments = AGE_ADJUSTMENTS.get(age, {})
@@ -186,6 +211,9 @@ def execute_training_cycle(
 ) -> Sequence[TrainingReport]:
     """Convenience helper that runs the plan pipeline for an iterable."""
 
+    players = list(players)
+    # Before anyone is touched, so a refusal never leaves half a camp run.
+    require_engine_scale_players(players, "Training camp")
     reports: list[TrainingReport] = []
     for player in players:
         weights = None
