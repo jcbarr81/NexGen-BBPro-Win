@@ -65,6 +65,7 @@ import hashlib
 import io
 import json
 import logging
+import math
 import os
 import re
 import statistics
@@ -107,6 +108,7 @@ __all__ = [
     "build_respread_reference",
     "convert_league",
     "engine_and_scale_news",
+    "format_respread_reference",
     "league_id_of",
     "league_on_scale2",
     "load_respread_reference",
@@ -190,6 +192,9 @@ class RespreadRating:
     act_min_after: float = 0.0
     act_max_after: float = 0.0
     changed: int = 0
+    # On the scale owners see (scale 2), filled when the move is logged.
+    stored_range_unspread: Optional[List[int]] = None
+    stored_range: Optional[List[int]] = None
 
     def as_log(self) -> Dict[str, Any]:
         return {
@@ -204,6 +209,8 @@ class RespreadRating:
             "act_sd_after": round(self.act_sd_after, 2),
             "act_range_before": [self.act_min_before, self.act_max_before],
             "act_range_after": [self.act_min_after, self.act_max_after],
+            "stored_range_unspread": self.stored_range_unspread,
+            "stored_range": self.stored_range,
         }
 
 
@@ -217,7 +224,9 @@ class RespreadResult:
         return [r for r in self.ratings if r.bunched]
 
 
-def build_respread_reference(league_dir: Path | str) -> Dict[str, Any]:
+def build_respread_reference(
+    league_dir: Path | str, source: str = "data/calibration_league"
+) -> Dict[str, Any]:
     """The reference spread of a league directory (players.csv + rosters).
 
     For each candidate rating of each kind of row: the ACT players' mean and
@@ -232,7 +241,7 @@ def build_respread_reference(league_dir: Path | str) -> Dict[str, Any]:
     base = Path(league_dir)
     rows = [engine_row(r) for r in _read_rows(base / _PLAYERS)[1]]
     active = _active_ids(base) or set()
-    out: Dict[str, Any] = {"source": base.name, "ratings": {}}
+    out: Dict[str, Any] = {"source": source, "ratings": {}}
     for group, keys in RESPREAD_CANDIDATES.items():
         out["ratings"][group] = {}
         members = [r for r in rows if _group(r) == group]
@@ -253,6 +262,25 @@ def build_respread_reference(league_dir: Path | str) -> Dict[str, Any]:
                 ],
             }
     return out
+
+
+def format_respread_reference(reference: Mapping[str, Any]) -> str:
+    """The reference as stored: one line per rating, for readable diffs.
+    Rebuild with ``python -c "from services.rating_scale_migration import *;
+    RESPREAD_REFERENCE_PATH.write_bytes(format_respread_reference(
+    build_respread_reference('data/calibration_league')).encode())"``."""
+
+    lines = ["{", f'  "source": {json.dumps(reference.get("source"))},', '  "ratings": {']
+    groups = list(reference.get("ratings", {}).items())
+    for g_index, (group, ratings) in enumerate(groups):
+        lines.append(f"    {json.dumps(group)}: {{")
+        items = list(ratings.items())
+        for r_index, (key, spec) in enumerate(items):
+            comma = "," if r_index < len(items) - 1 else ""
+            lines.append(f"      {json.dumps(key)}: {json.dumps(spec, sort_keys=True)}{comma}")
+        lines.append("    }" + ("," if g_index < len(groups) - 1 else ""))
+    lines += ["  }", "}", ""]
+    return "\n".join(lines)
 
 
 def load_respread_reference(path: Path | str | None = None) -> Dict[str, Any]:
@@ -446,6 +474,8 @@ class MovePlan:
     clips: List[RatingClip] = field(default_factory=list)
     respread: Optional[RespreadResult] = None
     blocker: Optional[str] = None
+    # The rows the stretch was given: ``rows``, or the re-spread rows.
+    sources: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def to_convert(self) -> int:
@@ -524,6 +554,7 @@ def plan_move(base: Path | str, *, respread: Optional[bool] = None) -> MovePlan:
         converted.append(new_row)
         plan.clips.extend(clips)
     plan.converted = converted
+    plan.sources = source
     if plan.active_clips:
         named = ", ".join(
             f"{c.player_id} {c.key} {c.engine_value:g}"
@@ -883,6 +914,7 @@ def _log_conversion(
         "summary": _scale_summary(plan),
     }
     if plan.respread is not None:
+        _add_stored_ranges(plan)
         event["respread"] = {
             "seed": RESPREAD_SEED,
             "rule": f"ACT sd below {BUNCHED_SD_RATIO} of the reference league's",
@@ -895,6 +927,34 @@ def _log_conversion(
             ],
         }
     return _append_log(base, event)
+
+
+def _add_stored_ranges(plan: MovePlan) -> None:
+    """For each re-spread rating, the ACT range on the scale owners see:
+    the stretch of the original value against the stretch of the
+    re-spread one (``stored_range_unspread`` / ``stored_range``)."""
+
+    if plan.respread is None:
+        return
+    by_id = {str(r.get("player_id")): r for r in plan.rows}
+    spread = {str(r.get("player_id")): r for r in plan.respread.rows}
+    for entry in plan.respread.moved:
+        pitcher = entry.group == "pitcher"
+        spec = rating_map(entry.key, FULL_RATING_SCALE, pitcher=pitcher)
+        before, after = [], []
+        for pid, row in spread.items():
+            if _group(row) != entry.group or not _counts_as_active(pid, plan.active_ids):
+                continue
+            old, new = _value(by_id[pid], entry.key), _value(row, entry.key)
+            if old is None or new is None:
+                continue
+            if spec is not None:
+                old, new = spec.stored(old), spec.stored(new)
+            before.append(max(1, min(99, int(math.floor(old + 0.5)))))
+            after.append(max(1, min(99, int(math.floor(new + 0.5)))))
+        if before:
+            entry.stored_range_unspread = [min(before), max(before)]
+            entry.stored_range = [min(after), max(after)]
 
 
 def log_refusal(base: Path | str, season: str, reason: str, generation: int) -> Dict[str, Any]:
@@ -912,7 +972,9 @@ def _scale_summary(plan: MovePlan) -> Dict[str, Any]:
     news item quotes."""
 
     out: Dict[str, Any] = {}
-    pairs = list(zip(plan.rows, plan.converted))
+    # Before = the engine values the stretch was given (after a re-spread,
+    # where there was one: the scale change is the stretch alone).
+    pairs = list(zip(plan.sources or plan.rows, plan.converted))
     for group, key, label in _HEADLINES:
         before, after = [], []
         for old, new in pairs:
@@ -1011,20 +1073,27 @@ def respread_news(record: Mapping[str, Any], *, league: str, season: str) -> str
     parts = []
     for item in moved:
         name = names.get((item["group"], item["key"]), item["key"])
-        lo, hi = item["act_range_after"]
-        olo, ohi = item["act_range_before"]
-        parts.append(f"{name} ({_n(olo)}-{_n(ohi)} became {_n(lo)}-{_n(hi)})")
+        lo, hi = item.get("stored_range") or item["act_range_after"]
+        olo, ohi = item.get("stored_range_unspread") or item["act_range_before"]
+        parts.append(f"{name} {_n(lo)}-{_n(hi)} (would have been {_n(olo)}-{_n(ohi)})")
     listing = "; ".join(parts) if parts else "none"
+    stamina = any(i["group"] == "pitcher" and i["key"] == "endurance" for i in moved)
     return (
         f"Season {season}: {league}'s ratings were spread out. When this league "
         "was created, several ratings came out almost the same for every "
-        "player, so they made no difference on the field. They have been "
+        "player, so they made little difference on the field. They have been "
         "spread to match a normal league, keeping every player's order and the "
         "league's averages, so the run level stays where it was but the best "
-        "and worst players now stand apart. Changed (active rosters, before the "
-        f"move to the full scale): {listing}. Club stamina now follows each "
-        "staff's rotation. This is a change to how this league plays, on top of "
-        "the engine and rating-scale update."
+        "and worst players now stand apart. On the new scale, across the "
+        f"active rosters: {listing}."
+        + (
+            " Stamina now follows each staff's rotation: starters can go "
+            "deeper, relievers tire sooner."
+            if stamina
+            else ""
+        )
+        + " This changes how this league plays, on top of the engine and "
+        "rating-scale update everyone gets."
     )
 
 
@@ -1178,6 +1247,42 @@ def rollback_league(
         )
         _clear_player_caches()
         return event
+
+
+def set_recorded_generation(base: Path | str, season: str, generation: int) -> Dict[str, Any]:
+    """Rewrite the engine generation written down for ``season`` -- the
+    season's ``rating_centers.json`` entry AND the witness in
+    ``season_progress.json`` -- to ``generation``. An OPERATOR step only
+    (``scripts/rating_scale_rollback.py --generation``): the product never
+    changes a season's engine once it is recorded, and the working copy
+    refuses to push a lower generation over a higher one, so this is run on
+    the durable copy with every instance stopped (the runbook). The
+    season's centres are kept; a generation 6 season's extra centres stay
+    in the entry, unread below generation 6."""
+
+    base = Path(base)
+    season = str(season)
+    centres_path = base / "rating_centers.json"
+    payload = json.loads(centres_path.read_text(encoding="utf-8"))
+    entry = payload.setdefault("seasons", {}).setdefault(season, {})
+    before = {"rating_centers.json": entry.get("engine_generation")}
+    entry["engine_generation"] = int(generation)
+    _write_bytes_atomic(
+        centres_path, json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
+    )
+    progress_path = base / "season_progress.json"
+    try:
+        progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        progress = {}
+    witness = progress.get("engine_generation")
+    before["season_progress.json"] = witness
+    progress["engine_generation"] = {"season": season, "generation": int(generation)}
+    _write_bytes_atomic(progress_path, json.dumps(progress, indent=2).encode("utf-8"))
+    return _append_log(base, {
+        "event": "generation_set", "season": season, "at": _now(),
+        "engine_generation": int(generation), "before": before,
+    })
 
 
 def _unstretch(row: Mapping[str, Any]) -> Dict[str, Any]:
@@ -1339,4 +1444,7 @@ def describe_counts(base: Path | str) -> str:
     return describe_rating_scales(players_file_rating_scales(Path(base) / _PLAYERS))
 
 
-__all__ += ["clear_caches", "describe_counts", "log_refusal", "post_refusal"]
+__all__ += [
+    "clear_caches", "describe_counts", "log_refusal", "post_refusal",
+    "set_recorded_generation",
+]
