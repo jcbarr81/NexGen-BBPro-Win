@@ -11,6 +11,8 @@ import json
 from playbalance.season_context import SeasonContext
 from utils.path_utils import get_data_dir, resolve_app_path
 from utils.player_loader import load_players_from_csv
+from utils.rating_display import display_rating, league_display_scale
+from utils.rating_scale import rating_scale_of
 from utils.roster_loader import load_roster
 from utils.stats_persistence import load_stats as load_season_stats
 from utils.standings_utils import normalize_record
@@ -439,6 +441,19 @@ def _safe_div(num: float, den: float) -> float:
     return num / den
 
 
+class _OnScale:
+    """A player read as stored on another rating scale (a stray row of a
+    mixed players.csv, shown on the scale the rest of the league is on)."""
+
+    def __init__(self, player: object, scale: int) -> None:
+        self._player = player
+        self._scale = scale
+
+    def __getattr__(self, name: str) -> Any:
+        getattr(self._player, name)  # AttributeError for a missing field
+        return display_rating(self._player, name, self._scale)
+
+
 def _build_player_context(
     data_dir: Path,
     *,
@@ -450,6 +465,14 @@ def _build_player_context(
         players = []
     if not players:
         return []
+    # The export shows the stored ratings, every player on the scale the
+    # league's pages are on (utils.rating_display.league_display_scale).
+    scale = league_display_scale(data_dir / "players.csv")
+    if scale is not None:
+        players = [
+            p if rating_scale_of(p) == scale else _OnScale(p, scale)
+            for p in players
+        ]
 
     team_map = _build_player_team_map(data_dir)
     stats_payload = load_season_stats(data_dir / "season_stats.json")

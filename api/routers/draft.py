@@ -17,10 +17,11 @@ from services import draft_clock, draft_state
 from services.trade_settings import current_league_year
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
-from utils.rating_scale import engine_rating
+from utils.rating_display import display_rating, display_scale_for
+from utils.rating_scale import LEGACY_RATING_SCALE, engine_rating
 
 from ..security import CurrentIdentity
-from ._rating_presentation import compute_overall
+from ._rating_presentation import compute_overall, page_scale
 
 router = APIRouter(prefix="/draft", tags=["draft"], dependencies=[CurrentIdentity])
 
@@ -122,10 +123,26 @@ def _prospect_lookup(year: int) -> Dict[str, Dict[str, Any]]:
     return out
 
 
+def _full_scale_prospect_overall(
+    prospect: Dict[str, Any], is_pitcher: bool, scale: int
+) -> Dict[str, Any]:
+    """The overall a scale 2 page shows for a draft pool entry: the shared
+    overall every other page shows, stretched, not the crude mean the
+    auto-pick ranks by (which stays as it is)."""
+
+    return compute_overall(
+        prospect.get,
+        is_pitcher=is_pitcher,
+        position=str(prospect.get("primary_position", "") or "") or None,
+        scale=scale,
+    )
+
+
 def _hydrate_pick(
     row: Dict[str, Any],
     players: Dict[str, Any],
     prospects: Dict[str, Dict[str, Any]],
+    league_scale: Any = None,
 ) -> None:
     """Fill ``first_name``/``last_name``/``primary_position`` + overall on
     a draft selection dict in place. Players.csv wins (post-commit data),
@@ -141,6 +158,7 @@ def _hydrate_pick(
             lambda k, p=player: getattr(p, k, None),
             is_pitcher=is_pitcher,
             position=position,
+            scale=display_scale_for(player, league_scale),
         )
         row["first_name"] = getattr(player, "first_name", "") or ""
         row["last_name"] = getattr(player, "last_name", "") or ""
@@ -166,6 +184,10 @@ def _hydrate_pick(
         row["overall_raw"] = _prospect_overall(prospect)
         row["overall_display"] = row["overall_raw"]
         row["overall_stars_text"] = None
+        scale = display_scale_for(prospect, league_scale)
+        if scale != LEGACY_RATING_SCALE:
+            shown = _full_scale_prospect_overall(prospect, is_pitcher, scale)
+            row["overall_display"] = shown["overall_display"]
         return
 
     row["first_name"] = ""
@@ -212,8 +234,9 @@ def _load_results(year: int) -> List[Dict[str, Any]]:
     # promoted into players.csv yet.
     players = _player_lookup()
     prospects = _prospect_lookup(year)
+    league_scale = page_scale()
     for row in rows:
-        _hydrate_pick(row, players, prospects)
+        _hydrate_pick(row, players, prospects, league_scale)
     return rows
 
 
@@ -235,12 +258,13 @@ def draft_state_view(
     # draft pool (or players.csv once committed).
     players = _player_lookup() if raw_selected else {}
     prospects = _prospect_lookup(y) if raw_selected else {}
+    league_scale = page_scale() if raw_selected else None
     selected: List[Dict[str, Any]] = []
     for entry in raw_selected:
         if not isinstance(entry, dict):
             continue
         row = dict(entry)
-        _hydrate_pick(row, players, prospects)
+        _hydrate_pick(row, players, prospects, league_scale)
         selected.append(row)
 
     settings = load_draft_settings()
@@ -329,6 +353,7 @@ def draft_pool_view(
             if pid:
                 taken.add(pid)
 
+    league_scale = page_scale()
     rows: List[Dict[str, Any]] = []
     for prospect in pool:
         pid = str(prospect.get("player_id", "")).strip()
@@ -358,7 +383,15 @@ def draft_pool_view(
                 )
             except Exception:
                 age = None
-        # rating-scale: display payload; shows the stored ratings
+        scale = display_scale_for(prospect, league_scale)
+        if scale == LEGACY_RATING_SCALE:
+            shown_overall = _prospect_overall(prospect)
+        else:
+            shown_overall = _full_scale_prospect_overall(
+                prospect, is_pitcher, scale
+            )["overall_display"]
+        # rating-scale: display payload; shows the ratings as stored on the
+        # page's scale (display_rating)
         rows.append(
             {
                 "player_id": pid,
@@ -370,10 +403,10 @@ def draft_pool_view(
                 "throws": prospect.get("throws", ""),
                 "birthdate": birthdate,
                 "age": age,
-                "overall": _prospect_overall(prospect),
+                "overall": shown_overall,
                 "available": not is_taken,
                 "ratings": {
-                    k: prospect.get(k)
+                    k: display_rating(prospect, k, scale)
                     for k in (
                         "ch",
                         "ph",

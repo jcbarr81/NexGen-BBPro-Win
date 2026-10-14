@@ -20,11 +20,18 @@ from services.injury_history import load_player_injury_history
 from services.injury_manager import disabled_list_days_remaining, disabled_list_label
 from services.training_history import load_player_training_history
 from services.training_settings import HITTER_TRACKS, PITCHER_TRACKS, load_training_settings
-from utils.star_rating import star_text
+from utils.star_rating import overall_star_text
 from utils.path_utils import get_data_dir
 from utils.pitcher_role import get_role
 from utils.player_overall import overall_score
-from utils.rating_display import rating_display_value
+from utils.rating_display import (
+    display_rating,
+    display_scale_for,
+    full_scale_overall,
+    league_display_scale,
+    rating_display_value,
+)
+from utils.rating_scale import LEGACY_RATING_SCALE, rating_scale_of, stretch_row
 from utils.stats_persistence import load_stats
 
 _BATTING_STATS: List[str] = [
@@ -216,6 +223,9 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
     _refresh_season_stats(player)
     team_id = _resolve_team_id(player)
     is_pitcher = _is_pitcher(player)
+    # The rating scale the league's pages are on (utils.rating_display):
+    # 1 is today's percentile blend, 2 the stored ratings as they are.
+    scale = display_scale_for(player, league_display_scale())
     # Route through ``api.routers._rating_presentation.compute_overall``
     # so the profile's headline OVR matches what the list views show
     # (the shared production-weighted overall, percentile-scaled).
@@ -230,6 +240,7 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
             lambda key: getattr(player, key, None),
             is_pitcher=is_pitcher,
             position=getattr(player, "primary_position", None),
+            scale=scale,
         )
         overall_raw = result.get("overall_raw")
         if result.get("overall_display") is not None:
@@ -241,12 +252,12 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
         if not isinstance(overall_raw, (int, float)):
             overall_raw = _estimate_overall_rating(player, is_pitcher=is_pitcher)
     if displayed_overall is None:
-        displayed_overall = _display_overall_base(overall_raw, player)
-    overall_display = _apply_scouting_adjustment(displayed_overall, player)
+        displayed_overall = _display_overall_base(overall_raw, player, scale=scale)
+    overall_display = _apply_scouting_adjustment(displayed_overall, player, scale=scale)
     if overall_display is None:
         overall_display = displayed_overall
     star_source = overall_display if overall_display is not None else overall_raw
-    stars_text = star_text(star_source, min_rating=35.0, max_rating=99.0) or "--"
+    stars_text = overall_star_text(star_source, scale=scale) or "--"
     training_focus = _build_training_focus_summary(
         player_id=str(getattr(player, "player_id", "") or ""),
         team_id=team_id,
@@ -263,7 +274,9 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
     # One pass over the (potentially ~18 MB) transactions ledger yields both
     # the full log and the trade-only view — the old code scanned it twice.
     transactions_entries, trade_entries = _collect_transactions_and_trades(player)
-    overview_ratings = tuple(_overview_ratings(player, is_pitcher=is_pitcher))
+    overview_ratings = tuple(
+        _overview_ratings(player, is_pitcher=is_pitcher, scale=scale)
+    )
     return PlayerProfileViewModel(
         player_id=str(getattr(player, "player_id", "") or ""),
         full_name=_full_name(player),
@@ -283,7 +296,7 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
         scouting_confidence_text=_scouting_profile(team_id).confidence_label,
         health_status=_build_injury_status(player),
         header_metrics=tuple(_header_metrics(player, team_id=team_id)),
-        defense_ratings=tuple(_defense_ratings(player)),
+        defense_ratings=tuple(_defense_ratings(player, scale=scale)),
         overview_ratings=overview_ratings,
         rating_help={
             label: RATING_HELP[label]
@@ -302,7 +315,9 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
             is_pitcher=is_pitcher,
         ),
         ratings_history=tuple(
-            _collect_ratings_history_entries(player, is_pitcher=is_pitcher)
+            _collect_ratings_history_entries(
+                player, is_pitcher=is_pitcher, scale=scale
+            )
         ),
         awards_history=tuple(_collect_awards_history(player)),
         transactions_log=tuple(transactions_entries),
@@ -465,9 +480,25 @@ def _scouting_profile(team_id: str) -> ScoutingDisplayProfile:
         )
 
 
-def _display_overall_base(value: Any, player: Any) -> Optional[float]:
+def _full(scale: Optional[int]) -> bool:
+    return scale is not None and scale != LEGACY_RATING_SCALE
+
+
+def _display_floor(scale: Optional[int]) -> int:
+    """The lowest number a page shows: 35 under the scale 1 blend, 1 for a
+    stored scale 2 rating."""
+
+    return 1 if _full(scale) else 35
+
+
+def _display_overall_base(
+    value: Any, player: Any, *, scale: Optional[int] = None
+) -> Optional[float]:
     if not isinstance(value, (int, float)):
         return None
+    if _full(scale):
+        shown = full_scale_overall(value, is_pitcher=_is_pitcher(player))
+        return None if shown is None else float(shown)
     display_val = rating_display_value(
         value,
         key="OVR",
@@ -482,7 +513,9 @@ def _display_overall_base(value: Any, player: Any) -> Optional[float]:
     return numeric_display
 
 
-def _apply_scouting_adjustment(value: Any, player: Any) -> Optional[float]:
+def _apply_scouting_adjustment(
+    value: Any, player: Any, *, scale: Optional[int] = None
+) -> Optional[float]:
     if not isinstance(value, (int, float)):
         return None
     adjusted = scouting_display_value(
@@ -490,8 +523,9 @@ def _apply_scouting_adjustment(value: Any, player: Any) -> Optional[float]:
         player_id=str(getattr(player, "player_id", "") or ""),
         metric_key="OVR",
         team_id=_resolve_team_id(player) or None,
-        minimum=35,
+        minimum=_display_floor(scale),
         maximum=99,
+        rating_scale=scale if _full(scale) else None,
     )
     try:
         return float(adjusted)
@@ -499,11 +533,13 @@ def _apply_scouting_adjustment(value: Any, player: Any) -> Optional[float]:
         return float(value)
 
 
-def _display_overall(value: Any, player: Any) -> Optional[float]:
-    display_val = _display_overall_base(value, player)
+def _display_overall(
+    value: Any, player: Any, *, scale: Optional[int] = None
+) -> Optional[float]:
+    display_val = _display_overall_base(value, player, scale=scale)
     if display_val is None:
         return None
-    adjusted = _apply_scouting_adjustment(display_val, player)
+    adjusted = _apply_scouting_adjustment(display_val, player, scale=scale)
     return adjusted if adjusted is not None else display_val
 
 
@@ -512,18 +548,29 @@ def _display_rating(
     key: str,
     *,
     label_key: Optional[str] = None,
-    minimum: int = 35,
+    minimum: Optional[int] = None,
     maximum: int = 99,
+    scale: Optional[int] = None,
 ) -> str:
-    raw = getattr(player, key, None)
+    """One rating as the profile shows it: on the page's ``scale`` (the
+    blend on scale 1, the stored value on scale 2), then the viewing club's
+    scouting error."""
+
+    if scale is None:
+        raw = getattr(player, key, None)
+    else:
+        raw = display_rating(player, key, scale)
     if raw in ("", None):
         return "--"
+    if minimum is None:
+        minimum = _display_floor(scale)
     display_val = rating_display_value(
         raw,
         key=(label_key or key).upper(),
         position=getattr(player, "primary_position", None),
         is_pitcher=_is_pitcher(player),
         mode="scale_99",
+        scale=scale if _full(scale) else None,
     )
     adjusted = scouting_display_value(
         display_val,
@@ -532,6 +579,7 @@ def _display_rating(
         team_id=_resolve_team_id(player) or None,
         minimum=minimum,
         maximum=maximum,
+        rating_scale=scale if _full(scale) else None,
     )
     try:
         return str(int(round(float(adjusted))))
@@ -566,15 +614,19 @@ def _role_text(player: Any, is_pitcher: bool) -> str:
     return str(getattr(player, "role", "") or "").strip()
 
 
-def _defense_ratings(player: Any) -> List[Tuple[str, str]]:
+def _defense_ratings(
+    player: Any, *, scale: Optional[int] = None
+) -> List[Tuple[str, str]]:
     return [
-        ("Fielding", _display_rating(player, "fa", label_key="FA")),
-        ("Arm", _display_rating(player, "arm", label_key="AS")),
-        ("Speed", _display_rating(player, "sp", label_key="SP")),
+        ("Fielding", _display_rating(player, "fa", label_key="FA", scale=scale)),
+        ("Arm", _display_rating(player, "arm", label_key="AS", scale=scale)),
+        ("Speed", _display_rating(player, "sp", label_key="SP", scale=scale)),
     ]
 
 
-def _overview_ratings(player: Any, *, is_pitcher: bool) -> List[Tuple[str, str]]:
+def _overview_ratings(
+    player: Any, *, is_pitcher: bool, scale: Optional[int] = None
+) -> List[Tuple[str, str]]:
     items = _PITCHER_RATINGS if is_pitcher else _HITTER_RATINGS
     rows: List[Tuple[str, str]] = []
     for label, key in items:
@@ -587,7 +639,7 @@ def _overview_ratings(player: Any, *, is_pitcher: bool) -> List[Tuple[str, str]]
                     continue
             except (TypeError, ValueError):
                 continue
-        rows.append((label, _display_rating(player, key)))
+        rows.append((label, _display_rating(player, key, scale=scale)))
     return rows
 
 
@@ -1184,6 +1236,20 @@ def _compute_rolling_stats(player_id: str, *, is_pitcher: bool) -> Dict[str, Any
 
 
 _HITTER_RATING_HISTORY = ("ch", "ph", "sp", "eye", "fa", "arm")
+
+
+def _history_row_on_scale(row: Mapping[str, Any], scale: int) -> Mapping[str, Any]:
+    """An archived ``players.csv`` row re-expressed on ``scale``; the row
+    as it is when it cannot be (an unknown scale)."""
+
+    try:
+        if scale == LEGACY_RATING_SCALE:
+            from utils.rating_scale import engine_row
+
+            return engine_row(row)
+        return stretch_row(row, scale)[0]
+    except ValueError:
+        return row
 _PITCHER_RATING_HISTORY = ("endurance", "control", "movement", "arm", "fa")
 
 
@@ -1191,10 +1257,17 @@ def _collect_ratings_history_entries(
     player: Any,
     *,
     is_pitcher: bool,
+    scale: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Per-season rating snapshot list. Each entry is
     ``{label, ratings: {key: value}}``. Walks SeasonContext history + the
-    live player to avoid duplicating the current year."""
+    live player to avoid duplicating the current year.
+
+    The stored ratings, every season on the page's ``scale``: a season
+    archived before the league moved to rating scale 2 is re-expressed on
+    it, so a player's history reads as one scale and shows no jump at the
+    switch (his ratings did not change, only how they are written).
+    """
 
     player_id = str(getattr(player, "player_id", "") or "").strip()
     if not player_id:
@@ -1233,6 +1306,8 @@ def _collect_ratings_history_entries(
                     break
         if not row_match:
             continue
+        if scale is not None and rating_scale_of(row_match) != scale:
+            row_match = _history_row_on_scale(row_match, scale)
         ratings: Dict[str, Any] = {}
         for k in keys:
             raw = row_match.get(k)
@@ -1251,7 +1326,10 @@ def _collect_ratings_history_entries(
         current_ratings: Dict[str, Any] = {}
         for k in keys:
             try:
-                raw = getattr(player, k, None)
+                if scale is None:
+                    raw = getattr(player, k, None)
+                else:
+                    raw = display_rating(player, k, scale)
                 current_ratings[k] = int(raw) if raw not in ("", None) else None
             except (TypeError, ValueError):
                 current_ratings[k] = None

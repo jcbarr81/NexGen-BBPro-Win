@@ -281,8 +281,10 @@ def scouting_display_value(
     league_id: str | None = None,
     minimum: int = 0,
     maximum: int = 99,
+    rating_scale: int | None = None,
 ) -> object:
-    """Return deterministic scouting-adjusted display value."""
+    """Return deterministic scouting-adjusted display value (``rating_scale``:
+    the scale the page shows ``value`` on; ``None`` is scale 1)."""
 
     try:
         numeric = float(value)
@@ -309,6 +311,7 @@ def scouting_display_value(
         team_id=team_id,
         minimum=minimum,
         maximum=maximum,
+        rating_scale=rating_scale,
     )
 
 

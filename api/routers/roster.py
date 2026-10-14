@@ -29,7 +29,13 @@ from utils.roster_loader import (
 from utils.roster_rules import ORG_LIMIT, counts_as_pitcher
 
 from ..security import CurrentIdentity, require_bearer, require_team_owner
-from ._rating_presentation import compute_overall, rating_context, scale_rating
+from ._rating_presentation import (
+    compute_overall,
+    page_reader,
+    page_scale,
+    rating_context,
+    scale_rating,
+)
 
 router = APIRouter(prefix="/teams/{team_id}", tags=["roster"], dependencies=[CurrentIdentity])
 
@@ -62,37 +68,47 @@ _PITCHER_RATING_FIELDS = (
 )
 
 
-def _player_summary(player: Any, level: str, dl_tier: str | None = None) -> Dict[str, Any]:
+def _player_summary(
+    player: Any,
+    level: str,
+    dl_tier: str | None = None,
+    league_scale: Any = "page",
+) -> Dict[str, Any]:
     is_pitcher = bool(getattr(player, "is_pitcher", False))
     position = getattr(player, "primary_position", None)
+    if league_scale == "page":
+        league_scale = page_scale()
+    # ``read`` gives the player's ratings on the scale the page shows.
+    scale, read = page_reader(player, league_scale)
 
     ratings: Dict[str, Any] = {}
     ratings_context: Dict[str, Dict[str, Any]] = {}
     for key in _RATING_FIELDS:
-        raw = getattr(player, key, None)
+        raw = read(key)
         if raw is None:
             continue
         ratings[key] = scale_rating(
-            raw, key=key, position=position, is_pitcher=is_pitcher
+            raw, key=key, position=position, is_pitcher=is_pitcher, scale=scale
         )
         ctx = rating_context(
-            raw, key=key, position=position, is_pitcher=is_pitcher
+            raw, key=key, position=position, is_pitcher=is_pitcher, scale=scale
         )
         if ctx is not None:
             ratings_context[key] = ctx
     if is_pitcher:
         for key in _PITCHER_RATING_FIELDS:
-            raw = getattr(player, key, None)
+            raw = read(key)
             if raw is None:
                 continue
             ratings[key] = scale_rating(
-                raw, key=key, position=position, is_pitcher=is_pitcher
+                raw, key=key, position=position, is_pitcher=is_pitcher, scale=scale
             )
 
     overall = compute_overall(
         lambda k: getattr(player, k, None),
         is_pitcher=is_pitcher,
         position=position,
+        scale=scale,
     )
 
     birthdate = getattr(player, "birthdate", "") or ""
@@ -167,6 +183,7 @@ def team_roster(team_id: str) -> Dict[str, Any]:
             detail=f"Failed to load players.csv: {exc}",
         ) from exc
     players_by_id = {getattr(p, "player_id", ""): p for p in players_list}
+    league_scale = page_scale()
 
     def _hydrate(ids: List[str], level: str) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
@@ -198,7 +215,7 @@ def team_roster(team_id: str) -> Dict[str, Any]:
                 )
                 continue
             dl_tier = roster.dl_tiers.get(pid) if level == "DL" else None
-            out.append(_player_summary(player, level, dl_tier))
+            out.append(_player_summary(player, level, dl_tier, league_scale))
         return out
 
     # Active-roster shape against the limits in force today (26 / 13, or
