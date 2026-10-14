@@ -689,9 +689,11 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # foul rate and the chase term. The three weights should sum to 1 (the
     # pq centre is the same mix of the three rating centres). It is worked
     # out before the swing decision, so an out-of-zone pitch can be chased
-    # for its quality: under swing_model 1 the chase logit takes
-    #   + swing_pq_chase_logit * (pq - pq centre).
-    # The legacy swing model does not read the chase term.
+    # for its quality: the chase logit takes
+    #   + swing_pq_chase_logit * (pq - pq centre)
+    # only while the whole group is on (ev_velocity_model and fatigue_model
+    # both 1, physics.pitching_group_on) under swing_model 1; generation 5
+    # cannot switch it on alone. The legacy swing model never reads it.
     "pq_weight_control": 0.4,
     "pq_weight_movement": 0.4,
     "pq_weight_grade": 0.2,
@@ -742,7 +744,11 @@ DEFAULT_TUNING: Dict[str, Any] = {
     #   movement -= fatigue_movement_points * p
     #   pq       -= fatigue_stuff_points * p       (the stuff loss)
     #   velocity -= fatigue_velocity_mph * p
-    # after the fresh-arm bonus. Model 0 multiplies control, movement and
+    # after the fresh-arm bonus. A loss is never negative, and what it
+    # leaves is floored: control, movement and pitch quality at 1, the
+    # fastball at 0.85 of his fresh speed (the old model's floor); none of
+    # the floors binds at these values (4.5 points and 2.25 mph at the
+    # cap). Model 0 multiplies control, movement and
     # velocity by factors that fall to 0.60 / 0.65 / 0.85 (a 12 mph
     # fastball loss at pitches 91-105) and are not read under model 1.
     # tto_pass3_weight and reliever_fresh_bonus are retuned with it (one
@@ -756,18 +762,20 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # The manager's view of an arm (engine._pitcher_stuff_score, read by
     # the reliever choice). Model 0 is the old (control + movement + arm)
     # / 3, which never looked at a pitch grade. Model 1 is the weighted
-    # mean below over control, movement, his mean pitch grade and arm, each
-    # as the pitch reads it (league-relative under centred_ratings). The
-    # weights are each rating's measured worth in FIP per point on the
-    # generation 6 pitching profile (per +10, calibration / league fixture,
-    # 8 seasons each: control -.34 / -.51, movement -.36 / -.47, grade
-    # -.58 / -.62, arm -.15 / -.21), so they move with A-D and belong in
-    # the same profile; they are read only under model 1.
+    # mean below over control, movement, his pitch grade (weighted by how
+    # often pitch selection throws each pitch) and arm, each as the pitch
+    # reads it (league-relative under centred_ratings). The weights are each
+    # rating's measured worth in FIP per point on the generation 6 pitching
+    # profile, with that grade (per +10, IP-weighted, pitchers with 40+ IP
+    # over 28 seasons of each fixture, calibration / league fixture: control
+    # -.28 / -.43, movement -.37 / -.45, grade -.57 / -.61, arm -.14 /
+    # -.21; the shares averaged over the two), so they move with A-D and
+    # belong in the same profile; they are read only under model 1.
     "pitcher_score_model": 0.0,
-    "pitcher_score_weight_control": 0.27,
-    "pitcher_score_weight_movement": 0.26,
-    "pitcher_score_weight_grade": 0.35,
-    "pitcher_score_weight_arm": 0.12,
+    "pitcher_score_weight_control": 0.23,
+    "pitcher_score_weight_movement": 0.27,
+    "pitcher_score_weight_grade": 0.39,
+    "pitcher_score_weight_arm": 0.11,
     "platoon_contact_scale": 0.25,
     "platoon_power_scale": 0.2,
     "platoon_eye_scale": 0.3,

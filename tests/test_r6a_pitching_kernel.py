@@ -39,6 +39,8 @@ OFF_VALUES = {
     "ev_pq_slope": 0.004,
     "difficulty_pq_scale": 1.0,
 }
+# The group's two switches: the chase term is read only while both are on.
+GROUP_ON = {"ev_velocity_model": 1.0, "fatigue_model": 1.0}
 # Read only under ``ev_velocity_model`` 1: the design's values.
 SWITCHED_VALUES = {"ev_velo_dev_weight": 0.10, "ev_base_offset_mph": 20.0}
 WILD = {"ev_velo_dev_weight": 3.0, "ev_base_offset_mph": -40.0}
@@ -180,11 +182,37 @@ def test_the_composite_is_worked_out_before_the_swing_with_no_draw(monkeypatch):
         swung = _fixed_pitch(monkeypatch, make(), pitcher=pitcher)
         assert swung.swing and swung.contact
         assert swung.pitch_quality == 60.0 * 0.4 + 40.0 * 0.4 + 70.0 * 0.2
-        # The same number of chance rolls as the pitch always made.
-        on = _fixed_pitch(
-            monkeypatch, make(swing_pq_chase_logit=0.02), pitcher=pitcher
+
+
+def test_the_chase_term_draws_no_random_number(monkeypatch):
+    """An out-of-zone pitch (the chase branch runs) with the term on and
+    off, the whole group on: the same chance rolls, the same take."""
+    pitcher = dict(PITCHER, repertoire={"fb": 70.0}, control=60.0, movement=40.0)
+    centre_reads = []
+    real_centre = physics._pitch_quality_center
+
+    def centre(tuning):
+        centre_reads.append(1)
+        return real_centre(tuning)
+
+    results = {}
+    for slope in (0.0, 0.02):
+        monkeypatch.setattr(physics, "_pitch_quality_center", centre)
+        del centre_reads[:]
+        # roll .6: the pitch is aimed out of the zone and taken.
+        res = _fixed_pitch(
+            monkeypatch, _g5(**GROUP_ON, swing_pq_chase_logit=slope),
+            pitcher=pitcher, roll=0.6,
         )
-        assert on.rolls == swung.rolls
+        results[slope] = (res, len(centre_reads))
+    (off, off_reads), (on, on_reads) = results[0.0], results[0.02]
+    assert not off.in_zone and not on.in_zone
+    assert not off.swing and not on.swing
+    # The chase branch ran with the term on (it reads the pq centre) ...
+    assert on_reads > off_reads == 0
+    # ... and drew nothing: the same rolls, the same pitch.
+    assert on.rolls == off.rolls
+    assert (on.location, on.outcome) == (off.location, off.outcome)
 
 
 # --- A. stuff --------------------------------------------------------------------
@@ -252,7 +280,7 @@ def test_chase_term_is_off_by_default_and_blind_to_quality():
 
 
 def test_chase_term_moves_the_chase_in_log_odds_and_leaves_the_zone_alone():
-    tuning = _g5(swing_pq_chase_logit=0.02)
+    tuning = _g5(**GROUP_ON, swing_pq_chase_logit=0.02)
     base = _swing_chance(tuning, in_zone=False, pitch_quality=50.0)
     assert base == _swing_chance(_g5(), in_zone=False, pitch_quality=50.0)
     good = _swing_chance(tuning, in_zone=False, pitch_quality=60.0)
@@ -271,7 +299,10 @@ def test_chase_term_moves_the_chase_in_log_odds_and_leaves_the_zone_alone():
     ) == base
 
 
-def test_chase_term_reaches_the_pitch_and_only_under_the_new_swing_model():
+def test_chase_term_acts_only_with_the_whole_pitching_group_on():
+    """The term has no switch of its own: it is read only while the group
+    is on (both its switches), so generation 5 -- which has the swing model
+    it lives in -- cannot turn it on by itself."""
     pitcher = dict(
         PITCHER, repertoire={"fb": 75.0, "sl": 75.0}, control=70.0, movement=70.0
     )
@@ -283,10 +314,21 @@ def test_chase_term_reaches_the_pitch_and_only_under_the_new_swing_model():
         assert len(away) > 1500
         return sum(r["swing"] for r in away) / len(away)
 
-    off, on = chase_rate(_g5()), chase_rate(_g5(swing_pq_chase_logit=0.02))
+    off = chase_rate(_g5(**GROUP_ON))
+    on = chase_rate(_g5(**GROUP_ON, swing_pq_chase_logit=0.02))
     assert 0.04 < on - off < 0.14
-    # The legacy swing model does not read it.
-    assert _stream(_legacy(swing_pq_chase_logit=0.5)) == _stream(_legacy())
+    # Generation 5 with the slope set and the group off: the pitch stream
+    # and the random state are generation 5's.
+    assert _stream(_g5(swing_pq_chase_logit=0.5)) == _stream(_g5())
+    # Half the group is not the group.
+    for half in ({"ev_velocity_model": 1.0}, {"fatigue_model": 1.0}):
+        assert _stream(_g5(**half, swing_pq_chase_logit=0.5)) == _stream(_g5(**half))
+    assert not physics.pitching_group_on(_g5(ev_velocity_model=1.0))
+    assert physics.pitching_group_on(_g5(**GROUP_ON))
+    # The legacy swing model does not read it either way.
+    assert _stream(_legacy(**GROUP_ON, swing_pq_chase_logit=0.5)) == _stream(
+        _legacy(**GROUP_ON)
+    )
 
 
 # --- B. velocity ----------------------------------------------------------------
@@ -323,6 +365,30 @@ def test_velocity_loss_comes_off_after_the_scale_and_factor():
     assert physics.sample_pitch_velocity(90.0, 1.0, tuning, 1.5) == (
         90.0 * 1.02 - 1.5
     )
+
+
+def test_a_mistuned_fatigue_knob_cannot_throw_an_absurd_pitch(monkeypatch):
+    tuning = _legacy()
+    # The loss never takes the fastball below 0.85 of its fresh speed (the
+    # old model's floor), and a negative loss is no gain.
+    assert physics.sample_pitch_velocity(93.0, 1.0, tuning, 300.0) == 93.0 * 0.85
+    assert physics.sample_pitch_velocity(93.0, 1.0, tuning, -5.0) == 93.0
+    # The generation 6 losses (2.25 mph at the cap) never reach it.
+    assert physics.sample_pitch_velocity(93.0, 1.0, tuning, 2.25) == 93.0 - 2.25
+    # The stuff loss leaves pitch quality at the bottom of the scale at
+    # worst, and a negative one is ignored.
+    pitcher = dict(PITCHER, repertoire={"fb": 70.0}, control=60.0, movement=40.0)
+    plain = _fixed_pitch(monkeypatch, tuning, pitcher=pitcher)
+    floored = _fixed_pitch(monkeypatch, tuning, pitcher=dict(pitcher, stuff_loss=500.0))
+    assert floored.pitch_quality == physics.PITCH_QUALITY_FLOOR
+    negative = _fixed_pitch(monkeypatch, tuning, pitcher=dict(pitcher, stuff_loss=-50.0))
+    assert negative.pitch_quality == plain.pitch_quality
+    absurd = _fixed_pitch(
+        monkeypatch, tuning,
+        pitcher=dict(pitcher, velocity_loss=200.0, stuff_loss=500.0),
+    )
+    assert absurd.velocity == pytest.approx(93.0 * 0.85)
+    assert absurd.exit_velo is None or absurd.exit_velo > 0.0
 
 
 def _ev(monkeypatch, tuning, **pitcher):

@@ -186,32 +186,27 @@ def test_the_group_check_notices_a_missing_part(dropped):
     assert state == {name: name != dropped for name in PARTS}
 
 
-def test_a_league_cannot_switch_part_of_the_group_on_through_its_overrides():
-    """The keys that DEFINE the group are the generation's, like the
-    Release 5 model switches: a copy posted to the tuning API (or left in a
-    league's overrides file) is dropped, so no league plays half the group.
-    The group's sizes stay ordinary knobs."""
+def test_no_league_can_switch_part_of_the_group_on_through_its_overrides():
+    """A legacy or generation 5 league's file cannot hold any key of this
+    release (as before the release registered them), and from generation 6
+    the keys that DEFINE the group are the generation's, like the Release 5
+    model switches; its sizes stay ordinary knobs there. The whole of the
+    file behaviour is tests/test_r6a_pitching_tuning.py."""
     from services import physics_tuning_settings as settings
 
-    defining = {
-        "ev_velocity_model", "fatigue_model", "pitcher_score_model",
-        "pq_weight_control", "pq_weight_movement", "pq_weight_grade",
-        "ev_pq_contact_base_weight", "ev_pq_slope", "difficulty_pq_scale",
-        "difficulty_velocity_scale",
-    }
-    assert defining | {"contact_logit_velo"} <= set(settings.GENERATION_OWNED_KEYS)
-    assert defining <= set(OFF_VALUES)
-    # The contact roll's velocity term is wrong-signed on the old fatigue.
-    assert settings._sanitize_overrides({"contact_logit_velo": 0.06}) == {}
-    posted = {key: _profile().get(key, 1.0) for key in defining}
-    assert settings._sanitize_overrides(posted) == {}
-    assert settings._sanitize_overrides(posted, strict=True) == {}
-    # Every key that is on/off by itself in OFF_VALUES is owned, except the
-    # chase slope, which is a size (0 = no term) like the fatigue points.
-    assert set(OFF_VALUES) - defining == {"swing_pq_chase_logit"}
-    sizes = {"fatigue_control_points": 2.0, "swing_pq_chase_logit": 0.01,
-             "ev_velo_dev_weight": 0.12, "hr_scale": 0.95}
-    assert settings._sanitize_overrides(sizes) == sizes
+    # Every key that switches part of the group on by itself is owned from
+    # generation 6 -- the chase slope among them.
+    assert set(OFF_VALUES) <= set(settings.R6A_PITCHING_GROUP_KEYS)
+    assert set(settings.R6A_PITCHING_KEYS) == NEW_KEYS
+    posted = {key: _profile().get(key, 1.0) for key in NEW_KEYS}
+    for generation in (4, 5):
+        assert settings._sanitize_overrides(posted, generation=generation) == {}
+    defining = {key: posted[key] for key in settings.R6A_PITCHING_GROUP_KEYS}
+    assert settings._sanitize_overrides(defining, generation=6) == {}
+    assert settings._sanitize_overrides(defining, strict=True, generation=6) == {}
+    sizes = {"fatigue_control_points": 2.0, "ev_velo_dev_weight": 0.12,
+             "hr_scale": 0.95}
+    assert settings._sanitize_overrides(sizes, generation=6) == sizes
 
 
 # --- whole games ------------------------------------------------------------------
@@ -270,7 +265,6 @@ G5_PINNED_DIGESTS = {
 PART_SWITCHES = {
     "A weights": {"pq_weight_control": 0.15, "pq_weight_movement": 0.30,
                   "pq_weight_grade": 0.55},
-    "A chase": {"swing_pq_chase_logit": 0.02},
     "B ev model": {"ev_velocity_model": 1.0, "ev_pitch_weight": 0.25},
     "B difficulty": {"difficulty_velocity_scale": 0.0},
     "C contact base": {"ev_pq_contact_base_weight": 0.0},
@@ -313,12 +307,27 @@ def test_each_switch_reaches_the_engine(name):
 
 
 @needs_hashseed
+def test_the_chase_term_reaches_the_engine_only_with_the_group_on():
+    """Generation 5 has the swing model the chase term lives in, but the
+    term is read only while the whole pitching group is on."""
+    chase = {"swing_pq_chase_logit": 0.02}
+    assert _g5_digests(chase) == G5_PINNED_DIGESTS
+    group = {"ev_velocity_model": 1.0, "ev_pitch_weight": 0.25, "fatigue_model": 1.0}
+    without, with_chase = _g5_digests(group), _g5_digests({**group, **chase})
+    assert {"cal1", "cal2"} & {
+        key for key in without if without[key] != with_chase[key]
+    }
+
+
+@needs_hashseed
 def test_the_legacy_engine_reads_what_it_can_of_the_group():
     """Legacy has no swing or contact model 1, so the chase term and the
     contact velocity term are not read there; the rest reaches it."""
     pinned = legacy_games.PINNED_DIGESTS
-    for name in ("A chase",):
-        assert legacy_games._all_digests(PART_SWITCHES[name]) == pinned, name
+    assert legacy_games._all_digests(
+        {"swing_pq_chase_logit": 0.02, "ev_velocity_model": 1.0,
+         "fatigue_model": 1.0}
+    ) == legacy_games._all_digests({"ev_velocity_model": 1.0, "fatigue_model": 1.0})
     assert legacy_games._all_digests({"contact_logit_velo": 0.06}) == pinned
     for name in ("A weights", "B ev model", "C slope", "D fatigue"):
         got = legacy_games._all_digests(PART_SWITCHES[name])
@@ -352,7 +361,7 @@ def _arm(pid, *, control, movement, arm, grades, endurance=50.0) -> PitcherState
         velocity=50.0, control=control, movement=movement, gb_tendency=50.0,
         vs_left=50.0, hold_runner=50.0, endurance=endurance, durability=50.0,
         fielding=50.0, arm=arm,
-        repertoire=dict(zip(("fb", "sl", "cu"), grades)),
+        repertoire=dict(zip(("fb", "sl", "cu", "cb", "si"), grades)),
     )
     return PitcherState(
         pitcher=ratings, pitches=0, fatigue_start=40.0, fatigue_limit=60.0,
@@ -424,10 +433,10 @@ def test_stuff_score_reads_the_generation_s_weights_under_model_1():
     tuning = load_tuning(weights)
     command, stuff = _arm("a", **COMMAND_ARM), _arm("b", **STUFF_ARM)
     assert engine._pitcher_stuff_score(command.pitcher, tuning) == pytest.approx(
-        0.24 * 64 + 0.25 * 60 + 0.39 * 41 + 0.12 * 62
+        0.24 * 64 + 0.25 * 60 + 0.39 * _usage((42, 40, 41)) + 0.12 * 62
     )
     assert engine._pitcher_stuff_score(stuff.pitcher, tuning) == pytest.approx(
-        0.24 * 48 + 0.25 * 52 + 0.39 * 70 + 0.12 * 50
+        0.24 * 48 + 0.25 * 52 + 0.39 * _usage((72, 70, 68)) + 0.12 * 50
     )
     # Now the manager brings in the arm with the pitches.
     for leverage in ("high", "mid"):
@@ -455,15 +464,17 @@ def test_stuff_score_is_league_relative_and_fills_in_a_missing_repertoire():
     )
     total = w_control + w_movement + w_grade + w_arm
     stuff = _arm("b", **STUFF_ARM).pitcher
+    # Each grade is shifted (55 -> 50) before the usage weights are taken.
+    grade = _usage((72 - 5, 70 - 5, 68 - 5))
     expected = (
         w_control * (48 - 53 + 50) + w_movement * (52 - 51 + 50)
-        + w_grade * (70 - 55 + 50) + w_arm * (50 - 56 + 50)
+        + w_grade * grade + w_arm * (50 - 56 + 50)
     ) / total
     assert engine._pitcher_stuff_score(stuff, tuning) == pytest.approx(expected)
     # No repertoire: the league's average pitch, as the pitch itself has it.
     bare = _arm("c", control=48.0, movement=52.0, arm=50.0, grades=()).pitcher
     assert engine._pitcher_stuff_score(bare, tuning) == pytest.approx(
-        expected - w_grade * 15.0 / total
+        expected - w_grade * (grade - 50.0) / total
     )
     # The registered weights are the profile's.
     profile = _profile()
@@ -472,6 +483,39 @@ def test_stuff_score_is_league_relative_and_fills_in_a_missing_repertoire():
         (w_control, w_movement, w_grade, w_arm),
     ):
         assert profile[f"pitcher_score_weight_{name}"] == weight
+
+
+def _usage(grades) -> float:
+    """The grade pitch selection implies: each weighted by max(1, grade)."""
+    weights = [max(1.0, float(g)) for g in grades]
+    return sum(w * g for w, g in zip(weights, grades)) / sum(weights)
+
+
+def test_the_grade_is_weighted_by_how_often_he_throws_each_pitch():
+    """A pitcher with one 80 pitch and three 20s throws the 80 more than half
+    the time (selection weighs a pitch by its grade). The plain mean read
+    him at 35 and ranked him far below a pitcher with the 80 alone; the
+    usage-weighted grade reads 54, still below the one-pitch 80 (the 20s
+    are thrown 43% of the time), and is what the score uses."""
+    tuning = load_tuning({"pitcher_score_model": 1.0})
+    one = _arm("one", control=50.0, movement=50.0, arm=50.0, grades=(80.0,))
+    four = _arm("four", control=50.0, movement=50.0, arm=50.0,
+                grades=(80.0, 20.0, 20.0, 20.0))
+    assert _usage((80, 20, 20, 20)) == pytest.approx(7600.0 / 140.0)
+    w = {name: DEFAULT_TUNING[f"pitcher_score_weight_{name}"]
+         for name in ("control", "movement", "grade", "arm")}
+    total = sum(w.values())
+
+    def score(grade):
+        return (50.0 * (total - w["grade"]) + w["grade"] * grade) / total
+
+    assert engine._pitcher_stuff_score(one.pitcher, tuning) == pytest.approx(score(80))
+    assert engine._pitcher_stuff_score(four.pitcher, tuning) == pytest.approx(
+        score(7600.0 / 140.0)
+    )
+    # A second pitch of the same grade changes nothing.
+    twin = _arm("twin", control=50.0, movement=50.0, arm=50.0, grades=(80.0, 80.0))
+    assert engine._pitcher_stuff_score(twin.pitcher, tuning) == pytest.approx(score(80))
 
 
 def test_the_profile_s_manager_weights_are_a_share_each():

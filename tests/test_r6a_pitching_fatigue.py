@@ -79,6 +79,38 @@ def test_losses_are_linear_in_the_penalty_and_read_their_keys():
     assert engine._fatigue_losses(0.5, custom) == (2.0, 1.0, 0.25, 0.5)
 
 
+def test_a_mistuned_knob_cannot_make_a_tired_pitcher_better_or_absurd():
+    # A negative coefficient is no gain.
+    negative = load_tuning({key: -9.0 for key in COEFFICIENTS})
+    assert engine._fatigue_losses(1.0, negative) == (0.0, 0.0, 0.0, 0.0)
+    assert engine._fatigue_losses(-1.0, load_tuning()) == (0.0, 0.0, 0.0, 0.0)
+    # What a loss leaves is floored at the bottom of the rating scale, and a
+    # rating already below it is not raised.
+    assert engine._fatigued_rating(48.0, 4.5) == 43.5
+    assert engine._fatigued_rating(48.0, 1000.0) == engine.FATIGUE_RATING_FLOOR
+    assert engine._fatigued_rating(0.5, 3.0) == 0.5
+
+
+def test_absurd_fatigue_knobs_still_play_a_sane_game(monkeypatch):
+    overrides = _g5_overrides(
+        **{
+            **FATIGUE_ON, "fatigue_velocity_mph": 200.0,
+            "fatigue_control_points": 1000.0, "fatigue_movement_points": 1000.0,
+            "fatigue_stuff_points": 1000.0,
+        }
+    )
+    _result, entries, pitches = _traced_game(monkeypatch, overrides, 3)
+    tired = 0
+    for entry, pitch in zip(entries, pitches):
+        assert pitch["control"] >= engine.FATIGUE_RATING_FLOOR
+        assert pitch["movement"] >= engine.FATIGUE_RATING_FLOOR
+        if entry["pitch_type"] == "fb":
+            assert entry["velocity"] >= 0.85 * pitch["velocity"] - 1e-9
+        assert entry["pitch_quality"] >= 1.0
+        tired += entry["fatigue_penalty"] > 0.0
+    assert tired >= 20
+
+
 def test_a_good_pitcher_and_a_poor_one_lose_the_same():
     """The old factors took the most from the best: 30% of a 70 control is
     21 points, of a 40 control 12. The losses are the same for both."""
@@ -207,6 +239,9 @@ def test_model_1_hands_the_pitch_the_losses(monkeypatch):
             fresh_and_tired += penalty > 0.0 and pitch["fresh"] > 0.0
             worst = max(worst, penalty)
     assert tired >= 60
+    # The fresh-arm bonus and the losses meet: a tired reliever's first
+    # batters are covered by the formula above.
+    assert fresh_and_tired >= 5
     assert 0.5 < worst <= 1.5
     # Nobody is taken below the cap's loss: 4.5 points and 2.25 mph.
     assert all(p["velocity_loss"] <= 2.25 + 1e-9 for p in pitches)

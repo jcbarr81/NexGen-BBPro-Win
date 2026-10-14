@@ -399,10 +399,11 @@ _CONTACT_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
 # opposite. Before generation 6 pitch speed mostly went into exit velocity,
 # so more velocity was more offence. From generation 6 it is read against
 # the normal speed of the pitch's type by the contact roll and barely by
-# exit velocity, so more velocity is more strikeouts and less offence. No
-# stored value is converted: 1.0 is normal on both engines. A commissioner
-# who had moved it will see the opposite effect from the switch, so the
-# description says so.
+# exit velocity, so more velocity is more strikeouts and less offence. A
+# value stored before the league moved is on the old meaning and is not
+# carried over: the slider goes back to 1.0 and the old value is kept in the
+# league's overrides file, with Release 5's conversion timing
+# (services/physics_tuning_settings, VELOCITY_SLIDER_REBASE_MARKER).
 #
 # SWITCH-ON TEXT, as for the Release 5 sliders above: nothing shows it
 # before a league runs generation 6. The size quoted is a Monte Carlo of
@@ -420,8 +421,8 @@ _VELOCITY_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
             "every pitch is harder to hit, so strikeouts rise and scoring "
             "falls (about 1 mph and 3% more strikeouts per +0.01). Lower "
             "helps hitters. This is the reverse of earlier versions, where "
-            "more velocity meant harder-hit balls and more offence; a "
-            "setting saved before the change now pushes the other way."
+            "more velocity meant harder-hit balls and more offence, so a "
+            "setting saved before the change was reset to 1.00."
         ),
         min_value=0.9,
         max_value=1.1,

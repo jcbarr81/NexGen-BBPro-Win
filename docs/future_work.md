@@ -1872,14 +1872,14 @@ pitch-quality path into exit velocity, additive fatigue; values in
   fatigue and a third pass no easier than the second (`tto_pass2_weight`
   4.5, worth +9 to +11) cannot all hold: the profile's 4.5 reads +22.1 +/-
   2.0 on calibration and +18.6 +/- 1.9 on the league fixture (28 seasons
-  each; generation 5 +33.0 and +32.0). Decide which gives: the band
-  (restate it as +15 to +25), the fatigue size (a set of control 1.5 /
-  movement 0.75 / stuff 0.5 / velocity 1.5 costs +5.6 at pitches 91-105 and
-  +9.9 at the cap by Monte Carlo, against +9.4 to +11.8 and +16.3 to +18.2
-  for the owner's set), or the shape of the times-through-the-order curve.
-  One season's value has a standard deviation of about 10 points (about
-  1,700 to 1,950 late plate appearances), so gate it on a many-season mean
-  or not at all.
+  each; generation 5 +33.0 and +32.0). DECIDED (coordinator, 2026-10-14):
+  accepted as measured, the KPI stays report-only, third-pass weight 4.5
+  and the owner's moderate fatigue unchanged. For a later revisit: a set of
+  control 1.5 / movement 0.75 / stuff 0.5 / velocity 1.5 costs +5.6 at
+  pitches 91-105 and +9.9 at the cap by Monte Carlo, against +9.4 to +11.8
+  and +16.3 to +18.2 for the owner's set. One season's value has a
+  standard deviation of about 10 points (about 1,700 to 1,950 late plate
+  appearances).
 - **The corners of the 35-80 matchup boxes** (composite pitcher axis,
   Monte Carlo, 300,000 PA a cell). Home runs: the largest log5 residual is
   +.41 logit at Power 80 x pitcher 80 (generation 5: 2.41); it comes from
@@ -1888,13 +1888,15 @@ pitch-quality path into exit velocity, additive fatigue; values in
   suppression. Strikeouts: -2.7 points at Contact 80 x pitcher 80
   (generation 5: -1.8); it comes from the chase term (0: -1.7, .01: -2.1).
   Inside 35-65 the strikeout residual is under 1.1 points either way.
-  Re-size both with the batted-ball model.
+  Re-size both with the batted-ball model (accepted for 6a; gates proposed
+  on the inner strikeout grid and the p5-p95 home-run grid).
 - **League-management pitcher scores still ignore pitch grades.** Only
   the in-game reliever choice (`engine._pitcher_stuff_score`) reads the
   generation's weights. Left on their formulas, to be redone with overall
   rating in the rating-scale pass: `utils/player_overall.py` (control .47 /
-  movement .38 / mean grade .15, no arm; generation 6 measures about .27 /
-  .26 / .35 / .12 with arm); the flat mean of arm, control, movement and
+  movement .38 / mean grade .15, no arm; generation 6 measures about .23 /
+  .27 / .39 / .11 with arm and the usage-weighted grade); the flat mean of
+  arm, control, movement and
   endurance in `services/prospect_promotion._player_overall` (its 55 / 65 /
   72 bars are tuned to that score), `inseason_callups._pitcher_score`,
   `player_retirement._player_overall`, `free_agency._quality_score`,
@@ -1920,10 +1922,21 @@ pitch-quality path into exit velocity, additive fatigue; values in
   fresh-arm or tired control the pitch reads (design brief, section 9: not
   worth a mechanism; if touched, hand both rolls the same effective
   control).
-- **The chase term is read under `swing_model` 1 only** and is a size, not
-  a switch (`swing_pq_chase_logit`); a league's overrides file could set it
-  on generation 5. The keys that define the group are generation-owned
-  (`services/physics_tuning_settings.GENERATION_OWNED_KEYS`).
+- **Generation ownership of the other Release 6a areas' keys.** This area
+  makes its own keys mean nothing to a legacy or generation 5 league's
+  overrides file (as before they were registered) and owns the ones that
+  define its group from generation 6
+  (`services/physics_tuning_settings._owned_keys`,
+  `R6A_PITCHING_KEYS`). The power and fielding branches register keys too;
+  fold them into the same rule at integration, and decide whether the
+  generation 6 markers (`_pre_generation_6_r6`,
+  `_velocity_slider_rebased_r6`) should count as evidence of a league's
+  engine the way `_swing_sliders_rebased_r5` does
+  (`league_rating_centers._sliders_rebased`); they do not today.
+- **A Velocity Scale set on generation 6 and read back on an earlier
+  generation** (a rollback) is kept as the pitch speed it is, not
+  reversed; the value set aside at the move comes back only when the
+  commissioner had not set one since.
 - **Velocity Scale slider range.** On generation 6 the 0.90-1.10 range is
   9 mph either way: 0.95 / 1.05 gave strikeouts of 19.6% / 26.7% against
   23.0% (Monte Carlo). Consider narrowing it, and review the description

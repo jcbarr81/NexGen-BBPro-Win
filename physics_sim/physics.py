@@ -480,16 +480,42 @@ def sample_pitch_location(
     )
 
 
+# Release 6a (fatigue_model 1): the most a tired pitcher's fastball can lose,
+# as a share of his fresh speed -- the old model's own floor (x 0.85). The
+# generation 6 coefficients take 2.25 mph at the fatigue cap, so it binds
+# only on a mistuned knob.
+FATIGUE_VELOCITY_FLOOR = 0.85
+# The lowest pitch quality a tired pitcher's stuff loss can leave, the bottom
+# of the scale a pitch grade is clamped to.
+PITCH_QUALITY_FLOOR = 1.0
+
+
+def pitching_group_on(tuning: TuningConfig) -> bool:
+    """Release 6a: the stuff / velocity / exit-velocity / fatigue group is on.
+
+    The group has no switch of its own; it is on when both of its model
+    switches are (``ev_velocity_model`` and ``fatigue_model``), as in the
+    generation 6 profile. Terms of the group that have no switch of their
+    own (the chase term) act only then, so no earlier generation can turn
+    one on by itself.
+    """
+    return (
+        tuning.get("ev_velocity_model", 0.0) >= 1.0
+        and tuning.get("fatigue_model", 0.0) >= 1.0
+    )
+
+
 def sample_pitch_velocity(
     base_velo: float, fatigue: float, tuning: TuningConfig, loss_mph: float = 0.0
 ) -> float:
     """Fastball speed: the pitcher's base speed, the commissioner's scale
     and the legacy fatigue factor. ``loss_mph`` is what a tired pitcher has
-    lost under ``fatigue_model`` 1 (Release 6a), where the factor is 1.0."""
+    lost under ``fatigue_model`` 1 (Release 6a), where the factor is 1.0; it
+    never takes him below ``FATIGUE_VELOCITY_FLOOR`` of his fresh speed."""
     scale = tuning.get("velocity_scale", 1.0)
     velocity = base_velo * scale * fatigue
-    if loss_mph:
-        velocity -= loss_mph
+    if loss_mph > 0.0:
+        velocity = max(velocity - loss_mph, velocity * FATIGUE_VELOCITY_FLOOR)
     return velocity
 
 
@@ -768,7 +794,8 @@ def _swing_probability(
     Release 6a: ``pitch_quality`` is the composite the contact roll reads.
     A pitch out of the zone is chased more the better it is
     (``swing_pq_chase_logit`` per point above the league's average pitch);
-    off at 0.0, and with no ``pitch_quality`` given.
+    off at 0.0, with no ``pitch_quality`` given, and unless the generation
+    6 pitching group is on (:func:`pitching_group_on`).
     """
     swing_logits, eye_center = _swing_logit_table(tuning)
     zone_logit, chase_logit = swing_logits[(min(balls, 3), min(strikes, 2))]
@@ -787,7 +814,11 @@ def _swing_probability(
         )
         swing_logit += platoon_chase * tuning.get("swing_platoon_chase_logit", 5.0)
         chase_slope = tuning.get("swing_pq_chase_logit", 0.0)
-        if chase_slope and pitch_quality is not None:
+        if (
+            chase_slope
+            and pitch_quality is not None
+            and pitching_group_on(tuning)
+        ):
             swing_logit += (
                 pitch_quality - _pitch_quality_center(tuning)
             ) * chase_slope
@@ -1146,9 +1177,13 @@ def simulate_pitch(
         + pitch_quality * tuning.get("pq_weight_grade", 0.2)
     )
     stuff_loss = pitcher.get("stuff_loss", 0.0)
-    if stuff_loss:
-        # fatigue_model 1: a tired pitcher's stuff, in pitch-quality points.
-        composite_quality -= stuff_loss
+    if stuff_loss > 0.0:
+        # fatigue_model 1: a tired pitcher's stuff, in pitch-quality points,
+        # never below the bottom of the scale.
+        composite_quality = max(
+            composite_quality - stuff_loss,
+            min(composite_quality, PITCH_QUALITY_FLOOR),
+        )
     composite_quality *= tuning.get("pitching_dom_scale", 1.0)
     if tuning.get("swing_model", 0.0) >= 1.0:
         # Release 5: one roll, and no second "protect" roll.
