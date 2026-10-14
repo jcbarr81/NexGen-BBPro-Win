@@ -120,10 +120,10 @@ class OverallDisplayMap:
 # spread reads 88-92 (stats-clean: hitter 61.0 -> 90, pitcher 64.1 -> 90;
 # alpha-test hitter 61.6 -> 91); past pivot + 9 (shown 86) 2 per point, so a
 # league whose best is a point or two higher does not run to 99. Under the
-# pivot 2.5 per point, so the weakest one percent of a league (overall
-# 38-40) reads 20-25 and nothing but alpha-test's one 29-overall draft pick
-# reaches 1. The design's "about x2.5 / x2.65" cannot put any league's best
-# above about 80 and was not used.
+# pivot 2.5 per point, so the weakest one percent of a league reads about
+# 15-25 and only alpha-test's two weakest (overall 29) reach 1. The design's
+# "about x2.5 / x2.65" cannot put any league's best above about 80 and was
+# not used.
 FULL_SCALE_OVERALL_MAPS: Dict[bool, OverallDisplayMap] = {
     False: OverallDisplayMap(50.0, 2.5, 4.0, 59.0, 2.0),  # hitters
     True: OverallDisplayMap(53.0, 2.5, 4.0, 62.0, 2.0),  # pitchers

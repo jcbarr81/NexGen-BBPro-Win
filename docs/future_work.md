@@ -2235,3 +2235,39 @@ Measured on 8 / 4 / 2 seasons (calibration / league / flat fixtures):
   the fielder centres are under `fielder_centred_ratings`. The live path
   supplies both for a generation 6 season
   (`tests/test_r6a_fielding_centers.py`, live games on the full profile).
+
+## Rating scale 2 display: follow-ups (2026-10-14, branch `r8-display`)
+
+Built: a league whose `players.csv` is on rating scale 2 shows stored
+ratings on every page, the overall through a fixed display map and stars
+re-anchored (`utils/rating_display.py`, `utils/star_rating.py`); a scale 1
+league's payloads are byte-identical (pinned in
+`tests/test_rating_scale_display.py`).
+
+- **Tutorial steps quote engine-scale ratings.** "Contact", "Eye and
+  Control" and "Catcher fielding" in *The Updated Game Engine*
+  (`services/tutorials.py`) give examples on today's stored scale (an 80
+  Contact hitter, a 60 Eye hitter, 10 points of catcher Fielding). On a
+  scale 2 league those numbers mean something else (engine Contact 60 is
+  stored 80; engine Contact 80 cannot be stored). Rewrite them for scale 2
+  (`TutorialStep(rating_scale=2)` shows a step to scale 2 leagues only,
+  `rating_scale=1` to scale 1 only) together with the generation 6
+  numbers. The new scale 2 step says the examples are on the earlier scale.
+- **alpha-test's pitchers read low until the re-spread.** Converted
+  without the decision 15 re-spread, alpha's best shown pitcher overall is
+  59 and its control, movement and arm top out at 68 / 56 / 52; hitters'
+  fielding and arm at 60 / 64. The re-spread fixes it; check the shown
+  overalls after it (the map was fitted without alpha's pitchers).
+- **The overall display map is fixed, not league-relative.** The best
+  shown overall is 90 (stats-clean), 91 (alpha-test hitters), 85 / 88
+  (league fixture hitters / pitchers) and 83 / 83 (calibration). Refit
+  `FULL_SCALE_OVERALL_MAPS` if the generator's spread changes (Release 7
+  generator work) or once development runs.
+- **The profile's scouting error is keyed on the player's own club**
+  (`_resolve_team_id(player)`), not the viewing owner's club, on both
+  scales. Pre-existing; "fog of war on other clubs' players" needs the
+  viewer's team passed in.
+- **The draft page's overall on scale 2 is the shared overall**, the
+  number every other page shows, not the six-rating mean the auto-pick
+  ranks by (that stays, in engine terms). The pool list can therefore be
+  ordered differently from the auto-pick; on scale 1 nothing changed.
