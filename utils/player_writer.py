@@ -5,9 +5,12 @@ from models.player import Player
 from models.pitcher import Pitcher
 from utils.atomic_write import atomic_text_writer
 from utils.rating_scale import (
+    HEIGHT_FIELD,
     LEGACY_RATING_SCALE,
     RATING_SCALE_FIELD,
+    SCALE2_HEIGHT_FIELD,
     describe_rating_scales,
+    players_fieldnames,
     rating_scale_counts,
     rating_scale_of,
 )
@@ -23,8 +26,10 @@ def save_players_to_csv(players, file_path):
     Ratings are written as the objects hold them: STORED values on the
     scale ``player.rating_scale`` names. A list on scale 1 (every league
     today) produces exactly the file it always did, with no ``rating_scale``
-    column. When any player is on another scale the column is written, and
-    every row carries its OWN scale. A list on mixed scales is written as it
+    column. When any player is on another scale the column is written, the
+    file is in the scale 2 format (``height_in`` for ``height``, which a
+    build before 8.0.0 refuses to load), and every row carries its OWN
+    scale. A list on mixed scales is written as it
     is, with a warning naming the rows off the majority scale: each row
     still reads correctly, and refusing would stop every save in the league
     over one stray row.
@@ -65,7 +70,9 @@ def save_players_to_csv(players, file_path):
         "pitcher_archetype", "hitter_archetype",
     ]
     if marked:
-        fieldnames.append(RATING_SCALE_FIELD)
+        # The scale 2 file format: ``height_in`` for ``height``, which every
+        # build before 8.0.0 refuses to load (utils.rating_scale).
+        fieldnames = players_fieldnames(fieldnames, scale2=True)
 
     # Atomic: a parallel-day worker reading players.csv must never see a
     # half-written file (a cut on a row boundary silently drops players).
@@ -109,6 +116,7 @@ def save_players_to_csv(players, file_path):
             }
             if marked:
                 row[RATING_SCALE_FIELD] = rating_scale_of(p)
+                row[SCALE2_HEIGHT_FIELD] = row.pop(HEIGHT_FIELD)
 
             if is_pitcher:
                 row.update({

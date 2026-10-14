@@ -44,6 +44,9 @@ STORED_VALUE_FILES = {
     "physics_sim/physics.py": "reads engine rating contexts",
     "physics_sim/arm_injury.py": "\"arm\" is an injury stream name",
     "services/league_rating_centers.py": "rows go through engine_row at the parse",
+    # -- the 8.0.0 conversion: rewrites stored rows (stretch_row), re-spreads
+    #    engine values before the stretch, rolls back through engine_row
+    "services/rating_scale_migration.py": "converts stored rows; the re-spread is engine scale",
     "scripts/kpi_extras.py": "rows come from engine_rows",
     "scripts/physics_sim_season_kpis.py": "rows come from engine_rows",
     # -- what an owner is shown: stored values, owned by the display step

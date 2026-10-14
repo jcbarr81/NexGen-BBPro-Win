@@ -31,8 +31,20 @@ development list and making it ``CURRENT_ENGINE_GENERATION``.
 ``scripts/kpi_profiles/r6.json`` is the harness-facing copy of generation 6
 (tests/test_r6a_tools_generation.py).
 
-This module imports nothing but the tuning defaults, so the engine, the
-services and the scripts can all read it.
+8.0.0 switches generation 6 on through an OPERATIONS SWITCH instead
+(``utils.rating_scale.GENERATION6_SWITCH_ENV``, off unless the service's
+environment sets it). With it on, generation 6 is a generation a season
+may be given and played on (:func:`known_engine_generations`), and it comes
+only with the move to rating scale 2 (``SCALE2_ENGINE_GENERATION``,
+``services.rating_scale_migration``): a league is given it at the start of
+its next season when its players are converted, and a league created with
+the switch on starts on it. ``CURRENT_ENGINE_GENERATION`` stays 5: it is
+what a new season gets when it does not move (the switch off, a league
+that cannot be converted, or ``NEXGEN_NEW_SEASON_ENGINE=5``). Off, nothing
+here differs from 7.51: generation 6 is the harness's alone.
+
+This module imports nothing but the tuning defaults and the switch, so the
+engine, the services and the scripts can all read it.
 """
 
 from __future__ import annotations
@@ -43,11 +55,14 @@ import math
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
+from utils.rating_scale import generation6_switch_on
+
 from .config import DEFAULT_TUNING
 
 __all__ = [
     "LEGACY_ENGINE_GENERATION",
     "CURRENT_ENGINE_GENERATION",
+    "SCALE2_ENGINE_GENERATION",
     "DEVELOPMENT_ENGINE_GENERATIONS",
     "ENGINE_PROFILE_DIR",
     "engine_defaults",
@@ -67,6 +82,10 @@ CURRENT_ENGINE_GENERATION = 5
 # league season is given one. Release 6a: generation 6, whose profile starts
 # as generation 5's values exactly.
 DEVELOPMENT_ENGINE_GENERATIONS: Tuple[int, ...] = (6,)
+# The generation that comes with rating scale 2 (module docstring): a league
+# is given it only together with the conversion of its players, and only
+# while the 8.0.0 switch is on.
+SCALE2_ENGINE_GENERATION = 6
 
 ENGINE_PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
 
@@ -76,8 +95,18 @@ _PROFILE_CACHE: Dict[str, Tuple[Tuple[int, int], Dict[str, Any]]] = {}
 
 
 def known_engine_generations() -> Tuple[int, ...]:
-    """Every generation a season may be given, the legacy one first."""
+    """Every generation a season may be given, the legacy one first.
 
+    Generation 6 is among them only while the 8.0.0 switch is on (module
+    docstring).
+    """
+
+    if generation6_switch_on():
+        return (
+            LEGACY_ENGINE_GENERATION,
+            CURRENT_ENGINE_GENERATION,
+            SCALE2_ENGINE_GENERATION,
+        )
     return (LEGACY_ENGINE_GENERATION, CURRENT_ENGINE_GENERATION)
 
 
@@ -85,7 +114,10 @@ def harness_engine_generations() -> Tuple[int, ...]:
     """Every generation the KPI harness can run (``--engine``): the ones a
     season may be given, then the ones under development."""
 
-    return known_engine_generations() + tuple(DEVELOPMENT_ENGINE_GENERATIONS)
+    known = known_engine_generations()
+    return known + tuple(
+        number for number in DEVELOPMENT_ENGINE_GENERATIONS if number not in known
+    )
 
 
 def normalize_engine_generation(value: object) -> int:

@@ -9,8 +9,10 @@ from models.pitcher import Pitcher
 from playbalance.season_context import CAREER_DATA_DIR
 from utils.path_utils import get_base_dir as _get_base_dir, get_data_dir as _get_data_dir
 from utils.rating_scale import (
+    HEIGHT_FIELD,
     LEGACY_RATING_SCALE,
     RATING_SCALE_FIELD,
+    SCALE2_HEIGHT_FIELD,
     normalize_rating_scale,
     to_engine,
     to_stored,
@@ -27,6 +29,24 @@ def _required_int(row, key):
     value = row.get(key)
     if value is None or value == "":
         raise ValueError(f"Missing required field: {key}")
+    return int(value)
+
+
+def _required_height(row, scale2_format):
+    """A row's height. In a file in the scale 2 format (``height_in``) a
+    blank one means the row was appended by a build older than 8.0.0, which
+    does not know the column and may have written stretched ratings without
+    their scale: refused, like any missing required field."""
+
+    if not scale2_format:
+        return _required_int(row, HEIGHT_FIELD)
+    value = row.get(SCALE2_HEIGHT_FIELD)
+    if value is None or value == "":
+        raise ValueError(
+            f"Missing required field: {SCALE2_HEIGHT_FIELD} (player "
+            f"{row.get('player_id', '?')} was written by a build older than "
+            "8.0.0; see docs/rating_scale_switch_runbook.md)"
+        )
     return int(value)
 
 
@@ -232,11 +252,12 @@ def _read_players_from_csv(csv_path: Path):
     players = []
     with csv_path.open(mode="r", newline="") as csvfile:
         reader = csv.DictReader(csvfile)
+        scale2_format = SCALE2_HEIGHT_FIELD in (reader.fieldnames or [])
         for row in reader:
             is_pitcher_value = row.get("is_pitcher", "").strip().lower()
             is_pitcher = is_pitcher_value in {"true", "1", "yes"}
 
-            height = _required_int(row, "height")
+            height = _required_height(row, scale2_format)
             weight = _required_int(row, "weight")
             gf = _required_int(row, "gf")
             # Raises on a scale this build does not know: such a row must

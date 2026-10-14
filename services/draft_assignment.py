@@ -11,8 +11,11 @@ from utils.news_logger import log_news_event
 from utils.path_utils import get_data_dir
 from utils.pitcher_role import role_from_endurance
 from utils.rating_scale import (
+    HEIGHT_FIELD,
     LEGACY_RATING_SCALE,
     RATING_SCALE_FIELD,
+    SCALE2_HEIGHT_FIELD,
+    players_fieldnames,
     MixedRatingScaleError,
     describe_rating_scales,
     majority_rating_scale,
@@ -292,16 +295,48 @@ def _rows_on_file_scale(
     return out
 
 
+def _rewrite_in_scale2_format(path: Path) -> list[str]:
+    """Rewrite ``players.csv`` whole, unchanged but for its header (the
+    scale 2 format: ``height_in``, a ``rating_scale`` column); the new
+    header."""
+
+    from utils.atomic_write import atomic_text_writer
+
+    with path.open("r", encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        header = list(reader.fieldnames or [])
+        rows = list(reader)
+    new_header = players_fieldnames(header, scale2=True)
+    with atomic_text_writer(path, newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=new_header)
+        writer.writeheader()
+        for row in rows:
+            if HEIGHT_FIELD in row:
+                row[SCALE2_HEIGHT_FIELD] = row.pop(HEIGHT_FIELD)
+            writer.writerow({k: row.get(k, "") for k in new_header})
+    return new_header
+
+
 def _append_players(rows: list[Dict[str, Any]]) -> None:
     if not rows:
         return
     path = _players_csv_path()
     header = _read_players_header()
     rows = _rows_on_file_scale(rows, path, header)
+    if SCALE2_HEIGHT_FIELD not in header and any(
+        rating_scale_of(row) != LEGACY_RATING_SCALE for row in rows
+    ):
+        # A file that will hold a scale 2 row is put in the scale 2 format
+        # first (utils.rating_scale), so no older build can load it.
+        header = _rewrite_in_scale2_format(path)
     with path.open("a", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=header)
         for row in rows:
-            # Ensure all columns exist
+            # Ensure all columns exist; the height goes under the name the
+            # file uses.
+            row = dict(row)
+            if SCALE2_HEIGHT_FIELD in header and SCALE2_HEIGHT_FIELD not in row:
+                row[SCALE2_HEIGHT_FIELD] = row.get(HEIGHT_FIELD, "")
             payload = {k: row.get(k, "") for k in header}
             writer.writerow(payload)
     reset_player_cache()

@@ -1,5 +1,6 @@
 # ARR-inspired Player Generator Script
 import logging
+import math
 import random
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple, Set, Optional
@@ -15,7 +16,9 @@ from utils.path_utils import ActivePath, get_data_dir, get_data_root
 from utils.pitcher_role import role_from_endurance
 from utils.rating_scale import (
     LEGACY_RATING_SCALE,
+    RATING_MIN,
     normalize_rating_scale,
+    rating_map,
     stretch_row,
 )
 
@@ -1329,6 +1332,29 @@ _DRAFT_PITCHER_KEYS = {
 _DRAFT_MIN_RATING = 20
 
 
+def _draft_floors(rating_scale: object, is_pitcher: bool) -> Dict[str, int]:
+    """The draft markdown's floor per rating, in engine points.
+
+    :data:`_DRAFT_MIN_RATING` for every rating on scale 1. On another scale
+    a moved rating's floor is raised to the lowest whole engine rating that
+    scale can store without clipping (decided: every prospect fits scale 2;
+    Contact and Power 26, Eye 34, control 28, movement 30 on scale 2), so a
+    class generated for a scale 2 league never holds a rating stored as a
+    clipped 1. Scale 1 generation is not touched.
+    """
+
+    if normalize_rating_scale(rating_scale) == LEGACY_RATING_SCALE:
+        return {}
+    floors: Dict[str, int] = {}
+    for key in _DRAFT_RATING_KEYS:
+        spec = rating_map(key, rating_scale, pitcher=is_pitcher)
+        if spec is None:
+            continue
+        lowest = spec.pivot - (50 - RATING_MIN) / spec.slope_below
+        floors[key] = max(_DRAFT_MIN_RATING, int(math.ceil(lowest - 1e-9)))
+    return floors
+
+
 def _draft_rating_scale(age: int) -> float:
     if age <= 18:
         return 0.75
@@ -1341,9 +1367,16 @@ def _draft_rating_scale(age: int) -> float:
     return 0.9
 
 
-def _apply_draft_rating_scale(player: Dict[str, Any], age: int) -> None:
-    """Reduce draft ratings so young players start below their potentials."""
+def _apply_draft_rating_scale(
+    player: Dict[str, Any], age: int, floors: Optional[Dict[str, int]] = None
+) -> None:
+    """Reduce draft ratings so young players start below their potentials.
 
+    ``floors`` (rating -> engine floor, :func:`_draft_floors`) raises the
+    floor of the ratings it names; no random number depends on it.
+    """
+
+    floors = floors or {}
     scale = _draft_rating_scale(age)
     # Add a small draft-only variance so CH/PH don't collapse to identical values.
     hit_jitter = random.uniform(0.92, 1.08)
@@ -1356,7 +1389,7 @@ def _apply_draft_rating_scale(player: Dict[str, Any], age: int) -> None:
             continue
         jitter = hit_jitter if key in _DRAFT_HITTER_KEYS else pitch_jitter
         scaled = int(round(value * scale * jitter))
-        player[key] = max(_DRAFT_MIN_RATING, min(99, scaled))
+        player[key] = max(floors.get(key, _DRAFT_MIN_RATING), min(99, scaled))
 
 
 def roll_dice(base: int, count: int, faces: int) -> int:
@@ -2083,6 +2116,7 @@ def generate_player(
         pitcher_archetype=pitcher_archetype,
         hitter_archetype=hitter_archetype,
         rating_profile=rating_profile,
+        draft_floors=_draft_floors(rating_scale, bool(is_pitcher)),
     )
     if normalize_rating_scale(rating_scale) == LEGACY_RATING_SCALE:
         return player
@@ -2106,6 +2140,7 @@ def _generate_engine_player(
     pitcher_archetype: Optional[str] = None,
     hitter_archetype: Optional[str] = None,
     rating_profile: str = "normalized",
+    draft_floors: Optional[Dict[str, int]] = None,
 ) -> Dict:
     """Generate a single player record, on the engine's rating scale.
 
@@ -2317,7 +2352,7 @@ def _generate_engine_player(
             player["cl"] = max(player["cl"], 65)
             player["gf"] = max(player["gf"], 55)
         if for_draft:
-            _apply_draft_rating_scale(player, age)
+            _apply_draft_rating_scale(player, age, draft_floors)
         _apply_player_defaults(player)
         return player
 
@@ -2440,7 +2475,7 @@ def _generate_engine_player(
         _maybe_add_pitching(player, age, throws)
         player["pot_fielding"] = generate_fielding_potentials(primary_pos, player["other_positions"])
         if for_draft:
-            _apply_draft_rating_scale(player, age)
+            _apply_draft_rating_scale(player, age, draft_floors)
         _apply_player_defaults(player)
         return player
 

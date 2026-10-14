@@ -99,7 +99,11 @@ def test_a_scale_2_league_keeps_the_column_on_every_row(twin, tmp_path):
     assert {p.rating_scale for p in players} == {2}
     out = tmp_path / "saved.csv"
     save_players_to_csv(players, str(out))
-    assert _header(out) == SCALE_1_HEADER + ",rating_scale"
+    # The scale 2 file format: ``height_in``, which builds before 8.0.0
+    # refuse to load (utils.rating_scale).
+    assert _header(out) == (
+        SCALE_1_HEADER.replace(",height,", ",height_in,") + ",rating_scale"
+    )
     _fields, rows = support.read_player_rows(out)
     assert {row["rating_scale"] for row in rows} == {"2"}
     assert rating_scale.players_file_rating_scale(out) == 2

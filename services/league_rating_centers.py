@@ -210,6 +210,22 @@ refuses to start without it (``physics_sim.centred_ratings
 
 The other batted-ball centres (``pitcher_gf_usage_center``,
 ``hitter_pull_center``) are still the harness's alone.
+
+8.0.0 (the switch-on of generation 6 and rating scale 2, behind the
+operations switch ``utils.rating_scale.GENERATION6_SWITCH_ENV``; off,
+nothing below happens). A season with nothing written down that has not
+started is given generation 6 -- when the league can be converted to scale
+2 (``services.rating_scale_migration.move_blocker``) or its players are on
+scale 2 already -- and generation 5 otherwise. When a STORING call is about
+to write that season's first record (its entry, the witness) on generation
+6, the league's players are converted first, under this module's lock
+(:func:`_settle_scale_move`); a conversion that fails gives the season
+generation 5 instead and tells the commissioner. Only then are the
+generation and the centres written: the centres are computed from the
+converted file (engine values, so they are the same numbers either way,
+except where the league's ratings were re-spread). A season recorded on
+generation 6 whose players file has scale 1 rows again (a stale copy pushed
+back) has them converted at its next storing read (``repair_league``).
 """
 
 from __future__ import annotations
@@ -225,6 +241,7 @@ from typing import Dict, Iterable, Mapping, NamedTuple, Optional
 from physics_sim.engine_generation import (
     CURRENT_ENGINE_GENERATION,
     LEGACY_ENGINE_GENERATION,
+    SCALE2_ENGINE_GENERATION,
     engine_profile,
     known_engine_generations,
     normalize_engine_generation,
@@ -239,7 +256,7 @@ from services.injury_settings import (
     _write_json_atomic,
 )
 from utils.path_utils import get_data_dir
-from utils.rating_scale import engine_row
+from utils.rating_scale import engine_row, generation6_switch_on
 
 __all__ = [
     "RATING_CENTERS_FILENAME",
@@ -506,6 +523,7 @@ def clear_rating_center_cache() -> None:
         _NOT_READ.clear()
         _GENERATION_CACHE.clear()
         _SHOUTED.clear()
+        _SCALE_CHECKED.clear()
 
 
 def get_league_engine_generation(*, store: bool = True) -> int:
@@ -770,6 +788,14 @@ def _league_centers_locked(
     new_entry = not isinstance(entry, dict)
     if new_entry:
         entry = {}
+    verdict: Optional[_Verdict] = None
+    if new_entry and store and not unreadable and generation6_switch_on():
+        # 8.0.0: a season about to be given generation 6 has its players
+        # converted (and, where asked, re-spread) BEFORE any of its centres
+        # is computed.
+        verdict = _settle_scale_move(
+            base, season_key, seasons, _season_verdict(base, season_key, seasons)
+        )
     # Which rule the stored entry lives under (module docstring). A season
     # on a generation that reads ratings league-relative needs every one of
     # its Release 5 centres, all on the current definition.
@@ -782,10 +808,10 @@ def _league_centers_locked(
     # written for them. The season's generation is what is written down for
     # it; a season with no entry yet has the verdict its entry will be
     # written with below (worked out once, here).
-    verdict: Optional[_Verdict] = None
     if any(key in _KEY_GENERATION for key in missing):
         if new_entry:
-            verdict = _season_verdict(base, season_key, seasons)
+            if verdict is None:
+                verdict = _season_verdict(base, season_key, seasons)
             season_generation = verdict.generation
         else:
             season_generation = max(
@@ -868,7 +894,12 @@ def _league_centers_locked(
                 entry = {**entry, ENGINE_GENERATION_KEY: verdict.generation}
             if new_entry or verdict.record:
                 _GENERATION_CACHE[(root, season_key)] = verdict.generation
-            if new_entry and verdict.announce:
+            if (
+                new_entry
+                and verdict.announce
+                and verdict.generation < SCALE2_ENGINE_GENERATION
+            ):
+                # (A move to generation 6 posted its news at the conversion.)
                 announce.append(True)
             merged = {**entry, **computed}
             if verdict.generation > LEGACY_ENGINE_GENERATION and any(
@@ -915,6 +946,10 @@ class _Verdict(NamedTuple):
     record: bool
     # The season is new and this is the league's switch to a later engine.
     announce: bool
+    # Nothing is written down for the season and it has not started: the
+    # generation is the one a new season is GIVEN now (8.0.0: the only
+    # verdict that may move a league to rating scale 2).
+    fresh: bool = False
 
 
 def _generation_locked(
@@ -940,6 +975,11 @@ def _generation_locked(
         return _new_season_generation(base, seasons), False
     had_entry = isinstance(seasons.get(season_key), dict)
     verdict = _season_verdict(base, season_key, seasons)
+    if store and generation6_switch_on():
+        if not had_entry:
+            verdict = _settle_scale_move(base, season_key, seasons, verdict)
+        elif verdict.generation >= SCALE2_ENGINE_GENERATION:
+            _repair_scale(base, season_key)
     if had_entry or (store and verdict.record):
         _GENERATION_CACHE[(root, season_key)] = verdict.generation
     if not store or not verdict.record:
@@ -949,7 +989,10 @@ def _generation_locked(
         # is pinned by its first game, which creates the entry.)
         return verdict.generation, False
     _record_generation(base, path, season_key, seasons, verdict.generation)
-    return verdict.generation, verdict.announce and not had_entry
+    announce = verdict.announce and not had_entry
+    if announce and verdict.generation >= SCALE2_ENGINE_GENERATION:
+        announce = False  # the conversion posted the league's news itself
+    return verdict.generation, announce
 
 
 def _season_verdict(base: Path, season_key: str, seasons: dict) -> _Verdict:
@@ -1002,6 +1045,7 @@ def _season_verdict(base: Path, season_key: str, seasons: dict) -> _Verdict:
         generation,
         bool(_generation_entry(generation, seasons)),
         not started and _is_engine_switch(base, seasons, generation),
+        not started,
     )
 
 
@@ -1211,6 +1255,9 @@ def _new_season_generation(base: Path, seasons: dict | None = None) -> int:
     wanted = _configured_new_season_generation()
     if wanted <= LEGACY_ENGINE_GENERATION:
         return LEGACY_ENGINE_GENERATION
+    if wanted >= SCALE2_ENGINE_GENERATION:
+        # 8.0.0: generation 6 only with rating scale 2 (module docstring).
+        wanted = _scale2_generation(base)
     try:
         engine_profile(wanted)
     except ValueError:
@@ -1261,18 +1308,133 @@ def _newest_stored_generation(seasons: dict) -> int:
 
 
 def _configured_new_season_generation() -> int:
+    """The generation a season that has not started is offered: the
+    operations hold (:data:`NEW_SEASON_ENGINE_ENV`) when it names a
+    generation a season may be given, else generation 6 while the 8.0.0
+    switch is on (it is then among them) and the current one otherwise."""
+
     raw = str(os.getenv(NEW_SEASON_ENGINE_ENV, "") or "").strip()
+    known = known_engine_generations()
     if raw:
         try:
             wanted = int(raw)
         except ValueError:
             wanted = None
-        if wanted in known_engine_generations():
+        if wanted in known:
             return wanted
         _LOGGER.warning(
             "%s=%r is not an engine generation", NEW_SEASON_ENGINE_ENV, raw
         )
+    if SCALE2_ENGINE_GENERATION in known:
+        return SCALE2_ENGINE_GENERATION
     return CURRENT_ENGINE_GENERATION
+
+
+def _scale2_generation(base: Path) -> int:
+    """Generation 6 for a league that is on rating scale 2 or can be
+    converted to it, else the current generation. Reads only (the
+    conversion itself is :func:`_settle_scale_move`'s)."""
+
+    from services.rating_scale_migration import league_on_scale2, move_blocker
+
+    try:
+        if league_on_scale2(base) or move_blocker(base) is None:
+            return SCALE2_ENGINE_GENERATION
+    except Exception:  # pragma: no cover - a read fault is a refusal
+        _LOGGER.exception("could not tell whether %s can move to rating scale 2", base)
+    return CURRENT_ENGINE_GENERATION
+
+
+def _settle_scale_move(
+    base: Path, season_key: str, seasons: dict, verdict: "_Verdict"
+) -> "_Verdict":
+    """8.0.0: before a season's FIRST record is written on generation 6,
+    convert the league's players (``_CENTER_LOCK`` held).
+
+    Only a fresh verdict (nothing written down, season not started) on
+    generation 6 moves a league. A conversion that is refused or fails
+    leaves the league on scale 1 and gives the season the current
+    generation instead (the commissioner is told why), unless the players
+    are found on scale 2 after all (a failure after the file was written),
+    which keeps generation 6: scale 2 plays correctly on it.
+    """
+
+    if not (
+        verdict.fresh
+        and verdict.record
+        and _configured_new_season_generation() >= SCALE2_ENGINE_GENERATION
+    ):
+        return verdict
+    from services.rating_scale_migration import (
+        MoveRefused,
+        convert_league,
+        league_on_scale2,
+        move_blocker,
+        post_refusal,
+    )
+
+    if verdict.generation < SCALE2_ENGINE_GENERATION:
+        # Offered generation 6 and refused on the evidence (the dry run
+        # found a reason): the season starts as it was given, and the
+        # commissioner is told why now, when it is fixed.
+        reason = move_blocker(base) or "the league cannot be converted"
+        post_refusal(base, season_key, reason, verdict.generation)
+        return verdict
+    try:
+        convert_league(
+            base,
+            season_key,
+            generation=verdict.generation,
+            previous_generation=_newest_stored_generation(seasons),
+        )
+        return verdict
+    except MoveRefused as exc:
+        reason = exc.reason
+    except Exception as exc:  # the season must still start
+        _LOGGER.exception("the rating-scale conversion of %s failed", base)
+        reason = f"the conversion failed: {exc}"
+    if league_on_scale2(base):
+        return verdict
+    fallback = CURRENT_ENGINE_GENERATION
+    post_refusal(base, season_key, reason, fallback)
+    return _Verdict(
+        fallback,
+        bool(_generation_entry(fallback, seasons)),
+        verdict.announce or _is_engine_switch(base, seasons, fallback),
+        True,
+    )
+
+
+# league dir -> players.csv signature last found with no scale 1 row
+_SCALE_CHECKED: Dict[str, tuple] = {}
+
+
+def _repair_scale(base: Path, season_key: str) -> None:
+    """A season recorded on generation 6 whose players file holds scale 1
+    rows has them converted (``_CENTER_LOCK`` held). Cheap when there is
+    nothing to do: the file is read once per change."""
+
+    path = base / "players.csv"
+    try:
+        stat = path.stat()
+    except OSError:
+        return
+    root = str(base.resolve(strict=False))
+    signature = (stat.st_mtime_ns, stat.st_size)
+    if _SCALE_CHECKED.get(root) == signature:
+        return
+    from services.rating_scale_migration import repair_league
+
+    try:
+        repair_league(base, season_key)
+    except Exception:  # pragma: no cover - the game still plays (per-row scale)
+        _LOGGER.exception("could not repair the rating scale of %s", base)
+        return
+    try:
+        stat = path.stat()
+        _SCALE_CHECKED[root] = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        pass
 
 
 def _season_has_started(base: Path) -> bool:
