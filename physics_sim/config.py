@@ -664,6 +664,105 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "reliever_fresh_bonus": 0.0,
     "reliever_fresh_bf_full": 4.0,
     "reliever_fresh_bf_end": 7.0,
+    # Release 6a (plan 2.1, pitching: stuff, velocity, one pitch-quality
+    # path into exit velocity, fatigue). All OFF: every default below is the
+    # number the engine hard-coded, so the pitch is the code it was, to the
+    # last digit, with no extra random number. The switched-on values are
+    # scripts/kpi_profiles/r6_pitching.json.
+    #
+    # ONE SWITCH GROUP. The four parts A-D are only meant to be on
+    # TOGETHER (tests/test_r6a_pitching_group.py holds the profile to it).
+    # Measured apart (design brief, Monte Carlo): the new kernel (A-C) on
+    # the old fatigue costs a tired starter +41 wOBA points at pitches
+    # 91-105 instead of +11, because the old fatigue takes 12 mph off the
+    # fastball and the new velocity term turns that into contact; the new
+    # fatigue (D) on the old kernel leaves pitch grades worth a fifth of a
+    # point and Arm wrong-signed. With B, contact_logit_velo (0.06) and
+    # ev_pitch_weight (0.25) move as well, and the contact intercepts and
+    # hr_scale are retuned with the group.
+    #
+    # A. Stuff. Pitch quality is
+    #   pq = pq_weight_control * control + pq_weight_movement * movement
+    #        + pq_weight_grade * the grade of the pitch thrown
+    #        - the tired pitcher's stuff loss (D)
+    # (x pitching_dom_scale), read by the contact roll, exit velocity, the
+    # foul rate and the chase term. The three weights should sum to 1 (the
+    # pq centre is the same mix of the three rating centres). It is worked
+    # out before the swing decision, so an out-of-zone pitch can be chased
+    # for its quality: under swing_model 1 the chase logit takes
+    #   + swing_pq_chase_logit * (pq - pq centre).
+    # The legacy swing model does not read the chase term.
+    "pq_weight_control": 0.4,
+    "pq_weight_movement": 0.4,
+    "pq_weight_grade": 0.2,
+    "swing_pq_chase_logit": 0.0,
+    # B. Velocity. ev_velocity_model 1: exit velocity reads the pitch's
+    # speed as the reference speed of its type (contact_velo_ref plus its
+    # pitch_type_velocity_offset) and, separately weighted, how far this
+    # pitch is from that reference:
+    #   ev_base = ev_pitch_weight * reference
+    #             + ev_velo_dev_weight * (velocity - reference)
+    #             + ev_base_offset_mph + bat speed * ev_bat_weight
+    # so a harder thrower's pitches come off the bat only slightly harder
+    # while contact_logit_velo makes them harder to hit at all. Model 0 is
+    # ev_pitch_weight * velocity. The dev weight and the offset are read
+    # only under model 1 and are sized for ev_pitch_weight 0.25 (the offset
+    # holds the exit velocity of an average pitcher against an average
+    # hitter); model 1 on today's ev_pitch_weight 0.48 would add 20 mph.
+    # difficulty_velocity_scale multiplies velocity's share of the timing
+    # and barrel difficulty, max(0, (velocity - 90) / 20); 1.0 = as it was.
+    "ev_velocity_model": 0.0,
+    "ev_velo_dev_weight": 0.10,
+    "ev_base_offset_mph": 20.0,
+    "difficulty_velocity_scale": 1.0,
+    # C. One pitch-quality path into exit velocity. Pitch quality reached
+    # the contact-quality factor three ways; each is now a key at the value
+    # it had:
+    #   ev_pq_contact_base_weight  (contact - weight * (pq - 50)) / 250 in
+    #       the factor's base. This is an exit-velocity-only copy: the
+    #       legacy contact roll (contact_model 0) keeps its own 0.4.
+    #   ev_pq_slope  factor *= max(0.75, 1 - ev_pq_slope * (pq - 50)).
+    #       0.004 is the old 1 / 250 and takes the old division, so the
+    #       default is the old number exactly.
+    #   difficulty_pq_scale  multiplies pq's share of the timing and barrel
+    #       difficulty, max(0, (pq - 50) / 100).
+    # Generation 6 keeps the slope alone (0 / 0.0015 / 0): the three
+    # together made an average hitter homer 0.04% of the time off an
+    # 80 pitcher.
+    "ev_pq_contact_base_weight": 0.4,
+    "ev_pq_slope": 0.004,
+    "difficulty_pq_scale": 1.0,
+    # D. Fatigue. fatigue_model 1: a tired pitcher loses rating points
+    # and miles per hour in proportion to his fatigue penalty p (0 to
+    # 1.5), the same for a good pitcher as for a poor one:
+    #   control  -= fatigue_control_points * p
+    #   movement -= fatigue_movement_points * p
+    #   pq       -= fatigue_stuff_points * p       (the stuff loss)
+    #   velocity -= fatigue_velocity_mph * p
+    # after the fresh-arm bonus. Model 0 multiplies control, movement and
+    # velocity by factors that fall to 0.60 / 0.65 / 0.85 (a 12 mph
+    # fastball loss at pitches 91-105) and are not read under model 1.
+    # tto_pass3_weight and reliever_fresh_bonus are retuned with it (one
+    # point of control or movement is worth 0.45 pq under the generation 6
+    # weights, 0.8 before).
+    "fatigue_model": 0.0,
+    "fatigue_control_points": 3.0,
+    "fatigue_movement_points": 1.5,
+    "fatigue_stuff_points": 1.0,
+    "fatigue_velocity_mph": 1.5,
+    # The manager's view of an arm (engine._pitcher_stuff_score, read by
+    # the reliever choice). Model 0 is the old (control + movement + arm)
+    # / 3, which never looked at a pitch grade. Model 1 is the weighted
+    # mean below over control, movement, his mean pitch grade and arm, each
+    # as the pitch reads it (league-relative under centred_ratings). The
+    # weights are each rating's measured worth in FIP per point on the
+    # generation 6 profile, so they move with A-D and belong in the same
+    # profile; they are read only under model 1.
+    "pitcher_score_model": 0.0,
+    "pitcher_score_weight_control": 0.24,
+    "pitcher_score_weight_movement": 0.25,
+    "pitcher_score_weight_grade": 0.39,
+    "pitcher_score_weight_arm": 0.12,
     "platoon_contact_scale": 0.25,
     "platoon_power_scale": 0.2,
     "platoon_eye_scale": 0.3,
@@ -989,7 +1088,8 @@ DEFAULT_TUNING: Dict[str, Any] = {
     #     - contact_logit_velo * (velocity - reference for the pitch type)
     #     + contact_logit_two_strike with two strikes,
     # pq = 0.4 control + 0.4 movement + 0.2 pitch grade (x
-    # pitching_dom_scale), its centre the same mix of pitcher_control_center,
+    # pitching_dom_scale; the weights are the pq_weight_* keys since Release
+    # 6a), its centre the same mix of pitcher_control_center,
     # pitcher_movement_center and pitcher_grade_center. No ceiling, no
     # separate whiff roll, no clamp: the hitter and the pitcher each move
     # the odds by a fixed factor, so strikeouts follow log5 (audit M20).
@@ -1031,7 +1131,9 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # Velocity is registered but off until Release 6 retunes fatigue (a
     # two-sided term on top of today's velocity fade is wrong-signed). The
     # reference is a 50-arm fastball (83 + 0.2 * arm) plus the pitch type's
-    # pitch_type_velocity_offset.
+    # pitch_type_velocity_offset. Generation 6 sets 0.06 (owner decision 2:
+    # Arm is a strikeout rating) as part of the Release 6a pitching group,
+    # with fatigue_model 1; see pq_weight_control above.
     "contact_logit_velo": 0.0,
     "contact_velo_ref": 93.0,
     # The called third strike depends on Contact (independent of the

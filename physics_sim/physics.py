@@ -480,9 +480,42 @@ def sample_pitch_location(
     )
 
 
-def sample_pitch_velocity(base_velo: float, fatigue: float, tuning: TuningConfig) -> float:
+def sample_pitch_velocity(
+    base_velo: float, fatigue: float, tuning: TuningConfig, loss_mph: float = 0.0
+) -> float:
+    """Fastball speed: the pitcher's base speed, the commissioner's scale
+    and the legacy fatigue factor. ``loss_mph`` is what a tired pitcher has
+    lost under ``fatigue_model`` 1 (Release 6a), where the factor is 1.0."""
     scale = tuning.get("velocity_scale", 1.0)
-    return base_velo * scale * fatigue
+    velocity = base_velo * scale * fatigue
+    if loss_mph:
+        velocity -= loss_mph
+    return velocity
+
+
+def _velocity_reference(pitch_type: str, tuning: TuningConfig) -> float:
+    """The reference speed of ``pitch_type``: a 50-arm fastball
+    (``contact_velo_ref``) plus the type's ``pitch_type_velocity_offset``."""
+    reference = tuning.get("contact_velo_ref", 93.0)
+    offsets = tuning.values.get("pitch_type_velocity_offset") or {}
+    try:
+        reference += float(offsets.get(pitch_type, 0.0))
+    except (TypeError, ValueError):
+        pass
+    return reference
+
+
+def _pitch_quality_center(tuning: TuningConfig) -> float:
+    """The league's average pitch quality: the pitch-quality mix
+    (``pq_weight_*``) of the three rating centres."""
+    return (
+        rating_center(tuning, "pitcher_control_center")
+        * tuning.get("pq_weight_control", 0.4)
+        + rating_center(tuning, "pitcher_movement_center")
+        * tuning.get("pq_weight_movement", 0.4)
+        + rating_center(tuning, "pitcher_grade_center")
+        * tuning.get("pq_weight_grade", 0.2)
+    )
 
 
 def _command_error(
@@ -720,6 +753,7 @@ def _swing_probability(
     balls: int,
     strikes: int,
     tuning: TuningConfig,
+    pitch_quality: float | None = None,
 ) -> float:
     """``swing_model`` 1: the chance the batter swings at this pitch.
 
@@ -730,6 +764,11 @@ def _swing_probability(
     chance units, converted to log-odds. With two strikes a zone pitch also
     takes the contact-model hook (plan 2.2): the better contact hitter takes
     fewer called third strikes; it is off at 0.0.
+
+    Release 6a: ``pitch_quality`` is the composite the contact roll reads.
+    A pitch out of the zone is chased more the better it is
+    (``swing_pq_chase_logit`` per point above the league's average pitch);
+    off at 0.0, and with no ``pitch_quality`` given.
     """
     swing_logits, eye_center = _swing_logit_table(tuning)
     zone_logit, chase_logit = swing_logits[(min(balls, 3), min(strikes, 2))]
@@ -747,6 +786,11 @@ def _swing_probability(
             "swing_eye_chase_logit", 0.035
         )
         swing_logit += platoon_chase * tuning.get("swing_platoon_chase_logit", 5.0)
+        chase_slope = tuning.get("swing_pq_chase_logit", 0.0)
+        if chase_slope and pitch_quality is not None:
+            swing_logit += (
+                pitch_quality - _pitch_quality_center(tuning)
+            ) * chase_slope
     return max(
         tuning.get("swing_prob_floor", 0.01),
         min(tuning.get("swing_prob_cap", 0.99), _sigmoid(swing_logit)),
@@ -795,11 +839,13 @@ def _contact_probability(
     separate whiff roll and no ``k_scale`` division. ``contact`` is the
     batter's contact in context (handedness, platoon and times through the
     order included) and ``pitch_quality`` the control / movement / pitch
-    grade composite the old roll used; both are read against the league's
-    averages. Break is in feet. The velocity term compares the pitch with
-    the reference speed of its own type and is off (0.0) until Release 6;
-    ``contact_velo_ref`` is the fastball of a 50 arm, which is the league's
-    average arm once ``centred_ratings`` shifts the arm rating.
+    grade composite the old roll used (the ``pq_weight_*`` mix); both are
+    read against the league's averages. Break is in feet. The velocity term
+    compares the pitch with the reference speed of its own type, both ways
+    (a slower pitch than the reference is easier to hit), and is off (0.0)
+    before generation 6; ``contact_velo_ref`` is the fastball of a 50 arm,
+    which is the league's average arm once ``centred_ratings`` shifts the
+    arm rating.
     """
     logit = (
         tuning.get("contact_logit_zone", 1.74)
@@ -809,21 +855,12 @@ def _contact_probability(
     logit += (
         contact - rating_center(tuning, "hitter_contact_center")
     ) * tuning.get("contact_logit_ch", 0.09)
-    quality_center = (
-        rating_center(tuning, "pitcher_control_center") * 0.4
-        + rating_center(tuning, "pitcher_movement_center") * 0.4
-        + rating_center(tuning, "pitcher_grade_center") * 0.2
-    )
+    quality_center = _pitch_quality_center(tuning)
     logit -= (pitch_quality - quality_center) * tuning.get("contact_logit_pq", 0.04)
     logit -= break_mag * tuning.get("contact_logit_break", 0.4)
     velocity_slope = tuning.get("contact_logit_velo", 0.0)
     if velocity_slope:
-        reference = tuning.get("contact_velo_ref", 93.0)
-        offsets = tuning.values.get("pitch_type_velocity_offset") or {}
-        try:
-            reference += float(offsets.get(pitch_type, 0.0))
-        except (TypeError, ValueError):
-            pass
+        reference = _velocity_reference(pitch_type, tuning)
         logit -= (velocity - reference) * velocity_slope
     if strikes >= 2:
         logit += tuning.get("contact_logit_two_strike", 0.22)
@@ -930,7 +967,12 @@ def simulate_pitch(
     )
     pitch_quality = float(repertoire.get(pitch_type, 50.0))
     fatigue = pitcher.get("fatigue_factor", 1.0)
-    velocity = sample_pitch_velocity(pitcher.get("velocity", 90.0), fatigue, tuning)
+    velocity = sample_pitch_velocity(
+        pitcher.get("velocity", 90.0),
+        fatigue,
+        tuning,
+        pitcher.get("velocity_loss", 0.0),
+    )
     # Per-type velocity: offspeed/breaking pitches arrive slower than the
     # fastball (previously all types shared one speed, so the whiff/EV
     # velocity terms couldn't tell a curveball from a heater).
@@ -1094,6 +1136,20 @@ def simulate_pitch(
             intent=intent,
         )
     count_key = f"{balls}-{strikes}"
+    # Release 6a: the control / movement / pitch grade composite, worked out
+    # before the swing decision (the chase term reads it) with no random
+    # number. ``pitch_quality`` stays the pitch's own grade until a swing,
+    # as it was, so a take's result still reports the grade.
+    composite_quality = (
+        control * tuning.get("pq_weight_control", 0.4)
+        + movement * tuning.get("pq_weight_movement", 0.4)
+        + pitch_quality * tuning.get("pq_weight_grade", 0.2)
+    )
+    stuff_loss = pitcher.get("stuff_loss", 0.0)
+    if stuff_loss:
+        # fatigue_model 1: a tired pitcher's stuff, in pitch-quality points.
+        composite_quality -= stuff_loss
+    composite_quality *= tuning.get("pitching_dom_scale", 1.0)
     if tuning.get("swing_model", 0.0) >= 1.0:
         # Release 5: one roll, and no second "protect" roll.
         base_swing = _swing_probability(
@@ -1104,6 +1160,7 @@ def simulate_pitch(
             balls=balls,
             strikes=strikes,
             tuning=tuning,
+            pitch_quality=composite_quality,
         )
         swing = random.random() < base_swing
     else:
@@ -1183,12 +1240,17 @@ def simulate_pitch(
                 objective=objective,
                 intent=intent,
             )
-        pitch_quality = control * 0.4 + movement * 0.4 + pitch_quality * 0.2
-        pitch_quality *= tuning.get("pitching_dom_scale", 1.0)
-        # Exit velocity reads contact_base (its pitcher part) under either
-        # contact model, so it is computed here whichever makes the roll.
+        pitch_quality = composite_quality
+        # The legacy contact roll (contact_model 0) reads contact_base, with
+        # its own 0.4 of pitch quality. Exit velocity reads a copy whose
+        # pitch-quality share is a knob (Release 6a, the single
+        # pitch-quality path); at 0.4 the copy is contact_base.
         contact_base = batter.get("contact", 50.0) - (pitch_quality - 50.0) * 0.4
         contact_base -= break_mag * tuning.get("break_contact_penalty", 5.0)
+        ev_contact_base = batter.get("contact", 50.0) - (
+            pitch_quality - 50.0
+        ) * tuning.get("ev_pq_contact_base_weight", 0.4)
+        ev_contact_base -= break_mag * tuning.get("break_contact_penalty", 5.0)
         if tuning.get("contact_model", 0.0) >= 1.0:
             # Release 5: one log-odds roll, no ceiling and no whiff roll.
             contact = random.random() < _contact_probability(
@@ -1240,8 +1302,14 @@ def simulate_pitch(
         if contact:
             batter_contact = batter.get("contact", 50.0)
             difficulty = 0.0
-            difficulty += max(0.0, (pitch_quality - 50.0) / 100.0)
-            difficulty += max(0.0, (velocity - 90.0) / 20.0)
+            # Release 6a: pitch quality's and velocity's shares are knobs
+            # (1.0 = as they were); break's is the batted-ball model's.
+            difficulty += max(0.0, (pitch_quality - 50.0) / 100.0) * tuning.get(
+                "difficulty_pq_scale", 1.0
+            )
+            difficulty += max(0.0, (velocity - 90.0) / 20.0) * tuning.get(
+                "difficulty_velocity_scale", 1.0
+            )
             difficulty += min(1.0, break_mag / 0.4) * 0.5
             # Timing (when the bat arrives) is a contact skill. Barrelling the
             # ball -- the sweet spot, which is what makes it go far -- is much
@@ -1280,10 +1348,18 @@ def simulate_pitch(
                 "bat_speed_contact_scale", 0.2
             )
             bat_speed = max(35.0, bat_speed)
-            ev_base = (
-                velocity * tuning.get("ev_pitch_weight", 0.48)
-                + bat_speed * tuning.get("ev_bat_weight", 0.7)
-            )
+            ev_pitch = velocity * tuning.get("ev_pitch_weight", 0.48)
+            if tuning.get("ev_velocity_model", 0.0) >= 1.0:
+                # Release 6a: the type's reference speed carries the pitch
+                # weight; this pitch's distance from it has its own, small
+                # one, so velocity mostly decides whether the ball is hit.
+                reference = _velocity_reference(pitch_type, tuning)
+                ev_pitch = (
+                    reference * tuning.get("ev_pitch_weight", 0.48)
+                    + (velocity - reference) * tuning.get("ev_velo_dev_weight", 0.1)
+                    + tuning.get("ev_base_offset_mph", 20.0)
+                )
+            ev_base = ev_pitch + bat_speed * tuning.get("ev_bat_weight", 0.7)
             ev_base += random.gauss(0.0, tuning.get("exit_velo_sd", 5.0))
             # Contact's share of how HARD the ball is hit. contact_base mixes the
             # hitter's contact with the pitch's quality; this weight scales only
@@ -1293,9 +1369,17 @@ def simulate_pitch(
             # this is the term that also let it decide how far the ball goes.
             contact_ev_weight = tuning.get("ev_contact_quality_weight", 1.0)
             quality = 0.85 + (
-                contact_base - 50.0 + (batter_contact - 50.0) * (contact_ev_weight - 1.0)
+                ev_contact_base
+                - 50.0
+                + (batter_contact - 50.0) * (contact_ev_weight - 1.0)
             ) / 250.0
-            quality *= max(0.75, 1.0 - (pitch_quality - 50.0) / 250.0)
+            # The pitcher's one path into exit velocity from generation 6.
+            # 0.004 is the old hard-coded 1 / 250 and keeps its division.
+            ev_pq_slope = tuning.get("ev_pq_slope", 0.004)
+            if ev_pq_slope == 0.004:
+                quality *= max(0.75, 1.0 - (pitch_quality - 50.0) / 250.0)
+            else:
+                quality *= max(0.75, 1.0 - (pitch_quality - 50.0) * ev_pq_slope)
             quality *= 0.7 + 0.6 * contact_quality
             quality *= max(
                 0.65,

@@ -96,6 +96,14 @@ LEGACY_SLIDERS_MARKER = "_legacy_sliders_r5"
 # The engine models are the generation's to set. A copy in the overrides file
 # is dropped on load and on save: a league must not change engines in the
 # middle of a season because someone posted a switch to the tuning API.
+#
+# Release 6a (pitching): the stuff / velocity / exit-velocity / fatigue
+# group is one switch group that only works whole (physics_sim/config.py,
+# "ONE SWITCH GROUP"), and two of its four parts have no model switch: the
+# pitch-quality weights and the three pitch-quality paths ARE the engine's
+# formula. So the keys that define the group are the generation's as well,
+# not only its three switches. Its sizes (the fatigue points, the chase
+# slope, the velocity terms) stay ordinary knobs.
 GENERATION_OWNED_KEYS = (
     "swing_model",
     "command_model",
@@ -103,6 +111,20 @@ GENERATION_OWNED_KEYS = (
     "hbp_model",
     "ibb_model",
     "contact_model",
+    "ev_velocity_model",
+    "fatigue_model",
+    "pitcher_score_model",
+    "pq_weight_control",
+    "pq_weight_movement",
+    "pq_weight_grade",
+    "ev_pq_contact_base_weight",
+    "ev_pq_slope",
+    "difficulty_pq_scale",
+    "difficulty_velocity_scale",
+    # The contact roll's velocity term (registered by Release 5, off): on
+    # the old fatigue it is wrong-signed, so it too moves only with the
+    # group.
+    "contact_logit_velo",
 )
 
 # The legacy defaults the replaced sliders were set against, frozen here so
