@@ -856,6 +856,10 @@ def convert_league(
         else:
             raise MoveBusy(f"{plan.path} keeps changing under the move")
         heartbeat(lock_file)
+        if event_name == "converted" and _majority(plan) == FULL_RATING_SCALE:
+            # Stray scale 1 rows of a league that has moved already (a save
+            # of objects loaded before the move, say): a repair, not a move.
+            event_name, announce = "repaired", False
         after_ids = [str(r.get("player_id") or "") for r in plan.converted]
         now_ids = [str(r.get("player_id") or "") for r in _parse_rows(current)[1]]
         if after_ids != now_ids:
@@ -902,6 +906,13 @@ def convert_league(
                "the current rating" if plan.potentials_raised else "")
         )
         return result
+
+
+def _majority(plan: MovePlan) -> int:
+    try:
+        return majority_rating_scale(plan.counts)
+    except MixedRatingScaleError:  # pragma: no cover - refused by the plan
+        return LEGACY_RATING_SCALE
 
 
 def _finish_already(base: Path, season: str, plan: MovePlan, generation: int) -> MoveResult:
