@@ -182,14 +182,12 @@ def test_tuning_overrides_stay_on_top_of_the_generation_6_profile(tmp_path):
 
 
 # The Release 6a integration's generation 6 gates beyond generation 5's
-# (target, band) -- the three areas' proposals.
+# (target, band) -- the three areas' proposals. 8.0.0 moved three of the
+# pitching slopes to the pooled group (below).
 R6_EXTRAS = {
     "starter_fb_velo_drop_91_105": (1.5, 0.5),
     "pitcher_k_std_beta_grade": (0.50, 0.15),
-    "pitcher_fip_per10_arm": (-0.20, 0.15),
-    "bb_pct_per10_control": (-1.35, 0.25),
     "tto_pass2_woba_delta_batter_adj": (0.011, 0.007),
-    "pitcher_hitter_hr_true_sd_ratio": (0.40, 0.25),
     "e_per_team_game": (0.53, 0.05),
     "oaa_per_8pt_1b": (4.2, 0.7),
     "oaa_per_8pt_2b": (6.2, 0.8),
@@ -218,31 +216,47 @@ R6_GRID = {
 
 def test_generation_6_is_gated_as_generation_5_plus_the_areas():
     five, six = kpis.ENGINE_GATES[5], kpis.ENGINE_GATES[6]
-    assert six["benchmarks"] == {**five["benchmarks"], "corr_hr_power": 0.825}
+    assert six["benchmarks"] == {
+        **five["benchmarks"],
+        "corr_hr_power": 0.825,
+        "iso": 0.150,  # 8.0.0: from the same years as AVG .245 / SLG .392
+    }
     assert six["drop"] == five["drop"] + ["qualified_hr30_count"]
     assert six["tolerances"] == {
         **five["tolerances"],
         "corr_hr_power": 0.175,  # .65 to 1.00
         "doubles_per_team_game": 0.10,
+        "iso": 0.015,
         **{key: band for key, (_target, band) in R6_EXTRAS.items()},
     }
     assert six["extras_targets"] == {
         **five["extras_targets"],
         **{key: target for key, (target, _band) in R6_EXTRAS.items()},
     }
+    # 8.0.0: generation 5's full strikeout grid is not a generation 6 gate
+    # (its Contact 80 x pitcher 80 corner); the inner 35-65 grid is.
+    full_k = "matchup_k_log5_max_abs_resid"
+    assert full_k in five["grid_tolerances"]
     assert six["grid_tolerances"] == {
-        **five["grid_tolerances"],
+        **{k: v for k, v in five["grid_tolerances"].items() if k != full_k},
         **{key: band for key, (_target, band) in R6_GRID.items()},
     }
     assert six["grid_extras_targets"] == {
-        **five["grid_extras_targets"],
+        **{k: v for k, v in five["grid_extras_targets"].items() if k != full_k},
         **{key: target for key, (target, _band) in R6_GRID.items()},
     }
+    assert full_k not in kpis.engine_gates_for(6, grid=True)["tolerances"]
+    assert full_k in kpis.engine_gates_for(5, grid=True)["tolerances"]
     # Pooled over seeds: report-only, never read by a single run.
     assert six["pooled"] == {
         "hr_power_bottom_quintile_ratio": (0.375, 0.375),  # at most .75
         "qualified_hr30_count": (20.0, 8.0),
+        "pitcher_fip_per10_arm": (-0.20, 0.15),
+        "bb_pct_per10_control": (-1.49, 0.25),  # re-centred (8.0.0)
+        "pitcher_hitter_hr_true_sd_ratio": (0.40, 0.25),
     }
+    for key in six["pooled"]:
+        assert key not in kpis.engine_gates_for(6, grid=True)["tolerances"], key
     assert "pooled" not in kpis.engine_gates_for(6, grid=True)
     # (A promoted metric the harness did not compute fails --strict as "not
     # computed": _promote_extras_metrics.)

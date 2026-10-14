@@ -293,9 +293,16 @@ def test_the_ci_step_for_generation_5_is_blocking():
     # (ENGINE_GATES), not a subset.
     assert "--gate-set" not in step["run"] and "--strict" in step["run"]
     assert "kpi_profiles" not in step["run"]
+    # 8.0.0: one step runs generation 6, the full strict set, NOT blocking
+    # until it has passed on the runner (as this step was until 7.51.0).
+    six = [s for s in steps if "--engine 6" in s.get("run", "")]
+    assert len(six) == 1 and six[0].get("continue-on-error") is True
+    assert "--strict" in six[0]["run"] and "--gate-set" not in six[0]["run"]
     # The other blocking steps run the legacy engine: no --engine at all.
     for other in steps:
-        if other is not step and "physics_sim_season_kpis.py" in other.get("run", ""):
+        if other is step or other is six[0]:
+            continue
+        if "physics_sim_season_kpis.py" in other.get("run", ""):
             assert "--engine" not in other["run"]
 
 

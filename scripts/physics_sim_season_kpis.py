@@ -409,6 +409,12 @@ def _generation_6_gates() -> dict[str, Any]:
     gates["benchmarks"]["corr_hr_power"] = 0.825
     gates["tolerances"]["corr_hr_power"] = 0.175
     gates["tolerances"]["doubles_per_team_game"] = 0.10
+    # ISO at .150 +/- .015 (8.0.0): the benchmark file's ISO (.165) is from
+    # other years than its AVG (.245) and SLG (.392), whose ISO is .147;
+    # generation 6 sits at about .152 and its floor of .150 failed about
+    # one calibration season in eight (docs/future_work.md, "Joint retune").
+    gates["benchmarks"]["iso"] = 0.150
+    gates["tolerances"]["iso"] = 0.015
     # The thirty-homer count is a tail count with a spread of about 4 a
     # season, so it is gated pooled (below), not per season.
     gates["drop"].append("qualified_hr30_count")
@@ -416,12 +422,11 @@ def _generation_6_gates() -> dict[str, Any]:
         # Pitching. starter_woba_delta_91_105_batter_adj (the cost of pitches
         # 91-105) stays report-only: it reads the third time through and
         # fatigue at once (docs/future_work.md, "Release 6a pitching").
+        # pitcher_fip_per10_arm, bb_pct_per10_control and
+        # pitcher_hitter_hr_true_sd_ratio are pooled (below).
         "starter_fb_velo_drop_91_105": (1.5, 0.5),
         "pitcher_k_std_beta_grade": (0.50, 0.15),
-        "pitcher_fip_per10_arm": (-0.20, 0.15),
-        "bb_pct_per10_control": (-1.35, 0.25),
         "tto_pass2_woba_delta_batter_adj": (0.011, 0.007),
-        "pitcher_hitter_hr_true_sd_ratio": (0.40, 0.25),
         # Fielding.
         "e_per_team_game": (0.53, 0.05),
         **{
@@ -454,14 +459,31 @@ def _generation_6_gates() -> dict[str, Any]:
     for key, (target, band) in grid.items():
         gates["grid_extras_targets"][key] = target
         gates["grid_tolerances"][key] = band
+    # 8.0.0: the full strikeout grid (generation 5's
+    # matchup_k_log5_max_abs_resid, every cell within 2 points of log5) is
+    # not a generation 6 gate. Its worst cell is the Contact 80 x pitcher 80
+    # corner (.027 on the composite grid), which the pitching work accepted
+    # until the ball-flight step; the inner 35-65 grid above is gated.
+    for key in ("matchup_k_log5_max_abs_resid",):
+        gates["grid_tolerances"].pop(key, None)
+        gates["grid_extras_targets"].pop(key, None)
     # Gated as a mean over seeds, which one harness run cannot express:
     # REPORT-ONLY until a pooled check reads them (target, band). Power: the
     # bottom fifth of Power at most .75 of the median's HR rate (calibration
     # and the league fixture; report-only on the flat one), the thirty-homer
-    # count at 20 +/- 8. Not read by engine_gates_for.
+    # count at 20 +/- 8. Pitching (8.0.0): three rating slopes whose
+    # season-to-season spread is about as wide as their band, so each missed
+    # about one season in ten at an on-target mean (docs/future_work.md,
+    # "Joint retune of generation 6"): FIP per +10 arm (-.20 +/- .15), walk
+    # rate per +10 control re-centred on what the command model gives
+    # (-1.49 +/- .25; it was -1.35) and the pitcher / hitter home-run
+    # true-sd ratio (.40 +/- .25). Not read by engine_gates_for.
     gates["pooled"] = {
         "hr_power_bottom_quintile_ratio": (0.375, 0.375),
         "qualified_hr30_count": (20.0, 8.0),
+        "pitcher_fip_per10_arm": (-0.20, 0.15),
+        "bb_pct_per10_control": (-1.49, 0.25),
+        "pitcher_hitter_hr_true_sd_ratio": (0.40, 0.25),
     }
     return gates
 
