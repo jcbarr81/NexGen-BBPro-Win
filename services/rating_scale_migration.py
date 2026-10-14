@@ -574,8 +574,13 @@ def plan_move(base: Path | str, *, respread: Optional[bool] = None) -> MovePlan:
             for c in plan.active_clips[:_NAMED]
         )
         more = len(plan.active_clips) - _NAMED
+        who = (
+            "players on active rosters"
+            if plan.active_ids is not None
+            else "players (the league has no rosters, so every player counts)"
+        )
         plan.blocker = (
-            f"{len(plan.active_clips)} rating(s) of players on active rosters "
+            f"{len(plan.active_clips)} rating(s) of {who} "
             f"would not fit the full 1-99 scale ({named}"
             f"{f' and {more} more' if more > 0 else ''}); they would no longer "
             "play as they do"
