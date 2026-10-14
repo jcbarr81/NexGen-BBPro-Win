@@ -1308,11 +1308,21 @@ def _collect_ratings_history_entries(
             continue
         if scale is not None and rating_scale_of(row_match) != scale:
             row_match = _history_row_on_scale(row_match, scale)
+            converted = True
+        else:
+            converted = False
         ratings: Dict[str, Any] = {}
         for k in keys:
             raw = row_match.get(k)
             try:
-                ratings[k] = int(raw) if raw not in ("", None) else None
+                if raw in ("", None):
+                    ratings[k] = None
+                elif converted:
+                    # A converted value can be fractional (a scale 2 row
+                    # shown on a scale 1 page is its engine value): round it.
+                    ratings[k] = int(math.floor(float(raw) + 0.5))
+                else:
+                    ratings[k] = int(raw)
             except (TypeError, ValueError):
                 ratings[k] = None
         label = f"{year_val:04d}" if year_val else season_id
@@ -1330,6 +1340,12 @@ def _collect_ratings_history_entries(
                     raw = getattr(player, k, None)
                 else:
                     raw = display_rating(player, k, scale)
+                if (
+                    scale is not None
+                    and isinstance(raw, float)
+                    and rating_scale_of(player) != scale
+                ):
+                    raw = math.floor(raw + 0.5)  # a converted value
                 current_ratings[k] = int(raw) if raw not in ("", None) else None
             except (TypeError, ValueError):
                 current_ratings[k] = None

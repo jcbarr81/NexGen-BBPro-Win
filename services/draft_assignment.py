@@ -16,6 +16,7 @@ from utils.rating_scale import (
     MixedRatingScaleError,
     describe_rating_scales,
     majority_rating_scale,
+    note_players_file_written,
     players_file_rating_scales,
     rating_scale_of,
     stretch_row,
@@ -304,6 +305,7 @@ def _append_players(rows: list[Dict[str, Any]]) -> None:
             # Ensure all columns exist
             payload = {k: row.get(k, "") for k in header}
             writer.writerow(payload)
+    note_players_file_written(path)
     reset_player_cache()
     # reset_player_cache only clears the transaction log's name lookup —
     # the unified data service holds a separate cached players list that

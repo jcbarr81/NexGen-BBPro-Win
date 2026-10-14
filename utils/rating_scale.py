@@ -93,9 +93,11 @@ __all__ = [
     "majority_rating_scale",
     "moved_rating_keys",
     "normalize_rating_scale",
+    "note_players_file_written",
     "player_is_pitcher",
     "players_file_rating_scale",
     "players_file_rating_scales",
+    "players_file_write_count",
     "rating_map",
     "rating_scale_counts",
     "rating_scale_of",
@@ -690,6 +692,33 @@ def players_file_rating_scales(path: Any) -> Dict[int, int]:
             return rating_scale_counts(reader)
     except FileNotFoundError:
         return {}
+
+
+# players.csv path -> how many times this process has written it. Every
+# writer of the file calls :func:`note_players_file_written`; caches keyed
+# on the file (``utils.rating_display``: the page's scale, the rating
+# distributions) put the count in their key, so a rewrite is seen even when
+# it lands in the same timestamp tick with the same size as the last one.
+_PLAYERS_FILE_WRITES: Dict[str, int] = {}
+
+
+def _write_key(path: Any) -> str:
+    import os
+
+    return os.path.normcase(os.path.abspath(os.fspath(path)))
+
+
+def note_players_file_written(path: Any) -> None:
+    """Record that ``path`` (a ``players.csv``) was just (re)written."""
+
+    key = _write_key(path)
+    _PLAYERS_FILE_WRITES[key] = _PLAYERS_FILE_WRITES.get(key, 0) + 1
+
+
+def players_file_write_count(path: Any) -> int:
+    """How many times this process has recorded a write of ``path``."""
+
+    return _PLAYERS_FILE_WRITES.get(_write_key(path), 0)
 
 
 def players_file_rating_scale(path: Any) -> Any:

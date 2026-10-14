@@ -50,12 +50,36 @@ def _row_raw_int(row: dict, key: str) -> Any:
         return value
 
 
+def _row_reader(row: dict, league_scale: Any):
+    """:func:`page_reader` for a players.csv row, with a clear error for a
+    row on a rating scale this build does not know.
+
+    Such a row cannot be shown correctly on any page (its numbers are not
+    on a scale anything here can read), and the league loader refuses the
+    whole file for it, so the roster, free agents and the profile already
+    fail on it. These endpoints fail the same way, naming the row, rather
+    than with an unexplained server error.
+    """
+
+    try:
+        return page_reader(row, league_scale)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                f"players.csv row {row.get('player_id', '?')!r} is on a rating "
+                f"scale this version cannot read ({exc}); restore the file or "
+                "finish its conversion"
+            ),
+        ) from exc
+
+
 def _row_to_summary(row: dict, league_scale: Any = "page") -> PlayerSummary:
     is_pitcher = str(row.get("is_pitcher", "")).strip().lower() in {"1", "true", "yes"}
     position = row.get("primary_position") or None
     if league_scale == "page":
         league_scale = page_scale()
-    scale, read = page_reader(row, league_scale)
+    scale, read = _row_reader(row, league_scale)
 
     ratings: Dict[str, Any] = {}
     ratings_context: Dict[str, Dict[str, Any]] = {}
@@ -195,7 +219,7 @@ def browse_players(
         # list_players() callers that need them should consume this
         # endpoint's richer dict instead.
         position_raw = row.get("primary_position") or None
-        scale, read = page_reader(row, league_scale)
+        scale, read = _row_reader(row, league_scale)
         context_map: Dict[str, Dict[str, Any]] = {}
         for key in _HEADLINE_RATINGS:
             raw = _row_raw_int({key: read(key)}, key)

@@ -18,9 +18,14 @@ from __future__ import annotations
 
 import ast
 import collections
+import contextlib
 import csv
 import hashlib
+import json
+import math
+import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -48,21 +53,26 @@ PINNED_SCALE_1 = {
     "roster/LOU": "9cb69c8534df22eb4880a51d99e2737b45bab6d8b39a06a221d196ed587378cb",
 }
 
+# The whole /help/tutorials payload of a scale 1 league as 04364883a
+# served it (sha256 of its canonical JSON): no scale 2 step may reach it.
+# Re-pin only when a tutorial is edited on purpose.
+PINNED_SCALE_1_TUTORIALS = (
+    "e33b8dc391adfffae16c2e56d09e81ca09f0a33dd752ebbf392242ddab3303ba"
+)
+
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")
 MOVED_PITCHER = ("control", "movement", "arm")
 
 
-def _serve(root: Path, scale: int, mutate=None):
-    """Build the display league on ``scale`` under ``root`` and serve it."""
+@contextlib.contextmanager
+def _league(root: Path):
+    """Make the display league under ``root`` the request's league."""
 
     import os
 
     from utils import path_utils
     import services.team_ownership as ownership
 
-    data = rds.build_display_league(root, scale=scale)
-    if mutate is not None:
-        mutate(data)
     saved = {k: os.environ.get(k) for k in ("NEXGEN_DATA_ROOT", "NEXGEN_ACTIVE_LEAGUE")}
     os.environ["NEXGEN_DATA_ROOT"] = str(root)
     os.environ.pop("NEXGEN_ACTIVE_LEAGUE", None)
@@ -71,8 +81,7 @@ def _serve(root: Path, scale: int, mutate=None):
     real_owned = ownership.human_owned_team_ids
     ownership.human_owned_team_ids = lambda *a, **k: set()
     try:
-        assert path_utils.get_data_dir().resolve() == data.resolve()
-        return data, rds.display_payloads(data)
+        yield path_utils.get_data_dir()
     finally:
         ownership.human_owned_team_ids = real_owned
         path_utils.reset_request_league(token)
@@ -82,6 +91,43 @@ def _serve(root: Path, scale: int, mutate=None):
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+
+def _serve(root: Path, scale: int, mutate=None):
+    """Build the display league on ``scale`` under ``root`` and serve it."""
+
+    data = rds.build_display_league(root, scale=scale)
+    if mutate is not None:
+        mutate(data)
+    with _league(root) as active:
+        assert active.resolve() == data.resolve()
+        return data, rds.display_payloads(data)
+
+
+def _shown_overall(score: float, pitcher: bool) -> int:
+    """The scale 2 overall worked out by hand from the published map (not
+    through ``utils.rating_display``): 4 shown points per overall point
+    from the pivot (50 hitters, 53 pitchers) to pivot + 9, 2 per point
+    above that, 2.5 per point below the pivot; rounded half up, 1-99."""
+
+    pivot = 53.0 if pitcher else 50.0
+    if score < pivot:
+        shown = 50 - 2.5 * (pivot - score)
+    elif score <= pivot + 9:
+        shown = 50 + 4 * (score - pivot)
+    else:
+        shown = 86 + 2 * (score - pivot - 9)
+    return max(1, min(99, math.floor(shown + 0.5)))
+
+
+def _stars(shown: int) -> str:
+    """Stars for a scale 2 overall, from the published cut-offs."""
+
+    for cutoff, stars in ((97, "5"), (92, "4.5"), (77, "4"), (59, "3.5"),
+                          (52, "3"), (48, "2.5"), (43, "2"), (26, "1.5")):
+        if shown >= cutoff:
+            return stars
+    return "1"
 
 
 @pytest.fixture(scope="module")
@@ -115,20 +161,13 @@ def test_a_scale_1_league_shows_what_it_showed_before(plain):
     assert served == PINNED_SCALE_1
 
 
-def test_a_scale_1_league_sees_no_scale_2_tutorial_text(plain):
-    from services.tutorials import TUTORIALS
-
+def test_a_scale_1_league_sees_the_tutorials_it_saw_before(plain):
     _data, payloads = plain
-    served = {t["tutorial_id"]: t for t in payloads["help/tutorials"]["tutorials"]}
-    for tutorial in TUTORIALS:
-        expected = [
-            {"title": s.title, "body_html": s.body_html}
-            for s in tutorial.steps
-            if s.rating_scale in (None, 1)
-        ]
-        assert served[tutorial.tutorial_id]["steps"] == expected
-    titles = [s["title"] for s in served["updated_engine"]["steps"]]
-    assert "Ratings on the full 1 to 99 scale" not in titles
+    tutorials = payloads["help/tutorials"]
+    served = hashlib.sha256(rds.canonical(tutorials).encode()).hexdigest()
+    assert served == PINNED_SCALE_1_TUTORIALS
+    steps = {t["tutorial_id"]: t for t in tutorials["tutorials"]}["updated_engine"]
+    assert "Ratings on the full 1 to 99 scale" not in [s["title"] for s in steps["steps"]]
 
 
 # --- scale 2: the stored rating, the stretched overall ----------------------
@@ -181,8 +220,6 @@ def test_the_draft_page_shows_the_stored_rating_too(twin):
 
 def test_the_overall_is_stretched_for_display_only(plain, twin):
     from utils.player_overall import player_overall_score
-    from utils.rating_display import full_scale_overall
-    from utils.star_rating import full_scale_star_text
 
     data, payloads = twin
     rows = _rows(data)
@@ -195,9 +232,9 @@ def test_the_overall_is_stretched_for_display_only(plain, twin):
         if player["overall_raw"] is None:
             continue
         score = player_overall_score(rows[player["player_id"]])
-        expected = full_scale_overall(score, is_pitcher=player["is_pitcher"])
+        expected = _shown_overall(score, player["is_pitcher"])
         assert player["overall_display"] == expected
-        assert player["overall_stars_text"] == full_scale_star_text(expected)
+        assert player["overall_stars_text"] == _stars(expected)
         shown_any += 1
     assert shown_any > 1500
 
@@ -338,12 +375,57 @@ def _keys(value, out):
     return out
 
 
+def _strings(value, out):
+    if isinstance(value, str):
+        out.append(value)
+    elif isinstance(value, dict):
+        for item in value.values():
+            _strings(item, out)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _strings(item, out)
+    return out
+
+
 def test_no_payload_carries_a_potential(plain, twin):
     for _data, payloads in (plain, twin):
-        keys = _keys(payloads, set())
+        owner_pages = {k: v for k, v in payloads.items() if k != "help/tutorials"}
+        keys = _keys(owner_pages, set())
         leaked = sorted(k for k in keys if k.startswith("pot_") or "potential" in k.lower())
         assert leaked == []
+        # No text names a potential either.
+        texts = [t for t in _strings(owner_pages, []) if "potential" in t.lower()]
+        assert texts == []
+    # Values: on scale 2 every rating a list page carries is the player's
+    # stored current rating, never his potential. (Scale 1 is pinned to
+    # what it served before, which never carried a potential.)
+    data, payloads = twin
+    rows = _rows(data)
+    checked = 0
+    for player in payloads["players/browse"]["players"]:
+        row = rows[player["player_id"]]
+        for key, shown in player["ratings"].items():
+            current, potential = row.get(key), row.get(f"pot_{key}")
+            if not current or float(current) <= 0 or not potential:
+                continue
+            if float(potential) == float(current):
+                continue
+            assert shown == int(float(current)), (player["player_id"], key)
+            checked += 1
+    assert checked > 1000
 
+
+# An admin-only export may name potentials, with the reason. Everything
+# else in DISPLAY_CODE must name none.
+POTENTIAL_EXEMPT = {
+    # The commissioner's report export (POST /exports/reports, admin role
+    # only: api/routers/exports.py _require_admin; owners get 403) averages
+    # each age bucket's potentials into avg_potential. Not an owner page.
+    "services/career_arc_analytics.py": {
+        "avg_potential", "potential", "pot_arm", "pot_ch", "pot_control",
+        "pot_endurance", "pot_eye", "pot_fa", "pot_movement", "pot_ph", "pot_sp",
+    },
+}
 
 DISPLAY_CODE = (
     "api/routers/_rating_presentation.py",
@@ -353,6 +435,7 @@ DISPLAY_CODE = (
     "api/routers/players.py",
     "api/routers/roster.py",
     "services/player_profile_view_model.py",
+    "services/career_arc_analytics.py",
     "utils/rating_display.py",
 )
 
@@ -371,10 +454,23 @@ def test_no_display_code_names_a_potential(rel):
         and isinstance(node.value, str)
         and (
             (node.value.startswith("pot_") and node.value != "pot_")
-            or node.value in {"potential", "potentials"}
+            or re.fullmatch(r"[a-z_]*potentials?[a-z_]*", node.value) is not None
         )
     )
-    assert named == []
+    assert set(named) <= POTENTIAL_EXEMPT.get(rel, set()), sorted(set(named))
+
+
+def test_the_report_export_is_admin_only():
+    """The one place that averages potentials is behind the admin role."""
+
+    tree = ast.parse((support.REPO / "api/routers/exports.py").read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "export_reports":
+            defaults = [ast.unparse(d) for d in node.args.defaults + node.args.kw_defaults if d]
+            assert "AdminIdentity" in defaults
+            break
+    else:  # pragma: no cover
+        raise AssertionError("export_reports not found")
 
 
 # --- the pieces -------------------------------------------------------------
@@ -443,3 +539,240 @@ def test_the_scouting_error_keeps_its_size_in_shown_points():
         10, team_profile=profile, player_id="P1", metric_key="CH",
         team_id="ALB", minimum=1, maximum=99, rating_scale=2,
     ) < 35
+
+
+# --- a draft class generated before the conversion --------------------------
+
+def _old_pool(data: Path) -> None:
+    """Replace the twin's draft class with the one the league had before it
+    was converted: the same prospects, still on scale 1."""
+
+    _fields, rows = support.read_player_rows(
+        data / "careers" / rds.ARCHIVED_SEASON / "players.csv"
+    )
+    pool = rds._draft_class(rows, rds._levels(data))
+    (data / f"draft_pool_{rds.DRAFT_YEAR}.json").write_text(
+        json.dumps(pool), encoding="utf-8"
+    )
+
+
+def test_a_draft_class_from_before_the_conversion_shows_on_scale_2(tmp_path, twin):
+    data, payloads = _serve(tmp_path, 2, mutate=_old_pool)
+    pool = json.loads((data / f"draft_pool_{rds.DRAFT_YEAR}.json").read_text())
+    assert all("rating_scale" not in p for p in pool)  # really a scale 1 class
+    reference = {p["player_id"]: p for p in twin[1]["draft/pool"]["prospects"]}
+    shown = {p["player_id"]: p for p in payloads["draft/pool"]["prospects"]}
+    assert set(shown) == set(reference)
+    for pid, prospect in shown.items():
+        assert prospect["ratings"] == reference[pid]["ratings"], pid
+        assert prospect["overall"] == reference[pid]["overall"], pid
+    picks = [(p["player_id"], p["overall_display"]) for p in payloads["draft/state.selected"]]
+    assert picks == [
+        (p["player_id"], p["overall_display"]) for p in twin[1]["draft/state.selected"]
+    ]
+
+
+# --- the Pitchers page's SP / RP --------------------------------------------
+
+@pytest.mark.parametrize(
+    "preferred, endurance, staff, expected",
+    [
+        ("SP", 30, None, "SP"),
+        ("SP1", 30, None, "SP"),
+        ("SP2", 80, None, "SP"),
+        ("SP5", 40, None, "SP"),
+        ("STARTER", 40, None, "SP"),
+        ("CL", 80, None, "RP"),
+        ("MR3", 80, None, "RP"),
+        ("", 70, None, "SP"),
+        ("", 40, None, "RP"),
+        ("CL", 30, "SP", "SP"),  # the staff file is the authority
+        ("SP1", 80, "RP", "RP"),
+    ],
+)
+def test_the_roster_payload_role_is_the_apps_role(preferred, endurance, staff, expected):
+    from api.routers import roster
+
+    player = SimpleNamespace(
+        player_id="P1", is_pitcher=True, primary_position="P",
+        preferred_pitching_role=preferred, endurance=endurance,
+        role="RP",  # the stale stored column: never read
+    )
+    staff_roles = {"P1": staff} if staff else {}
+    assert roster._pitcher_role(player, staff_roles) == expected
+
+
+def test_the_staff_file_is_read_as_sp_or_rp(tmp_path):
+    from api.routers import roster
+
+    root = tmp_path / "root"
+    data = rds.build_display_league(root)
+    (data / "rosters" / "ALB_pitching.csv").write_text(
+        "P1,SP1\nP2,SP\nP3,CL\nP4,MR2\nP5,LR\nP6,SU\n", encoding="utf-8"
+    )
+    with _league(root):
+        assert roster._staff_roles("ALB") == {
+            "P1": "SP", "P2": "SP", "P3": "RP", "P4": "RP", "P5": "RP", "P6": "RP",
+        }
+        assert roster._staff_roles("NOPE") == {}
+
+
+def test_the_roster_role_follows_the_staff_file(plain):
+    data, payloads = plain
+    staff = {}
+    text = (data / "rosters" / "ALB_pitching.csv").read_text(encoding="utf-8")
+    for line in text.splitlines():
+        pid, label = line.split(",")[:2]
+        staff[pid] = "SP" if label.strip().upper().startswith("SP") else "RP"
+    seen = 0
+    for player in payloads["roster/ALB"]["levels"]["ACT"]:
+        if player["is_pitcher"]:
+            assert player["role"] == staff[player["player_id"]]
+            seen += 1
+    assert seen >= 10
+
+
+# --- news and transaction text ----------------------------------------------
+
+def test_news_quotes_the_overall_the_pages_show(twin, plain):
+    from utils.player_loader import load_players_from_csv
+    from utils.rating_display import overall_for_text
+
+    browse = {p["player_id"]: p for p in twin[1]["players/browse"]["players"]}
+    for player in load_players_from_csv(str(twin[0] / "players.csv"))[:200]:
+        page = browse[player.player_id]["overall_display"]
+        assert overall_for_text(player, 57, 2) == (57 if page is None else page)
+    for player in load_players_from_csv(str(plain[0] / "players.csv"))[:200]:
+        assert overall_for_text(player, 57, 1) == 57  # scale 1: as before
+
+
+def test_a_callup_on_scale_2_writes_the_shown_overall(tmp_path, monkeypatch, twin):
+    import services.inseason_callups as callups
+    from utils.player_loader import load_players_from_csv
+    from utils.roster_loader import load_roster
+
+    root = tmp_path / "root"
+    data = rds.build_display_league(root, scale=2)
+    browse = {p["player_id"]: p for p in twin[1]["players/browse"]["players"]}
+    texts = []
+    monkeypatch.setattr(callups, "_record", lambda action, **kw: texts.append(kw["details"]))
+    monkeypatch.setattr(callups, "_news", lambda message, **kw: texts.append(message))
+    with _league(root):
+        roster = load_roster("ALB")
+        by_id = {p.player_id: p for p in load_players_from_csv(str(data / "players.csv"))}
+        pid = next(
+            p for p in roster.aaa
+            if browse[p]["overall_display"] != callups._player_overall(by_id[p])
+        )
+        engine = callups._player_overall(by_id[pid])
+        callups._promote(
+            "ALB", roster, pid, by_id[pid], data_dir=data, current="2026-06-01",
+            detail_suffix="", outlook="test",
+        )
+    shown = browse[pid]["overall_display"]
+    assert shown != engine
+    assert len(texts) == 2 and all(f"OVR {shown}" in text for text in texts), texts
+
+
+def test_a_promotion_suggestion_quotes_what_it_is_given(tmp_path, monkeypatch):
+    import services.prospect_promotion as promotion
+
+    lines = []
+    monkeypatch.setattr(
+        "utils.news_logger.log_news_event", lambda message, **kw: lines.append(message)
+    )
+    entry = {
+        "first_name": "A", "last_name": "B", "player_id": "P1",
+        "primary_position": "SS", "team_id": "ALB", "age": 21,
+        "from_level": "LOW", "to_level": "AAA", "overall": 56,
+    }
+    promotion._announce_suggestions([entry], tmp_path)
+    promotion._announce_suggestions([entry], tmp_path, lambda e: 71)
+    assert "OVR 56)" in lines[0] and "OVR 71)" in lines[1]
+
+
+# --- the display-scale cache --------------------------------------------------
+
+def test_back_to_back_same_size_writes_are_seen(tmp_path):
+    from utils.rating_display import league_display_scale
+    from utils.rating_scale import note_players_file_written
+
+    path = tmp_path / "players.csv"
+    on_2 = "player_id,is_pitcher,ch,rating_scale\nA,0,50,2\nB,0,50,2\nC,0,50,1\n"
+    on_1 = "player_id,is_pitcher,ch,rating_scale\nA,0,50,1\nB,0,50,1\nC,0,50,2\n"
+    assert len(on_2) == len(on_1)
+    for _ in range(300):
+        path.write_text(on_2, encoding="utf-8")
+        note_players_file_written(path)
+        assert league_display_scale(path) == 2
+        path.write_text(on_1, encoding="utf-8")
+        note_players_file_written(path)
+        assert league_display_scale(path) == 1
+
+
+def test_every_players_file_writer_tells_the_cache(tmp_path, twin):
+    from utils.player_loader import load_players_from_csv
+    from utils.player_writer import save_players_to_csv
+    from utils.rating_scale import players_file_write_count
+
+    path = tmp_path / "players.csv"
+    players = load_players_from_csv(str(twin[0] / "players.csv"))[:5]
+    before = players_file_write_count(path)
+    save_players_to_csv(players, path)
+    save_players_to_csv(players, path)
+    assert players_file_write_count(path) == before + 2
+    # The direct writers call the same hook (draft picks appended to the
+    # file, the injury-date repair tool, the working copy's file copies).
+    for rel, call in (
+        ("services/draft_assignment.py", "note_players_file_written(path)"),
+        ("scripts/repair_injury_list_dates.py", "note_players_file_written(players_path)"),
+        ("api/working_copy.py", "note_players_file_written(dst)"),
+    ):
+        assert call in (support.REPO / rel).read_text(encoding="utf-8"), rel
+
+
+# --- edge cases ---------------------------------------------------------------
+
+def test_a_scale_2_archive_on_a_scale_1_page_is_rounded_not_blank(tmp_path):
+    import services.player_profile_view_model as vm
+    from utils.player_loader import load_players_from_csv
+
+    root = tmp_path / "root"
+    data = rds.build_display_league(root)
+    # The archived season is stored on scale 2 (a league converted, then
+    # put back on its scale 1 backup).
+    archive = data / "careers" / rds.ARCHIVED_SEASON / "players.csv"
+    support.stretch_players_file(archive, archive)
+    with _league(root):
+        players = {p.player_id: p for p in load_players_from_csv(str(data / "players.csv"))}
+        pid = rds.profile_ids(data)[0]
+        history = vm._collect_ratings_history_entries(players[pid], is_pitcher=False, scale=1)
+    archived, current = history[0]["ratings"], history[-1]["ratings"]
+    assert None not in archived.values()
+    for key, value in archived.items():
+        assert abs(value - current[key]) <= 1, key
+
+
+def test_an_unknown_rating_scale_fails_with_a_clear_message(tmp_path):
+    from fastapi import HTTPException
+
+    from api.routers import players
+
+    root = tmp_path / "root"
+    data = rds.build_display_league(root, scale=2)
+    fields, rows = support.read_player_rows(data / "players.csv")
+    rows[0]["rating_scale"] = "7"
+    support.write_player_rows(data / "players.csv", fields, rows)
+    with _league(root):
+        calls = (
+            lambda: players.list_players(position=None, pitchers_only=False, limit=5000),
+            lambda: players.browse_players(
+                q=None, team_id=None, position=None, role=None,
+                free_agents_only=False, limit=10000,
+            ),
+        )
+        for call in calls:
+            with pytest.raises(HTTPException) as caught:
+                call()
+            assert "rating scale" in caught.value.detail
+            assert "restore the file or finish its conversion" in caught.value.detail

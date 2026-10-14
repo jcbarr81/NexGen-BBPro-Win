@@ -158,6 +158,9 @@ def apply(players_path: Path, report: Dict[str, Any]) -> Path:
         writer = csv.DictWriter(fh, fieldnames=report["fieldnames"])
         writer.writeheader()
         writer.writerows(report["rows"])
+    from utils.rating_scale import note_players_file_written
+
+    note_players_file_written(players_path)
     return backup
 
 

@@ -239,6 +239,16 @@ def _loses_engine_generation(src: Path, dst: Path) -> Optional[str]:
     return None
 
 
+def _note_written(dst: Path) -> None:
+    """Tell the display caches a players.csv was replaced: a copy keeps its
+    source's mtime, so the file's clock alone may not show the change."""
+
+    if dst.name == "players.csv":
+        from utils.rating_scale import note_players_file_written
+
+        note_players_file_written(dst)
+
+
 def _copy_one(pair: Tuple[Path, Path]) -> int:
     src, dst = pair
     try:
@@ -266,6 +276,7 @@ def _copy_one(pair: Tuple[Path, Path]) -> int:
                 return 1  # handled: retried when the source file next changes
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
+        _note_written(dst)
         return 1
     except OSError as exc:
         _emit(f"copy failed {src} -> {dst}: {exc}")
@@ -411,6 +422,7 @@ def _pull_again(rel: str, remote: Path, local: Path) -> bool:
         # never sees half of it.
         shutil.copy2(src, tmp)
         os.replace(tmp, dst)
+        _note_written(dst)
     except OSError as exc:
         _emit(f"pull retry failed {src} -> {dst}: {exc}")
         try:

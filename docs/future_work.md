@@ -2271,3 +2271,14 @@ league's payloads are byte-identical (pinned in
   number every other page shows, not the six-rating mean the auto-pick
   ranks by (that stays, in engine terms). The pool list can therefore be
   ordered differently from the auto-pick; on scale 1 nothing changed.
+- **Promotion and call-up summaries still carry the promotion score.**
+  News lines and transaction notes quote the shown overall on scale 2
+  (`utils.rating_display.overall_for_text`), but the `overall` in the
+  dicts `run_yearly_promotions` / `run_monthly_callups` return (and the
+  sim-day response's `callups`) is still the engine-scale promotion score.
+  No page shows it today; convert it if one ever does.
+- **The display caches are invalidated by this process's own writes**
+  (`utils.rating_scale.note_players_file_written`, called by the writer,
+  the draft append, the injury-date repair tool and the working copy's
+  copies). A players.csv written by another process in the same timestamp
+  tick with the same size is still only caught by the file's clock.

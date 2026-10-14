@@ -8,6 +8,7 @@ from utils.rating_scale import (
     LEGACY_RATING_SCALE,
     RATING_SCALE_FIELD,
     describe_rating_scales,
+    note_players_file_written,
     rating_scale_counts,
     rating_scale_of,
 )
@@ -156,3 +157,6 @@ def save_players_to_csv(players, file_path):
                 })
 
             writer.writerow(row)
+    # The display caches key on the file (utils.rating_display): a rewrite
+    # in the same timestamp tick with the same size must still be seen.
+    note_players_file_written(file_path)

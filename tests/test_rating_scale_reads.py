@@ -209,6 +209,7 @@ OVERALL_READERS = {
     ("api/routers/roster.py", "lambda k: getattr(player, k, None)"),
     ("services/player_profile_view_model.py", "lambda key: getattr(player, key, None)"),
     ("utils/rating_display.py", "row.get"),
+    ("utils/rating_display.py", "read"),  # shown_overall: the whole player
     ("utils/player_overall.py", "get_raw"),  # overall_score passes it down
 }
 OVERALL_FUNCTIONS = {

@@ -44,6 +44,7 @@ from utils.rating_scale import (
     majority_rating_scale,
     player_is_pitcher,
     players_file_rating_scales,
+    players_file_write_count,
     rating_map,
     rating_scale_of,
     stretch_row,
@@ -150,9 +151,34 @@ def _players_file() -> Path:
     return get_data_dir() / "players.csv"
 
 
+def _file_key(path: Path) -> tuple:
+    """A cache key for one file: its path, its modification time in
+    nanoseconds, its size, and how many times this process has written it
+    (``utils.rating_scale.note_players_file_written``). The write count is
+    what catches two writes that land in one timestamp tick with the same
+    size, which the clock alone cannot tell apart."""
+
+    resolved = Path(path).resolve(strict=False)
+    writes = players_file_write_count(resolved)
+    try:
+        stat_result = resolved.stat()
+    except OSError:
+        return str(resolved), None, None, writes
+    mtime_ns = getattr(stat_result, "st_mtime_ns", None)
+    if mtime_ns is None:
+        mtime_ns = int(stat_result.st_mtime * 1_000_000_000)
+    return str(resolved), mtime_ns, stat_result.st_size, writes
+
+
 @lru_cache(maxsize=16)
-def _file_display_scale(source_key: tuple[str, int | None, int | None]) -> Optional[int]:
-    counts = players_file_rating_scales(source_key[0])
+def _file_display_scale(source_key: tuple) -> Optional[int]:
+    try:
+        counts = players_file_rating_scales(source_key[0])
+    except ValueError:
+        # A row on a scale this build does not know: no one scale for the
+        # page. The row itself still refuses to be shown (display_scale_for
+        # raises for it), as the league loader refuses to load it.
+        return None
     if not counts:
         return None
     try:
@@ -175,16 +201,10 @@ def league_display_scale(path: Optional[Path] = None) -> Optional[int]:
     exactly in half: each row is then shown on its own scale.
     """
 
-    target = Path(path) if path is not None else _players_file()
-    resolved = target.resolve(strict=False)
-    try:
-        stat_result = resolved.stat()
-    except OSError:
+    key = _file_key(Path(path) if path is not None else _players_file())
+    if key[1] is None:
         return None
-    mtime_ns = getattr(stat_result, "st_mtime_ns", None)
-    if mtime_ns is None:
-        mtime_ns = int(stat_result.st_mtime * 1_000_000_000)
-    return _file_display_scale((str(resolved), mtime_ns, stat_result.st_size))
+    return _file_display_scale(key)
 
 
 def display_scale_for(player: Any, league_scale: Optional[int]) -> int:
@@ -243,6 +263,52 @@ def display_rating(player: Any, key: str, scale: int, default: Any = None) -> An
     if scale == LEGACY_RATING_SCALE:
         return engine
     return to_stored(key, float(engine), scale, pitcher=pitcher)
+
+
+def shown_overall(player: Any, scale: Optional[int]) -> Optional[int]:
+    """The overall a scale 2 page shows for ``player`` (``None`` on scale 1,
+    or when he has no overall): the shared overall, worked out from his
+    stored ratings exactly as the list pages do
+    (``api.routers._rating_presentation.compute_overall``), through
+    :func:`full_scale_overall`."""
+
+    if scale is None or scale == LEGACY_RATING_SCALE:
+        return None
+    is_pitcher = bool(_stored(player, "is_pitcher", False))
+    if isinstance(_stored(player, "is_pitcher", False), str):
+        is_pitcher = player_is_pitcher(player)
+    position = _stored(player, "primary_position", None)
+    read = (lambda key: player.get(key)) if isinstance(player, dict) else (
+        lambda key: getattr(player, key, None)
+    )
+    role = None
+    if is_pitcher:
+        role = get_role(
+            {
+                "primary_position": position,
+                "preferred_pitching_role": read("preferred_pitching_role"),
+                "endurance": read("endurance"),
+                "role": read("role"),
+            }
+        )
+    from utils.player_overall import overall_score
+
+    score = overall_score(read, is_pitcher=is_pitcher, position=position, role=role)
+    if score is None:
+        return None
+    return full_scale_overall(score, is_pitcher=is_pitcher)
+
+
+def overall_for_text(player: Any, value: Any, league_scale: Optional[int]) -> Any:
+    """The overall a news item or a transaction note quotes for ``player``.
+
+    On a scale 1 page ``value``, whatever the text quoted before (the
+    promotion score); on a scale 2 page the overall every page shows
+    (:func:`shown_overall`), so an owner never reads two different overalls
+    for one player."""
+
+    shown = shown_overall(player, display_scale_for(player, league_scale))
+    return value if shown is None else shown
 
 
 def display_reader(player: Any, scale: int):
@@ -327,17 +393,8 @@ def _rating_source_path() -> Path:
     return base_dir / "players.csv"
 
 
-def _distribution_source_key() -> tuple[str, int | None, int | None]:
-    path = _rating_source_path()
-    resolved = path.resolve(strict=False)
-    try:
-        stat_result = resolved.stat()
-    except OSError:
-        return str(resolved), None, None
-    mtime_ns = getattr(stat_result, "st_mtime_ns", None)
-    if mtime_ns is None:
-        mtime_ns = int(stat_result.st_mtime * 1_000_000_000)
-    return str(resolved), mtime_ns, stat_result.st_size
+def _distribution_source_key() -> tuple:
+    return _file_key(_rating_source_path())
 
 
 def overall_rating(player: object) -> int:
@@ -385,7 +442,7 @@ def _row_on_scale(row: Dict[str, object], scale: int) -> Dict[str, object]:
 
 @lru_cache(maxsize=8)
 def _load_distributions(
-    source_key: tuple[str, int | None, int | None],
+    source_key: tuple,
     scale: int = LEGACY_RATING_SCALE,
 ) -> Dict[str, Dict[str, Dict[str, List[int]]]]:
     """Each rating's league distribution, as stored on ``scale``.
