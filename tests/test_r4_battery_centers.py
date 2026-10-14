@@ -328,7 +328,10 @@ def test_harness_meta_records_every_centre(tmp_path):
     merged = kpis.with_rating_centers(
         {"catcher_fa_center": 50.0}, CALIBRATION / "players.csv", CALIBRATION
     )
-    assert set(merged) == set(centers.RATING_CENTER_KEYS)
+    # Release 6a: with the centres only the harness supplies beside them.
+    assert set(merged) == set(centers.RATING_CENTER_KEYS) | set(
+        centers.UNSTORED_CENTER_KEYS
+    )
     assert merged["catcher_fa_center"] == 50.0
     assert merged["pitcher_arm_center"] == pytest.approx(55.83)
     assert kpis.fixture_rating_centers(

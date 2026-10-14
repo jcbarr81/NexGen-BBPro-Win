@@ -23,9 +23,15 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(BASE_DIR))
 
 from playbalance.schedule_generator import generate_mlb_schedule
-from services.league_rating_centers import RATING_CENTER_KEYS
+from services.league_rating_centers import (
+    RATING_CENTER_KEYS,
+    UNSTORED_CENTER_KEYS,
+)
 from physics_sim.config import DEFAULT_TUNING, load_tuning
-from physics_sim.engine_generation import engine_profile, known_engine_generations
+from physics_sim.engine_generation import (
+    engine_profile,
+    harness_engine_generations,
+)
 from physics_sim.engine import _resolve_data_root, simulate_matchup_from_files
 from physics_sim.usage import UsageState, calendar_day
 from scripts import kpi_extras
@@ -376,6 +382,10 @@ ENGINE_GATES: dict[int, dict[str, Any]] = {
         "grid_extras_targets": {"matchup_k_log5_max_abs_resid": 0.0},
     },
 }
+# Release 6a (tooling): generation 6 is under development and starts as a
+# copy of generation 5, profile and gates. The Release 6 build changes these
+# as its targets move (RELEASE6_PLAN.md section 5).
+ENGINE_GATES[6] = copy.deepcopy(ENGINE_GATES[5])
 
 
 def engine_gates_for(engine: int | None, *, grid: bool = False) -> dict[str, Any]:
@@ -1383,6 +1393,28 @@ def fixture_rating_centers(
     )
 
 
+def fixture_unstored_rating_centers(
+    players_path: Path, base_dir: Path | None = None
+) -> dict[str, float]:
+    """The Release 6a centres of the fixture, which only this harness is
+    given (``services.league_rating_centers.unstored_rating_centers``).
+
+    The lineup regulars' mean fielding and arm by position
+    (``fielder_fa_center_<pos>`` / ``fielder_arm_center_<pos>``), the
+    pitchers' workload-weighted ground-ball rating
+    (``pitcher_gf_usage_center``) and the lineup regulars' mean ground-ball
+    and pull ratings (``hitter_gf_center`` / ``hitter_pull_center``). No
+    league stores them and nothing in the engine reads them yet.
+    data/calibration ~ fa 1B 52.9, 2B 54.9, 3B 51.9, SS 54.7, LF 47.8,
+    CF 51.7, RF 46.6; pitcher gf 50.0, hitter gf 50.1, pull 55.1.
+    """
+    from services.league_rating_centers import unstored_rating_centers
+
+    return unstored_rating_centers(
+        _resolve_data_root(base_dir), players_path=players_path
+    )
+
+
 def with_rating_centers(
     tuning_overrides: dict[str, Any] | None,
     players_path: Path,
@@ -1392,9 +1424,12 @@ def with_rating_centers(
 
     An explicit centre in ``tuning_overrides`` (``hitter_speed_center``,
     ``catcher_fa_center``, ...) wins, so a profile can pin a centre for an
-    experiment.
+    experiment. Release 6a: the centres a league does not store yet
+    (``fixture_unstored_rating_centers``) are supplied too, after the
+    stored ones.
     """
     merged: dict[str, Any] = dict(fixture_rating_centers(players_path, base_dir))
+    merged.update(fixture_unstored_rating_centers(players_path, base_dir))
     merged.update(tuning_overrides or {})
     return merged
 
@@ -1512,7 +1547,9 @@ def resolve_run_overrides(
     """
     overrides: dict[str, Any] = {}
     if engine is not None:
-        overrides.update(engine_profile(engine))
+        # A generation under development is the harness's to run (no
+        # league season is given one: physics_sim.engine_generation).
+        overrides.update(engine_profile(engine, development=True))
     if overrides_path is not None:
         overrides.update(load_tuning_overrides_file(overrides_path, base=overrides))
     if disable_park_factors:
@@ -1877,6 +1914,11 @@ def run_sim(
         "rating_centers": {
             key: tuning_overrides.get(key) for key in RATING_CENTER_KEYS
         },
+        # Release 6a: the centres only this harness supplies (nothing in
+        # the engine reads them yet; no league stores them).
+        "unstored_rating_centers": {
+            key: tuning_overrides.get(key) for key in UNSTORED_CENTER_KEYS
+        },
         "tuning_overrides": requested_overrides,
     }
     summary["team_stats"] = {}
@@ -2175,6 +2217,17 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--matchup-grid-composite",
+        action="store_true",
+        help=(
+            "Report-only, with --matchup-grid-pa: the grids' pitcher axis is a "
+            "composite (control = movement = the level, every pitch grade "
+            "moving with it) instead of control = movement only, and a Power "
+            "x pitcher HR box over 35-80 is added. Off by default: the "
+            "existing grid and its gates are unchanged."
+        ),
+    )
+    parser.add_argument(
         "--base-dir",
         type=Path,
         default=None,
@@ -2200,7 +2253,7 @@ def main() -> None:
     parser.add_argument(
         "--engine",
         type=int,
-        choices=known_engine_generations(),
+        choices=harness_engine_generations(),
         default=None,
         help=(
             "Engine generation to run (physics_sim.engine_generation): its "
@@ -2208,7 +2261,9 @@ def main() -> None:
             "goes on top, the order a league's games use. Default: the "
             "legacy engine (DEFAULT_TUNING as it is), so every existing run "
             "and gate is unchanged. --engine 5 alone equals "
-            "--tuning-overrides scripts/kpi_profiles/r5.json."
+            "--tuning-overrides scripts/kpi_profiles/r5.json. 6 is the "
+            "generation under development (no league plays it); it equals "
+            "scripts/kpi_profiles/r6.json."
         ),
     )
     parser.add_argument(
@@ -2279,6 +2334,13 @@ def main() -> None:
                 pa_per_cell=args.matchup_grid_pa,
                 players_path=players_path,
                 tuning_overrides=tuning_overrides,
+                composite_pitcher=args.matchup_grid_composite,
+                # The Power table's hitter faces the fixture's own staff,
+                # read against the fixture's own centres.
+                fixture_dir=_resolve_data_root(base_dir),
+                fixture_overrides=with_rating_centers(
+                    tuning_overrides, players_path, base_dir
+                ),
             )
             report_only["metrics"].update(grids["metrics"])
             report_only["tables"].update(grids["tables"])

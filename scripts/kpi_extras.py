@@ -31,6 +31,22 @@ Release 5a adds the plate-discipline, contact, platoon and situational rows
 Release 5 tunes against (``ReportOnlyKpis._add_r5`` / ``_r5_metrics`` and the
 extra matchup-grid tables). All of them read the pitch log and box lines the
 engine already writes; none is a gate.
+
+Release 6a adds the rows Release 6 is built against, in four groups
+(``ReportOnlyKpis._add_r6`` / ``_r6_metrics``): pitching (what each pitcher
+rating is worth, batted balls by pitch type, the tired-starter and
+times-through-the-order deltas with the batters faced taken out), power
+(home runs by Power, doubles by Power, Contact and ground-ball rating),
+fielding (errors and plays by position, players off their position) and
+the batted ball (Statcast launch-angle classes, home run distance, spray by
+batting side). The fielding rows by position need two records the engine
+hands this harness beside the game (``GameResult.play_records``, never in
+the pitch log or the metadata) and are None without them: ``fld_pos`` (the
+position each out or error in play is credited to, by pitch-log index) and
+``starting_positions``. A fault in this block is recorded in
+``tables["r6_kpi_error"]`` and leaves every other row as it was. The
+matchup grid gains a composite pitcher axis (an option) and the
+``power_hr600_p<level>`` table. None is a gate.
 """
 from __future__ import annotations
 
@@ -247,6 +263,9 @@ class ReportOnlyKpis:
         self.pitcher_ratings = _load_pitcher_ratings(Path(players_path))
         # Release 5a: hitter Contact and Eye, for the rating-response slopes.
         self.ch, self.eye = _load_hitter_contact_eye(Path(players_path))
+        # Release 6a: hitter Power, ground-ball and pull ratings, pitcher
+        # ground-ball rating and each player's listed second positions.
+        self.r6_ratings = _load_r6_ratings(Path(players_path))
         self.lineup_pos = _load_lineup_positions(lineup_dir) if lineup_dir else {}
 
         self.games = 0
@@ -450,6 +469,14 @@ class ReportOnlyKpis:
         self._add_running_w1(totals, log, meta)  # Release 4 (W1)
         self._add_outs_in_play(log, pas, totals)
         self._add_r5(meta, log, pas, starters)  # Release 5a
+        # Release 6a. Guarded: a fault here must not take the rows above
+        # (some of them strict gates) down with it.
+        if getattr(self, "r6_error", None) is None:
+            try:
+                records = getattr(result, "play_records", None)
+                self._add_r6(meta, log, pas, starters, records or {})
+            except Exception as exc:
+                self.r6_error = f"{type(exc).__name__}: {exc}"
 
     def _add_bullpen_usage(
         self, meta: dict[str, Any], log: list[dict[str, Any]] | None = None
@@ -891,6 +918,24 @@ class ReportOnlyKpis:
         self._hit_play_rule_metrics(metrics, tables)  # Release 4 F1
         self._outs_in_play_metrics(metrics, tables, team_games)
         self._r5_metrics(metrics, tables, gpt, min_pa)  # Release 5a
+        # Release 6a, into its own dicts first: a fault leaves its rows None
+        # and everything above untouched.
+        r6_metrics: dict[str, Any] = {key: None for key in R6_METRIC_KEYS}
+        r6_tables: dict[str, Any] = {}
+        error = getattr(self, "r6_error", None)
+        if error is None:
+            try:
+                self._r6_metrics(r6_metrics, r6_tables, gpt, team_games)
+            except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"
+                r6_metrics = {key: None for key in R6_METRIC_KEYS}
+                r6_tables = {}
+        if error is not None:
+            r6_tables["r6_kpi_error"] = error
+        for key, value in r6_metrics.items():
+            metrics.setdefault(key, value)
+        for key, value in r6_tables.items():
+            tables.setdefault(key, value)
         return {"metrics": metrics, "tables": tables, "coverage": coverage}
 
     def _situational(
@@ -2078,6 +2123,609 @@ class ReportOnlyKpis:
             "away_pa": sum(r5.half["top"].values()),
         }
 
+    # -- Release 6a: pitching, power, fielding and the batted ball ------------
+    # Report-only rows for the Release 6 build (RELEASE6_PLAN.md section 4,
+    # step 1). Read from the pitch log, the box lines and the two records
+    # the engine hands this harness in ``GameResult.play_records``
+    # (``fld_pos``, ``starting_positions``).
+    def _r6(self) -> "_R6Tallies":
+        state = getattr(self, "r6", None)
+        if state is None:
+            state = self.r6 = _R6Tallies()
+        return state
+
+    def _batting_side(self, batter_id: str, pitcher_id: str) -> str:
+        """The side a batter hits from against this pitcher: a switch hitter
+        bats opposite the pitcher's hand (``engine._effective_batter_side``)."""
+        bats = self.bats.get(batter_id, "R")
+        if bats == "S":
+            return "L" if self.throws.get(pitcher_id, "R") == "R" else "R"
+        return bats if bats in ("L", "R") else "R"
+
+    def _add_r6(
+        self,
+        meta: dict[str, Any],
+        log: list[dict[str, Any]],
+        pas: list[PlateAppearance],
+        starters: set[str],
+        records: dict[str, Any],
+    ) -> None:
+        """One game's Release 6a tallies.
+
+        Pitch level: pitches by type. Ball in play (the ``in_play`` entry,
+        which carries the PA's result): the engine's class and exit velocity
+        by pitch type and by pitcher, the Statcast class by launch angle,
+        home run distance, the spray angle by batting side and the position
+        the engine credited the out or error to (``records["fld_pos"]``, by
+        the entry's index in the log). PA level: every hitter's wOBA per PA
+        (the batter adjustment) and, for starters, each PA's pitch-count
+        bucket and time through the order. Box lines: runs and earned runs,
+        hitter doubles and strikeouts, errors by the position each fielder
+        started at (``records["starting_positions"]``). ``records`` is the
+        game's ``play_records``; ``{}`` for a result without them.
+        """
+        r6 = self._r6()
+        fielded = records.get("fld_pos")
+        if isinstance(fielded, dict):
+            r6.fld_logged = True
+        else:
+            fielded = {}
+        for index, entry in enumerate(log):
+            pitch_type = entry.get("pitch_type")
+            if pitch_type is None:
+                continue
+            pitch_type = str(pitch_type)
+            r6.pitch_types[pitch_type] += 1
+            if entry.get("outcome") != "in_play":
+                continue
+            ev, la = entry.get("exit_velo"), entry.get("launch_angle")
+            if ev is None or la is None:
+                continue
+            ev, la = float(ev), float(la)
+            token = str(entry.get("pa_result") or "")
+            ball_type = str(entry.get("ball_type") or "")
+            pitcher_id = str(entry.get("pitcher_id", ""))
+            batter_id = str(entry.get("batter_id", ""))
+            homer = token == "hr"
+            by_type = r6.by_pitch_type[pitch_type]
+            by_type["bip"] += 1
+            by_type[ball_type] += 1
+            by_type["ev"] += ev
+            mound = r6.pitcher_bip[pitcher_id]
+            mound["bip"] += 1
+            mound["gb"] += ball_type == "gb"
+            mound["ev"] += ev
+            r6.engine_class[ball_type] += 1
+            cls = r6.statcast[statcast_class(la)]
+            cls["n"] += 1
+            cls["ev"] += ev
+            cls["hr"] += homer
+            cls["hit"] += token in HIT_TOKENS
+            distance = entry.get("distance")
+            if homer and distance is not None:
+                r6.hr["n"] += 1
+                r6.hr["ft"] += float(distance)
+                r6.hr["ft450"] += float(distance) >= HR_LONG_FT
+                r6.hr_longest = max(r6.hr_longest, float(distance))
+            spray = entry.get("spray_angle")
+            if spray is not None:
+                side = self._batting_side(batter_id, pitcher_id)
+                pull = pull_angle(float(spray), side)
+                third = (
+                    "pull" if pull > SPRAY_THIRD_DEG
+                    else "oppo" if pull < -SPRAY_THIRD_DEG
+                    else "straight"
+                )
+                by_side = r6.spray[side]
+                by_side["n"] += 1
+                by_side[third] += 1
+                by_side["hr"] += homer
+                by_side["hr_pull"] += homer and third == "pull"
+                own = r6.spray_by_batter[(batter_id, side)]
+                own[0] += 1
+                own[1] += pull
+            if index in fielded:
+                pos = str(fielded[index] or "?").upper()
+                if ball_type == "gb":
+                    r6.gb_plays[pos] += 1
+                elif not entry.get("reached_on_error"):
+                    r6.air_outs[pos] += 1
+
+        for pa in pas:
+            token = pa.token
+            if not token or pa.pitches == 0 or token in ("ibb", "sh"):
+                continue  # the PA the wOBA deltas above leave out as well
+            weight = WOBA_WEIGHTS.get(token, 0.0)
+            season = r6.batter_woba[pa.batter_id]
+            season[0] += weight
+            season[1] += 1
+            if pa.pitcher_id not in starters:
+                continue
+            bucket = _fatigue_bucket(_int(pa.first.get("pitch_count")) - 1)
+            tto = min(_int(pa.first.get("tto")), 3)
+            r6.starter_pa.append((pa.pitcher_id, pa.batter_id, bucket, tto, weight))
+            if bucket is None:
+                continue
+            acc = r6.fatigue[pa.pitcher_id][bucket]
+            acc["pa"] += 1
+            acc["so"] += token == "so"
+            acc["bb"] += token == "bb"
+            last = pa.last
+            if last.get("outcome") == "in_play" and last.get("exit_velo") is not None:
+                acc["bip"] += 1
+                acc["ev"] += float(last["exit_velo"])
+
+        starting = records.get("starting_positions")
+        for side in ("away", "home"):
+            arms = set()
+            for line in (meta.get("pitcher_lines") or {}).get(side, []) or []:
+                pid = str(line.get("player_id", ""))
+                arms.add(pid)
+                r6.runs["r"] += _int(line.get("r"))
+                r6.runs["er"] += _int(line.get("er"))
+                r6.pitcher_er[pid] += _int(line.get("er"))
+            for line in (meta.get("batting_lines") or {}).get(side, []) or []:
+                bc = r6.batters[str(line.get("player_id", ""))]
+                for key in ("pa", "ab", "h", "b2", "b3", "hr", "so"):
+                    bc[key] += _int(line.get(key))
+            positions = starting.get(side) if isinstance(starting, dict) else None
+            if not isinstance(positions, dict) or not positions:
+                continue
+            r6.positions_logged = True
+            for pid, pos in positions.items():
+                pos = str(pos or "").strip().upper()
+                if not pos or pos in ("DH", "P"):
+                    continue
+                r6.slots["n"] += 1
+                r6.slots[self._slot_status(str(pid), pos)] += 1
+            for line in (meta.get("fielding_lines") or {}).get(side, []) or []:
+                errors = _int(line.get("e"))
+                if not errors:
+                    continue
+                pid = str(line.get("player_id", ""))
+                pos = str(positions.get(pid) or "").strip().upper()
+                if not pos or pos == "DH":
+                    # A pitcher is not in the lineup's positions; anyone
+                    # else who did not start in the field came off the bench.
+                    pos = "P" if pid in arms else "SUB"
+                r6.errors_by_pos[pos] += errors
+
+    def _slot_status(self, player_id: str, position: str) -> str:
+        """How a starter is listed for the position he started at:
+        ``primary``, ``secondary`` (a listed second position) or
+        ``unlisted`` (the engine's three fielding multipliers)."""
+        if position == self.primary_pos.get(player_id, ""):
+            return "primary"
+        if position in self.r6_ratings["other_pos"].get(player_id, ()):
+            return "secondary"
+        return "unlisted"
+
+    def _r6_metrics(
+        self,
+        metrics: dict[str, Any],
+        tables: dict[str, Any],
+        gpt: int,
+        team_games: int,
+    ) -> None:
+        """The Release 6a report-only rows; never gated."""
+        self._r6_pitching(metrics, tables, gpt)
+        self._r6_power(metrics, tables, gpt)
+        self._r6_fielding(metrics, tables, team_games)
+        self._r6_batted_ball(metrics, tables, gpt)
+
+    def _r6_pitching(
+        self, metrics: dict[str, Any], tables: dict[str, Any], gpt: int
+    ) -> None:
+        r6 = self._r6()
+        gf = self.r6_ratings["pitcher_gf"]
+
+        # What +10 of each pitcher rating is worth, the four taken together
+        # (plan 2.1: the arm must lower FIP, the pitch grade must carry the
+        # strikeouts). Least squares over the pitchers with 40+ innings,
+        # weighted by batters faced; FIP without its constant (runs per 9),
+        # the rates in percentage points per batter faced.
+        min_outs = 3 * max(10, round(40 * gpt / 162))
+        regulars = []
+        for pid, c in self.pitchers.items():
+            ratings = self.pitcher_ratings.get(pid)
+            bf = c["bf"] - c["ibb"]
+            if ratings is None or c["outs"] < min_outs or bf <= 0:
+                continue
+            mound = r6.pitcher_bip.get(pid) or Counter()
+            regulars.append({
+                "pid": pid,
+                "x": [ratings[key] for key in R6_PITCHER_RATINGS.values()],
+                "bf": float(bf),
+                "fip": _fip(c),
+                "k": c["so"] / bf,
+                "bb": (c["bb"] - c["ibb"]) / bf,
+                "hr": c["hr"] / bf,
+                "era": 27.0 * r6.pitcher_er[pid] / c["outs"],
+                "gb": _ratio(mound["gb"], mound["bip"]),
+                "ev": _ratio(mound["ev"], mound["bip"]),
+            })
+        slopes: dict[str, Any] = {"pitchers": len(regulars), "min_outs": min_outs}
+        names = list(R6_PITCHER_RATINGS)
+        if len(regulars) >= R6_MIN_REGRESSION_ROWS:
+            xs = [row["x"] for row in regulars]
+            weights = [row["bf"] for row in regulars]
+            for outcome, scale in (
+                ("fip", 10.0), ("k", 1000.0), ("bb", 1000.0), ("hr", 1000.0),
+                ("era", 10.0), ("ev", 10.0),
+            ):
+                rows = [
+                    (x, row[outcome], w)
+                    for x, row, w in zip(xs, regulars, weights)
+                    if row[outcome] is not None
+                ]
+                beta = _least_squares(
+                    [r[0] for r in rows], [r[1] for r in rows], [r[2] for r in rows]
+                )
+                slopes[outcome] = {
+                    name: (scale * b if b is not None else None)
+                    for name, b in zip(names, beta)
+                }
+            # The same strikeout regression on standardised ratings and a
+            # standardised rate, unweighted: how many sd of K one sd of the
+            # rating moves (target for the mean pitch grade: >= .35).
+            slopes["k_std_beta"] = dict(zip(names, _standardised_betas(
+                xs, [row["k"] for row in regulars]
+            )))
+        fip_slopes = slopes.get("fip") or {}
+        k_slopes = slopes.get("k") or {}
+        for name in names:
+            metrics[f"pitcher_fip_per10_{name}"] = fip_slopes.get(name)
+            metrics[f"pitcher_k_pct_per10_{name}"] = k_slopes.get(name)
+        metrics["pitcher_k_std_beta_grade"] = (
+            slopes.get("k_std_beta") or {}
+        ).get("grade")
+        tables["pitcher_rating_slopes"] = slopes
+
+        # Ground balls and exit velocity by the pitch thrown (the engine's
+        # own ground-ball class), and the fastball + sinker share of pitches.
+        by_type = {}
+        for pitch_type, c in sorted(r6.by_pitch_type.items()):
+            by_type[pitch_type] = {
+                "pitches": r6.pitch_types[pitch_type],
+                "bip": c["bip"],
+                "gb_pct": _ratio(c["gb"], c["bip"]),
+                "ev": _ratio(c["ev"], c["bip"]),
+            }
+        tables["batted_ball_by_pitch_type"] = by_type
+        for pitch_type in R6_PITCH_TYPES:
+            row = by_type.get(pitch_type) or {}
+            metrics[f"gb_pct_pitch_{pitch_type}"] = row.get("gb_pct")
+            metrics[f"ev_pitch_{pitch_type}"] = row.get("ev")
+        pitches = sum(r6.pitch_types.values())
+        metrics["fb_si_pitch_share"] = _ratio(
+            r6.pitch_types["fb"] + r6.pitch_types["si"], pitches
+        )
+
+        # Spread among ERA-qualified pitchers (observed sd): FIP, and the
+        # mean exit velocity they allow.
+        min_outs_q = 3 * max(1, round(gpt * 1.0))
+        qual_fip, qual_ev = [], []
+        for pid, c in self.pitchers.items():
+            if c["outs"] < min_outs_q:
+                continue
+            qual_fip.append(_fip(c))
+            mound = r6.pitcher_bip.get(pid)
+            if mound and mound["bip"]:
+                qual_ev.append(mound["ev"] / mound["bip"])
+        metrics["qualified_fip_sd"] = (
+            statistics.pstdev(qual_fip) if len(qual_fip) >= 10 else None
+        )
+        metrics["qualified_ev_against_sd"] = (
+            statistics.pstdev(qual_ev) if len(qual_ev) >= 10 else None
+        )
+
+        # Do pitchers own a ground-ball rate? True sd of GB% over pitchers
+        # with 250+ balls in play, and r(ground-ball rating, GB%) over the
+        # 40+ inning pitchers (the engine does not read a pitcher's gf yet).
+        min_bip = max(50, round(250 * gpt / 162))
+        sd, var, n = true_sd(
+            (c["gb"], c["bip"]) for c in r6.pitcher_bip.values() if c["bip"] >= min_bip
+        )
+        metrics["pitcher_gb_pct_true_sd"] = sd
+        tables["pitcher_gb_pct_dispersion"] = {
+            "true_sd": sd, "true_var": var, "n": n, "min_bip": min_bip,
+        }
+        pairs = [
+            (gf[row["pid"]], row["gb"])
+            for row in regulars
+            if row["pid"] in gf and row["gb"] is not None
+        ]
+        metrics["r_pitcher_gf_gb_pct"] = (
+            _pearson([a for a, _ in pairs], [b for _, b in pairs])
+            if len(pairs) >= 10 else None
+        )
+
+        # The same starter at pitches 91-105 against pitches 1-25 of the
+        # outing: strikeouts and walks per PA (fractions) and exit velocity
+        # (mph), weighted by his late PA (late balls in play for EV).
+        for key, events, trials in (
+            ("k_pct", "so", "pa"), ("bb_pct", "bb", "pa"), ("ev", "ev", "bip"),
+        ):
+            metrics[f"starter_{key}_delta_91_105"] = _bucket_delta(
+                r6.fatigue, events, trials
+            )
+
+        # The wOBA deltas with the batters faced taken out: each PA counts
+        # as its wOBA value minus that hitter's season mean. The raw rows
+        # carry who bats when: pitches 91-105 fall on the bottom of the
+        # order (the raw delta reads low) and the third time through on the
+        # top (it reads high). Starters only, within pitcher, weighted by
+        # the later group's PA.
+        means = {pid: acc[0] / acc[1] for pid, acc in r6.batter_woba.items() if acc[1]}
+        adjusted = {}
+        for name, index, base, other in (
+            ("starter_woba_delta_91_105", 2, "early", "late"),
+            ("tto_pass2_woba_delta", 3, 1, 2),
+            ("tto_pass3_woba_delta", 3, 1, 3),
+        ):
+            raw, adj, n = _starter_pa_delta(r6.starter_pa, means, index, base, other)
+            metrics[f"{name}_batter_adj"] = adj
+            adjusted[name] = {"starters_raw": raw, "batter_adjusted": adj, "pa": n}
+        tables["batter_adjusted_deltas"] = adjusted
+
+    def _r6_power(
+        self, metrics: dict[str, Any], tables: dict[str, Any], gpt: int
+    ) -> None:
+        r6 = self._r6()
+        power = self.r6_ratings["power"]
+        gf = self.r6_ratings["hitter_gf"]
+        min_pa = max(1, round(gpt * 3.1))  # the batting-title bar, as gated
+        rows = []
+        for pid, c in sorted(r6.batters.items()):
+            if c["pa"] < min_pa or c["ab"] <= 0:
+                continue
+            if pid not in power or pid not in self.ch:
+                continue
+            rows.append({
+                "pid": pid, "ph": power[pid], "ch": self.ch[pid],
+                "gf": gf.get(pid, 50.0), "pa": c["pa"], "hr": c["hr"],
+                "b2": c["b2"],
+                "hr600": 600.0 * c["hr"] / c["pa"],
+                "d_rate": c["b2"] / c["pa"],
+                "k_rate": c["so"] / c["pa"],
+                "iso": (c["b2"] + 2 * c["b3"] + 3 * c["hr"]) / c["ab"],
+            })
+        n = len(rows)
+        enough = n >= R6_MIN_REGRESSION_ROWS
+        tables["qualified_hitters"] = {"n": n, "min_pa": min_pa}
+
+        # Home runs per 600 PA by Power fifth (each hitter counted once), and
+        # the weakest fifth over the middle one (decision 4: .75 or less).
+        # Ratings are whole numbers, so a fifth's edge falls inside a group
+        # of hitters with the same Power: they share the group's mean
+        # (``_tie_averaged``), or the order within the tie would decide the
+        # answer (sorting ties by home runs reads the ratio .04 to .06 low).
+        fifths: list[list[dict[str, Any]]] = [[] for _ in range(5)]
+        if enough:
+            by_power = _tie_averaged(rows, "ph", ("hr600",))
+            q = n // 5
+            fifths = [
+                by_power[:q], by_power[q:2 * q], by_power[2 * q:n - 2 * q],
+                by_power[n - 2 * q:n - q], by_power[n - q:],
+            ]
+        quintiles = []
+        for i, group in enumerate(fifths, start=1):
+            value = statistics.fmean(r["hr600"] for r in group) if group else None
+            metrics[f"hr600_power_q{i}"] = value
+            quintiles.append({
+                "n": len(group),
+                "mean_power": statistics.fmean(r["ph"] for r in group) if group else None,
+                "hr600": value,
+            })
+        tables["hr600_by_power_quintile"] = quintiles
+        low, mid = metrics["hr600_power_q1"], metrics["hr600_power_q3"]
+        metrics["hr_power_bottom_quintile_ratio"] = (
+            (low / mid) if (mid and low is not None) else None
+        )
+        bands = {}
+        for lo, hi in R6_POWER_BANDS:
+            group = [r for r in rows if lo <= r["ph"] < hi]
+            if group:
+                bands[f"{lo}-{hi}"] = {
+                    "n": len(group),
+                    "hr600": _ratio(
+                        600.0 * sum(r["hr"] for r in group),
+                        sum(r["pa"] for r in group),
+                    ),
+                }
+        tables["hr600_by_power_band"] = bands
+
+        # The spread of the home run totals themselves: mean HR per 600 PA
+        # of the lowest and highest fifth of qualified hitters and the
+        # median, and the share of them with 30 (per 162 games).
+        by_hr = sorted(r["hr600"] for r in rows)
+        q = n // 5
+        metrics["qualified_hr600_q1"] = statistics.fmean(by_hr[:q]) if enough else None
+        metrics["qualified_hr600_median"] = statistics.median(by_hr) if enough else None
+        metrics["qualified_hr600_q5"] = statistics.fmean(by_hr[-q:]) if enough else None
+        metrics["hr30_share_of_qualified"] = (
+            sum(1 for r in rows if r["hr"] >= 30.0 * gpt / 162.0) / n if enough else None
+        )
+
+        # Who hits the doubles: doubles per 600 PA per +10 Power and per +10
+        # Contact (the two taken together), and whether doubles and
+        # strikeouts go with power (r of 2B rate with HR rate, of K% with ISO).
+        beta = (
+            _least_squares(
+                [[r["ph"], r["ch"]] for r in rows], [r["d_rate"] for r in rows]
+            )
+            if enough else [None, None]
+        )
+        for name, slope in zip(("power", "contact"), beta):
+            metrics[f"doubles_per10_{name}"] = (
+                6000.0 * slope if slope is not None else None
+            )
+        metrics["corr_2b_hr"] = (
+            _pearson([r["d_rate"] for r in rows], [r["hr600"] for r in rows])
+            if enough else None
+        )
+        metrics["corr_k_iso"] = (
+            _pearson([r["k_rate"] for r in rows], [r["iso"] for r in rows])
+            if enough else None
+        )
+
+        # Doubles per 600 PA by ground-ball rating third, t1 the lowest gf
+        # (the owner's rule: line-drive hitters lead in doubles). Hitters
+        # with the same gf share their group's doubles and PA, as above.
+        thirds: list[list[dict[str, Any]]] = [[], [], []]
+        if enough:
+            by_gf = _tie_averaged(rows, "gf", ("b2", "pa"))
+            t = n // 3
+            thirds = [by_gf[:t], by_gf[t:n - t], by_gf[n - t:]]
+        terciles = []
+        for i, group in enumerate(thirds, start=1):
+            pa = sum(r["pa"] for r in group)
+            value = _ratio(600.0 * sum(r["b2"] for r in group), pa)
+            metrics[f"doubles600_gf_t{i}"] = value
+            terciles.append({
+                "n": len(group),
+                "mean_gf": statistics.fmean(r["gf"] for r in group) if group else None,
+                "doubles600": value,
+            })
+        tables["doubles600_by_gf_tercile"] = terciles
+
+    def _r6_fielding(
+        self, metrics: dict[str, Any], tables: dict[str, Any], team_games: int
+    ) -> None:
+        r6 = self._r6()
+
+        # Errors per team-game by the position the fielder started at (a
+        # pitcher is P; a fielder who came off the bench is in the table as
+        # SUB). MLB is about .53 in all; the engine charges none to
+        # catchers or pitchers today.
+        placed = r6.positions_logged and team_games
+        for pos in R6_FIELD_POSITIONS:
+            metrics[f"e_per_team_game_{pos.lower()}"] = (
+                r6.errors_by_pos[pos] / team_games if placed else None
+            )
+        tables["errors_by_position"] = dict(r6.errors_by_pos)
+
+        # Who the engine gives the ground balls to: the share of ground-ball
+        # outs and errors credited to each infield position; and the share
+        # of outfield putouts on air balls by outfielder.
+        grounders = sum(r6.gb_plays.values())
+        for pos in INFIELD_POSITIONS:
+            metrics[f"gb_play_share_{pos.lower()}"] = (
+                _ratio(r6.gb_plays[pos], grounders) if r6.fld_logged else None
+            )
+        putouts = sum(r6.air_outs[pos] for pos in OUTFIELD_RANGE_POSITIONS)
+        for pos in OUTFIELD_RANGE_POSITIONS:
+            metrics[f"of_putout_share_{pos.lower()}"] = (
+                _ratio(r6.air_outs[pos], putouts) if r6.fld_logged else None
+            )
+        tables["plays_by_position"] = {
+            "ground_ball": dict(r6.gb_plays), "air_out": dict(r6.air_outs),
+        }
+
+        # Starters away from their primary position, per fielder-slot (one
+        # per position per club per game; DH and pitcher left out): all of
+        # them, and the ones at a listed second position.
+        slots = r6.slots
+        logged = r6.positions_logged
+        metrics["off_primary_slot_share"] = (
+            _ratio(slots["secondary"] + slots["unlisted"], slots["n"]) if logged else None
+        )
+        metrics["secondary_slot_share"] = (
+            _ratio(slots["secondary"], slots["n"]) if logged else None
+        )
+        tables["fielder_slots"] = dict(slots)
+
+        # Runs that were not earned (the pitching lines' R minus ER; the
+        # extra-inning automatic runner's run is unearned too).
+        metrics["unearned_run_share"] = _ratio(
+            r6.runs["r"] - r6.runs["er"], r6.runs["r"]
+        )
+
+    def _r6_batted_ball(
+        self, metrics: dict[str, Any], tables: dict[str, Any], gpt: int
+    ) -> None:
+        r6 = self._r6()
+        pull_rating = self.r6_ratings["hitter_pull"]
+
+        # Statcast classes by launch angle (ground ball under 10 degrees,
+        # line drive 10-25, fly ball 25-50, pop-up above 50): share of balls
+        # in play, mean exit velocity and the hit rate of the balls that
+        # stayed in the park. The gated bip_*_pct rows use the engine's own
+        # cut-offs (9.0 / 15.7); both are in tables["batted_ball_classes"].
+        balls = sum(c["n"] for c in r6.statcast.values())
+        classes = {}
+        for name in STATCAST_CLASSES:
+            c = r6.statcast[name]
+            share = _ratio(c["n"], balls)
+            ev = _ratio(c["ev"], c["n"])
+            hit_rate = _ratio(c["hit"] - c["hr"], c["n"] - c["hr"])
+            metrics[f"statcast_{name}_pct"] = share
+            metrics[f"statcast_{name}_ev"] = ev
+            metrics[f"statcast_{name}_hit_rate"] = hit_rate
+            classes[name] = {
+                "n": c["n"], "share": share, "ev": ev,
+                "non_hr_hit_rate": hit_rate, "hr": c["hr"],
+            }
+        engine_balls = sum(r6.engine_class.values())
+        tables["batted_ball_classes"] = {
+            "statcast": classes,
+            "engine": {
+                name: _ratio(count, engine_balls)
+                for name, count in sorted(r6.engine_class.items())
+            },
+        }
+
+        # Home runs per fly ball with the pop-ups in the denominator
+        # (Statcast fly balls + pop-ups); hr_per_fb_pct in the gated metrics
+        # divides by the engine's fly-ball class alone.
+        homers = sum(c["hr"] for c in r6.statcast.values())
+        metrics["hr_per_fb_pu"] = _ratio(
+            homers, r6.statcast["fb"]["n"] + r6.statcast["pu"]["n"]
+        )
+
+        # How far the home runs go (engine carry): the mean in feet and the
+        # share of 450 ft or more.
+        metrics["hr_distance_mean_ft"] = _ratio(r6.hr["ft"], r6.hr["n"])
+        metrics["hr_450plus_share"] = _ratio(r6.hr["ft450"], r6.hr["n"])
+        tables["hr_distance"] = {
+            "n": r6.hr["n"], "longest_ft": r6.hr_longest if r6.hr["n"] else None,
+        }
+
+        # Spray: the stored angle read as a physical one (positive = the
+        # right-field side), so a left-handed batter pulls to positive and a
+        # right-handed one to negative. Pull / centre / opposite field are
+        # thirds of 15 degrees either side of centre; by batting side and
+        # together. r(pull rating, mean pull angle) is over the hitters with
+        # 150+ balls in play from that side: it should be positive for both.
+        total = Counter()
+        spray_table = {}
+        min_balls = max(30, round(150 * gpt / 162))
+        for side, name in (("R", "rhb"), ("L", "lhb")):
+            c = r6.spray.get(side) or Counter()
+            total.update(c)
+            for third in SPRAY_THIRDS:
+                metrics[f"{third}_pct_{name}"] = _ratio(c[third], c["n"])
+            pairs = [
+                (pull_rating[pid], acc[1] / acc[0])
+                for (pid, hand), acc in r6.spray_by_batter.items()
+                if hand == side and acc[0] >= min_balls and pid in pull_rating
+            ]
+            metrics[f"r_pull_rating_pull_angle_{name}"] = (
+                _pearson([a for a, _ in pairs], [b for _, b in pairs])
+                if len(pairs) >= 10 else None
+            )
+            spray_table[name] = {
+                "n": c["n"], "hitters": len(pairs),
+                "hr_pulled_share": _ratio(c["hr_pull"], c["hr"]),
+            }
+        for third in SPRAY_THIRDS:
+            metrics[f"{third}_pct"] = _ratio(total[third], total["n"])
+        spray_table["all"] = {
+            "n": total["n"], "hr_pulled_share": _ratio(total["hr_pull"], total["hr"]),
+        }
+        spray_table["min_balls_in_play"] = min_balls
+        tables["spray_by_batting_side"] = spray_table
+
 
 # Release 4 (W1): raw-speed tiers for the steal tables (the plan's tiers;
 # 47-53 is the "50", 68-77 the "fast 70", 78-89 the "burner 85").
@@ -2416,6 +3064,343 @@ def _load_lineup_positions(lineup_dir: Path) -> dict[tuple[str, str], str]:
     return {key: next(iter(v)) for key, v in found.items() if len(v) == 1}
 
 
+# ------------------------------------------------------------- Release 6a
+# Statcast batted-ball classes by launch angle, in degrees: a ground ball
+# under 10, a line drive from 10 to under 25, a fly ball from 25 to 50 and a
+# pop-up above 50.
+STATCAST_CLASSES = ("gb", "ld", "fb", "pu")
+STATCAST_LD_MIN_DEG = 10.0
+STATCAST_FB_MIN_DEG = 25.0
+STATCAST_PU_MIN_DEG = 50.0
+# A long home run, and the half-width of the centre third of the field.
+HR_LONG_FT = 450.0
+SPRAY_THIRD_DEG = 15.0
+# Pulled, up the middle and opposite field, named as the benchmark file
+# names them (pull_pct / straight_pct / oppo_pct).
+SPRAY_THIRDS = ("pull", "straight", "oppo")
+# metric name -> key in ``_load_pitcher_ratings`` of the four pitcher
+# ratings the rating-value regressions take together.
+R6_PITCHER_RATINGS = {
+    "arm": "arm", "control": "control", "movement": "movement",
+    "grade": "pitch_grade",
+}
+# The pitch types with a metric row (every type thrown is in the table).
+R6_PITCH_TYPES = ("fb", "si", "sl", "cu", "cb")
+R6_FIELD_POSITIONS = ("P", "C", "1B", "2B", "3B", "SS", "LF", "CF", "RF")
+INFIELD_POSITIONS = ("1B", "2B", "3B", "SS")
+# Raw Power bands of ``tables["hr600_by_power_band"]`` (low inclusive).
+R6_POWER_BANDS = (
+    (0, 42), (42, 46), (46, 49), (49, 52), (52, 55), (55, 58), (58, 62), (62, 101),
+)
+# Fewer players than this and a regression, a fifth or a third is None.
+R6_MIN_REGRESSION_ROWS = 30
+# Every metric the Release 6a block reports (None when it has no data).
+R6_METRIC_KEYS: tuple[str, ...] = tuple(
+    [f"pitcher_fip_per10_{name}" for name in R6_PITCHER_RATINGS]
+    + [f"pitcher_k_pct_per10_{name}" for name in R6_PITCHER_RATINGS]
+    + ["pitcher_k_std_beta_grade"]
+    + [f"gb_pct_pitch_{pitch}" for pitch in R6_PITCH_TYPES]
+    + [f"ev_pitch_{pitch}" for pitch in R6_PITCH_TYPES]
+    + [
+        "fb_si_pitch_share", "qualified_fip_sd", "qualified_ev_against_sd",
+        "pitcher_gb_pct_true_sd", "r_pitcher_gf_gb_pct",
+        "starter_k_pct_delta_91_105", "starter_bb_pct_delta_91_105",
+        "starter_ev_delta_91_105", "starter_woba_delta_91_105_batter_adj",
+        "tto_pass2_woba_delta_batter_adj", "tto_pass3_woba_delta_batter_adj",
+    ]
+    + [f"hr600_power_q{i}" for i in range(1, 6)]
+    + [
+        "hr_power_bottom_quintile_ratio", "qualified_hr600_q1",
+        "qualified_hr600_median", "qualified_hr600_q5",
+        "hr30_share_of_qualified", "doubles_per10_power",
+        "doubles_per10_contact", "corr_2b_hr", "corr_k_iso",
+    ]
+    + [f"doubles600_gf_t{i}" for i in range(1, 4)]
+    + [f"e_per_team_game_{pos.lower()}" for pos in R6_FIELD_POSITIONS]
+    + [f"gb_play_share_{pos.lower()}" for pos in INFIELD_POSITIONS]
+    + [f"of_putout_share_{pos.lower()}" for pos in OUTFIELD_RANGE_POSITIONS]
+    + ["off_primary_slot_share", "secondary_slot_share", "unearned_run_share"]
+    + [
+        f"statcast_{name}_{stat}"
+        for name in STATCAST_CLASSES for stat in ("pct", "ev", "hit_rate")
+    ]
+    + ["hr_per_fb_pu", "hr_distance_mean_ft", "hr_450plus_share"]
+    + [
+        f"{third}_pct_{side}"
+        for side in ("rhb", "lhb") for third in SPRAY_THIRDS
+    ]
+    + ["r_pull_rating_pull_angle_rhb", "r_pull_rating_pull_angle_lhb"]
+    + [f"{third}_pct" for third in SPRAY_THIRDS]
+)
+
+
+def statcast_class(launch_angle: float) -> str:
+    """The Statcast batted-ball class of a launch angle (degrees)."""
+    if launch_angle < STATCAST_LD_MIN_DEG:
+        return "gb"
+    if launch_angle < STATCAST_FB_MIN_DEG:
+        return "ld"
+    if launch_angle <= STATCAST_PU_MIN_DEG:
+        return "fb"
+    return "pu"
+
+
+def pull_angle(spray_angle: float, batting_side: str) -> float:
+    """A spray angle as degrees toward the batter's pull side.
+
+    ``spray_angle`` is read as a physical angle, positive toward right
+    field: a left-handed batter pulls to positive, a right-handed one to
+    negative. (The engine draws it hand-blind today, so a right-handed
+    batter's pull rating reads backwards; the Release 6 spray fix stores it
+    this way.)
+    """
+    return spray_angle if batting_side == "L" else -spray_angle
+
+
+class _R6Tallies:
+    """Release 6a accumulator for ``ReportOnlyKpis._add_r6``."""
+
+    def __init__(self) -> None:
+        # Pitches by type; balls in play by pitch type and by pitcher
+        # (``bip``, the engine's class counts and the exit-velocity sum).
+        self.pitch_types: Counter = Counter()
+        self.by_pitch_type: dict[str, Counter] = defaultdict(Counter)
+        self.pitcher_bip: dict[str, Counter] = defaultdict(Counter)
+        # Balls in play by the engine's class and by Statcast class (``n``,
+        # exit-velocity sum ``ev``, ``hit`` and ``hr``).
+        self.engine_class: Counter = Counter()
+        self.statcast: dict[str, Counter] = {
+            name: Counter() for name in STATCAST_CLASSES
+        }
+        # Home runs: ``n``, feet ``ft`` and the ones of HR_LONG_FT or more.
+        self.hr: Counter = Counter()
+        self.hr_longest = 0.0
+        # Batting side -> thirds of the field; (batter, side) -> [balls,
+        # pull-angle sum].
+        self.spray: dict[str, Counter] = defaultdict(Counter)
+        self.spray_by_batter: dict[tuple[str, str], list[float]] = defaultdict(
+            lambda: [0, 0.0]
+        )
+        # The position the engine credited a play to (``fld_pos``): ground
+        # balls (outs and errors) and outs in the air.
+        self.fld_logged = False
+        self.gb_plays: Counter = Counter()
+        self.air_outs: Counter = Counter()
+        # Hitter -> [wOBA value sum, PA]; one row per starter PA: (pitcher,
+        # batter, pitch-count bucket or None, time through the order, wOBA
+        # value); starter -> bucket -> PA, strikeouts, walks, balls in play
+        # and their exit-velocity sum.
+        self.batter_woba: dict[str, list[float]] = defaultdict(lambda: [0.0, 0])
+        self.starter_pa: list[tuple[str, str, str | None, int, float]] = []
+        self.fatigue: dict[str, dict[str, Counter]] = defaultdict(
+            lambda: defaultdict(Counter)
+        )
+        # Box lines: runs and earned runs, earned runs by pitcher, hitter
+        # counting lines.
+        self.runs: Counter = Counter()
+        self.pitcher_er: Counter = Counter()
+        self.batters: dict[str, Counter] = defaultdict(Counter)
+        # Starting positions (``starting_positions``): fielder-slots by how
+        # the starter is listed there, and errors by starting position.
+        self.positions_logged = False
+        self.slots: Counter = Counter()
+        self.errors_by_pos: Counter = Counter()
+
+
+def _load_r6_ratings(path: Path) -> dict[str, dict[str, Any]]:
+    """The ratings the Release 6a rows read, each by player id.
+
+    ``power`` (``ph``), ``hitter_gf`` and ``hitter_pull`` (``gf`` / ``pl``)
+    for hitters, ``pitcher_gf`` for pitchers and ``other_pos`` (the listed
+    second positions, split as ``BatterRatings.from_row`` splits them) for
+    everyone. A blank ``gf`` or ``pl`` is 50, as the engine reads it; a
+    hitter with no ``ph`` is left out of ``power``.
+    """
+    ratings: dict[str, dict[str, Any]] = {
+        "power": {}, "hitter_gf": {}, "hitter_pull": {}, "pitcher_gf": {},
+        "other_pos": {},
+    }
+    if not path.exists():
+        return ratings
+
+    def number(row: dict[str, Any], key: str) -> float:
+        try:
+            return float(row.get(key) or 50.0)
+        except ValueError:
+            return 50.0
+
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            pid = str(row.get("player_id") or "")
+            if not pid:
+                continue
+            raw = str(row.get("other_positions") or "").strip()
+            raw = raw.strip("[]").replace("'", "").replace('"', "")
+            ratings["other_pos"][pid] = frozenset(
+                p.strip().upper() for p in raw.replace("|", ",").split(",") if p.strip()
+            )
+            if str(row.get("is_pitcher", "")).strip() in {"1", "True", "true"}:
+                ratings["pitcher_gf"][pid] = number(row, "gf")
+                continue
+            ratings["hitter_gf"][pid] = number(row, "gf")
+            ratings["hitter_pull"][pid] = number(row, "pl")
+            try:
+                ratings["power"][pid] = float(row.get("ph") or "")
+            except ValueError:
+                pass
+    return ratings
+
+
+def _tie_averaged(
+    rows: list[dict[str, Any]], key: str, fields: tuple[str, ...]
+) -> list[dict[str, Any]]:
+    """``rows`` sorted by ``key``, each of ``fields`` replaced by its mean
+    over the rows that share the same ``key`` value.
+
+    For cutting a population into fifths or thirds by a whole-number
+    rating: a cut that falls inside a group of equal ratings then gives
+    both sides the group's mean, whatever order the tied rows are in.
+    """
+    groups: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        groups[row[key]].append(row)
+    out = []
+    for value in sorted(groups):
+        group = groups[value]
+        shared = {
+            name: statistics.fmean(row[name] for row in group) for name in fields
+        }
+        out.extend({**row, **shared} for row in group)
+    return out
+
+
+def _fip(c: Counter) -> float:
+    """Fielding-independent pitching without its league constant: (13 HR +
+    3 (unintentional BB + HBP) - 2 K) per inning."""
+    walks = c["bb"] - c["ibb"] + c["hbp"]
+    return (13.0 * c["hr"] + 3.0 * walks - 2.0 * c["so"]) / (c["outs"] / 3.0)
+
+
+def _least_squares(
+    xs: list[list[float]], ys: list[float], ws: list[float] | None = None
+) -> list[float | None]:
+    """Slopes of ``ys`` on the columns of ``xs`` taken together.
+
+    Least squares with an intercept (fitted, not returned), each row
+    weighted by ``ws`` (1 without it). A column that does not vary is left
+    out of the fit and its slope is None; every slope is None with fewer
+    rows than columns + 2 or a system that cannot be solved.
+    """
+    if not xs:
+        return []
+    cols = len(xs[0])
+    none: list[float | None] = [None] * cols
+    weights = [1.0] * len(xs) if ws is None else [float(w) for w in ws]
+    total = sum(weights)
+    if len(xs) < cols + 2 or total <= 0.0:
+        return none
+    means = [
+        sum(w * x[j] for x, w in zip(xs, weights)) / total for j in range(cols)
+    ]
+    keep = [
+        j for j in range(cols)
+        if sum(w * (x[j] - means[j]) ** 2 for x, w in zip(xs, weights)) > 1e-9 * total
+    ]
+    if not keep:
+        return none
+    mean_y = sum(w * y for y, w in zip(ys, weights)) / total
+    size = len(keep)
+    normal = [[0.0] * size for _ in range(size)]
+    target = [0.0] * size
+    for x, y, w in zip(xs, ys, weights):
+        centred = [x[j] - means[j] for j in keep]
+        for a in range(size):
+            target[a] += w * centred[a] * (y - mean_y)
+            for b in range(size):
+                normal[a][b] += w * centred[a] * centred[b]
+    solved = _solve_linear(normal, target)
+    if solved is None:
+        return none
+    slopes = list(none)
+    for j, slope in zip(keep, solved):
+        slopes[j] = slope
+    return slopes
+
+
+def _standardised_betas(xs: list[list[float]], ys: list[float]) -> list[float | None]:
+    """Unweighted least-squares slopes in standard deviations: how many sd
+    of ``ys`` one sd of each column of ``xs`` moves, the columns taken
+    together. None for a column (or an outcome) that does not vary."""
+    slopes = _least_squares(xs, ys)
+    sd_y = statistics.pstdev(ys) if len(ys) >= 2 else 0.0
+    out: list[float | None] = []
+    for j, slope in enumerate(slopes):
+        if slope is None or not sd_y:
+            out.append(None)
+        else:
+            out.append(slope * statistics.pstdev([x[j] for x in xs]) / sd_y)
+    return out
+
+
+def _bucket_delta(
+    acc: dict[str, dict[str, Counter]], events: str, trials: str
+) -> float | None:
+    """Within-starter change in ``events`` per ``trials`` from the early
+    pitch-count bucket to the late one, weighted by his late trials."""
+    num = 0.0
+    weight = 0.0
+    for buckets in acc.values():
+        early, late = buckets.get("early"), buckets.get("late")
+        if not early or not late or not early[trials] or not late[trials]:
+            continue
+        num += late[trials] * (
+            late[events] / late[trials] - early[events] / early[trials]
+        )
+        weight += late[trials]
+    return (num / weight) if weight else None
+
+
+def _starter_pa_delta(
+    rows: list[tuple[str, str, str | None, int, float]],
+    batter_means: dict[str, float],
+    index: int,
+    base: Any,
+    other: Any,
+) -> tuple[float | None, float | None, int]:
+    """(raw, batter-adjusted, PA) within-pitcher wOBA change, ``other``
+    minus ``base``.
+
+    ``rows`` are starter PA: (pitcher, batter, pitch-count bucket, time
+    through the order, wOBA value); ``index`` picks the grouping column (2
+    or 3). The adjusted value of a PA is its wOBA value minus the batter's
+    own season mean (``batter_means``), so a group that faces better
+    hitters is not charged for them. Both are the mean over pitchers with
+    PA in both groups of (other - base), weighted by the PA in ``other``.
+    """
+    acc: dict[str, dict[Any, list[float]]] = {}
+    for row in rows:
+        group = row[index]
+        if group != base and group != other:
+            continue
+        cells = acc.setdefault(row[0], {base: [0.0, 0.0, 0], other: [0.0, 0.0, 0]})
+        cell = cells[group]
+        cell[0] += row[4]
+        cell[1] += row[4] - batter_means.get(row[1], 0.0)
+        cell[2] += 1
+    raw = adjusted = 0.0
+    weight = 0
+    for cells in acc.values():
+        a, b = cells[base], cells[other]
+        if not a[2] or not b[2]:
+            continue
+        raw += b[2] * (b[0] / b[2] - a[0] / a[2])
+        adjusted += b[2] * (b[1] / b[2] - a[1] / a[2])
+        weight += b[2]
+    if not weight:
+        return None, None, 0
+    return raw / weight, adjusted / weight, weight
+
+
 # ------------------------------------------------------------ MLB reference
 def load_reference(path: Path = DEFAULT_REFERENCE_PATH) -> dict[str, dict[str, Any]]:
     """metric_key -> {value, approximate, source}. Missing file -> {}."""
@@ -2550,7 +3535,35 @@ GRID_RATING_CENTERS = {
     "pitcher_arm_usage_center": 50.0,
     "pitcher_grade_usage_center": GRID_PITCH_GRADE,
     "catcher_fa_center": GRID_CATCHER_FIELDING,
+    # Release 6a: the grid hitter and pitcher carry a ground-ball rating of
+    # 50 and the hitter a pull rating of 50, so these centres are the
+    # grid's own as well (nothing reads them yet).
+    "hitter_gf_center": 50.0,
+    "hitter_pull_center": 50.0,
+    "pitcher_gf_usage_center": 50.0,
 }
+# Release 6a: the composite pitcher axis (``composite_pitcher``). Generation
+# 6 weights the pitch grade at .55 of pitch quality, so a grid that moves
+# only control and movement understates the pitcher. On the composite axis
+# every pitch grade moves with the level, point for point, around the
+# grid's average grade: the anchor cell is the same pitcher on both axes.
+GRID_AXIS_CONTROL_MOVEMENT = "control_movement"
+GRID_AXIS_COMPOSITE = "composite"
+# The Power x pitcher home-run box the composite grid adds (plan section 5:
+# the HR log5 residual over the whole 35-80 box).
+HR_BOX_LEVELS = (35.0, 50.0, 65.0, 80.0)
+# The K grid's inner cells: batter and pitcher no higher than this.
+K_GRID_INNER_MAX = 65.0
+# League-relative Power levels of the ``power_hr600_p<level>`` table.
+POWER_TABLE_LEVELS = tuple(float(level) for level in range(30, 85, 5))
+
+
+def _grid_pitch_grade(pitcher_level: float, composite: bool) -> float:
+    """The grade of every pitch a grid pitcher throws: the grid's average
+    grade, moved with his level on the composite axis."""
+    if not composite:
+        return GRID_PITCH_GRADE
+    return GRID_PITCH_GRADE + (pitcher_level - 50.0)
 
 
 def _logit(p: float) -> float:
@@ -2561,12 +3574,15 @@ def _logit(p: float) -> float:
 def _simulate_cell(
     *, contact: float, power: float, pitcher_level: float, n: int, seed: int,
     tuning: Any, park: Any, bats: str = "R", throws: str = "R",
+    pitch_grade: float = GRID_PITCH_GRADE,
 ) -> Counter:
     """One grid cell: ``n`` PA of one batter against one pitcher.
 
     Counts ``pa``, ``bb``, ``k`` (split into ``k_looking`` and
     ``k_swinging``, Release 5a) and ``hr``. ``bats`` / ``throws`` set the
     hands for the platoon cells; both vs-left ratings are 50.
+    ``pitch_grade`` is the grade of each of his four pitches (Release 6a:
+    it moves with ``pitcher_level`` on the composite axis).
     """
     from physics_sim.engine import (
         _batter_context,
@@ -2587,7 +3603,7 @@ def _simulate_cell(
         velocity=50.0, control=pitcher_level, movement=pitcher_level,
         gb_tendency=50.0, vs_left=50.0, hold_runner=50.0, endurance=50.0,
         durability=50.0, fielding=50.0, arm=50.0,
-        repertoire={pitch: GRID_PITCH_GRADE for pitch in ("fb", "sl", "cu", "cb")},
+        repertoire={pitch: pitch_grade for pitch in ("fb", "sl", "cu", "cb")},
     )
     ctx_b = _batter_context(batter, pitcher, tuning, tto=1)
     # The engine's own per-PA pitcher context (a fresh pitcher).
@@ -2684,6 +3700,9 @@ def matchup_grid_metrics(
     players_path: Path,
     tuning_overrides: dict[str, Any] | None = None,
     seed: int = 20261006,
+    composite_pitcher: bool = False,
+    fixture_dir: Path | None = None,
+    fixture_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """CH x pitcher K grid and PH x pitcher HR grid, log5 residuals (M20, M21).
 
@@ -2702,6 +3721,21 @@ def matchup_grid_metrics(
     Release 5: the rating centres are the grid's own (``GRID_RATING_CENTERS``),
     whatever the overrides hold, so a 50 is the league-average rating under
     the models that read ratings against a centre.
+
+    Release 6a: ``composite_pitcher`` makes the pitcher axis of every grid
+    a composite -- control, movement and every pitch grade move together
+    (``_grid_pitch_grade``) -- instead of control and movement alone, and
+    adds a Power x pitcher HR box over 35-80
+    (``matchup_hr_log5_box_max_abs_resid_logit``; 12 more cells). The
+    metric names are the same on both axes and ``tables
+    ["matchup_grid_pitcher_axis"]`` says which one was run; the default is
+    the control-and-movement axis, cell for cell what it was. The inner K
+    residual (``matchup_k_log5_inner_max_abs_resid``, batter and pitcher at
+    65 or below) is read off the K grid on either axis. With
+    ``fixture_dir`` the Power table is run as well
+    (``power_hr600_p<level>``, :func:`power_hr600_table`; 11 more cells),
+    on ``fixture_overrides``: the run's tuning with the FIXTURE's centres,
+    not the grid's.
     """
     from physics_sim.config import load_tuning
     from physics_sim.park import load_park
@@ -2709,24 +3743,29 @@ def matchup_grid_metrics(
     tuning = load_tuning({**(tuning_overrides or {}), **GRID_RATING_CENTERS})
     park = load_park(None)
     ph_pop, comp_pop = _population_levels(players_path)
+
+    def cell(*, pitcher_level: float, **kwargs: Any) -> Counter:
+        return _simulate_cell(
+            pitcher_level=pitcher_level, n=pa_per_cell, seed=seed, tuning=tuning,
+            park=park,
+            pitch_grade=_grid_pitch_grade(pitcher_level, composite_pitcher),
+            **kwargs,
+        )
+
+    hr_box = None
+    power_table = None
     state = random.getstate()
     try:
         ch_levels = [35.0, 50.0, 65.0, 80.0]
         ch_cells = {
-            (b, p): _simulate_cell(
-                contact=b, power=50.0, pitcher_level=p, n=pa_per_cell, seed=seed,
-                tuning=tuning, park=park,
-            )
+            (b, p): cell(contact=b, power=50.0, pitcher_level=p)
             for b in ch_levels for p in ch_levels
         }
         k_grid = _log5_grid(ch_cells, ch_levels, ch_levels, 50.0, "k")
         ph_levels = _p5_50_p95(ph_pop)
         p_levels = _p5_50_p95(comp_pop)
         ph_cells = {
-            (b, p): _simulate_cell(
-                contact=50.0, power=b, pitcher_level=p, n=pa_per_cell, seed=seed,
-                tuning=tuning, park=park,
-            )
+            (b, p): cell(contact=50.0, power=b, pitcher_level=p)
             for b in ph_levels for p in p_levels
         }
         hr_grid = _log5_grid(ph_cells, ph_levels, p_levels, 50.0, "hr")
@@ -2734,40 +3773,257 @@ def matchup_grid_metrics(
         # (pitcher level 50). Every cell reseeds, so the cells above are
         # unchanged by these.
         platoon_cells = {
-            (side, level, hand): _simulate_cell(
-                contact=50.0, power=level, pitcher_level=50.0, n=pa_per_cell,
-                seed=seed, tuning=tuning, park=park, bats=side, throws=hand,
+            (side, level, hand): cell(
+                contact=50.0, power=level, pitcher_level=50.0, bats=side,
+                throws=hand,
             )
             for side in ("L", "R") for level in PLATOON_GRID_POWER
             for hand in ("L", "R")
         }
+        if composite_pitcher:
+            box = list(HR_BOX_LEVELS)
+            # The Power 50 row is the K grid's Contact 50 row (the same
+            # hitter, pitchers and seed), so it is not simulated twice.
+            box_cells = {
+                (b, p): ch_cells[(50.0, p)] if b == 50.0
+                else cell(contact=50.0, power=b, pitcher_level=p)
+                for b in box for p in box
+            }
+            hr_box = _log5_grid(box_cells, box, box, 50.0, "hr")
+        if fixture_dir is not None:
+            power_table = power_hr600_table(
+                pa_per_cell=pa_per_cell, fixture_dir=fixture_dir,
+                players_path=players_path, tuning_overrides=fixture_overrides,
+                seed=seed,
+            )
     finally:
         random.setstate(state)
     k_split = _k_split_grid(ch_cells, ch_levels)
     platoon = _platoon_hr_grid(platoon_cells)
-    return {
-        "metrics": {
-            "matchup_k_log5_max_abs_resid": k_grid["max_abs_residual"],
-            "matchup_hr_log5_max_abs_resid_logit": hr_grid["max_abs_residual_logit"],
-            **k_split["metrics"],
-            **platoon["metrics"],
+    inner = [
+        abs(row["residual"]) for row in k_grid["cells"]
+        if "residual" in row
+        and max(row["batter"], row["pitcher"]) <= K_GRID_INNER_MAX
+    ]
+    metrics = {
+        "matchup_k_log5_max_abs_resid": k_grid["max_abs_residual"],
+        "matchup_hr_log5_max_abs_resid_logit": hr_grid["max_abs_residual_logit"],
+        **k_split["metrics"],
+        **platoon["metrics"],
+        # Release 6a: the K residual away from the 80 row and column.
+        "matchup_k_log5_inner_max_abs_resid": max(inner) if inner else None,
+    }
+    tables = {
+        "matchup_k_grid": {"levels": ch_levels, "pa_per_cell": pa_per_cell, **k_grid},
+        "matchup_hr_grid": {
+            "ph_levels": ph_levels, "pitcher_levels": p_levels,
+            "pa_per_cell": pa_per_cell, **hr_grid,
         },
-        "tables": {
-            "matchup_k_grid": {"levels": ch_levels, "pa_per_cell": pa_per_cell, **k_grid},
-            "matchup_hr_grid": {
-                "ph_levels": ph_levels, "pitcher_levels": p_levels,
-                "pa_per_cell": pa_per_cell, **hr_grid,
-            },
-            "matchup_k_split_grid": {
-                "levels": ch_levels, "pa_per_cell": pa_per_cell,
-                "cells": k_split["cells"],
-            },
-            "matchup_platoon_hr_grid": {
-                "power_levels": list(PLATOON_GRID_POWER),
-                "pa_per_cell": pa_per_cell, "cells": platoon["cells"],
-            },
+        "matchup_k_split_grid": {
+            "levels": ch_levels, "pa_per_cell": pa_per_cell,
+            "cells": k_split["cells"],
+        },
+        "matchup_platoon_hr_grid": {
+            "power_levels": list(PLATOON_GRID_POWER),
+            "pa_per_cell": pa_per_cell, "cells": platoon["cells"],
+        },
+        "matchup_grid_pitcher_axis": (
+            GRID_AXIS_COMPOSITE if composite_pitcher else GRID_AXIS_CONTROL_MOVEMENT
+        ),
+    }
+    if hr_box is not None:
+        thin = sum(1 for row in hr_box["cells"] if "skipped" in row)
+        # A thin cell (too few home runs for log5) is left out of the
+        # maximum; raise --matchup-grid-pa until none is skipped.
+        metrics["matchup_hr_log5_box_max_abs_resid_logit"] = (
+            hr_box["max_abs_residual_logit"] if thin < len(hr_box["cells"]) else None
+        )
+        metrics["matchup_hr_log5_box_thin_cells"] = thin
+        tables["matchup_hr_box_grid"] = {
+            "levels": list(HR_BOX_LEVELS), "pa_per_cell": pa_per_cell,
+            "hr_per_pa": [
+                {
+                    "batter": b, "pitcher": p,
+                    "hr_per_pa": _ratio(box_cells[(b, p)]["hr"], box_cells[(b, p)]["pa"]),
+                    "k_per_pa": _ratio(box_cells[(b, p)]["k"], box_cells[(b, p)]["pa"]),
+                }
+                for b in HR_BOX_LEVELS for p in HR_BOX_LEVELS
+            ],
+            **hr_box,
+        }
+    if power_table is not None:
+        metrics.update(power_table["metrics"])
+        tables["power_hr600_table"] = power_table["table"]
+    return {"metrics": metrics, "tables": tables}
+
+
+def power_hr600_table(
+    *,
+    pa_per_cell: int,
+    fixture_dir: Path,
+    players_path: Path,
+    tuning_overrides: dict[str, Any] | None = None,
+    seed: int = 20261006,
+) -> dict[str, Any]:
+    """Home runs per 600 PA by league-relative Power (``power_hr600_p<level>``).
+
+    Release 6a (decision 4: a Power 30-40 hitter at about 5 to 10). A
+    fixture's regulars stop near Power 35 at the bottom and 65 at the top,
+    so the ends of the Power curve can only be read by Monte Carlo: one
+    hitter per level in ``POWER_TABLE_LEVELS``, the league's average in
+    everything else -- Contact, Eye, speed, ground-ball and pull rating and
+    the vs-left rating of his batting side at the fixture's centres, Power
+    the level's distance from the Power centre -- batting from each side
+    in the league's proportion (a switch hitter counts half each) against
+    the fixture's ACT pitchers drawn by expected workload
+    (``services.league_rating_centers.active_pitcher_workloads``), with a
+    league-average catcher, in the generic park. ``tuning_overrides`` are
+    the run's overrides WITH the fixture's rating centres (the harness's
+    ``with_rating_centers``), so every pitcher is read as a game reads him.
+
+    Every cell uses the same seed (common random numbers: the same pitchers
+    in the same order). The caller saves and restores the global random
+    state. Metrics are None when the fixture has no ACT pitcher.
+    """
+    from physics_sim.config import load_tuning
+    from physics_sim.models import PitcherRatings
+    from physics_sim.park import load_park
+    from services.league_rating_centers import active_pitcher_workloads
+
+    tuning = load_tuning(tuning_overrides or {})
+    park = load_park(None)
+    staff = [
+        (PitcherRatings.from_row(row), weight)
+        for row, weight in active_pitcher_workloads(
+            Path(fixture_dir), players_path=players_path
+        )
+    ]
+    metrics: dict[str, float | None] = {}
+    cells = []
+    for level in POWER_TABLE_LEVELS:
+        key = f"power_hr600_p{int(level)}"
+        if not staff:
+            metrics[key] = None
+            continue
+        c = _simulate_staff_cell(
+            power=level, n=pa_per_cell, seed=seed, tuning=tuning, staff=staff,
+            park=park,
+        )
+        metrics[key] = _ratio(600.0 * c["hr"], c["pa"])
+        cells.append({
+            "power": level, "pa": c["pa"], "hr": c["hr"],
+            "hr600": metrics[key],
+            "k_per_pa": _ratio(c["k"], c["pa"]),
+            "bb_per_pa": _ratio(c["bb"], c["pa"]),
+        })
+    return {
+        "metrics": metrics,
+        "table": {
+            "levels": list(POWER_TABLE_LEVELS), "pa_per_cell": pa_per_cell,
+            "pitchers": len(staff), "cells": cells,
         },
     }
+
+
+def _simulate_staff_cell(
+    *, power: float, n: int, seed: int, tuning: Any, staff: list[tuple[Any, float]],
+    park: Any,
+) -> Counter:
+    """One Power-table cell: ``n`` PA of the league's average hitter at
+    league-relative Power ``power`` against ``staff`` ((pitcher, workload)
+    pairs). Counts ``pa``, ``bb``, ``k`` and ``hr``. See
+    :func:`power_hr600_table`."""
+    from physics_sim.engine import (
+        _batter_context,
+        _league_relative,
+        _pitcher_context,
+    )
+    from physics_sim.models import BatterRatings
+    from physics_sim.physics import resolve_batted_ball, simulate_pitch
+
+    def centre(key: str) -> float:
+        return tuning.get(key, 50.0)
+
+    batters = {
+        side: BatterRatings(
+            player_id="table_b", bats=side, primary_position="CF",
+            other_positions=[], contact=centre("hitter_contact_center"),
+            power=power - 50.0 + centre("hitter_power_center"),
+            gb_tendency=centre("hitter_gf_center"),
+            pull_tendency=centre("hitter_pull_center"),
+            vs_left=centre(f"hitter_vl_center_{side.lower()}"), fielding=50.0,
+            arm=50.0, speed=centre("hitter_speed_center"),
+            eye=centre("hitter_eye_center"), height=73.0, durability=50.0,
+        )
+        for side in ("L", "R")
+    }
+    share_l = tuning.get("hitter_bats_share_l", 0.0)
+    share_r = tuning.get("hitter_bats_share_r", 0.0)
+    share_s = tuning.get("hitter_bats_share_s", 0.0)
+    known = share_l + share_r + share_s
+    # Unknown shares (0 / 0 / 0): MLB's rough split.
+    left = (share_l + 0.5 * share_s) / known if known > 0.0 else 0.45
+    context = {
+        "inning": 1, "outs": 0, "score_diff": 0,
+        "bases": {"first": False, "second": False, "third": False},
+        "catcher_fielding": centre("catcher_fa_center"), "batter_pitches_seen": 0,
+        "batter_swing_rate": None, "batter_chase_rate": None,
+        "last_pitch_type": None, "last_pitch_repeat": 0,
+        "foul_territory_scale": 1.0,
+    }
+    # Who pitches and which side the hitter bats from come from a private
+    # stream; the pitches themselves from the module-level one, reseeded
+    # per cell as the grid cells are.
+    rng = random.Random(seed * 7919 + 13)
+    picks = rng.choices(range(len(staff)), weights=[w for _p, w in staff], k=n)
+    mound: dict[int, Any] = {}
+    random.seed(seed)
+    out: Counter = Counter()
+    for pick in picks:
+        batter = batters["L" if rng.random() < left else "R"]
+        pitcher = staff[pick][0]
+        ctx_p = mound.get(pick)
+        if ctx_p is None:
+            ctx_p = mound[pick] = _pitcher_context(pitcher, tuning)
+        ctx_b = _batter_context(batter, pitcher, tuning, tto=1)
+        out["pa"] += 1
+        balls = strikes = 0
+        while True:
+            res = simulate_pitch(
+                batter=ctx_b, pitcher=ctx_p, tuning=tuning,
+                count=(balls, strikes), context=context,
+            )
+            o = res.outcome
+            if o == "ball":
+                balls += 1
+                if balls >= 4:
+                    out["bb"] += 1
+                    break
+            elif o in ("strike", "swinging_strike"):
+                strikes += 1
+                if strikes >= 3:
+                    out["k"] += 1
+                    break
+            elif o == "foul":
+                strikes = min(2, strikes + 1)
+            elif o == "in_play":
+                _dist, is_hr, _bt, _ht = resolve_batted_ball(
+                    exit_velo=res.exit_velo or 90.0,
+                    launch_angle=res.launch_angle or 12.0,
+                    spray_angle=res.spray_angle or 0.0,
+                    park=park, tuning=tuning, batter_speed=batter.speed,
+                    batter_contact=_league_relative(
+                        batter.contact, "hitter_contact_center", tuning
+                    ),
+                    batter_power=_league_relative(
+                        batter.power, "hitter_power_center", tuning
+                    ),
+                )
+                out["hr"] += bool(is_hr)
+                break
+            else:  # hit batter, catcher's interference
+                break
+    return out
 
 
 # Power levels of the platoon HR-ratio grid. Dense around 50: the platoon

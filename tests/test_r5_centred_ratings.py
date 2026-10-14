@@ -1501,7 +1501,12 @@ def test_the_harness_plays_a_fixture_on_its_regulars_centres():
     assert kpis.RATING_CENTER_KEYS == centers.RATING_CENTER_KEYS
     for fixture in (CALIBRATION, CALIBRATION_LEAGUE):
         merged = kpis.with_rating_centers({}, fixture / "players.csv", fixture)
-        assert merged == centers.active_rating_centers(fixture)
+        # Release 6a: with the centres only the harness supplies beside
+        # them (tests/test_r6a_tools_centers.py).
+        assert merged == {
+            **centers.active_rating_centers(fixture),
+            **centers.unstored_rating_centers(fixture),
+        }
         assert CENTRED_RATING_KEYS <= set(merged)
     # A centre pinned in the overrides still wins.
     pinned = kpis.with_rating_centers(

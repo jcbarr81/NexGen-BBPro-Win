@@ -165,6 +165,18 @@ and is never overwritten, by the generation or by the centres: the witness
 else that goes wrong while reading a generation RAISES
 (:func:`get_league_engine_generation`): a game that cannot tell which
 engine its season is on must fail, not play the wrong one.
+
+Release 6a (tooling) adds the centres the generation 6 fielding and
+batted-ball work will read, FOR THE KPI HARNESS ONLY
+(:func:`unstored_rating_centers`, ``UNSTORED_CENTER_KEYS``): the lineup
+regulars' mean fielding (``fa``) and arm at each of the seven positions a
+batted ball is fielded from, the pitchers' workload-weighted ground-ball
+rating (``gf``) and the lineup regulars' mean ground-ball and pull (``pl``)
+ratings. They are deliberately NOT in ``RATING_CENTER_KEYS``: nothing here
+stores them in ``rating_centers.json``, delivers them to a league game or
+caches them, and no engine generation a league can be given reads them.
+Storing them (with a season rule like the Release 5 centres') belongs to
+the generation 6 switch-on.
 """
 
 from __future__ import annotations
@@ -215,6 +227,15 @@ __all__ = [
     "HITTER_VL_CENTER_KEYS",
     "HITTER_BATS_SHARE_KEYS",
     "RATING_CENTER_KEYS",
+    "FIELDER_CENTER_POSITIONS",
+    "FIELDER_FA_CENTER_KEYS",
+    "FIELDER_ARM_CENTER_KEYS",
+    "PITCHER_GF_USAGE_CENTER_KEY",
+    "HITTER_GF_CENTER_KEY",
+    "HITTER_PULL_CENTER_KEY",
+    "UNSTORED_CENTER_KEYS",
+    "unstored_rating_centers",
+    "active_pitcher_workloads",
     "ENGINE_GENERATION_KEY",
     "GENERATION_WITNESS_FILENAME",
     "GENERATION_WITNESS_KEY",
@@ -313,6 +334,33 @@ RATING_CENTER_KEYS: tuple[str, ...] = (
     + tuple(HITTER_BATS_SHARE_KEYS.values())
     + (HITTER_POWER_CENTER_KEY,)
     + tuple(PITCHER_USAGE_CENTER_KEYS)
+)
+# Release 6a: the centres only the KPI harness is given (module docstring).
+# The seven positions a batted ball is fielded from -> the tuning keys of
+# the lineup regulars' mean ``fa`` and ``arm`` there.
+FIELDER_CENTER_POSITIONS: tuple[str, ...] = ("1B", "2B", "3B", "SS", "LF", "CF", "RF")
+FIELDER_FA_CENTER_KEYS: Dict[str, str] = {
+    pos: f"fielder_fa_center_{pos.lower()}" for pos in FIELDER_CENTER_POSITIONS
+}
+FIELDER_ARM_CENTER_KEYS: Dict[str, str] = {
+    pos: f"fielder_arm_center_{pos.lower()}" for pos in FIELDER_CENTER_POSITIONS
+}
+PITCHER_GF_USAGE_CENTER_KEY = "pitcher_gf_usage_center"
+HITTER_GF_CENTER_KEY = "hitter_gf_center"
+HITTER_PULL_CENTER_KEY = "hitter_pull_center"
+# tuning key -> players.csv column, averaged over the lineup regulars as the
+# ``_REGULARS_CENTER_SPECS`` are.
+_UNSTORED_REGULARS_SPECS: Dict[str, str] = {
+    HITTER_GF_CENTER_KEY: "gf",
+    HITTER_PULL_CENTER_KEY: "pl",
+}
+# Never stored, never delivered to a league game, never in
+# ``RATING_CENTER_KEYS`` (tests/test_r6a_tools_centers.py pins all three).
+UNSTORED_CENTER_KEYS: tuple[str, ...] = (
+    tuple(FIELDER_FA_CENTER_KEYS.values())
+    + tuple(FIELDER_ARM_CENTER_KEYS.values())
+    + (PITCHER_GF_USAGE_CENTER_KEY,)
+    + tuple(_UNSTORED_REGULARS_SPECS)
 )
 # Centres a LEGACY season's stored entry gains only together with its
 # Contact and Eye centres (``_predates_league_relative_centers``).
@@ -1417,14 +1465,18 @@ def _pitcher_workloads(
 
 
 def _pitcher_usage_centers(
-    pitchers: Mapping[str, dict], workloads: Mapping[str, float]
+    pitchers: Mapping[str, dict],
+    workloads: Mapping[str, float],
+    specs: Mapping[str, str] | None = None,
 ) -> Dict[str, float]:
     """The ``PITCHER_USAGE_CENTER_KEYS``: each rating's mean over the ACT
     pitchers, weighted by ``workloads``. The grade centre leaves out a
     pitcher with no pitch grades, as ``pitcher_grade_center`` does; ``{}``
-    when there is no pitcher."""
+    when there is no pitcher. ``specs`` (tuning key -> players.csv column)
+    asks for other ratings weighted the same way (Release 6a: ``gf``)."""
     out: Dict[str, float] = {}
-    for key, column in PITCHER_USAGE_CENTER_KEYS.items():
+    wanted = PITCHER_USAGE_CENTER_KEYS if specs is None else specs
+    for key, column in wanted.items():
         total = weight_sum = 0.0
         for pid, weight in workloads.items():
             row = pitchers[pid]
@@ -1436,6 +1488,197 @@ def _pitcher_usage_centers(
         if weight_sum > 0.0:
             out[key] = round(total / weight_sum, 2)
     return out
+
+
+def unstored_rating_centers(
+    base: Path | str,
+    *,
+    players_path: Path | str | None = None,
+) -> Dict[str, float]:
+    """The Release 6a centres over the clubs' ACT rosters, to 2 decimals.
+
+    ``UNSTORED_CENTER_KEYS`` (module docstring), computed from the same
+    files as :func:`active_rating_centers` and with its rules -- ACT players
+    only, a blank rating counts as 50, a centre with nobody to average is
+    left out, ``{}`` when the files are missing:
+
+    * ``fielder_fa_center_<pos>`` / ``fielder_arm_center_<pos>``: the mean
+      ``fa`` and ``arm`` of the lineup regulars at each position
+      (:func:`_regular_fielder_ids`);
+    * ``pitcher_gf_usage_center``: the ACT pitchers' ``gf`` weighted by
+      expected workload (:func:`_pitcher_workloads`);
+    * ``hitter_gf_center`` / ``hitter_pull_center``: the lineup regulars'
+      mean ``gf`` and ``pl`` (:func:`_regular_hitter_ids`; every ACT hitter
+      when no club has a regular).
+
+    For the KPI harness. Nothing is cached or written, and this is not
+    part of what a league game is given.
+    """
+
+    base = Path(base)
+    rows = _active_player_rows(base, players_path)
+    if rows is None:
+        return {}
+    active_by_team, hitters, pitchers = rows
+    roster_dir = base / "rosters"
+    lineup_dir = base / "lineups"
+    hitter_value = {pid: _lineup_value(row) for pid, row in hitters.items()}
+    centres = _fielder_position_centers(
+        _regular_fielder_ids(lineup_dir, active_by_team, hitters, hitter_value),
+        hitters,
+    )
+    regulars = _regular_hitter_ids(lineup_dir, active_by_team, hitter_value) or list(
+        hitters
+    )
+    for key, column in _UNSTORED_REGULARS_SPECS.items():
+        found = [_rating(hitters[pid], column) for pid in regulars]
+        if found:
+            centres[key] = round(sum(found) / len(found), 2)
+    centres.update(
+        _pitcher_usage_centers(
+            pitchers,
+            _pitcher_workloads(roster_dir, active_by_team, pitchers),
+            {PITCHER_GF_USAGE_CENTER_KEY: "gf"},
+        )
+    )
+    return _ordered(centres, UNSTORED_CENTER_KEYS)
+
+
+def active_pitcher_workloads(
+    base: Path | str,
+    *,
+    players_path: Path | str | None = None,
+) -> list[tuple[dict, float]]:
+    """Every ACT pitcher's players.csv row with his expected workload.
+
+    The weights the ``pitcher_*_usage_center`` keys are built with
+    (:func:`_pitcher_workloads`: a rotation starter ``_STARTER_WORKLOAD``,
+    any other arm ``_RELIEVER_WORKLOAD``), in roster order. For the KPI
+    harness's Monte Carlo, which draws the pitcher a hitter faces by
+    workload; ``[]`` when the files are missing. Reads only.
+    """
+
+    base = Path(base)
+    rows = _active_player_rows(base, players_path)
+    if rows is None:
+        return []
+    active_by_team, _hitters, pitchers = rows
+    workloads = _pitcher_workloads(base / "rosters", active_by_team, pitchers)
+    return [(pitchers[pid], weight) for pid, weight in workloads.items()]
+
+
+def _active_player_rows(
+    base: Path, players_path: Path | str | None
+) -> Optional[tuple[Dict[str, list[str]], Dict[str, dict], Dict[str, dict]]]:
+    """(team -> ACT ids, ACT hitter rows, ACT pitcher rows) of a league
+    directory, read as :func:`active_rating_centers` reads them; ``None``
+    when ``players.csv`` or ``rosters/`` is missing or unreadable."""
+    from utils.roster_rules import counts_as_pitcher
+
+    players = Path(players_path) if players_path is not None else base / "players.csv"
+    roster_dir = base / "rosters"
+    if not players.exists() or not roster_dir.is_dir():
+        return None
+    active_by_team = _active_ids_by_team(roster_dir)
+    active = {pid for ids in active_by_team.values() for pid in ids}
+    hitters: Dict[str, dict] = {}
+    pitchers: Dict[str, dict] = {}
+    try:
+        with players.open(newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                player_id = str(row.get("player_id") or "").strip()
+                if player_id not in active:
+                    continue
+                (pitchers if counts_as_pitcher(row) else hitters)[player_id] = row
+    except OSError:
+        return None
+    return active_by_team, hitters, pitchers
+
+
+def _regular_fielder_ids(
+    lineup_dir: Path,
+    active_by_team: Mapping[str, list[str]],
+    hitters: Mapping[str, dict],
+    hitter_value: Mapping[str, float],
+) -> Dict[str, list[str]]:
+    """Position -> the league's lineup regulars there, one id per lineup spot.
+
+    The fielding twin of :func:`_regular_hitter_ids`, for the
+    ``FIELDER_CENTER_POSITIONS``. For each club and each of its two saved
+    lineups, when a game would play the file as saved (nine different ACT
+    hitters of the club): every hitter at the position the file gives him
+    (his primary position where the file leaves it blank). So an everyday
+    shortstop counts twice and a platoon one once, and a second baseman the
+    lineup plays at short is a shortstop here. Otherwise -- the file is
+    missing or would not be played as saved -- the club's best ACT hitter
+    by :func:`_lineup_value` at each PRIMARY position, the id breaking a
+    tie; a position nobody on the club lists as primary gets nobody from
+    that club. ``hitters`` holds every ACT hitter's players.csv row;
+    nothing is written.
+    """
+    regulars: Dict[str, list[str]] = {pos: [] for pos in FIELDER_CENTER_POSITIONS}
+    for team, ids in active_by_team.items():
+        pool = list(dict.fromkeys(pid for pid in ids if pid in hitters))
+        if not pool:
+            continue
+        by_primary: Dict[str, str] = {}
+        for pid in sorted(pool, key=lambda pid: (-hitter_value[pid], pid)):
+            by_primary.setdefault(_primary_position(hitters[pid]), pid)
+        for hand in _LINEUP_HANDS:
+            saved = _saved_lineup_rows(lineup_dir / f"{team}_vs_{hand}.csv")
+            saved_ids = [pid for pid, _pos in saved]
+            usable = (
+                len(saved_ids) == _LINEUP_SIZE
+                and len(set(saved_ids)) == _LINEUP_SIZE
+                and all(pid in pool for pid in saved_ids)
+            )
+            if not usable:
+                for pos in FIELDER_CENTER_POSITIONS:
+                    if pos in by_primary:
+                        regulars[pos].append(by_primary[pos])
+                continue
+            for pid, pos in saved:
+                pos = pos or _primary_position(hitters[pid])
+                if pos in regulars:
+                    regulars[pos].append(pid)
+    return regulars
+
+
+def _fielder_position_centers(
+    regulars: Mapping[str, list[str]], hitters: Mapping[str, dict]
+) -> Dict[str, float]:
+    """The ``FIELDER_FA_CENTER_KEYS`` and ``FIELDER_ARM_CENTER_KEYS``: the
+    mean ``fa`` and ``arm`` over ``regulars`` (position -> ids, an id once
+    per lineup spot). A position with no regular is left out."""
+    out: Dict[str, float] = {}
+    for keys, column in (
+        (FIELDER_FA_CENTER_KEYS, "fa"), (FIELDER_ARM_CENTER_KEYS, "arm")
+    ):
+        for pos, key in keys.items():
+            found = [_rating(hitters[pid], column) for pid in regulars.get(pos, [])]
+            if found:
+                out[key] = round(sum(found) / len(found), 2)
+    return out
+
+
+def _primary_position(row: dict) -> str:
+    return str(row.get("primary_position") or "").strip().upper()
+
+
+def _saved_lineup_rows(path: Path) -> list[tuple[str, str]]:
+    """``(player_id, POSITION)`` rows of a saved lineup file; ``[]`` if
+    unreadable (``_saved_lineup_ids`` with the position column)."""
+    try:
+        with path.open(newline="", encoding="utf-8") as fh:
+            return [
+                (
+                    str(row.get("player_id") or "").strip(),
+                    str(row.get("position") or "").strip().upper(),
+                )
+                for row in csv.DictReader(fh)
+            ]
+    except (OSError, csv.Error, UnicodeDecodeError):
+        return []
 
 
 def _staff_file_labels(path: Path) -> list[tuple[str, str]]:

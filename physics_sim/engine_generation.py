@@ -19,6 +19,18 @@ a JSON object of registered knobs, a table knob naming only the entries it
 changes. ``scripts/kpi_profiles/r5.json`` is the harness-facing copy of
 generation 5 and must stay identical to it (tests/test_r5_flip_registry.py).
 
+Release 6a adds generations UNDER DEVELOPMENT
+(``DEVELOPMENT_ENGINE_GENERATIONS``): a profile file exists and the KPI
+harness can run it (``--engine 6``), but no league season is ever given one.
+They are not in :func:`known_engine_generations`, which is the list the
+league side reads -- the operations switch, the generation a new season
+gets, what a stored generation is checked against -- so
+:func:`engine_profile` refuses them unless the caller says it is a
+development run. Switching a generation on is moving it out of the
+development list and making it ``CURRENT_ENGINE_GENERATION``.
+``scripts/kpi_profiles/r6.json`` is the harness-facing copy of generation 6
+(tests/test_r6a_tools_generation.py).
+
 This module imports nothing but the tuning defaults, so the engine, the
 services and the scripts can all read it.
 """
@@ -36,10 +48,12 @@ from .config import DEFAULT_TUNING
 __all__ = [
     "LEGACY_ENGINE_GENERATION",
     "CURRENT_ENGINE_GENERATION",
+    "DEVELOPMENT_ENGINE_GENERATIONS",
     "ENGINE_PROFILE_DIR",
     "engine_defaults",
     "engine_profile",
     "engine_profile_path",
+    "harness_engine_generations",
     "known_engine_generations",
     "load_engine_profile_file",
     "normalize_engine_generation",
@@ -49,6 +63,10 @@ __all__ = [
 LEGACY_ENGINE_GENERATION = 4
 # The generation a season that has not started yet is given.
 CURRENT_ENGINE_GENERATION = 5
+# Generations being built (module docstring): the KPI harness runs them, no
+# league season is given one. Release 6a: generation 6, whose profile starts
+# as generation 5's values exactly.
+DEVELOPMENT_ENGINE_GENERATIONS: Tuple[int, ...] = (6,)
 
 ENGINE_PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
 
@@ -61,6 +79,13 @@ def known_engine_generations() -> Tuple[int, ...]:
     """Every generation a season may be given, the legacy one first."""
 
     return (LEGACY_ENGINE_GENERATION, CURRENT_ENGINE_GENERATION)
+
+
+def harness_engine_generations() -> Tuple[int, ...]:
+    """Every generation the KPI harness can run (``--engine``): the ones a
+    season may be given, then the ones under development."""
+
+    return known_engine_generations() + tuple(DEVELOPMENT_ENGINE_GENERATIONS)
 
 
 def normalize_engine_generation(value: object) -> int:
@@ -85,7 +110,9 @@ def engine_profile_path(generation: object) -> Path:
     return ENGINE_PROFILE_DIR / f"engine_{normalize_engine_generation(generation)}.json"
 
 
-def engine_profile(generation: object) -> Dict[str, Any]:
+def engine_profile(
+    generation: object, *, development: bool = False
+) -> Dict[str, Any]:
     """The tuning overrides ``generation`` lays over ``DEFAULT_TUNING``.
 
     ``{}`` for the legacy generation, so a legacy league's tuning is built
@@ -94,21 +121,32 @@ def engine_profile(generation: object) -> Dict[str, Any]:
     ``TuningConfig.from_overrides``. Raises ``ValueError`` when the profile
     of a later generation is missing or invalid: a season that was started
     on the new engine must never be played on the old one in silence.
+
+    ``development`` True also answers for a generation that is still being
+    built (``DEVELOPMENT_ENGINE_GENERATIONS``). Only the KPI harness passes
+    it; without it such a generation is unknown, so nothing on the league
+    side can play one.
     """
 
     number = normalize_engine_generation(generation)
     if number <= LEGACY_ENGINE_GENERATION:
         return {}
-    if number not in known_engine_generations():
+    allowed = known_engine_generations()
+    if development:
+        allowed = harness_engine_generations()
+    if number not in allowed:
         raise ValueError(f"unknown engine generation {number}")
     return copy.deepcopy(_cached_profile(engine_profile_path(number)))
 
 
-def engine_defaults(generation: object) -> Dict[str, float]:
+def engine_defaults(
+    generation: object, *, development: bool = False
+) -> Dict[str, float]:
     """Every numeric knob's value with no league override, for ``generation``.
 
     ``DEFAULT_TUNING`` with the generation's profile over it: what a slider
-    reads before the commissioner touches it.
+    reads before the commissioner touches it. ``development`` as in
+    :func:`engine_profile`.
     """
 
     defaults = {
@@ -116,7 +154,7 @@ def engine_defaults(generation: object) -> Dict[str, float]:
         for key, value in DEFAULT_TUNING.items()
         if _is_number(value)
     }
-    for key, value in engine_profile(generation).items():
+    for key, value in engine_profile(generation, development=development).items():
         if _is_number(value):
             defaults[key] = float(value)
     return defaults
