@@ -449,17 +449,29 @@ def test_stuff_score_is_league_relative_and_fills_in_a_missing_repertoire():
     tuning = load_tuning(
         {**_g5_overrides("calibration"), **CENTRED, "pitcher_score_model": 1.0}
     )
+    w_control, w_movement, w_grade, w_arm = (
+        DEFAULT_TUNING[f"pitcher_score_weight_{name}"]
+        for name in ("control", "movement", "grade", "arm")
+    )
+    total = w_control + w_movement + w_grade + w_arm
     stuff = _arm("b", **STUFF_ARM).pitcher
     expected = (
-        0.24 * (48 - 53 + 50) + 0.25 * (52 - 51 + 50)
-        + 0.39 * (70 - 55 + 50) + 0.12 * (50 - 56 + 50)
-    )
+        w_control * (48 - 53 + 50) + w_movement * (52 - 51 + 50)
+        + w_grade * (70 - 55 + 50) + w_arm * (50 - 56 + 50)
+    ) / total
     assert engine._pitcher_stuff_score(stuff, tuning) == pytest.approx(expected)
     # No repertoire: the league's average pitch, as the pitch itself has it.
     bare = _arm("c", control=48.0, movement=52.0, arm=50.0, grades=()).pitcher
     assert engine._pitcher_stuff_score(bare, tuning) == pytest.approx(
-        expected - 0.39 * 15.0
+        expected - w_grade * 15.0 / total
     )
+    # The registered weights are the profile's.
+    profile = _profile()
+    for name, weight in zip(
+        ("control", "movement", "grade", "arm"),
+        (w_control, w_movement, w_grade, w_arm),
+    ):
+        assert profile[f"pitcher_score_weight_{name}"] == weight
 
 
 def test_the_profile_s_manager_weights_are_a_share_each():

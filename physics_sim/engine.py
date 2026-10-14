@@ -964,12 +964,12 @@ def _pitcher_stuff_score(
     total = weight_control + weight_movement + weight_grade + weight_arm
     if total <= 0.0:
         return (control + movement + arm) / 3.0
-    grade = 50.0
-    grades = [float(value) for value in (pitcher.repertoire or {}).values()]
-    if grades:
-        grade = _league_relative(
-            sum(grades) / len(grades), "pitcher_grade_usage_center", tuning
-        )
+    # Each grade shifted as the pitch reads it, then their mean.
+    grades = [
+        _league_relative(float(value), "pitcher_grade_usage_center", tuning)
+        for value in (pitcher.repertoire or {}).values()
+    ]
+    grade = sum(grades) / len(grades) if grades else 50.0
     return (
         weight_control * control
         + weight_movement * movement

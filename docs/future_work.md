@@ -1870,14 +1870,25 @@ pitch-quality path into exit velocity, additive fatigue; values in
   2 wOBA points per unit of `tto_pass3_weight` plus about 10 for the
   owner's moderate fatigue set. The +10 to +20 band, the owner's +11 of
   fatigue and a third pass no easier than the second (`tto_pass2_weight`
-  4.5, worth +9 to +12) cannot all hold: the profile's 4.5 reads +21.5 on
-  calibration and +18.1 on the league fixture (24 seasons each). Decide
-  which gives: the band (restate it as +15 to +25), the fatigue size (a
-  set of control 1.5 / movement 0.75 / stuff 0.5 / velocity 1.5 costs +5.6
-  at pitches 91-105 and +9.9 at the cap by Monte Carlo), or the shape of
-  the times-through-the-order curve. One season's value has a standard
-  error of about 9 points (about 2,000 late plate appearances), so gate it
-  on a many-season mean or not at all.
+  4.5, worth +9 to +11) cannot all hold: the profile's 4.5 reads +22.1 +/-
+  2.0 on calibration and +18.6 +/- 1.9 on the league fixture (28 seasons
+  each; generation 5 +33.0 and +32.0). Decide which gives: the band
+  (restate it as +15 to +25), the fatigue size (a set of control 1.5 /
+  movement 0.75 / stuff 0.5 / velocity 1.5 costs +5.6 at pitches 91-105 and
+  +9.9 at the cap by Monte Carlo, against +9.4 to +11.8 and +16.3 to +18.2
+  for the owner's set), or the shape of the times-through-the-order curve.
+  One season's value has a standard deviation of about 10 points (about
+  1,700 to 1,950 late plate appearances), so gate it on a many-season mean
+  or not at all.
+- **The corners of the 35-80 matchup boxes** (composite pitcher axis,
+  Monte Carlo, 300,000 PA a cell). Home runs: the largest log5 residual is
+  +.41 logit at Power 80 x pitcher 80 (generation 5: 2.41); it comes from
+  `ev_pq_slope` (.0012 gives .33, .0010 gives .27), not from the chase
+  term, at the cost of about a fifth of a good pitcher's home-run
+  suppression. Strikeouts: -2.7 points at Contact 80 x pitcher 80
+  (generation 5: -1.8); it comes from the chase term (0: -1.7, .01: -2.1).
+  Inside 35-65 the strikeout residual is under 1.1 points either way.
+  Re-size both with the batted-ball model.
 - **League-management pitcher scores still ignore pitch grades.** Only
   the in-game reliever choice (`engine._pitcher_stuff_score`) reads the
   generation's weights. Left on their formulas, to be redone with overall
