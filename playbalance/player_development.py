@@ -364,17 +364,8 @@ def _run_pitch_lab(
     intensity_multiplier: float = 1.0,
 ) -> Dict[str, int]:
     before = {pitch: getattr(player, pitch, 0) for pitch in PITCH_FIELDS}
-    spring_training_pitch(player)  # Reuse the existing aging helper for parity.
-    intensity = _normalize_intensity_multiplier(intensity_multiplier)
-    if abs(intensity - 1.0) > 1e-6:
-        for pitch in PITCH_FIELDS:
-            old_value = int(before.get(pitch, 0) or 0)
-            current = int(getattr(player, pitch, 0) or 0)
-            gained = max(0, current - old_value)
-            if gained <= 0:
-                continue
-            scaled_gain = max(1, int(round(gained * intensity)))
-            setattr(player, pitch, min(99, old_value + scaled_gain))
+    # The aging helper applies the intensity and the potential ceiling.
+    spring_training_pitch(player, intensity_multiplier=intensity_multiplier)
     changes: Dict[str, int] = {}
     for pitch, old_value in before.items():
         new_value = getattr(player, pitch, 0)

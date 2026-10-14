@@ -1784,3 +1784,10 @@ leaves, on purpose or because it was out of scope:
   grid pins its grade centre to its own 55, and a cell now goes through
   the engine's own pitcher context). Not re-measured: re-read the log5
   gate with the retune.
+
+## Player development after the aging pause (7.51.2)
+
+- **Yearly aging is paused** (`services/league_rollover.YEARLY_AGING_PAUSED`). Replace it with the development model designed for the rating re-spread: each offseason a player under 30 closes part of his gap to potential, older players decline, training redistributes the year's growth and does not add to it, and a 20-season population check must show the league average holding steady.
+- **Training camp can still exceed potential.** `playbalance/player_development._boost_attribute` resets its room to `99 - current` once a rating reaches its potential, so it keeps adding up to 5 points a spring. Mild in practice (Contact sd 5.1 to 7.4 over five springs on a stats-test copy), but it belongs in the same rewrite.
+- **Owner development budgets** fed the paused aging step's multiplier (`playbalance/aging_model.age_and_retire`); the new model needs the same input.
+- **`_apply_yearly_aging` swallows a failed load or save** and returns silently; the replacement should report it in the rollover artifacts.

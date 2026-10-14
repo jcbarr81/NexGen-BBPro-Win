@@ -1,7 +1,7 @@
 from datetime import date
 from unittest.mock import patch
 
-from playbalance.aging import age_player
+from playbalance.aging import PITCH_TRAINING_GAIN, age_player
 from models.pitcher import Pitcher
 
 
@@ -40,5 +40,6 @@ def test_spring_training_pitch_increases_selected_rating():
     pitcher = _make_pitcher()
     with patch("playbalance.aging.random.choice", return_value="sl"):
         age_player(pitcher)
-    assert pitcher.sl == int(round(30 * 1.35))
+    # A few points, not the 35% multiplier used until 7.51.2.
+    assert pitcher.sl == 30 + PITCH_TRAINING_GAIN
     assert pitcher.fb == 60

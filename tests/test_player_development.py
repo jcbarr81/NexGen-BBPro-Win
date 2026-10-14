@@ -2,6 +2,7 @@ import random
 
 from models.pitcher import Pitcher
 from models.player import Player
+from playbalance.aging import PITCH_TRAINING_GAIN
 from playbalance.player_development import (
     TrainingWeights,
     apply_training_plan,
@@ -95,7 +96,8 @@ def test_pitch_lab_plan_boosts_single_pitch() -> None:
     report = apply_training_plan(pitcher, plan)
     assert report.changes
     assert "fb" in report.changes
-    assert pitcher.fb == int(round(before * 1.35))
+    # A few points (7.51.2), not the old 35% multiplier.
+    assert pitcher.fb == before + PITCH_TRAINING_GAIN
 
 
 def test_execute_training_cycle_returns_reports() -> None:

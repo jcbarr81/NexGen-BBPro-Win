@@ -62,16 +62,21 @@ AGE_ADJUSTMENTS = {
 
 _PITCH_ATTRS = ["fb", "cu", "cb", "sl", "si", "scb", "kn"]
 
+# Points one pitch gains in a spring of training, before intensity.
+PITCH_TRAINING_GAIN = 3
+
 
 def spring_training_pitch(
     pitcher: Pitcher,
     *,
     intensity_multiplier: float = 1.0,
 ) -> None:
-    """Boost one pitch by 35% to simulate spring training development.
+    """Add a few points to one pitch to simulate spring training development.
 
-    According to ARR lines 264-269, each pitcher spends 15% of training
-    camp developing a single pitch, increasing that pitch's rating by 35%.
+    The pitch gains ``PITCH_TRAINING_GAIN`` points (scaled by training
+    intensity) and never rises above its potential. Until 7.51.2 the pitch
+    was multiplied by 1.35 with no ceiling (ARR lines 264-269), which took a
+    60 to 81 in one camp and most fastballs to 99 within five.
     """
 
     pitches = [attr for attr in _PITCH_ATTRS if getattr(pitcher, attr, 0) > 0]
@@ -80,9 +85,27 @@ def spring_training_pitch(
     pitch = random.choice(pitches)
     current = getattr(pitcher, pitch)
     intensity = _normalize_development_multiplier(intensity_multiplier)
-    boost_factor = 1.0 + (0.35 * intensity)
-    boosted = int(round(current * boost_factor))
-    setattr(pitcher, pitch, boosted)
+    gain = max(1, int(round(PITCH_TRAINING_GAIN * intensity)))
+    ceiling = _pitch_ceiling(pitcher, pitch, current)
+    setattr(pitcher, pitch, max(current, min(current + gain, ceiling)))
+
+
+def _pitch_ceiling(pitcher: Pitcher, pitch: str, current: int) -> int:
+    """Return the highest value training may take ``pitch`` to."""
+
+    potential = None
+    stored = getattr(pitcher, "potential", None)
+    if isinstance(stored, dict):
+        potential = stored.get(pitch)
+    if potential is None:
+        potential = getattr(pitcher, f"pot_{pitch}", None)
+    try:
+        potential = int(potential)
+    except (TypeError, ValueError):
+        return 99
+    if potential <= 0:
+        return 99
+    return min(99, max(int(current), potential))
 
 
 def calculate_age(birthdate: str, *, as_of: date | None = None) -> int:

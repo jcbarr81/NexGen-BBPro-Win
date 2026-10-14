@@ -45,6 +45,6 @@ def test_player_ratings_capped_on_assignment():
 
 
 def test_pitch_training_capped_at_99():
-    pitcher = make_pitcher(fb=90)
+    pitcher = make_pitcher(fb=98)
     spring_training_pitch(pitcher)
     assert pitcher.fb == 99

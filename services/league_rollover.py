@@ -25,6 +25,9 @@ from utils.sim_date import get_current_sim_date
 from utils.stats_persistence import load_stats, merge_daily_history, reset_stats
 
 _DATA_DIR = ActivePath(get_data_dir)
+
+# Rollover leaves ratings alone while this is set (see _apply_yearly_aging).
+YEARLY_AGING_PAUSED = True
 _STATS_PATH = ActivePath(lambda: get_data_dir() / "season_stats.json")
 _STANDINGS_PATH = ActivePath(lambda: get_data_dir() / "standings.json")
 _SCHEDULE_PATH = ActivePath(lambda: get_data_dir() / "schedule.csv")
@@ -313,7 +316,19 @@ class LeagueRolloverService:
         )
 
     def _apply_yearly_aging(self) -> None:
-        """Apply one season's worth of aging adjustments to every player."""
+        """Apply one season's worth of aging adjustments to every player.
+
+        Paused since 7.51.2 (``YEARLY_AGING_PAUSED``): ratings do not change
+        at rollover. The aging table adds up to 18 points a year with no
+        ceiling but 99, on ratings whose whole league spread is about 5
+        points; one rollover of a live league's copy put 53 hitters past
+        the league's best Contact. Players still get a year older and
+        retire. A development model returns with the rating re-spread
+        (Release 6 owner decisions, 2026-10-13).
+        """
+
+        if YEARLY_AGING_PAUSED:
+            return
 
         from playbalance.aging import age_players
 
