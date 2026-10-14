@@ -111,9 +111,11 @@ def test_every_new_key_is_registered_at_its_off_value():
         assert DEFAULT_TUNING[key] == value, key
     assert isinstance(DEFAULT_TUNING["bat_speed_power_table"], dict)
     assert DEFAULT_TUNING["double_line_drive_span"] > 0.0
-    for generation in (5, 6):
-        profile = engine_profile(generation, development=True)
-        assert not (set(OFF_VALUES) | {"bat_speed_power_table"}) & set(profile)
+    profile = engine_profile(5)
+    assert not (set(OFF_VALUES) | {"bat_speed_power_table"}) & set(profile)
+    # Generation 6 holds this work's values since the Release 6a integration.
+    profile = engine_profile(6, development=True)
+    assert {key: profile[key] for key in PROFILE} == PROFILE
 
 
 def test_legacy_and_generation_5_games_match_the_pinned_digests():
@@ -128,12 +130,15 @@ def test_the_off_values_spelled_out_play_the_same_games():
 def test_the_profile_is_valid_and_sits_on_top_of_generation_6():
     for key in PROFILE:
         assert key in DEFAULT_TUNING, key
-    base = engine_profile(6, development=True)
+    # Built over generation 5 (generation 6 was its copy then); since the
+    # integration generation 6 holds it, so laying it over 6 is a no-op.
+    six = engine_profile(6, development=True)
+    run = kpis.resolve_run_overrides(engine=6, overrides_path=PROFILE_PATH)
+    assert run == six
+    base = engine_profile(5)
     overrides = kpis.load_tuning_overrides_file(PROFILE_PATH, base=base)
     assert set(overrides) == set(PROFILE)
-    run = kpis.resolve_run_overrides(engine=6, overrides_path=PROFILE_PATH)
-    assert run == {**base, **overrides}
-    tuning = load_tuning(run)
+    tuning = load_tuning({**base, **overrides})
     assert tuning.get("power_curve_model") == 1.0
     assert tuning.get("double_line_drive_scale") > 0.0
     assert tuning.get("double_gap_power_weight") < 0.5
@@ -148,12 +153,15 @@ def test_the_profile_is_valid_and_sits_on_top_of_generation_6():
     before = load_tuning(base)
     assert all(tuning.values[key] != before.values[key] for key in PROFILE)
     assert tuning.get("hr_scale") == before.get("hr_scale") == 0.91
+    # Generation 6's hr_scale is the pitching work's (a joint-retune lever).
+    assert load_tuning(six).get("hr_scale") == 0.9195
 
 
 def test_the_profile_reaches_the_engine():
-    """Generation 6 with the profile is a different game from generation 5,
-    and each of its three parts moves it by itself."""
-    base = engine_profile(6, development=True)
+    """The profile over generation 5 (what this work was built on) is a
+    different game from generation 5, and each of its three parts moves it
+    by itself."""
+    base = engine_profile(5)
     overrides = kpis.load_tuning_overrides_file(PROFILE_PATH, base=base)
     games = [("cal", 1), ("cal", 2), ("cal", 3), ("league", 1), ("league", 2)]
 
@@ -161,7 +169,6 @@ def test_the_profile_reaches_the_engine():
         return [_digest(_play(name, seed, base, extra)) for name, seed in games]
 
     plain = digests()
-    # Generation 6 starts as generation 5.
     assert plain == [PINNED_DIGESTS[f"gen5_{name}{seed}"] for name, seed in games]
     assert all(a != b for a, b in zip(digests(overrides), plain))
     curve = {k: overrides[k] for k in ("power_curve_model", "bat_speed_power_table")}

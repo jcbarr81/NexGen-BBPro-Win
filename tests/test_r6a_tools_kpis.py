@@ -154,10 +154,21 @@ def test_every_key_is_reported_and_none_is_a_gate():
         | {k for tol in kpis.GATE_SET_TOLERANCES.values() for k in tol}
         | {k for tgt in kpis.GATE_SET_EXTRAS_TARGETS.values() for k in tgt}
     )
-    for spec in kpis.ENGINE_GATES.values():
+    for generation, spec in kpis.ENGINE_GATES.items():
+        if generation >= 6:
+            continue  # the Release 6a integration's gates (below)
         gated |= set(spec["tolerances"]) | set(spec["extras_targets"])
         gated |= set(spec.get("grid_tolerances", {}))
     assert not gated & set(kx.R6_METRIC_KEYS)
+    # Generation 6 promotes the areas' proposals and nothing else: every
+    # other row stays report-only on every engine.
+    six = kpis.ENGINE_GATES[6]
+    promoted = (
+        set(six["tolerances"]) | set(six["extras_targets"])
+        | set(six["grid_tolerances"])
+    ) & set(kx.R6_METRIC_KEYS)
+    assert promoted <= set(six["extras_targets"]) | set(six["grid_extras_targets"])
+    assert len(promoted) < len(kx.R6_METRIC_KEYS) / 3
 
 
 def test_the_block_reports_exactly_its_keys_and_replaces_none(monkeypatch, tmp_path):

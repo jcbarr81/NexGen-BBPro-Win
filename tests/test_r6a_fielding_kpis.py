@@ -63,9 +63,19 @@ def test_the_rows_are_report_only_and_none_without_the_records():
     assert "team_der_true_sd" in kx.R6_FIELDING_LOG_KEYS
     assert "e_per_team_game_src_steal" in kx.R6_FIELDING_LOG_KEYS
     gated = set(kpis.DEFAULT_TOLERANCES) | set(kpis.STRICT_EXTRAS_TARGETS)
-    for spec in kpis.ENGINE_GATES.values():
+    for generation, spec in kpis.ENGINE_GATES.items():
+        if generation >= 6:
+            continue  # the Release 6a integration gates some (below)
         gated |= set(spec["tolerances"]) | set(spec["extras_targets"])
     assert not gated & set(kx.R6_FIELDING_LOG_KEYS)
+    # Generation 6 gates the outs per 8 points, the level shift and the
+    # pitcher's ground-ball share; the rest stay report-only.
+    six = kpis.ENGINE_GATES[6]
+    assert set(six["extras_targets"]) & set(kx.R6_FIELDING_LOG_KEYS) == {
+        *(f"oaa_per_8pt_{pos}" for pos in ("1b", "2b", "3b", "ss", "lf", "cf", "rf")),
+        "range_level_shift",
+        "gb_play_share_p",
+    }
     acc = _acc()
     acc.add_game(_game([_ball("out", ball_type="gb")]), away="A", home="H")
     metrics = _report(acc)["metrics"]

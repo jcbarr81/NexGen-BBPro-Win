@@ -138,7 +138,10 @@ def test_every_key_is_registered_at_its_off_value():
 
 
 def test_no_generation_a_league_plays_turns_a_switch_on():
-    for profile in ({}, engine_profile(5), engine_profile(6, development=True)):
+    # Generation 6 holds the fielding values since the Release 6a
+    # integration (test_generation_6_holds_the_fielding_values); no league
+    # can be given it.
+    for profile in ({}, engine_profile(5)):
         tuning = load_tuning(profile)
         for key in SWITCHES:
             assert tuning.get(key) == 0.0, key
@@ -183,13 +186,22 @@ def test_a_generation_5_game_reads_no_fielding_knob(key):
     assert _digest(_play(fixture, away, home, seed, overrides)) == GENERATION_5_DIGESTS[key]
 
 
-def test_generation_6_without_the_fielding_values_is_generation_5():
+def test_generation_6_holds_the_fielding_values():
+    """Release 6a integration: the generation 6 profile is generation 5's
+    with the three areas' values over it, so it holds every fielding value
+    (before, it was a copy of generation 5 and played generation 5's
+    games). The chance log stays the harness's."""
+    import json
+
+    profile = engine_profile(6, development=True)
+    fielding = json.loads(PROFILE.read_text(encoding="utf-8"))
+    for key, value in fielding.items():
+        assert profile[key] == value, key
+    assert "fielding_chance_log" not in profile
     key = ("calibration", "CAL01", "CAL02", 1)
     base = REPO / "data" / key[0]
-    overrides = kpis.with_rating_centers(
-        engine_profile(6, development=True), base / "players.csv", base
-    )
-    assert _digest(_play(*key, overrides)) == GENERATION_5_DIGESTS[key]
+    overrides = kpis.with_rating_centers(profile, base / "players.csv", base)
+    assert _digest(_play(*key, overrides)) != GENERATION_5_DIGESTS[key]
 
 
 def test_the_chance_log_is_passive():

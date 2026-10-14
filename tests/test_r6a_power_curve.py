@@ -75,10 +75,14 @@ def test_the_switch_is_registered_off_and_the_table_is_todays_curve():
     tuning = load_tuning({"power_curve_model": 1.0, "bat_speed_power_table": {"0": 1}})
     assert tuning.get("power_curve_model") == 1.0
     assert tuning.values["bat_speed_power_table"] == {"0": 1}
-    for generation in (5, 6):
-        profile = engine_profile(generation, development=True)
-        assert "power_curve_model" not in profile
-        assert "bat_speed_power_table" not in profile
+    profile = engine_profile(5)
+    assert "power_curve_model" not in profile
+    assert "bat_speed_power_table" not in profile
+    # Generation 6 holds this work's values since the Release 6a
+    # integration (scripts/kpi_profiles/r6_power.json).
+    profile = engine_profile(6, development=True)
+    assert profile["power_curve_model"] == PROFILE["power_curve_model"]
+    assert profile["bat_speed_power_table"] == PROFILE["bat_speed_power_table"]
 
 
 @pytest.mark.parametrize("profile", [{}, engine_profile(5)], ids=["legacy", "gen5"])
@@ -177,8 +181,12 @@ def test_the_profile_switches_the_table_on_and_names_every_anchor():
         (float(level), float(mph))
         for level, mph in PROFILE["bat_speed_power_table"].items()
     )
-    # The rest of generation 6 is generation 5: hr_scale is not the lever.
-    assert tuning.get("hr_scale") == load_tuning(engine_profile(5)).get("hr_scale")
+    # This work does not move hr_scale (the table's centre holds league home
+    # runs). Generation 6's hr_scale is the pitching work's (0.9195, re-
+    # levelled with its own group on and the Power table off): a candidate
+    # for the joint retune.
+    assert "hr_scale" not in PROFILE
+    assert tuning.get("hr_scale") == 0.9195
 
 
 def test_a_profile_cannot_add_an_anchor(tmp_path):
@@ -303,7 +311,12 @@ def _mean_exit_velo(tuning, power, n=4000, seed=3):
 
 def test_on_a_weak_bat_hits_the_ball_softer_and_a_90_power_bat_harder():
     centres = {key: 50.0 for key in DEFAULT_TUNING if key.endswith("_center")}
-    today = load_tuning({**engine_profile(5), **centres})
+    # Against generation 6 with the knee formula instead of the table (since
+    # the integration generation 6 also holds the pitching work's exit
+    # velocity terms, so generation 5 is no longer the like-for-like base).
+    today = load_tuning(
+        {**_generation_6().values, "power_curve_model": 0.0, **centres}
+    )
     built = load_tuning({**_generation_6().values, **centres})
     assert _mean_exit_velo(built, 35.0) < _mean_exit_velo(today, 35.0) - 2.0
     assert _mean_exit_velo(built, 63.33) > _mean_exit_velo(today, 63.33) + 0.8

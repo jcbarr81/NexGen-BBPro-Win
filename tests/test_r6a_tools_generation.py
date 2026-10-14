@@ -1,8 +1,12 @@
 """Release 6a (tooling): engine generation 6 exists for the KPI harness only.
 
 Generation 6 is being built. Its profile is in the package next to
-generation 5's, starts as generation 5's values exactly and can be run with
-``--engine 6``; ``scripts/kpi_profiles/r6.json`` is the harness-facing copy.
+generation 5's and can be run with ``--engine 6``;
+``scripts/kpi_profiles/r6.json`` is the harness-facing copy. Since the
+Release 6a integration it is generation 5's values with the three engine
+areas' values laid over them (``scripts/kpi_profiles/r6_pitching.json``,
+``r6_power.json``, ``r6_fielding.json``, kept for reference; no key is set
+by two of them), and it is gated as generation 5 plus the areas' gates.
 No league season may be given it yet: the league side goes on reading
 ``known_engine_generations()``, which does not hold it, so a new season
 still starts on generation 5 whatever the operations switch says.
@@ -32,6 +36,18 @@ REPO = Path(__file__).resolve().parents[1]
 REGISTRY_5 = REPO / "physics_sim" / "profiles" / "engine_5.json"
 REGISTRY_6 = REPO / "physics_sim" / "profiles" / "engine_6.json"
 HARNESS_COPY = REPO / "scripts" / "kpi_profiles" / "r6.json"
+AREA_PROFILES = tuple(
+    REPO / "scripts" / "kpi_profiles" / f"r6_{area}.json"
+    for area in ("pitching", "power", "fielding")
+)
+
+
+def _generation_5_and_the_areas() -> dict:
+    """Generation 5's profile with each area's file laid over it."""
+    expected = json.loads(_text(REGISTRY_5))
+    for path in AREA_PROFILES:
+        expected.update(json.loads(_text(path)))
+    return expected
 
 
 def _text(path: Path) -> bytes:
@@ -63,20 +79,32 @@ def test_the_harness_copy_is_the_registry():
     )
 
 
-def test_generation_6_starts_as_generation_5():
-    """Until the Release 6 build switches something on. When this fails
-    because generation 6 moved on purpose, replace it with the test of what
-    generation 6 switches on; generation 5 itself must not have moved."""
-    profile_6 = generations.engine_profile(6, development=True)
-    profile_5 = generations.engine_profile(5)
-    assert profile_6 == profile_5
-    assert list(profile_6) == list(profile_5)
-    assert load_tuning(profile_6).values == load_tuning(profile_5).values
-    assert generations.engine_defaults(6, development=True) == (
+def test_generation_6_is_generation_5_with_the_three_areas():
+    """The integration's profile: generation 5's keys in their order (an
+    area's retune replaces a value in place), then each area's own keys. No
+    key is set by two areas, so the order the files are laid in does not
+    matter."""
+    areas = [json.loads(_text(path)) for path in AREA_PROFILES]
+    for i, first in enumerate(areas):
+        for second in areas[i + 1:]:
+            assert not set(first) & set(second)
+    payload = json.loads(_text(REGISTRY_6))
+    assert payload == _generation_5_and_the_areas()
+    profile_5 = json.loads(_text(REGISTRY_5))
+    assert list(payload)[: len(profile_5)] == list(profile_5)
+    # Every area's value is the generation's, and reaches the engine (a
+    # registered key: TuningConfig.from_overrides drops any other).
+    assert generations.engine_profile(6, development=True) == payload
+    tuning = load_tuning(payload)
+    for area in areas:
+        for key, value in area.items():
+            if not isinstance(value, dict):
+                assert tuning.get(key) == pytest.approx(float(value)), key
+    # Generation 5 itself is not touched by it.
+    assert generations.engine_profile(5) == profile_5
+    assert generations.engine_defaults(6, development=True) != (
         generations.engine_defaults(5)
     )
-    # The profile file is plain data and may be reformatted; its values may not.
-    assert json.loads(_text(REGISTRY_6)) == json.loads(_text(REGISTRY_5))
 
 
 def test_a_caller_cannot_poison_the_generation_6_profile():
@@ -86,19 +114,26 @@ def test_a_caller_cannot_poison_the_generation_6_profile():
         table.clear()
     again = generations.engine_profile(6, development=True)
     assert again["swing_model"] == 1.0
-    assert again == generations.engine_profile(5)
+    assert again == _generation_5_and_the_areas()
 
 
 # --- the harness: --engine 6 ------------------------------------------------------
 
 
-def test_engine_6_equals_the_r6_overrides_file_and_engine_5():
+def test_engine_6_equals_the_r6_overrides_file_and_the_areas_over_engine_5():
     by_engine = kpis.resolve_run_overrides(engine=6)
     by_file = kpis.resolve_run_overrides(overrides_path=HARNESS_COPY)
     assert by_engine == by_file
     assert list(by_engine) == list(by_file)
-    assert by_engine == kpis.resolve_run_overrides(engine=5)
     assert load_tuning(by_engine).values == load_tuning(by_file).values
+    # What each area ran during its build (--engine 6 over a copy of
+    # generation 5, plus its file), all three at once.
+    by_areas = kpis.resolve_run_overrides(engine=5)
+    for path in AREA_PROFILES:
+        by_areas = {
+            **by_areas, **kpis.load_tuning_overrides_file(path, base=by_areas)
+        }
+    assert load_tuning(by_engine).values == load_tuning(by_areas).values
 
 
 def test_the_command_line_takes_engine_6(monkeypatch, capsys):
@@ -112,7 +147,8 @@ def test_the_command_line_takes_engine_6(monkeypatch, capsys):
     monkeypatch.setattr(kpis.sys, "argv", ["kpis", "--engine", "6"])
     with pytest.raises(KeyboardInterrupt):
         kpis.main()
-    assert captured["overrides"] == generations.engine_profile(5)
+    assert captured["overrides"] == generations.engine_profile(6, development=True)
+    assert captured["overrides"] != generations.engine_profile(5)
     # A generation nobody is building is still refused.
     monkeypatch.setattr(kpis.sys, "argv", ["kpis", "--engine", "7"])
     with pytest.raises(SystemExit):
@@ -133,18 +169,83 @@ def test_tuning_overrides_stay_on_top_of_the_generation_6_profile(tmp_path):
     assert merged["count_foul_scale"] == {**profile["count_foul_scale"], "0-2": 1.1}
 
 
-def test_generation_6_is_gated_as_generation_5_for_now():
-    assert kpis.ENGINE_GATES[6] == kpis.ENGINE_GATES[5]
-    assert kpis.engine_gates_for(6) == kpis.engine_gates_for(5)
-    assert kpis.engine_gates_for(6, grid=True) == kpis.engine_gates_for(5, grid=True)
-    # A copy, so the Release 6 build can move its gates without moving 5's.
+# The Release 6a integration's generation 6 gates beyond generation 5's
+# (target, band) -- the three areas' proposals.
+R6_EXTRAS = {
+    "starter_fb_velo_drop_91_105": (1.5, 0.5),
+    "pitcher_k_std_beta_grade": (0.50, 0.15),
+    "pitcher_fip_per10_arm": (-0.20, 0.15),
+    "bb_pct_per10_control": (-1.35, 0.25),
+    "tto_pass2_woba_delta_batter_adj": (0.011, 0.007),
+    "pitcher_hitter_hr_true_sd_ratio": (0.40, 0.25),
+    "e_per_team_game": (0.53, 0.05),
+    "oaa_per_8pt_1b": (4.2, 0.7),
+    "oaa_per_8pt_2b": (6.2, 0.8),
+    "oaa_per_8pt_3b": (6.1, 0.8),
+    "oaa_per_8pt_ss": (6.9, 0.8),
+    "oaa_per_8pt_lf": (5.7, 0.8),
+    "oaa_per_8pt_cf": (6.9, 0.8),
+    "oaa_per_8pt_rf": (5.4, 0.8),
+    "range_level_shift": (0.0, 0.001),
+    "gb_play_share_3b": (0.206, 0.02),
+    "gb_play_share_ss": (0.297, 0.02),
+    "gb_play_share_p": (0.072, 0.02),
+    "gb_play_share_2b": (0.280, 0.02),
+    "gb_play_share_1b": (0.145, 0.02),
+    "of_putout_share_cf": (0.416, 0.025),
+    "r_pull_rating_pull_angle_rhb": (0.90, 0.10),
+    "r_pull_rating_pull_angle_lhb": (0.90, 0.10),
+}
+R6_GRID = {
+    "matchup_k_log5_inner_max_abs_resid": (0.0, 0.02),
+    "matchup_hr_log5_max_abs_resid_logit": (0.0, 0.3),
+    "power_hr600_p30": (7.0, 3.0),
+    "power_hr600_p40": (7.0, 3.0),
+}
+
+
+def test_generation_6_is_gated_as_generation_5_plus_the_areas():
+    five, six = kpis.ENGINE_GATES[5], kpis.ENGINE_GATES[6]
+    assert six["benchmarks"] == {**five["benchmarks"], "corr_hr_power": 0.825}
+    assert six["drop"] == five["drop"] + ["qualified_hr30_count"]
+    assert six["tolerances"] == {
+        **five["tolerances"],
+        "corr_hr_power": 0.175,  # .65 to 1.00
+        "doubles_per_team_game": 0.10,
+        **{key: band for key, (_target, band) in R6_EXTRAS.items()},
+    }
+    assert six["extras_targets"] == {
+        **five["extras_targets"],
+        **{key: target for key, (target, _band) in R6_EXTRAS.items()},
+    }
+    assert six["grid_tolerances"] == {
+        **five["grid_tolerances"],
+        **{key: band for key, (_target, band) in R6_GRID.items()},
+    }
+    assert six["grid_extras_targets"] == {
+        **five["grid_extras_targets"],
+        **{key: target for key, (target, _band) in R6_GRID.items()},
+    }
+    # Pooled over seeds: report-only, never read by a single run.
+    assert six["pooled"] == {
+        "hr_power_bottom_quintile_ratio": (0.375, 0.375),  # at most .75
+        "qualified_hr30_count": (20.0, 8.0),
+    }
+    assert "pooled" not in kpis.engine_gates_for(6, grid=True)
+    # (A promoted metric the harness did not compute fails --strict as "not
+    # computed": _promote_extras_metrics.)
+    # A gate set's keys and the legacy engine's are untouched.
+    assert kpis.engine_gates_for(None)["tolerances"] == {}
+    assert kpis.ENGINE_GATES[5]["benchmarks"] == {"o_swing_pct": 0.286}
+    # Separate objects, so moving 6's gates cannot move 5's.
     snapshot = copy.deepcopy(kpis.ENGINE_GATES[5])
-    kpis.ENGINE_GATES[6]["tolerances"]["platoon_gap_woba"] = 99.0
-    kpis.ENGINE_GATES[6]["drop"].append("nothing")
+    saved = copy.deepcopy(six)
+    six["tolerances"]["platoon_gap_woba"] = 99.0
+    six["drop"].append("nothing")
     try:
         assert kpis.ENGINE_GATES[5] == snapshot
     finally:
-        kpis.ENGINE_GATES[6] = copy.deepcopy(snapshot)
+        kpis.ENGINE_GATES[6] = saved
 
 
 # --- no league is handed generation 6 ---------------------------------------------
@@ -176,10 +277,12 @@ def test_a_new_season_still_starts_on_generation_5(league, monkeypatch):
     tuning = game_tuning(monkeypatch, "2026-04-01")
     assert stored_generation(league, 2026) == 5
     assert centers.recorded_league_engine_generation() == 5
-    # The season's game tuning is generation 5's profile (6 equals it today,
-    # so the number on record is what tells them apart).
+    # The season's game tuning is generation 5's profile, not 6's.
     for key, value in generations.engine_profile(5).items():
         assert tuning[key] == value, key
+    assert tuning.get("range_model", 0.0) == 0.0
+    assert tuning.get("power_curve_model", 0.0) == 0.0
+    assert tuning.get("fatigue_model", 0.0) == 0.0
 
 
 @pytest.mark.parametrize("asked", ["6", "7", "banana"])

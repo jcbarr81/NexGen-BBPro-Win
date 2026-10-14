@@ -7,8 +7,11 @@ scale at the row boundary (``utils.rating_scale.engine_row``, called from
 ``physics_sim.models``, the rating centres and the KPI harness's readers),
 so everything downstream must be identical, value for value:
 
-* a KPI-harness season, on the legacy engine and on generation 5, for each
-  of the three fixtures;
+* a KPI-harness season, on the legacy engine, on generation 5 and on the
+  development generation 6 (its whole profile: the Release 6a pitching,
+  power and fielding work, which read fielding and arm by position, the
+  ground-ball centre and the manager's view of an arm), for each of the
+  three fixtures;
 * the rating centres;
 * games through the LIVE path (``playbalance.game_runner``: the rotation
   tracker, saved lineups or the lineup auto-fill, stored tuning, the usage
@@ -33,7 +36,7 @@ from utils import rating_scale
 
 TEAMS = 8
 GAMES = 28
-ENGINES = (None, 5)
+ENGINES = (None, 5, 6)
 
 
 @pytest.fixture(scope="module")
@@ -68,7 +71,9 @@ def test_a_twin_really_is_stretched(twins):
         assert moved > 2 * len(original), (name, moved)
 
 
-@pytest.mark.parametrize("engine", ENGINES, ids=["legacy", "generation5"])
+@pytest.mark.parametrize(
+    "engine", ENGINES, ids=["legacy", "generation5", "generation6"]
+)
 @pytest.mark.parametrize("name", sorted(support.FIXTURES))
 def test_the_season_is_identical_on_a_stretched_twin(twins, name, engine):
     original = support.season_values(
@@ -81,6 +86,22 @@ def test_the_season_is_identical_on_a_stretched_twin(twins, name, engine):
     )
     assert len(original) > 3000  # every block of the summary is compared
     assert support.differences(original, twin) == []
+
+
+def test_generation_6_is_not_generation_5_here():
+    """The control for the generation 6 case above: its season is another
+    one, so its twin had the generation 6 readers to get right."""
+
+    fixture = support.FIXTURES["calibration"]
+    five = support.season_values(
+        support.run_season(fixture, games=GAMES, engine=5, teams=TEAMS)
+    )
+    six = support.season_values(
+        support.run_season(fixture, games=GAMES, engine=6, teams=TEAMS)
+    )
+    assert len(support.differences(five, six)) > 500
+    # The fielding work's metrics are live on generation 6.
+    assert six["report_only.metrics.oaa_per_8pt_ss"] is not None
 
 
 @pytest.mark.parametrize("name", sorted(support.FIXTURES))

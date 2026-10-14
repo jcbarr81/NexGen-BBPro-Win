@@ -99,9 +99,11 @@ def test_the_knobs_are_registered_at_todays_behaviour():
     tuning = load_tuning(bumped)  # an unregistered key would be dropped
     for key, value in bumped.items():
         assert tuning.get(key) == value, key
-    for generation in (5, 6):
-        profile = engine_profile(generation, development=True)
-        assert not set(bumped) & set(profile)
+    assert not set(bumped) & set(engine_profile(5))
+    # Generation 6 holds this work's values since the Release 6a integration.
+    profile = engine_profile(6, development=True)
+    for key in bumped:
+        assert profile[key] == PROFILE[key], key
 
 
 def _legacy_gap_threshold(tuning, contact, power, speed):

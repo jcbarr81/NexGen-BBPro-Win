@@ -386,10 +386,87 @@ ENGINE_GATES: dict[int, dict[str, Any]] = {
         "grid_extras_targets": {"matchup_k_log5_max_abs_resid": 0.0},
     },
 }
-# Release 6a (tooling): generation 6 is under development and starts as a
-# copy of generation 5, profile and gates. The Release 6 build changes these
-# as its targets move (RELEASE6_PLAN.md section 5).
-ENGINE_GATES[6] = copy.deepcopy(ENGINE_GATES[5])
+# Release 6a: generation 6 (still a development generation: no league can
+# be given it) is gated as generation 5 plus the gates the three engine
+# areas proposed (RELEASE6_PLAN.md section 5). Each target is the area's
+# design value; each band its proposal. A one-sided gate ("at least .65")
+# is a symmetric band whose far edge cannot be reached.
+_R6_OAA_PER_8PT = {
+    # Outs above average per 8 fielding points, by position (fielding).
+    "1b": 4.2, "2b": 6.2, "3b": 6.1, "ss": 6.9, "lf": 5.7, "cf": 6.9, "rf": 5.4,
+}
+_R6_GB_PLAY_SHARE = {
+    # Share of ground balls each infielder plays (fielding; MLB from memory).
+    "3b": 0.206, "ss": 0.297, "p": 0.072, "2b": 0.280, "1b": 0.145,
+}
+
+
+def _generation_6_gates() -> dict[str, Any]:
+    gates = copy.deepcopy(ENGINE_GATES[5])
+    # Power: the Power-to-HR correlation at .65 or more (owner decision 5,
+    # .65-1.00); doubles at MLB's 1.63 a team-game within .10 (the legacy
+    # band is .25).
+    gates["benchmarks"]["corr_hr_power"] = 0.825
+    gates["tolerances"]["corr_hr_power"] = 0.175
+    gates["tolerances"]["doubles_per_team_game"] = 0.10
+    # The thirty-homer count is a tail count with a spread of about 4 a
+    # season, so it is gated pooled (below), not per season.
+    gates["drop"].append("qualified_hr30_count")
+    targets = {
+        # Pitching. starter_woba_delta_91_105_batter_adj (the cost of pitches
+        # 91-105) stays report-only: it reads the third time through and
+        # fatigue at once (docs/future_work.md, "Release 6a pitching").
+        "starter_fb_velo_drop_91_105": (1.5, 0.5),
+        "pitcher_k_std_beta_grade": (0.50, 0.15),
+        "pitcher_fip_per10_arm": (-0.20, 0.15),
+        "bb_pct_per10_control": (-1.35, 0.25),
+        "tto_pass2_woba_delta_batter_adj": (0.011, 0.007),
+        "pitcher_hitter_hr_true_sd_ratio": (0.40, 0.25),
+        # Fielding.
+        "e_per_team_game": (0.53, 0.05),
+        **{
+            f"oaa_per_8pt_{pos}": (value, 0.7 if pos == "1b" else 0.8)
+            for pos, value in _R6_OAA_PER_8PT.items()
+        },
+        "range_level_shift": (0.0, 0.001),
+        **{
+            f"gb_play_share_{pos}": (value, 0.02)
+            for pos, value in _R6_GB_PLAY_SHARE.items()
+        },
+        "of_putout_share_cf": (0.416, 0.025),
+        # .80 or more.
+        "r_pull_rating_pull_angle_rhb": (0.90, 0.10),
+        "r_pull_rating_pull_angle_lhb": (0.90, 0.10),
+    }
+    for key, (target, band) in targets.items():
+        gates["extras_targets"][key] = target
+        gates["tolerances"][key] = band
+    grid = {
+        # Pitching, on the composite grid (--matchup-grid-composite): the
+        # strikeout grid inside 35-65 within 2 points of log5, and the
+        # home-run grid at the population's p5 / p50 / p95 within .3 logit.
+        "matchup_k_log5_inner_max_abs_resid": (0.0, 0.02),
+        "matchup_hr_log5_max_abs_resid_logit": (0.0, 0.3),
+        # Power: HR per 600 PA at league-relative Power 30 and 40, 4 to 10.
+        "power_hr600_p30": (7.0, 3.0),
+        "power_hr600_p40": (7.0, 3.0),
+    }
+    for key, (target, band) in grid.items():
+        gates["grid_extras_targets"][key] = target
+        gates["grid_tolerances"][key] = band
+    # Gated as a mean over seeds, which one harness run cannot express:
+    # REPORT-ONLY until a pooled check reads them (target, band). Power: the
+    # bottom fifth of Power at most .75 of the median's HR rate (calibration
+    # and the league fixture; report-only on the flat one), the thirty-homer
+    # count at 20 +/- 8. Not read by engine_gates_for.
+    gates["pooled"] = {
+        "hr_power_bottom_quintile_ratio": (0.375, 0.375),
+        "qualified_hr30_count": (20.0, 8.0),
+    }
+    return gates
+
+
+ENGINE_GATES[6] = _generation_6_gates()
 
 
 def engine_gates_for(engine: int | None, *, grid: bool = False) -> dict[str, Any]:
