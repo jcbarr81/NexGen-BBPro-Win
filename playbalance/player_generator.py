@@ -2218,14 +2218,16 @@ def _generate_engine_player(
         A dictionary describing the generated player.
     """
 
+    # Passed only when given, so a replaced generate_birthdate keeps working.
+    dated = {} if reference is None else {"reference": reference}
     # Determine the player's age using either an explicit ``age_range`` or the
     # appropriate age table based on ``player_type``/``for_draft``.
     if age_range is not None:
-        birthdate, age = generate_birthdate(age_range=age_range, reference=reference)
+        birthdate, age = generate_birthdate(age_range=age_range, **dated)
     else:
         if player_type is None:
             player_type = "amateur" if for_draft else "fictional"
-        birthdate, age = generate_birthdate(player_type=player_type, reference=reference)
+        birthdate, age = generate_birthdate(player_type=player_type, **dated)
     first_name, last_name, ethnicity = generate_name()
     player_id = f"P{random.randint(1000, 9999)}"
     height = random.randint(68, 78)

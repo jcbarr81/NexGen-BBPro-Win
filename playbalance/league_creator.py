@@ -4,7 +4,7 @@ import json
 import os
 import random
 import shutil
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Set, Tuple
 
@@ -14,7 +14,11 @@ from models.player import Player
 from models.pitcher import Pitcher
 from models.roster import Roster
 from services.players_repository import save_players
-from playbalance.player_generator import generate_player, reset_name_cache
+from playbalance.player_generator import (
+    generate_player,
+    reference_datetime,
+    reset_name_cache,
+)
 from utils.user_manager import clear_users
 import utils.lineup_loader as lineup_loader
 from utils.lineup_loader import build_default_game_state
@@ -407,7 +411,7 @@ def create_league(
     rating_scale = rating_scales.normalize_rating_scale(rating_scale)
     # A new league's year is this year (its season context below), so its
     # players are dated from today, not from whatever league is active.
-    created = datetime.today()
+    created = reference_datetime(date.today().year)
 
     def _report_progress(phase: str) -> None:
         if progress_callback is None:
