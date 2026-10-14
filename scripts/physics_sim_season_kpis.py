@@ -1410,8 +1410,9 @@ def fixture_unstored_rating_centers(
     ground-ball rating (``pitcher_gf_usage_center``) and the lineup
     regulars' mean ground-ball and pull ratings (``hitter_gf_center`` /
     ``hitter_pull_center``). The fielder centres are what the engine's
-    ``fielder_centred_ratings`` reads (a league stores them for a season on
-    generation 6); nothing reads the batted-ball ones yet.
+    ``fielder_centred_ratings`` reads and ``hitter_gf_center`` what the
+    line-drive credit on doubles reads (a league stores them for a season
+    on generation 6); nothing reads the other two yet.
     data/calibration ~ fa 1B 52.9, 2B 54.9, 3B 51.9, SS 54.7, LF 47.8,
     CF 51.7, RF 46.6; pitcher gf 50.0, hitter gf 50.1, pull 55.1.
     """
@@ -1926,8 +1927,9 @@ def run_sim(
         "rating_centers": {
             key: tuning_overrides.get(key) for key in RATING_CENTER_KEYS
         },
-        # Release 6a: the centres only this harness supplies (nothing in
-        # the engine reads them yet; no league stores them).
+        # Release 6a: the centres only this harness supplies (no league
+        # below generation 6 stores one; hitter_gf_center is the only one
+        # the engine reads so far).
         "unstored_rating_centers": {
             key: tuning_overrides.get(key) for key in UNSTORED_CENTER_KEYS
         },

@@ -345,6 +345,27 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "triple_speed_scale": 0.15,
     "triple_speed_scale_fast": 0.12,
     "double_gap_scale": 0.45,
+    # Release 6a (plan 2.2; owner decision 11): who hits the doubles. The
+    # distance a ball needs for a double is double_distance * (1 - speed
+    # term) * (1 - gap_norm * double_gap_scale), with
+    #   gap_norm = (Contact * (1 - w) + Power * w - 50) / 50,
+    # w = double_gap_power_weight. 0.5 is the even split the engine always
+    # used and keeps its own expression, to the last bit.
+    "double_gap_power_weight": 0.5,
+    # The line-drive credit, OFF at 0.0 (no term, no random number): the
+    # distance is also multiplied by
+    #   1 - double_line_drive_scale
+    #       * max(0, 1 - |gf - hitter_gf_center| / double_line_drive_span),
+    # so the hitter whose ground-ball rating is the league's average needs
+    # the least distance and one double_line_drive_span points or more to
+    # either side gets no credit. It reads the RATING, not the launch angle:
+    # today a point of gf moves a hitter's mean launch angle 0.1 degree and
+    # the regulars' gf spread is about 3 points, so no rule on the angle of
+    # the ball can tell their profiles apart. It assumes the hitters near
+    # the league's mean gf are its line-drive hitters. The ball-flight
+    # release replaces it with hit types read off where the ball lands.
+    "double_line_drive_scale": 0.0,
+    "double_line_drive_span": 10.0,
     "stretch_double_base": 0.02,
     "stretch_double_speed_scale": 0.18,
     "stretch_double_arm_scale": 0.7,
@@ -382,6 +403,50 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # not already in DEFAULT_TUNING, so new knobs must be registered here.
     "bat_speed_power_knee": 52.0,
     "bat_speed_power_knee_scale": 0.8,
+    # Release 6a (plan 2.2; owner decisions 4 and 6): the Power curve as a
+    # table. OFF: with power_curve_model 0 the knee formula above runs
+    # untouched and the table is not read.
+    #
+    # power_curve_model 1: bat speed from Power is the straight-line
+    # interpolation of bat_speed_power_table ({Power: mph against an average
+    # hitter}), the two end segments carried on beyond the first and last
+    # anchor. Power here is the hitter's own, league-relative under
+    # centred_ratings; the situational bonuses keep their flat
+    # platoon_bat_speed_per_point. No random number either way.
+    #
+    # The table below IS the knee formula (0.15 mph a point to 52, 0.95
+    # above), so turning the switch on with it changes nothing but the last
+    # bits. A profile can change an anchor's value but not add an anchor
+    # (engine_generation._merged_table), so the anchors a fit may need are
+    # all here, on today's curve: the knee, a few points either side, and
+    # the Power ratings the full 1-99 stored scale can reach at the top
+    # (engine 60 / 61.67 / 63.33 / 65 / 66.33 = stored 80 / 85 / 90 / 95 /
+    # 99). Generation 6's values (scripts/kpi_profiles/r6_power.json) are
+    # fitted, not hand-set: weak bats on about 0.55 mph a point below 50
+    # (0.5 from 30 to 40, 0.55 to 45, 0.6 to 50), a slope that keeps rising
+    # through the middle (0.6, 0.65, 0.8 to 57; no flat spot where most
+    # regulars sit), the centre set so league home runs are where they were,
+    # and the top anchors solved for home runs a year (35 / 40 / 45 per 650
+    # PA at stored 80 / 85 / 90 with average Contact; stored 99 about 48,
+    # and 57 with Contact 80: owner decisions 6 and 16). Re-fit the top with
+    # scripts/fit_power_table.py whenever exit velocity or carry changes
+    # (RELEASE6_PLAN.md 2.2).
+    "power_curve_model": 0.0,
+    "bat_speed_power_table": {
+        "30": -3.0,
+        "40": -1.5,
+        "45": -0.75,
+        "50": 0.0,
+        "52": 0.3,
+        "55": 3.15,
+        "57": 5.05,
+        "60": 7.9,
+        "61.67": 9.4865,
+        "63.33": 11.0635,
+        "65": 12.65,
+        "66.33": 13.9135,
+        "80": 26.9,
+    },
     "ev_contact_quality_weight": 0.0,
     "skill_contact_scale": 0.6,
     "barrel_power_weight": 1.0,
@@ -862,7 +927,11 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "fielder_fa_center_p": 50.0,
     # The pitchers' ground-ball rating (gf), weighted by expected workload
     # like the pitcher_*_usage_center keys above, and the lineup regulars'
-    # mean ground-ball (gf) and pull (pl) ratings.
+    # mean ground-ball (gf) and pull (pl) ratings. Release 6a (power and
+    # doubles): hitter_gf_center is read by the line-drive credit on doubles
+    # (double_line_drive_scale, off by default), and a season on generation
+    # 6 or later stores it and is given it (services.league_rating_centers
+    # .GENERATION_CENTER_KEYS); the others are still the harness's alone.
     "pitcher_gf_usage_center": 50.0,
     "hitter_gf_center": 50.0,
     "hitter_pull_center": 50.0,
@@ -1131,6 +1200,16 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # pitch_type_velocity_offset.
     "contact_logit_velo": 0.0,
     "contact_velo_ref": 93.0,
+    # Release 6a (plan 2.2): sluggers swing and miss more. Under
+    # contact_model 1,
+    #   logit -= contact_logit_power * (the hitter's own Power
+    #                                   - hitter_power_center),
+    # his Power before the situational bonuses. 0.0 = no term, and it stays
+    # 0.0 in generation 6: alone it only takes r(K%, ISO) from about -.35
+    # to -.1 (0.03 = +3.8 points of strikeout rate per +10 Power), because
+    # the ratings pair Contact and Power almost independently. It waits for
+    # the generator's negative Contact-Power correlation.
+    "contact_logit_power": 0.0,
     # The called third strike depends on Contact (independent of the
     # switch above; 0.0 = today's flat two_strike_zone_protect). Under
     # swing_model 0, for a two-strike take of a zone pitch:
@@ -1360,6 +1439,7 @@ class TuningConfig:
         self.__dict__.pop("_num_cache", None)
         self.__dict__.pop("_objective_table", None)
         self.__dict__.pop("_swing_table", None)
+        self.__dict__.pop("_power_table", None)
 
 
 def load_tuning(

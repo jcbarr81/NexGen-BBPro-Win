@@ -197,7 +197,18 @@ what a LEAGUE game is given, for the seasons that read them and no others
   from the generation it is about to be given -- the same verdict the entry
   is then written with.
 
-The batted-ball centres (``pitcher_gf_usage_center``, ``hitter_gf_center``,
+Release 6a (power and doubles) adds ``hitter_gf_center``, the lineup
+regulars' mean ground-ball rating, which the line-drive credit on doubles
+reads (``physics_sim.physics.resolve_batted_ball``), to the same
+generation 6 centres on the same terms: stored in a generation 6 season's
+entry and fixed for it, delivered to its games, and never computed,
+cached, delivered or written for a legacy or generation 5 season. It is
+there whenever the league has an ACT hitter (every ACT hitter counts when
+no club has a regular), and a generation 6 game with the credit on
+refuses to start without it (``physics_sim.centred_ratings
+.require_batted_ball_centers``).
+
+The other batted-ball centres (``pitcher_gf_usage_center``,
 ``hitter_pull_center``) are still the harness's alone.
 """
 
@@ -260,7 +271,9 @@ __all__ = [
     "PITCHER_FA_CENTER_KEY",
     "FIELDER_CENTER_KEYS",
     "GENERATION_CENTER_KEYS",
+    "generation_center_keys",
     "fielder_rating_centers",
+    "generation_rating_centers",
     "unstored_rating_centers",
     "active_pitcher_workloads",
     "ENGINE_GENERATION_KEY",
@@ -401,8 +414,11 @@ UNSTORED_CENTER_KEYS: tuple[str, ...] = (
 )
 # Centres only the seasons of a later engine generation read, stored in
 # their entries and delivered to their games (module docstring): the first
-# generation that reads them -> the keys.
-GENERATION_CENTER_KEYS: Dict[int, tuple[str, ...]] = {6: FIELDER_CENTER_KEYS}
+# generation that reads them -> the keys. Generation 6: the fielder centres
+# (fielding) and the regulars' ground-ball centre (power and doubles).
+GENERATION_CENTER_KEYS: Dict[int, tuple[str, ...]] = {
+    6: FIELDER_CENTER_KEYS + (HITTER_GF_CENTER_KEY,),
+}
 # key -> the first generation whose seasons read it.
 _KEY_GENERATION: Dict[str, int] = {
     key: generation
@@ -623,13 +639,30 @@ def league_rating_centers(
     file written before the battery centres existed keeps its speed centre).
 
     Release 6a: a season on a generation that reads them also gets its
-    ``GENERATION_CENTER_KEYS`` (the fielder centres from generation 6), on
-    the same terms; a legacy or generation 5 season gets none of them and
-    nothing of its is changed (module docstring).
+    ``GENERATION_CENTER_KEYS`` (the fielder centres and ``hitter_gf_center``
+    from generation 6), on the same terms, in the same read of the file
+    under the same lock; a legacy or generation 5 season gets none of them
+    and nothing of its is changed (module docstring).
     """
 
     return _league_centers(
         data_dir, season, RATING_CENTER_KEYS + tuple(_KEY_GENERATION), store=store
+    )
+
+
+def generation_center_keys(generation: object) -> tuple[str, ...]:
+    """The centres a season on ``generation`` stores beyond
+    ``RATING_CENTER_KEYS``: those of every generation up to it
+    (``GENERATION_CENTER_KEYS``). ``()`` below generation 6, and for a
+    value that is not a generation (read as the legacy one). Reads no
+    file."""
+
+    number = normalize_engine_generation(generation)
+    return tuple(
+        key
+        for since in sorted(GENERATION_CENTER_KEYS)
+        if since <= number
+        for key in GENERATION_CENTER_KEYS[since]
     )
 
 
@@ -1397,10 +1430,10 @@ def _predates_league_relative_centers(entry: dict) -> bool:
 def _computed(base: Path, keys: Iterable[str]) -> Dict[str, float]:
     wanted = set(keys)
     centres: Dict[str, float] = {}
-    if wanted - set(FIELDER_CENTER_KEYS):
+    if wanted - set(_KEY_GENERATION):
         centres.update(active_rating_centers(base))
-    if wanted & set(FIELDER_CENTER_KEYS):
-        centres.update(fielder_rating_centers(base))
+    if wanted & set(_KEY_GENERATION):
+        centres.update(generation_rating_centers(base, keys=wanted))
     return {k: v for k, v in centres.items() if k in wanted}
 
 
@@ -1636,8 +1669,9 @@ def unstored_rating_centers(
       when no club has a regular).
 
     For the KPI harness. Nothing is cached or written. A league game is
-    given the fielder centres only, and only in a season that reads them
-    (:func:`league_rating_centers`).
+    given the ``GENERATION_CENTER_KEYS`` among them only (the fielder
+    centres and ``hitter_gf_center``), and only in a season that reads
+    them (:func:`league_rating_centers`, :func:`generation_rating_centers`).
     """
 
     base = Path(base)
@@ -1651,19 +1685,90 @@ def unstored_rating_centers(
     centres = _fielder_centers(
         lineup_dir, active_by_team, hitters, hitter_value, pitchers, workloads
     )
-    regulars = _regular_hitter_ids(lineup_dir, active_by_team, hitter_value) or list(
-        hitters
+    centres.update(
+        _regular_hitter_centers(
+            lineup_dir, active_by_team, hitters, hitter_value,
+            _UNSTORED_REGULARS_SPECS,
+        )
     )
-    for key, column in _UNSTORED_REGULARS_SPECS.items():
-        found = [_rating(hitters[pid], column) for pid in regulars]
-        if found:
-            centres[key] = round(sum(found) / len(found), 2)
     centres.update(
         _pitcher_usage_centers(
             pitchers, workloads, {PITCHER_GF_USAGE_CENTER_KEY: "gf"}
         )
     )
     return _ordered(centres, UNSTORED_CENTER_KEYS)
+
+
+def _regular_hitter_centers(
+    lineup_dir: Path,
+    active_by_team: Mapping[str, list[str]],
+    hitters: Mapping[str, dict],
+    hitter_value: Mapping[str, float],
+    specs: Mapping[str, str],
+) -> Dict[str, float]:
+    """``specs`` (centre key -> column): the mean of each column over the
+    lineup regulars (:func:`_regular_hitter_ids`; every ACT hitter when no
+    club has a regular), to 2 decimals. Left out with nobody to average."""
+    regulars = _regular_hitter_ids(lineup_dir, active_by_team, hitter_value) or list(
+        hitters
+    )
+    out: Dict[str, float] = {}
+    for key, column in specs.items():
+        found = [_rating(hitters[pid], column) for pid in regulars]
+        if found:
+            out[key] = round(sum(found) / len(found), 2)
+    return out
+
+
+def generation_rating_centers(
+    base: Path | str,
+    *,
+    players_path: Path | str | None = None,
+    keys: Iterable[str] | None = None,
+) -> Dict[str, float]:
+    """The ``GENERATION_CENTER_KEYS`` (all of them, or those of ``keys``)
+    over the clubs' ACT rosters, to 2 decimals, from one read of the files.
+
+    The fielder centres are :func:`fielder_rating_centers`'s and
+    ``hitter_gf_center`` is the lineup regulars' mean ``gf`` (every ACT
+    hitter when no club has a regular), each the value the KPI harness is
+    given (:func:`unstored_rating_centers`). ``{}`` when the files are
+    missing. Nothing is cached or written: :func:`league_rating_centers`
+    fixes them for a season that reads them.
+    """
+
+    wanted = set(_KEY_GENERATION if keys is None else keys)
+    base = Path(base)
+    rows = _active_player_rows(base, players_path)
+    if rows is None:
+        return {}
+    active_by_team, hitters, pitchers = rows
+    lineup_dir = base / "lineups"
+    hitter_value = {pid: _lineup_value(row) for pid, row in hitters.items()}
+    centres: Dict[str, float] = {}
+    if wanted & set(FIELDER_CENTER_KEYS):
+        centres.update(
+            _fielder_centers(
+                lineup_dir,
+                active_by_team,
+                hitters,
+                hitter_value,
+                pitchers,
+                _pitcher_workloads(base / "rosters", active_by_team, pitchers),
+            )
+        )
+    if HITTER_GF_CENTER_KEY in wanted:
+        centres.update(
+            _regular_hitter_centers(
+                lineup_dir, active_by_team, hitters, hitter_value,
+                {HITTER_GF_CENTER_KEY: _UNSTORED_REGULARS_SPECS[HITTER_GF_CENTER_KEY]},
+            )
+        )
+    return {
+        key: centres[key]
+        for key in _KEY_GENERATION
+        if key in centres and key in wanted
+    }
 
 
 def fielder_rating_centers(

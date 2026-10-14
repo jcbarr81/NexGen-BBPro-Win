@@ -39,6 +39,7 @@ from .centred_ratings import (
     fielders_centred,
     league_relative,
     ratings_centred,
+    require_batted_ball_centers,
     require_fielder_centers,
     require_rating_centers,
     source_shift,
@@ -5918,6 +5919,9 @@ def simulate_game(
     # Release 6a (fielder_centred_ratings): the same rule for the centres
     # the fielding terms read.
     require_fielder_centers(tuning)
+    # Release 6a (double_line_drive_scale): and for the regulars' ground-ball
+    # centre the doubles credit reads.
+    require_batted_ball_centers(tuning)
     park: Park = load_park(park_name)
     injury_sim: InjurySimulator | None = None
     if tuning.get("injuries_enabled", 1.0) > 0.5:
@@ -7339,6 +7343,7 @@ def simulate_game(
                         batter_power=_league_relative(
                             batter.power, "hitter_power_center", tuning
                         ),
+                        batter_gb_tendency=batter.gb_tendency,
                     )
                     res.distance = dist
                     res.ball_type = ball_type

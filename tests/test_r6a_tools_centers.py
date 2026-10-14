@@ -17,8 +17,11 @@ not a centre such a game refuses to start without.
 
 Release 6a (fielding) wired the fielder centres in: the engine's fielding
 switches read them, with the pitchers' ``fielder_fa_center_p``, and a
-generation 6 season stores them (tests/test_r6a_fielding_centers.py). The
-batted-ball centres are still read by nothing.
+generation 6 season stores them (tests/test_r6a_fielding_centers.py).
+Release 6a (power) wired ``hitter_gf_center`` in the same way: the
+line-drive credit on doubles reads it (off below generation 6) and a
+generation 6 season stores it (tests/test_r6a_power_centers.py). The other
+two batted-ball centres are still read by nothing.
 """
 
 from __future__ import annotations
@@ -167,10 +170,12 @@ def test_they_are_not_stored_centres_and_no_game_requires_them():
 
 def test_nothing_in_the_engine_reads_them_yet():
     """The Release 6 build branches remove a key from here as they wire it
-    in (and add the test of what reads it). The fielder centres are wired:
-    tests/test_r6a_fielding_spray_range.py and test_r6a_fielding_errors.py."""
+    in (and add the test of what reads it). The fielder centres are wired
+    (tests/test_r6a_fielding_spray_range.py and test_r6a_fielding_errors.py),
+    and so is ``hitter_gf_center``: the line-drive credit on doubles reads
+    it (tests/test_r6a_power_doubles.py, test_r6a_power_centers.py)."""
     pattern = re.compile(
-        r"pitcher_gf_usage_center|hitter_gf_center|hitter_pull_center"
+        r"pitcher_gf_usage_center|hitter_pull_center"
     )
     for path in sorted((REPO / "physics_sim").glob("*.py")):
         if path.name == "config.py":

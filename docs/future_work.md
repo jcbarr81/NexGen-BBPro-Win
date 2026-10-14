@@ -2025,3 +2025,71 @@ Built switched off on branch `r6a-fielding` (the generation 6 values are in
   gloves no longer mask its offence; the flat fixture's no longer cost it
   outs), and the errors at MLB volume add +.07 / +.16 / +.21. The league
   fixture fails its runs, SLG, OPS, hits and doubles gates until then.
+
+## Release 6a power and doubles: follow-ups (2026-10-13)
+
+Built on branch `r6a-power`, off by default (`scripts/kpi_profiles/r6_power.json`
+over `--engine 6`). Numbers are calibration / league / flat fixture means
+(8 / 4 / 2 seasons) unless noted.
+
+- **Thirty-homer hitters.** Weak bats lose home runs and the league total
+  is held, so home runs move up the order; decisions 6 and 16 lift stored
+  Power 80 to 99, and the middle of the curve no longer has a flat spot.
+  `qualified_hr30_count` reads 24.5 / 21.5 / 20.0 (generation 5: 19.4 /
+  15.5 / 9.5) and one season's count has a spread of about 4 (a first-round
+  table read 20.5, 24.4 and 20.6 on the same eight calibration seeds, one
+  season at 33). The strict gate (20 +/- 8) is a per-season gate and will
+  fail now and then. Gate it pooled over seeds, as the bottom-fifth ratio
+  (seasons 9-13 of the first table read .797 / .765 / .755 / .675 / .751),
+  before generation 6 is gated in CI.
+- **`corr_avg_contact` is lower** (.59 / .62 / .62 against .63 / .63 /
+  .64). A steeper Power curve makes Power matter more to batting average
+  through exit velocity, which dilutes Contact's share. The lever is the
+  Contact hit edge (`contact_babip_per10`) or the fielding hit table, at
+  the joint retune.
+- **The top of the Power scale (decision 16).** Stored 99 is set at about
+  48 home runs per 650 PA with average Contact and 57 with Contact 80
+  (stored 90: 45 and 53), so 90 to 99 is worth about three home runs at
+  equal Contact. One anchor serves both Contact levels, so they cannot
+  both be hit exactly; `fit_power_table.py` takes the mean of the two
+  solves.
+- **The double line has a floor** (`physics.DOUBLE_THRESHOLD_FLOOR`, 0.4 of
+  the park's double distance) that no shipped setting reaches; a large
+  line-drive credit had made it negative. If a commissioner slider ever
+  moves `double_gap_scale` or the speed scale, check the floor still
+  binds only on nonsense.
+- **The line-drive credit reads the rating, not the ball.** A hitter's
+  mean launch angle moves 0.1 degree per point of gf and the regulars' gf
+  spread is about 3 points, so no rule on launch angle can separate their
+  profiles (today's model already gives the fly-ball end 5% more doubles
+  and the ground-ball end 5% fewer over 8 points of gf, in a straight
+  line). It also sits on that slope, so an extreme ground-ball hitter loses
+  more doubles (about 24% at 8 points) than an extreme fly-ball hitter
+  (about 15%). The ball-flight release replaces it with hit types from
+  landing spots and should delete `double_line_drive_scale` / `_span`.
+- **`hitter_gf_center` is the first generation centre**
+  (`services.league_rating_centers.GENERATION_CENTER_KEYS`): stored for and
+  delivered to a season on generation 6 or later only. The fielding
+  centres can join it the same way. `league_rating_centers` now reads the
+  season's generation on every call (one more small JSON read per game);
+  cache it if it shows in a profile of the season simulator. The stored
+  path is tested with a hand-written generation 6 entry, because no league
+  can be given generation 6 yet: re-test through `game_runner` at the
+  switch-on.
+- **A profile cannot add an anchor to `bat_speed_power_table`** (the
+  merged-table rule), only change a registered one. The registered table
+  therefore carries thirteen anchors on today's curve. A fit that needs a
+  new one adds it to `DEFAULT_TUNING` at the knee formula's value.
+- **`scripts/fit_power_table.py` re-fits the top anchors only.** The
+  weak-bat side and the centre are set with seasons (its docstring). The
+  design's population model put the centre at +0.72 to +0.81 mph; seasons
+  put it at +0.85. Re-run both after the batted-ball model changes.
+- **`pitch_seq_power_avoid_fastball` is a step at Power 60** (stored 80):
+  a hitter one point above it sees 8% fewer fastballs. It predates this
+  work and was not touched; smooth it when sequencing is next opened.
+- **Runs fall about .03 per team-game** with league doubles down to 1.61 /
+  1.68 / 1.69: for the joint retune.
+- **Consumers still assume the old curve:** overall rating, CPU lineup and
+  trade scores and salary read Power linearly. Under the table a point of
+  Power is worth 0.5 to 0.6 mph below 50, about 0.75 from 52 to 57, about
+  1.5 from 57 to 63 and almost nothing above 63.

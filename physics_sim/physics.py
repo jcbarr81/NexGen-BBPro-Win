@@ -36,6 +36,10 @@ class PitchResult:
 
 
 FASTBALL_PITCHES = {"fb", "si"}
+# The shortest carry a double can need, as a share of the park's double
+# distance (times park_size_scale and double_distance_scale), whatever the
+# speed, gap and line-drive credits (``resolve_batted_ball``).
+DOUBLE_THRESHOLD_FLOOR = 0.4
 BREAKING_PITCHES = {"sl", "cb", "kn", "scb"}
 OFFSPEED_PITCHES = {"cu"}
 
@@ -51,8 +55,13 @@ def _power_bat_speed(power: float, tuning: TuningConfig) -> float:
     A knee lets average hitters stay average while genuine sluggers separate.
 
     The defaults (knee 100, no extra slope) reproduce the old linear formula.
+
+    Release 6a: with ``power_curve_model`` on the curve is a table instead
+    (``_bat_speed_power_table``) and none of the three knobs is read.
     """
 
+    if tuning.get("power_curve_model", 0.0) >= 0.5:
+        return _table_bat_speed(float(power), _bat_speed_power_table(tuning))
     scale = tuning.get("bat_speed_power_scale", 0.55)
     knee = tuning.get("bat_speed_power_knee", 100.0)
     knee_scale = tuning.get("bat_speed_power_knee_scale", 0.0)
@@ -60,6 +69,50 @@ def _power_bat_speed(power: float, tuning: TuningConfig) -> float:
     if power > knee:
         delta += (float(power) - knee) * knee_scale
     return delta
+
+
+def _bat_speed_power_table(tuning: TuningConfig) -> tuple[tuple[float, float], ...]:
+    """``power_curve_model`` 1: the (Power, mph) anchors of the Power curve
+    in rising Power order, read once per TuningConfig.
+
+    ``bat_speed_power_table`` maps a Power rating to the bat speed it adds
+    against an average hitter. An entry that is not a pair of numbers is
+    left out, and a table with fewer than two anchors left is no curve at
+    all: the registered default (today's knee formula) is read instead.
+    """
+    cached = tuning.__dict__.get("_power_table")
+    if cached is not None:
+        return cached
+    table: tuple[tuple[float, float], ...] = ()
+    for raw in (
+        tuning.values.get("bat_speed_power_table"),
+        DEFAULT_TUNING["bat_speed_power_table"],
+    ):
+        anchors: Dict[float, float] = {}
+        if isinstance(raw, dict):
+            for level, mph in raw.items():
+                try:
+                    level, mph = float(level), float(mph)
+                except (TypeError, ValueError):
+                    continue
+                if math.isfinite(level) and math.isfinite(mph):
+                    anchors[level] = mph
+        table = tuple(sorted(anchors.items()))
+        if len(table) >= 2:
+            break
+    tuning.__dict__["_power_table"] = table
+    return table
+
+
+def _table_bat_speed(power: float, table: tuple[tuple[float, float], ...]) -> float:
+    """Straight-line interpolation of the Power curve's anchors; below the
+    first and above the last, the end segment carried on."""
+    last = len(table) - 2
+    for index in range(last + 1):
+        low, high = table[index], table[index + 1]
+        if power <= high[0] or index == last:
+            return low[1] + (high[1] - low[1]) * (power - low[0]) / (high[0] - low[0])
+    return 0.0  # unreachable: a table has two anchors or more
 
 
 def _batter_power_bat_speed(batter: Dict[str, Any], tuning: TuningConfig) -> float:
@@ -787,6 +840,7 @@ def _contact_probability(
     in_zone: bool,
     strikes: int,
     tuning: TuningConfig,
+    power: float | None = None,
 ) -> float:
     """``contact_model`` 1: the chance a swing meets the ball (plan 2.2).
 
@@ -800,6 +854,11 @@ def _contact_probability(
     the reference speed of its own type and is off (0.0) until Release 6;
     ``contact_velo_ref`` is the fastball of a 50 arm, which is the league's
     average arm once ``centred_ratings`` shifts the arm rating.
+
+    Release 6a: ``power`` is the hitter's own Power, before the situational
+    bonuses (``power_base``). ``contact_logit_power`` lowers the odds by
+    that much for each point above the league's average hitter; it is 0.0
+    (no term) until the generator pairs Power with low Contact.
     """
     logit = (
         tuning.get("contact_logit_zone", 1.74)
@@ -809,6 +868,9 @@ def _contact_probability(
     logit += (
         contact - rating_center(tuning, "hitter_contact_center")
     ) * tuning.get("contact_logit_ch", 0.09)
+    power_slope = tuning.get("contact_logit_power", 0.0)
+    if power_slope and power is not None:
+        logit -= (power - rating_center(tuning, "hitter_power_center")) * power_slope
     quality_center = (
         rating_center(tuning, "pitcher_control_center") * 0.4
         + rating_center(tuning, "pitcher_movement_center") * 0.4
@@ -1200,6 +1262,7 @@ def simulate_pitch(
                 in_zone=in_zone,
                 strikes=strikes,
                 tuning=tuning,
+                power=batter.get("power_base", batter.get("power")),
             )
         else:
             whiff_prob = tuning.get("whiff_base", 0.05)
@@ -1478,8 +1541,15 @@ def resolve_batted_ball(
     batter_speed: float | None = None,
     batter_contact: float | None = None,
     batter_power: float | None = None,
+    batter_gb_tendency: float | None = None,
 ) -> tuple[float, bool, str, str | None]:
-    """Return (distance, is_hr, ball_type, hit_type)."""
+    """Return (distance, is_hr, ball_type, hit_type).
+
+    ``batter_contact`` and ``batter_power`` are the hitter's own ratings,
+    league-relative under ``centred_ratings``; ``batter_gb_tendency`` is his
+    raw ground-ball rating, read against ``hitter_gf_center`` by the
+    line-drive credit (Release 6a, off by default).
+    """
 
     ball_type = classify_ball_type(launch_angle, tuning)
     dist = estimate_carry_distance(exit_velo, launch_angle, tuning, park)
@@ -1504,7 +1574,15 @@ def resolve_batted_ball(
         except (TypeError, ValueError):
             contact = 50.0
             power = 50.0
-        gap_norm = ((contact + power) / 2.0 - 50.0) / 50.0
+        # Release 6a: Power's share of the gap credit is a knob. 0.5 is the
+        # even split, kept as the expression it always was.
+        power_weight = tuning.get("double_gap_power_weight", 0.5)
+        if power_weight == 0.5:
+            gap_norm = ((contact + power) / 2.0 - 50.0) / 50.0
+        else:
+            gap_norm = (
+                contact * (1.0 - power_weight) + power * power_weight - 50.0
+            ) / 50.0
         gap_norm = max(-1.0, min(1.0, gap_norm))
     double_scale = tuning.get("double_distance_scale", 1.0)
     triple_scale = tuning.get("triple_distance_scale", 1.0)
@@ -1525,6 +1603,34 @@ def resolve_batted_ball(
         * double_speed
         * double_gap
     )
+    # Release 6a (owner decision 11): the line-drive credit. The hitter at
+    # the league's mean ground-ball rating needs the least distance for a
+    # double; the credit is gone ``double_line_drive_span`` points away on
+    # either side. Off (0.0) there is no term.
+    line_drive_scale = tuning.get("double_line_drive_scale", 0.0)
+    if line_drive_scale and batter_gb_tendency is not None:
+        try:
+            away = abs(
+                float(batter_gb_tendency) - rating_center(tuning, "hitter_gf_center")
+            )
+        except (TypeError, ValueError):
+            away = None
+        if away is not None:
+            span = max(1e-6, tuning.get("double_line_drive_span", 10.0))
+            double_threshold *= 1.0 - line_drive_scale * max(0.0, 1.0 - away / span)
+    # No combination of speed, rating and profile credits takes the line
+    # below DOUBLE_THRESHOLD_FLOOR of the park's distance (a large credit
+    # once made it negative, so a 49 ft flare was a double). Today's
+    # strongest credits leave about .45 of it, so the floor never binds on
+    # the shipped values.
+    floor = (
+        park.stadium.double_distance(angle)
+        * park_scale
+        * double_scale
+        * DOUBLE_THRESHOLD_FLOOR
+    )
+    if double_threshold < floor:
+        double_threshold = floor
     triple_threshold = (
         park.stadium.triple_distance(angle) * park_scale * triple_scale * triple_speed
     )

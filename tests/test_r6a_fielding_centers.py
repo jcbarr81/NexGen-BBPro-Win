@@ -94,7 +94,9 @@ def _promote_generation_6(monkeypatch) -> None:
 def test_the_fifteen_keys_and_who_reads_them():
     assert centers.FIELDER_CENTER_KEYS == FIELDER_KEYS
     assert set(FIELDER_KEYS) == set(centred_ratings.FIELDER_CENTER_KEYS)
-    assert centers.GENERATION_CENTER_KEYS == {6: FIELDER_KEYS}
+    # Generation 6 also stores the power work's hitter_gf_center
+    # (tests/test_r6a_power_centers.py), after the fielder centres.
+    assert centers.GENERATION_CENTER_KEYS == {6: FIELDER_KEYS + ("hitter_gf_center",)}
     assert centers.PITCHER_FA_CENTER_KEY == "fielder_fa_center_p"
     for key in FIELDER_KEYS:
         assert DEFAULT_TUNING[key] == 50.0
@@ -286,7 +288,8 @@ def test_a_season_started_on_generation_6_stores_and_delivers_them(
     assert {key: entry[key] for key in FIELDER_KEYS} == expected
     assert entry[centers.CENTERS_VERSION_KEY] == centers.CENTERS_VERSION
     assert set(entry) == set(centers.RATING_CENTER_KEYS) | set(FIELDER_KEYS) | {
-        centers.ENGINE_GENERATION_KEY, centers.CENTERS_VERSION_KEY
+        "hitter_gf_center", centers.ENGINE_GENERATION_KEY,
+        centers.CENTERS_VERSION_KEY,
     }
     # The engine is told they were delivered, so a game with the fielding
     # switch on starts -- and does not without them.

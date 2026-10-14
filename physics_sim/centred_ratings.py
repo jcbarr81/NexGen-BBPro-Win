@@ -76,6 +76,15 @@ delivered raises :class:`RatingCenterMissing`, and ``engine.simulate_game``
 checks all of them before anything is played
 (:func:`require_fielder_centers`). The Release 4 arm reads (tag-ups, extra
 bases) and the catcher's terms are not part of it.
+
+Release 6a (power and doubles): the line-drive credit on doubles
+(``double_line_drive_scale``, ``physics.resolve_batted_ball``) reads the
+hitter's raw ground-ball rating against the league regulars' mean,
+``hitter_gf_center`` (``BATTED_BALL_CENTER_KEY``; gf is never shifted at
+its source, so that centre is always the league's). Under the same rule a
+game with the credit on is not played unless the centre was delivered
+(:func:`require_batted_ball_centers`); with the credit off nothing is
+checked.
 """
 
 from __future__ import annotations
@@ -99,6 +108,8 @@ __all__ = [
     "fielders_centred",
     "fielder_shift",
     "require_fielder_centers",
+    "BATTED_BALL_CENTER_KEY",
+    "require_batted_ball_centers",
 ]
 
 # The centre a pitch-kernel model names for a rating -> the centre that
@@ -261,6 +272,26 @@ def require_fielder_centers(tuning: Any) -> None:
     missing = sorted(key for key in FIELDER_CENTER_KEYS if key not in delivered)
     if missing:
         raise RatingCenterMissing(_fielder_missing_message(missing))
+
+
+BATTED_BALL_CENTER_KEY = "hitter_gf_center"
+
+
+def require_batted_ball_centers(tuning: Any) -> None:
+    """Raise :class:`RatingCenterMissing` when the line-drive credit on
+    doubles is on (``double_line_drive_scale`` not 0) and the league's
+    ``hitter_gf_center`` was not delivered. Nothing to check with it off."""
+
+    if tuning is None or not tuning.get("double_line_drive_scale", 0.0):
+        return
+    if BATTED_BALL_CENTER_KEY not in getattr(tuning, "delivered", ()):
+        raise RatingCenterMissing(
+            "double_line_drive_scale is on but the league's "
+            f"{BATTED_BALL_CENTER_KEY} was not delivered with the tuning; the "
+            "doubles credit would read every hitter against 50. The centre "
+            "comes from services.league_rating_centers (KPI harness: "
+            "with_rating_centers)."
+        )
 
 
 def fielder_shift(tuning: Any, key: str) -> float:
