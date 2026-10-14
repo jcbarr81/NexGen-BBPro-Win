@@ -103,6 +103,16 @@ GENERATION_OWNED_KEYS = (
     "hbp_model",
     "ibb_model",
     "contact_model",
+    # Release 6a (power and doubles): the Power curve, Power's share of the
+    # doubles gap credit, the line-drive credit and the Power term on
+    # contact are generation 6's; a league's file cannot switch part of it
+    # on or off.
+    "power_curve_model",
+    "bat_speed_power_table",
+    "double_gap_power_weight",
+    "double_line_drive_scale",
+    "double_line_drive_span",
+    "contact_logit_power",
 )
 
 # The legacy defaults the replaced sliders were set against, frozen here so

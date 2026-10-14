@@ -5,16 +5,19 @@ it on, bat speed from Power is the straight-line interpolation of
 ``bat_speed_power_table``; the registered table is the knee formula itself,
 and ``scripts/kpi_profiles/r6_power.json`` holds generation 6's values:
 
-- 0.55 mph a point on average below 50 (today 0.15), bent so a Power 40
-  hitter stays inside the 5-to-10 home run band (0.6 from 50 down to 40,
-  0.5 from 40 down to 30);
-- today's values at 55 and 57;
+- about 0.55 mph a point below 50 (today 0.15): 0.5 from 30 to 40, 0.55
+  from 40 to 45, 0.6 from 45 to 50, so a Power 40 hitter stays inside the
+  5-to-10 home run band;
+- a slope that keeps rising through the middle of the scale (0.6 from 50
+  to 52, 0.65 to 55, 0.8 to 57, then about 1.55 to 60; the first build had
+  today's 0.15 from 50 to 52, a flat spot where most regulars sit), with
+  the centre set so league home runs are held;
 - the top anchors solved on the generation 5 kernel for home runs per 650
   PA at the Power ratings the 1-99 stored scale can reach (engine 60 /
   61.67 / 63.33 / 66.33 = stored 80 / 85 / 90 / 99): 35 / 40 / 45 with
-  average Contact and 55 at 66.33 with Contact 60 (stored 80), which
-  leaves only half a mph between stored 90 and 99;
-- nearly flat above 66.33, which no stored rating can exceed.
+  average Contact, and at 66.33 about 48 with average Contact and 57 with
+  Contact 60 (stored 80) (owner decisions 6 and 16);
+- rising slowly above 66.33, which no stored rating can exceed.
 
 The home run numbers are Monte Carlo and season work (the report); what is
 pinned here is the curve itself.
@@ -200,36 +203,42 @@ def test_generation_6_rises_with_every_point_of_power():
     assert -30.0 < speeds[0] and speeds[-1] < 21.0
 
 
-def test_generation_6_weak_bats_lose_055_mph_a_point_below_50():
-    """Owner decision 4 (0.15 today)."""
+def test_generation_6_weak_bats_lose_about_055_mph_a_point_below_50():
+    """Owner decision 4 (0.15 today): 0.5 a point from 30 to 40, 0.55 from
+    40 to 45 and 0.6 from 45 to 50, so a Power 40 hitter is inside the
+    home run band and the weakest fifth of the regulars at three quarters
+    of the middle fifth or less."""
     tuning = _generation_6()
     speed = lambda power: physics._power_bat_speed(power, tuning)  # noqa: E731
-    assert (speed(50.0) - speed(30.0)) / 20.0 == pytest.approx(0.55, abs=0.005)
+    assert 0.5 <= (speed(50.0) - speed(30.0)) / 20.0 <= 0.6
     for power in range(30, 50):
         step = speed(power + 1.0) - speed(float(power))
         assert 0.45 <= step <= 0.65, power
-    # A 40 loses more against the centre than the straight line gives him,
-    # which is what keeps him inside the home run band.
-    assert speed(50.0) - speed(40.0) == pytest.approx(6.0, abs=0.01)
-    # Against today: a 30 is about 7 mph slower, a 45 about 1.5.
-    assert speed(30.0) - _knee_formula(30.0) == pytest.approx(-7.2, abs=0.5)
-    assert speed(45.0) - _knee_formula(45.0) == pytest.approx(-1.45, abs=0.5)
-    # The centre is lifted a little, which is what holds league home runs.
-    assert 0.3 <= speed(50.0) <= 1.3
-    assert speed(52.0) - speed(50.0) == pytest.approx(0.3, abs=1e-9)
+    # Against today: a 30 is about 7.4 mph slower, a 45 about 1.9.
+    assert speed(30.0) - _knee_formula(30.0) == pytest.approx(-7.4, abs=0.5)
+    assert speed(45.0) - _knee_formula(45.0) == pytest.approx(-1.9, abs=0.5)
+    # The centre holds league home runs with the middle of the scale lifted.
+    assert 0.0 <= speed(50.0) <= 1.0
 
 
-def test_generation_6_keeps_todays_curve_at_55_and_57():
+def test_generation_6_slope_rises_smoothly_through_the_middle():
+    """No flat spot where most regulars sit (the review found 0.15 mph a
+    point from 50 to 52, inherited from today's knee): from 45 to 57 every
+    point is worth at least 0.5 mph, and a point is never worth less than
+    the point below it, up to stored 80 (engine 60)."""
     tuning = _generation_6()
-    for power in (55.0, 56.0, 57.0):
-        assert physics._power_bat_speed(power, tuning) == pytest.approx(
-            _knee_formula(power), abs=1e-9
-        )
+    speed = lambda power: physics._power_bat_speed(power, tuning)  # noqa: E731
+    steps = [speed(p + 1.0) - speed(float(p)) for p in range(45, 60)]
+    assert min(steps[:12]) >= 0.5, steps
+    assert all(b >= a - 1e-9 for a, b in zip(steps, steps[1:])), steps
+    # Through the middle of the scale it is above today's curve.
+    for power in (52.0, 55.0, 57.0):
+        assert speed(power) > _knee_formula(power)
 
 
-def test_generation_6_top_anchors_and_the_flat_top():
-    """Owner decision 6: stored 80 / 85 / 90 lifted above today's curve,
-    then almost nothing from 90 to 99, and a safe slope past 99."""
+def test_generation_6_top_anchors_and_the_top_that_keeps_paying():
+    """Owner decisions 6 and 16: stored 80 / 85 / 90 lifted above today's
+    curve, stored 99 clearly above 90, and a safe, flat-ish slope past 99."""
     tuning = _generation_6()
     speed = lambda power: physics._power_bat_speed(power, tuning)  # noqa: E731
     lifts = {
@@ -242,12 +251,13 @@ def test_generation_6_top_anchors_and_the_flat_top():
     # No cliff on the way up: never more than twice today's slope.
     for power in range(57, 64):
         assert 0.0 < speed(power + 1.0) - speed(float(power)) <= 1.9, power
-    # Stored 90 to 99 (engine 63.33 to 66.33): under 1 mph in all.
-    assert 0.0 < speed(66.33) - speed(63.33) < 1.0
-    # Above anything the stored scale can hold: flat-ish, and far below the
-    # knee formula (which gives a Power 80 hitter 26.9 mph).
+    # Stored 90 to 99 (engine 63.33 to 66.33): 1 to 2 mph (decision 16;
+    # about three home runs a season at equal Contact).
+    assert 1.0 <= speed(66.33) - speed(63.33) <= 2.0
+    # Above anything the stored scale can hold: rising, flat-ish, and far
+    # below the knee formula (which gives a Power 80 hitter 26.9 mph).
     assert 0.0 < (speed(80.0) - speed(66.33)) / (80.0 - 66.33) <= 0.2
-    assert speed(80.0) < 18.0 and speed(99.0) < 21.0
+    assert speed(80.0) < 18.5 and speed(99.0) < 21.0
     assert speed(66.33) > _knee_formula(66.33)
 
 
@@ -297,7 +307,7 @@ def test_on_a_weak_bat_hits_the_ball_softer_and_a_90_power_bat_harder():
     built = load_tuning({**_generation_6().values, **centres})
     assert _mean_exit_velo(built, 35.0) < _mean_exit_velo(today, 35.0) - 2.0
     assert _mean_exit_velo(built, 63.33) > _mean_exit_velo(today, 63.33) + 0.8
-    # At 56, where the table is today's curve, nothing moves at all.
-    assert _mean_exit_velo(built, 56.0) == pytest.approx(
-        _mean_exit_velo(today, 56.0), abs=1e-6
-    )
+    # The average hitter's bat is half a mph quicker (the centre that holds
+    # league home runs); his ball comes off about a third of a mph harder.
+    lift = _mean_exit_velo(built, 50.0) - _mean_exit_velo(today, 50.0)
+    assert 0.0 < lift < 0.6

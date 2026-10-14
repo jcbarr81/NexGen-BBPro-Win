@@ -36,6 +36,10 @@ class PitchResult:
 
 
 FASTBALL_PITCHES = {"fb", "si"}
+# The shortest carry a double can need, as a share of the park's double
+# distance (times park_size_scale and double_distance_scale), whatever the
+# speed, gap and line-drive credits (``resolve_batted_ball``).
+DOUBLE_THRESHOLD_FLOOR = 0.4
 BREAKING_PITCHES = {"sl", "cb", "kn", "scb"}
 OFFSPEED_PITCHES = {"cu"}
 
@@ -1608,6 +1612,19 @@ def resolve_batted_ball(
         if away is not None:
             span = max(1e-6, tuning.get("double_line_drive_span", 10.0))
             double_threshold *= 1.0 - line_drive_scale * max(0.0, 1.0 - away / span)
+    # No combination of speed, rating and profile credits takes the line
+    # below DOUBLE_THRESHOLD_FLOOR of the park's distance (a large credit
+    # once made it negative, so a 49 ft flare was a double). Today's
+    # strongest credits leave about .45 of it, so the floor never binds on
+    # the shipped values.
+    floor = (
+        park.stadium.double_distance(angle)
+        * park_scale
+        * double_scale
+        * DOUBLE_THRESHOLD_FLOOR
+    )
+    if double_threshold < floor:
+        double_threshold = floor
     triple_threshold = (
         park.stadium.triple_distance(angle) * park_scale * triple_scale * triple_speed
     )

@@ -422,11 +422,13 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # the Power ratings the full 1-99 stored scale can reach at the top
     # (engine 60 / 61.67 / 63.33 / 65 / 66.33 = stored 80 / 85 / 90 / 95 /
     # 99). Generation 6's values (scripts/kpi_profiles/r6_power.json) are
-    # fitted, not hand-set: weak bats on 0.55 mph a point below 50 (0.6 from
-    # 50 down to 40, 0.5 from 40 down to 30), the centre lifted until league
-    # home runs are where they were, and the top anchors solved for home
-    # runs a year (35 / 40 / 45 per 650 PA at stored 80 / 85 / 90 with
-    # average Contact, 55 at stored 99 with Contact 80). Re-fit the top with
+    # fitted, not hand-set: weak bats on about 0.55 mph a point below 50
+    # (0.5 from 30 to 40, 0.55 to 45, 0.6 to 50), a slope that keeps rising
+    # through the middle (0.6, 0.65, 0.8 to 57; no flat spot where most
+    # regulars sit), the centre set so league home runs are where they were,
+    # and the top anchors solved for home runs a year (35 / 40 / 45 per 650
+    # PA at stored 80 / 85 / 90 with average Contact; stored 99 about 48,
+    # and 57 with Contact 80: owner decisions 6 and 16). Re-fit the top with
     # scripts/fit_power_table.py whenever exit velocity or carry changes
     # (RELEASE6_PLAN.md 2.2).
     "power_curve_model": 0.0,

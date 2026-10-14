@@ -35,9 +35,11 @@ def _overrides():
 
 
 def test_the_targets_are_the_owners_anchors():
+    """Decision 6 (35 / 40 / 45 at stored 80 / 85 / 90) and decision 16
+    (stored 99: about 48 with average Contact, 57 with Contact 80)."""
     assert fit_tool.TARGETS == (
         (60.0, 50.0, 35.0), (61.67, 50.0, 40.0), (63.33, 50.0, 45.0),
-        (66.33, 60.0, 55.0),
+        (66.33, 50.0, 48.0), (66.33, 60.0, 57.0),
     )
     assert fit_tool.SEASON_PA == 650.0
 
@@ -136,3 +138,18 @@ def test_a_small_fit_runs_end_to_end():
     # 12,000 PA cannot fit an anchor; it lands in the right part of the scale.
     assert 8.0 < row["solved_offset"] < 22.0
     assert list(result["table"]) == ["63.33"]
+
+
+def test_two_targets_at_one_power_share_the_anchor():
+    """Decision 16 names two targets at stored 99; the anchor is the mean
+    of the two solves, and both rows are reported."""
+    result = fit_tool.fit(
+        base_dir=CALIBRATION, overrides=_overrides(), pa=3000, seeds=(9,),
+        step=3.0, procs=1, targets=((66.33, 50.0, 48.0), (66.33, 60.0, 57.0)),
+    )
+    rows = result["anchors"]
+    assert [(r["contact"], r["target_hr650"]) for r in rows] == [
+        (50.0, 48.0), (60.0, 57.0),
+    ]
+    mean = (rows[0]["solved_offset"] + rows[1]["solved_offset"]) / 2.0
+    assert result["table"]["66.33"] == pytest.approx(round(mean, 2))

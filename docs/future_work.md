@@ -1864,24 +1864,31 @@ over `--engine 6`). Numbers are calibration / league / flat fixture means
 (8 / 4 / 2 seasons) unless noted.
 
 - **Thirty-homer hitters.** Weak bats lose home runs and the league total
-  is held, so home runs move up the order, and owner decision 6 lifts
-  stored Power 80 to 99. `qualified_hr30_count` reads 20.6 / 17.8 / 16.5
-  (generation 5: 19.4 / 15.5 / 9.5), but one season's count has a spread of
-  about 4: two near-identical tables read 20.5 and 24.4 on the same eight
-  calibration seeds, one season at 33. The strict gate (20 +/- 8) fails
-  about one season in eight. Gate the pooled share or re-centre the count
-  (see the build report) before generation 6 is gated in CI.
-- **`corr_avg_contact` is lower** (.59 / .62 / .64 against .63 / .63 /
-  .64; three profile variants average -.04 / -.02 / -.02). A steeper Power
-  curve makes Power matter more to batting average through exit velocity,
-  which dilutes Contact's share. The lever is the Contact hit edge
-  (`contact_babip_per10`) or the fielding hit table, at the joint retune.
-- **Stored Power 90 to 99 is worth about 1 to 2 home runs a year at the same
-  Contact** (engine 63.33 to 66.33: 14.5 to 15.0 mph). That is what the
-  two anchors of decision 6 give together (45 at Power 90 with average
-  Contact, 55 at Power 99 with Contact 80). If development should keep
-  paying in the 90s, raise the Power 99 anchor (15.5 mph is about 48 with
-  average Contact and 57 with Contact 80) and say so to the owner.
+  is held, so home runs move up the order; decisions 6 and 16 lift stored
+  Power 80 to 99, and the middle of the curve no longer has a flat spot.
+  `qualified_hr30_count` reads 24.5 / 21.5 / 20.0 (generation 5: 19.4 /
+  15.5 / 9.5) and one season's count has a spread of about 4 (a first-round
+  table read 20.5, 24.4 and 20.6 on the same eight calibration seeds, one
+  season at 33). The strict gate (20 +/- 8) is a per-season gate and will
+  fail now and then. Gate it pooled over seeds, as the bottom-fifth ratio
+  (seasons 9-13 of the first table read .797 / .765 / .755 / .675 / .751),
+  before generation 6 is gated in CI.
+- **`corr_avg_contact` is lower** (.59 / .62 / .62 against .63 / .63 /
+  .64). A steeper Power curve makes Power matter more to batting average
+  through exit velocity, which dilutes Contact's share. The lever is the
+  Contact hit edge (`contact_babip_per10`) or the fielding hit table, at
+  the joint retune.
+- **The top of the Power scale (decision 16).** Stored 99 is set at about
+  48 home runs per 650 PA with average Contact and 57 with Contact 80
+  (stored 90: 45 and 53), so 90 to 99 is worth about three home runs at
+  equal Contact. One anchor serves both Contact levels, so they cannot
+  both be hit exactly; `fit_power_table.py` takes the mean of the two
+  solves.
+- **The double line has a floor** (`physics.DOUBLE_THRESHOLD_FLOOR`, 0.4 of
+  the park's double distance) that no shipped setting reaches; a large
+  line-drive credit had made it negative. If a commissioner slider ever
+  moves `double_gap_scale` or the speed scale, check the floor still
+  binds only on nonsense.
 - **The line-drive credit reads the rating, not the ball.** A hitter's
   mean launch angle moves 0.1 degree per point of gf and the regulars' gf
   spread is about 3 points, so no rule on launch angle can separate their

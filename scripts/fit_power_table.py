@@ -1,18 +1,23 @@
 """Re-fit the top anchors of the Power curve (``bat_speed_power_table``).
 
-Release 6a, owner decision 6: on the full 1-99 stored scale a hitter with
-Power in the 90s hits 45 to 55 home runs a year, depending on his Contact.
-In engine ratings (stored 80 / 85 / 90 / 99 = engine 60 / 61.67 / 63.33 /
-66.33) the anchors are home runs per 650 PA:
+Release 6a, owner decisions 6 and 16: on the full 1-99 stored scale a hitter
+with Power in the 90s hits 45 to 55 home runs a year, depending on his
+Contact, and the top of the scale keeps paying (stored 99 clearly better
+than 90). In engine ratings (stored 80 / 85 / 90 / 99 = engine 60 / 61.67 /
+63.33 / 66.33) the targets are home runs per 650 PA:
 
     Power 60     average Contact      35
     Power 61.67  average Contact      40
     Power 63.33  average Contact      45
-    Power 66.33  Contact 60 (st. 80)  55
+    Power 66.33  average Contact      48
+    Power 66.33  Contact 60 (st. 80)  57
+
+The two Power 66.33 targets share one anchor: its value is the mean of the
+two solves, and both are printed.
 
 Home runs are a distance-against-the-fence threshold, so the bat speed that
 gives each number depends on everything between the bat and the wall. This
-script re-solves the four anchors whenever exit velocity or carry changes
+script re-solves the anchors whenever exit velocity or carry changes
 (RELEASE6_PLAN.md 2.2), by the design brief's response-table procedure:
 
 1. For each anchor, a Monte Carlo on the real pitch kernel: the league's
@@ -29,9 +34,10 @@ way from 63.33 to 66.33; 80 on a 0.15 mph-a-point line past 66.33, which no
 stored rating can reach).
 
 It does NOT set the weak-bat side or the centre. Those are decision 4's
-slope (0.55 mph a point below 50 on average) and the league home run level,
-and the level is settled with seasons, not here: move the 30-to-52 anchors
-together until home runs per team-game match the previous generation on
+slope (0.55 mph a point below 50 on average, rising smoothly through the
+middle of the scale) and the league home run level, and the level is
+settled with seasons, not here: move the 30-to-57 anchors together until
+home runs per team-game match the previous generation on
 calibration seeds 1-8 and the league fixture seeds 1-4 (0.1 mph at the
 centre is about 0.6% of league home runs), then read ``power_hr600_p30``
 and ``_p40`` off the matchup grid (4 to 10).
@@ -64,7 +70,8 @@ TARGETS: tuple[tuple[float, float, float], ...] = (
     (60.0, 50.0, 35.0),
     (61.67, 50.0, 40.0),
     (63.33, 50.0, 45.0),
-    (66.33, 60.0, 55.0),
+    (66.33, 50.0, 48.0),
+    (66.33, 60.0, 57.0),
 )
 SEASON_PA = 650.0
 # mph a point past the last anchor a stored rating can reach.
@@ -182,7 +189,8 @@ def fit(
     for key, counts in results:
         pooled.setdefault(key, Counter()).update(counts)
     rows = []
-    solved: dict[float, float] = {}
+    # Power -> the solve of every target at that Power (one anchor each).
+    solves: dict[float, list[float]] = {}
     for power, contact, target in targets:
         points = sorted(
             (offset, SEASON_PA * counts["hr"] / counts["pa"])
@@ -190,14 +198,16 @@ def fit(
             if (p, c) == (power, contact)
         )
         now = current_offset(tuning, power)
-        solved[power] = solve_offset(points, target)
+        offset = solve_offset(points, target)
+        solves.setdefault(power, []).append(offset)
         rows.append({
             "power": power, "contact": contact, "target_hr650": target,
             "table_offset": now,
             "table_hr650": dict(points).get(round(now, 4)),
-            "solved_offset": solved[power],
+            "solved_offset": offset,
             "response": [{"offset": o, "hr650": r} for o, r in points],
         })
+    solved = {power: sum(found) / len(found) for power, found in solves.items()}
     return {"anchors": rows, "table": table_from(solved)}
 
 
