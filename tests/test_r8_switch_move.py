@@ -394,6 +394,35 @@ def test_a_scale_2_file_in_the_older_format_is_rewritten_in_the_new_one(
     assert news(data) == ""
 
 
+def test_a_league_moves_at_its_rollover_like_the_live_leagues_will(
+    scratch, monkeypatch
+):
+    """A league in the middle of a legacy season when the switch goes on
+    (alpha-test and stats-test today) finishes it on the legacy engine and
+    scale 1, and moves when its next season starts."""
+    from tests.r8_switch_support import play_days, roll_over
+
+    data = scratch
+    original = (data / "players.csv").read_bytes()
+    write_schedule(data, 2026, played=3)
+    _first_game(monkeypatch)  # legacy: an entry with no generation
+    switch_on(monkeypatch)
+    play_days(data, 5)
+    _first_game(monkeypatch)
+    assert centers.league_engine_generation() == 4
+    assert (data / "players.csv").read_bytes() == original
+    roll_over(data, 2026)
+    centers.clear_rating_center_cache()
+    write_schedule(data, 2027)
+    assert centers.league_engine_generation(store=False) == 6
+    _first_game(monkeypatch, 2027)
+    assert stored_generation(data, 2027) == 6
+    assert stored_generation(data, 2026) is None  # history untouched
+    assert players_file_rating_scale(data / "players.csv") == FULL_RATING_SCALE
+    assert (data / "players.scale1.2027.csv").read_bytes() == original
+    assert "intentional walks" in news(data)  # coming from the legacy engine
+
+
 # --- open draft pools and the news text ----------------------------------------
 
 

@@ -524,6 +524,17 @@ def plan_move(base: Path | str, *, respread: Optional[bool] = None) -> MovePlan:
     except OSError as exc:
         return MovePlan(path, [], [], {}, None, blocker=f"players.csv cannot be read ({exc})")
     plan = MovePlan(path, fieldnames, rows, {}, _active_ids(base))
+    hold = read_scale_log(base).get("hold")
+    if hold:
+        # Set by a rollback (the runbook): the league stays on scale 1 --
+        # neither moved again at its next season nor repaired -- until an
+        # operator removes the key.
+        detail = hold if isinstance(hold, str) else hold.get("reason", "held")
+        plan.blocker = (
+            f"an operator holds this league on the current scale ({detail}); "
+            f'remove "hold" from {RATING_SCALE_LOG_FILENAME} to let it move'
+        )
+        return plan
     if not rows:
         plan.blocker = "players.csv has no players"
         return plan
@@ -618,6 +629,10 @@ def _signature_key(base: Path) -> Tuple[str, int, int]:
     try:
         for entry in roster_dir.glob("*.csv"):
             roster_sig ^= hash((entry.name, entry.stat().st_mtime_ns))
+    except OSError:
+        pass
+    try:
+        roster_sig ^= hash(("log", (base / RATING_SCALE_LOG_FILENAME).stat().st_mtime_ns))
     except OSError:
         pass
     return (str(path.resolve(strict=False)), sig[0] ^ roster_sig, sig[1])
@@ -1171,9 +1186,13 @@ def rollback_league(
     every change since is kept; a value developed since the conversion
     comes back fractional and is rounded half up (at most half an engine
     point), a potential keeps its gap; a re-spread is NOT undone (use the
-    backup). Open draft pools are put back the same way. The engine
-    generation is NOT changed here (a season in play must never change
-    engine): the runbook says how a season is moved.
+    backup). Open draft pools are put back the same way. The league is
+    put on HOLD (``"hold"`` in ``rating_scale.json``): it is neither
+    repaired nor moved again at its next season until an operator removes
+    the key, so a league left on generation 6 stays on scale 1 (and plays
+    correctly: scale is play-neutral). The engine generation is NOT changed
+    here (a season in play must never change engine):
+    :func:`set_recorded_generation` and the runbook.
     """
 
     base = Path(base)
@@ -1243,6 +1262,9 @@ def rollback_league(
         })
         payload = read_scale_log(base)
         payload["scale"] = LEGACY_RATING_SCALE
+        # The league stays on scale 1 until an operator removes this
+        # (plan_move): no repair, and no move at its next season.
+        payload["hold"] = {"since": event["at"], "reason": f"rolled back ({mode})"}
         _write_bytes_atomic(
             base / RATING_SCALE_LOG_FILENAME,
             json.dumps(payload, indent=2, sort_keys=True).encode("utf-8"),

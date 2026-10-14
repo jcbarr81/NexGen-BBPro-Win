@@ -53,13 +53,29 @@ def test_rollback_from_the_backup(scratch, monkeypatch):
     assert scale_log(data)["scale"] == 1
     assert pool.read_text(encoding="utf-8") == pool_text
     assert event["draft_pools"] == ["draft_pool_2026.json"]
-    # The season stays on generation 6 (scale 1 plays correctly on it).
+    # The season stays on generation 6 (scale 1 plays correctly on it), and
+    # the hold keeps the league on scale 1: no repair at its next game ...
+    assert scale_log(data)["hold"]["reason"] == "rolled back (backup)"
     assert stored_generation(data, 2026) == 6
     game_tuning(monkeypatch, "2026-04-02")
-    # ... and a league recorded on generation 6 is converted again at its
-    # next game unless the generation is set back too: the runbook pairs
-    # the two whenever the league must stay on scale 1.
-    assert players_file_rating_scale(data / "players.csv") == 2
+    assert (data / "players.csv").read_bytes() == original
+    # ... and no move at its next season.
+    from services import league_rating_centers as centers
+
+    from tests.r8_switch_support import roll_over
+
+    roll_over(data, 2026)  # rebuilds season_progress.json: no witness
+    write_schedule(data, 2027)
+    centers.clear_rating_center_cache()
+    game_tuning(monkeypatch, "2027-04-01")
+    assert stored_generation(data, 2027) == 5
+    assert (data / "players.csv").read_bytes() == original
+    assert "operator holds this league" in scale_log(data)["events"][-1]["reason"]
+    # Removing the hold lets it move again (at the next season).
+    payload = scale_log(data)
+    del payload["hold"]
+    (data / "rating_scale.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert migration.move_blocker(data) is None
 
 
 def test_rollback_by_the_exact_inverse_keeps_every_change(scratch, monkeypatch):
