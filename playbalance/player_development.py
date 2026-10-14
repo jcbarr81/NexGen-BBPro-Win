@@ -70,6 +70,13 @@ _TRACK_NOTES: Dict[str, str] = {
     "pitch_lab": "Pitch design groups focusing on a single breaking ball.",
 }
 
+def track_label(track: str) -> str:
+    """The name a training track is shown under ("contact" -> "Barrel
+    Control")."""
+
+    return _TRACK_LABELS.get(track, track.replace("_", " ").title())
+
+
 _AGE_TIERS = {
     "prospect": range(16, 24),
     "prime": range(24, 30),
@@ -120,9 +127,10 @@ def require_engine_scale_players(players: Iterable[BasePlayer], context: str) ->
     Training adds whole points to the STORED attributes against constants
     in engine points (a gain of 1-5, a cap of 5, the age table), so on a
     scale 2 player a "+3" would be one engine point of Contact and three of
-    speed. Until the development model is rebuilt on the stored scale
-    (``RATING_SCALE_DESIGN.md`` section 3), it stops rather than develop
-    anyone wrongly; the same tripwire the archived engine has.
+    speed. Scale 2 players develop through ``playbalance.development`` at
+    the rollover instead, and the spring camp (``playbalance.training_camp``)
+    only reports that for them; these scale 1 mechanics stop rather than
+    develop one wrongly, the same tripwire the archived engine has.
     """
 
     for player in players:

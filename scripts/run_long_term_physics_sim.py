@@ -717,7 +717,7 @@ def main() -> int:
             _set_sim_date(date(year, 1, 15))
             players = {p.player_id: p for p in load_players_from_csv("data/players.csv")}
             log_phase("aging_start", year=year, players=len(players))
-            retired = age_and_retire(players)
+            retired = age_and_retire(players, season=year)
             retired_ids = {p.player_id for p in retired}
             log_phase(
                 "aging_done",

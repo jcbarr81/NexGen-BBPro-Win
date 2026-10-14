@@ -26,8 +26,12 @@ from utils.stats_persistence import load_stats, merge_daily_history, reset_stats
 
 _DATA_DIR = ActivePath(get_data_dir)
 
-# Rollover leaves ratings alone while this is set (see _apply_yearly_aging).
+# Rollover leaves scale 1 ratings alone while this is set (see
+# _apply_yearly_aging).
 YEARLY_AGING_PAUSED = True
+# Rollover develops the players stored on rating scale 2 while this is set
+# (see _apply_yearly_development); it never touches a scale 1 row.
+SCALE_2_DEVELOPMENT = True
 _STATS_PATH = ActivePath(lambda: get_data_dir() / "season_stats.json")
 _STANDINGS_PATH = ActivePath(lambda: get_data_dir() / "standings.json")
 _SCHEDULE_PATH = ActivePath(lambda: get_data_dir() / "schedule.csv")
@@ -223,25 +227,35 @@ class LeagueRolloverService:
             league_id=self.context.league_id,
         )
 
-        # Apply yearly aging to every player on every roster. The aging
-        # module already has the per-attribute adjustment table — we just
-        # need to call it once per offseason. Failures are non-fatal:
-        # the rollover should still complete even if some player rows
-        # are malformed.
-        try:
-            self._apply_yearly_aging()
-        except Exception as exc:  # pragma: no cover - defensive
-            artifacts["aging_error"] = str(exc)
-
-        # Run retirements AFTER aging so the aging-adjusted ratings
-        # feed into the "washed" / "declining" thresholds. Retirees
-        # are removed from rosters, released from contracts, and
-        # surfaced in the news feed.
         next_year = (
             next_descriptor.get("league_year")
             if isinstance(next_descriptor, dict)
             else (league_year if isinstance(league_year, int) else None)
         )
+
+        # Develop the players stored on rating scale 2 (growth toward
+        # potential, decline after the peak, training focus and budgets;
+        # playbalance.development). A league with no scale 2 row is not
+        # touched and records nothing here. A failure is reported, not
+        # swallowed, and leaves the players file as it was.
+        try:
+            development = self._apply_yearly_development(next_year)
+            if development:
+                artifacts["development"] = json.dumps(development)
+        except Exception as exc:
+            artifacts["development_error"] = str(exc)
+
+        # Yearly aging of scale 1 players: paused (7.51.2). Failures are
+        # non-fatal: the rollover should still complete even if some
+        # player rows are malformed.
+        try:
+            self._apply_yearly_aging()
+        except Exception as exc:  # pragma: no cover - defensive
+            artifacts["aging_error"] = str(exc)
+
+        # Run retirements AFTER development so the new ratings feed into
+        # the "washed" / "declining" thresholds. Retirees are removed from
+        # rosters, released from contracts, and surfaced in the news feed.
         try:
             from services.player_retirement import run_yearly_retirements
 
@@ -315,6 +329,27 @@ class LeagueRolloverService:
             finance_rollover=finance_rollover,
         )
 
+    def _apply_yearly_development(
+        self, season_year: Optional[int]
+    ) -> Optional[Dict[str, Any]]:
+        """One offseason of development for the scale 2 players.
+
+        ``services.offseason_development``: only rows stored on rating
+        scale 2 change, the whole file is written safely, and a league
+        with no such row is neither read past its header nor written
+        (``None``). Off while ``SCALE_2_DEVELOPMENT`` is unset.
+        """
+
+        if not SCALE_2_DEVELOPMENT:
+            return None
+        from services.offseason_development import run_offseason_development
+
+        return run_offseason_development(
+            season_year=season_year if isinstance(season_year, int) else None,
+            data_dir=Path(_DATA_DIR),
+            league_id=self.context.league_id,
+        )
+
     def _apply_yearly_aging(self) -> None:
         """Apply one season's worth of aging adjustments to every player.
 
@@ -323,14 +358,15 @@ class LeagueRolloverService:
         ceiling but 99, on ratings whose whole league spread is about 5
         points; one rollover of a live league's copy put 53 hitters past
         the league's best Contact. Players still get a year older and
-        retire. A development model returns with the rating re-spread
-        (Release 6 owner decisions, 2026-10-13).
+        retire. Players on rating scale 2 develop through
+        :meth:`_apply_yearly_development` instead and are never aged here.
         """
 
         if YEARLY_AGING_PAUSED:
             return
 
         from playbalance.aging import age_players
+        from utils.rating_scale import LEGACY_RATING_SCALE, rating_scale_of
 
         players_path = _DATA_DIR / "players.csv"
         try:
@@ -339,7 +375,9 @@ class LeagueRolloverService:
             return
         if not players:
             return
-        age_players(players)
+        # The table is in engine points: scale 1 players only. Every player
+        # is still saved below (save_players REPLACES the file).
+        age_players(p for p in players if rating_scale_of(p) == LEGACY_RATING_SCALE)
         # Persist back so the new ratings stick. Use the same writer the
         # rest of the codebase uses for safety / column ordering.
         try:
