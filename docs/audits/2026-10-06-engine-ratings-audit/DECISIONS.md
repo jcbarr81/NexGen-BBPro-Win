@@ -491,3 +491,11 @@ The scale change itself was proved play-neutral on five leagues (identical
 seasons after stretching the stored ratings and un-stretching them where the
 engine loads players). Salaries, trades and CPU roster logic keep reading
 today's internal numbers through one accessor, so the economy does not shift.
+16. **The top of the Power scale keeps paying** (taken after the Power
+    build). Fitting decision 6's two anchors exactly left only about one
+    home run between stored Power 90 and 99 at equal Contact. Decided:
+    stored Power 99 is clearly better than 90, about 48 home runs a season
+    with average Contact (90: 45) and about 57 with Contact 80 (90: 53); a
+    60-homer season stays rare but possible for a Power 99, Contact 89
+    hitter. The top bat-speed anchor moves from about 15.0 to about 15.5 mph
+    (engine Power 66.33) at integration.
