@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 import json
+import logging
 import shutil
 
 from playbalance.awards_manager import AwardsManager
@@ -25,6 +26,7 @@ from utils.sim_date import get_current_sim_date
 from utils.stats_persistence import load_stats, merge_daily_history, reset_stats
 
 _DATA_DIR = ActivePath(get_data_dir)
+_LOGGER = logging.getLogger(__name__)
 
 # Rollover leaves scale 1 ratings alone while this is set (see
 # _apply_yearly_aging).
@@ -236,14 +238,20 @@ class LeagueRolloverService:
         # Develop the players stored on rating scale 2 (growth toward
         # potential, decline after the peak, training focus and budgets;
         # playbalance.development). A league with no scale 2 row is not
-        # touched and records nothing here. A failure is reported, not
-        # swallowed, and leaves the players file as it was.
+        # touched and records nothing here. A failure leaves the players
+        # file as it was and is made visible: logged with the league id,
+        # written into the archived season's record (its artifacts were
+        # copied above, before this step) and posted to the commissioner.
         try:
             development = self._apply_yearly_development(next_year)
             if development:
                 artifacts["development"] = json.dumps(development)
+                self._record_in_archive(
+                    metadata_path, {"development": artifacts["development"]}
+                )
         except Exception as exc:
             artifacts["development_error"] = str(exc)
+            self._report_development_failure(exc, next_year, metadata_path)
 
         # Yearly aging of scale 1 players: paused (7.51.2). Failures are
         # non-fatal: the rollover should still complete even if some
@@ -349,6 +357,53 @@ class LeagueRolloverService:
             data_dir=Path(_DATA_DIR),
             league_id=self.context.league_id,
         )
+
+    def _record_in_archive(self, metadata_path: Path, entries: Dict[str, str]) -> None:
+        """Add ``entries`` to the archived season's artifacts: its record in
+        the season context and its ``metadata.json``, both written before
+        the offseason steps ran. Only the development step calls this, so a
+        scale 1 rollover writes exactly what it always did."""
+
+        try:
+            if self.context.seasons:
+                record = self.context.seasons[-1]
+                record.setdefault("artifacts", {}).update(entries)
+                self.context.save()
+        except Exception:  # pragma: no cover - defensive
+            _LOGGER.exception("rollover: could not update the season record")
+        try:
+            metadata = _read_json(Path(metadata_path), {})
+            if isinstance(metadata, dict):
+                metadata.setdefault("artifacts", {}).update(entries)
+                _write_json(Path(metadata_path), metadata)
+        except Exception:  # pragma: no cover - defensive
+            _LOGGER.exception("rollover: could not update %s", metadata_path)
+
+    def _report_development_failure(
+        self, exc: Exception, season_year: Optional[int], metadata_path: Path
+    ) -> None:
+        """A development step that did not run: logged, kept in the
+        archived record, and told to the commissioner. Ratings are as they
+        were; nothing is retried by itself."""
+
+        league_id = self.context.league_id
+        _LOGGER.error(
+            "rollover of league %s: offseason development for %s did not run: %s",
+            league_id, season_year, exc, exc_info=exc,
+        )
+        self._record_in_archive(metadata_path, {"development_error": str(exc)})
+        try:
+            from utils.news_logger import log_news_event
+
+            log_news_event(
+                f"Offseason player development did not run for the {season_year} "
+                f"season, so no player's ratings changed this offseason. "
+                f"Reason: {exc}",
+                category="commissioner",
+                file_path=Path(_DATA_DIR) / "news_feed.txt",
+            )
+        except Exception:  # pragma: no cover - defensive
+            _LOGGER.exception("rollover: could not post the development news item")
 
     def _apply_yearly_aging(self) -> None:
         """Apply one season's worth of aging adjustments to every player.

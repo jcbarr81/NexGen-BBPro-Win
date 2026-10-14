@@ -155,10 +155,10 @@ class DevelopmentParams:
             "ch": RatingCurve(peak=30, decline=0.65, decline_step=0.42),
             "ph": RatingCurve(peak=30, decline=0.7, decline_step=0.45),
             # Eye: a stored point above average is a fifth of an engine
-            # point, so it grows harder and ages well (late peak, slow loss).
-            "eye": RatingCurve(
-                peak=33, growth=1.8, decline=0.1, decline_step=0.08, level_power=3.0
-            ),
+            # point, so its growth is slow and it ages well (late peak, slow
+            # loss). Sized with scale 2 draft classes marking Eye down less
+            # (player_generator.SCALE2_DRAFT_EYE_MARKDOWN).
+            "eye": RatingCurve(peak=32, growth=0.6, decline=0.2, decline_step=0.15),
             "fa": RatingCurve(peak=29, decline=0.5, decline_step=0.30),
             "arm": RatingCurve(peak=29, decline=0.3, decline_step=0.20),
             "sp": RatingCurve(peak=28, decline=0.1, decline_step=0.06),
@@ -167,7 +167,7 @@ class DevelopmentParams:
     pitcher: Mapping[str, RatingCurve] = field(
         default_factory=lambda: {
             "control": RatingCurve(peak=31, growth=0.6, decline=1.0, decline_step=0.65),
-            "movement": RatingCurve(peak=30, growth=0.65, decline=1.0, decline_step=0.65),
+            "movement": RatingCurve(peak=30, growth=0.65, decline=0.85, decline_step=0.55),
             "arm": RatingCurve(peak=29, decline=0.4, decline_step=0.28),
             "endurance": RatingCurve(peak=30, decline=0.25, decline_step=0.15),
             "hold_runner": RatingCurve(peak=31, decline=0.4, decline_step=0.25),
@@ -423,7 +423,9 @@ class _ObjectView:
 
     def set(self, key: str, current: int, potential: int) -> None:
         setattr(self.player, key, int(current))
-        self.blob[key] = int(potential)
+        # An unset potential (missing or 0) stays unset: see _RowView.set.
+        if _number(self.blob.get(key)) is not None:
+            self.blob[key] = int(potential)
         if _number(getattr(self.player, _POT + key, None)) is not None:
             setattr(self.player, _POT + key, int(potential))
 
@@ -442,7 +444,11 @@ class _RowView:
 
     def set(self, key: str, current: int, potential: int) -> None:
         self.row[key] = _like(self.row.get(key), current)
-        if _POT + key in self.row:
+        # An unset potential (blank or 0) stays as it is. The model gives it
+        # no room to grow; the loader reads a blank one as the current
+        # rating and the trade evaluator a 0 as unset, so writing the new
+        # rating into it would change nothing but the file.
+        if _number(self.row.get(_POT + key)) is not None:
             self.row[_POT + key] = _like(self.row.get(_POT + key), potential)
 
 

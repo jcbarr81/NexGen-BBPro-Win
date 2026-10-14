@@ -63,8 +63,6 @@ def test_the_regulars_keep_their_spread(report):
     base = report["years"][0]["regulars"]
     for year in report["years"][5:]:
         for key in GATE:
-            if key == "h_eye":
-                continue  # wider, see the release report
             assert abs(year["regulars"][key]["sd"] - base[key]["sd"]) < 4.5, (key, year["season"])
 
 
@@ -78,3 +76,33 @@ def test_an_age_curve_emerges(report):
         young = curve["<=21"][group]["mean"]
         prime = statistics.fmean(curve[b][group]["mean"] for b in ("25-27", "28-30"))
         assert prime > young + 3, (group, curve)
+
+
+def test_the_run_does_not_depend_on_the_real_date(tmp_path, monkeypatch):
+    """Draft classes are dated from the league's year; the sim passes the
+    day explicitly, so the calendar it runs on changes nothing."""
+
+    from datetime import datetime as _dt
+
+    from playbalance import player_generator
+
+    league = _small_league(tmp_path / "league")
+
+    def run(today):
+        class Fake(_dt):
+            @classmethod
+            def today(cls):
+                return today
+
+            @classmethod
+            def now(cls, tz=None):
+                return today
+
+        monkeypatch.setattr(player_generator, "datetime", Fake)
+        logging.disable(logging.WARNING)
+        try:
+            return simulate(league, seasons=4, seed=2, rounds=7, pool_size=54)
+        finally:
+            logging.disable(logging.NOTSET)
+
+    assert run(_dt(2026, 2, 14, 9)) == run(_dt(2028, 11, 20, 9))

@@ -16,6 +16,7 @@ def age_and_retire(
     intensity_by_player: Mapping[str, float] | None = None,
     weights_by_player: Mapping[str, Any] | None = None,
     season: Optional[int] = None,
+    develop_scale_2: bool = True,
 ) -> List[BasePlayer]:
     """Age ``players`` and remove those meeting retirement criteria.
 
@@ -30,7 +31,9 @@ def age_and_retire(
     player on rating scale 2 develops instead (``playbalance.development``):
     his club's development multiplier, training intensity and training
     weights (``weights_by_player``) shape it, and ``season`` (default: the
-    sim date's year) seeds it.
+    sim date's year) seeds it. A caller whose season rollover already
+    develops them (``LeagueRolloverService``) passes ``develop_scale_2=False``
+    so they develop once a year, not twice.
     """
 
     retired: List[BasePlayer] = []
@@ -46,7 +49,7 @@ def age_and_retire(
                 player,
                 development_multiplier=multiplier,
             )
-        else:
+        elif develop_scale_2:
             _develop(
                 player,
                 development=multiplier,

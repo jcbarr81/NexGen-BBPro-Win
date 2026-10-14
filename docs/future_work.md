@@ -2243,15 +2243,21 @@ Branch `r8-develop`: `playbalance/development.py` (the model),
 `scripts/development_population_sim.py` (the 20-season population gate).
 Scale 1 is untouched (aging stays paused, camp as in 7.51.2).
 
-- **Draft classes are dated by the real calendar, not the league's.**
-  `player_generator.generate_birthdate` uses `datetime.today()`, and
-  `draft_pool.generate_draft_pool` keeps that birthdate over its own
-  `_draft_birthdate(year)`. A league whose year runs ahead of the real one
-  (several seasons a real year) drafts players older than 17-21: by league
-  year 2035 in real 2027 a "19-year-old" pick is 27, has no growth years
-  left under the development model, and retires within a few seasons. The
-  population sim re-dates picks to the league year; the product does not.
-  Fix before scale 2 ships (date from the draft year or the sim date).
+- **Generated players are now dated from the league's year (fixed on this
+  branch).** `player_generator.reference_datetime`: today moved into the
+  league's year (draft classes: into the draft year). A league whose year is
+  the real year generates exactly what it did. Other places that still age
+  players by the real calendar (`draft_ai._player_age`,
+  `roster_auto_assign` line ~532, `player_profile_view_model`,
+  `scouting_service`, `dl_automation`, `finance_ai`, `contracts_service`
+  fallbacks) are out of this change; they misjudge ages in a league ahead of
+  the calendar and should take the sim date.
+- **The players file has no declared encoding.** `utils.player_loader` and
+  `utils.player_writer` open it in the platform's encoding (UTF-8 on Cloud
+  Run, cp1252 on a Windows desktop), so a file moved between the two reads
+  accented names wrongly. The development step matches them on purpose
+  (`offseason_development._encoding`); the fix is one explicit encoding for
+  the whole product, with a migration.
 - **Every league converges to what the draft generator produces.** The
   regulars' Contact starts at 62.9 in stats-test and 56.8 in the league
   fixture; both end near 60, so stats-test drifts down about 4 and the
@@ -2262,17 +2268,18 @@ Scale 1 is untouched (aging stays paused, camp as in 7.51.2).
 - **alpha-test needs its re-spread (decision 15) before development.** On
   the stretch alone its bunched staff (movement sd 0.9) drifts to the
   generator's level: movement +16, control +10, Eye +9 over 15 seasons.
-- **Eye spreads out among regulars** (sd 11.7 to about 18 by year 15 in
-  every league). A draft class's Eye is marked down by 0.69-0.97 of a donor
-  rating whose own spread is about 3 engine points, and a stored Eye point
-  above average is a fifth of an engine point; a growth model that cannot
-  tell markdown from talent in the gap cannot undo that. Generator
-  follow-up: mark narrow ratings (Eye) down by less, or with less jitter.
-  A prospect's Eye can also jump 20+ stored points in one offseason.
-- **Order at the switch-on rollover.** The development step acts on
-  scale 2 rows only. If the scale conversion runs after it in the same
-  rollover, that league gets no development that offseason; run the
-  conversion first.
+- **Eye's spread (addressed).** A scale 2 draft class now takes a quarter of
+  the age markdown on Eye, without jitter
+  (`player_generator.SCALE2_DRAFT_EYE_MARKDOWN`); the regulars' Eye sd ends
+  about 13-14.5 (start 11.2-11.7) instead of about 18. Scale 1 generation is
+  unchanged.
+- **Order at the switch-on rollover (decided).** The conversion runs at the
+  rollover before the development step (r8-switch), so a league's first
+  offseason on the new scale is developed.
+- **Development marker and the players file are two writes.** A crash
+  between writing `players.csv` and `development_last.json` lets a re-run
+  develop that season again. Small window; a marker inside the archived
+  season record written in the same lock would close it.
 - **A growing player's stored potential rises.** The scale 2 potential is
   stored current plus the gap in ENGINE points, so as Contact grows by
   three stored points per engine point the stored potential climbs with

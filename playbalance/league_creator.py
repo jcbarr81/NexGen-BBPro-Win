@@ -4,7 +4,7 @@ import json
 import os
 import random
 import shutil
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Set, Tuple
 
@@ -405,6 +405,9 @@ def create_league(
     if rating_scale is None:
         rating_scale = rating_scales.GENERATED_RATING_SCALE
     rating_scale = rating_scales.normalize_rating_scale(rating_scale)
+    # A new league's year is this year (its season context below), so its
+    # players are dated from today, not from whatever league is active.
+    created = datetime.today()
 
     def _report_progress(phase: str) -> None:
         if progress_callback is None:
@@ -470,6 +473,7 @@ def create_league(
                 pitcher_archetype="closer",
                 rating_profile=profile,
                 rating_scale=rating_scale,
+                reference=created,
             )
             data["is_pitcher"] = True
             players.append(_ensure_unique_id(data))
@@ -479,6 +483,7 @@ def create_league(
                 age_range=age_range,
                 rating_profile=profile,
                 rating_scale=rating_scale,
+                reference=created,
             )
             data["is_pitcher"] = True
             players.append(_ensure_unique_id(data))
@@ -498,6 +503,7 @@ def create_league(
                     primary_position=pos,
                     rating_profile=profile,
                     rating_scale=rating_scale,
+                    reference=created,
                 )
                 data["is_pitcher"] = False
                 if index >= 8 and spares.get(pos):
@@ -515,6 +521,7 @@ def create_league(
                 age_range=age_range,
                 rating_profile=profile,
                 rating_scale=rating_scale,
+                reference=created,
             )
             data["is_pitcher"] = False
             players.append(_ensure_unique_id(data))

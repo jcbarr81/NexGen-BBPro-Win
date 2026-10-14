@@ -164,6 +164,14 @@ class SeasonManager:
                 result = service.archive_season()
                 self.rollover_result = result
                 logger.info("Season rollover complete for %s (%s)", result.season_id, result.status)
+                # Steps that failed inside a completed rollover (they never
+                # stop it): say so, not only "complete".
+                for key, value in sorted((result.artifacts or {}).items()):
+                    if key.endswith("_error"):
+                        logger.error(
+                            "Season rollover %s: step %s failed: %s",
+                            result.season_id, key[: -len("_error")], value,
+                        )
             except Exception as exc:  # pragma: no cover - defensive, integration path
                 logger.exception("Season rollover failed: %s", exc)
                 self.rollover_result = RolloverResult(

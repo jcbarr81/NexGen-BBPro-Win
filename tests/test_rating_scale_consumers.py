@@ -20,6 +20,8 @@ is tested on its own.
 
 from __future__ import annotations
 
+import collections
+import contextlib
 import copy
 import csv
 import dataclasses
@@ -240,18 +242,57 @@ def test_trade_value_pieces_are_unchanged(leagues):
             lambda p: evaluator._fit_value(p, roster_fit=fit, strategy_profile=profile),
             distinct=3,
         )
-    # Current value and timeline read potentials: the nogap league isolates
-    # the scale (the new potential view is tested below).
+    # Current value and timeline read potentials. With the potential read
+    # the scale 1 way (_scale_1_potentials) they are identical on the
+    # floored league, skipping only the gaps cut at 99 ...
+    cut = leagues["floored_cut"]
+    assert 0 < len(cut) < 100
+    with _scale_1_potentials():
+        _same(leagues, evaluator._player_current_value, "floored", skip=cut)
+        for window in ("contend", "rebuild", "balanced"):
+            _same(
+                leagues,
+                lambda p: evaluator._timeline_value(
+                    p, window=window, strategy_profile="balanced"
+                ),
+                "floored",
+                skip=cut,
+            )
+    # ... and with no potential gap at all they are identical as they are.
     assert leagues["nogap_cut"] == set()
     _same(leagues, evaluator._player_current_value, "nogap")
-    for window in ("contend", "rebuild", "balanced"):
-        _same(
-            leagues,
-            lambda p: evaluator._timeline_value(
-                p, window=window, strategy_profile="balanced"
-            ),
-            "nogap",
-        )
+
+
+@contextlib.contextmanager
+def _scale_1_potentials():
+    """The trade evaluator reading a scale 2 potential as scale 1 did: the
+    engine rating plus the WHOLE stored gap, and a hitter's ``pot_*`` of 0
+    as his potential. The two deliberate scale 2 changes
+    (``POTENTIAL_GAP_DISCOUNT``, a scale 2 hitter's potential read) are
+    the only difference from the shipped evaluator."""
+
+    from services import cpu_trade_evaluator as evaluator
+    from utils import rating_scale as rs
+
+    def whole_gap(player, key, stored_potential):
+        if rs.rating_scale_of(player) == rs.LEGACY_RATING_SCALE:
+            return stored_potential
+        potential = rs._set_number(stored_potential)
+        stored = rs._set_number(rs._raw(player, key, None))
+        if potential is None or stored is None:
+            return stored_potential
+        spec = rs.rating_map(key, rs.rating_scale_of(player), pitcher=rs.player_is_pitcher(player))
+        if spec is None:
+            return stored_potential
+        return rs._tidy(spec.engine(stored) + (potential - stored))
+
+    saved = (evaluator.engine_potential_value, evaluator.rating_scale_of)
+    evaluator.engine_potential_value = whole_gap
+    evaluator.rating_scale_of = lambda player: rs.LEGACY_RATING_SCALE
+    try:
+        yield
+    finally:
+        evaluator.engine_potential_value, evaluator.rating_scale_of = saved
 
 
 def test_scale_2_upside_is_what_development_can_deliver(leagues):
@@ -295,13 +336,16 @@ def _team_ids(league):
         return [row["team_id"] for row in csv.DictReader(fh)]
 
 
-def test_cpu_trade_decisions_are_identical(leagues, monkeypatch):
+def _trade_decisions(leagues, name, monkeypatch):
+    """Every CPU decision of a fixed set of offers (8 offers to each of 6
+    clubs, 3 strategy profiles: 144) on league ``name`` and its twin."""
+
     from services import cpu_trade_evaluator as evaluator
 
     monkeypatch.setattr(evaluator, "is_cpu_owned_team", lambda *a, **k: True)
-    teams = _team_ids(leagues["nogap"])[:6]
-    rosters = {team: _roster(leagues["nogap"], team) for team in teams}
-    cut = leagues["nogap_cut"]
+    teams = _team_ids(leagues[name])[:6]
+    rosters = {team: _roster(leagues[name], team) for team in teams}
+    cut = leagues[f"{name}_cut"]
 
     def offers():
         made = 0
@@ -319,11 +363,11 @@ def test_cpu_trade_decisions_are_identical(leagues, monkeypatch):
                     receive_player_ids=[ours[-1 - k]],
                 )
 
-    def decide(name, trade, profile):
+    def decide(league, trade, profile):
         result = evaluator.evaluate_cpu_trade_offer(
             trade,
-            players_by_id=leagues["players"][name],
-            data_dir=leagues[name],
+            players_by_id=leagues["players"][league],
+            data_dir=leagues[league],
             rosters_by_team=rosters,
             win_pct_by_team={team: 0.5 for team in teams},
             strategy_profile=profile,
@@ -331,16 +375,58 @@ def test_cpu_trade_decisions_are_identical(leagues, monkeypatch):
         )
         return dataclasses.asdict(result)
 
-    actions = set()
-    count = 0
+    out = []
     for trade in offers():
         for profile in ("balanced", "win_now", "development_focus"):
-            a = decide("nogap", trade, profile)
-            b = decide("nogap_twin", trade, profile)
-            assert a == b, (trade.trade_id, profile)
-            actions.add(a["action"])
-            count += 1
-    assert count >= 100 and len(actions) >= 1
+            out.append((
+                trade.trade_id,
+                profile,
+                decide(name, trade, profile),
+                decide(f"{name}_twin", trade, profile),
+            ))
+    return out
+
+
+def test_cpu_trade_decisions_are_identical(leagues, monkeypatch):
+    """The scale itself changes no CPU trade decision: on the floored league
+    every decision is identical once potentials are read the scale 1 way,
+    and on the nogap league (no upside to read) as it is."""
+
+    with _scale_1_potentials():
+        decisions = _trade_decisions(leagues, "floored", monkeypatch)
+    assert len(decisions) == 144
+    for trade_id, profile, a, b in decisions:
+        assert a == b, (trade_id, profile)
+    assert len({a["action"] for _, _, a, _ in decisions}) >= 2
+    for trade_id, profile, a, b in _trade_decisions(leagues, "nogap", monkeypatch):
+        assert a == b, (trade_id, profile)
+
+
+def test_cpu_trade_decisions_that_change_on_scale_2(leagues, monkeypatch):
+    """Pinned: what converting a league to scale 2 changes in CPU trades.
+
+    Two deliberate changes, both in what a player's upside is worth:
+    the potential view leaves out the 20.5 engine points of every gap that
+    development never closes (``POTENTIAL_GAP_DISCOUNT``), so young players'
+    and especially 25-31-year-olds' upside drops; and a hitter's potential
+    is read on scale 2 (scale 1 never sees it, a ``pot_*`` of 0 shadows
+    it). On the floored league fixture, of 144 evaluations 105 change
+    score and 9 change outcome, every one accept -> counter (the CPU gives
+    less for the incoming players' upside). Nothing else differs:
+    ``test_cpu_trade_decisions_are_identical``.
+    """
+
+    decisions = _trade_decisions(leagues, "floored", monkeypatch)
+    changed = [(t, p, a, b) for t, p, a, b in decisions if a != b]
+    outcomes = collections.Counter(
+        (a["action"], b["action"]) for _, _, a, b in changed if a["action"] != b["action"]
+    )
+    assert len(decisions) == 144
+    assert len(changed) == 105
+    assert dict(outcomes) == {("accept", "counter"): 9}
+    # Only the score moves: the same offer, the same parts.
+    for _, _, a, b in changed:
+        assert a["details"]["incoming_players"] == b["details"]["incoming_players"]
 
 
 # --- rosters and lineups ---------------------------------------------------
@@ -520,7 +606,15 @@ def pools():
             )
         ]
 
-    plain, full = pool(1), pool(2)
+    # A scale 2 class marks Eye down less (a deliberate generator change,
+    # tests/test_generated_player_dates.py); switched off here so the two
+    # classes differ by the scale alone.
+    saved = player_generator.SCALE2_DRAFT_EYE_MARKDOWN
+    player_generator.SCALE2_DRAFT_EYE_MARKDOWN = None
+    try:
+        plain, full = pool(1), pool(2)
+    finally:
+        player_generator.SCALE2_DRAFT_EYE_MARKDOWN = saved
     # Prospects scale 2 cannot store exactly: a draft-age rating marked down
     # below the scale's floor (Eye under 33.67, say) is clipped to 1, and a
     # potential gap is cut at 99. Both are reported by the generator; here

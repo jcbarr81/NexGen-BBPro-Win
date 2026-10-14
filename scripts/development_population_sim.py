@@ -46,7 +46,7 @@ import sys
 import tempfile
 from collections import defaultdict
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
@@ -292,23 +292,22 @@ def _needs(league: League, team: str) -> Dict[str, float]:
 
 def _draft(league: League, season: int, *, rounds: int, pool_size: int, seed: int,
            rng: random.Random) -> List[str]:
+    from playbalance import player_generator
     from playbalance.draft_pool import generate_draft_pool
     from services.draft_ai import score_prospect
 
+    # Reproducible whatever ran before in the process and whatever the real
+    # date: a clean name cache, and ages counted from a fixed day of the
+    # draft year (the product counts them from today in the league's year).
+    player_generator.reset_name_cache()
     pool = generate_draft_pool(
-        season, size=pool_size, seed=seed, rating_scale=FULL_RATING_SCALE
+        season,
+        size=pool_size,
+        seed=seed,
+        rating_scale=FULL_RATING_SCALE,
+        reference=datetime(season, 7, 1),
     )
-    today = date.today()
-    entries: List[Dict[str, Any]] = []
-    for prospect in pool:
-        row = asdict(prospect)
-        # The generator dates a birth from the real calendar, not the
-        # league's (docs/future_work.md): re-date it to the league year so
-        # a 19-year-old is 19 in this draft.
-        born = date.fromisoformat(str(row["birthdate"]).split("T", 1)[0])
-        rolled = today.year - born.year
-        row["birthdate"] = date(season - rolled, born.month, min(born.day, 28)).isoformat()
-        entries.append(row)
+    entries: List[Dict[str, Any]] = [asdict(prospect) for prospect in pool]
     order = list(league.teams)
     rng.shuffle(order)
     picked: List[Dict[str, Any]] = []

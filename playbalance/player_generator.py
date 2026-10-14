@@ -1236,9 +1236,46 @@ def reset_name_cache():
     
 # Helper Functions
 
+def _league_year() -> Optional[int]:
+    """The league's year (its sim date, as ``playbalance.aging`` reads it
+    for every age), or ``None`` outside a league."""
+
+    try:
+        from playbalance.aging import get_sim_date
+
+        sim_date = get_sim_date()
+    except Exception:
+        return None
+    return sim_date.year if sim_date is not None else None
+
+
+def reference_datetime(year: Optional[int] = None) -> datetime:
+    """The day a generated player's age is counted back from.
+
+    Today's date moved into the LEAGUE's year (``year``, else the league's
+    sim date year). A league whose year is the real year gets exactly
+    today, as it always did; one whose year runs ahead of (or behind) the
+    real calendar gets the same day of its own year, so a 19-year-old is 19
+    in that league. Until 8.0 the real date was always used, which made
+    every player generated for a league ahead of the calendar older by the
+    difference.
+    """
+
+    today = datetime.today()
+    if year is None:
+        year = _league_year()
+    if year is None or int(year) == today.year:
+        return today
+    try:
+        return today.replace(year=int(year))
+    except ValueError:  # 29 February in a year without one
+        return today.replace(year=int(year), day=28)
+
+
 def generate_birthdate(
     age_range: Optional[Tuple[int, int]] = None,
     player_type: str = "fictional",
+    reference: Optional[datetime] = None,
 ):
     """Generate a birthdate and age.
 
@@ -1250,9 +1287,14 @@ def generate_birthdate(
     player_type:
         When ``age_range`` is not supplied the player's age is determined by
         rolling dice according to the table for the given ``player_type``.
+    reference:
+        The day the age is counted back from; :func:`reference_datetime`
+        (today, in the league's year) when not given.
     """
 
-    today = datetime.today()
+    today = reference if reference is not None else reference_datetime()
+    if not isinstance(today, datetime):  # a plain date
+        today = datetime(today.year, today.month, today.day)
     if age_range is not None:
         age = random.randint(*age_range)
     else:
@@ -1327,6 +1369,9 @@ _DRAFT_PITCHER_KEYS = {
     "kn",
 }
 _DRAFT_MIN_RATING = 20
+# The share of the age markdown a draft class for a scale 2 league takes on
+# Eye (_apply_draft_rating_scale). Scale 1 classes take all of it.
+SCALE2_DRAFT_EYE_MARKDOWN = 0.25
 
 
 def _draft_rating_scale(age: int) -> float:
@@ -1341,8 +1386,19 @@ def _draft_rating_scale(age: int) -> float:
     return 0.9
 
 
-def _apply_draft_rating_scale(player: Dict[str, Any], age: int) -> None:
-    """Reduce draft ratings so young players start below their potentials."""
+def _apply_draft_rating_scale(
+    player: Dict[str, Any], age: int, *, eye_markdown: Optional[float] = None
+) -> None:
+    """Reduce draft ratings so young players start below their potentials.
+
+    ``eye_markdown`` (a draft class for a scale 2 league,
+    :data:`SCALE2_DRAFT_EYE_MARKDOWN`) marks Eye down by that share of the
+    age markdown and without the jitter: Eye's whole spread is about 3
+    engine points, so the full markdown (0.69-0.97 of the rating) spread a
+    class's Eye far wider than any league's, and a stored Eye point above
+    average is a fifth of an engine point. The jitter is still drawn, so no
+    other rating moves.
+    """
 
     scale = _draft_rating_scale(age)
     # Add a small draft-only variance so CH/PH don't collapse to identical values.
@@ -1355,6 +1411,10 @@ def _apply_draft_rating_scale(player: Dict[str, Any], age: int) -> None:
         if value <= 0:
             continue
         jitter = hit_jitter if key in _DRAFT_HITTER_KEYS else pitch_jitter
+        if key == "eye" and eye_markdown is not None:
+            scaled = int(round(value * (1.0 - (1.0 - scale) * eye_markdown)))
+            player[key] = max(_DRAFT_MIN_RATING, min(99, scaled))
+            continue
         scaled = int(round(value * scale * jitter))
         player[key] = max(_DRAFT_MIN_RATING, min(99, scaled))
 
@@ -2061,6 +2121,7 @@ def generate_player(
     hitter_archetype: Optional[str] = None,
     rating_profile: str = "normalized",
     rating_scale: int = LEGACY_RATING_SCALE,
+    reference: Optional[datetime] = None,
 ) -> Dict:
     """Generate a single player record, stored on ``rating_scale``.
 
@@ -2072,6 +2133,11 @@ def generate_player(
     is drawn). The default, scale 1, returns him untouched: the dict has no
     ``rating_scale`` key, as it never had. Callers that fabricate players
     for a league pass that league's scale.
+
+    ``reference`` is the day his age is counted back from (default: today
+    in the league's year, :func:`reference_datetime`). A draft class for a
+    league not on scale 1 has its Eye marked down less
+    (:data:`SCALE2_DRAFT_EYE_MARKDOWN`); no random number depends on it.
     """
 
     player = _generate_engine_player(
@@ -2083,6 +2149,12 @@ def generate_player(
         pitcher_archetype=pitcher_archetype,
         hitter_archetype=hitter_archetype,
         rating_profile=rating_profile,
+        reference=reference,
+        eye_markdown=(
+            None
+            if normalize_rating_scale(rating_scale) == LEGACY_RATING_SCALE
+            else SCALE2_DRAFT_EYE_MARKDOWN
+        ),
     )
     if normalize_rating_scale(rating_scale) == LEGACY_RATING_SCALE:
         return player
@@ -2106,6 +2178,8 @@ def _generate_engine_player(
     pitcher_archetype: Optional[str] = None,
     hitter_archetype: Optional[str] = None,
     rating_profile: str = "normalized",
+    reference: Optional[datetime] = None,
+    eye_markdown: Optional[float] = None,
 ) -> Dict:
     """Generate a single player record, on the engine's rating scale.
 
@@ -2147,11 +2221,11 @@ def _generate_engine_player(
     # Determine the player's age using either an explicit ``age_range`` or the
     # appropriate age table based on ``player_type``/``for_draft``.
     if age_range is not None:
-        birthdate, age = generate_birthdate(age_range=age_range)
+        birthdate, age = generate_birthdate(age_range=age_range, reference=reference)
     else:
         if player_type is None:
             player_type = "amateur" if for_draft else "fictional"
-        birthdate, age = generate_birthdate(player_type=player_type)
+        birthdate, age = generate_birthdate(player_type=player_type, reference=reference)
     first_name, last_name, ethnicity = generate_name()
     player_id = f"P{random.randint(1000, 9999)}"
     height = random.randint(68, 78)
@@ -2317,7 +2391,7 @@ def _generate_engine_player(
             player["cl"] = max(player["cl"], 65)
             player["gf"] = max(player["gf"], 55)
         if for_draft:
-            _apply_draft_rating_scale(player, age)
+            _apply_draft_rating_scale(player, age, eye_markdown=eye_markdown)
         _apply_player_defaults(player)
         return player
 
@@ -2440,7 +2514,7 @@ def _generate_engine_player(
         _maybe_add_pitching(player, age, throws)
         player["pot_fielding"] = generate_fielding_potentials(primary_pos, player["other_positions"])
         if for_draft:
-            _apply_draft_rating_scale(player, age)
+            _apply_draft_rating_scale(player, age, eye_markdown=eye_markdown)
         _apply_player_defaults(player)
         return player
 
