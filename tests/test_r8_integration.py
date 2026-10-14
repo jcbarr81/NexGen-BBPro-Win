@@ -197,3 +197,34 @@ def test_every_players_file_writer_locks_and_counts():
         "api/working_copy.py",
     ):
         assert rel in lockers and rel in counters, rel
+
+
+def test_a_moved_league_reads_the_8_0_0_tutorial_on_its_own_scale():
+    """Scale 2 (a league that moved with 8.0.0) sees the 8.0.0 steps and
+    the three rating examples on the full scale, each step once; scale 1
+    sees none of it (its whole payload is pinned in
+    tests/test_rating_scale_display.py)."""
+    from services.tutorials import tutorial_catalog
+
+    def steps(scale):
+        return tutorial_catalog(scale)["updated_engine"]["steps"]
+
+    new = {
+        "The 8.0.0 update: what your league got",
+        "Ratings on the full 1 to 99 scale",
+        "Pitching: stuff, Arm, Control and tired arms",
+        "Power and doubles",
+        "Fielding by position, out of position, errors",
+        "Player development",
+    }
+    one, two = steps(1), steps(2)
+    titles_two = [s["title"] for s in two]
+    assert new <= set(titles_two) and not new & {s["title"] for s in one}
+    assert len(titles_two) == len(set(titles_two))
+    by_title = {s["title"]: s["body_html"] for s in two}
+    one_by_title = {s["title"]: s["body_html"] for s in one}
+    for title in ("Contact", "Eye and Control", "Catcher fielding and the strike zone"):
+        assert by_title[title] != one_by_title[title], title
+    assert "A 95 Contact hitter" in by_title["Contact"]
+    assert "An 80 Contact hitter strikes out about 4%" in one_by_title["Contact"]
+    assert "earlier scale" not in "".join(by_title.values())

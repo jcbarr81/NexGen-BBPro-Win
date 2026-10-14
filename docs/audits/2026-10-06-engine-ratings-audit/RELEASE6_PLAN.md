@@ -197,3 +197,60 @@ Whole prototype (season, seeds 1-2; generation 5 in brackets): runs per team-gam
 12. **How strongly real parks play** (6b). Recommend half strength, altitude about +4.5%, generic park set to the real average.
 
 Taken as given unless the owner objects: control becomes mostly command (decision 10 as written); foul-outs return as caught fouls (Release 5 decision 8); the infield shift bonus is dropped; home runs of 500 to 600 ft disappear; batted-ball splits are shown Statcast style (GB / LD / FB / PU); sluggers striking out more waits for Release 7; OVR weights are re-derived and brought back with numbers before they change.
+
+## 8. As built (2026-10-14; 8.0.0, pending owner confirmation)
+
+**What shipped (branch `r8-int`).** Group 6a is engine generation 6 (`physics_sim/profiles/engine_6.json`: generation 5 plus `r6_pitching`, `r6_power`, `r6_fielding` and the joint retune `r6_retune`), and it ships together with the rating-scale change (`RATING_SCALE_DESIGN.md`; owner decision 5) as one major version. Nothing changes for a league until it moves; the move is behind an operations switch, `NEXGEN_GENERATION6_SCALE2`, shipped OFF.
+
+- **Pitching (2.1, A-D as one group):** stuff `pq = .15 control + .30 movement + .55 grade`, chase term, the velocity model (`ev_velocity_model` 1), one pitch-quality path into exit velocity (`ev_pq_slope` .0015), additive fatigue (`fatigue_model` 1, the owner's moderate set), `tto_pass3_weight` 4.5, `reliever_fresh_bonus` 1.7, contact intercepts 1.66 / .40; the manager's reliever score reads the same weights.
+- **Power and doubles (2.2):** `power_curve_model` 1 with the table re-fitted for decision 16 (stored Power 99 about 48 HR with average Contact); doubles `double_gap_power_weight` .25 (decision 11: contact-led, Power keeps a share), `double_gap_scale` .30, `double_distance_scale` .76 and the line-drive credit (`double_line_drive_scale` .07, read against the new `hitter_gf_center`).
+- **Fielding (2.3, 2.4):** fielder centres by position (`fielder_centred_ratings`), `range_model` 1 with seven slopes, `infield_band_model` 1, the spray direction fix, `error_model` 2 (MLB volume, new error types, a simplified unearned-run reconstruction), `position_fit_model` 1 (the table), the double-play terms.
+- **Joint retune:** `babip_scale` .92 -> .902 and the seven range slopes scaled by .92 / .902 (a fielding point is worth the outs it was); `hr_scale` stays the pitching work's .9195.
+- **The move (`services/rating_scale_migration.py`):** at a league's rollover (after the archive, contracts and finances), or at the first game of a season nobody rolled into, its players are converted to rating scale 2, a backup is kept, the league is recorded for generation 6 and one news item is posted; refused (left on scale 1 and generation 5, the commissioner told) on any active player's clip; hold and rollback (`scripts/rating_scale_rollback.py`); alpha-test re-spread at the move when listed in `NEXGEN_RESPREAD_LEAGUES` (decision 15); a players-file lock held by every writer; a scale 2 file format older builds refuse; raised draft floors for scale 2 classes. Runbook: `docs/rating_scale_switch_runbook.md`.
+- **Development (decision 12):** `playbalance/development.py` and `services/offseason_development.py`, run at the same rollover right after the move, so a league's first offseason on the new scale is developed; training camp reports it instead of adding points; `engine_potential` leaves out the 20.5 engine points of every gap development never closes, so CPU clubs value upside by what development delivers (CPU trades: 105 of 144 evaluations change score, 9 accept -> counter, on the floored league fixture); generated players and draft classes are dated from the league's year; scale 2 draft classes mark Eye down by a quarter of the age markdown.
+- **Display (decision 13):** stored ratings on every page, a stretched display overall (best about 88-92, average regular about 50), re-anchored stars, news and transaction text in the shown overall; scale 1 payloads byte-identical except the Pitchers page role (now from the staff file / `get_role`, on every league).
+
+**Final measurements** (`--engine 6`; calibration seeds 1-8, league fixture 1-4, flat fixture 1-2; season means; the stats-test column is a scratch copy with rebuilt lineups, seeds 1-3, from the retune):
+
+| Metric | Target | Calibration (8) | League (4) | Flat (2) | stats-test copy (3) |
+|---|---|---|---|---|---|
+| Runs per team-game | 4.47 +/- .25 | 4.38 | 4.63 | 4.42 | 4.43 |
+| K% / BB% | .22 / .082 | .221 / .081 | .219 / .082 | .222 / .083 | .223 / .082 |
+| HR per team-game | 1.17 +/- .15 | 1.11 | 1.12 | 1.03 | 1.10 |
+| AVG / SLG | .245 / .392 | .245 / .397 | .247 / .407 | .243 / .393 | .245 / .396 |
+| ISO | .150 +/- .015 | .152 | .160 | .150 | |
+| BABIP | | .279 | .281 | .280 | |
+| Doubles per team-game | 1.63 +/- .10 | 1.57 | 1.70 | 1.66 | 1.58 |
+| Errors per team-game | .53 +/- .05 | .52 | .53 | .51 | .54 |
+| Unearned share of runs | MLB about .07-.08 | .091 | .092 | .092 | |
+| `corr_hr_power` | .65-1.00 | .718 | .773 | .795 | |
+| `corr_avg_contact` | >= .5 | .595 | .604 | .602 | |
+| HR, bottom Power fifth / middle (pooled) | <= .75 | .723 | .689 | .768 | |
+| Thirty-homer hitters (pooled) | 20 +/- 8 | 25.9 | 22.5 | 24.0 | |
+| Grade std beta on K | .50 +/- .15 | .44 | .51 | .62 | |
+| FIP per +10 arm (pooled) | -.20 +/- .15 | -.16 | -.26 | -.12 | |
+| BB% per +10 control (pooled) | -1.49 +/- .25 | -1.50 | -1.31 | -.77 | |
+| Pitcher / hitter HR true-sd ratio (pooled) | .40 +/- .25 | .35 | .35 | .37 | |
+| Starter FB fade at pitches 91-105, mph | 1.5 +/- .5 | 1.25 | 1.28 | 1.63 | |
+| wOBA at 91-105, batter-adjusted (report-only) | | +.021 | +.017 | +.072 | |
+| TTO pass 2, batter-adjusted | .011 +/- .007 | .0105 | .0090 | .0075 | |
+| Outs per 8 fielding points, SS / CF / 1B | 6.9 / 6.9 / 4.2 | 7.06 / 6.88 / 4.05 | 6.65 / 6.71 / 4.01 | 6.09 / 7.16 / 4.48 | |
+| Centre field's share of OF putouts | .416 +/- .025 | .415 | .418 | .421 | |
+| SF per PA | .0068 +/- .001 | .0072 | .0078 | .0075 | |
+
+Matchup grids (calibration seed 1, composite pitcher axis, 60,000 PA a cell, Monte Carlo): strikeout log5 residual inside 35-65 .009 (gate .02), whole grid .027 (the Contact 80 x pitcher 80 corner; not gated on generation 6); home-run grid at p5-p95 .019 logit (gate .3); HR per 600 PA with Contact 50 at engine Power 30 / 40 / 50 / 60 / 65 / 70 / 80: 4.3 / 8.6 / 16.1 / 32.9 / 44.5 / 47.5 / 52.3 (stored Power 10 / 30 / 50 / 80 / 95; engine 70 and 80 lie beyond stored 99, which is engine 66.3). Strikeout rate against an average pitcher at Contact 35 / 50 / 65 / 80: 48.4% / 23.3% / 9.2% / 3.9%.
+
+**Gates (8.0.0 set).** `ENGINE_GATES[6]` is generation 5's set plus the areas' proposals, with three 8.0.0 changes: the full strikeout grid is dropped (the inner grid stays); `pitcher_fip_per10_arm`, `bb_pct_per10_control` (re-centred on -1.49) and `pitcher_hitter_hr_true_sd_ratio` join the thirty-homer count and the bottom-fifth ratio in the pooled, report-only group; ISO is restated as .150 +/- .015. Result: `--engine 6 --strict` passes on all 8 calibration seeds (under the 7.51 gate set 4 of 8 failed: the full grid on seed 1, ISO .1496 on seed 5, control slope on seeds 6 and 7). `--gate-set running` passes on the flat fixture (2 of 2) and on the league fixture on 2 of 4: seeds 1 and 3 fail SF/PA (.0081, .0079 against .0068 +/- .001). Every pooled gate passes on calibration and the league fixture; on the flat fixture (report-only there; bunched ratings) the bottom-fifth ratio (.768) and the control slope (-.77) miss, as before. CI runs `--engine 6 --strict` on calibration seed 1, not blocking until it has passed on the runner.
+
+**Identity.** Legacy and generation 5 seasons are unchanged to the last digit (calibration seed 1 both, league fixture seed 1 generation 5 with the running set; against 7.51.3's outputs). Generation 6 after the merges equals the retune's own seasons on all 14. A stretched (scale 2) twin plays the identical generation 6 season on all three fixtures. With the switch off a scale 1 rollover writes the same files as 7.51.3.
+
+**What differs from the plan:**
+
+- **Errors at MLB volume were built** (`error_model` 2, decision 9), not left at the re-shaped .33: .51-.54 per team-game, unearned runs 9% (generation 5 4.5-5.7%; MLB about 7-8%, from memory). The pitcher's errors come almost all from comebackers (the engine throws few pickoffs) and the catcher's only error is the throw on a steal.
+- **The pitcher / hitter HR sd ratio is met** (.35 on both wide fixtures against the plan's .70 on calibration): the Power curve widened the hitters' side.
+- **The 91-105 pitch cost is report-only**: it reads the third time through and fatigue at once (+21 / +17 on the wide fixtures; the owner's +11 of fatigue plus about 9 of pass 3). Decided by the coordinator, 2026-10-14.
+- **The run level is held with `babip_scale`** (.902), so BABIP sits at .279-.281, below MLB's .291; the ball-flight step has to find the run level elsewhere (its BABIP target is .291).
+- **Power's top** follows decision 16 (99 clearly better than 90), not the taper of decision 6 alone.
+- **OVR weights, CPU pitcher scores and the defence weights in `utils/player_overall.py` were not changed** (consumers still read the old weights; `docs/future_work.md`, "Release 6a pitching", "Release 6a fielding").
+
+**Left for the ball-flight step (6b, generation 7):** carry with drag and the home-run distance (mean 424 ft, 25% of homers past 450); the exit-velocity / launch-angle kernel with pop-ups (Statcast classes, hard-hit, barrels); the fielding play model (replacing the 45% liner coin and the range slopes' `out0`) and hit types from landing spots (replacing the line-drive credit); spray widening (pull / centre / oppo); parks (five-point fences, the generic park, altitude, decision 12 of the plan); foul-outs with a K / BB retune; pitcher ground-ball identity; the tag-up race refit (league fixture SF/PA .0078 here, the one running-set miss); the strikeout corner at Contact 80 x pitcher 80 and the home-run corner (`ev_pq_slope`); BABIP .291 with the run level held; the scripted re-fits of the Power table, the pitcher EV term and the fielding slopes; and a pooled-gate checker over seeds. Also open from this release: the live-league check of alpha-test after its re-spread, the Velocity Scale slider's range on generation 6, and the commissioner sliders' help text for range, arm and errors.

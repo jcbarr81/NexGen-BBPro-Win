@@ -557,8 +557,24 @@ TUTORIALS: List[Tutorial] = [
                 "<p>Three changes do not wait for the new season; the step <b>Changes every league sees right away</b> lists them.</p>",
             ),
             TutorialStep(
+                "The 8.0.0 update: what your league got",
+                "<p>With version 8.0.0 your league moved to the newest game engine and to the full 1 to 99 rating scale together, at the start of a new season, before its first game. Nothing changed in the middle of a season. One item in <b>Today → News</b> says when it happened.</p>"
+                "<p>What changed, in short (the steps below give the detail):</p>"
+                "<ul>"
+                "<li><b>Pitch grades drive a pitcher's stuff</b>, <b>Arm</b> is now a strikeout rating, and <b>Control</b> is mostly about where the pitch goes, so it shows in walks more than in strikeouts.</li>"
+                "<li><b>Tired pitchers</b> lose a little, not a lot: about 1.3 mph off the fastball late in a start.</li>"
+                "<li><b>Power follows a curve:</b> weak bats hit about 5 to 10 home runs a season, Power in the 90s about 45 to 55.</li>"
+                "<li><b>Doubles</b> go to high-Contact hitters with some power, and most of all to line-drive hitters.</li>"
+                "<li><b>Fielding is read against the league's regulars at the same position</b>, playing out of position costs what the move costs in MLB, and <b>errors</b> happen about as often as in MLB.</li>"
+                "<li><b>Ratings use the full 1 to 99 scale</b>, and every page shows the rating as it is stored.</li>"
+                "<li><b>Players develop every offseason</b>, and computer clubs value a young player's upside by what that development will deliver.</li>"
+                "</ul>"
+                "<p>Scoring stays at about MLB's level (4.47 runs per team per game): about 4.4 on the main test league (8 seasons), 4.6 on a test league with unusually fast runners (4 seasons) and 4.4 on a copy of stats-test (3 seasons). Strikeouts stay at about 22% and walks about 8% of plate appearances, home runs about 1.0 to 1.1 per team per game, and doubles come down to about 1.6.</p>",
+                rating_scale=2,
+            ),
+            TutorialStep(
                 "Ratings on the full 1 to 99 scale",
-                "<p>When your league moved to the updated game engine, its ratings moved to the full 1 to 99 scale. <b>No player changed.</b> Each rating was rewritten on the wider scale, keeping every player's order, and the game reads it exactly as it read the old number: in testing, leagues and their rewritten copies played identical seasons, pitch for pitch. Salaries, trades, the draft and every computer manager's choice are worked out exactly as before.</p>"
+                "<p>When your league moved to the updated game engine, its ratings moved to the full 1 to 99 scale. The move itself <b>changed no player</b>: each rating was rewritten on the wider scale, keeping every player's order, and the game reads it exactly as it read the old number (in testing, leagues and their rewritten copies played identical seasons, pitch for pitch). Salaries, the draft and the computer managers read the ratings as before, except that computer clubs now value a young player's upside by what development will deliver (see <b>Player development</b>). A league whose ratings were bunched closely together may also have had them spread out at the move, keeping every player's order; its commissioner announces that separately.</p>"
                 "<p>What the numbers mean now, for Contact, Power, Eye, Fielding and Arm, and a pitcher's Control, Movement and Arm:</p>"
                 "<ul>"
                 "<li><b>50</b> is an average regular: a player who holds a job in a big-league lineup or staff.</li>"
@@ -569,7 +585,40 @@ TUTORIALS: List[Tutorial] = [
                 "</ul>"
                 "<p><b>Overall</b> is on the same scale: an average regular reads about 50 and the best player in a league about 88 to 92. Stars follow the overall and are handed out about as often as before.</p>"
                 "<p><b>Why your screens changed.</b> Before the move, pages did not show a stored rating: they blended it with where the player ranked in your league, so a stored 65 read about 82 and nothing read below 35. Now every page shows the rating as it is stored: the roster, the player browser, free agents, the profile, and the draft page, which used to be the one page that showed stored numbers. Average players read lower than they did (about 50 instead of about 58), the best read higher, and the draft page agrees with every other page.</p>"
-                "<p>Speed, Endurance, Hold, the pitch grades, GB/FB, Platoon vs L and Scouting were already spread across the scale and were not rewritten; they now show as stored too. Scouting reports carry the same size of error as before. The examples in the steps below that quote a rating (an 80 Contact hitter, a 60 Eye hitter) were written on the earlier scale.</p>",
+                "<p>Speed, Endurance, Hold, the pitch grades, GB/FB, Platoon vs L and Scouting were already spread across the scale and were not rewritten; they now show as stored too. Scouting reports carry the same size of error as before. Every rating quoted in these steps is on the full scale.</p>",
+                rating_scale=2,
+            ),
+            TutorialStep(
+                "Pitching: stuff, Arm, Control and tired arms",
+                "<p><b>Pitch grades drive stuff.</b> How hard a pitcher is to hit now comes mostly from his pitch grades (55%), then Movement (30%) and Control (15%); before, Control and Movement counted 40% each and the grades 20%. Every 10 points of a pitcher's pitch grades is worth about 3 points of strikeout rate (it was under 1). Managers choose relievers by the same measure.</p>"
+                "<p><b>Arm is a strikeout rating.</b> Arm sets a pitcher's velocity, and velocity now helps the pitcher: an Arm of 80 throws about 3 mph harder than an Arm of 50 and strikes out about 3 more batters in every 100. Before, Arm did almost nothing for a pitcher.</p>"
+                "<p><b>Control is mostly command:</b> it decides where the pitch goes, so it shows in walks (see <b>Eye and Control</b>) far more than in strikeouts.</p>"
+                "<p><b>Tired arms.</b> A starter late in his outing loses a little: at 91 to 105 pitches his fastball is about 1.3 mph slower (it used to fall about 11 mph), and his Control and Movement slip. Hitters do about 20 points of wOBA better against those pitches than against his first 25, about half of it from seeing him a third time. A pitcher left in until he is exhausted gives up about 18 points of wOBA more (it was about 60).</p>",
+                rating_scale=2,
+            ),
+            TutorialStep(
+                "Power and doubles",
+                "<p><b>Power follows a curve.</b> Home runs in a full season (about 650 plate appearances) for a hitter with average Contact against average pitching: Power 10 about 5, 30 about 9, 50 about 17, 70 about 28, 80 about 36, 90 about 45 and 99 about 48. With Contact 80, Power 90 hits about 53 and Power 99 about 57. Sixty in a season is rare. The weakest bats lose home runs and the best gain them; the league's total is unchanged, and Power now tracks home runs much more closely than it did.</p>"
+                "<p><b>Doubles go to hitters who make contact.</b> High Contact counts most, some Power helps, and a line-drive hitter (in the middle of the GB/FB range) hits more doubles than an extreme ground-ball or fly-ball hitter. League doubles come down to about MLB's level, about 1.6 per team per game (they were about 1.8).</p>",
+                rating_scale=2,
+            ),
+            TutorialStep(
+                "Fielding by position, out of position, errors",
+                "<p><b>Fielding is read against the league's regulars at the same position.</b> A shortstop is compared with the league's regular shortstops, a first baseman with its first basemen. A fielder clearly better than his position's regulars (about 15 points of Fielding) turns about 7 more balls a season into outs at shortstop or in centre field, about 6 at second base, about 5 to 6 at third and in the outfield corners, and about 4 at first: about 6 runs a season at shortstop and centre field, about 5 at second, third and the outfield corners, about 3 at first.</p>"
+                "<p><b>Out of position costs what the move costs.</b> A centre fielder in a corner loses nothing and a shortstop at second base almost nothing; second and third base swap at a small cost; a second or third baseman at shortstop, or a corner outfielder in centre, pays more; an outfielder or first baseman at shortstop pays the most, about 10 runs over 150 games. A position listed among a player's other positions costs a quarter as much. Only a catcher should catch.</p>"
+                "<p><b>Errors at MLB volume:</b> about half an error per team per game (it was about a fifth), from Fielding and Arm against the position's regulars, with new kinds in the box score: a catcher's throw on a steal, a pitcher's error on a ball hit back to him, an outfielder's error on a hit, a relay throw. About 9% of runs are now unearned (it was about 5%).</p>",
+                rating_scale=2,
+            ),
+            TutorialStep(
+                "Player development",
+                "<p>Every offseason, when the league rolls over into the new season, every player develops:</p>"
+                "<ul>"
+                "<li><b>Young players grow</b> toward their potential, closing a share of the gap each year that rises with age. A drafted 19-year-old usually grows into his talent by his late twenties; a 21-year-old who is already a regular grows a little.</li>"
+                "<li><b>From about 30, ratings decline</b>, a little at first and faster each year: a hitter loses about 1 point of Contact at 31, about 2 at 33 and about 3 at 35. Speed fades slowly from about 28; Eye and Control hold on longest.</li>"
+                "<li><b>Your training focus</b> decides which ratings the year's growth goes to, and where the decline falls. It adds no points of its own.</li>"
+                "<li><b>The development and training budgets</b> speed growth (by up to about 15%), and the development budget also slows decline. Nobody grows past what his potential allows.</li>"
+                "</ul>"
+                "<p>Spring training camp no longer adds rating points; its report shows the offseason's changes. Potentials stay hidden. Over the years a league's averages stay within a few points of where they started. Computer clubs value a young player's upside by what development will actually deliver, so in trades they pay less for upside than they did.</p>",
                 rating_scale=2,
             ),
             TutorialStep(
@@ -604,17 +653,47 @@ TUTORIALS: List[Tutorial] = [
                 "</ul>"
                 "<p>A good contact hitter is also called out on strikes less often. An ace's strikeout edge now applies equally to every hitter; before, elite contact hitters felt only about half of it.</p>"
                 "<p>Contact also earns a few more hits on balls in play: about 5 points of batting average on balls in play for every 10 points of Contact. A hitter's batting average now follows his Contact clearly more closely than it did.</p>",
+                rating_scale=1,
+            ),
+            TutorialStep(
+                "Contact",
+                "<p><b>Contact</b> is a sharp skill. Against an average pitcher:</p>"
+                "<ul>"
+                "<li>A 95 Contact hitter strikes out about 7% of the time.</li>"
+                "<li>An 80 Contact hitter about 13%.</li>"
+                "<li>A 65 Contact hitter about 17%.</li>"
+                "<li>A 50 Contact hitter about 23%.</li>"
+                "<li>A 35 Contact hitter about 35%, and a 20 about half the time.</li>"
+                "</ul>"
+                "<p>A good contact hitter is also called out on strikes less often, and an ace's strikeout edge applies equally to every hitter.</p>"
+                "<p>Contact also earns a few more hits on balls in play, and a hitter's batting average follows his Contact closely. It is also the main source of doubles (see <b>Power and doubles</b>).</p>",
+                rating_scale=2,
             ),
             TutorialStep(
                 "Eye and Control",
                 "<p><b>Eye</b> decides walks. Every 10 points of Eye is worth about 2.5 points of walk rate (0.7 on the earlier engine): a 60 Eye hitter walks about 11.5% of the time and a 40 Eye hitter about 6.5%. In an existing league the change is modest for now, because generated Eye ratings are bunched close together; a later release widens them.</p>"
                 "<p><b>Control</b> decides a pitcher's walks: every 10 points of Control takes about 1.3 points off his walk rate (0.8 before). Control now works through where the pitch goes, so a tired pitcher misses his spot by more and walks more hitters. Wild pitchers also hit more batters.</p>"
                 "<p>Hitters now swing differently at every count, close to MLB's rates: they rarely swing at 3-0 and usually swing at 3-1. Before, they swung about as often in every count until they had two strikes.</p>",
+                rating_scale=1,
+            ),
+            TutorialStep(
+                "Eye and Control",
+                "<p><b>Eye</b> decides walks. A 50 Eye hitter walks about 9% of the time, a 70 about 10%, a 90 about 11%, a 30 about 7.5% and a 20 about 6.5%. Real walk rates differ less between hitters than strikeout rates do, so a point of Eye is worth less than a point of Contact.</p>"
+                "<p><b>Control</b> decides a pitcher's walks: a pitcher with Control 80 walks about 1.5 fewer batters in every 100 than one with 50, and one with 20 about 2 more. Control works through where the pitch goes, so a tired pitcher misses his spot by more and walks more hitters, and wild pitchers hit more batters. It matters much less for strikeouts than it did; pitch grades, Movement and Arm decide those (see <b>Pitching</b>).</p>"
+                "<p>Hitters swing differently at every count, close to MLB's rates: they rarely swing at 3-0 and usually swing at 3-1.</p>",
+                rating_scale=2,
             ),
             TutorialStep(
                 "Catcher fielding and the strike zone",
                 "<p>Balls and strikes at the edge of the zone are no longer certain: the same pitch on the corner is sometimes a strike and sometimes a ball. A catcher with a high <b>Fielding</b> rating earns his pitchers extra strikes there. The size is modest: about 5 runs a season for every 10 points of catcher Fielding, counted from your league's average catcher. That figure is an estimate from the size of the effect, not a measured season total.</p>"
                 "<p>A batter is hit only by a pitch that actually runs in on him, never by one in the strike zone, and a hitter facing a same-handed pitcher is hit about twice as often as one facing an opposite-handed pitcher, as in MLB.</p>",
+                rating_scale=1,
+            ),
+            TutorialStep(
+                "Catcher fielding and the strike zone",
+                "<p>Balls and strikes at the edge of the zone are not certain: the same pitch on the corner is sometimes a strike and sometimes a ball. A catcher with a high <b>Fielding</b> rating earns his pitchers extra strikes there. The size is modest: about 5 runs a season for every 20 points of catcher Fielding above 50 (every 10 points below 50), counted from your league's average catcher. That figure is an estimate from the size of the effect, not a measured season total.</p>"
+                "<p>A batter is hit only by a pitch that actually runs in on him, never by one in the strike zone, and a hitter facing a same-handed pitcher is hit about twice as often as one facing an opposite-handed pitcher, as in MLB.</p>",
+                rating_scale=2,
             ),
             TutorialStep(
                 "Platoon vs L and handedness",

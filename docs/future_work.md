@@ -2345,7 +2345,9 @@ behind `NEXGEN_GENERATION6_SCALE2`, OFF. Open:
   scale 2 player (`require_engine_scale_players`) until the development
   model replaces it, so every converted league's next spring would stop;
   and screens still show the percentile blend of stored values until the
-  display step lands. Do not turn the switch on before both.
+  display step lands. Do not turn the switch on before both. (Both are
+  merged on `r8-int`: camp reports a scale 2 player's development instead
+  of refusing him, and the pages show stored ratings.)
 - **Turning the switch off breaks a season already on generation 6** (the
   build no longer knows it, by the existing rule that a recorded generation
   is never played on a guess). The runbook says to hold with
@@ -2459,3 +2461,55 @@ Scale 1 is untouched (aging stays paused, camp as in 7.51.2).
   overall with no position balance; free agents never retire (as in a
   league) and are not signed past 35; injuries, trades and playing time are
   ignored; the draft order is random.
+
+## 8.0.0 integration: follow-ups (2026-10-14, branch `r8-int`)
+
+Branch `r8-int` (from the joint retune, 38ed1900b) merges `r8-display`,
+`r8-switch` and `r8-develop`, gates generation 6 for the release and writes
+its help. VERSION is NOT bumped (a major version needs the owner's
+confirmation). Built here: the rollover order (archive, contracts, finances,
+move, development, aging, retirements, promotions, Hall of Fame, reset;
+`tests/test_r8_integration.py` on a real `archive_season`), every
+players-file writer both locked and counted (a code walk keeps it so), the
+8.0.0 gate set, CI's generation 6 step, the scale 2 tutorial steps, the
+owner guide section, the release-note entry and RELEASE6_PLAN section 8.
+Open:
+
+- **Pooled gates still have no checker**, and the group is now five keys
+  (the bottom-fifth HR ratio, the thirty-homer count, FIP per +10 arm, BB%
+  per +10 control, the pitcher / hitter HR sd ratio). All five pass pooled
+  on calibration (8 seasons) and the league fixture (4) as measured for
+  8.0.0. A small script that reads a directory of season JSONs and applies
+  `ENGINE_GATES[6]["pooled"]` would let CI gate them over seeds.
+- **CI's generation 6 step is continue-on-error.** Make it blocking once it
+  has passed on the runner (it passes locally on calibration seeds 1-8).
+- **League fixture SF/PA** fails `--gate-set running` on seeds 1 and 3 (.0081,
+  .0079 against .0068 +/- .001), as in the retune; the tag-up race refit
+  belongs to the ball-flight step (RELEASE6_PLAN section 8).
+- **The tutorial filters by rating scale, not by engine generation.** The
+  8.0.0 steps show to a scale 2 league. A league converted and then held on
+  generation 5 (`NEXGEN_NEW_SEASON_ENGINE=5` after its move; the runbook
+  allows it) would read the generation 6 steps while playing generation 5.
+  A `TutorialStep(engine_generation=...)` filter would close it.
+- **The move's rollover artifact is not in the archived season record.**
+  `artifacts["rating_scale_move"]` is set after `archive_current_season`
+  copied the artifacts, so the season record and `metadata.json` do not
+  carry it (the development step writes its own through
+  `_record_in_archive`). `rating_scale.json` and the news item do record the
+  move; route the move's result through `_record_in_archive` too if the
+  season history should show it.
+- **The working copy's push can copy a transient players-file lock**
+  (`.players.csv.lock`) to the remote mirror if it walks the folder while a
+  save holds it. Harmless (a lock from another host is broken once stale,
+  60 s), but the walk should skip `*.lock`.
+- **Encodings.** The move writes `players.csv` in UTF-8; the development
+  step reads and writes it in the platform's encoding (cp1252 on a Windows
+  desktop, UTF-8 on Cloud Run). Same on the server; on a desktop an accented
+  name written by the move would be misread by development. Part of the
+  existing "one declared encoding" item above.
+- **Scale 2 numbers in the tutorial are worked out, not measured on a
+  converted league.** The Contact strikeout rates at stored 65 / 80 / 95
+  interpolate the Monte Carlo grid (engine Contact 50 / 65 / 80) in logits;
+  the Eye, Control, Arm and catcher figures apply the measured per-10-point
+  slopes through each rating's map. Re-measure on a converted league once
+  one exists, and after the re-spread of alpha-test.
