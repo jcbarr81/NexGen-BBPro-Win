@@ -1,3 +1,19 @@
+"""What an owner is shown for a rating and for the overall.
+
+Two ways, chosen by the rating scale the league's pages are on
+(:func:`league_display_scale`):
+
+* **Scale 1** (every league today): the percentile blend below,
+  ``0.5 * stored + 0.5 * (35 + percentile * 64)``, clamped 35-99, and the
+  overall percentile-scaled the same way. Unchanged, to the byte.
+* **Scale 2** (owner decision 13, ``DECISIONS.md`` "Release 6 owner
+  decisions"): the STORED rating as it is, no blend, on every page; the
+  overall through :func:`full_scale_overall`, a fixed stretch of the
+  engine-scale overall so an average regular reads about 50 and the best
+  player in a league about 88-92. The overall every CPU decision reads is
+  untouched; this is display only.
+"""
+
 from __future__ import annotations
 
 from bisect import bisect_left
@@ -6,16 +22,33 @@ from functools import lru_cache
 import math
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from models.pitcher import Pitcher
 from models.player import Player
 from utils.path_utils import get_data_dir
 from utils.pitcher_role import get_role
+from utils.players_file_writes import players_file_write_count
 from utils.player_overall import (
     hitter_overall_score,
     pitcher_overall_score,
     player_overall_score,
+)
+from utils.rating_scale import (
+    FULL_RATING_SCALE,
+    KNOWN_RATING_SCALES,
+    LEGACY_RATING_SCALE,
+    MixedRatingScaleError,
+    engine_potential_value,
+    engine_row,
+    engine_value,
+    majority_rating_scale,
+    player_is_pitcher,
+    players_file_rating_scales,
+    rating_map,
+    rating_scale_of,
+    stretch_row,
+    to_stored,
 )
 
 DISPLAY_ENV = "PB_RATING_DISPLAY"
@@ -37,6 +70,256 @@ _DEFAULT_RAW_BLEND = 0.5
 # Below this league SD the overall is shown raw instead of percentile-scaled
 # (audit H8): stretching a ~1-point spread manufactures 30-point gaps.
 OVERALL_MIN_SPREAD = 3.0
+
+
+# ---------------------------------------------------------------------------
+# Scale 2: the overall an owner sees
+# ---------------------------------------------------------------------------
+
+class OverallDisplayMap:
+    """``shown = 50 + slope * (overall - pivot)``, slope chosen by segment.
+
+    ``overall`` is the shared engine-scale overall
+    (``utils.player_overall``). Under the pivot the slope is
+    ``slope_below``; from the pivot to ``knee`` it is ``slope_above``; past
+    the knee it is ``slope_top``. Rounded half up and kept inside 1-99.
+    """
+
+    __slots__ = ("pivot", "slope_below", "slope_above", "knee", "slope_top")
+
+    def __init__(
+        self,
+        pivot: float,
+        slope_below: float,
+        slope_above: float,
+        knee: float,
+        slope_top: float,
+    ) -> None:
+        self.pivot = pivot
+        self.slope_below = slope_below
+        self.slope_above = slope_above
+        self.knee = knee
+        self.slope_top = slope_top
+
+    def exact(self, overall: float) -> float:
+        if overall < self.pivot:
+            return 50.0 + self.slope_below * (overall - self.pivot)
+        if overall <= self.knee:
+            return 50.0 + self.slope_above * (overall - self.pivot)
+        at_knee = 50.0 + self.slope_above * (self.knee - self.pivot)
+        return at_knee + self.slope_top * (overall - self.knee)
+
+    def shown(self, overall: float) -> int:
+        return max(1, min(99, int(math.floor(self.exact(overall) + 0.5))))
+
+
+# Derived from the three KPI fixtures and the stats-clean and alpha-test
+# copies (arithmetic on the shared overall, 2026-10-14; the numbers are in
+# the r8-display report). The pivots are where the pooled average active
+# (ACT) player sits: hitters 50.6, pitchers 53.5. Above the pivot 4 shown
+# points per overall point, so the best player of a league with a normal
+# spread reads 88-92 (stats-clean: hitter 61.0 -> 90, pitcher 64.1 -> 90;
+# alpha-test hitter 61.6 -> 91); past pivot + 9 (shown 86) 2 per point, so a
+# league whose best is a point or two higher does not run to 99. Under the
+# pivot 2.5 per point, so the weakest one percent of a league reads about
+# 15-25 and only alpha-test's two weakest (overall 29) reach 1. The design's
+# "about x2.5 / x2.65" cannot put any league's best above about 80 and was
+# not used.
+FULL_SCALE_OVERALL_MAPS: Dict[bool, OverallDisplayMap] = {
+    False: OverallDisplayMap(50.0, 2.5, 4.0, 59.0, 2.0),  # hitters
+    True: OverallDisplayMap(53.0, 2.5, 4.0, 62.0, 2.0),  # pitchers
+}
+
+
+def full_scale_overall(overall: object, *, is_pitcher: bool) -> Optional[int]:
+    """The overall a scale 2 page shows for an engine-scale ``overall``."""
+
+    try:
+        numeric = float(overall)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if numeric != numeric:
+        return None
+    return FULL_SCALE_OVERALL_MAPS[bool(is_pitcher)].shown(numeric)
+
+
+# ---------------------------------------------------------------------------
+# Which scale a league's pages are on, and a player's ratings on it
+# ---------------------------------------------------------------------------
+
+def _players_file() -> Path:
+    return get_data_dir() / "players.csv"
+
+
+def _file_key(path: Path) -> tuple:
+    """A cache key for one file: its path, its modification time in
+    nanoseconds, its size, and how many times this process has written it
+    (``utils.players_file_writes``). The write count is
+    what catches two writes that land in one timestamp tick with the same
+    size, which the clock alone cannot tell apart."""
+
+    resolved = Path(path).resolve(strict=False)
+    writes = players_file_write_count(resolved)
+    try:
+        stat_result = resolved.stat()
+    except OSError:
+        return str(resolved), None, None, writes
+    mtime_ns = getattr(stat_result, "st_mtime_ns", None)
+    if mtime_ns is None:
+        mtime_ns = int(stat_result.st_mtime * 1_000_000_000)
+    return str(resolved), mtime_ns, stat_result.st_size, writes
+
+
+@lru_cache(maxsize=16)
+def _file_display_scale(source_key: tuple) -> Optional[int]:
+    try:
+        counts = players_file_rating_scales(source_key[0])
+    except ValueError:
+        # A row on a scale this build does not know: no one scale for the
+        # page. The row itself still refuses to be shown (display_scale_for
+        # raises for it), as the league loader refuses to load it.
+        return None
+    if not counts:
+        return None
+    try:
+        return majority_rating_scale(counts)
+    except MixedRatingScaleError:
+        return None
+
+
+def league_display_scale(path: Optional[Path] = None) -> Optional[int]:
+    """The rating scale the league's pages show ratings on.
+
+    The scale most rows of the league's ``players.csv`` are on: after a
+    conversion every row is on scale 2, before it every row is on scale 1
+    (a file without the ``rating_scale`` column is decided from its header
+    alone). A file holding rows on two scales (a stray row appended from an
+    old draft class, a restore mid-conversion) still shows ONE scale on
+    every page, the one most of its rows are on, and the stray rows are
+    re-expressed on it (:func:`display_rating`); an owner never sees two
+    scales side by side. ``None`` when there is no file or it is split
+    exactly in half: each row is then shown on its own scale.
+    """
+
+    key = _file_key(Path(path) if path is not None else _players_file())
+    if key[1] is None:
+        return None
+    return _file_display_scale(key)
+
+
+def display_scale_for(player: Any, league_scale: Optional[int]) -> int:
+    """The scale ``player`` is shown on: the league's, else his row's own."""
+
+    if league_scale in KNOWN_RATING_SCALES:
+        return int(league_scale)  # type: ignore[arg-type]
+    return rating_scale_of(player)
+
+
+def _stored(player: Any, key: str, default: Any) -> Any:
+    if isinstance(player, dict):
+        return player.get(key, default)
+    return getattr(player, key, default)
+
+
+def _is_set(value: Any) -> bool:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return number == number and number > 0
+
+
+def display_rating(player: Any, key: str, scale: int, default: Any = None) -> Any:
+    """Rating ``key`` of ``player`` (an object or a row) as stored on ``scale``.
+
+    A player stored on ``scale`` (every player, outside a mixed file) gets
+    exactly ``getattr(player, key, default)`` / ``row.get(key, default)``.
+    Otherwise a moved rating is re-expressed: on scale 1 as its engine value,
+    on scale 2 as :func:`utils.rating_scale.to_stored` of it; a potential
+    keeps its gap above the current rating, as the conversion stores it. A
+    rating the scales do not move, a blank and a zero come back as stored.
+    """
+
+    value = _stored(player, key, default)
+    own = rating_scale_of(player)
+    if own == scale or not _is_set(value):
+        return value
+    pitcher = player_is_pitcher(player)
+    base = key[4:] if key.startswith("pot_") else key
+    if rating_map(base, FULL_RATING_SCALE, pitcher=pitcher) is None:
+        return value
+    if key.startswith("pot_"):
+        engine_pot = engine_potential_value(player, base, value)
+        if scale == LEGACY_RATING_SCALE:
+            return engine_pot
+        current = _stored(player, base, None)
+        if not _is_set(current):
+            return value
+        engine_cur = float(engine_value(base, current, own, pitcher=pitcher))
+        shown = display_rating(player, base, scale)
+        gap = max(0.0, float(engine_pot) - engine_cur)
+        return max(1, min(99, int(math.floor(float(shown) + gap + 0.5))))
+    engine = engine_value(key, value, own, pitcher=pitcher)
+    if scale == LEGACY_RATING_SCALE:
+        return engine
+    return to_stored(key, float(engine), scale, pitcher=pitcher)
+
+
+def shown_overall(player: Any, scale: Optional[int]) -> Optional[int]:
+    """The overall a scale 2 page shows for ``player`` (``None`` on scale 1,
+    or when he has no overall): the shared overall, worked out from his
+    stored ratings exactly as the list pages do
+    (``api.routers._rating_presentation.compute_overall``), through
+    :func:`full_scale_overall`."""
+
+    if scale is None or scale == LEGACY_RATING_SCALE:
+        return None
+    is_pitcher = bool(_stored(player, "is_pitcher", False))
+    if isinstance(_stored(player, "is_pitcher", False), str):
+        is_pitcher = player_is_pitcher(player)
+    position = _stored(player, "primary_position", None)
+    read = (lambda key: player.get(key)) if isinstance(player, dict) else (
+        lambda key: getattr(player, key, None)
+    )
+    role = None
+    if is_pitcher:
+        role = get_role(
+            {
+                "primary_position": position,
+                "preferred_pitching_role": read("preferred_pitching_role"),
+                "endurance": read("endurance"),
+                "role": read("role"),
+            }
+        )
+    from utils.player_overall import overall_score
+
+    score = overall_score(read, is_pitcher=is_pitcher, position=position, role=role)
+    if score is None:
+        return None
+    return full_scale_overall(score, is_pitcher=is_pitcher)
+
+
+def overall_for_text(player: Any, value: Any, league_scale: Optional[int]) -> Any:
+    """The overall a news item or a transaction note quotes for ``player``.
+
+    On a scale 1 page ``value``, whatever the text quoted before (the
+    promotion score); on a scale 2 page the overall every page shows
+    (:func:`shown_overall`), so an owner never reads two different overalls
+    for one player."""
+
+    shown = shown_overall(player, display_scale_for(player, league_scale))
+    return value if shown is None else shown
+
+
+def display_reader(player: Any, scale: int):
+    """``key -> display_rating(player, key, scale)``; the plain reader when
+    the player is stored on ``scale``."""
+
+    if rating_scale_of(player) == scale:
+        if isinstance(player, dict):
+            return player.get
+        return lambda key: getattr(player, key, None)
+    return lambda key: display_rating(player, key, scale)
 
 
 def _get_raw_blend() -> float:
@@ -110,17 +393,8 @@ def _rating_source_path() -> Path:
     return base_dir / "players.csv"
 
 
-def _distribution_source_key() -> tuple[str, int | None, int | None]:
-    path = _rating_source_path()
-    resolved = path.resolve(strict=False)
-    try:
-        stat_result = resolved.stat()
-    except OSError:
-        return str(resolved), None, None
-    mtime_ns = getattr(stat_result, "st_mtime_ns", None)
-    if mtime_ns is None:
-        mtime_ns = int(stat_result.st_mtime * 1_000_000_000)
-    return str(resolved), mtime_ns, stat_result.st_size
+def _distribution_source_key() -> tuple:
+    return _file_key(_rating_source_path())
 
 
 def overall_rating(player: object) -> int:
@@ -155,10 +429,28 @@ def _overall_from_row(row: Dict[str, object], keys: Tuple[str, ...]) -> Optional
     return round(score, 2)
 
 
+def _row_on_scale(row: Dict[str, object], scale: int) -> Dict[str, object]:
+    """A source row as a page on ``scale`` reads it (the same row when it is
+    already on that scale, which is every row of a one-scale file)."""
+
+    if rating_scale_of(row) == scale:
+        return row
+    if scale == LEGACY_RATING_SCALE:
+        return engine_row(row)  # type: ignore[return-value]
+    return stretch_row(engine_row(row), scale)[0]
+
+
 @lru_cache(maxsize=8)
 def _load_distributions(
-    source_key: tuple[str, int | None, int | None],
+    source_key: tuple,
+    scale: int = LEGACY_RATING_SCALE,
 ) -> Dict[str, Dict[str, Dict[str, List[int]]]]:
+    """Each rating's league distribution, as stored on ``scale``.
+
+    The overall's distribution is the engine-scale overall on either scale
+    (the scale 2 overall is a fixed map of it, see :func:`full_scale_overall`).
+    """
+
     distributions = {
         "hitters": {key: [] for key in _HITTER_KEYS | _EXTRA_KEYS},
         "pitchers": {key: [] for key in _PITCHER_KEYS | _EXTRA_KEYS},
@@ -175,6 +467,8 @@ def _load_distributions(
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
+            # rating-scale: the row is put on the page's scale first
+            row = _row_on_scale(row, scale)
             is_pitcher = str(row.get("is_pitcher", "0")).strip().lower() in {
                 "1",
                 "true",
@@ -296,8 +590,12 @@ def _select_distribution(
     *,
     position_bucket: Optional[str] = None,
     use_position_bucket: bool = False,
+    scale: int = LEGACY_RATING_SCALE,
 ) -> List[int]:
-    distributions = _load_distributions(_distribution_source_key())
+    if scale == LEGACY_RATING_SCALE:
+        distributions = _load_distributions(_distribution_source_key())
+    else:
+        distributions = _load_distributions(_distribution_source_key(), scale)
     if is_pitcher is False and position_bucket and use_position_bucket:
         values = distributions["hitters_by_bucket"].get(position_bucket, {}).get(key, [])
         if values:
@@ -357,7 +655,20 @@ def rating_display_details(
     display_min: int = 35,
     display_max: int = 99,
     use_position_bucket: bool = False,
+    scale: Optional[int] = None,
 ) -> Tuple[object, Optional[int], Optional[float], Optional[str]]:
+    """``(shown, top percent, league average, position bucket)`` for one
+    value.
+
+    ``scale`` is the scale of the page (:func:`league_display_scale`) and
+    ``value`` must already be on it (:func:`display_rating`); ``None`` or 1
+    is the scale 1 percentile blend. On scale 2 a rating is shown as stored
+    (rounded, inside 1-99) and the overall, whose ``value`` is always the
+    engine-scale overall, through :func:`full_scale_overall`; the top
+    percent and the average are still worked out, against the league's
+    ratings as stored on scale 2.
+    """
+
     try:
         numeric = float(value)
     except (TypeError, ValueError):
@@ -371,15 +682,25 @@ def rating_display_details(
     if normalized_key in _PITCH_KEYS and numeric <= 0:
         return 0, None, None, None
 
+    full_scale = scale is not None and scale != LEGACY_RATING_SCALE
     bucket = _normalize_position_bucket(position) if is_pitcher is False else None
     values = _select_distribution(
         normalized_key,
         is_pitcher,
         position_bucket=bucket,
         use_position_bucket=use_position_bucket,
+        scale=FULL_RATING_SCALE if full_scale else LEGACY_RATING_SCALE,
     )
     pct = _percentile(values, numeric)
     avg = _average(values)
+    if full_scale and display_mode != "stars":
+        if normalized_key == "overall":
+            shown = full_scale_overall(numeric, is_pitcher=bool(is_pitcher))
+        else:
+            shown = max(1, min(99, int(math.floor(numeric + 0.5))))
+        if pct is None:
+            return shown, None, avg, bucket
+        return shown, max(1, min(99, int(round((1.0 - pct) * 100)))), avg, bucket
     if pct is None:
         return int(round(numeric)), None, avg, bucket
 
@@ -435,6 +756,7 @@ def rating_display_value(
     display_min: int = 35,
     display_max: int = 99,
     use_position_bucket: bool = False,
+    scale: Optional[int] = None,
 ) -> object:
     display_value, _top_pct, _avg, _bucket = rating_display_details(
         value,
@@ -447,6 +769,7 @@ def rating_display_value(
         display_min=display_min,
         display_max=display_max,
         use_position_bucket=use_position_bucket,
+        scale=scale,
     )
     return display_value
 
@@ -463,6 +786,7 @@ def rating_display_text(
     display_min: int = 35,
     display_max: int = 99,
     use_position_bucket: bool = False,
+    scale: Optional[int] = None,
 ) -> str:
     return str(
         rating_display_value(
@@ -476,5 +800,6 @@ def rating_display_text(
             display_min=display_min,
             display_max=display_max,
             use_position_bucket=use_position_bucket,
+            scale=scale,
         )
     )

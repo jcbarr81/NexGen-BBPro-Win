@@ -4,6 +4,7 @@ import logging
 from models.player import Player
 from models.pitcher import Pitcher
 from utils.atomic_write import atomic_text_writer
+from utils.players_file_writes import note_players_file_written
 from utils.rating_scale import (
     LEGACY_RATING_SCALE,
     RATING_SCALE_FIELD,
@@ -156,3 +157,6 @@ def save_players_to_csv(players, file_path):
                 })
 
             writer.writerow(row)
+    # The display caches key on the file (utils.rating_display): a rewrite
+    # in the same timestamp tick with the same size must still be seen.
+    note_players_file_written(file_path)

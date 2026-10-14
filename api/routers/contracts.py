@@ -34,9 +34,10 @@ from services.contracts_service import (
 )
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.rating_display import display_scale_for
 from utils.sim_date import get_current_sim_date
 
-from ._rating_presentation import compute_overall
+from ._rating_presentation import compute_overall, page_scale
 from ..security import CurrentIdentity, require_bearer, require_team_owner
 
 router = APIRouter(prefix="/contracts", tags=["contracts"], dependencies=[CurrentIdentity])
@@ -554,6 +555,7 @@ def list_contracts(
 
     players_index = _player_lookup()
     current_year = _resolve_current_year()
+    league_scale = page_scale()
     rows: List[Dict[str, Any]] = []
 
     # Built lazily, at most once per request — only if some contract row is
@@ -589,6 +591,7 @@ def list_contracts(
                     lambda key: getattr(player, key, None),
                     is_pitcher=is_pitcher,
                     position=position or None,
+                    scale=display_scale_for(player, league_scale),
                 ).get("overall_display")
             except Exception:  # pragma: no cover - defensive
                 overall = None

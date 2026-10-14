@@ -10,13 +10,17 @@ a, span) is supported.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 @dataclass(frozen=True)
 class TutorialStep:
     title: str
     body_html: str
+    # The rating scale (``utils.rating_scale``) of the leagues this step is
+    # shown to; ``None`` shows it to every league. A step about the full
+    # 1-99 scale is only true in a league that has moved to it.
+    rating_scale: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -553,6 +557,22 @@ TUTORIALS: List[Tutorial] = [
                 "<p>Three changes do not wait for the new season; the step <b>Changes every league sees right away</b> lists them.</p>",
             ),
             TutorialStep(
+                "Ratings on the full 1 to 99 scale",
+                "<p>When your league moved to the updated game engine, its ratings moved to the full 1 to 99 scale. <b>No player changed.</b> Each rating was rewritten on the wider scale, keeping every player's order, and the game reads it exactly as it read the old number: in testing, leagues and their rewritten copies played identical seasons, pitch for pitch. Salaries, trades, the draft and every computer manager's choice are worked out exactly as before.</p>"
+                "<p>What the numbers mean now, for Contact, Power, Eye, Fielding and Arm, and a pitcher's Control, Movement and Arm:</p>"
+                "<ul>"
+                "<li><b>50</b> is an average regular: a player who holds a job in a big-league lineup or staff.</li>"
+                "<li><b>70</b> is a clear strength: about one player in ten in the league is that good at it.</li>"
+                "<li><b>80</b> is about one player in thirty.</li>"
+                "<li><b>90 and above</b> is the best handful of players in the league at that one skill; some leagues have none.</li>"
+                "<li><b>20 to 30</b> is a raw prospect or a player out of his depth.</li>"
+                "</ul>"
+                "<p><b>Overall</b> is on the same scale: an average regular reads about 50 and the best player in a league about 88 to 92. Stars follow the overall and are handed out about as often as before.</p>"
+                "<p><b>Why your screens changed.</b> Before the move, pages did not show a stored rating: they blended it with where the player ranked in your league, so a stored 65 read about 82 and nothing read below 35. Now every page shows the rating as it is stored: the roster, the player browser, free agents, the profile, and the draft page, which used to be the one page that showed stored numbers. Average players read lower than they did (about 50 instead of about 58), the best read higher, and the draft page agrees with every other page.</p>"
+                "<p>Speed, Endurance, Hold, the pitch grades, GB/FB, Platoon vs L and Scouting were already spread across the scale and were not rewritten; they now show as stored too. Scouting reports carry the same size of error as before. The examples in the steps below that quote a rating (an 80 Contact hitter, a 60 Eye hitter) were written on the earlier scale.</p>",
+                rating_scale=2,
+            ),
+            TutorialStep(
                 "What changes in the numbers",
                 "<p>Expect scoring to come down by about half a run per team per game, to MLB's level, with a few more strikeouts and fewer walks. Measured on a 30-team league created the way a real league is (420 games on each engine through the real game path; sampling error about 0.11 runs either way):</p>"
                 "<ul>"
@@ -928,9 +948,14 @@ TUTORIALS: List[Tutorial] = [
 ]
 
 
-def tutorial_catalog() -> Dict[str, Dict[str, object]]:
-    """Return the catalog as a dict keyed by tutorial_id for API serving."""
+def tutorial_catalog(rating_scale: Optional[int] = None) -> Dict[str, Dict[str, object]]:
+    """Return the catalog as a dict keyed by tutorial_id for API serving.
 
+    ``rating_scale`` is the scale the league's ratings are on (``None``: 1,
+    every league today); a step written for another scale is left out.
+    """
+
+    scale = 1 if rating_scale is None else int(rating_scale)
     out: Dict[str, Dict[str, object]] = {}
     for t in TUTORIALS:
         out[t.tutorial_id] = {
@@ -938,13 +963,17 @@ def tutorial_catalog() -> Dict[str, Dict[str, object]]:
             "title": t.title,
             "summary": t.summary,
             "route": t.route,
-            "steps": [{"title": s.title, "body_html": s.body_html} for s in t.steps],
+            "steps": [
+                {"title": s.title, "body_html": s.body_html}
+                for s in t.steps
+                if s.rating_scale is None or s.rating_scale == scale
+            ],
         }
     return out
 
 
-def tutorial_list() -> List[Dict[str, object]]:
-    return list(tutorial_catalog().values())
+def tutorial_list(rating_scale: Optional[int] = None) -> List[Dict[str, object]]:
+    return list(tutorial_catalog(rating_scale).values())
 
 
 __all__ = [

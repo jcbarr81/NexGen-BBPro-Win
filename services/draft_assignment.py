@@ -23,6 +23,7 @@ from utils.rating_scale import (
     to_stored,
     to_stored_exact,
 )
+from utils.players_file_writes import note_players_file_written
 from utils.roster_loader import load_roster, save_roster
 from utils.roster_rules import LOW_CAP as LOW_MAX
 
@@ -304,6 +305,7 @@ def _append_players(rows: list[Dict[str, Any]]) -> None:
             # Ensure all columns exist
             payload = {k: row.get(k, "") for k in header}
             writer.writerow(payload)
+    note_players_file_written(path)
     reset_player_cache()
     # reset_player_cache only clears the transaction log's name lookup —
     # the unified data service holds a separate cached players list that

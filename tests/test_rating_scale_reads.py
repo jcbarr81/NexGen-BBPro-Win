@@ -47,7 +47,7 @@ STORED_VALUE_FILES = {
     "scripts/kpi_extras.py": "rows come from engine_rows",
     "scripts/physics_sim_season_kpis.py": "rows come from engine_rows",
     # -- what an owner is shown: stored values, owned by the display step
-    "utils/rating_display.py": "display: percentile blend of stored ratings",
+    "utils/rating_display.py": "display: the blend (scale 1) or the stored rating (scale 2)",
     "services/player_profile_view_model.py": "display: the profile page",
     "services/career_arc_analytics.py": "report export: shows stored ratings",
     "services/training_settings.py": "\"movement\" is a training track name",
@@ -203,11 +203,13 @@ OVERALL_READERS = {
     ("api/routers/_rating_presentation.py", "get_raw"),  # its caller's reader
     ("api/routers/contracts.py", "lambda key: getattr(player, key, None)"),
     ("api/routers/draft.py", "lambda k, p=player: getattr(p, k, None)"),
+    ("api/routers/draft.py", "prospect.get"),  # a whole draft pool entry
     ("api/routers/free_agency.py", "lambda k: getattr(player, k, None)"),
     ("api/routers/players.py", "lambda k: _row_raw_int(row, k)"),
     ("api/routers/roster.py", "lambda k: getattr(player, k, None)"),
     ("services/player_profile_view_model.py", "lambda key: getattr(player, key, None)"),
     ("utils/rating_display.py", "row.get"),
+    ("utils/rating_display.py", "read"),  # shown_overall: the whole player
     ("utils/player_overall.py", "get_raw"),  # overall_score passes it down
 }
 OVERALL_FUNCTIONS = {

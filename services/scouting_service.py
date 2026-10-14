@@ -36,6 +36,29 @@ INTENSITY_MULTIPLIERS = {
 
 SCOUTING_STATE_FILENAME = "scouting_state.json"
 
+# The scouting error on a rating scale 2 page, as a multiple of the error
+# today (1 to 9 shown points). Sized to keep the error's accuracy in rank
+# terms (measured 2026-10-14, arithmetic, calibration and league fixtures and
+# stats-clean, every moved rating and the overall; Spearman rank correlation
+# of the true rating with the scouted one). Owners never saw engine-scale
+# numbers: the scale 1 page shows the percentile blend, whose spread (sd
+# 12.6-15.5 shown points) is about the stored scale 2 spread (sd 10-16), so
+# the same error in shown points keeps the same accuracy: the rank
+# correlation moves by -0.000 to -0.027 on average (spread 1 to 9) at x1,
+# against -0.006 to -0.194 at x2. The design's "about x2" assumed a page on
+# the engine scale and would make every club's scouting about a third worse
+# at low confidence.
+FULL_SCALE_SCOUTING_ERROR_FACTOR = 1.0
+
+
+def scouting_error_spread(max_rating_error: int, rating_scale: int | None = None) -> int:
+    """The largest scouting error, in shown points, on a page of ``rating_scale``."""
+
+    spread = int(max_rating_error)
+    if rating_scale is None or rating_scale == 1:
+        return spread
+    return int(round(spread * FULL_SCALE_SCOUTING_ERROR_FACTOR))
+
 
 @dataclass(frozen=True)
 class TeamScoutingProfile:
@@ -346,8 +369,14 @@ def scouting_observed_value(
     team_id: str | None,
     minimum: int = 0,
     maximum: int = 99,
+    rating_scale: int | None = None,
 ) -> object:
-    """Return deterministic observed scouting value for a metric."""
+    """Return deterministic observed scouting value for a metric.
+
+    ``rating_scale`` is the scale the page shows ``value`` on (``None`` or
+    1: today's percentile blend); the error is sized for it by
+    :func:`scouting_error_spread`.
+    """
 
     try:
         numeric = float(value)
@@ -361,7 +390,7 @@ def scouting_observed_value(
     clean_player_id = str(player_id or "").strip() or "unknown"
     clean_team_id = str(team_id or "").strip().upper() or "NA"
     clean_key = str(metric_key or "").strip().upper() or "RATING"
-    spread = int(team_profile.max_rating_error)
+    spread = scouting_error_spread(team_profile.max_rating_error, rating_scale)
     offset = _deterministic_offset(
         f"{clean_player_id}|{clean_team_id}|{clean_key}",
         spread,
@@ -591,5 +620,6 @@ __all__ = [
     "set_team_scouting_intensity",
     "load_team_scouting_controls",
     "team_scouting_profile",
+    "scouting_error_spread",
     "scouting_observed_value",
 ]

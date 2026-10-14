@@ -39,6 +39,7 @@ from typing import Any, Dict, List, Optional
 from playbalance.aging import calculate_age
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.rating_display import league_display_scale, overall_for_text
 from utils.rating_scale import engine_rating
 from utils.roster_loader import load_roster, save_roster
 from utils.roster_rules import (
@@ -259,7 +260,17 @@ def run_yearly_promotions(
             except Exception:
                 pass
 
-    _announce_suggestions(suggestions, resolved)
+    # News quotes the overall the league's pages show (rating scale 2) or,
+    # on scale 1, the promotion score it always quoted.
+    league_scale = league_display_scale(resolved / "players.csv")
+
+    def _ovr(entry: Dict[str, Any]) -> Any:
+        player = players_by_id.get(entry["player_id"])
+        if player is None:
+            return entry["overall"]
+        return overall_for_text(player, entry["overall"], league_scale)
+
+    _announce_suggestions(suggestions, resolved, _ovr)
     if not promotions:
         return {"promotions": [], "count": 0, "suggestions": suggestions, "skipped": skipped}
 
@@ -284,7 +295,7 @@ def run_yearly_promotions(
                 else f"promoted to {entry['to_level']}"
             )
             log_news_event(
-                f"{entry['team_id']} {verb}: {label} (age {entry['age']}, OVR {entry['overall']}).",
+                f"{entry['team_id']} {verb}: {label} (age {entry['age']}, OVR {_ovr(entry)}).",
                 category="promotion",
                 team_id=entry["team_id"],
                 file_path=news_path,
@@ -331,8 +342,13 @@ def run_yearly_promotions(
     }
 
 
-def _announce_suggestions(suggestions: List[Dict[str, Any]], data_dir: Path) -> None:
-    """A news line per owner prospect who is ready for the next level."""
+def _announce_suggestions(
+    suggestions: List[Dict[str, Any]], data_dir: Path, ovr=None
+) -> None:
+    """A news line per owner prospect who is ready for the next level.
+
+    ``ovr(entry)`` is the overall the line quotes (default: the entry's
+    promotion score)."""
 
     if not suggestions:
         return
@@ -353,7 +369,7 @@ def _announce_suggestions(suggestions: List[Dict[str, Any]], data_dir: Path) -> 
         try:
             log_news_event(
                 f"{entry['team_id']}: {label} (age {entry['age']}, OVR "
-                f"{entry['overall']}) {advice}",
+                f"{ovr(entry) if ovr else entry['overall']}) {advice}",
                 category="promotion",
                 team_id=entry["team_id"],
                 file_path=data_dir / "news_feed.txt",

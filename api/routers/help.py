@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 
 from services.tutorials import tutorial_catalog, tutorial_list
 from utils.path_utils import get_base_dir
+from utils.rating_display import league_display_scale
 
 from ..security import CurrentIdentity
 
@@ -48,15 +49,25 @@ def manual() -> Dict[str, Any]:
     }
 
 
+def _league_rating_scale() -> Any:
+    """The league's rating scale, for the steps written for one scale only
+    (``None``, read as scale 1, when it cannot be told)."""
+
+    try:
+        return league_display_scale()
+    except Exception:
+        return None
+
+
 @router.get("/tutorials")
 def tutorials() -> Dict[str, Any]:
-    items: List[Dict[str, Any]] = tutorial_list()  # type: ignore[assignment]
+    items: List[Dict[str, Any]] = tutorial_list(_league_rating_scale())  # type: ignore[assignment]
     return {"count": len(items), "tutorials": items}
 
 
 @router.get("/tutorials/{tutorial_id}")
 def tutorial_detail(tutorial_id: str) -> Dict[str, Any]:
-    catalog = tutorial_catalog()
+    catalog = tutorial_catalog(_league_rating_scale())
     data = catalog.get(tutorial_id)
     if data is None:
         raise HTTPException(

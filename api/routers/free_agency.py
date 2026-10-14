@@ -43,7 +43,13 @@ from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster, save_roster
 
 from ..security import CurrentIdentity, require_bearer, require_team_owner
-from ._rating_presentation import compute_overall, rating_context, scale_rating
+from ._rating_presentation import (
+    compute_overall,
+    page_reader,
+    page_scale,
+    rating_context,
+    scale_rating,
+)
 
 router = APIRouter(tags=["free-agency"], dependencies=[CurrentIdentity])
 
@@ -56,21 +62,24 @@ _SUMMARY_RATING_KEYS = (
 )
 
 
-def _summarize(player: Any) -> Dict[str, Any]:
+def _summarize(player: Any, league_scale: Any = "page") -> Dict[str, Any]:
     is_pitcher = bool(getattr(player, "is_pitcher", False))
     position = getattr(player, "primary_position", None)
+    if league_scale == "page":
+        league_scale = page_scale()
+    scale, read = page_reader(player, league_scale)
 
     ratings: Dict[str, Any] = {}
     ratings_context: Dict[str, Dict[str, Any]] = {}
     for key in _SUMMARY_RATING_KEYS:
-        raw = getattr(player, key, None)
+        raw = read(key)
         if raw is None:
             continue
         ratings[key] = scale_rating(
-            raw, key=key, position=position, is_pitcher=is_pitcher
+            raw, key=key, position=position, is_pitcher=is_pitcher, scale=scale
         )
         ctx = rating_context(
-            raw, key=key, position=position, is_pitcher=is_pitcher
+            raw, key=key, position=position, is_pitcher=is_pitcher, scale=scale
         )
         if ctx is not None:
             ratings_context[key] = ctx
@@ -79,6 +88,7 @@ def _summarize(player: Any) -> Dict[str, Any]:
         lambda k: getattr(player, k, None),
         is_pitcher=is_pitcher,
         position=position,
+        scale=scale,
     )
 
     return {
@@ -111,7 +121,8 @@ def list_free_agents(limit: int = 1000) -> Dict[str, Any]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to load free agents: {exc}",
         ) from exc
-    rows = [_summarize(p) for p in players]
+    league_scale = page_scale()
+    rows = [_summarize(p, league_scale) for p in players]
     rows.sort(key=lambda r: (r["last_name"], r["first_name"]))
     return {"count": len(rows), "limit": limit, "free_agents": rows[:limit]}
 

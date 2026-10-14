@@ -11,6 +11,7 @@ module.
 
 from __future__ import annotations
 
+import csv
 from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional
 
@@ -18,7 +19,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from services.roster_moves import cut_player
 from services.transaction_log import record_transaction
-from utils.pitcher_role import get_display_role, get_role
+from utils.path_utils import get_data_dir
+from utils.pitcher_role import get_role
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import (
     active_pitcher_cap,
@@ -27,9 +29,16 @@ from utils.roster_loader import (
     save_roster,
 )
 from utils.roster_rules import ORG_LIMIT, counts_as_pitcher
+from utils.staff_roles import canonical_relief_role
 
 from ..security import CurrentIdentity, require_bearer, require_team_owner
-from ._rating_presentation import compute_overall, rating_context, scale_rating
+from ._rating_presentation import (
+    compute_overall,
+    page_reader,
+    page_scale,
+    rating_context,
+    scale_rating,
+)
 
 router = APIRouter(prefix="/teams/{team_id}", tags=["roster"], dependencies=[CurrentIdentity])
 
@@ -62,37 +71,80 @@ _PITCHER_RATING_FIELDS = (
 )
 
 
-def _player_summary(player: Any, level: str, dl_tier: str | None = None) -> Dict[str, Any]:
+def _staff_roles(team_id: str) -> Dict[str, str]:
+    """The team's pitching staff file (``rosters/{team}_pitching.csv``) as
+    player id -> ``"SP"`` / ``"RP"``: an SP slot (SP, SP1-SP5) is a starter,
+    any other slot a reliever. The file is what the owner set, so it is the
+    authority for a pitcher it lists. ``{}`` when there is none."""
+
+    out: Dict[str, str] = {}
+    path = get_data_dir() / "rosters" / f"{team_id}_pitching.csv"
+    try:
+        if not path.exists():
+            return out
+        with path.open(newline="", encoding="utf-8") as handle:
+            for row in csv.reader(handle):
+                if len(row) < 2 or not row[0].strip():
+                    continue
+                label = canonical_relief_role(row[1])
+                out.setdefault(row[0].strip(), "SP" if label.startswith("SP") else "RP")
+    except (OSError, csv.Error):
+        return {}
+    return out
+
+
+def _pitcher_role(player: Any, staff_roles: Dict[str, str]) -> str:
+    """A pitcher's SP/RP, from the same sources as the rest of the app: the
+    staff file where it lists him, else ``utils.pitcher_role.get_role``
+    (declared preference SP/SP1-SP5/STARTER/CL/..., then endurance). The
+    stored ``role`` column is stale and is never read here."""
+
+    pid = str(getattr(player, "player_id", "") or "")
+    return staff_roles.get(pid) or get_role(player) or "RP"
+
+
+def _player_summary(
+    player: Any,
+    level: str,
+    dl_tier: str | None = None,
+    league_scale: Any = "page",
+    staff_roles: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     is_pitcher = bool(getattr(player, "is_pitcher", False))
     position = getattr(player, "primary_position", None)
+    if league_scale == "page":
+        league_scale = page_scale()
+    # ``read`` gives the player's ratings on the scale the page shows.
+    scale, read = page_reader(player, league_scale)
 
     ratings: Dict[str, Any] = {}
     ratings_context: Dict[str, Dict[str, Any]] = {}
     for key in _RATING_FIELDS:
-        raw = getattr(player, key, None)
+        raw = read(key)
         if raw is None:
             continue
         ratings[key] = scale_rating(
-            raw, key=key, position=position, is_pitcher=is_pitcher
+            raw, key=key, position=position, is_pitcher=is_pitcher, scale=scale
         )
         ctx = rating_context(
-            raw, key=key, position=position, is_pitcher=is_pitcher
+            raw, key=key, position=position, is_pitcher=is_pitcher, scale=scale
         )
         if ctx is not None:
             ratings_context[key] = ctx
     if is_pitcher:
         for key in _PITCHER_RATING_FIELDS:
-            raw = getattr(player, key, None)
+            raw = read(key)
             if raw is None:
                 continue
             ratings[key] = scale_rating(
-                raw, key=key, position=position, is_pitcher=is_pitcher
+                raw, key=key, position=position, is_pitcher=is_pitcher, scale=scale
             )
 
     overall = compute_overall(
         lambda k: getattr(player, k, None),
         is_pitcher=is_pitcher,
         position=position,
+        scale=scale,
     )
 
     birthdate = getattr(player, "birthdate", "") or ""
@@ -107,20 +159,16 @@ def _player_summary(player: Any, level: str, dl_tier: str | None = None) -> Dict
         except ValueError:
             age = None
 
-    # For pitchers, prefer ``preferred_pitching_role`` (the granular
-    # SP/RP/CL/LR/MR/SU value the user actually maintains) over the raw
-    # ``role`` CSV column, which is stale on every row in the seed data
-    # (all 272 pitchers ship with role="RP" even when they're starters).
-    # Bucket the granular value to SP/RP for the high-level role tab; the
-    # raw granular value is exposed below as ``preferred_pitching_role``.
-    raw_role = str(getattr(player, "role", "") or "").strip()
+    # A pitcher's SP/RP (the Pitchers page's tabs) comes from the staff
+    # file, then utils.pitcher_role.get_role -- never from the stored
+    # ``role`` column, which is stale on every older league. Until 8.0 this
+    # bucketed ``preferred_pitching_role`` itself and called only an exact
+    # "SP" a starter, so SP1-SP5 and STARTER read as relievers. The granular
+    # value is still exposed below as ``preferred_pitching_role``.
     if is_pitcher:
-        display = get_display_role(player)
-        resolved_role = "SP" if str(display).upper() == "SP" else (
-            "RP" if display else (get_role(player) or raw_role)
-        )
+        resolved_role = _pitcher_role(player, staff_roles or {})
     else:
-        resolved_role = raw_role
+        resolved_role = str(getattr(player, "role", "") or "").strip()
 
     return {
         "player_id": getattr(player, "player_id", ""),
@@ -167,6 +215,8 @@ def team_roster(team_id: str) -> Dict[str, Any]:
             detail=f"Failed to load players.csv: {exc}",
         ) from exc
     players_by_id = {getattr(p, "player_id", ""): p for p in players_list}
+    league_scale = page_scale()
+    staff_roles = _staff_roles(team_id)
 
     def _hydrate(ids: List[str], level: str) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
@@ -198,7 +248,9 @@ def team_roster(team_id: str) -> Dict[str, Any]:
                 )
                 continue
             dl_tier = roster.dl_tiers.get(pid) if level == "DL" else None
-            out.append(_player_summary(player, level, dl_tier))
+            out.append(
+                _player_summary(player, level, dl_tier, league_scale, staff_roles)
+            )
         return out
 
     # Active-roster shape against the limits in force today (26 / 13, or

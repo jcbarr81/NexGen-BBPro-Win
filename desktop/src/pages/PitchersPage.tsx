@@ -33,6 +33,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import { useActiveTeamColor } from "@/lib/team-colors";
 import { useTeams } from "@/lib/use-teams";
 import { cn } from "@/lib/cn";
+import { ratingTone } from "@/lib/rating-tone";
 import { AppShell } from "@/components/layout/AppShell";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { StarRating } from "@/components/StarRating";
@@ -77,15 +78,14 @@ const COLUMNS: Array<{ key: string; label: string }> = [
 type SortKey = "name" | "age" | "role" | "overall" | string;
 type SortDir = "asc" | "desc";
 
-/** Mirror of the backend get_role(): endurance is the source of truth for the
- *  SP/RP split (a stored role can be stale or mislabeled by generation, which is
- *  why a high-endurance arm could show as a reliever). Pitchers with endurance
- *  > 55 are starters, otherwise relievers; stored role is only a last resort. */
+/** The SP/RP split is the server's: the roster payload's ``role`` is the
+ *  backend's resolved role (preferred pitching role, then endurance against
+ *  the engine's threshold). Splitting here on the shown endurance disagreed
+ *  with the server, because the number shown is not the number the role
+ *  is decided on. */
 function pitcherRole(p: RosterPlayer): "SP" | "RP" {
-  const endurance = Number(p.ratings.endurance);
-  if (Number.isFinite(endurance)) return endurance > 55 ? "SP" : "RP";
-  const stored = (p.role || "").toUpperCase();
-  return stored === "SP" ? "SP" : "RP";
+  const role = (p.role || "").toUpperCase();
+  return role === "SP" ? "SP" : "RP";
 }
 
 export function PitchersPage() {
@@ -499,13 +499,7 @@ function OverallCell({ player }: { player: RosterPlayer }) {
       <span
         className={cn(
           "font-display font-semibold tabular-nums",
-          display >= 85
-            ? "text-success"
-            : display >= 70
-            ? "text-amber-text"
-            : display >= 50
-            ? "text-ink"
-            : "text-subtle",
+          ratingTone(display),
         )}
       >
         {Math.round(display)}
@@ -522,13 +516,6 @@ function RatingCell({ value }: { value: number | string | null | undefined }) {
     return <span className="text-subtle">—</span>;
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return <>{String(value)}</>;
-  const tone =
-    n >= 85
-      ? "text-success"
-      : n >= 70
-      ? "text-amber-text"
-      : n >= 50
-      ? "text-ink"
-      : "text-subtle";
+  const tone = ratingTone(n);
   return <span className={tone}>{Math.round(n)}</span>;
 }

@@ -198,6 +198,16 @@ Version 7.51.0 brings an updated game engine: plate discipline, contact, platoon
   - Any new schedule gives every club exactly half its games at home (before, between 75 and 87 home games in a 162-game, 30-team league, the same clubs every year). A season already under way keeps its schedule.
   - Newly generated catchers, second basemen, third basemen and shortstops are about 60% right-handed, 27% left-handed and 13% switch (it was 75 / 15 / 10), in new leagues and in future draft classes of every league. Existing players are not changed.
 
+#### Ratings on the full 1-99 scale (8.0.0; applies once a league has moved)
+This part applies to a league whose ratings have been moved to the full scale, which happens with the move to the next engine at the start of its next season. Until then nothing here changes, and the in-app tutorial does not show it.
+
+- **No player changed.** Each stored rating is rewritten on the wider scale, keeping every player's order, and the game reads it exactly as it read the old number (leagues and their rewritten copies played identical test seasons). Salaries, trades, the draft and every CPU decision are worked out exactly as before.
+- **What the numbers mean** (Contact, Power, Eye, Fielding and Arm; a pitcher's Control, Movement and Arm): **50** is an average regular; **70** a clear strength, about one player in ten in the league; **80** about one in thirty; **90 and up** the best handful at that skill, and some leagues have none; **20 to 30** a raw prospect or a player out of his depth.
+- **Overall** is on the same scale: an average regular reads about 50 and the best player in a league about 88 to 92. The overall CPU managers use is unchanged; only the shown number is stretched. Stars follow the shown overall and are handed out about as often as before.
+- **What owners see change.** Before the move every page showed a rating blended with the player's rank in the league (a stored 65 read about 82; nothing read below 35). After it, every page shows the stored rating: roster, player browser, free agents, profile and the draft page, which was the one page that already showed stored numbers. Average players read lower (about 50 instead of about 58), the best higher, and every page agrees.
+- Speed, Endurance, Hold, the pitch grades, GB/FB, Platoon vs L and Scouting were already spread across the scale and are not rewritten; they now also show as stored. Scouting reports carry the same size of error as before. Potentials stay hidden.
+- A player's ratings history shows earlier seasons on the new scale too, so there is no jump at the switch.
+
 ### Playoff Calendar
 - Every playoff game has a date, MLB-style: an off day after the regular season and between rounds, travel days after games 2 and 5 of a seven-game series (after games 2 and 4 of a five-game series), and none inside a three-game Wild Card series. A round starts on its scheduled date even when the previous round ends in a sweep.
 - Because games are dated, starters rotate and relievers rest in October the same way they do in the regular season, and **Sim Next Game** plays one playoff day (every series scheduled that day, in both leagues).

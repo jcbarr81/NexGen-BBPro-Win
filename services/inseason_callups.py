@@ -38,6 +38,7 @@ from services.team_outlook import (
 from services.team_ownership import human_owned_team_ids_strict
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.rating_display import league_display_scale, overall_for_text
 from utils.rating_scale import engine_rating
 from utils.roster_loader import (
     ACTIVE_ROSTER_SIZE,
@@ -477,6 +478,11 @@ def _promote(
 ) -> dict:
     age = _player_age(player)
     overall = _player_overall(player)
+    # The text quotes the overall the league's pages show (rating scale 2);
+    # on scale 1 the promotion score it always quoted.
+    shown = overall_for_text(
+        player, overall, league_display_scale(data_dir / "players.csv")
+    )
     pos = _primary_pos(player) or "?"
     name = _name(player, pid)
     decision = evaluate_roster_move(
@@ -503,11 +509,11 @@ def _promote(
         player_name=name,
         from_level="AAA",
         to_level="ACT",
-        details=f"Called up ({outlook}{detail_suffix}, OVR {overall})",
+        details=f"Called up ({outlook}{detail_suffix}, OVR {shown})",
         season_date=current,
     )
     _news(
-        f"{team_id} called up to the majors: {pos} {name} (age {age}, OVR {overall}).",
+        f"{team_id} called up to the majors: {pos} {name} (age {age}, OVR {shown}).",
         category="promotion",
         team_id=team_id,
         data_dir=data_dir,
