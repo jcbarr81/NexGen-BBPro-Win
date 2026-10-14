@@ -2498,10 +2498,10 @@ Open:
   `_record_in_archive`). `rating_scale.json` and the news item do record the
   move; route the move's result through `_record_in_archive` too if the
   season history should show it.
-- **The working copy's push can copy a transient players-file lock**
-  (`.players.csv.lock`) to the remote mirror if it walks the folder while a
-  save holds it. Harmless (a lock from another host is broken once stale,
-  60 s), but the walk should skip `*.lock`.
+- **The working copy's push could copy a transient players-file lock**
+  (`.players.csv.lock`) to the remote mirror. FIXED in the fix-up round:
+  `*.lock`, `*.tmp` and the pull's own temporaries never travel either way
+  (`api.working_copy._transient`).
 - **Encodings.** The move writes `players.csv` in UTF-8; the development
   step reads and writes it in the platform's encoding (cp1252 on a Windows
   desktop, UTF-8 on Cloud Run). Same on the server; on a desktop an accented
@@ -2513,3 +2513,31 @@ Open:
   the Eye, Control, Arm and catcher figures apply the measured per-10-point
   slopes through each rating's map. Re-measure on a converted league once
   one exists, and after the re-spread of alpha-test.
+
+## 8.0.0 switch-on rehearsal: pre-existing issues seen (2026-10-14, not fixed)
+
+The rehearsal drove full copies of alpha-test and stats-test through the
+real API with the switch on (`r6/p8/rehearsal/` in the session scratch).
+These are 7.51 behaviours it ran into, not 8.0.0 changes:
+
+- **Contract expirations leave owner teams unready.** After the rollover's
+  contract step (alpha-test: 134 of its 509 active players became free
+  agents) owners' clubs were not ready for the preseason until they, or the
+  CPU fill, refilled their rosters. Not investigated beyond that.
+- **A single-owner league started its season without a catcher**
+  in the rehearsal. Not investigated.
+- **The Players browser lists retired players as free agents.**
+- **Free-agent rows do not show injuries.**
+- **The sign endpoint's default salary is countered** (a signing with no
+  salary given was answered with a counter-offer).
+- **The 2026 World Series was dated 2027-01-19 to 01-24** on a copied
+  league in the rehearsal. Not investigated.
+- **An allowed bottom clip reached a major-league roster in the same
+  offseason.** alpha-test's one allowed clip (a Low-A draft pick's Power,
+  engine 23, stored as 1) is a minor leaguer at the move, so the clip rule
+  allows it; the CPU's roster fill then moved him up within the same
+  offseason. Harmless in play (he plays about a point better than his
+  engine rating), but the rule's premise (bottom clips only on minor
+  leaguers) does not hold for long. Note it if the rule is revisited.
+- **8.0.0 tutorial filter (still open, above):** steps are filtered by
+  rating scale, not engine generation.

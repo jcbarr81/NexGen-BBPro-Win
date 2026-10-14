@@ -28,7 +28,12 @@ season never changes engine silently). To stop further moves, set
   archive, the contracts and the finances, BEFORE the offseason development
   step): the league is converted; its draft, free agency and offseason are
   then on the new scale, and its first offseason develops on it. Its next
-  season starts on generation 6 (recorded when that season starts).
+  season starts on generation 6 (recorded when that season starts). For a
+  league listed in `NEXGEN_RESPREAD_LEAGUES` the rollover takes the
+  re-spread's population (the ACT players and the clubs' rotations, as the
+  season ENDED) before the contract rollover, which turns many active
+  players into free agents (alpha-test: 134 of 509), and hands it to the
+  move.
 - **At the first season game of a season nobody rolled into** (a league
   created before the switch and still in its first preseason, a season set
   up another way): the same conversion, then generation 6 is recorded.
@@ -55,14 +60,17 @@ beside `players.csv`; every writer of the file takes it):
    pools' clips (`draft_pool_clips`), the potentials raised
    (`potentials_raised_to_current`), the re-spread with its inputs, the
    headline numbers; the news feed gets the engine-and-scale item (and the
-   re-spread item for a listed league).
+   re-spread item for a listed league). The same rollover then posts the
+   offseason development item (how many players improved and declined,
+   the biggest risers and declines with before and after).
 
 Cloud Logging shows `[rating-scale] ... players converted to rating scale 2
 for season <year> (generation 6, converted)`.
 
 **Potentials.** The move raises every potential that sits below its
-player's current rating up to that rating (about 2,800 per live league:
-alpha-test 2,854, stats-test 2,799; 1,257 on alpha-test with its re-spread).
+player's current rating up to that rating (about 2,800 per live league
+without a re-spread: alpha-test 2,854, stats-test 2,799; 1,257 on
+alpha-test with its re-spread, measured at a real rollover of a copy).
 Potentials are hidden from owners; they feed development and CPU
 decisions. A backup rollback restores them; an inverse rollback does not.
 
@@ -91,9 +99,18 @@ the full list (`blocking`), and the log shows `[rating-scale] ... NOT moved`.
 
 Measured 2026-10-14 on the scratch copies under this rule: **neither live
 league would be refused.** alpha-test has two bottom clips, both LOW-level
-2026 draft picks (Eye 33 and Power 23 stored as 1; allowed, logged; with
-its re-spread only the Power 23); stats-test has none. The repo's sample
+2026 draft picks (Eye 33 and Power 23 stored as 1; allowed, logged); with
+its re-spread only the Power 23 is left. A real rollover of an alpha-test
+copy (end of its 2026 playoffs, switch on, listed) gave exactly that: 12
+ratings re-spread (hitters' Eye, fielding, arm, ground-ball and pull;
+pitchers' control, movement, arm, endurance, hold, fielding and
+ground-ball), 1,257 potentials raised, one allowed bottom clip (draft pick
+D20260053, Power 23 stored as 1, LOW) and 59 potentials cut at 99; 1,080
+players converted. stats-test has no clip. The repo's sample
 `data/players.csv` would be refused (405 top clips; it has no rosters).
+An allowed bottom clip on a draft pick can reach a major-league roster in
+the same offseason through the CPU's roster fill; it plays a point better
+than its stored 1 says, nothing else.
 
 ### A league that cannot move
 
@@ -127,6 +144,19 @@ league's durable copy with instances stopped (section 6's procedure):
 - Dry-run every live league on a scratch copy (never the live data):
 
       python -c "from services.rating_scale_migration import plan_move; p = plan_move(r'<copy>/data', respread=False); print(p.blocker); print([b['text'] for b in p.blocking])"
+
+  For alpha-test (listed for the re-spread) use `respread=True` and print
+  what the rollover will record:
+
+      python -c "from services.rating_scale_migration import plan_move; p = plan_move(r'<copy>/data', respread=True); print(p.blocker); print([(r.group, r.key) for r in p.respread.moved]); print(sum(p.potentials_raised.values()), [(c.player_id, c.key) for c in p.allowed_clips])"
+
+  Take the copy at the END of the season (after the playoffs, before the
+  rollover). The rollover reads the re-spread's population from exactly
+  those rosters, so this dry run reproduces it: the same 12 ratings, the
+  same population, potentials raised and clips (checked on an alpha-test
+  copy, 2026-10-14). A dry run on a copy taken AFTER the rollover's
+  contracts reads the emptier rosters and can differ (on alpha-test Eye
+  stops looking bunched: ACT sd ratio .582 -> .629, 11 ratings).
 
 ## 5. Turning it on in production
 
@@ -203,7 +233,15 @@ data directory; run the script on the copy; upload; restart.
   an interrupted rollback is never undone by the next game.
 - The season's engine is left as recorded unless `--generation N` is given.
   Scale 1 plays correctly on generation 6, so a scale rollback needs nothing
-  else. `--generation` rewrites the season's `rating_centers.json` entry and
+  else. **A rollback before the season's first game** (a league moved at
+  its rollover, rolled back in the offseason or preseason) makes that
+  season generation 5: its generation is recorded at the first game, and a
+  held league on scale 1 is given generation 5.
+- **No double growth.** A rollback after the rollover's development step
+  marks that offseason as developed (`development_last.json`,
+  `scale1_camp_gains_withheld`): the scale 1 spring camp that follows marks
+  players ready and reports the offseason's development, with no rating
+  gains of its own. The next spring trains as usual. `--generation` rewrites the season's `rating_centers.json` entry and
   its `season_progress.json` witness (a witness that already belongs to a
   later season is left alone). A mid-season engine change changes how the
   rest of that season plays.
@@ -214,11 +252,24 @@ every `draft_pool_<year>.json` and `draft_pool_<year>.csv` the script lists
 `rating_centers.json` and `season_progress.json`. The backups
 (`players.scale1.*.csv`, `draft_pool_*.scale1.*`) are not changed.
 
+**Telling the owners.** A rollback posts nothing. Post this (League
+Admin, news) or send it to the owners, filled in:
+
+> The rating-scale update has been taken back for now. Your league's
+> ratings are shown on the earlier scale again, exactly as they play; no
+> player's ability changed. [This season is played on the earlier game
+> engine / This season stays on the newest engine.] Player development
+> from this offseason stays, and spring training adds nothing on top of
+> it this year. We will tell you before the league moves again.
+
 **Lifting the hold.** Delete the `"hold"` key from `rating_scale.json`.
 - On a league whose current season is recorded on **generation 6**, its
   NEXT GAME converts it again (it is a generation 6 season with scale 1
-  rows): a fresh move, with a new backup (`players.scale1.<season>.2.csv`),
-  the news item, and the re-spread list as it is set then.
+  rows): a fresh move, with a new backup (`players.scale1.<season>.2.csv`)
+  and the re-spread list as it is set then. Its news is one short item,
+  "ratings re-converted to the full 1-99 scale after a rollback" (plus the
+  re-spread item if something was re-spread), not a second engine-and-scale
+  announcement.
 - Otherwise it moves at its next rollover (or next season start).
 
 ## 7. Leagues created with the switch on

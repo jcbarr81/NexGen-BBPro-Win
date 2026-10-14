@@ -18,6 +18,24 @@ on:
       - "data/calibration_league/**"
       - "scripts/generate_league_fixture.py"
       - "data/MLB_avg/**"
+      - "data/calibration_flat/**"
+      # The services a harness run imports (measured on an --engine 6
+      # season, 8.0.0): the league's rating centres and engine generation,
+      # the tuning settings and presets, and what they read.
+      - "services/__init__.py"
+      - "services/decision_explanations.py"
+      - "services/injury_settings.py"
+      - "services/injury_simulator.py"
+      - "services/league_presets.py"
+      - "services/league_rating_centers.py"
+      - "services/physics_tuning_settings.py"
+      - "services/physics_tuning_spec.py"
+      - "services/players_repository.py"
+      - "services/standings_repository.py"
+      - "services/team_strategy_profiles.py"
+      - "services/training_settings.py"
+      - "services/unified_data_service.py"
+      - "bcrypt.py"
       - ".github/workflows/physics_sim_kpi.yml"
   push:
     branches: [main]
@@ -37,6 +55,24 @@ on:
       - "data/calibration_league/**"
       - "scripts/generate_league_fixture.py"
       - "data/MLB_avg/**"
+      - "data/calibration_flat/**"
+      # The services a harness run imports (measured on an --engine 6
+      # season, 8.0.0): the league's rating centres and engine generation,
+      # the tuning settings and presets, and what they read.
+      - "services/__init__.py"
+      - "services/decision_explanations.py"
+      - "services/injury_settings.py"
+      - "services/injury_simulator.py"
+      - "services/league_presets.py"
+      - "services/league_rating_centers.py"
+      - "services/physics_tuning_settings.py"
+      - "services/physics_tuning_spec.py"
+      - "services/players_repository.py"
+      - "services/standings_repository.py"
+      - "services/team_strategy_profiles.py"
+      - "services/training_settings.py"
+      - "services/unified_data_service.py"
+      - "bcrypt.py"
       - ".github/workflows/physics_sim_kpi.yml"
   workflow_dispatch:
 

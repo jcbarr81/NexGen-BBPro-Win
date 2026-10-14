@@ -576,7 +576,7 @@ TUTORIALS: List[Tutorial] = [
                 "<li><b>Ratings use the full 1 to 99 scale</b>, and every page shows the rating as it is stored.</li>"
                 "<li><b>Players develop every offseason</b>, and computer clubs value a young player's upside by what that development will deliver.</li>"
                 "</ul>"
-                "<p>Scoring stays at about MLB's level (4.47 runs per team per game): about 4.4 on the main test league (8 seasons), 4.6 on a test league with unusually fast runners (4 seasons) and 4.4 on a copy of stats-test (3 seasons). Strikeouts stay at about 22% and walks about 8% of plate appearances, home runs about 1.0 to 1.1 per team per game, and doubles come down to about 1.6.</p>",
+                "<p>Scoring stays at about MLB's level (4.47 runs per team per game): about 4.4 on the main test league (8 seasons), 4.6 on a test league with unusually fast runners (4 seasons) and 4.4 on a copy of stats-test (3 seasons). Strikeouts stay at about 22% and walks about 8% of plate appearances, about 1.1 home runs per team per game, and doubles come down to about 1.6.</p>",
                 rating_scale=2,
             ),
             TutorialStep(
@@ -645,7 +645,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "What the numbers look like",
-                "<p>Scoring is at about MLB's level, 4.47 runs per team per game: about 4.4 on the main test league (8 seasons), 4.6 on a test league with unusually fast runners (4 seasons) and 4.4 on a copy of stats-test (3 seasons). Strikeouts are about 22% and walks about 8% of plate appearances, home runs about 1.0 to 1.1 per team per game and doubles about 1.6.</p>"
+                "<p>Scoring is at about MLB's level, 4.47 runs per team per game: about 4.4 on the main test league (8 seasons), 4.6 on a test league with unusually fast runners (4 seasons) and 4.4 on a copy of stats-test (3 seasons). Strikeouts are about 22% and walks about 8% of plate appearances, about 1.1 home runs per team per game and doubles about 1.6.</p>"
                 "<p>Compared with the original game engine (the one every league played before version 7.51), that is about half a run per team per game less, with a few more strikeouts and fewer walks. Since then:</p>"
                 "<ul>"
                 "<li>Managers issue intentional walks, about 12 to 15 per team per season (MLB's rate; there were none).</li>"
