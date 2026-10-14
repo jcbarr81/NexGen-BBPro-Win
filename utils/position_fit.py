@@ -239,6 +239,7 @@ def position_fielding(
     ``fielding`` overrides the rating read off the player.
     """
 
+    # rating-scale: engine via _rating (an engine object reads as it is)
     rating = _rating(player, "fielding", "fa") if fielding is None else fielding
     if model >= 0.5:
         return rating - move_penalty(player, position, secondary_penalty_scale)
