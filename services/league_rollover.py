@@ -223,6 +223,27 @@ class LeagueRolloverService:
             league_id=self.context.league_id,
         )
 
+        next_year = (
+            next_descriptor.get("league_year")
+            if isinstance(next_descriptor, dict)
+            else (league_year if isinstance(league_year, int) else None)
+        )
+
+        # 8.0.0 (behind NEXGEN_GENERATION6_SCALE2, off by default): move the
+        # league to rating scale 2 now, BEFORE the offseason's development
+        # step (r8-develop: _apply_yearly_development, which develops only
+        # scale 2 rows), so its first offseason on the new scale is
+        # developed on it. Its next season then starts on generation 6
+        # (services.league_rating_centers.move_league_at_rollover). A
+        # failure is reported and leaves the move to the next season's
+        # first game.
+        try:
+            moved = self._move_to_full_rating_scale(next_year)
+            if moved:
+                artifacts["rating_scale_move"] = moved
+        except Exception as exc:  # pragma: no cover - defensive
+            artifacts["rating_scale_move_error"] = str(exc)
+
         # Apply yearly aging to every player on every roster. The aging
         # module already has the per-attribute adjustment table — we just
         # need to call it once per offseason. Failures are non-fatal:
@@ -237,11 +258,6 @@ class LeagueRolloverService:
         # feed into the "washed" / "declining" thresholds. Retirees
         # are removed from rosters, released from contracts, and
         # surfaced in the news feed.
-        next_year = (
-            next_descriptor.get("league_year")
-            if isinstance(next_descriptor, dict)
-            else (league_year if isinstance(league_year, int) else None)
-        )
         try:
             from services.player_retirement import run_yearly_retirements
 
@@ -314,6 +330,16 @@ class LeagueRolloverService:
             contract_rollover=contract_rollover,
             finance_rollover=finance_rollover,
         )
+
+    def _move_to_full_rating_scale(self, next_year: Optional[int]) -> Optional[str]:
+        """The 8.0.0 move at the rollover (``None`` while the switch is off
+        or the league has no next season)."""
+
+        if next_year is None:
+            return None
+        from services.league_rating_centers import move_league_at_rollover
+
+        return move_league_at_rollover(Path(_DATA_DIR), next_year)
 
     def _apply_yearly_aging(self) -> None:
         """Apply one season's worth of aging adjustments to every player.

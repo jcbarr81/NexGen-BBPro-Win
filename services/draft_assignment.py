@@ -10,6 +10,7 @@ from utils.exceptions import DraftRosterError
 from utils.news_logger import log_news_event
 from utils.path_utils import get_data_dir
 from utils.pitcher_role import role_from_endurance
+from utils.players_file_lock import players_file_lock
 from utils.rating_scale import (
     HEIGHT_FIELD,
     LEGACY_RATING_SCALE,
@@ -321,6 +322,26 @@ def _append_players(rows: list[Dict[str, Any]]) -> None:
     if not rows:
         return
     path = _players_csv_path()
+    # Under the players-file lock (utils.players_file_lock): the 8.0.0 move
+    # to rating scale 2 holds it from its read to its replace, so a pick
+    # never lands in the middle of a move and is lost.
+    with players_file_lock(path):
+        _append_players_locked(rows, path)
+    reset_player_cache()
+    # reset_player_cache only clears the transaction log's name lookup —
+    # the unified data service holds a separate cached players list that
+    # the draft results endpoint reads from. Without this clear, the
+    # /draft/results join can't find the just-drafted players (so the
+    # console shows empty Player + OVR cells until restart).
+    try:
+        from utils.player_loader import load_players_from_csv
+
+        load_players_from_csv.cache_clear()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+
+def _append_players_locked(rows: list[Dict[str, Any]], path: Path) -> None:
     header = _read_players_header()
     rows = _rows_on_file_scale(rows, path, header)
     if SCALE2_HEIGHT_FIELD not in header and any(
@@ -339,18 +360,6 @@ def _append_players(rows: list[Dict[str, Any]]) -> None:
                 row[SCALE2_HEIGHT_FIELD] = row.get(HEIGHT_FIELD, "")
             payload = {k: row.get(k, "") for k in header}
             writer.writerow(payload)
-    reset_player_cache()
-    # reset_player_cache only clears the transaction log's name lookup —
-    # the unified data service holds a separate cached players list that
-    # the draft results endpoint reads from. Without this clear, the
-    # /draft/results join can't find the just-drafted players (so the
-    # console shows empty Player + OVR cells until restart).
-    try:
-        from utils.player_loader import load_players_from_csv
-
-        load_players_from_csv.cache_clear()  # type: ignore[attr-defined]
-    except Exception:
-        pass
 
 
 def _assign_to_low(team_id: str, player_id: str) -> tuple[bool, str | None, bool]:

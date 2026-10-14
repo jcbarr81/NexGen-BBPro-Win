@@ -69,16 +69,18 @@ import math
 import os
 import re
 import statistics
+import sys
 import threading
-import time
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
 
+from utils.players_file_lock import PlayersFileBusy, heartbeat, players_file_lock
 from utils.rating_scale import (
     FULL_RATING_SCALE,
+    RATING_MAX,
     HEIGHT_FIELD,
     LEGACY_RATING_SCALE,
     RATING_SCALE_FIELD,
@@ -133,14 +135,23 @@ RESPREAD_LEAGUES_ENV = "NEXGEN_RESPREAD_LEAGUES"
 RESPREAD_REFERENCE_PATH = Path(__file__).resolve().with_name(
     "rating_respread_reference.json"
 )
-_LOCK_NAME = ".rating_scale_move.lock"
-# A move lock older than this is a dead process's: broken, and logged.
-_STALE_LOCK_SECONDS = 600.0
+# How long a move waits for the league's players-file lock
+# (utils.players_file_lock) before giving up for now (MoveBusy). Short: the
+# move is asked for while the rating centres' process lock is held.
+_LOCK_WAIT_SECONDS = 2.0
 _PLAYERS = "players.csv"
 _POOL_RE = re.compile(r"^draft_pool_(\d{4})\.(json|csv)$")
 _NEWS_FILE = "news_feed.txt"
-# How many players a refusal names.
-_NAMED = 8
+# How many blocking ratings the commissioner's news item names (the log
+# names every one).
+_NEWS_NAMED = 25
+# Roster levels of a major-league player, playing or injured: a clip that
+# would change how he plays refuses the move (review fix 1).
+MAJOR_LEAGUE_LEVELS = frozenset({"ACT", "DL", "DL15", "DL45", "IR"})
+_RATING_LABELS = {
+    "ch": "Contact", "ph": "Power", "eye": "Eye", "fa": "Fielding",
+    "arm": "Arm", "control": "Control", "movement": "Movement",
+}
 
 # ---------------------------------------------------------------------------
 # The re-spread (decision 15)
@@ -172,6 +183,7 @@ BUNCHED_SD_RATIO = 0.6
 # PYTHONHASHSEED is involved).
 RESPREAD_SEED = "8.0.0-respread"
 _PITCH_KEYS = ("fb", "cu", "cb", "sl", "si", "scb", "kn")
+_POTENTIAL_PREFIX_ = "pot_"
 _QUANTILES = 100
 _REFERENCE_CACHE: Dict[str, Any] = {}
 
@@ -460,9 +472,18 @@ def _like(sample: Any, value: int) -> Any:
 class MoveRefused(RuntimeError):
     """The league cannot be converted; ``reason`` says why in plain words."""
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, blocking: Optional[List[Dict[str, Any]]] = None) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.blocking = list(blocking or [])
+
+
+class MoveBusy(RuntimeError):
+    """Another live writer holds the league's players file right now.
+
+    Nothing is decided: the caller retries (a season game fails and is
+    replayed; the season's generation is NOT settled because of a lock).
+    """
 
 
 @dataclass
@@ -471,29 +492,58 @@ class MovePlan:
     fieldnames: List[str]
     rows: List[Dict[str, Any]]
     counts: Dict[int, int]
+    # ACT player ids (the re-spread's population); ``None`` with no rosters.
     active_ids: Optional[set]
+    # player id -> roster level for every rostered player; ``None`` with no
+    # rosters (then every player counts as a major leaguer).
+    levels: Optional[Dict[str, str]] = None
     converted: List[Dict[str, Any]] = field(default_factory=list)
     clips: List[RatingClip] = field(default_factory=list)
     respread: Optional[RespreadResult] = None
     blocker: Optional[str] = None
     # The rows the stretch was given: ``rows``, or the re-spread rows.
     sources: List[Dict[str, Any]] = field(default_factory=list)
+    # The players file exactly as read (compared again before the replace).
+    raw: bytes = b""
+    # Every rating clip that refuses the move, described (the log, the news).
+    blocking: List[Dict[str, Any]] = field(default_factory=list)
+    # rating -> potentials below the current rating, which the stretch
+    # raises to it (``stretch_row``; potentials are hidden from owners).
+    potentials_raised: Dict[str, int] = field(default_factory=dict)
+    respread_inputs: Optional[Dict[str, List[str]]] = None
+    respread_replayed: bool = False
 
     @property
     def to_convert(self) -> int:
         return sum(1 for r in self.rows if rating_scale_of(r) == LEGACY_RATING_SCALE)
 
-    @property
-    def active_clips(self) -> List[RatingClip]:
-        return [
-            c for c in self.clips
-            if c.kind == "rating" and _counts_as_active(c.player_id, self.active_ids)
-        ]
+    def clip_blocks(self, clip: RatingClip) -> bool:
+        """The clipping rule (review fix 1).
+
+        A TOP clip (the value would store above 99: the player would play
+        WORSE, for good) refuses the move whoever he is: a club's ACT, minor
+        leaguer, injured player or free agent. A BOTTOM clip (raised to 1:
+        he would play slightly better) refuses it only for a player on an
+        active or injured major-league roster, or for anyone in a league
+        with no rosters; elsewhere it is allowed and logged. Potentials cut
+        at 99 never refuse (they are logged).
+        """
+
+        if clip.kind != "rating":
+            return False
+        if clip.unclipped > RATING_MAX:
+            return True
+        if self.levels is None:
+            return True
+        return self.levels.get(clip.player_id, "").upper() in MAJOR_LEAGUE_LEVELS
 
     @property
-    def other_clips(self) -> List[RatingClip]:
-        active = set(id(c) for c in self.active_clips)
-        return [c for c in self.clips if id(c) not in active]
+    def blocking_clips(self) -> List[RatingClip]:
+        return [c for c in self.clips if self.clip_blocks(c)]
+
+    @property
+    def allowed_clips(self) -> List[RatingClip]:
+        return [c for c in self.clips if c.kind == "rating" and not self.clip_blocks(c)]
 
     @property
     def in_scale2_format(self) -> bool:
@@ -505,25 +555,33 @@ def _counts_as_active(player_id: str, active_ids: Optional[set]) -> bool:
     return active_ids is None or player_id in active_ids
 
 
-def plan_move(base: Path | str, *, respread: Optional[bool] = None) -> MovePlan:
+def plan_move(
+    base: Path | str,
+    *,
+    respread: Optional[bool] = None,
+    replay: Optional[Mapping[str, Any]] = None,
+) -> MovePlan:
     """What converting ``base`` would do, without writing anything.
 
-    ``respread`` None asks :func:`respread_requested`. The plan's
-    ``blocker`` is ``None`` when the league can convert, else the reason it
-    cannot: no readable players file, rows on no known scale, a file split
-    evenly between scales, or an ACT player (every player, in a league with
-    no rosters) with a rating that would not fit 1-99 on scale 2 -- a
-    clipped rating no longer plays as it did. Clips on players off the
-    active rosters, and potentials cut at 99, are allowed and reported.
+    ``respread`` None asks :func:`respread_requested`. ``replay`` (a repair
+    of a league that was re-spread at its move) re-applies THAT re-spread
+    instead (:func:`_replay_respread`). The plan's ``blocker`` is ``None``
+    when the league can convert, else the reason it cannot: an operator
+    hold, no readable players file, rows on no known scale, a file split
+    evenly between scales, or a rating clip that refuses the move
+    (:meth:`MovePlan.clip_blocks`, every one named in ``blocking``).
     """
 
     base = Path(base)
     path = base / _PLAYERS
     try:
-        fieldnames, rows = _read_rows(path)
+        raw = path.read_bytes()
+        fieldnames, rows = _parse_rows(raw)
     except OSError as exc:
         return MovePlan(path, [], [], {}, None, blocker=f"players.csv cannot be read ({exc})")
-    plan = MovePlan(path, fieldnames, rows, {}, _active_ids(base))
+    levels = _roster_levels(base)
+    active = None if levels is None else {p for p, lv in levels.items() if lv == "ACT"}
+    plan = MovePlan(path, fieldnames, rows, {}, active, levels=levels, raw=raw)
     hold = read_scale_log(base).get("hold")
     if hold:
         # Set by a rollback (the runbook): the league stays on scale 1 --
@@ -548,44 +606,132 @@ def plan_move(base: Path | str, *, respread: Optional[bool] = None) -> MovePlan:
         plan.blocker = f"players.csv holds a row on no known rating scale ({exc})"
         return plan
     legacy = [r for r in rows if rating_scale_of(r) == LEGACY_RATING_SCALE]
-    if respread is None:
+    if respread is None and replay is None:
         respread = respread_requested(base)
     source = rows
-    if respread and legacy:
-        # Only rows still on scale 1 are re-spread (a repair never is).
-        result = respread_rows(
-            legacy,
-            active_ids=plan.active_ids or (),
-            rotation_ids=_rotation_ids(base),
-        )
+    result: Optional[RespreadResult] = None
+    if replay is not None and legacy:
+        result = _replay_respread(base, legacy, replay)
+        plan.respread_replayed = result is not None
+    elif respread and legacy:
+        # Only rows still on scale 1 are re-spread.
+        rotation = _rotation_ids(base)
+        result = respread_rows(legacy, active_ids=active or (), rotation_ids=rotation)
+        plan.respread_inputs = {
+            "active_ids": sorted(active or ()),
+            "rotation_ids": sorted(rotation),
+        }
+    if result is not None:
         plan.respread = result
         by_id = {id(r): new for r, new in zip(legacy, result.rows)}
         source = [by_id.get(id(r), r) for r in rows]
     converted: List[Dict[str, Any]] = []
     for row in source:
+        if rating_scale_of(row) == LEGACY_RATING_SCALE:
+            _count_low_potentials(row, plan.potentials_raised)
         new_row, clips = stretch_row(row, FULL_RATING_SCALE)
         converted.append(new_row)
         plan.clips.extend(clips)
     plan.converted = converted
     plan.sources = source
-    if plan.active_clips:
-        named = ", ".join(
-            f"{c.player_id} {c.key} {c.engine_value:g}"
-            for c in plan.active_clips[:_NAMED]
-        )
-        more = len(plan.active_clips) - _NAMED
-        who = (
-            "players on active rosters"
-            if plan.active_ids is not None
-            else "players (the league has no rosters, so every player counts)"
-        )
+    blocking = plan.blocking_clips
+    if blocking:
+        names = {
+            str(r.get("player_id") or ""): " ".join(
+                part for part in (r.get("first_name"), r.get("last_name")) if part
+            )
+            for r in rows
+        }
+        plan.blocking = [_describe_clip(c, names, levels) for c in blocking]
+        listing = "; ".join(item["text"] for item in plan.blocking)
         plan.blocker = (
-            f"{len(plan.active_clips)} rating(s) of {who} "
-            f"would not fit the full 1-99 scale ({named}"
-            f"{f' and {more} more' if more > 0 else ''}); they would no longer "
-            "play as they do"
+            f"{len(blocking)} rating(s) would not fit the full 1-99 scale "
+            f"without changing how the player plays: {listing}"
         )
     return plan
+
+
+def _describe_clip(
+    clip: RatingClip, names: Mapping[str, str], levels: Optional[Mapping[str, str]]
+) -> Dict[str, Any]:
+    level = (levels or {}).get(clip.player_id, "") if levels is not None else ""
+    where = level or ("no roster" if levels is not None else "league has no rosters")
+    label = _RATING_LABELS.get(clip.key, clip.key)
+    top = clip.unclipped > RATING_MAX
+    effect = (
+        "would be held at 99 and play worse"
+        if top
+        else "would be raised to 1 and play better"
+    )
+    name = names.get(clip.player_id) or clip.player_id
+    return {
+        "player_id": clip.player_id,
+        "name": name,
+        "level": level,
+        "rating": clip.key,
+        "engine": clip.engine_value,
+        "would_store": round(clip.unclipped, 2),
+        "clip": "top" if top else "bottom",
+        "text": f"{name} ({clip.player_id}, {where}): {label} {_n(clip.engine_value)} {effect}",
+    }
+
+
+def _count_low_potentials(row: Mapping[str, Any], counts: Dict[str, int]) -> None:
+    for key, raw in row.items():
+        if not key.startswith(_POTENTIAL_PREFIX_):
+            continue
+        current, potential = _value(row, key[len(_POTENTIAL_PREFIX_):]), _value(row, key)
+        if current is not None and potential is not None and potential < current:
+            counts[key] = counts.get(key, 0) + 1
+
+
+def _replay_respread(
+    base: Path, legacy: List[Mapping[str, Any]], replay: Mapping[str, Any]
+) -> Optional[RespreadResult]:
+    """The re-spread a league got at its move, applied again to scale 1
+    rows (review fix 2): recomputed from the move's backup -- the scale 1
+    file the move read -- with the populations the move recorded, so it is
+    the same re-spread whatever the rosters are now. A row whose rating is
+    what the backup held gets the re-spread value; one that changed since
+    gets the same shift; a player not in the backup is only stretched.
+    ``None`` (no re-spread) when the backup or the record is missing."""
+
+    inputs = replay.get("inputs") or {}
+    backup = base / str(replay.get("backup") or "")
+    if not replay.get("backup") or not backup.exists() or not inputs:
+        _print(f"{base}: the re-spread of the move cannot be re-applied "
+               "(its backup or record is missing); rows are only stretched")
+        return None
+    _fields, origin = _read_rows(backup)
+    done = respread_rows(
+        origin,
+        active_ids=inputs.get("active_ids") or (),
+        rotation_ids=inputs.get("rotation_ids") or (),
+    )
+    before = {str(r.get("player_id")): r for r in origin}
+    after = {str(r.get("player_id")): r for r in done.rows}
+    moved = [(r.group, r.key) for r in done.moved]
+    out: List[Dict[str, Any]] = []
+    for row in legacy:
+        pid = str(row.get("player_id"))
+        new = dict(row)
+        old_row, spread_row = before.get(pid), after.get(pid)
+        if old_row is not None:
+            for group, key in moved:
+                if _group(row) != group:
+                    continue
+                cur, was, now = _value(row, key), _value(old_row, key), _value(spread_row, key)
+                if cur is None or was is None or now is None:
+                    continue
+                target = now if cur == was else max(1, min(99, int(round(cur + now - was))))
+                new[key] = _like(row.get(key), int(target))
+                pot = _value(row, f"pot_{key}")
+                if pot is not None:
+                    new[f"pot_{key}"] = _like(
+                        row.get(f"pot_{key}"), min(99, int(round(target + max(0.0, pot - cur))))
+                    )
+        out.append(new)
+    return RespreadResult(out, done.ratings)
 
 
 # path signature -> blocker (None: can convert)
@@ -673,14 +819,23 @@ def convert_league(
     generation: int = 6,
     previous_generation: Optional[int] = None,
     respread: Optional[bool] = None,
+    replay: Optional[Mapping[str, Any]] = None,
     announce: bool = True,
     event_name: str = "converted",
 ) -> MoveResult:
     """Convert ``base`` to scale 2 for ``season`` (module docstring, steps
     1-8). Idempotent: a league already on scale 2 is left alone (an open
-    draft pool still on scale 1 is converted, and a missing log record is
-    written). Raises :class:`MoveRefused` before anything is written when
-    the league cannot convert.
+    draft pool still on scale 1 is converted, and the record of a move
+    that crashed before it was logged is written). Raises
+    :class:`MoveRefused` before anything is written when the league cannot
+    convert, and :class:`MoveBusy` when another live writer holds the
+    players file.
+
+    The whole move holds the league's players-file lock, which every writer
+    of ``players.csv`` takes too (review fix 6). Just before the replace the
+    file is read again: if it changed (a writer that does not take the
+    lock), the move is planned again from what is there; the row-count and
+    id check compares the converted rows with the file AS IT IS then.
 
     ``previous_generation`` is the engine the league played its last
     season on (for the news item); ``announce`` False posts no news.
@@ -688,45 +843,48 @@ def convert_league(
 
     base = Path(base)
     season = str(season)
-    with _move_guard(base):
-        plan = plan_move(base, respread=respread)
-        if plan.blocker:
-            raise MoveRefused(plan.blocker)
-        if plan.to_convert == 0 and plan.in_scale2_format:
-            # Nothing left of the players to convert (a retry after a crash,
-            # or a league created on scale 2): finish what may be missing.
-            pools = _convert_pools(base, season)
-            result = MoveResult("already", season, players=len(plan.rows), pools=pools)
-            if _season_record(base, season) is None and _scale_log_needed(base):
-                result.record = _log_conversion(
-                    base, season, plan, generation, None, pools, event_name
-                )
-            return result
-        before_ids = [str(r.get("player_id") or "") for r in plan.rows]
+    with _move_guard(base) as lock_file:
+        for attempt in range(3):
+            plan = plan_move(base, respread=respread, replay=replay)
+            if plan.blocker:
+                raise MoveRefused(plan.blocker, plan.blocking)
+            if plan.to_convert == 0 and plan.in_scale2_format:
+                return _finish_already(base, season, plan, generation)
+            current = plan.path.read_bytes()
+            if current == plan.raw:
+                break
+        else:
+            raise MoveBusy(f"{plan.path} keeps changing under the move")
+        heartbeat(lock_file)
         after_ids = [str(r.get("player_id") or "") for r in plan.converted]
-        if len(before_ids) != len(after_ids) or set(before_ids) != set(after_ids):
-            raise MoveRefused("the converted file would not hold the same players")
+        now_ids = [str(r.get("player_id") or "") for r in _parse_rows(current)[1]]
+        if after_ids != now_ids:
+            raise MoveRefused(
+                "the converted file would not hold the players the file holds now"
+            )
         backup: Optional[Path] = None
         if all(rating_scale_of(r) == LEGACY_RATING_SCALE for r in plan.rows):
-            backup = base / BACKUP_TEMPLATE.format(season=season)
-            if not backup.exists():
-                # Never replaced: it is the file as it was at the first
-                # attempt, which a retry after a crash leaves unchanged.
-                _write_bytes_atomic(backup, plan.path.read_bytes())
+            backup, fresh = _backup_target(base, season)
+            if fresh:
+                _write_bytes_atomic(backup, plan.raw)
         _write_players(plan.path, plan.fieldnames, plan.converted)
         _verify_written(plan.path, after_ids)
+        heartbeat(lock_file)
         if plan.to_convert == 0:
             # Every row was on scale 2 already; only the file's format was
             # behind (a scale 2 file written before the format existed).
-            pools = _convert_pools(base, season)
-            _append_log(base, {"event": "reformatted", "season": season, "at": _now()})
+            pools, pool_clips = _convert_pools(base, season)
+            _append_log(base, {"event": "reformatted", "season": season, "at": _now(),
+                               "draft_pools": pools, "draft_pool_clips": pool_clips})
             _clear_player_caches()
             return MoveResult("already", season, players=len(plan.rows), pools=pools)
         # Pools after the players: a scale 1 pick drafted into a scale 2
         # league is stretched on the way in (services.draft_assignment), the
         # other way round is refused.
-        pools = _convert_pools(base, season)
-        record = _log_conversion(base, season, plan, generation, backup, pools, event_name)
+        pools, pool_clips = _convert_pools(base, season)
+        record = _log_conversion(
+            base, season, plan, generation, backup, pools, event_name, pool_clips
+        )
         result = MoveResult(
             "converted", season, players=len(plan.rows), converted=plan.to_convert,
             backup=backup.name if backup else None, pools=pools,
@@ -737,18 +895,87 @@ def convert_league(
             result.news = _post_move_news(base, plan, record, previous_generation)
         _print(
             f"{base}: {plan.to_convert} players converted to rating scale 2 for "
-            f"season {season} (generation {generation})"
+            f"season {season} (generation {generation}, {event_name})"
             + (f"; backup {backup.name}" if backup else "")
             + (f"; re-spread {len(plan.respread.moved)} ratings" if plan.respread else "")
+            + (f"; {sum(plan.potentials_raised.values())} potentials raised to "
+               "the current rating" if plan.potentials_raised else "")
         )
         return result
 
 
+def _finish_already(base: Path, season: str, plan: MovePlan, generation: int) -> MoveResult:
+    """Nothing of the players left to convert: a league created on scale 2,
+    a later season of a moved league, or a retry after a move that crashed
+    between its replace and its log. Only the last writes an event (review
+    fix 5): a ``converted`` record for the backup it left, marked
+    ``recovered``. Open pools still on scale 1 are converted."""
+
+    pools, pool_clips = _convert_pools(base, season)
+    result = MoveResult("already", season, players=len(plan.rows), pools=pools)
+    orphan = _unlogged_backup(base, season)
+    if orphan is not None:
+        result.record = _append_log(base, {
+            "event": "converted", "season": season, "at": _now(), "recovered": True,
+            "scale": FULL_RATING_SCALE, "engine_generation": generation,
+            "players": len(plan.rows), "backup": orphan.name,
+            "draft_pools": pools, "draft_pool_clips": pool_clips,
+        })
+    elif pool_clips or pools:
+        _append_log(base, {"event": "draft_pools_converted", "season": season,
+                           "at": _now(), "draft_pools": pools,
+                           "draft_pool_clips": pool_clips})
+    return result
+
+
+def _backup_names(season: str) -> Iterator[str]:
+    yield BACKUP_TEMPLATE.format(season=season)
+    n = 2
+    while True:
+        yield f"players.scale1.{season}.{n}.csv"
+        n += 1
+
+
+def _backup_target(base: Path, season: str) -> Tuple[Path, bool]:
+    """Where this move's backup goes and whether to write it: the first free
+    name for the season, or the backup a crashed attempt of THIS move left
+    (no event refers to it; never overwritten). A league moved again in the
+    same season (after a rollback) gets ``players.scale1.<season>.<n>.csv``."""
+
+    orphan = _unlogged_backup(base, season)
+    if orphan is not None:
+        return orphan, False
+    for name in _backup_names(season):
+        if not (base / name).exists():
+            return base / name, True
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _unlogged_backup(base: Path, season: str) -> Optional[Path]:
+    referenced = {
+        str(e.get("backup")) for e in read_scale_log(base).get("events", []) if e.get("backup")
+    }
+    for name in _backup_names(season):
+        path = base / name
+        if not path.exists():
+            return None
+        if name not in referenced:
+            return path
+    return None  # pragma: no cover
+
+
 def repair_league(base: Path | str, season: str) -> Optional[MoveResult]:
-    """Convert the scale 1 rows of a league already recorded on generation 6
-    (module docstring); ``None`` when there are none. Never re-spreads and
-    posts no news. A row that would clip is left as it is (logged): it
-    still plays correctly on its own scale."""
+    """A league recorded on generation 6 whose players file holds scale 1
+    rows again (module docstring); ``None`` when there are none.
+
+    * After an operator rollback whose hold was lifted, this is a FRESH move
+      (a ``converted`` event, a new backup, the news, the re-spread list as
+      it is now).
+    * Otherwise it repairs: the rows are converted again, re-applying the
+      re-spread the move made when it made one (review fix 2), with no
+      news. A row that would clip refuses the repair (logged): each row
+      still plays correctly on its own scale.
+    """
 
     base = Path(base)
     from utils.rating_scale import players_file_rating_scales
@@ -760,9 +987,25 @@ def repair_league(base: Path | str, season: str) -> Optional[MoveResult]:
     needed = LEGACY_RATING_SCALE in counts or _header_needs_scale2_format(path)
     if not needed:
         return None
+    events = read_scale_log(base).get("events", [])
+    last_move = max(
+        (i for i, e in enumerate(events) if e.get("event") == "converted"), default=None
+    )
+    last_rollback = max(
+        (i for i, e in enumerate(events) if e.get("event") == "rolled_back"), default=None
+    )
     try:
+        if last_rollback is not None and (last_move is None or last_rollback > last_move):
+            result = convert_league(base, season, respread=None, announce=True)
+            _print(f"{base}: moved again after an operator rollback ({result.status})")
+            return result
+        replay = None
+        move = events[last_move] if last_move is not None else None
+        if move and move.get("respread"):
+            replay = {"backup": move.get("backup"), "inputs": move["respread"].get("inputs")}
         result = convert_league(
-            base, season, respread=False, announce=False, event_name="repaired"
+            base, season, respread=False, replay=replay, announce=False,
+            event_name="repaired",
         )
     except MoveRefused as exc:
         _print(f"{base}: scale 1 rows found in a generation 6 league and left as "
@@ -813,21 +1056,24 @@ def _verify_written(path: Path, ids: List[str]) -> None:
         raise RuntimeError(f"{path} was not written in the scale 2 format")
 
 
-def _convert_pools(base: Path, season: str) -> List[str]:
+def _convert_pools(base: Path, season: str) -> Tuple[List[str], List[Dict[str, Any]]]:
     """Convert every open draft pool (a year from ``season`` on) still on
-    scale 1; the files converted. Backups beside them."""
+    scale 1: the files converted and every value clipped (review fix 8).
+    Backups beside them (never overwritten)."""
 
     try:
         first_year = int(season)
     except ValueError:
         first_year = 0
     done: List[str] = []
+    clipped: List[Dict[str, Any]] = []
     for path in sorted(base.glob("draft_pool_*")):
         match = _POOL_RE.match(path.name)
         if not match or int(match.group(1)) < first_year:
             continue
         ext = match.group(2)
         backup = base / f"draft_pool_{match.group(1)}.scale1.{season}.{ext}"
+        clips: List[RatingClip] = []
         if ext == "json":
             try:
                 records = json.loads(path.read_text(encoding="utf-8"))
@@ -841,7 +1087,8 @@ def _convert_pools(base: Path, season: str) -> List[str]:
             converted = []
             for record in records:
                 if isinstance(record, dict):
-                    record = stretch_row(record, FULL_RATING_SCALE)[0]
+                    record, row_clips = stretch_row(record, FULL_RATING_SCALE)
+                    clips.extend(row_clips)
                 converted.append(record)
             if not backup.exists():
                 _write_bytes_atomic(backup, path.read_bytes())
@@ -850,7 +1097,11 @@ def _convert_pools(base: Path, season: str) -> List[str]:
             fieldnames, rows = _read_rows(path)
             if not rows or all(rating_scale_of(r) != LEGACY_RATING_SCALE for r in rows):
                 continue
-            converted = [stretch_row(r, FULL_RATING_SCALE)[0] for r in rows]
+            converted = []
+            for row in rows:
+                new_row, row_clips = stretch_row(row, FULL_RATING_SCALE)
+                converted.append(new_row)
+                clips.extend(row_clips)
             header = list(fieldnames)
             if RATING_SCALE_FIELD not in header:
                 header.append(RATING_SCALE_FIELD)
@@ -863,7 +1114,15 @@ def _convert_pools(base: Path, season: str) -> List[str]:
                 _write_bytes_atomic(backup, path.read_bytes())
             _write_bytes_atomic(path, buffer.getvalue().replace("\r\n", "\n").encode("utf-8"))
         done.append(path.name)
-    return done
+        clipped.extend(
+            {"file": path.name, **_clip_record(c)} for c in clips
+        )
+    return done, clipped
+
+
+def _clip_record(c: RatingClip) -> Dict[str, Any]:
+    return {"player_id": c.player_id, "key": c.key, "kind": c.kind,
+            "engine": c.engine_value, "unclipped": round(c.unclipped, 2), "stored": c.stored}
 
 
 # ---------------------------------------------------------------------------
@@ -881,11 +1140,10 @@ def read_scale_log(base: Path | str) -> Dict[str, Any]:
     return payload
 
 
-def _season_record(base: Path, season: str) -> Optional[Dict[str, Any]]:
-    for event in read_scale_log(base).get("events", []):
-        if event.get("event") == "converted" and str(event.get("season")) == season:
-            return event
-    return None
+def conversion_events(base: Path | str) -> List[Dict[str, Any]]:
+    """The league's real moves (``converted`` events), oldest first."""
+
+    return [e for e in read_scale_log(base).get("events", []) if e.get("event") == "converted"]
 
 
 def _append_log(base: Path, event: Dict[str, Any]) -> Dict[str, Any]:
@@ -900,15 +1158,6 @@ def _append_log(base: Path, event: Dict[str, Any]) -> Dict[str, Any]:
     return event
 
 
-def _scale_log_needed(base: Path) -> bool:
-    """A scale 2 league with no conversion on record: one created on scale
-    2 needs none (its log stays absent); one whose record was lost does."""
-
-    return (base / RATING_SCALE_LOG_FILENAME).exists() or any(
-        base.glob(BACKUP_TEMPLATE.format(season="*"))
-    )
-
-
 def _log_conversion(
     base: Path,
     season: str,
@@ -917,6 +1166,7 @@ def _log_conversion(
     backup: Optional[Path],
     pools: List[str],
     event_name: str = "converted",
+    pool_clips: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     event: Dict[str, Any] = {
         "event": event_name,
@@ -928,16 +1178,21 @@ def _log_conversion(
         "players_converted": plan.to_convert,
         "backup": backup.name if backup else None,
         "draft_pools": pools,
-        "clips": [
-            {"player_id": c.player_id, "key": c.key, "kind": c.kind,
-             "engine": c.engine_value, "unclipped": round(c.unclipped, 2), "stored": c.stored}
-            for c in plan.clips
-        ],
+        "clips": [_clip_record(c) for c in plan.clips],
+        "draft_pool_clips": list(pool_clips or []),
+        # Potentials below the current rating are raised to it (review fix
+        # 7): hidden from owners, read by development and CPU decisions.
+        "potentials_raised_to_current": sum(plan.potentials_raised.values()),
+        "potentials_raised_by_rating": dict(sorted(plan.potentials_raised.items())),
         "summary": _scale_summary(plan),
     }
-    if plan.respread is not None:
+    if plan.respread_replayed:
+        event["respread_replayed"] = True
+    if plan.respread is not None and not plan.respread_replayed:
         _add_stored_ranges(plan)
         event["respread"] = {
+            # What the repair needs to make the same re-spread again.
+            "inputs": plan.respread_inputs,
             "seed": RESPREAD_SEED,
             "rule": f"ACT sd below {BUNCHED_SD_RATIO} of the reference league's",
             "reference": load_respread_reference().get("source"),
@@ -979,13 +1234,25 @@ def _add_stored_ranges(plan: MovePlan) -> None:
             entry.stored_range = [min(after), max(after)]
 
 
-def log_refusal(base: Path | str, season: str, reason: str, generation: int) -> Dict[str, Any]:
-    """Record that ``season`` could not move and was given ``generation``."""
+def log_refusal(
+    base: Path | str,
+    season: str,
+    reason: str,
+    generation: int,
+    blocking: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Record that ``season`` could not move and was given ``generation``;
+    ``blocking`` names every rating that refused it."""
 
-    return _append_log(Path(base), {
+    event = {
         "event": "refused", "season": str(season), "at": _now(),
         "reason": reason, "engine_generation": generation,
-    })
+    }
+    if blocking:
+        event["blocking"] = [
+            {k: v for k, v in item.items() if k != "text"} for item in blocking
+        ]
+    return _append_log(Path(base), event)
 
 
 def _scale_summary(plan: MovePlan) -> Dict[str, Any]:
@@ -1119,12 +1386,33 @@ def respread_news(record: Mapping[str, Any], *, league: str, season: str) -> str
     )
 
 
-def refusal_news(reason: str, *, season: str) -> str:
+def refusal_news(
+    reason: str,
+    *,
+    season: str,
+    blocking: Optional[List[Dict[str, Any]]] = None,
+) -> str:
+    """The commissioner's item when a league cannot move: what stopped it,
+    player by player, and what happens next."""
+
+    if blocking:
+        named = [item["text"] for item in blocking[:_NEWS_NAMED]]
+        more = len(blocking) - len(named)
+        cause = (
+            f"{len(blocking)} rating(s) cannot be shown on the full 1-99 scale "
+            "without changing how the player plays: " + "; ".join(named)
+            + (f"; and {more} more (listed in rating_scale.json)" if more > 0 else "")
+        )
+    else:
+        cause = reason
     return (
-        f"Season {season} starts on the current game engine and the current "
-        "rating scale: the league's ratings could not be moved to the full "
-        f"1-99 scale ({reason}). The commissioner can contact support; the "
-        "league will be offered the update again at the start of next season."
+        f"Season {season} starts on the current game engine and rating scale: "
+        f"the league could not be moved to the full 1-99 scale. {cause}. "
+        "Nothing about how the league plays has changed. The update is offered "
+        "again at the start of next season; until these players' ratings are "
+        "inside what the new scale can hold it will be refused again, so ask "
+        "the league's administrator to resolve it (operator runbook, "
+        "'A league that cannot move')."
     )
 
 
@@ -1153,12 +1441,27 @@ def _post_news(base: Path, text: str, category: str = "league") -> None:
         _LOGGER.exception("could not post a rating-scale news item")
 
 
-def post_refusal(base: Path | str, season: str, reason: str, generation: int) -> str:
-    """Tell the commissioner (news, the log, the operator's stdout)."""
+def post_refusal(
+    base: Path | str,
+    season: str,
+    reason: str,
+    generation: int,
+    blocking: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[str]:
+    """Tell the commissioner (news, the log, the operator's stdout), once
+    per season: a refusal already recorded for ``season`` (at the rollover,
+    say) is not posted again. The news item; ``None`` when it was not
+    posted."""
 
     base = Path(base)
-    log_refusal(base, season, reason, generation)
-    text = refusal_news(reason, season=str(season))
+    season = str(season)
+    if any(
+        e.get("event") == "refused" and str(e.get("season")) == season
+        for e in read_scale_log(base).get("events", [])
+    ):
+        return None
+    log_refusal(base, season, reason, generation, blocking)
+    text = refusal_news(reason, season=season, blocking=blocking)
     _post_news(base, text, category="commissioner")
     _print(f"{base}: season {season} NOT moved to generation 6 / scale 2: {reason}")
     return text
@@ -1181,38 +1484,62 @@ def rollback_league(
     *,
     mode: str = "backup",
     season: Optional[str] = None,
+    allow_unrecorded: bool = False,
 ) -> Dict[str, Any]:
     """Put a converted league's players back on scale 1.
 
-    ``mode`` "backup": restore ``players.scale1.<season>.csv`` (the file as
-    it was at the conversion; anything that happened to players since --
-    injuries, trades, signings, draft picks -- is lost). "inverse": un-stretch
-    today's file in place with the exact inverse map (``engine_row``):
-    every change since is kept; a value developed since the conversion
-    comes back fractional and is rounded half up (at most half an engine
-    point), a potential keeps its gap; a re-spread is NOT undone (use the
-    backup). Open draft pools are put back the same way. The league is
-    put on HOLD (``"hold"`` in ``rating_scale.json``): it is neither
-    repaired nor moved again at its next season until an operator removes
-    the key, so a league left on generation 6 stays on scale 1 (and plays
-    correctly: scale is play-neutral). The engine generation is NOT changed
-    here (a season in play must never change engine):
-    :func:`set_recorded_generation` and the runbook.
+    ``mode`` "backup": restore the backup the move made (the file as it was
+    at the move; EVERYTHING that happened to players since -- injuries,
+    trades, signings, development, draft picks -- is lost, while rosters,
+    contracts and draft results keep pointing at them). "inverse":
+    un-stretch today's file in place with the exact inverse map
+    (``engine_row``): every change since is kept; a value developed since
+    comes back to the nearest engine point, a potential keeps its gap; a
+    re-spread is NOT undone. Open draft pools come back on scale 1 either
+    way: from their backups, and any pool still on scale 2 (one generated
+    after the move) through the inverse.
+
+    ``season`` defaults to the league's last real move (a ``converted``
+    event). An explicit season with no move recorded is refused, unless
+    ``allow_unrecorded`` (a league CREATED on scale 2 has no move and no
+    backup: inverse only).
+
+    The league is put on HOLD first (``"hold"`` in ``rating_scale.json``),
+    so a rollback interrupted halfway is never undone by the next game: it
+    is neither repaired nor moved again until an operator removes the key.
+    The engine generation is NOT changed here (a season in play must never
+    change engine): :func:`set_recorded_generation` and the runbook.
     """
 
     base = Path(base)
     path = base / _PLAYERS
-    log = read_scale_log(base)
+    moves = conversion_events(base)
     if season is None:
-        conversions = [e for e in log.get("events", []) if e.get("event") == "converted"]
-        if not conversions:
-            raise MoveRefused("rating_scale.json records no conversion")
-        season = str(conversions[-1].get("season"))
+        if not moves:
+            raise MoveRefused("rating_scale.json records no conversion; give --season "
+                              "and --no-conversion-record for a league created on scale 2")
+        move: Optional[Dict[str, Any]] = moves[-1]
+        season = str(move.get("season"))
+    else:
+        season = str(season)
+        matching = [e for e in moves if str(e.get("season")) == season]
+        if not matching and not allow_unrecorded:
+            raise MoveRefused(f"rating_scale.json records no conversion for season {season}")
+        move = matching[-1] if matching else None
+    if mode not in ("backup", "inverse"):
+        raise ValueError(f"unknown rollback mode {mode!r}")
+    backup: Optional[Path] = None
+    if mode == "backup":
+        name = (move or {}).get("backup")
+        backup = base / str(name) if name else None
+        if backup is None or not backup.exists():
+            raise MoveRefused(
+                f"the move of season {season} left no backup "
+                f"({name or 'none recorded'}); use mode 'inverse'"
+            )
     with _move_guard(base):
+        _set_hold(base, f"rolling back ({mode}), started")
         if mode == "backup":
-            backup = base / BACKUP_TEMPLATE.format(season=season)
-            if not backup.exists():
-                raise MoveRefused(f"{backup.name} is missing; use mode 'inverse'")
             _write_bytes_atomic(path, backup.read_bytes())
             pools = []
             for pool_backup in sorted(base.glob(f"draft_pool_*.scale1.{season}.*")):
@@ -1221,7 +1548,7 @@ def rollback_league(
                 _write_bytes_atomic(target, pool_backup.read_bytes())
                 pools.append(target.name)
             rows = len(_read_rows(path)[1])
-        elif mode == "inverse":
+        else:
             fieldnames, rows_in = _read_rows(path)
             out = [_unstretch(r) for r in rows_in]
             header = [f for f in players_fieldnames(fieldnames, scale2=False) if f != RATING_SCALE_FIELD]
@@ -1233,49 +1560,68 @@ def rollback_league(
                 for row in out:
                     writer.writerow({k: row.get(k, "") for k in header})
             pools = []
-            for pool in sorted(base.glob("draft_pool_*")):
-                if not _POOL_RE.match(pool.name):
-                    continue
-                if pool.suffix == ".json":
-                    records = json.loads(pool.read_text(encoding="utf-8"))
-                    if not any(isinstance(r, dict) and rating_scale_of(r) != 1 for r in records):
-                        continue
-                    back = [_unstretch(r) if isinstance(r, dict) else r for r in records]
-                    for r in back:
-                        if isinstance(r, dict):
-                            r.pop(RATING_SCALE_FIELD, None)
-                    _write_bytes_atomic(pool, json.dumps(back, indent=2).encode("utf-8"))
-                else:
-                    fn, prow = _read_rows(pool)
-                    if not any(rating_scale_of(r) != 1 for r in prow):
-                        continue
-                    hdr = [f for f in fn if f != RATING_SCALE_FIELD]
-                    buffer = io.StringIO()
-                    writer = csv.DictWriter(buffer, fieldnames=hdr)
-                    writer.writeheader()
-                    for r in prow:
-                        r = _unstretch(r)
-                        writer.writerow({k: r.get(k, "") for k in hdr})
-                    _write_bytes_atomic(pool, buffer.getvalue().replace("\r\n", "\n").encode("utf-8"))
-                pools.append(pool.name)
             rows = len(out)
-        else:
-            raise ValueError(f"unknown rollback mode {mode!r}")
+        # Every pool still on scale 2 (all of them in inverse mode; in
+        # backup mode those generated after the move, which have no backup).
+        for name in _pools_to_scale1(base):
+            if name not in pools:
+                pools.append(name)
         event = _append_log(base, {
             "event": "rolled_back", "season": season, "at": _now(), "mode": mode,
             "players": rows, "draft_pools": pools,
+            "backup": None,  # (the move's backup is kept; this restores it)
+            "restored_from": backup.name if backup else None,
         })
-        payload = read_scale_log(base)
-        payload["scale"] = LEGACY_RATING_SCALE
-        # The league stays on scale 1 until an operator removes this
-        # (plan_move): no repair, and no move at its next season.
-        payload["hold"] = {"since": event["at"], "reason": f"rolled back ({mode})"}
-        _write_bytes_atomic(
-            base / RATING_SCALE_LOG_FILENAME,
-            json.dumps(payload, indent=2, sort_keys=True).encode("utf-8"),
-        )
+        _set_hold(base, f"rolled back ({mode})", scale=LEGACY_RATING_SCALE)
         _clear_player_caches()
         return event
+
+
+def _set_hold(base: Path, reason: str, scale: Optional[int] = None) -> None:
+    payload = read_scale_log(base)
+    payload["version"] = 1
+    payload["hold"] = {"since": _now(), "reason": reason}
+    if scale is not None:
+        payload["scale"] = scale
+    _write_bytes_atomic(
+        base / RATING_SCALE_LOG_FILENAME,
+        json.dumps(payload, indent=2, sort_keys=True).encode("utf-8"),
+    )
+
+
+def _pools_to_scale1(base: Path) -> List[str]:
+    """Every draft pool file holding a row not on scale 1, put back on scale
+    1 through the inverse; the files changed."""
+
+    changed: List[str] = []
+    for pool in sorted(base.glob("draft_pool_*")):
+        if not _POOL_RE.match(pool.name):
+            continue
+        if pool.suffix == ".json":
+            try:
+                records = json.loads(pool.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(records, list) or not any(
+                isinstance(r, dict) and rating_scale_of(r) != LEGACY_RATING_SCALE for r in records
+            ):
+                continue
+            back = [_unstretch(r) if isinstance(r, dict) else r for r in records]
+            _write_bytes_atomic(pool, json.dumps(back, indent=2).encode("utf-8"))
+        else:
+            fn, prow = _read_rows(pool)
+            if not any(rating_scale_of(r) != LEGACY_RATING_SCALE for r in prow):
+                continue
+            hdr = [f for f in fn if f != RATING_SCALE_FIELD]
+            buffer = io.StringIO()
+            writer = csv.DictWriter(buffer, fieldnames=hdr)
+            writer.writeheader()
+            for r in prow:
+                r = _unstretch(r)
+                writer.writerow({k: r.get(k, "") for k in hdr})
+            _write_bytes_atomic(pool, buffer.getvalue().replace("\r\n", "\n").encode("utf-8"))
+        changed.append(pool.name)
+    return changed
 
 
 def set_recorded_generation(base: Path | str, season: str, generation: int) -> Dict[str, Any]:
@@ -1287,7 +1633,8 @@ def set_recorded_generation(base: Path | str, season: str, generation: int) -> D
     refuses to push a lower generation over a higher one, so this is run on
     the durable copy with every instance stopped (the runbook). The
     season's centres are kept; a generation 6 season's extra centres stay
-    in the entry, unread below generation 6."""
+    in the entry, unread below generation 6. A witness that belongs to a
+    LATER season is left alone (it speaks for the season being played)."""
 
     base = Path(base)
     season = str(season)
@@ -1306,12 +1653,20 @@ def set_recorded_generation(base: Path | str, season: str, generation: int) -> D
         progress = {}
     witness = progress.get("engine_generation")
     before["season_progress.json"] = witness
-    progress["engine_generation"] = {"season": season, "generation": int(generation)}
-    _write_bytes_atomic(progress_path, json.dumps(progress, indent=2).encode("utf-8"))
-    return _append_log(base, {
+    kept = None
+    witness_season = str(witness.get("season")) if isinstance(witness, dict) else ""
+    if witness_season.isdigit() and season.isdigit() and int(witness_season) > int(season):
+        kept = f"the witness belongs to season {witness_season}; left as it is"
+    else:
+        progress["engine_generation"] = {"season": season, "generation": int(generation)}
+        _write_bytes_atomic(progress_path, json.dumps(progress, indent=2).encode("utf-8"))
+    event = {
         "event": "generation_set", "season": season, "at": _now(),
         "engine_generation": int(generation), "before": before,
-    })
+    }
+    if kept:
+        event["witness_kept"] = kept
+    return _append_log(base, event)
 
 
 def _unstretch(row: Mapping[str, Any]) -> Dict[str, Any]:
@@ -1356,6 +1711,35 @@ def _read_rows(path: Path) -> Tuple[List[str], List[Dict[str, Any]]]:
         reader = csv.DictReader(fh)
         rows = list(reader)
         return list(reader.fieldnames or []), rows
+
+
+def _parse_rows(raw: bytes) -> Tuple[List[str], List[Dict[str, Any]]]:
+    reader = csv.DictReader(io.StringIO(raw.decode("utf-8"), newline=""))
+    rows = list(reader)
+    return list(reader.fieldnames or []), rows
+
+
+def _roster_levels(base: Path) -> Optional[Dict[str, str]]:
+    """player id -> roster level (ACT, AAA, LOW, DL15, IR, ...) for every
+    player in a club's organisation; ``None`` with no rosters."""
+
+    roster_dir = Path(base) / "rosters"
+    if not roster_dir.is_dir():
+        return None
+    from services.league_rating_centers import _ROSTER_SIDE_SUFFIXES
+
+    levels: Dict[str, str] = {}
+    for roster in sorted(roster_dir.glob("*.csv")):
+        if roster.stem.endswith(_ROSTER_SIDE_SUFFIXES):
+            continue
+        try:
+            with roster.open(newline="", encoding="utf-8") as fh:
+                for row in csv.reader(fh):
+                    if len(row) >= 2 and row[0].strip():
+                        levels.setdefault(row[0].strip(), row[1].strip().upper())
+        except OSError:
+            continue
+    return levels
 
 
 def _active_ids(base: Path) -> Optional[set]:
@@ -1405,10 +1789,15 @@ def _clear_player_caches() -> None:
 
 
 @contextmanager
-def _move_guard(base: Path) -> Iterator[None]:
-    """The league's move lock (one conversion at a time, across processes)
-    inside the working copy's background-writer guard (a shutdown flush
-    never pushes half a move)."""
+def _move_guard(base: Path) -> Iterator[Path]:
+    """The league's players-file lock (``utils.players_file_lock``; every
+    writer of ``players.csv`` takes it, so nothing is written between the
+    move's read and its replace) inside the working copy's background-writer
+    guard (a shutdown flush never pushes half a move). Waits at most
+    :data:`_LOCK_WAIT_SECONDS` for a live holder (a stale lock -- a dead
+    process's, or one nobody refreshed -- is broken), then raises
+    :class:`MoveBusy`: the caller retries, nothing is decided (review fix
+    3). Yields the lock file, for :func:`heartbeat`."""
 
     try:
         from api.working_copy import background_writer
@@ -1416,41 +1805,19 @@ def _move_guard(base: Path) -> Iterator[None]:
         guard = background_writer("rating-scale move")
     except Exception:  # pragma: no cover - no API package (tools)
         guard = nullcontext()
-    lock = Path(base) / _LOCK_NAME
     with guard:
-        _acquire(lock)
         try:
-            yield
-        finally:
-            try:
-                lock.unlink()
-            except OSError:
-                pass
-
-
-def _acquire(lock: Path) -> None:
-    deadline = time.monotonic() + 30.0
-    while True:
+            lock = players_file_lock(Path(base) / _PLAYERS, timeout=_LOCK_WAIT_SECONDS)
+            lock_file = lock.__enter__()
+        except PlayersFileBusy as exc:
+            raise MoveBusy(str(exc)) from exc
         try:
-            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(fd, f"{os.getpid()} {_now()}".encode())
-            os.close(fd)
-            return
-        except FileExistsError:
-            try:
-                age = time.time() - lock.stat().st_mtime
-            except OSError:
-                continue
-            if age > _STALE_LOCK_SECONDS:
-                _print(f"breaking a stale rating-scale move lock {lock} ({age:.0f}s old)")
-                try:
-                    lock.unlink()
-                except OSError:
-                    pass
-                continue
-            if time.monotonic() > deadline:
-                raise MoveRefused(f"another conversion of this league holds {lock.name}")
-            time.sleep(0.05)
+            yield lock_file
+        except BaseException:
+            if not lock.__exit__(*sys.exc_info()):
+                raise
+        else:
+            lock.__exit__(None, None, None)
 
 
 def _now() -> str:
@@ -1474,6 +1841,6 @@ def describe_counts(base: Path | str) -> str:
 
 
 __all__ += [
-    "clear_caches", "describe_counts", "log_refusal", "post_refusal",
-    "set_recorded_generation",
+    "MAJOR_LEAGUE_LEVELS", "MoveBusy", "clear_caches", "conversion_events",
+    "describe_counts", "log_refusal", "post_refusal", "set_recorded_generation",
 ]

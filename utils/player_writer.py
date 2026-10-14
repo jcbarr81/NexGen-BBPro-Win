@@ -4,6 +4,7 @@ import logging
 from models.player import Player
 from models.pitcher import Pitcher
 from utils.atomic_write import atomic_text_writer
+from utils.players_file_lock import players_file_lock
 from utils.rating_scale import (
     HEIGHT_FIELD,
     LEGACY_RATING_SCALE,
@@ -21,6 +22,16 @@ _MIXED_IDS_SHOWN = 10
 
 
 def save_players_to_csv(players, file_path):
+    """:func:`_save_players_to_csv` under the league's players-file lock
+    (``utils.players_file_lock``), which the 8.0.0 move to rating scale 2
+    holds from its read to its replace: a save never lands in the middle
+    of a move and is lost."""
+
+    with players_file_lock(file_path):
+        _save_players_to_csv(players, file_path)
+
+
+def _save_players_to_csv(players, file_path):
     """Write ``players`` as a whole ``players.csv`` (the file is replaced).
 
     Ratings are written as the objects hold them: STORED values on the

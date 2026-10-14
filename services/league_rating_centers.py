@@ -236,6 +236,7 @@ import logging
 import os
 from pathlib import Path
 import threading
+import time
 from typing import Dict, Iterable, Mapping, NamedTuple, Optional
 
 from physics_sim.engine_generation import (
@@ -308,6 +309,7 @@ __all__ = [
     "league_hitter_speed_center",
     "league_rating_centers",
     "get_rating_center_overrides",
+    "move_league_at_rollover",
     "clear_rating_center_cache",
 ]
 
@@ -611,8 +613,9 @@ def league_engine_generation(
 
     base = Path(data_dir) if data_dir is not None else get_data_dir()
     season_key = str(season) if season is not None else _engine_season_key(base)
-    with _CENTER_LOCK:
-        generation, announce = _generation_locked(base, season_key, store=store)
+    generation, announce = _retry_busy(
+        lambda: _generation_locked(base, season_key, store=store)
+    )
     if announce:
         _announce_engine_switch(base)
     return generation
@@ -726,10 +729,11 @@ def _league_centers(
     base = Path(data_dir) if data_dir is not None else get_data_dir()
     season_key = str(season) if season is not None else _season_key(base)
     announce: list[bool] = []
-    with _CENTER_LOCK:
-        centres = _league_centers_locked(
+    centres = _retry_busy(
+        lambda: _league_centers_locked(
             base, season_key, tuple(keys), store=store, announce=announce
         )
+    )
     if announce:
         _announce_engine_switch(base)
     return centres
@@ -1366,20 +1370,25 @@ def _settle_scale_move(
     ):
         return verdict
     from services.rating_scale_migration import (
+        MoveBusy,
         MoveRefused,
         convert_league,
         league_on_scale2,
         move_blocker,
+        plan_move,
         post_refusal,
     )
 
     if verdict.generation < SCALE2_ENGINE_GENERATION:
         # Offered generation 6 and refused on the evidence (the dry run
         # found a reason): the season starts as it was given, and the
-        # commissioner is told why now, when it is fixed.
-        reason = move_blocker(base) or "the league cannot be converted"
-        post_refusal(base, season_key, reason, verdict.generation)
+        # commissioner is told why now, when it is fixed (once a season: a
+        # refusal the rollover already posted is not posted again).
+        plan = plan_move(base)
+        reason = plan.blocker or move_blocker(base) or "the league cannot be converted"
+        post_refusal(base, season_key, reason, verdict.generation, plan.blocking)
         return verdict
+    blocking: list = []
     try:
         convert_league(
             base,
@@ -1388,21 +1397,121 @@ def _settle_scale_move(
             previous_generation=_newest_stored_generation(seasons),
         )
         return verdict
+    except MoveBusy:
+        # Another live writer holds the players file: nothing is decided,
+        # the caller retries (review fix 3). Never a generation 5 season
+        # because of a lock.
+        raise
     except MoveRefused as exc:
         reason = exc.reason
+        blocking = exc.blocking
     except Exception as exc:  # the season must still start
         _LOGGER.exception("the rating-scale conversion of %s failed", base)
         reason = f"the conversion failed: {exc}"
     if league_on_scale2(base):
         return verdict
     fallback = CURRENT_ENGINE_GENERATION
-    post_refusal(base, season_key, reason, fallback)
+    post_refusal(base, season_key, reason, fallback, blocking)
     return _Verdict(
         fallback,
         bool(_generation_entry(fallback, seasons)),
         verdict.announce or _is_engine_switch(base, seasons, fallback),
         True,
     )
+
+
+# A move that finds the league's players file held by another live writer
+# (services.rating_scale_migration.MoveBusy) is retried this many times,
+# this long apart, with _CENTER_LOCK RELEASED in between; then the error
+# reaches the caller (a season game fails and is played again later).
+_BUSY_RETRIES = 3
+_BUSY_PAUSE_SECONDS = 1.0
+
+
+def _retry_busy(call):
+    """``call()`` under ``_CENTER_LOCK``, retried while a move is busy."""
+
+    if not generation6_switch_on():  # no move can happen: as before 8.0.0
+        with _CENTER_LOCK:
+            return call()
+    from services.rating_scale_migration import MoveBusy
+
+    for attempt in range(_BUSY_RETRIES):
+        try:
+            with _CENTER_LOCK:
+                return call()
+        except MoveBusy:
+            if attempt == _BUSY_RETRIES - 1:
+                raise
+            _LOGGER.warning("the league's players file is busy; retrying the move")
+            time.sleep(_BUSY_PAUSE_SECONDS)
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def move_league_at_rollover(
+    data_dir: Path | str | None, next_season: object
+) -> Optional[str]:
+    """8.0.0: move a league to rating scale 2 at its ROLLOVER.
+
+    Called by ``services.league_rollover`` after the season archive, the
+    contracts and the finances, and BEFORE the offseason's development
+    step, so a league's first offseason on the new scale is developed on it.
+    The league's next season is decided here: with the switch on (and no
+    operations hold below generation 6) it will start on generation 6 --
+    the generation itself is recorded when that season starts, by the
+    usual path, which finds the players on scale 2 and records 6. A league
+    that cannot move is told now (and not again when its season starts);
+    it then starts that season on generation 5. ``None`` when the switch is
+    off or the hold applies; else "converted", "already", "refused" or
+    "busy"/"failed" (the first-game path tries again).
+    """
+
+    if not generation6_switch_on():
+        return None
+    if _configured_new_season_generation() < SCALE2_ENGINE_GENERATION:
+        return None
+    from services.rating_scale_migration import (
+        MoveBusy,
+        MoveRefused,
+        convert_league,
+        league_on_scale2,
+        plan_move,
+        post_refusal,
+    )
+
+    base = Path(data_dir) if data_dir is not None else get_data_dir()
+    season_key = str(next_season)
+    with _CENTER_LOCK:
+        if league_on_scale2(base):
+            return "already"
+        plan = plan_move(base)
+        if plan.blocker:
+            post_refusal(
+                base, season_key, plan.blocker, CURRENT_ENGINE_GENERATION, plan.blocking
+            )
+            return "refused"
+        seasons = _stored_seasons(_read_json(base / RATING_CENTERS_FILENAME))
+        try:
+            convert_league(
+                base,
+                season_key,
+                generation=SCALE2_ENGINE_GENERATION,
+                previous_generation=_newest_stored_generation(seasons),
+            )
+        except MoveBusy:
+            _LOGGER.warning("%s: players file busy at the rollover; the move "
+                            "is made when the next season starts", base)
+            return "busy"
+        except MoveRefused as exc:
+            post_refusal(
+                base, season_key, exc.reason, CURRENT_ENGINE_GENERATION, exc.blocking
+            )
+            return "refused"
+        except Exception:
+            _LOGGER.exception("the rating-scale move of %s at its rollover failed; "
+                              "it is tried again when the next season starts", base)
+            return "failed"
+    return "converted"
 
 
 # league dir -> players.csv signature last found with no scale 1 row

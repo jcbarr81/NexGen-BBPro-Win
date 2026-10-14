@@ -15,6 +15,8 @@ engine generation over a higher one, by design).
 --mode inverse: un-stretch today's players.csv in place (exact inverse map;
     a value developed since is rounded to the nearest engine point). Keeps
     every change since the move; does NOT undo a re-spread.
+--no-conversion-record: a league CREATED on scale 2 has no move and no
+    backup; with --mode inverse --season X this un-stretches it anyway.
 --generation N: also rewrite the season's recorded engine generation
     (rating_centers.json entry and the season_progress.json witness). Only
     needed when the league must also leave generation 6 (a binary rollback
@@ -44,6 +46,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--season", default=None)
     parser.add_argument("--generation", type=int, default=None)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--no-conversion-record", action="store_true",
+        help="allow --mode inverse --season X on a league with no move recorded "
+        "for X (a league created on rating scale 2)",
+    )
     args = parser.parse_args(argv)
 
     base = args.league_dir
@@ -57,7 +64,10 @@ def main(argv: list[str] | None = None) -> int:
         backups = sorted(p.name for p in base.glob("players.scale1.*.csv"))
         print("backups present:", backups or "none")
         return 0
-    event = migration.rollback_league(base, mode=args.mode, season=args.season)
+    event = migration.rollback_league(
+        base, mode=args.mode, season=args.season,
+        allow_unrecorded=args.no_conversion_record,
+    )
     print("rolled back:", json.dumps(event))
     if args.generation is not None:
         season = event["season"]
