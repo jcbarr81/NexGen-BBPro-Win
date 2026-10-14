@@ -468,3 +468,26 @@ Taken as given unless the owner objects: control becomes mostly command
 shift bonus is dropped; batted-ball splits are shown Statcast style;
 sluggers striking out more waits for the generator's Contact-Power
 correlation; OVR weights are re-derived and brought back with numbers.
+
+### Added the same day, after the rating-scale design pass (`RATING_SCALE_DESIGN.md`)
+
+12. **Yearly aging is paused now** (shipped 7.51.2). The rollover step added
+    an uncapped table to every rating (an 18-year-old +18 Contact) and
+    multiplied one pitch by 1.35; no live league had rolled over yet. Ratings
+    do not change at rollover until the re-spread brings a development model;
+    players still get a year older and retire. Spring pitch training adds
+    about 3 points, never above potential.
+13. **Screens show the stored rating.** The percentile blend
+    (`utils/rating_display.py`) goes away on every page, the draft page
+    included, and overall rating is stretched the same way so the best
+    players read 88 to 92.
+14. **Potentials stay hidden.** They keep driving development and CPU
+    decisions only. (The design recommended showing them; declined.)
+15. **alpha-test's bunched ratings are spread at the same switch**, by rank
+    onto a normal league's spread, announced to its owners separately because
+    it changes how that league plays.
+
+The scale change itself was proved play-neutral on five leagues (identical
+seasons after stretching the stored ratings and un-stretching them where the
+engine loads players). Salaries, trades and CPU roster logic keep reading
+today's internal numbers through one accessor, so the economy does not shift.
