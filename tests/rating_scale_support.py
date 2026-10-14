@@ -92,6 +92,45 @@ def write_stretched_twin(
     return stretch_players_file(src / "players.csv", dst / "players.csv", scale=scale)
 
 
+def copy_league(src: Path, dst: Path, *, floored: bool = False) -> Path:
+    """Copy the league directory ``src`` to ``dst`` in the form the league
+    loader (``utils.player_loader``) reads: a blank pitch grade becomes 0
+    (the KPI fixtures leave unthrown pitches blank). ``floored`` also raises
+    every potential to the current rating (:func:`floor_potentials`).
+    Ratings are untouched and the copy stays on scale 1."""
+
+    src, dst = Path(src), Path(dst)
+    dst.mkdir(parents=True, exist_ok=True)
+    for entry in src.iterdir():
+        if entry.name == "players.csv":
+            continue
+        if entry.is_dir():
+            shutil.copytree(entry, dst / entry.name)
+        else:
+            shutil.copy(entry, dst / entry.name)
+    fields, rows = read_player_rows(src / "players.csv")
+    for row in rows:
+        for key in PITCH_KEYS:
+            if row.get(key) == "":
+                row[key] = "0"
+    if floored:
+        rows = floor_potentials(rows)
+    write_player_rows(dst / "players.csv", fields, rows)
+    return dst
+
+
+def load_player_objects(league_dir: Path) -> Dict[str, Any]:
+    """player_id -> ``Player`` / ``Pitcher`` for a league directory, read by
+    the league loader itself (no cache, no stats attached)."""
+
+    from utils.player_loader import _read_players_from_csv
+
+    return {
+        p.player_id: p
+        for p in _read_players_from_csv(Path(league_dir) / "players.csv")
+    }
+
+
 def floor_potentials(rows: Iterable[Dict[str, str]]) -> List[Dict[str, str]]:
     """``rows`` with every potential raised to the current rating.
 
@@ -216,6 +255,54 @@ def scan_rating_reads(path: Path) -> List[Tuple[int, str]]:
         if not reviewed(node):
             found[node.lineno] = lines[node.lineno - 1].strip()
     return sorted(found.items())
+
+
+# Files whose rows are player rows: the league file, the generator's donor
+# file and a draft class.
+PLAYER_FILE_TOKENS = ("players.csv", "players_normalized", "draft_pool_")
+# Calls that hand player rows to a writer.
+PLAYER_SAVE_CALLS = frozenset(
+    {"save_players", "save_players_to_csv", "update_players", "save_draft_pool"}
+)
+CSV_WRITE_CALLS = frozenset({"writer", "DictWriter", "to_csv"})
+
+
+def scan_player_writer(path: Path) -> List[str]:
+    """Why ``path`` could write player rows, or ``[]`` when it cannot.
+
+    A file is a possible writer when it calls one of the save functions, or
+    when it names a player-row file and also builds a CSV writer (or dumps
+    JSON, for a draft class, which is also kept as JSON). Deliberately
+    loose: every hit is classified by hand in test_rating_scale_writers.py.
+    """
+
+    import ast
+
+    text = Path(path).read_text(encoding="utf-8-sig")
+    tree = ast.parse(text)
+    tokens = {
+        token
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        for token in PLAYER_FILE_TOKENS
+        if token in node.value
+    }
+    saves, writes = set(), set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        if name in PLAYER_SAVE_CALLS:
+            saves.add(name)
+        elif name in CSV_WRITE_CALLS:
+            writes.add(name)
+        elif name == "dump" and "draft_pool_" in tokens:
+            writes.add("json.dump")
+    reasons = sorted(saves)
+    if tokens and writes:
+        reasons.extend(sorted(writes))
+    return reasons
 
 
 def flatten(value: Any, prefix: str = "") -> Dict[str, Any]:
