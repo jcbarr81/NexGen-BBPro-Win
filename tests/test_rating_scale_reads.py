@@ -194,6 +194,48 @@ def test_the_engines_row_constructors_convert_first():
                 }, (path.name, function.name)
 
 
+# Readers handed to the shared overall (utils.player_overall and
+# compute_overall). The overall asks the reader itself for the row's
+# ``rating_scale`` and ``is_pitcher``; a reader over a few picked-out
+# ratings cannot answer and would be scored as scale 1. Each of these reads
+# the whole player object or the whole row.
+OVERALL_READERS = {
+    ("api/routers/_rating_presentation.py", "get_raw"),  # its caller's reader
+    ("api/routers/contracts.py", "lambda key: getattr(player, key, None)"),
+    ("api/routers/draft.py", "lambda k, p=player: getattr(p, k, None)"),
+    ("api/routers/free_agency.py", "lambda k: getattr(player, k, None)"),
+    ("api/routers/players.py", "lambda k: _row_raw_int(row, k)"),
+    ("api/routers/roster.py", "lambda k: getattr(player, k, None)"),
+    ("services/player_profile_view_model.py", "lambda key: getattr(player, key, None)"),
+    ("utils/rating_display.py", "row.get"),
+    ("utils/player_overall.py", "get_raw"),  # overall_score passes it down
+}
+OVERALL_FUNCTIONS = {
+    "compute_overall", "_compute", "overall_score",
+    "hitter_overall_score", "pitcher_overall_score",
+}
+
+
+def test_every_reader_handed_to_the_overall_can_tell_the_rows_scale():
+    seen = set()
+    for path in support.code_files():
+        text = path.read_text(encoding="utf-8-sig")
+        if not any(name in text for name in OVERALL_FUNCTIONS):
+            continue
+        for node in ast.walk(ast.parse(text)):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            if name not in OVERALL_FUNCTIONS:
+                continue
+            reader = ast.get_source_segment(text, node.args[0]) or ""
+            if name == "overall_score" and reader == "pid":
+                continue  # utils.lineup_autofill's own per-player callable
+            seen.add((_rel(path), " ".join(reader.split())))
+    assert seen == OVERALL_READERS
+
+
 def test_the_archived_engine_refuses_a_scale_2_player():
     from playbalance import simulation
     from types import SimpleNamespace
