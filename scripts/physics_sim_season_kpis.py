@@ -1396,15 +1396,18 @@ def fixture_rating_centers(
 def fixture_unstored_rating_centers(
     players_path: Path, base_dir: Path | None = None
 ) -> dict[str, float]:
-    """The Release 6a centres of the fixture, which only this harness is
-    given (``services.league_rating_centers.unstored_rating_centers``).
+    """The Release 6a centres of the fixture, which this harness is given
+    on every engine
+    (``services.league_rating_centers.unstored_rating_centers``).
 
     The lineup regulars' mean fielding and arm by position
     (``fielder_fa_center_<pos>`` / ``fielder_arm_center_<pos>``), the
-    pitchers' workload-weighted ground-ball rating
-    (``pitcher_gf_usage_center``) and the lineup regulars' mean ground-ball
-    and pull ratings (``hitter_gf_center`` / ``hitter_pull_center``). No
-    league stores them and nothing in the engine reads them yet.
+    pitchers' workload-weighted fielding (``fielder_fa_center_p``) and
+    ground-ball rating (``pitcher_gf_usage_center``) and the lineup
+    regulars' mean ground-ball and pull ratings (``hitter_gf_center`` /
+    ``hitter_pull_center``). The fielder centres are what the engine's
+    ``fielder_centred_ratings`` reads (a league stores them for a season on
+    generation 6); nothing reads the batted-ball ones yet.
     data/calibration ~ fa 1B 52.9, 2B 54.9, 3B 51.9, SS 54.7, LF 47.8,
     CF 51.7, RF 46.6; pitcher gf 50.0, hitter gf 50.1, pull 55.1.
     """
@@ -1641,6 +1644,11 @@ def run_sim(
     # services.league_rating_centers.
     requested_overrides = dict(tuning_overrides or {})
     tuning_overrides = with_rating_centers(requested_overrides, players_path, base_dir)
+    # Release 6a (fielding): the season's games hand over their fielding
+    # chances (GameResult.play_records) for the report-only rows. The log is
+    # passive -- a game with it on is the game with it off -- and no league
+    # game turns it on.
+    tuning_overrides.setdefault("fielding_chance_log", 1.0)
 
     usage_state = UsageState()
     totals = Counter()

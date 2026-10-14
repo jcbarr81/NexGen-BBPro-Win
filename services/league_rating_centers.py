@@ -167,16 +167,38 @@ else that goes wrong while reading a generation RAISES
 engine its season is on must fail, not play the wrong one.
 
 Release 6a (tooling) adds the centres the generation 6 fielding and
-batted-ball work will read, FOR THE KPI HARNESS ONLY
+batted-ball work reads, which the KPI harness is given on every engine
 (:func:`unstored_rating_centers`, ``UNSTORED_CENTER_KEYS``): the lineup
 regulars' mean fielding (``fa``) and arm at each of the seven positions a
-batted ball is fielded from, the pitchers' workload-weighted ground-ball
-rating (``gf``) and the lineup regulars' mean ground-ball and pull (``pl``)
-ratings. They are deliberately NOT in ``RATING_CENTER_KEYS``: nothing here
-stores them in ``rating_centers.json``, delivers them to a league game or
-caches them, and no engine generation a league can be given reads them.
-Storing them (with a season rule like the Release 5 centres') belongs to
-the generation 6 switch-on.
+batted ball is fielded from, the pitchers' workload-weighted fielding and
+ground-ball rating (``gf``) and the lineup regulars' mean ground-ball and
+pull (``pl``) ratings. They are deliberately NOT in ``RATING_CENTER_KEYS``.
+
+Release 6a (fielding) makes the fielder centres (``FIELDER_CENTER_KEYS``:
+the fourteen by position and the pitchers' ``fielder_fa_center_p``) part of
+what a LEAGUE game is given, for the seasons that read them and no others
+(``GENERATION_CENTER_KEYS``: generation 6 and later, the engine's
+``fielder_centred_ratings``):
+
+* A season on generation 6 holds them in its ``rating_centers.json`` entry
+  beside the other centres, computed with them when the entry is created
+  and frozen for the season like them (they depend on the saved lineups: a
+  regular is counted at the position his lineup plays him). An entry of
+  such a season that is missing any has those added. Each is always there
+  when the league has a regular fielder at all: a position no regular
+  plays reads the mean over the regulars at every position, so the engine
+  -- which refuses to field a game on a centre that was not delivered --
+  is never short of one because a club left a spot blank.
+* A LEGACY or generation 5 season is never asked for them: they are not
+  computed, not cached, not delivered and not written, so its entry and its
+  file keep their bytes, and no key a game of such a season requires is
+  added. Which seasons read them is decided from what is written down for
+  the season (its entry, the witness) or, for a season with no entry yet,
+  from the generation it is about to be given -- the same verdict the entry
+  is then written with.
+
+The batted-ball centres (``pitcher_gf_usage_center``, ``hitter_gf_center``,
+``hitter_pull_center``) are still the harness's alone.
 """
 
 from __future__ import annotations
@@ -234,6 +256,10 @@ __all__ = [
     "HITTER_GF_CENTER_KEY",
     "HITTER_PULL_CENTER_KEY",
     "UNSTORED_CENTER_KEYS",
+    "PITCHER_FA_CENTER_KEY",
+    "FIELDER_CENTER_KEYS",
+    "GENERATION_CENTER_KEYS",
+    "fielder_rating_centers",
     "unstored_rating_centers",
     "active_pitcher_workloads",
     "ENGINE_GENERATION_KEY",
@@ -354,14 +380,34 @@ _UNSTORED_REGULARS_SPECS: Dict[str, str] = {
     HITTER_GF_CENTER_KEY: "gf",
     HITTER_PULL_CENTER_KEY: "pl",
 }
-# Never stored, never delivered to a league game, never in
-# ``RATING_CENTER_KEYS`` (tests/test_r6a_tools_centers.py pins all three).
-UNSTORED_CENTER_KEYS: tuple[str, ...] = (
+# The pitchers' fielding (``fa``), weighted by expected workload like the
+# ``PITCHER_USAGE_CENTER_KEYS``: the centre a pitcher's errors read.
+PITCHER_FA_CENTER_KEY = "fielder_fa_center_p"
+# Release 6a (fielding): the centres the engine's ``fielder_centred_ratings``
+# reads (``physics_sim.centred_ratings.FIELDER_CENTER_KEYS``).
+FIELDER_CENTER_KEYS: tuple[str, ...] = (
     tuple(FIELDER_FA_CENTER_KEYS.values())
     + tuple(FIELDER_ARM_CENTER_KEYS.values())
+    + (PITCHER_FA_CENTER_KEY,)
+)
+# Never in ``RATING_CENTER_KEYS``, and never stored for or delivered to a
+# legacy or generation 5 season (tests/test_r6a_tools_centers.py). The KPI
+# harness is given all of them on every engine.
+UNSTORED_CENTER_KEYS: tuple[str, ...] = (
+    FIELDER_CENTER_KEYS
     + (PITCHER_GF_USAGE_CENTER_KEY,)
     + tuple(_UNSTORED_REGULARS_SPECS)
 )
+# Centres only the seasons of a later engine generation read, stored in
+# their entries and delivered to their games (module docstring): the first
+# generation that reads them -> the keys.
+GENERATION_CENTER_KEYS: Dict[int, tuple[str, ...]] = {6: FIELDER_CENTER_KEYS}
+# key -> the first generation whose seasons read it.
+_KEY_GENERATION: Dict[str, int] = {
+    key: generation
+    for generation, keys in GENERATION_CENTER_KEYS.items()
+    for key in keys
+}
 # Centres a LEGACY season's stored entry gains only together with its
 # Contact and Eye centres (``_predates_league_relative_centers``).
 _NEW_ENTRY_KEYS = frozenset((HITTER_POWER_CENTER_KEY, *PITCHER_USAGE_CENTER_KEYS))
@@ -398,6 +444,11 @@ _CENTER_CACHE: Dict[tuple, float] = {}
 # (``_predates_league_relative_centers``), so the file is not re-read for
 # them every game.
 _WITHHELD: set[tuple] = set()
+# (league dir, season) -> the generation that season's centres are read for,
+# kept for the seasons that do not read every ``_KEY_GENERATION`` centre (a
+# legacy or generation 5 season), so nothing is read or worked out for the
+# ones they do not read again.
+_NOT_READ: Dict[tuple, int] = {}
 _CENTER_LOCK = threading.Lock()
 
 # The season entry's engine generation (see the module docstring).
@@ -435,6 +486,7 @@ def clear_rating_center_cache() -> None:
     with _CENTER_LOCK:
         _CENTER_CACHE.clear()
         _WITHHELD.clear()
+        _NOT_READ.clear()
         _GENERATION_CACHE.clear()
         _SHOUTED.clear()
 
@@ -568,9 +620,16 @@ def league_rating_centers(
     already stored for the season is read and never recomputed, and only the
     missing ones are computed from the current ACT rosters and added (so a
     file written before the battery centres existed keeps its speed centre).
+
+    Release 6a: a season on a generation that reads them also gets its
+    ``GENERATION_CENTER_KEYS`` (the fielder centres from generation 6), on
+    the same terms; a legacy or generation 5 season gets none of them and
+    nothing of its is changed (module docstring).
     """
 
-    return _league_centers(data_dir, season, RATING_CENTER_KEYS, store=store)
+    return _league_centers(
+        data_dir, season, RATING_CENTER_KEYS + tuple(_KEY_GENERATION), store=store
+    )
 
 
 def league_hitter_speed_center(
@@ -642,17 +701,27 @@ def _league_centers_locked(
     root = str(base.resolve(strict=False))
     found: Dict[str, float] = {}
     missing = []
+    read_for = _NOT_READ.get((root, season_key))
     for key in keys:
         cached = _CENTER_CACHE.get((root, season_key, key))
         if cached is not None:
             found[key] = cached
         elif key in _NEW_ENTRY_KEYS and (root, season_key) in _WITHHELD:
             continue
+        elif read_for is not None and _KEY_GENERATION.get(key, 0) > read_for:
+            continue
         else:
             missing.append(key)
     if not missing:
         return _ordered(found, keys)
     if season_key == _UNKNOWN_SEASON:
+        if any(key in _KEY_GENERATION for key in missing):
+            # No season to fix anything for: the centres of the generation
+            # the league is on (or will start on), nothing stored.
+            generation, _ = _generation_locked(base, season_key, store=False)
+            missing = _read_by_generation(
+                missing, generation, root, season_key, remember=store
+            )
         computed = _computed(base, missing)
         found.update(computed)
         if store:
@@ -674,6 +743,28 @@ def _league_centers_locked(
     relative = max(recorded.values(), default=LEGACY_ENGINE_GENERATION) > (
         LEGACY_ENGINE_GENERATION
     )
+    # Release 6a: the centres only a later generation's seasons read are
+    # dropped here for every other season, before anything is computed or
+    # written for them. The season's generation is what is written down for
+    # it; a season with no entry yet has the verdict its entry will be
+    # written with below (worked out once, here).
+    verdict: Optional[_Verdict] = None
+    if any(key in _KEY_GENERATION for key in missing):
+        if new_entry:
+            verdict = _season_verdict(base, season_key, seasons)
+            season_generation = verdict.generation
+        else:
+            season_generation = max(
+                recorded.values(), default=LEGACY_ENGINE_GENERATION
+            )
+        missing = _read_by_generation(
+            missing,
+            season_generation,
+            root,
+            season_key,
+            # A season with no entry is settled only by a storing call.
+            remember=store or not new_entry,
+        )
     held = [key for key in RELATIVE_CENTER_KEYS if _stored_value(entry, key) is not None]
     wanted = [key for key in missing if key in RELATIVE_CENTER_KEYS]
     stale = bool(
@@ -737,7 +828,8 @@ def _league_centers_locked(
             # The season's engine generation is settled with every write of
             # its entry (module docstring): a new entry gets the season's,
             # and an entry that lost its generation gets it back.
-            verdict = _season_verdict(base, season_key, seasons)
+            if verdict is None:
+                verdict = _season_verdict(base, season_key, seasons)
             if verdict.record:
                 entry = {**entry, ENGINE_GENERATION_KEY: verdict.generation}
             if new_entry or verdict.record:
@@ -757,6 +849,27 @@ def _league_centers_locked(
             for key, value in computed.items():
                 _CENTER_CACHE[(root, season_key, key)] = value
     return _ordered(found, keys)
+
+
+def _read_by_generation(
+    missing: list[str],
+    generation: int,
+    root: str,
+    season_key: str,
+    *,
+    remember: bool,
+) -> list[str]:
+    """``missing`` without the centres a season on ``generation`` does not
+    read (``_KEY_GENERATION``); ``_CENTER_LOCK`` held. With ``remember`` a
+    season that leaves some out is noted in ``_NOT_READ``, so they are not
+    asked for again."""
+
+    kept = [
+        key for key in missing if _KEY_GENERATION.get(key, generation) <= generation
+    ]
+    if remember and len(kept) != len(missing):
+        _NOT_READ[(root, season_key)] = generation
+    return kept
 
 
 class _Verdict(NamedTuple):
@@ -1282,7 +1395,12 @@ def _predates_league_relative_centers(entry: dict) -> bool:
 
 def _computed(base: Path, keys: Iterable[str]) -> Dict[str, float]:
     wanted = set(keys)
-    return {k: v for k, v in active_rating_centers(base).items() if k in wanted}
+    centres: Dict[str, float] = {}
+    if wanted - set(FIELDER_CENTER_KEYS):
+        centres.update(active_rating_centers(base))
+    if wanted & set(FIELDER_CENTER_KEYS):
+        centres.update(fielder_rating_centers(base))
+    return {k: v for k, v in centres.items() if k in wanted}
 
 
 def _ordered(values: Dict[str, float], keys: tuple[str, ...]) -> Dict[str, float]:
@@ -1502,17 +1620,20 @@ def unstored_rating_centers(
     only, a blank rating counts as 50, a centre with nobody to average is
     left out, ``{}`` when the files are missing:
 
-    * ``fielder_fa_center_<pos>`` / ``fielder_arm_center_<pos>``: the mean
-      ``fa`` and ``arm`` of the lineup regulars at each position
-      (:func:`_regular_fielder_ids`);
+    * the ``FIELDER_CENTER_KEYS`` (:func:`fielder_rating_centers`):
+      ``fielder_fa_center_<pos>`` / ``fielder_arm_center_<pos>``, the mean
+      ``fa`` and ``arm`` of the lineup regulars at each position, and
+      ``fielder_fa_center_p``, the ACT pitchers' ``fa`` weighted by
+      expected workload;
     * ``pitcher_gf_usage_center``: the ACT pitchers' ``gf`` weighted by
       expected workload (:func:`_pitcher_workloads`);
     * ``hitter_gf_center`` / ``hitter_pull_center``: the lineup regulars'
       mean ``gf`` and ``pl`` (:func:`_regular_hitter_ids`; every ACT hitter
       when no club has a regular).
 
-    For the KPI harness. Nothing is cached or written, and this is not
-    part of what a league game is given.
+    For the KPI harness. Nothing is cached or written. A league game is
+    given the fielder centres only, and only in a season that reads them
+    (:func:`league_rating_centers`).
     """
 
     base = Path(base)
@@ -1520,12 +1641,11 @@ def unstored_rating_centers(
     if rows is None:
         return {}
     active_by_team, hitters, pitchers = rows
-    roster_dir = base / "rosters"
     lineup_dir = base / "lineups"
     hitter_value = {pid: _lineup_value(row) for pid, row in hitters.items()}
-    centres = _fielder_position_centers(
-        _regular_fielder_ids(lineup_dir, active_by_team, hitters, hitter_value),
-        hitters,
+    workloads = _pitcher_workloads(base / "rosters", active_by_team, pitchers)
+    centres = _fielder_centers(
+        lineup_dir, active_by_team, hitters, hitter_value, pitchers, workloads
     )
     regulars = _regular_hitter_ids(lineup_dir, active_by_team, hitter_value) or list(
         hitters
@@ -1536,12 +1656,69 @@ def unstored_rating_centers(
             centres[key] = round(sum(found) / len(found), 2)
     centres.update(
         _pitcher_usage_centers(
-            pitchers,
-            _pitcher_workloads(roster_dir, active_by_team, pitchers),
-            {PITCHER_GF_USAGE_CENTER_KEY: "gf"},
+            pitchers, workloads, {PITCHER_GF_USAGE_CENTER_KEY: "gf"}
         )
     )
     return _ordered(centres, UNSTORED_CENTER_KEYS)
+
+
+def fielder_rating_centers(
+    base: Path | str,
+    *,
+    players_path: Path | str | None = None,
+) -> Dict[str, float]:
+    """The ``FIELDER_CENTER_KEYS`` over the clubs' ACT rosters, to 2 decimals.
+
+    Release 6a (fielding), read from the same files as
+    :func:`active_rating_centers` and with its rules (ACT players only, a
+    blank rating counts as 50, ``{}`` when the files are missing):
+
+    * ``fielder_fa_center_<pos>`` / ``fielder_arm_center_<pos>``: the mean
+      ``fa`` and ``arm`` of the lineup regulars at each of the seven
+      positions (:func:`_regular_fielder_ids`: the position the saved
+      lineup plays a hitter at; a club with no usable saved lineup gives
+      its best hitter at each primary position). A position no regular in
+      the league plays reads the mean over the regulars at every position;
+    * ``fielder_fa_center_p``: the ACT pitchers' ``fa`` weighted by
+      expected workload (:func:`_pitcher_workloads`).
+
+    Nothing is cached or written here: :func:`league_rating_centers` fixes
+    them for a season that reads them.
+    """
+
+    base = Path(base)
+    rows = _active_player_rows(base, players_path)
+    if rows is None:
+        return {}
+    active_by_team, hitters, pitchers = rows
+    return _fielder_centers(
+        base / "lineups",
+        active_by_team,
+        hitters,
+        {pid: _lineup_value(row) for pid, row in hitters.items()},
+        pitchers,
+        _pitcher_workloads(base / "rosters", active_by_team, pitchers),
+    )
+
+
+def _fielder_centers(
+    lineup_dir: Path,
+    active_by_team: Mapping[str, list[str]],
+    hitters: Mapping[str, dict],
+    hitter_value: Mapping[str, float],
+    pitchers: Mapping[str, dict],
+    workloads: Mapping[str, float],
+) -> Dict[str, float]:
+    """The ``FIELDER_CENTER_KEYS`` from a league's ACT rows (the body of
+    :func:`fielder_rating_centers`)."""
+    centres = _fielder_position_centers(
+        _regular_fielder_ids(lineup_dir, active_by_team, hitters, hitter_value),
+        hitters,
+    )
+    centres.update(
+        _pitcher_usage_centers(pitchers, workloads, {PITCHER_FA_CENTER_KEY: "fa"})
+    )
+    return _ordered(centres, FIELDER_CENTER_KEYS)
 
 
 def active_pitcher_workloads(
@@ -1649,15 +1826,26 @@ def _fielder_position_centers(
 ) -> Dict[str, float]:
     """The ``FIELDER_FA_CENTER_KEYS`` and ``FIELDER_ARM_CENTER_KEYS``: the
     mean ``fa`` and ``arm`` over ``regulars`` (position -> ids, an id once
-    per lineup spot). A position with no regular is left out."""
+    per lineup spot). A position with no regular reads the mean over the
+    regulars at every position (Release 6a: a game of a season that reads
+    these refuses to start without one); ``{}`` when there is no regular
+    fielder at all."""
     out: Dict[str, float] = {}
     for keys, column in (
         (FIELDER_FA_CENTER_KEYS, "fa"), (FIELDER_ARM_CENTER_KEYS, "arm")
     ):
+        everyone = [
+            _rating(hitters[pid], column)
+            for pos in keys
+            for pid in regulars.get(pos, [])
+        ]
+        if not everyone:
+            continue
         for pos, key in keys.items():
-            found = [_rating(hitters[pid], column) for pid in regulars.get(pos, [])]
-            if found:
-                out[key] = round(sum(found) / len(found), 2)
+            found = [
+                _rating(hitters[pid], column) for pid in regulars.get(pos, [])
+            ] or everyone
+            out[key] = round(sum(found) / len(found), 2)
     return out
 
 

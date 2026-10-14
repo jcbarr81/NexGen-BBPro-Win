@@ -63,6 +63,19 @@ rating falls on. Rounded, they read the identical number.
 
 The switch is off (0.0) by default: the legacy engine reads its ratings
 exactly as before. Generation 5's profile turns it on.
+
+Release 6a adds a second, independent switch, ``fielder_centred_ratings``,
+for the ratings a batted ball is FIELDED with (owner decision 7): a
+fielder's fa and arm read against the league's lineup regulars at the same
+position (``FIELDER_FA_CENTER_KEYS`` / ``FIELDER_ARM_CENTER_KEYS``, seven
+positions each, and the pitchers' fa). They are shifted where they enter
+the range, error and double-play terms
+(``fielding.adjusted_fielding_rating`` / ``fielding.fielder_arm_rating``),
+through :func:`fielder_shift`, under the same rule: a centre that was not
+delivered raises :class:`RatingCenterMissing`, and ``engine.simulate_game``
+checks all of them before anything is played
+(:func:`require_fielder_centers`). The Release 4 arm reads (tag-ups, extra
+bases) and the catcher's terms are not part of it.
 """
 
 from __future__ import annotations
@@ -80,6 +93,12 @@ __all__ = [
     "require_rating_centers",
     "source_shift",
     "rating_center",
+    "FIELDER_FA_CENTER_KEYS",
+    "FIELDER_ARM_CENTER_KEYS",
+    "FIELDER_CENTER_KEYS",
+    "fielders_centred",
+    "fielder_shift",
+    "require_fielder_centers",
 ]
 
 # The centre a pitch-kernel model names for a rating -> the centre that
@@ -104,6 +123,32 @@ CENTRED_RATING_KEYS = frozenset(MODEL_CENTER_KEYS.values())
 REQUIRED_CENTER_KEYS = CENTRED_RATING_KEYS - {"pitcher_grade_usage_center"}
 # Decimal places a shifted rating is rounded to (module docstring).
 SHIFT_DECIMALS = 9
+# Release 6a (fielder_centred_ratings): position -> the centre a fielder's
+# fa, and his arm, are read against there. The pitcher has a fa centre only
+# (his arm rating is his velocity).
+FIELDER_FA_CENTER_KEYS = {
+    "1B": "fielder_fa_center_1b",
+    "2B": "fielder_fa_center_2b",
+    "3B": "fielder_fa_center_3b",
+    "SS": "fielder_fa_center_ss",
+    "LF": "fielder_fa_center_lf",
+    "CF": "fielder_fa_center_cf",
+    "RF": "fielder_fa_center_rf",
+    "P": "fielder_fa_center_p",
+}
+FIELDER_ARM_CENTER_KEYS = {
+    "1B": "fielder_arm_center_1b",
+    "2B": "fielder_arm_center_2b",
+    "3B": "fielder_arm_center_3b",
+    "SS": "fielder_arm_center_ss",
+    "LF": "fielder_arm_center_lf",
+    "CF": "fielder_arm_center_cf",
+    "RF": "fielder_arm_center_rf",
+}
+# Every one of them: no game is played without them under the switch.
+FIELDER_CENTER_KEYS = frozenset(FIELDER_FA_CENTER_KEYS.values()) | frozenset(
+    FIELDER_ARM_CENTER_KEYS.values()
+)
 
 
 class RatingCenterMissing(RuntimeError):
@@ -187,3 +232,50 @@ def rating_center(tuning: Any, key: str) -> float:
     elif key in CENTRED_RATING_KEYS:
         raise KeyError(f"{key} is a shift centre; a model names the plain centre")
     return tuning.get(key, 50.0)
+
+
+def fielders_centred(tuning: Any) -> bool:
+    """Whether fielding ratings are read against the league's regulars at
+    the same position (Release 6a, ``fielder_centred_ratings``)."""
+
+    return tuning is not None and tuning.get("fielder_centred_ratings", 0.0) >= 0.5
+
+
+def _fielder_missing_message(missing: Iterable[str]) -> str:
+    return (
+        "fielder_centred_ratings is on but the league's fielder centres were "
+        f"not delivered with the tuning ({', '.join(missing)}); the game "
+        "would be played on fielding ratings that are not league-relative. "
+        "The centres come from services.league_rating_centers (KPI harness: "
+        "with_rating_centers)."
+    )
+
+
+def require_fielder_centers(tuning: Any) -> None:
+    """Raise :class:`RatingCenterMissing` unless every fielder centre was
+    delivered. Nothing to check with ``fielder_centred_ratings`` off."""
+
+    if not fielders_centred(tuning):
+        return
+    delivered = getattr(tuning, "delivered", ())
+    missing = sorted(key for key in FIELDER_CENTER_KEYS if key not in delivered)
+    if missing:
+        raise RatingCenterMissing(_fielder_missing_message(missing))
+
+
+def fielder_shift(tuning: Any, key: str) -> float:
+    """Points to add to a fielder's raw fa or arm at a position.
+
+    ``key`` is one of ``FIELDER_CENTER_KEYS``: ``50 - centre`` with
+    ``fielder_centred_ratings`` on, so the league's average regular there
+    reads as 50; 0.0 with it off. With the switch on and the centre not
+    delivered this raises :class:`RatingCenterMissing`.
+    """
+
+    if key not in FIELDER_CENTER_KEYS:
+        raise KeyError(f"{key} is not a fielder centre")
+    if not fielders_centred(tuning):
+        return 0.0
+    if key not in getattr(tuning, "delivered", ()):
+        raise RatingCenterMissing(_fielder_missing_message([key]))
+    return 50.0 - tuning.get(key, 50.0)
