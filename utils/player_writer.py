@@ -2,8 +2,26 @@ import csv
 from models.player import Player
 from models.pitcher import Pitcher
 from utils.atomic_write import atomic_text_writer
+from utils.rating_scale import (
+    LEGACY_RATING_SCALE,
+    RATING_SCALE_FIELD,
+    single_rating_scale,
+)
 
 def save_players_to_csv(players, file_path):
+    """Write ``players`` as a whole ``players.csv`` (the file is replaced).
+
+    Ratings are written as the objects hold them: STORED values on the
+    scale ``player.rating_scale`` names. A list on scale 1 (every league
+    today) produces exactly the file it always did, with no ``rating_scale``
+    column. A list on another scale gets the column, on every row. A list
+    on MIXED scales is refused (``MixedRatingScaleError``) before the file
+    is touched: rows from another scale were appended without converting
+    them, and writing them would store one of the two kinds wrongly.
+    """
+
+    players = list(players)
+    rating_scale = single_rating_scale(players)
     fieldnames = [
         "player_id", "first_name", "last_name", "birthdate", "height", "weight",
         "ethnicity", "skin_tone", "hair_color", "facial_hair", "bats", "throws",
@@ -20,6 +38,8 @@ def save_players_to_csv(players, file_path):
         "durability",
         "pitcher_archetype", "hitter_archetype",
     ]
+    if rating_scale != LEGACY_RATING_SCALE:
+        fieldnames.append(RATING_SCALE_FIELD)
 
     # Atomic: a parallel-day worker reading players.csv must never see a
     # half-written file (a cut on a row boundary silently drops players).
@@ -61,6 +81,8 @@ def save_players_to_csv(players, file_path):
                 "pitcher_archetype": getattr(p, "pitcher_archetype", ""),
                 "hitter_archetype": getattr(p, "hitter_archetype", ""),
             }
+            if rating_scale != LEGACY_RATING_SCALE:
+                row[RATING_SCALE_FIELD] = rating_scale
 
             if is_pitcher:
                 row.update({

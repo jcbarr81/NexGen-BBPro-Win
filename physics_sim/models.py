@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+from utils.rating_scale import engine_row
+
 
 PITCH_KEYS = ["fb", "sl", "si", "cb", "cu", "scb", "kn"]
 
@@ -47,6 +49,11 @@ class BatterRatings:
 
     @classmethod
     def from_row(cls, row: Dict[str, str]) -> "BatterRatings":
+        # The row boundary: everything the engine holds is on the engine
+        # scale, whatever scale the row is stored on (a scale 1 row comes
+        # back as the same object).
+        row = engine_row(row)
+
         def f(key: str, default: float = 50.0) -> float:
             try:
                 return float(row.get(key, default))
@@ -116,6 +123,8 @@ class PitcherRatings:
 
     @classmethod
     def from_row(cls, row: Dict[str, str]) -> "PitcherRatings":
+        row = engine_row(row)  # the row boundary, as in BatterRatings
+
         def f(key: str, default: float = 50.0) -> float:
             try:
                 return float(row.get(key, default))

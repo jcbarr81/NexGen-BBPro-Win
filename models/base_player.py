@@ -39,6 +39,11 @@ class BasePlayer:
     is_pitcher: bool = False
     # Flag indicating if the player is ready after training camp
     ready: bool = False
+    # The scale this player's ratings are STORED on (``utils.rating_scale``):
+    # 1, the legacy scale, is the engine's own. Every rating attribute of a
+    # player object holds the stored value; code that feeds the game or a
+    # decision reads through ``utils.rating_scale.engine_rating``.
+    rating_scale: int = 1
 
     _rating_fields: ClassVar[set[str]] = {"gf", "durability"}
 

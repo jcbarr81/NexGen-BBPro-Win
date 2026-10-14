@@ -8,6 +8,13 @@ from models.player import Player
 from models.pitcher import Pitcher
 from playbalance.season_context import CAREER_DATA_DIR
 from utils.path_utils import get_base_dir as _get_base_dir, get_data_dir as _get_data_dir
+from utils.rating_scale import (
+    LEGACY_RATING_SCALE,
+    RATING_SCALE_FIELD,
+    normalize_rating_scale,
+    to_engine,
+    to_stored,
+)
 from utils.stats_persistence import load_stats
 from services.unified_data_service import get_unified_data_service
 
@@ -215,6 +222,11 @@ def _read_players_from_csv(csv_path: Path):
         Path to the CSV file. Relative paths are resolved with respect to the
         project root so that callers can load data regardless of the current
         working directory.
+
+    Every rating on the returned objects is the STORED value, on the scale
+    the row's ``rating_scale`` names (blank or no column: scale 1, today's).
+    Readers that feed the game or a decision take the engine value through
+    ``utils.rating_scale.engine_rating``.
     """
 
     players = []
@@ -227,6 +239,9 @@ def _read_players_from_csv(csv_path: Path):
             height = _required_int(row, "height")
             weight = _required_int(row, "weight")
             gf = _required_int(row, "gf")
+            # Raises on a scale this build does not know: such a row must
+            # not be loaded as if its ratings were the engine's.
+            rating_scale = normalize_rating_scale(row.get(RATING_SCALE_FIELD))
 
             common_kwargs = {
                 "player_id": row["player_id"],
@@ -262,6 +277,7 @@ def _read_players_from_csv(csv_path: Path):
                 "injury_rehab_days": _optional_int(row, "injury_rehab_days", 0),
                 "durability": _optional_int(row, "durability", 50),
                 "ready": _optional_bool(row, "ready", False),
+                "rating_scale": rating_scale,
             }
 
             if is_pitcher:
@@ -280,7 +296,7 @@ def _read_players_from_csv(csv_path: Path):
                 kn = _required_int(row, "kn")
                 arm = _optional_int(row, "arm")
                 if arm == 0:
-                    arm = fb
+                    arm = _fallback_rating("arm", fb, rating_scale, pitcher=True)
                 fa = _optional_int(row, "fa")
                 player = Pitcher(
                     **common_kwargs,
@@ -322,7 +338,11 @@ def _read_players_from_csv(csv_path: Path):
                 ch = _required_int(row, "ch")
                 ph = _required_int(row, "ph")
                 sp = _required_int(row, "sp")
-                eye = _optional_int(row, "eye", ch)
+                eye = _optional_int(row, "eye", None)
+                if eye is None:
+                    eye = _fallback_rating(
+                        "eye", ch, rating_scale, source_key="ch", pitcher=False
+                    )
                 pl = _required_int(row, "pl")
                 vl = _required_int(row, "vl")
                 sc = _required_int(row, "sc")
@@ -357,6 +377,30 @@ def _read_players_from_csv(csv_path: Path):
 
             players.append(player)
     return players
+
+
+def _fallback_rating(
+    key: str,
+    source: int,
+    rating_scale: int,
+    *,
+    pitcher: bool,
+    source_key: str | None = None,
+) -> int:
+    """A missing rating borrowed from another one, on the row's own scale.
+
+    A blank ``eye`` reads as Contact and a pitcher's missing ``arm`` as his
+    fastball. Those rules are about ENGINE ratings, so on a row that is not
+    on scale 1 the borrowed value is taken to the engine scale and stored
+    back through ``key``'s own map. Scale 1 is the plain copy it always was.
+    """
+
+    if rating_scale == LEGACY_RATING_SCALE:
+        return source
+    engine_value = source
+    if source_key is not None:
+        engine_value = to_engine(source_key, source, rating_scale, pitcher=pitcher)
+    return int(to_stored(key, engine_value, rating_scale, pitcher=pitcher))
 
 
 def _parse_other_positions(raw: object) -> list:
