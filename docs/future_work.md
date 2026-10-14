@@ -2286,6 +2286,22 @@ behind `NEXGEN_GENERATION6_SCALE2`, OFF. Open:
   +0.25 innings and +4.3 pitches a start, -0.14 relievers a game.
 - **The commissioner is told through the news feed** (`[commissioner]`
   item) and `rating_scale.json`; there is no commissioner inbox.
+- **Integration with r8-develop.** The move runs at the rollover in
+  `LeagueRolloverService.archive_season`, after `next_year` is worked out
+  and BEFORE `_apply_yearly_aging`; r8-develop's
+  `_apply_yearly_development` must sit right after it (move, development,
+  aging, retirements). `services/offseason_development.py` writes
+  `players.csv`: it must write through `save_players` / `update_players`
+  or take `utils.players_file_lock` itself. Both branches change
+  `utils/rating_scale.py` (`engine_potential`): merge by hand.
+- **A save of players loaded before a move writes scale 1 rows** into the
+  converted file (kept, correct on their own scale); a generation 6
+  season repairs them at its next game, but a league moved at its
+  rollover is not repaired until its next season's first game. Harmless
+  for play; owners could see a few unconverted numbers in between.
+- **A refused league is re-offered every season** and stays refused until
+  someone changes the blocking ratings (runbook section 3 lists the
+  remedies). There is no in-app tool for the commissioner to do it.
 - **The generator's draft class depended on whether the data dir had been
   resolved before the first call** in a fresh process (seen while checking
   scale 1 identity against `r6a-int`; both trees behaved the same once it

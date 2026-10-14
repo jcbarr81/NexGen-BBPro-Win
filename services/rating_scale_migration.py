@@ -6,12 +6,16 @@ DECISIONS.md``, "Release 6 owner decisions"); the design is
 operations switch (``utils.rating_scale.GENERATION6_SWITCH_ENV``): with it
 off nothing calls in, and no league converts.
 
-**When.** A league moves when its next season is given its engine
-generation (``services.league_rating_centers``: the first season game, or
-the first saved setting, of a season with no game played). With the switch
-on, that season is given generation 6 and THIS module converts the league's
-players first, in the same locked step; only then are the season's
-generation and rating centres written down. A league that cannot convert
+**When.** At the league's ROLLOVER (``services.league_rollover`` ->
+``league_rating_centers.move_league_at_rollover``: after the archive, the
+contracts and the finances, before the offseason development step), which
+decides its next season: that season then starts on generation 6. A league
+that reaches a new season without a rollover moves when that season is
+given its engine generation (the first season game, or the first saved
+setting, of a season with no game played): that season is given
+generation 6 and THIS module converts the league's players first, in the
+same locked step; only then are the season's generation and rating
+centres written down. A league that cannot convert
 (:func:`move_blocker`) is given generation 5 and stays on scale 1, and its
 commissioner is told why. A season already under way never moves. A league
 created with the switch on is generated on scale 2 and starts on
@@ -1472,9 +1476,13 @@ def post_refusal(
     ):
         return None
     log_refusal(base, season, reason, generation, blocking)
+    _print(f"{base}: season {season} NOT moved to generation 6 / scale 2: {reason}")
+    if read_scale_log(base).get("hold"):
+        # An operator's decision (a rollback, or a league kept on scale 1):
+        # recorded, but the commissioner is not told every season.
+        return None
     text = refusal_news(reason, season=season, blocking=blocking)
     _post_news(base, text, category="commissioner")
-    _print(f"{base}: season {season} NOT moved to generation 6 / scale 2: {reason}")
     return text
 
 

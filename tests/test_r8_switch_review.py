@@ -144,6 +144,29 @@ def test_a_bottom_clip_refuses_only_for_major_leaguers(scratch, level, refused):
         assert clip in plan.allowed_clips
 
 
+def test_the_runbooks_remedies_unblock_or_quietly_hold_a_league(scratch, monkeypatch):
+    """Runbook section 3: set the rating to the scale's limit (he plays as
+    a clip would make him play; the league moves), or hold the league on
+    scale 1 (recorded each season, the commissioner is not told again)."""
+    data = scratch
+    pid, _ = _a_hitter(data)
+    _set(data, pid, ch=92)
+    assert migration.plan_move(data, respread=False).blocker
+    _set(data, pid, ch=73)  # the top of what scale 2 holds for Contact
+    assert migration.plan_move(data, respread=False).blocker is None
+    _set(data, pid, ch=92)
+    (data / "rating_scale.json").write_text(
+        json.dumps({"version": 1, "events": [], "hold": {"reason": "kept on scale 1"}}),
+        encoding="utf-8",
+    )
+    switch_on(monkeypatch)
+    write_schedule(data, 2026)
+    _game(monkeypatch)
+    assert stored_generation(data, 2026) == 5
+    assert [e["event"] for e in scale_log(data)["events"]] == ["refused"]
+    assert "[commissioner]" not in news(data)
+
+
 def test_an_allowed_bottom_clip_is_logged(scratch):
     data = scratch
     pid, _ = _a_hitter(data)
