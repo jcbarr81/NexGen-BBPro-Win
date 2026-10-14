@@ -24,9 +24,20 @@ from services.physics_tuning_spec import (
 from utils.path_utils import ActivePath, get_data_dir
 
 __all__ = [
+    "GENERATION_6_OWNED_KEYS",
     "GENERATION_OWNED_KEYS",
     "LEGACY_SLIDER_KEYS",
     "LEGACY_SLIDERS_MARKER",
+    "PRE_GENERATION_6_MARKER",
+    "R6A_FIELDING_KEYS",
+    "R6A_FIELDING_SWITCH_KEYS",
+    "R6A_GENERATION_6_GROUP_KEYS",
+    "R6A_KEYS",
+    "R6A_PITCHING_GROUP_KEYS",
+    "R6A_PITCHING_KEYS",
+    "R6A_POWER_KEYS",
+    "VELOCITY_SLIDER_KEYS",
+    "VELOCITY_SLIDER_REBASE_MARKER",
     "STEAL_FREQ_REBASE_MARKER",
     "SWING_SLIDER_REBASE_MARKER",
     "TUNING_OVERRIDES_FILENAME",
@@ -96,6 +107,8 @@ LEGACY_SLIDERS_MARKER = "_legacy_sliders_r5"
 # The engine models are the generation's to set. A copy in the overrides file
 # is dropped on load and on save: a league must not change engines in the
 # middle of a season because someone posted a switch to the tuning API.
+# These are owned on every generation; what else a generation owns is
+# ``_owned_keys(generation)``.
 GENERATION_OWNED_KEYS = (
     "swing_model",
     "command_model",
@@ -103,10 +116,68 @@ GENERATION_OWNED_KEYS = (
     "hbp_model",
     "ibb_model",
     "contact_model",
-    # Release 6a (power and doubles): the Power curve, Power's share of the
-    # doubles gap credit, the line-drive credit and the Power term on
-    # contact are generation 6's; a league's file cannot switch part of it
-    # on or off.
+)
+
+# Release 6a (pitching): the stuff / velocity / exit-velocity / fatigue
+# group only works whole (physics_sim/config.py, "ONE SWITCH GROUP"), and
+# two of its four parts have no model switch: the pitch-quality weights and
+# the three pitch-quality paths ARE the engine's formula. A league's saved
+# tuning must not lose or change anything at this release, so ownership
+# depends on the league's generation:
+#
+# * every key this release registers (``R6A_PITCHING_KEYS``) means nothing
+#   to a legacy or generation 5 league: there, as before the release (when
+#   the key was not registered), a copy in the file is not read and a save
+#   does not keep it;
+# * from generation 6 the keys that DEFINE the group
+#   (``R6A_PITCHING_GROUP_KEYS``) are the generation's -- its three
+#   switches, the weights, the three paths and the chase slope -- and its
+#   sizes (the fatigue points, the velocity terms, the manager's weights)
+#   are ordinary knobs;
+# * ``contact_logit_velo`` is an ordinary knob before this release and
+#   stays one for legacy and generation 5 leagues (generation 5's contact
+#   model reads it); from generation 6 it is the group's (on the old fatigue
+#   it is wrong-signed). A value a league stored is kept under
+#   ``PRE_GENERATION_6_MARKER`` when the league moves, the way Release 5
+#   kept its replaced sliders, and a league loaded on an earlier generation
+#   gets it back.
+GENERATION_6 = 6
+R6A_PITCHING_GROUP_KEYS = (
+    "ev_velocity_model",
+    "fatigue_model",
+    "pitcher_score_model",
+    "pq_weight_control",
+    "pq_weight_movement",
+    "pq_weight_grade",
+    "ev_pq_contact_base_weight",
+    "ev_pq_slope",
+    "difficulty_pq_scale",
+    "difficulty_velocity_scale",
+    "swing_pq_chase_logit",
+)
+R6A_PITCHING_KEYS = R6A_PITCHING_GROUP_KEYS + (
+    "ev_velo_dev_weight",
+    "ev_base_offset_mph",
+    "fatigue_control_points",
+    "fatigue_movement_points",
+    "fatigue_stuff_points",
+    "fatigue_velocity_mph",
+    "pitcher_score_weight_control",
+    "pitcher_score_weight_movement",
+    "pitcher_score_weight_grade",
+    "pitcher_score_weight_arm",
+)
+# Release 6a (power and doubles, and fielding): the same rule for the keys
+# the other two engine areas registered. Every one means nothing to a
+# legacy or generation 5 league (as before it was registered), and from
+# generation 6 the ones that switch or define the area's model are the
+# generation's: power's six (the Power curve and its table, Power's share
+# of the doubles gap credit, the line-drive credit and its span, the Power
+# term on contact) and fielding's switches (a league's file cannot switch
+# part of generation 6 on or off). Fielding's slopes, band edges and error
+# sizes are ordinary knobs from generation 6, like the pitching group's
+# sizes.
+R6A_POWER_KEYS = (
     "power_curve_model",
     "bat_speed_power_table",
     "double_gap_power_weight",
@@ -114,6 +185,78 @@ GENERATION_OWNED_KEYS = (
     "double_line_drive_span",
     "contact_logit_power",
 )
+R6A_FIELDING_SWITCH_KEYS = (
+    "fielder_centred_ratings",
+    "position_fit_model",
+    "spray_direction_model",
+    "infield_band_model",
+    "range_model",
+    "error_model",
+    "fielding_chance_log",
+)
+R6A_FIELDING_KEYS = R6A_FIELDING_SWITCH_KEYS + (
+    "fielder_fa_center_p",
+    "position_secondary_penalty_scale",
+    "infield_band_3b_min_deg",
+    "infield_band_ss_min_deg",
+    "infield_band_p_min_deg",
+    "infield_band_2b_min_deg",
+    "range_logit_slope_1b",
+    "range_logit_slope_2b",
+    "range_logit_slope_3b",
+    "range_logit_slope_ss",
+    "range_logit_slope_lf",
+    "range_logit_slope_cf",
+    "range_logit_slope_rf",
+    "range_ld_ratio",
+    "error_base_1b",
+    "error_base_2b",
+    "error_base_3b",
+    "error_base_ss",
+    "error_base_lf",
+    "error_base_cf",
+    "error_base_rf",
+    "error_base_p",
+    "error_fa_log_slope",
+    "error_arm_log_slope",
+    "error_infield_liner_scale",
+    "error_steal_throw_rate",
+    "error_of_hit_rate",
+    "error_pickoff_throw_rate",
+    "error_relay_throw_rate",
+)
+# Every key Release 6a registered (not one is read below generation 6), and
+# the ones generation 6 owns.
+R6A_KEYS = R6A_PITCHING_KEYS + R6A_POWER_KEYS + R6A_FIELDING_KEYS
+R6A_GENERATION_6_GROUP_KEYS = (
+    R6A_PITCHING_GROUP_KEYS + R6A_POWER_KEYS + R6A_FIELDING_SWITCH_KEYS
+)
+# Ordinary knobs before generation 6 that generation 6 owns.
+GENERATION_6_OWNED_KEYS = ("contact_logit_velo",)
+# Release 6a: Velocity Scale keeps its key, but from generation 6 more
+# velocity helps the pitcher (services/physics_tuning_spec). A value stored
+# before is on the old meaning, so it is not carried over: the slider goes
+# back to 1.0 and the value is kept under ``PRE_GENERATION_6_MARKER``.
+# ``VELOCITY_SLIDER_REBASE_MARKER`` marks a file whose velocity_scale is on
+# the generation 6 meaning. Timing as Release 5's conversion: a load
+# converts in memory every time; the FILE is converted by a generation 6
+# season's game (``convert=True``) or by a save under generation 6 (the
+# page showed the converted value, and a value posted from it is on the
+# new meaning).
+VELOCITY_SLIDER_KEYS = ("velocity_scale",)
+VELOCITY_SLIDER_REBASE_MARKER = "_velocity_slider_rebased_r6"
+PRE_GENERATION_6_MARKER = "_pre_generation_6_r6"
+
+
+def _owned_keys(generation: int) -> frozenset:
+    """The keys a league on ``generation`` cannot store (see above)."""
+    if generation >= GENERATION_6:
+        return frozenset(
+            GENERATION_OWNED_KEYS
+            + R6A_GENERATION_6_GROUP_KEYS
+            + GENERATION_6_OWNED_KEYS
+        )
+    return frozenset(GENERATION_OWNED_KEYS + R6A_KEYS)
 
 # The legacy defaults the replaced sliders were set against, frozen here so
 # the conversion does not move if DEFAULT_TUNING ever does.
@@ -249,6 +392,12 @@ def load_physics_tuning_overrides(
       converts in memory, every time, and leaves the file on the scales it
       is on: the season may yet be played on the legacy engine.
 
+    Release 6a: under generation 6 the Velocity Scale stored on the old
+    meaning and the keys generation 6 owns are set aside the same way --
+    in memory on every load, in the file only with ``convert`` -- and a
+    legacy or generation 5 load of a file converted for generation 6 gets
+    the set-aside values back.
+
     If a write fails (a read-only copy) the values still come back right,
     from the unchanged file, on every load. ``migrate`` False never writes
     at all -- for readers that must not touch a tuning file.
@@ -322,6 +471,13 @@ def save_physics_tuning_overrides(
     values. Under the legacy generation the file goes back on the legacy
     scales: what is saved is the whole legacy state, so the kept values
     and the rebase marker are dropped.
+
+    Release 6a: under generation 6 a key generation 6 owns is not stored,
+    the old-meaning Velocity Scale and any ``GENERATION_6_OWNED_KEYS`` value
+    in the file being replaced are kept under ``PRE_GENERATION_6_MARKER``,
+    and the file is marked as on the new Velocity Scale meaning. A save
+    under an earlier generation drops both markers: the page showed the
+    kept values, and they are what it sent back.
     """
 
     target = Path(path) if path is not None else Path(TUNING_OVERRIDES_PATH)
@@ -329,7 +485,7 @@ def save_physics_tuning_overrides(
     # A generation the caller names is the caller's word that the season is
     # on it; the current league's is checked against what is written down.
     fixed = generation is not None or _season_is_recorded_as(number)
-    cleaned = _sanitize_overrides(overrides, strict=True)
+    cleaned = _sanitize_overrides(overrides, strict=True, generation=number)
     with _overrides_lock(target):
         payload = _read_payload(target)
         markers = _markers(payload)
@@ -348,6 +504,23 @@ def save_physics_tuning_overrides(
                 for key, value in markers.items()
                 if key not in (LEGACY_SLIDERS_MARKER, SWING_SLIDER_REBASE_MARKER)
             }
+        if number >= GENERATION_6:
+            # Release 6a: what generation 6 sets aside from the file being
+            # replaced is kept, a key generation 6 owns is not stored, and
+            # the Velocity Scale now in the file is on the new meaning.
+            _view, markers, _kept = _generation_6_view(
+                _sanitize_overrides(payload, generation=number), markers
+            )
+            cleaned = {
+                key: value
+                for key, value in cleaned.items()
+                if key not in GENERATION_6_OWNED_KEYS
+            }
+            markers = {**markers, VELOCITY_SLIDER_REBASE_MARKER: True}
+        else:
+            # The whole state on an earlier generation is what the page
+            # showed, the kept values included: nothing is held back.
+            markers = _without_generation_6_markers(markers)
         if not cleaned:
             _unlink(target)
             return
@@ -559,7 +732,7 @@ def rule_preset_overrides(
             continue
         legacy_key = _PRESET_RATE_SLIDERS.get(name)
         if legacy_key is None:
-            if name in defaults and name not in GENERATION_OWNED_KEYS:
+            if name in defaults and name not in _owned_keys(number):
                 overrides[name] = round(defaults[name] * factor, 4)
             continue
         spec = {**_SWING_MODEL_SLIDERS, **_CONTACT_MODEL_SLIDERS}[legacy_key]
@@ -784,7 +957,7 @@ def _migrated(
     file stays on the scales it is on and only the returned values are
     converted. Nothing a legacy load returns is ever written.
     """
-    stored = _sanitize_overrides(payload)
+    stored = _sanitize_overrides(payload, generation=generation)
     markers = _markers(payload)
     changed = False
     if not markers.get(STEAL_FREQ_REBASE_MARKER) and "steal_freq_scale" in stored:
@@ -792,15 +965,28 @@ def _migrated(
         stored["steal_freq_scale"] /= _STEAL_FREQ_REBASE_DIVISOR
         changed = True
     if generation <= LEGACY_ENGINE_GENERATION:
-        view = _legacy_view(stored, markers)
+        view = _legacy_view(_pre_generation_6_view(stored, markers), markers)
         return view, (_file_payload(stored, markers) if changed else None)
     view, converted_markers = _converted_for_new_sliders(stored, markers)
+    generation_6 = generation >= GENERATION_6
+    if generation_6:
+        view, converted_markers, _kept = _generation_6_view(view, converted_markers)
+    else:
+        restored = _pre_generation_6_view(view, markers)
+        if restored is not view:
+            # Written back (below) with the kept values in the file itself.
+            view = restored
+            converted_markers = _without_generation_6_markers(converted_markers)
     if convert and stored:
         # Also when nothing needs converting: a file read by a season game
         # of a generation 5 season is marked as on that generation's scales.
         marked = markers.get(SWING_SLIDER_REBASE_MARKER) is True
+        if generation_6:
+            marked = marked and markers.get(VELOCITY_SLIDER_REBASE_MARKER) is True
         if changed or view is not stored or not marked:
-            return view, _file_payload(view, converted_markers, rebased=True)
+            return view, _file_payload(
+                view, converted_markers, rebased=True, velocity_rebased=generation_6
+            )
         return view, None
     return view, (_file_payload(stored, markers) if changed else None)
 
@@ -813,17 +999,85 @@ def _read_payload(path: Path) -> Dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _generation_6_view(
+    stored: Dict[str, float], markers: Dict[str, Any]
+) -> Tuple[Dict[str, float], Dict[str, Any], Dict[str, float]]:
+    """(overrides as generation 6 reads them, ``markers`` with what was set
+    aside kept under ``PRE_GENERATION_6_MARKER``, what was set aside).
+
+    Set aside: every key generation 6 owns that the file holds
+    (``GENERATION_6_OWNED_KEYS``), and Velocity Scale unless the file is
+    marked as on the new meaning (``VELOCITY_SLIDER_REBASE_MARKER``). With
+    nothing to set aside ``stored`` and ``markers`` come back themselves.
+    """
+    kept = {key: stored[key] for key in GENERATION_6_OWNED_KEYS if key in stored}
+    if markers.get(VELOCITY_SLIDER_REBASE_MARKER) is not True:
+        kept.update(
+            {key: stored[key] for key in VELOCITY_SLIDER_KEYS if key in stored}
+        )
+    if not kept:
+        return stored, markers, kept
+    view = {key: value for key, value in stored.items() if key not in kept}
+    previous = markers.get(PRE_GENERATION_6_MARKER)
+    markers = dict(markers)
+    markers[PRE_GENERATION_6_MARKER] = {
+        **(previous if isinstance(previous, dict) else {}),
+        **kept,
+    }
+    return view, markers, kept
+
+
+def _pre_generation_6_view(
+    stored: Dict[str, float], markers: Dict[str, Any]
+) -> Dict[str, float]:
+    """A file's overrides as a legacy or generation 5 league reads them.
+
+    ``stored`` itself unless the file was converted for generation 6: then
+    every value kept under ``PRE_GENERATION_6_MARKER`` comes back, unless
+    the file holds a value of that key since (a save on an earlier
+    generation, or a Velocity Scale the commissioner set on generation 6:
+    the setting is the pitch speed, kept as it is).
+    """
+    kept = markers.get(PRE_GENERATION_6_MARKER)
+    if not isinstance(kept, dict):
+        return stored
+    restorable = {
+        key: value
+        for key, value in _sanitize_overrides(kept).items()
+        if key in GENERATION_6_OWNED_KEYS + VELOCITY_SLIDER_KEYS and key not in stored
+    }
+    if not restorable:
+        return stored
+    return {**stored, **restorable}
+
+
+def _without_generation_6_markers(markers: Dict[str, Any]) -> Dict[str, Any]:
+    """``markers`` without the Release 6a conversion's two markers."""
+    return {
+        key: value
+        for key, value in markers.items()
+        if key not in (PRE_GENERATION_6_MARKER, VELOCITY_SLIDER_REBASE_MARKER)
+    }
+
+
 def _file_payload(
-    cleaned: Dict[str, float], markers: Dict[str, Any], *, rebased: bool = False
+    cleaned: Dict[str, float],
+    markers: Dict[str, Any],
+    *,
+    rebased: bool = False,
+    velocity_rebased: bool = False,
 ) -> Dict[str, Any]:
     """What an overrides file holds: the markers, the knobs, and the marks
     of the rebases it has been through (``rebased``: written while the
-    season is fixed on generation 5)."""
+    season is fixed on generation 5 or later; ``velocity_rebased``: Velocity
+    Scale is on the generation 6 meaning)."""
     payload: Dict[str, Any] = dict(markers)
     payload.update(cleaned)
     payload[STEAL_FREQ_REBASE_MARKER] = True
     if rebased:
         payload[SWING_SLIDER_REBASE_MARKER] = True
+    if velocity_rebased:
+        payload[VELOCITY_SLIDER_REBASE_MARKER] = True
     return payload
 
 
@@ -880,17 +1134,25 @@ def _is_finite(value: object) -> bool:
 
 
 def _sanitize_overrides(
-    data: Dict[str, Any], *, strict: bool = False
+    data: Dict[str, Any],
+    *,
+    strict: bool = False,
+    generation: int = LEGACY_ENGINE_GENERATION,
 ) -> Dict[str, float]:
-    """The numeric tuning knobs in ``data``, as floats.
+    """The numeric tuning knobs in ``data``, as floats, for a league on
+    ``generation``.
 
-    Unknown keys, table knobs, the markers and the generation-owned engine
-    switches are left out. A value that is not a finite number is left out
-    too, or with ``strict`` (a save) raises ``ValueError``.
+    Unknown keys, table knobs, the markers and the keys the generation owns
+    are left out -- except ``GENERATION_6_OWNED_KEYS``, which the caller
+    sets aside on generation 6 (:func:`_generation_6_view`). Below
+    generation 6 every key Release 6a registered is left out, as it was
+    before the release registered it. A value that is not a finite number
+    is left out too, or with ``strict`` (a save) raises ``ValueError``.
     """
+    owned = _owned_keys(generation) - frozenset(GENERATION_6_OWNED_KEYS)
     cleaned: Dict[str, float] = {}
     for key, value in data.items():
-        if key not in DEFAULT_TUNING or key in GENERATION_OWNED_KEYS:
+        if key not in DEFAULT_TUNING or key in owned:
             continue
         default_value = DEFAULT_TUNING.get(key)
         if not isinstance(default_value, _NUMERIC_TYPES):

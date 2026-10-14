@@ -66,6 +66,9 @@ RAW_READS = {
     # The repertoire is tested for emptiness; its grades are shifted one by
     # one in the comprehension below it.
     ("_pitcher_context", "pitcher.repertoire"),
+    # Release 6a: the manager's view of an arm (pitcher_score_model 1)
+    # shifts each grade in the comprehension that reads it, then averages.
+    ("_pitcher_stuff_score", "pitcher.repertoire"),
     # PitchResult.contact: whether the swing met the ball, not a rating.
     ("play_half_inning", "res.contact"),
 }

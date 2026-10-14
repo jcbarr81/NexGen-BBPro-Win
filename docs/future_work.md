@@ -2093,3 +2093,102 @@ over `--engine 6`). Numbers are calibration / league / flat fixture means
   trade scores and salary read Power linearly. Under the table a point of
   Power is worth 0.5 to 0.6 mph below 50, about 0.75 from 52 to 57, about
   1.5 from 57 to 63 and almost nothing above 63.
+
+## Release 6a pitching: follow-ups (2026-10-13)
+
+Built switched off on `r6a-pitching` (stuff weights, velocity model, one
+pitch-quality path into exit velocity, additive fatigue; values in
+`scripts/kpi_profiles/r6_pitching.json`). Open items:
+
+- **The 91-105 pitch cost and the third-time-through penalty are one
+  number read twice.** `starter_woba_delta_91_105_batter_adj` compares a
+  starter's pitches 91-105 (all third time through) with his pitches 1-25
+  (first time through), so it reads pass-3 familiarity PLUS fatigue: about
+  2 wOBA points per unit of `tto_pass3_weight` plus about 10 for the
+  owner's moderate fatigue set. The +10 to +20 band, the owner's +11 of
+  fatigue and a third pass no easier than the second (`tto_pass2_weight`
+  4.5, worth +9 to +11) cannot all hold: the profile's 4.5 reads +22.1 +/-
+  2.0 on calibration and +18.6 +/- 1.9 on the league fixture (28 seasons
+  each; generation 5 +33.0 and +32.0). DECIDED (coordinator, 2026-10-14):
+  accepted as measured, the KPI stays report-only, third-pass weight 4.5
+  and the owner's moderate fatigue unchanged. For a later revisit: a set of
+  control 1.5 / movement 0.75 / stuff 0.5 / velocity 1.5 costs +5.6 at
+  pitches 91-105 and +9.9 at the cap by Monte Carlo, against +9.4 to +11.8
+  and +16.3 to +18.2 for the owner's set. One season's value has a
+  standard deviation of about 10 points (about 1,700 to 1,950 late plate
+  appearances).
+- **The corners of the 35-80 matchup boxes** (composite pitcher axis,
+  Monte Carlo, 300,000 PA a cell). Home runs: the largest log5 residual is
+  +.41 logit at Power 80 x pitcher 80 (generation 5: 2.41); it comes from
+  `ev_pq_slope` (.0012 gives .33, .0010 gives .27), not from the chase
+  term, at the cost of about a fifth of a good pitcher's home-run
+  suppression. Strikeouts: -2.7 points at Contact 80 x pitcher 80
+  (generation 5: -1.8); it comes from the chase term (0: -1.7, .01: -2.1).
+  Inside 35-65 the strikeout residual is under 1.1 points either way.
+  Re-size both with the batted-ball model (accepted for 6a; gates proposed
+  on the inner strikeout grid and the p5-p95 home-run grid).
+- **League-management pitcher scores still ignore pitch grades.** Only
+  the in-game reliever choice (`engine._pitcher_stuff_score`) reads the
+  generation's weights. Left on their formulas, to be redone with overall
+  rating in the rating-scale pass: `utils/player_overall.py` (control .47 /
+  movement .38 / mean grade .15, no arm; generation 6 measures about .23 /
+  .27 / .39 / .11 with arm and the usage-weighted grade); the flat mean of
+  arm, control, movement and
+  endurance in `services/prospect_promotion._player_overall` (its 55 / 65 /
+  72 bars are tuned to that score), `inseason_callups._pitcher_score`,
+  `player_retirement._player_overall`, `free_agency._quality_score`,
+  `finance_ai._free_agent_quality_score`,
+  `gm_finance_queue._player_talent_score` and
+  `offseason_finance_flow._player_talent_score`;
+  `cpu_trade_proposals._player_trade_value`; `api/routers/draft
+  ._prospect_overall`; `contracts_service._player_quality_score` (arm .40,
+  called "stuff / velocity"); the strategy bonuses in
+  `roster_auto_assign`, `finance_ai`, `draft_ai` and `cpu_trade_evaluator`.
+  Rotation and bullpen roles (`utils/rotation.py`,
+  `utils/pitching_autofill.py`) go by endurance alone: the closer is the
+  lowest-endurance arm, whatever his stuff.
+- **Re-derive `pitcher_score_weight_*` after the joint retune** (they are
+  each rating's FIP per point on the pitching profile alone), and hand the
+  same four numbers to the overall-rating work.
+- **The legacy fatigue factors are still hard-coded** (`_fatigue_factors`:
+  .15 / .30 / .25 with floors .85 / .60 / .65). Only `fatigue_model` 1 has
+  registered coefficients. The exit-velocity floor of the pitch-quality
+  factor (.75) is hard-coded too; at the generation 6 slope no pitcher
+  reaches it.
+- **Wild pitches and balks read the pitcher's raw control,** not the
+  fresh-arm or tired control the pitch reads (design brief, section 9: not
+  worth a mechanism; if touched, hand both rolls the same effective
+  control).
+- **Generation ownership of the other Release 6a areas' keys.** This area
+  makes its own keys mean nothing to a legacy or generation 5 league's
+  overrides file (as before they were registered) and owns the ones that
+  define its group from generation 6
+  (`services/physics_tuning_settings._owned_keys`,
+  `R6A_PITCHING_KEYS`). The power and fielding branches register keys too;
+  fold them into the same rule at integration, and decide whether the
+  generation 6 markers (`_pre_generation_6_r6`,
+  `_velocity_slider_rebased_r6`) should count as evidence of a league's
+  engine the way `_swing_sliders_rebased_r5` does
+  (`league_rating_centers._sliders_rebased`); they do not today.
+- **A Velocity Scale set on generation 6 and read back on an earlier
+  generation** (a rollback) is kept as the pitch speed it is, not
+  reversed; the value set aside at the move comes back only when the
+  commissioner had not set one since.
+- **Velocity Scale slider range.** On generation 6 the 0.90-1.10 range is
+  9 mph either way: 0.95 / 1.05 gave strikeouts of 19.6% / 26.7% against
+  23.0% (Monte Carlo). Consider narrowing it, and review the description
+  with the help page at the switch-on. Tutorial and owner-guide text for
+  the pitching changes is drafted in the build report, not yet in
+  `services/tutorials.py`.
+- **A take reports the pitch's grade as `pitch_quality`, a swing the
+  composite** (unchanged from before; the composite is now worked out on
+  every pitch). If the pitch log should carry one number, report the
+  composite on takes too -- it changes the pinned game digests.
+- **`contact_velo_ref` is a constant 93** (a 50 arm's fastball). The
+  Velocity Scale slider moves every pitch against it, which is why the
+  slider now helps pitchers; a league whose mean arm is not its
+  `pitcher_arm_usage_center` cannot happen under `centred_ratings`, but a
+  profile that changes `83 + 0.2 * arm` must move the reference with it.
+- **CI:** add `--engine 6 --tuning-overrides
+  scripts/kpi_profiles/r6_pitching.json --strict` on calibration until the
+  values are folded into `engine_6.json`.

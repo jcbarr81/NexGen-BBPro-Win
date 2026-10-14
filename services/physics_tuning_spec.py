@@ -394,25 +394,69 @@ _CONTACT_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
 }
 
 
+# Release 6a (pitching): a league running ``ev_velocity_model`` 1 keeps the
+# Velocity Scale slider on the SAME key and range, but the slider means the
+# opposite. Before generation 6 pitch speed mostly went into exit velocity,
+# so more velocity was more offence. From generation 6 it is read against
+# the normal speed of the pitch's type by the contact roll and barely by
+# exit velocity, so more velocity is more strikeouts and less offence. A
+# value stored before the league moved is on the old meaning and is not
+# carried over: the slider goes back to 1.0 and the old value is kept in the
+# league's overrides file, with Release 5's conversion timing
+# (services/physics_tuning_settings, VELOCITY_SLIDER_REBASE_MARKER).
+#
+# SWITCH-ON TEXT, as for the Release 5 sliders above: nothing shows it
+# before a league runs generation 6. The size quoted is a Monte Carlo of
+# the generation 6 pitching profile (average hitter and pitcher, 200,000
+# plate appearances a setting): 0.99 / 1.00 / 1.01 / 1.02 / 1.05 gave a
+# fastball of 92.1 / 93.0 / 93.9 / 94.9 / 97.7 mph, strikeouts of 22.2 /
+# 23.0 / 23.7 / 24.4 / 26.7% and wOBA .303 / .302 / .299 / .297 / .291.
+# Re-measure it at the joint retune.
+_VELOCITY_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
+    "velocity_scale": TuningSliderSpec(
+        key="velocity_scale",
+        label="Velocity Scale",
+        description=(
+            "Pitch velocity. 1.00 = normal. Higher now HELPS PITCHERS: "
+            "every pitch is harder to hit, so strikeouts rise and scoring "
+            "falls (about 1 mph and 3% more strikeouts per +0.01). Lower "
+            "helps hitters. This is the reverse of earlier versions, where "
+            "more velocity meant harder-hit balls and more offence, so a "
+            "setting saved before the change was reset to 1.00."
+        ),
+        min_value=0.9,
+        max_value=1.1,
+        step=0.01,
+        fmt="{:.2f}",
+    ),
+}
+
+
 def tuning_sections(
     swing_model: float = 0.0,
     contact_model: float = 0.0,
+    velocity_model: float = 0.0,
 ) -> List[Tuple[str, List[TuningSliderSpec]]]:
     """The slider catalog for a league running these engine models.
 
-    With both below 1 it is ``_TUNING_SECTIONS`` itself. From
+    With all below 1 it is ``_TUNING_SECTIONS`` itself. From
     ``swing_model`` 1 the five legacy plate-discipline sliders are replaced
     by the four in ``_SWING_MODEL_SLIDERS``, and from ``contact_model`` 1
     Strikeout Rate and Contact Rate by the one in ``_CONTACT_MODEL_SLIDERS``
-    (same sections, same order). The models come from the league's engine
-    generation (:func:`tuning_sections_for_generation`), never from a key in
-    its overrides file.
+    (same sections, same order). From ``velocity_model`` 1 (the engine's
+    ``ev_velocity_model``, generation 6) Velocity Scale keeps its key and
+    takes the description in ``_VELOCITY_MODEL_SLIDERS``. The models come
+    from the league's engine generation
+    (:func:`tuning_sections_for_generation`), never from a key in its
+    overrides file.
     """
     replaced: Dict[str, Optional[TuningSliderSpec]] = {}
     if swing_model >= 1.0:
         replaced.update(_SWING_MODEL_SLIDERS)
     if contact_model >= 1.0:
         replaced.update(_CONTACT_MODEL_SLIDERS)
+    if velocity_model >= 1.0:
+        replaced.update(_VELOCITY_MODEL_SLIDERS)
     if not replaced:
         return _TUNING_SECTIONS
     sections: List[Tuple[str, List[TuningSliderSpec]]] = []
@@ -435,7 +479,9 @@ def tuning_sections_for_generation(
 
     defaults = engine_defaults(generation)
     return tuning_sections(
-        defaults.get("swing_model", 0.0), defaults.get("contact_model", 0.0)
+        defaults.get("swing_model", 0.0),
+        defaults.get("contact_model", 0.0),
+        defaults.get("ev_velocity_model", 0.0),
     )
 
 
@@ -443,6 +489,7 @@ __all__ = [
     "TuningSliderSpec",
     "_CONTACT_MODEL_SLIDERS",
     "_SWING_MODEL_SLIDERS",
+    "_VELOCITY_MODEL_SLIDERS",
     "_TUNING_SECTIONS",
     "tuning_sections",
     "tuning_sections_for_generation",

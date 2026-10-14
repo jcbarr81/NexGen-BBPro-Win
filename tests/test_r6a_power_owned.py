@@ -2,9 +2,10 @@
 bounded.
 
 - The six keys of this work are generation-owned
-  (``services.physics_tuning_settings.GENERATION_OWNED_KEYS``): a league's
-  stored overrides cannot switch part of generation 6 on or off, the way
-  Release 5's model switches are kept out (tests/test_r5_flip_sliders.py).
+  (``services.physics_tuning_settings._owned_keys``: meaningless below
+  generation 6, the generation's from 6): a league's stored overrides
+  cannot switch part of generation 6 on or off, the way Release 5's model
+  switches are kept out (tests/test_r5_flip_sliders.py).
 - The double line has a floor (``physics.DOUBLE_THRESHOLD_FLOOR`` of the
   park's distance): a large line-drive credit once made it negative, so a
   40 mph ball that carried 49 feet was a double. The floor never binds on
@@ -61,11 +62,21 @@ def overrides_file(tmp_path, monkeypatch):
 
 
 def test_the_switches_are_generation_owned():
-    assert set(OWNED) <= set(S.GENERATION_OWNED_KEYS)
+    # Integration: ownership goes by the league's generation (the pitching
+    # work's rule, services.physics_tuning_settings._owned_keys). Below
+    # generation 6 the keys mean nothing, as before they were registered;
+    # from generation 6 they are the generation's. Either way a league's
+    # file never holds one.
+    assert S.R6A_POWER_KEYS == OWNED
+    assert not set(OWNED) & set(S.GENERATION_OWNED_KEYS)
+    for generation in (4, 5, 6):
+        assert set(OWNED) <= S._owned_keys(generation), generation
     for key in OWNED:
         assert key in DEFAULT_TUNING
         assert S._sanitize_overrides({key: 1.0}) == {}
         assert S._sanitize_overrides({key: 1.0}, strict=True) == {}
+        for generation in (4, 5, 6):
+            assert S._sanitize_overrides({key: 1.0}, generation=generation) == {}
     # The Release 5 switches are still there.
     assert {"swing_model", "contact_model"} <= set(S.GENERATION_OWNED_KEYS)
 

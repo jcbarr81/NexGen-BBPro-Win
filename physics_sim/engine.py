@@ -574,6 +574,44 @@ def _fatigue_factors(penalty: float) -> tuple[float, float, float]:
     return velocity_factor, command_factor, movement_factor
 
 
+def _fatigue_losses(
+    penalty: float, tuning: TuningConfig
+) -> tuple[float, float, float, float]:
+    """``fatigue_model`` 1 (Release 6a): what a tired pitcher has lost at
+    fatigue ``penalty`` -- points of control, points of movement, points of
+    pitch quality (his stuff) and miles per hour.
+
+    Additive, so a good pitcher and a poor one tire alike; the factors of
+    :func:`_fatigue_factors` took most from the best. Nothing is lost at
+    penalty 0, and the penalty's own cap (1.5) bounds the loss. A loss is
+    never negative (a negative knob does not make a tired pitcher better);
+    the ratings it leaves are floored where they are applied (the PA loop,
+    ``physics.sample_pitch_velocity`` and the pitch-quality composite).
+    """
+
+    penalty = max(0.0, penalty)
+    return (
+        max(0.0, penalty * tuning.get("fatigue_control_points", 3.0)),
+        max(0.0, penalty * tuning.get("fatigue_movement_points", 1.5)),
+        max(0.0, penalty * tuning.get("fatigue_stuff_points", 1.0)),
+        max(0.0, penalty * tuning.get("fatigue_velocity_mph", 1.5)),
+    )
+
+
+# Release 6a (fatigue_model 1): the lowest control or movement a tired
+# pitcher is handed, the bottom of the rating scale. At the generation 6
+# coefficients the most he loses is 4.5 points, so it binds only on a
+# mistuned knob (or a rating already at the bottom).
+FATIGUE_RATING_FLOOR = 1.0
+
+
+def _fatigued_rating(rating: float, loss: float) -> float:
+    """``rating`` less ``loss``, never below ``FATIGUE_RATING_FLOOR`` (and
+    never raised to it: a rating already below the floor is left alone)."""
+
+    return max(rating - loss, min(rating, FATIGUE_RATING_FLOOR))
+
+
 def _pitcher_usage_summary(state: PitcherState) -> Dict[str, float | str]:
     return {
         "player_id": state.pitcher.player_id,
@@ -933,6 +971,61 @@ def _bullpen_exhausted(team_state: TeamPitchingState, tuning: TuningConfig) -> b
     return bool(team_state.bullpen) and all(p.used for p in team_state.bullpen)
 
 
+def _pitcher_stuff_score(
+    pitcher: PitcherRatings, tuning: TuningConfig | None
+) -> float:
+    """How good an arm is, as the manager choosing between pitchers sees it.
+
+    Release 5 (centred_ratings): he reads the ratings as the pitch does,
+    league-relative, so the role bonuses and the freshness weight in
+    :func:`_reliever_score` mean the same in every league.
+
+    ``pitcher_score_model`` 0 is the mean of control, movement and arm, the
+    formula every engine before generation 6 chose by. Model 1 (Release 6a)
+    weighs control, movement, his usage-weighted pitch grade and arm by the
+    generation's ``pitcher_score_weight_*``: once pitch grades are most of
+    pitch quality, a manager who ignores them brings in the wrong man. A
+    pitcher with no repertoire throws the league's average pitch, as in
+    :func:`_pitcher_context`.
+    """
+
+    control = _league_relative(
+        pitcher.control, "pitcher_control_usage_center", tuning
+    )
+    movement = _league_relative(
+        pitcher.movement, "pitcher_movement_usage_center", tuning
+    )
+    arm = _league_relative(pitcher.arm, "pitcher_arm_usage_center", tuning)
+    if tuning is None or tuning.get("pitcher_score_model", 0.0) < 1.0:
+        return (control + movement + arm) / 3.0
+    weight_control = tuning.get("pitcher_score_weight_control", 0.23)
+    weight_movement = tuning.get("pitcher_score_weight_movement", 0.27)
+    weight_grade = tuning.get("pitcher_score_weight_grade", 0.39)
+    weight_arm = tuning.get("pitcher_score_weight_arm", 0.11)
+    total = weight_control + weight_movement + weight_grade + weight_arm
+    if total <= 0.0:
+        return (control + movement + arm) / 3.0
+    # Each grade shifted as the pitch reads it, then their mean weighted by
+    # how often he throws each: pitch selection weighs a pitch by its grade
+    # (physics.choose_pitch_type, max(1, grade) before the count and type
+    # multipliers), so a pitcher with one 80 pitch and three 20s throws the
+    # 80 more than half the time and reads 54, not the plain mean's 35.
+    grades = [
+        _league_relative(float(value), "pitcher_grade_usage_center", tuning)
+        for value in (pitcher.repertoire or {}).values()
+    ]
+    grade = 50.0
+    if grades:
+        usage = [max(1.0, value) for value in grades]
+        grade = sum(u * g for u, g in zip(usage, grades)) / sum(usage)
+    return (
+        weight_control * control
+        + weight_movement * movement
+        + weight_grade * grade
+        + weight_arm * arm
+    ) / total
+
+
 def _reliever_score(
     pitcher_state: PitcherState,
     leverage: str,
@@ -941,14 +1034,7 @@ def _reliever_score(
     tuning: TuningConfig | None = None,
 ) -> float:
     pitcher = pitcher_state.pitcher
-    # Release 5 (centred_ratings): the manager reads an arm's stuff as the
-    # pitch does, league-relative, so the role bonuses and the freshness
-    # weight below mean the same in every league.
-    stuff = (
-        _league_relative(pitcher.control, "pitcher_control_usage_center", tuning)
-        + _league_relative(pitcher.movement, "pitcher_movement_usage_center", tuning)
-        + _league_relative(pitcher.arm, "pitcher_arm_usage_center", tuning)
-    ) / 3.0
+    stuff = _pitcher_stuff_score(pitcher, tuning)
     endurance = pitcher.endurance
     freshness = 1.0 - min(0.7, pitcher_state.pregame_penalty)
     role = _usage_role(pitcher_state)
@@ -7038,16 +7124,36 @@ def simulate_game(
                 _pa_movement = _league_relative(
                     pitcher.movement, "pitcher_movement_usage_center", tuning
                 )
-                _pa_pitcher_ctx["control"] = _pa_control * command_factor
-                _pa_pitcher_ctx["movement"] = _pa_movement * movement_factor
-                if _pa_fresh:
-                    _pa_pitcher_ctx["control"] = (
-                        _pa_control + _pa_fresh
-                    ) * command_factor
-                    _pa_pitcher_ctx["movement"] = (
-                        _pa_movement + _pa_fresh
-                    ) * movement_factor
-                _pa_pitcher_ctx["fatigue_factor"] = velocity_factor
+                if tuning.get("fatigue_model", 0.0) >= 1.0:
+                    # Release 6a: a tired pitcher loses points and miles per
+                    # hour (additive), not a share of his rating; the
+                    # fresh-arm bonus is added first, as before.
+                    (
+                        control_loss,
+                        movement_loss,
+                        stuff_loss,
+                        velocity_loss,
+                    ) = _fatigue_losses(penalty, tuning)
+                    _pa_pitcher_ctx["control"] = _fatigued_rating(
+                        _pa_control + _pa_fresh, control_loss
+                    )
+                    _pa_pitcher_ctx["movement"] = _fatigued_rating(
+                        _pa_movement + _pa_fresh, movement_loss
+                    )
+                    _pa_pitcher_ctx["fatigue_factor"] = 1.0
+                    _pa_pitcher_ctx["velocity_loss"] = velocity_loss
+                    _pa_pitcher_ctx["stuff_loss"] = stuff_loss
+                else:
+                    _pa_pitcher_ctx["control"] = _pa_control * command_factor
+                    _pa_pitcher_ctx["movement"] = _pa_movement * movement_factor
+                    if _pa_fresh:
+                        _pa_pitcher_ctx["control"] = (
+                            _pa_control + _pa_fresh
+                        ) * command_factor
+                        _pa_pitcher_ctx["movement"] = (
+                            _pa_movement + _pa_fresh
+                        ) * movement_factor
+                    _pa_pitcher_ctx["fatigue_factor"] = velocity_factor
                 res: PitchResult = simulate_pitch(
                     batter=_pa_batter_ctx,
                     pitcher=_pa_pitcher_ctx,
