@@ -40,6 +40,7 @@ import { OfferImpactPanel } from "@/components/OfferImpactPanel";
 import { toast } from "@/lib/toast-store";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
+import { ratingTone } from "@/lib/rating-tone";
 import { AppShell } from "@/components/layout/AppShell";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { StarRating } from "@/components/StarRating";
@@ -1085,8 +1086,7 @@ function RatingCell({
   if (value == null || value === "") return <span className="text-subtle">—</span>;
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return <>{String(value)}</>;
-  const tone =
-    n >= 85 ? "text-success" : n >= 70 ? "text-amber-text" : n >= 50 ? "text-ink" : "text-subtle";
+  const tone = ratingTone(n);
   if (!context) {
     return <span className={tone}>{Math.round(n)}</span>;
   }
@@ -1112,14 +1112,7 @@ function OverallCell({
 }) {
   if (display == null) return <span className="text-subtle">—</span>;
   const stars = parseFloat(starsText ?? "");
-  const tone =
-    display >= 85
-      ? "text-success"
-      : display >= 70
-      ? "text-amber-text"
-      : display >= 50
-      ? "text-ink"
-      : "text-subtle";
+  const tone = ratingTone(display);
   return (
     <div className="inline-flex flex-col items-end gap-0.5">
       <span className={cn("font-display font-semibold tabular-nums", tone)}>

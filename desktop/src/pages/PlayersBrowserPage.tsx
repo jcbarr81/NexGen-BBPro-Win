@@ -25,6 +25,7 @@ import {
 
 import { api, type Team } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { ratingTone } from "@/lib/rating-tone";
 import { AppShell } from "@/components/layout/AppShell";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { TeamLogo } from "@/components/TeamLogo";
@@ -440,14 +441,9 @@ function OverallCell({
 }) {
   const value = display ?? raw;
   if (value == null) return <span className="text-subtle">—</span>;
-  const tone =
-    value >= 90
-      ? "text-success"
-      : value >= 75
-        ? "text-amber-text"
-        : value >= 60
-          ? "text-ink"
-          : "text-subtle";
+  // The same bands as every other rating and overall (it was 90 / 75 /
+  // 60 here only, so one player read in two colours on two pages).
+  const tone = ratingTone(value);
   return (
     <span title={stars ? `${stars} stars` : undefined} className={tone}>
       {Math.round(value)}
@@ -459,8 +455,7 @@ function RatingCell({ value }: { value: number | string | null | undefined }) {
   if (value == null || value === "") return <span className="text-subtle">—</span>;
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return <>{String(value)}</>;
-  const tone =
-    n >= 85 ? "text-success" : n >= 70 ? "text-amber-text" : n >= 50 ? "text-ink" : "text-subtle";
+  const tone = ratingTone(n);
   return <span className={tone}>{Math.round(n)}</span>;
 }
 

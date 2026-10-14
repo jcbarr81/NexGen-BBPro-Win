@@ -1,7 +1,7 @@
 /**
  * Five-star display with half-star support, ported from PyQt's
- * ``ui/star_rating.py``. The server-side view-model already computes a
- * 1-5 "star" value from the 35-99 display rating; we just render it.
+ * ``ui/star_rating.py``. The server already computes a 1-5 "star" value
+ * from the shown overall (``utils/star_rating.py``); we just render it.
  */
 
 import { Star, StarHalf } from "lucide-react";

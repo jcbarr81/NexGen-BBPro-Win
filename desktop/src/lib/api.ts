@@ -585,9 +585,11 @@ export interface RosterPlayer {
   dl_tier: string | null;
   ratings: Record<string, number | string | null>;
   ratings_context?: Record<string, RatingContextEntry>;
-  /** Raw average across component ratings (0-99). */
+  /** The internal overall every CPU decision reads (engine scale). */
   overall_raw?: number | null;
-  /** Overall scaled through the 35-99 display transform. */
+  /** The overall shown: percentile-scaled 35-99 on a rating scale 1
+   *  league, stretched onto the stored 1-99 scale on a scale 2 league
+   *  (average regular about 50, the best player about 88-92). */
   overall_display?: number | null;
   /** Pre-formatted star text (e.g. ``"4"`` or ``"4.5"``). */
   overall_stars_text?: string | null;

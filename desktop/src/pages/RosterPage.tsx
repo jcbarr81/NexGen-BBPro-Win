@@ -49,6 +49,7 @@ import { toast } from "@/lib/toast-store";
 import { useActiveTeamColor } from "@/lib/team-colors";
 import { useTeams } from "@/lib/use-teams";
 import { cn } from "@/lib/cn";
+import { ratingTone } from "@/lib/rating-tone";
 import { AppShell } from "@/components/layout/AppShell";
 import { QuickLinks } from "@/components/QuickLinks";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
@@ -1329,13 +1330,7 @@ function OverallCell({ player }: { player: RosterPlayer }) {
       <span
         className={cn(
           "font-display font-semibold tabular-nums",
-          display >= 85
-            ? "text-success"
-            : display >= 70
-            ? "text-amber-text"
-            : display >= 50
-            ? "text-ink"
-            : "text-subtle",
+          ratingTone(display),
         )}
       >
         {Math.round(display)}
@@ -1357,8 +1352,7 @@ function RatingCell({
   if (value == null || value === "") return <span className="text-subtle">—</span>;
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return <>{String(value)}</>;
-  const tone =
-    n >= 85 ? "text-success" : n >= 70 ? "text-amber-text" : n >= 50 ? "text-ink" : "text-subtle";
+  const tone = ratingTone(n);
   if (!context) {
     return <span className={tone}>{Math.round(n)}</span>;
   }
