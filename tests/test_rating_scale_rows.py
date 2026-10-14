@@ -220,7 +220,10 @@ def test_fallbacks_inside_the_scale_are_identical_everywhere(tmp_path, arm):
     assert clips == []
     one, two = players["s1"], players["s2"]
     assert rating_scale.engine_rating(two["H"], "eye") == 55 == one["H"].eye
-    assert rating_scale.engine_potential(two["H"], "eye") == 66
+    # The gap over the filled Eye is kept (11 points, all of it under the
+    # part development never closes, so the consumer view is the rating).
+    assert two["H"].potential["eye"] - two["H"].eye == 11
+    assert rating_scale.engine_potential(two["H"], "eye") == 55
     assert rating_scale.engine_potential(one["H"], "eye") == 66
     assert rating_scale.engine_rating(two["P"], "arm") == 70 == one["P"].arm
     # The engine reads the stretched file as the loader does ...

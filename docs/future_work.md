@@ -2235,3 +2235,62 @@ Measured on 8 / 4 / 2 seasons (calibration / league / flat fixtures):
   the fielder centres are under `fielder_centred_ratings`. The live path
   supplies both for a generation 6 season
   (`tests/test_r6a_fielding_centers.py`, live games on the full profile).
+
+## Player development on rating scale 2: follow-ups (2026-10-14)
+
+Branch `r8-develop`: `playbalance/development.py` (the model),
+`services/offseason_development.py` (the rollover step),
+`scripts/development_population_sim.py` (the 20-season population gate).
+Scale 1 is untouched (aging stays paused, camp as in 7.51.2).
+
+- **Draft classes are dated by the real calendar, not the league's.**
+  `player_generator.generate_birthdate` uses `datetime.today()`, and
+  `draft_pool.generate_draft_pool` keeps that birthdate over its own
+  `_draft_birthdate(year)`. A league whose year runs ahead of the real one
+  (several seasons a real year) drafts players older than 17-21: by league
+  year 2035 in real 2027 a "19-year-old" pick is 27, has no growth years
+  left under the development model, and retires within a few seasons. The
+  population sim re-dates picks to the league year; the product does not.
+  Fix before scale 2 ships (date from the draft year or the sim date).
+- **Every league converges to what the draft generator produces.** The
+  regulars' Contact starts at 62.9 in stats-test and 56.8 in the league
+  fixture; both end near 60, so stats-test drifts down about 4 and the
+  fixture up about 4-5 over 10-15 seasons. Power, Eye, control and movement
+  hold within about 3 in both. A league whose ratings were made by an older
+  generator moves toward today's; the model cannot hold two leagues that
+  start 6 points apart.
+- **alpha-test needs its re-spread (decision 15) before development.** On
+  the stretch alone its bunched staff (movement sd 0.9) drifts to the
+  generator's level: movement +16, control +10, Eye +9 over 15 seasons.
+- **Eye spreads out among regulars** (sd 11.7 to about 18 by year 15 in
+  every league). A draft class's Eye is marked down by 0.69-0.97 of a donor
+  rating whose own spread is about 3 engine points, and a stored Eye point
+  above average is a fifth of an engine point; a growth model that cannot
+  tell markdown from talent in the gap cannot undo that. Generator
+  follow-up: mark narrow ratings (Eye) down by less, or with less jitter.
+  A prospect's Eye can also jump 20+ stored points in one offseason.
+- **Order at the switch-on rollover.** The development step acts on
+  scale 2 rows only. If the scale conversion runs after it in the same
+  rollover, that league gets no development that offseason; run the
+  conversion first.
+- **A growing player's stored potential rises.** The scale 2 potential is
+  stored current plus the gap in ENGINE points, so as Contact grows by
+  three stored points per engine point the stored potential climbs with
+  it. Hidden from owners (decision 14); any future display of potential
+  must show `engine_potential` mapped, not the column.
+- **Two views of a scale 2 potential.** `engine_row` (the engine, which
+  plays no potential) keeps the whole gap; `engine_potential` (CPU
+  consumers) leaves out `POTENTIAL_GAP_DISCOUNT` (20.5 engine points).
+- **Speed barely declines** (0.1 + 0.06 a year from 28): tuned for the
+  regulars' speed to hold. Revisit with the generator's speed tiers (the
+  league fixture's archetype tiers are not in draft classes, so its speed
+  falls about 6 regardless).
+- **The training budget's description** ("Boosts spring-training rating
+  gains at preseason camp", `desktop/src/pages/FinancePage.tsx`) is wrong
+  for a scale 2 league: there the training and development budgets speed
+  offseason growth, and development also slows decline. Same for the
+  Training page, which should say the focus shapes offseason development.
+- **Population sim simplifications.** Active rosters are 13 + 13 by
+  overall with no position balance; free agents never retire (as in a
+  league) and are not signed past 35; injuries, trades and playing time are
+  ignored; the draft order is random.

@@ -9,11 +9,13 @@ league stored on scale 1. These tests compare a league with its stretched
 twin (``tests/rating_scale_support.py``), consumer by consumer.
 
 Potentials: scale 2 never stores a potential below the current rating and
-cuts a gap at 99 (``stretch_row``). Consumers that read potentials are
-therefore compared on the FLOORED league (potentials raised to current,
-still scale 1), and players whose gap was cut are checked separately: the
-scale itself changes nothing, the potential rule is a deliberate change of
-data.
+cuts a gap at 99 (``stretch_row``), and its consumer view leaves out the part
+of a gap development never closes (``engine_potential``,
+``POTENTIAL_GAP_DISCOUNT``). That is a deliberate change of what a
+potential is worth, not of the scale. So consumers that read potentials are
+compared on the NOGAP league (every potential set to the current rating,
+still scale 1), which isolates the scale; what the new potential view does
+is tested on its own.
 """
 
 from __future__ import annotations
@@ -40,8 +42,10 @@ def leagues(tmp_path_factory):
     root = tmp_path_factory.mktemp("consumers")
     fixture = support.FIXTURES["calibration_league"]
     out = {}
-    for name, floored in (("plain", False), ("floored", True)):
+    for name, floored in (("plain", False), ("floored", True), ("nogap", True)):
         league = support.copy_league(fixture, root / name, floored=floored)
+        if name == "nogap":
+            _flatten_potentials(league / "players.csv")
         clips = support.write_stretched_twin(league, root / f"{name}_twin")
         assert [c for c in clips if c.kind == "rating"] == []
         out[name] = league
@@ -49,9 +53,22 @@ def leagues(tmp_path_factory):
         out[f"{name}_cut"] = {c.player_id for c in clips if c.kind == "potential"}
     out["players"] = {
         key: support.load_player_objects(out[key])
-        for key in ("plain", "plain_twin", "floored", "floored_twin")
+        for key in (
+            "plain", "plain_twin", "floored", "floored_twin", "nogap", "nogap_twin"
+        )
     }
     return out
+
+
+def _flatten_potentials(path) -> None:
+    """Every potential set to its current rating: no upside anywhere."""
+
+    fields, rows = support.read_player_rows(path)
+    for row in rows:
+        for key in fields:
+            if key.startswith("pot_") and key[4:] in row:
+                row[key] = row[key[4:]]
+    support.write_player_rows(path, fields, rows)
 
 
 def _pairs(leagues, name="plain"):
@@ -223,35 +240,45 @@ def test_trade_value_pieces_are_unchanged(leagues):
             lambda p: evaluator._fit_value(p, roster_fit=fit, strategy_profile=profile),
             distinct=3,
         )
-    # Current value and timeline read potentials: the floored league, and
-    # only players whose potential gap was not cut at 99.
-    cut = leagues["floored_cut"]
-    assert 0 < len(cut) < 100
-    _same(leagues, evaluator._player_current_value, "floored", skip=cut)
+    # Current value and timeline read potentials: the nogap league isolates
+    # the scale (the new potential view is tested below).
+    assert leagues["nogap_cut"] == set()
+    _same(leagues, evaluator._player_current_value, "nogap")
     for window in ("contend", "rebuild", "balanced"):
         _same(
             leagues,
             lambda p: evaluator._timeline_value(
                 p, window=window, strategy_profile="balanced"
             ),
-            "floored",
-            skip=cut,
+            "nogap",
         )
 
 
-def test_a_cut_potential_gap_can_only_lower_the_upside(leagues):
+def test_scale_2_upside_is_what_development_can_deliver(leagues):
+    """On scale 2 a CPU club sees the part of a gap development closes
+    (``engine_potential``): a pitcher's upside is never larger than on scale
+    1, and a hitter's (which scale 1 never reaches: ``pot_*`` reads 0) is
+    seen."""
+
     from services import cpu_trade_evaluator as evaluator
 
+    def upside(p):
+        return evaluator._overall_score(p, potential=True) - evaluator._overall_score(
+            p, potential=False
+        )
+
     players, twins = leagues["players"]["floored"], leagues["players"]["floored_twin"]
-    lower = 0
-    for pid in sorted(leagues["floored_cut"]):
-        a = evaluator._player_current_value(players[pid])
-        b = evaluator._player_current_value(twins[pid])
-        assert b <= a + 1e-9, pid
-        lower += b < a
-    # Hitters' potentials do not reach the evaluator today (it reads the
-    # unset ``pot_*`` attribute first), so only pitchers can move.
-    assert lower <= sum(1 for pid in leagues["floored_cut"] if _is_pitcher(players[pid]))
+    pitchers_lower = hitters_seen = 0
+    for pid, player in players.items():
+        a, b = upside(player), upside(twins[pid])
+        assert b >= -1e-9
+        if _is_pitcher(player):
+            assert b <= a + 1e-9, pid
+            pitchers_lower += b < a
+        else:
+            assert a == 0
+            hitters_seen += b > 0
+    assert pitchers_lower > 100 and hitters_seen > 20
 
 
 def _roster(league, team_id) -> Roster:
@@ -272,9 +299,9 @@ def test_cpu_trade_decisions_are_identical(leagues, monkeypatch):
     from services import cpu_trade_evaluator as evaluator
 
     monkeypatch.setattr(evaluator, "is_cpu_owned_team", lambda *a, **k: True)
-    teams = _team_ids(leagues["floored"])[:6]
-    rosters = {team: _roster(leagues["floored"], team) for team in teams}
-    cut = leagues["floored_cut"]
+    teams = _team_ids(leagues["nogap"])[:6]
+    rosters = {team: _roster(leagues["nogap"], team) for team in teams}
+    cut = leagues["nogap_cut"]
 
     def offers():
         made = 0
@@ -308,8 +335,8 @@ def test_cpu_trade_decisions_are_identical(leagues, monkeypatch):
     count = 0
     for trade in offers():
         for profile in ("balanced", "win_now", "development_focus"):
-            a = decide("floored", trade, profile)
-            b = decide("floored_twin", trade, profile)
+            a = decide("nogap", trade, profile)
+            b = decide("nogap_twin", trade, profile)
             assert a == b, (trade.trade_id, profile)
             actions.add(a["action"])
             count += 1
@@ -535,11 +562,32 @@ def test_the_draft_board_ranks_the_same(pools):
         a = [score_prospect(p, needs, strategy_profile=profile) for p in plain]
         b = [score_prospect(p, needs, strategy_profile=profile) for p in full]
         if profile == "development_focus":
-            # The one profile that reads potentials: equal wherever the gap
-            # was not cut at 99.
+            # The one profile that reads potentials: equal, wherever the gap
+            # was not cut at 99, to scale 1 with each potential worth what
+            # development closes of it (engine_potential).
+            a = [
+                score_prospect(_closable(p), needs, strategy_profile=profile)
+                for p in plain
+            ]
             keep = [i for i, p in enumerate(plain) if p["player_id"] not in cut]
             assert len(keep) > 150
             assert [a[i] for i in keep] == [b[i] for i in keep]
         else:
             assert a == b, profile
         assert len(set(a)) > 50
+
+
+def _closable(prospect):
+    """A scale 1 prospect with every potential cut to what the development
+    model closes of its gap (the scale 2 consumer view)."""
+
+    from utils.rating_scale import POTENTIAL_GAP_DISCOUNT
+
+    out = dict(prospect)
+    for key, value in prospect.items():
+        if not key.startswith("pot_") or key[4:] not in prospect:
+            continue
+        current = prospect[key[4:]]
+        if isinstance(value, (int, float)) and value > 0 and current:
+            out[key] = current + max(0, value - current - POTENTIAL_GAP_DISCOUNT)
+    return out

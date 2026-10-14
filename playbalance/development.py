@@ -64,6 +64,7 @@ from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Tuple
 
 from utils.rating_scale import (
     FULL_RATING_SCALE,
+    POTENTIAL_GAP_DISCOUNT,
     RATING_MAX,
     RATING_MIN,
     player_is_pitcher,
@@ -123,7 +124,8 @@ class DevelopmentParams:
 
     # Engine points of every gap that are never closed: the generator's
     # optimism (it rolls a young player's potential 10-30 over his talent).
-    gap_discount: float = 20.5
+    # The same number utils.rating_scale.engine_potential leaves out.
+    gap_discount: float = POTENTIAL_GAP_DISCOUNT
     # The share of the remaining closable gap closed in a year:
     # ``share_base`` at ``share_age``, rising ``share_step`` a year, never
     # above ``share_max``; scaled by the rating's ``growth``. A draft pick
@@ -559,11 +561,18 @@ def _develop(
         cur = current[key]
         scale = scales[key]
         if key in growth:
-            new = _clamp(cur + _round_stochastic(growth[key], rng), RATING_MIN, RATING_MAX)
+            # Never rounded past what the potential allows.
+            top = math.floor(cur + room.get(key, 0.0) + 1e-9)
+            new = _clamp(
+                min(cur + _round_stochastic(growth[key], rng), top), RATING_MIN, RATING_MAX
+            )
             # The gap is in engine points: what he closed comes off it.
             closed = max(0.0, scale.engine(new) - scale.engine(cur))
+            # Stored whole: rounded at random, so the ceiling neither creeps
+            # up nor down over the years (a fixed rounding of a gap that
+            # loses a third of a point a year moves it several points).
             new_gap = max(0.0, gap[key] - closed)
-            new_pot = _clamp(new + math.floor(new_gap + 0.5), new, RATING_MAX)
+            new_pot = _clamp(new + _round_stochastic(new_gap, rng), new, RATING_MAX)
             if growth[key] > 0:
                 received[track_of(key, pitcher)] = (
                     received.get(track_of(key, pitcher), 0.0) + growth[key]

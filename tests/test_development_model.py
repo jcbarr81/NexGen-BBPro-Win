@@ -111,7 +111,9 @@ def test_a_prospect_grows_toward_his_potential_and_never_past_it():
     values = [step["ch"] for step in path]
     assert values[-1] > 30 + 10  # he grew a lot
     assert all(b >= a for a, b in zip(values, values[1:]))  # never down while young
-    assert engine_rating(player, "ch") <= engine_ceiling + 1e-9
+    # The ceiling is kept in whole stored points, rounded at random: it
+    # wanders by a fraction of a point, never grows away.
+    assert engine_rating(player, "ch") <= engine_ceiling + 1.5
     # Potential is never below the rating.
     for key in HITTER_KEYS:
         assert player.potential[key] >= getattr(player, key)
@@ -237,7 +239,7 @@ def test_budgets_help_growth_and_soften_decline_but_cannot_make_99s():
     for season, age in enumerate(range(18, 30), start=2030):
         dev.develop_player(rich, age=age, season=season, development=5.0, intensity=5.0)
     for key in HITTER_KEYS:
-        assert engine_rating(rich, key) <= ceiling[key] + 1e-9
+        assert engine_rating(rich, key) <= ceiling[key] + 1.5
         assert getattr(rich, key) < 99
 
 
@@ -271,3 +273,18 @@ def test_redistribution_keeps_the_total_and_respects_caps():
     assert out["a"] == pytest.approx(2.5)
     assert out["a"] + out["b"] == pytest.approx(4.0)
     assert dev._redistribute({"a": 0.0}, {"a": 2.0}) == {"a": 0.0}
+
+
+def test_the_ceiling_does_not_creep():
+    """The gap is in engine points and stored whole: rounding it must not
+    move a growing player's ceiling on average (a fixed rounding moved it
+    about 3 engine points up over a career). Growth is never rounded past
+    the ceiling, which costs a little: under one engine point down."""
+
+    drift = []
+    for i in range(300):
+        player = _hitter(f"C{i}", ch=30, ph=55, gap=30)
+        start = {k: engine_potential(player, k) for k in ("ch", "ph")}
+        _career(player, range(19, 29))
+        drift += [engine_potential(player, k) - start[k] for k in start]
+    assert -1.0 < statistics.fmean(drift) < 0.3

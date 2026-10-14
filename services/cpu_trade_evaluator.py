@@ -15,7 +15,12 @@ from services.trade_settings import current_league_year
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.player_overall import player_overall_score
-from utils.rating_scale import engine_potential_value, engine_rating
+from utils.rating_scale import (
+    LEGACY_RATING_SCALE,
+    engine_potential_value,
+    engine_rating,
+    rating_scale_of,
+)
 from utils.roster_loader import load_roster
 from utils.roster_rules import MAX_ACTIVE_PITCHERS, counts_as_pitcher
 from utils.team_loader import load_teams
@@ -977,7 +982,11 @@ def _rating_value(player: object, key: str, *, potential: bool) -> float | None:
             engine_potential_value(player, key, getattr(player, pot_key, None)),
             fallback=None,
         )
-        if val is not None:
+        # A hitter object declares ``pot_<key>`` with a default of 0 and keeps
+        # his potentials in ``potential``, so on scale 1 his upside never
+        # reaches this evaluator (docs/future_work.md, kept to leave scale 1
+        # decisions as they are). A scale 2 player's 0 reads as unset.
+        if val is not None and (val > 0 or rating_scale_of(player) == LEGACY_RATING_SCALE):
             return max(0.0, min(99.0, val))
         potential_blob = getattr(player, "potential", {})
         if isinstance(potential_blob, Mapping):
