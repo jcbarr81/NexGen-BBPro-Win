@@ -406,8 +406,11 @@ _CONTACT_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
 #
 # SWITCH-ON TEXT, as for the Release 5 sliders above: nothing shows it
 # before a league runs generation 6. The size quoted is a Monte Carlo of
-# the generation 6 profile (average hitter and pitcher, 200,000 plate
-# appearances a setting); re-measure it at the joint retune.
+# the generation 6 pitching profile (average hitter and pitcher, 200,000
+# plate appearances a setting): 0.99 / 1.00 / 1.01 / 1.02 / 1.05 gave a
+# fastball of 92.1 / 93.0 / 93.9 / 94.9 / 97.7 mph, strikeouts of 22.2 /
+# 23.0 / 23.7 / 24.4 / 26.7% and wOBA .303 / .302 / .299 / .297 / .291.
+# Re-measure it at the joint retune.
 _VELOCITY_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
     "velocity_scale": TuningSliderSpec(
         key="velocity_scale",
@@ -415,7 +418,7 @@ _VELOCITY_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
         description=(
             "Pitch velocity. 1.00 = normal. Higher now HELPS PITCHERS: "
             "every pitch is harder to hit, so strikeouts rise and scoring "
-            "falls (about 1 mph and 6% more strikeouts per +0.01). Lower "
+            "falls (about 1 mph and 3% more strikeouts per +0.01). Lower "
             "helps hitters. This is the reverse of earlier versions, where "
             "more velocity meant harder-hit balls and more offence; a "
             "setting saved before the change now pushes the other way."

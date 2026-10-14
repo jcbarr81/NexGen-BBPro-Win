@@ -706,9 +706,12 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # so a harder thrower's pitches come off the bat only slightly harder
     # while contact_logit_velo makes them harder to hit at all. Model 0 is
     # ev_pitch_weight * velocity. The dev weight and the offset are read
-    # only under model 1 and are sized for ev_pitch_weight 0.25 (the offset
-    # holds the exit velocity of an average pitcher against an average
-    # hitter); model 1 on today's ev_pitch_weight 0.48 would add 20 mph.
+    # only under model 1 and are sized for ev_pitch_weight 0.25: 20.0 holds
+    # the exit velocity of an average pitcher against an average hitter,
+    # and the profile's 19.45 holds the LEAGUE's mean exit velocity at
+    # generation 5's (the old one-sided difficulty terms held good
+    # pitchers' contact down). Model 1 on today's ev_pitch_weight 0.48
+    # would add 20 mph.
     # difficulty_velocity_scale multiplies velocity's share of the timing
     # and barrel difficulty, max(0, (velocity - 90) / 20); 1.0 = as it was.
     "ev_velocity_model": 0.0,
@@ -756,12 +759,14 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # mean below over control, movement, his mean pitch grade and arm, each
     # as the pitch reads it (league-relative under centred_ratings). The
     # weights are each rating's measured worth in FIP per point on the
-    # generation 6 profile, so they move with A-D and belong in the same
-    # profile; they are read only under model 1.
+    # generation 6 pitching profile (per +10, calibration / league fixture,
+    # 8 seasons each: control -.34 / -.51, movement -.36 / -.47, grade
+    # -.58 / -.62, arm -.15 / -.21), so they move with A-D and belong in
+    # the same profile; they are read only under model 1.
     "pitcher_score_model": 0.0,
-    "pitcher_score_weight_control": 0.24,
-    "pitcher_score_weight_movement": 0.25,
-    "pitcher_score_weight_grade": 0.39,
+    "pitcher_score_weight_control": 0.27,
+    "pitcher_score_weight_movement": 0.26,
+    "pitcher_score_weight_grade": 0.35,
     "pitcher_score_weight_arm": 0.12,
     "platoon_contact_scale": 0.25,
     "platoon_power_scale": 0.2,

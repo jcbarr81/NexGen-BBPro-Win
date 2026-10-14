@@ -957,9 +957,9 @@ def _pitcher_stuff_score(
     arm = _league_relative(pitcher.arm, "pitcher_arm_usage_center", tuning)
     if tuning is None or tuning.get("pitcher_score_model", 0.0) < 1.0:
         return (control + movement + arm) / 3.0
-    weight_control = tuning.get("pitcher_score_weight_control", 0.24)
-    weight_movement = tuning.get("pitcher_score_weight_movement", 0.25)
-    weight_grade = tuning.get("pitcher_score_weight_grade", 0.39)
+    weight_control = tuning.get("pitcher_score_weight_control", 0.27)
+    weight_movement = tuning.get("pitcher_score_weight_movement", 0.26)
+    weight_grade = tuning.get("pitcher_score_weight_grade", 0.35)
     weight_arm = tuning.get("pitcher_score_weight_arm", 0.12)
     total = weight_control + weight_movement + weight_grade + weight_arm
     if total <= 0.0:
