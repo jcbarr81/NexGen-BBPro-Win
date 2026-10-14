@@ -35,6 +35,7 @@ from tests.test_r5_discipline import PINNED_DIGESTS, _digest, _play
 
 REPO = Path(__file__).resolve().parents[1]
 PROFILE = REPO / "scripts" / "kpi_profiles" / "r6_fielding.json"
+RETUNE = REPO / "scripts" / "kpi_profiles" / "r6_retune.json"
 
 # Every switch, at the value that is "off".
 SWITCHES = {
@@ -190,13 +191,23 @@ def test_generation_6_holds_the_fielding_values():
     """Release 6a integration: the generation 6 profile is generation 5's
     with the three areas' values over it, so it holds every fielding value
     (before, it was a copy of generation 5 and played generation 5's
-    games). The chance log stays the harness's."""
+    games). The chance log stays the harness's. The joint retune
+    (``r6_retune.json``) re-fitted the range slopes to its BABIP level, so
+    those are the retune's values."""
     import json
 
     profile = engine_profile(6, development=True)
     fielding = json.loads(PROFILE.read_text(encoding="utf-8"))
+    retune = json.loads(RETUNE.read_text(encoding="utf-8"))
     for key, value in fielding.items():
-        assert profile[key] == value, key
+        assert profile[key] == retune.get(key, value), key
+    # The slopes moved with babip_scale, keeping their product (the outs a
+    # point is worth) within rounding.
+    for pos in ("1b", "2b", "3b", "ss", "lf", "cf", "rf"):
+        key = f"range_logit_slope_{pos}"
+        assert profile[key] * profile["babip_scale"] == pytest.approx(
+            fielding[key] * 0.92, rel=0.001
+        ), key
     assert "fielding_chance_log" not in profile
     key = ("calibration", "CAL01", "CAL02", 1)
     base = REPO / "data" / key[0]

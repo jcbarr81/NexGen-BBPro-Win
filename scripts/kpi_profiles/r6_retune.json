@@ -1,0 +1,10 @@
+{
+  "babip_scale": 0.902,
+  "range_logit_slope_1b": 0.00649,
+  "range_logit_slope_2b": 0.00541,
+  "range_logit_slope_3b": 0.0064,
+  "range_logit_slope_ss": 0.00467,
+  "range_logit_slope_lf": 0.00787,
+  "range_logit_slope_cf": 0.0072,
+  "range_logit_slope_rf": 0.00811
+}

@@ -6,7 +6,10 @@ generation 5's and can be run with ``--engine 6``;
 Release 6a integration it is generation 5's values with the three engine
 areas' values laid over them (``scripts/kpi_profiles/r6_pitching.json``,
 ``r6_power.json``, ``r6_fielding.json``, kept for reference; no key is set
-by two of them), and it is gated as generation 5 plus the areas' gates.
+by two of them), then the joint retune's values over those
+(``scripts/kpi_profiles/r6_retune.json``: the BABIP level, and the range
+slopes re-fitted to it so a fielding point is worth the outs it was), and
+it is gated as generation 5 plus the areas' gates.
 No league season may be given it yet: the league side goes on reading
 ``known_engine_generations()``, which does not hold it, so a new season
 still starts on generation 5 whatever the operations switch says.
@@ -40,12 +43,16 @@ AREA_PROFILES = tuple(
     REPO / "scripts" / "kpi_profiles" / f"r6_{area}.json"
     for area in ("pitching", "power", "fielding")
 )
+# The joint retune of the three areas together: it may set a key generation
+# 5 or an area already set (in place), never a new one.
+RETUNE_PROFILE = REPO / "scripts" / "kpi_profiles" / "r6_retune.json"
 
 
 def _generation_5_and_the_areas() -> dict:
-    """Generation 5's profile with each area's file laid over it."""
+    """Generation 5's profile with each area's file, then the joint
+    retune's, laid over it."""
     expected = json.loads(_text(REGISTRY_5))
-    for path in AREA_PROFILES:
+    for path in AREA_PROFILES + (RETUNE_PROFILE,):
         expected.update(json.loads(_text(path)))
     return expected
 
@@ -96,10 +103,15 @@ def test_generation_6_is_generation_5_with_the_three_areas():
     # registered key: TuningConfig.from_overrides drops any other).
     assert generations.engine_profile(6, development=True) == payload
     tuning = load_tuning(payload)
-    for area in areas:
+    retune = json.loads(_text(RETUNE_PROFILE))
+    for area in areas + [retune]:
         for key, value in area.items():
+            if key in retune and area is not retune:
+                continue
             if not isinstance(value, dict):
                 assert tuning.get(key) == pytest.approx(float(value)), key
+    # The retune only re-values keys generation 5 or an area set.
+    assert set(retune) <= set(profile_5).union(*areas)
     # Generation 5 itself is not touched by it.
     assert generations.engine_profile(5) == profile_5
     assert generations.engine_defaults(6, development=True) != (
@@ -127,9 +139,9 @@ def test_engine_6_equals_the_r6_overrides_file_and_the_areas_over_engine_5():
     assert list(by_engine) == list(by_file)
     assert load_tuning(by_engine).values == load_tuning(by_file).values
     # What each area ran during its build (--engine 6 over a copy of
-    # generation 5, plus its file), all three at once.
+    # generation 5, plus its file), all three at once, then the retune.
     by_areas = kpis.resolve_run_overrides(engine=5)
-    for path in AREA_PROFILES:
+    for path in AREA_PROFILES + (RETUNE_PROFILE,):
         by_areas = {
             **by_areas, **kpis.load_tuning_overrides_file(path, base=by_areas)
         }

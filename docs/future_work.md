@@ -2235,3 +2235,43 @@ Measured on 8 / 4 / 2 seasons (calibration / league / flat fixtures):
   the fielder centres are under `fielder_centred_ratings`. The live path
   supplies both for a generation 6 season
   (`tests/test_r6a_fielding_centers.py`, live games on the full profile).
+
+### Joint retune of generation 6 (branch `r8-retune`, 2026-10-14)
+
+`babip_scale` .92 -> .902, and the seven `range_logit_slope_<pos>` scaled by
+.92 / .902 so a fielding point is worth the outs it was (the slope fit
+divides by `babip_scale`). Recorded in `scripts/kpi_profiles/r6_retune.json`.
+Runs 4.38 / 4.63 / 4.42 (calibration 8 / league 4 / flat 2 seasons; were
+4.50 / 4.77 / 4.51), doubles 1.57 / 1.70 / 1.66. Open:
+
+- **The calibration strict set is a lottery at about 5-6 clean seasons in
+  8, whatever the run level.** Besides the full strikeout grid (still
+  .027 on the composite grid; the retune does not touch it), the
+  rating-slope gates `bb_pct_per10_control` (mean -1.49 against -1.35 +/-
+  .25), `pitcher_fip_per10_arm` (mean -.16, edge -.05) and
+  `pitcher_hitter_hr_true_sd_ratio` each miss on roughly one season in ten,
+  and the retune does not move their means. Gate them pooled over seeds (as
+  the thirty-homer count is), or re-centre `bb_pct_per10_control` on what
+  the command model gives.
+- **The ISO gate contradicts its neighbours.** The benchmark file says AVG
+  .245 and SLG .392 (ISO .147) and ISO .165 +/- .015 (floor .150). Generation
+  6 sits at ISO .152 (season minimum .1496), so one calibration season in
+  eight or so misses it. Restate ISO from the same years as SLG and AVG.
+- **Calibration's BABIP floor (.276) and ISO floor bound the run level
+  from below; the league fixture's runs bound it from above.** The league
+  fixture scores about .25 a game more than calibration at the same BABIP
+  (its speed tier: triples .20, steals .82, doubles +.13 a game, from the
+  raw-speed terms `double_speed_scale`, `triple_speed_scale`, the tag-up
+  race). A home-run lever cannot help: `hr_scale` .9213 put calibration
+  ISO at .1536 but the league fixture at 4.68 (seasons 4.62-4.71).
+  The ball-flight step (BABIP .291) needs the run level from somewhere else.
+- **League fixture SF/PA still .0078 (fails the running set on 2 of 4).**
+  Not the run level: a hit lost to `babip_scale` becomes a fly out, so the
+  tag-up chances stay. Generation 6 has 5-7% more runner-on-third fly outs
+  than generation 5 (more runners: errors at MLB volume, the fielding
+  centring) and scores a little more often on them (fly outs now go to
+  centre field, .42 of outfield putouts against .34, whose arms are weaker
+  than right field's; slightly longer carry under `hr_scale` .9195, fewer
+  short pop-ups). The tag-up race is calibrated to drag-free carry and is
+  due its refit with the ball-flight step; tightening `tag_up_send_margin`
+  now would push calibration's score rate (.74) below MLB's 72-78%.
