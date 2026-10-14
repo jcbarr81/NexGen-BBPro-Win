@@ -328,7 +328,13 @@ def test_the_records_are_beside_the_game_not_in_it(played):
     hashes and what the live paths ship: the records are in neither."""
     from physics_sim.engine import GameResult
 
-    assert set(played.play_records) == {"starting_positions", "fld_pos"}
+    # Release 6a (fielding) added the errors charged and, under
+    # fielding_chance_log, the chance rows (None here: the log is off).
+    assert set(played.play_records) == {
+        "starting_positions", "fld_pos", "errors", "bip_chances",
+        "error_chances", "babip_scale",
+    }
+    assert played.play_records["bip_chances"] is None
     assert "starting_positions" not in played.metadata
     assert "play_records" not in played.metadata
     for entry in played.pitch_log:

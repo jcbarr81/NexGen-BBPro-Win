@@ -139,7 +139,10 @@ def _one_game(log, players=None, games_per_team=162, **game):
 def test_every_key_is_reported_and_none_is_a_gate():
     report = _report(_acc())
     metrics = report["metrics"]
-    assert len(set(kx.R6_METRIC_KEYS)) == len(kx.R6_METRIC_KEYS) == 92
+    # The tooling step's 92, and the rows Release 6a (fielding) reads from
+    # the engine's fielding records (tests/test_r6a_fielding_kpis.py).
+    assert len(kx.R6_FIELDING_LOG_KEYS) == 26
+    assert len(set(kx.R6_METRIC_KEYS)) == len(kx.R6_METRIC_KEYS) == 92 + 26
     for key in kx.R6_METRIC_KEYS:
         assert key in metrics and metrics[key] is None, key
     gated = (

@@ -110,7 +110,7 @@ def auto_fill_lineup_for_team(
         """One independent, handedness-aware coverage-first pass."""
         score = lambda pid: hitter_score(pid, vs_hand=hand)
         lineup, counters = build_lineup(
-            act_ids, players, score=score, depth_chart=depth_chart
+            act_ids, players, score=score, depth_chart=depth_chart, tuning=tuning
         )
 
         if len(lineup) < 9:
@@ -313,8 +313,15 @@ def build_lineup(
     *,
     score: Callable[[str], float],
     depth_chart: Mapping[str, object] | None = None,
+    tuning: object | None = None,
 ) -> tuple[list[tuple[str, str]], dict[str, int]]:
     """Choose nine ``(player_id, position)`` pairs from ``pool_ids``. Pure.
+
+    ``tuning`` is the league's engine tuning, read only by the fielding fit
+    of step 3d: on ``position_fit_model`` 1 (Release 6a) a stand-in is
+    ranked with the out-of-position table the engine will field him under
+    (``utils.position_fit.fielding_fit``). ``None``, or the model off, is
+    the fit from ratings alone, as before.
 
     Release 3 (audit M12): the old pass filled C, SS, CF, ... in a fixed
     order and, for a position nobody listed, took the best remaining bat --
@@ -372,7 +379,10 @@ def build_lineup(
         ordered = sorted(cands)
         if pos is None:
             return max(ordered, key=lambda pid: score(pid))
-        return max(ordered, key=lambda pid: (fielding_fit(players[pid], pos), score(pid)))
+        return max(
+            ordered,
+            key=lambda pid: (fielding_fit(players[pid], pos, tuning), score(pid)),
+        )
 
     # 1. depth-chart pins
     chart = depth_chart or {}

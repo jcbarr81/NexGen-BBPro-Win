@@ -11,9 +11,14 @@ the KPI harness only:
 - ``hitter_gf_center`` / ``hitter_pull_center``: the lineup regulars' mean
   ground-ball and pull ratings.
 
-Every key is registered at 50.0 and nothing reads one yet. They are not in
-a league's ``rating_centers.json``, not in a league game's tuning and not a
-centre a game refuses to start without: that is the generation 6 switch-on.
+Every key is registered at 50.0. They are not in a legacy or generation 5
+league's ``rating_centers.json``, not in such a league game's tuning and
+not a centre such a game refuses to start without.
+
+Release 6a (fielding) wired the fielder centres in: the engine's fielding
+switches read them, with the pitchers' ``fielder_fa_center_p``, and a
+generation 6 season stores them (tests/test_r6a_fielding_centers.py). The
+batted-ball centres are still read by nothing.
 """
 
 from __future__ import annotations
@@ -47,7 +52,8 @@ POSITIONS = ("1B", "2B", "3B", "SS", "LF", "CF", "RF")
 FA_KEYS = tuple(f"fielder_fa_center_{p.lower()}" for p in POSITIONS)
 ARM_KEYS = tuple(f"fielder_arm_center_{p.lower()}" for p in POSITIONS)
 OTHER_KEYS = ("pitcher_gf_usage_center", "hitter_gf_center", "hitter_pull_center")
-ALL_KEYS = FA_KEYS + ARM_KEYS + OTHER_KEYS
+# Release 6a (fielding) added the pitchers' fielding centre after the arms.
+ALL_KEYS = FA_KEYS + ARM_KEYS + ("fielder_fa_center_p",) + OTHER_KEYS
 
 PLAYER_FIELDS = [
     "player_id", "primary_position", "is_pitcher", "bats", "ch", "ph", "sp",
@@ -161,10 +167,10 @@ def test_they_are_not_stored_centres_and_no_game_requires_them():
 
 def test_nothing_in_the_engine_reads_them_yet():
     """The Release 6 build branches remove a key from here as they wire it
-    in (and add the test of what reads it)."""
+    in (and add the test of what reads it). The fielder centres are wired:
+    tests/test_r6a_fielding_spray_range.py and test_r6a_fielding_errors.py."""
     pattern = re.compile(
-        r"fielder_(fa|arm)_center|pitcher_gf_usage_center|hitter_gf_center"
-        r"|hitter_pull_center"
+        r"pitcher_gf_usage_center|hitter_gf_center|hitter_pull_center"
     )
     for path in sorted((REPO / "physics_sim").glob("*.py")):
         if path.name == "config.py":
@@ -201,8 +207,11 @@ def test_fielders_are_averaged_by_the_position_the_lineup_plays_them_at(tmp_path
     assert out["fielder_arm_center_ss"] == pytest.approx((64 + 44 + 50 + 50) / 4)
     # An everyday centre fielder counts twice, like an everyday hitter.
     assert out["fielder_fa_center_cf"] == pytest.approx((60 + 60 + 40 + 40) / 4)
-    # The catcher and the DH are no fielder centre.
-    assert set(out) == set(ALL_KEYS) - {"pitcher_gf_usage_center"}
+    # The catcher and the DH are no fielder centre (and this league has no
+    # pitcher for the two pitcher centres).
+    assert set(out) == set(ALL_KEYS) - {
+        "pitcher_gf_usage_center", "fielder_fa_center_p"
+    }
     regulars = centers._regular_fielder_ids(
         root / "lineups",
         centers._active_ids_by_team(root / "rosters"),
@@ -280,12 +289,20 @@ def test_a_blank_lineup_position_and_a_blank_rating(tmp_path):
     assert out["fielder_fa_center_3b"] == 50.0
 
 
-def test_a_position_nobody_plays_is_left_out(tmp_path):
-    club = [p for p in _club("A", {}) if p["primary_position"] != "RF"]
+def test_a_position_nobody_plays_reads_every_position_s_mean(tmp_path):
+    """Release 6a (fielding): it used to be left out; the engine now
+    refuses a game on a fielder centre that was not delivered, so a
+    position no regular plays reads the mean over the regulars at every
+    position."""
+    club = [
+        p for p in _club("A", {"SS": 62, "CF": 56}) if p["primary_position"] != "RF"
+    ]
     root = _write_league(tmp_path, club, {"A": [p["player_id"] for p in club]})
     out = centers.unstored_rating_centers(root)
-    assert "fielder_fa_center_rf" not in out and "fielder_arm_center_rf" not in out
-    assert out["fielder_fa_center_cf"] == 50.0
+    everyone = round((50 * 4 + 62 + 56) / 6, 2)
+    assert out["fielder_fa_center_rf"] == everyone
+    assert out["fielder_arm_center_rf"] == 50.0
+    assert out["fielder_fa_center_cf"] == 56.0
     assert centers.unstored_rating_centers(tmp_path / "nowhere") == {}
 
 

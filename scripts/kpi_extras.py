@@ -2292,10 +2292,13 @@ class ReportOnlyKpis:
                     pos = "P" if pid in arms else "SUB"
                 r6.errors_by_pos[pos] += errors
 
-        self._add_r6_chances(records, teams or {})
+        self._add_r6_chances(records, teams or {}, log)
 
     def _add_r6_chances(
-        self, records: dict[str, Any], teams: dict[str, str]
+        self,
+        records: dict[str, Any],
+        teams: dict[str, str],
+        log: list[dict[str, Any]],
     ) -> None:
         """One game's fielding records (Release 6a, fielding).
 
@@ -2341,12 +2344,36 @@ class ReportOnlyKpis:
                 r6.fielder_chance[key]["range"] += gained / len(positions)
                 r6.fielder_chance[key]["balls"] += 1
                 r6.fielder_games[key].add(game)
+            # What scripts/fit_fielding_slopes.py reads: by responsible
+            # position (a shared ball split), balls and the sum of
+            # out0 * (1 - out0), line drives apart; and where the ground
+            # balls go (0.5 degree bins toward the left-field side).
+            ball_type = str(row[2])
+            entry = log[row[0]] if 0 <= row[0] < len(log) else {}
+            # How the ball came out (1b / 2b / 3b / out / roe), for what an
+            # out at each position is worth in runs.
+            result = str(entry.get("pa_result") or "")
+            spread = out_avg * (1.0 - out_avg) / max(1, len(positions))
+            for pos in positions:
+                sums = r6.chance_sums[str(pos)]
+                sums[f"balls_{ball_type}"] += 1.0 / len(positions)
+                sums["spread_ld" if ball_type == "ld" else "spread"] += spread
+                if result:
+                    sums[f"result_{result}"] += 1.0 / len(positions)
+            if ball_type == "gb":
+                spray = entry.get("spray_angle")
+                if spray is not None:
+                    bucket = math.floor(-float(spray) * 2.0) / 2.0
+                    r6.grounder_direction[bucket] += 1
         for row in records.get("error_chances") or []:
             side, pos, pid = row[1], row[2], row[3]
             used, average = float(row[4]), float(row[5])
             team = r6.team_chance[teams.get(side, side)]
             team["err"] += used
             team["err_saved"] += average - used
+            if pos is not None and 0 <= row[0] < len(log):
+                grounder = log[row[0]].get("out_type") == "groundout"
+                r6.chance_sums[str(pos)]["rolls_gb" if grounder else "rolls_air"] += 1
             if pid is None or pos is None:
                 continue
             key = (str(pid), str(pos))
@@ -2759,6 +2786,17 @@ class ReportOnlyKpis:
         # whole neither add nor take outs), and that neutral mean.
         metrics["range_level_shift"] = _ratio(r6.level["shift"], r6.level["n"])
         metrics["neutral_out_prob_mean"] = _ratio(r6.level["neutral"], r6.level["n"])
+        # The sums the slope re-fit reads (scripts/fit_fielding_slopes.py).
+        tables["fielding_chance_sums"] = {
+            "team_games": team_games,
+            "by_position": {
+                pos: dict(sums) for pos, sums in sorted(r6.chance_sums.items())
+            },
+            "grounder_direction": {
+                f"{bucket:g}": count
+                for bucket, count in sorted(r6.grounder_direction.items())
+            },
+        }
 
         # Outs above an average fielder per 150 games, range plus errors,
         # against the fa rating: per rating SD of the regulars at the
@@ -3425,6 +3463,14 @@ class _R6Tallies:
         self.team_chance: dict[str, Counter] = defaultdict(Counter)
         self.fielder_chance: dict[tuple[str, str], Counter] = defaultdict(Counter)
         self.fielder_games: dict[tuple[str, str], set[int]] = defaultdict(set)
+        # For the slope re-fit: position -> balls by class, the sum of
+        # out0 * (1 - out0) (``spread``; line drives in ``spread_ld``) and
+        # error rolls on ground outs and in the air, and the balls by how
+        # they came out (``result_1b``, ``result_out``, ...); and ground
+        # balls by direction (degrees toward the left-field side, 0.5
+        # degree bins).
+        self.chance_sums: dict[str, Counter] = defaultdict(Counter)
+        self.grounder_direction: Counter = Counter()
 
 
 def _load_r6_ratings(path: Path) -> dict[str, dict[str, Any]]:
