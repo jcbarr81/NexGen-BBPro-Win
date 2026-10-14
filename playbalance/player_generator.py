@@ -1,4 +1,5 @@
 # ARR-inspired Player Generator Script
+import logging
 import random
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple, Set, Optional
@@ -12,6 +13,13 @@ except Exception:  # pragma: no cover - optional dependency for CLI usage
 
 from utils.path_utils import ActivePath, get_data_dir, get_data_root
 from utils.pitcher_role import role_from_endurance
+from utils.rating_scale import (
+    LEGACY_RATING_SCALE,
+    normalize_rating_scale,
+    stretch_row,
+)
+
+_LOGGER = logging.getLogger(__name__)
 
 # Constants
 BASE_DIR = ActivePath(get_data_dir)
@@ -2052,8 +2060,54 @@ def generate_player(
     pitcher_archetype: Optional[str] = None,
     hitter_archetype: Optional[str] = None,
     rating_profile: str = "normalized",
+    rating_scale: int = LEGACY_RATING_SCALE,
 ) -> Dict:
-    """Generate a single player record.
+    """Generate a single player record, stored on ``rating_scale``.
+
+    Everything this module draws, jitters, floors and marks down is in
+    ENGINE ratings (the donor file, every constant here). The player is
+    built on that scale by :func:`_generate_engine_player`, whose parameters
+    these are, and re-expressed once, at the very end, on the scale of the
+    league he is for (``utils.rating_scale.stretch_row``; no random number
+    is drawn). The default, scale 1, returns him untouched: the dict has no
+    ``rating_scale`` key, as it never had. Callers that fabricate players
+    for a league pass that league's scale.
+    """
+
+    player = _generate_engine_player(
+        is_pitcher=is_pitcher,
+        for_draft=for_draft,
+        age_range=age_range,
+        primary_position=primary_position,
+        player_type=player_type,
+        pitcher_archetype=pitcher_archetype,
+        hitter_archetype=hitter_archetype,
+        rating_profile=rating_profile,
+    )
+    if normalize_rating_scale(rating_scale) == LEGACY_RATING_SCALE:
+        return player
+    player, clips = stretch_row(player, rating_scale)
+    for clip in clips:
+        _LOGGER.warning(
+            "generated player %s: %s %s does not fit rating scale %s "
+            "(%s stored as %s)",
+            clip.player_id, clip.kind, clip.key, rating_scale,
+            clip.unclipped, clip.stored,
+        )
+    return player
+
+
+def _generate_engine_player(
+    is_pitcher: bool,
+    for_draft: bool = False,
+    age_range: Optional[Tuple[int, int]] = None,
+    primary_position: Optional[str] = None,
+    player_type: Optional[str] = None,
+    pitcher_archetype: Optional[str] = None,
+    hitter_archetype: Optional[str] = None,
+    rating_profile: str = "normalized",
+) -> Dict:
+    """Generate a single player record, on the engine's rating scale.
 
     Parameters
     ----------

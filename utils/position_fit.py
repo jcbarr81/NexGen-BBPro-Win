@@ -22,6 +22,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from utils.rating_scale import engine_rating
+
 __all__ = [
     "FIELD_POSITIONS",
     "FILL_ORDER",
@@ -113,8 +115,11 @@ def in_fill_family(player: Any, position: str) -> bool:
 
 
 def _rating(player: Any, *names: str) -> float:
+    """The first of ``names`` that ``player`` has, on the engine scale (a
+    stored player is un-stretched; engine ratings are read as they are)."""
+
     for name in names:
-        value = _field(player, name)
+        value = engine_rating(player, name)
         if value is None or value == "":
             continue
         try:
@@ -131,8 +136,8 @@ def fielding_fit(player: Any, position: str) -> float:
     (``fielding``/``arm``)."""
 
     pos = str(position or "").upper()
-    field = _rating(player, "fa", "fielding")
-    arm = _rating(player, "arm")
+    field = _rating(player, "fa", "fielding")  # rating-scale: engine via _rating
+    arm = _rating(player, "arm")  # rating-scale: engine via _rating
     if pos in {"C", "SS", "3B", "CF", "RF"}:
         return 0.6 * field + 0.4 * arm
     return 0.85 * field + 0.15 * arm

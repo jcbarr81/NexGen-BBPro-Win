@@ -49,6 +49,7 @@ router = APIRouter(tags=["free-agency"], dependencies=[CurrentIdentity])
 
 _LEVEL_ATTR = {"ACT": "act", "AAA": "aaa", "LOW": "low"}
 
+# rating-scale: display keys; the summary shows the stored ratings
 _SUMMARY_RATING_KEYS = (
     "ch", "ph", "sp", "eye", "fa", "arm",
     "fb", "control", "movement", "endurance",

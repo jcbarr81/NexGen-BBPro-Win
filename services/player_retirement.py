@@ -25,6 +25,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from playbalance.aging import calculate_age
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.rating_scale import engine_rating
 
 # Retirement is graded by age AND roster level. Bars are higher in the
 # minors because a player stuck at AAA into their 30s isn't going to
@@ -131,6 +132,7 @@ def _player_overall(player: object) -> int:
     contract negotiator. Avoids importing UI-side rating tables."""
 
     is_pitcher = bool(getattr(player, "is_pitcher", False))
+    # rating-scale: keys read through engine_rating below
     keys = (
         ("arm", "control", "movement", "endurance")
         if is_pitcher
@@ -138,7 +140,8 @@ def _player_overall(player: object) -> int:
     )
     values: list[float] = []
     for key in keys:
-        raw = getattr(player, key, None)
+        # Engine scale: the retirement bars are in engine points.
+        raw = engine_rating(player, key, None)
         if raw is None:
             continue
         try:

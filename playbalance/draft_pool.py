@@ -17,6 +17,7 @@ gains features:
 
 import csv
 import json
+import logging
 import os
 import random
 import time
@@ -25,7 +26,18 @@ from pathlib import Path
 from typing import Dict, Iterable, List
 
 from utils.path_utils import get_data_dir
+from utils.rating_scale import (
+    LEGACY_RATING_SCALE,
+    RATING_SCALE_FIELD,
+    describe_rating_scales,
+    majority_rating_scale,
+    players_file_rating_scales,
+    rating_scale_counts,
+    rating_scale_of,
+)
 from playbalance import player_generator as pg
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _base_dir() -> Path:
@@ -104,6 +116,10 @@ class DraftProspect:
     pot_scb: int = 0
     pot_kn: int = 0
     durability: int = 50
+    # The scale every rating above is stored on (utils.rating_scale): the
+    # scale of the league the pool was generated for. Written to the pool
+    # files only when it is not 1 (save_draft_pool).
+    rating_scale: int = LEGACY_RATING_SCALE
 
 
 def _name_source() -> List[Dict[str, str]]:
@@ -170,6 +186,7 @@ def _coerce_int(value: object, default: int = 0) -> int:
         return default
 
 
+# rating-scale: copies the generator's stored values onto the prospect as is
 def _prospect_from_player(
     *,
     player: Dict[str, object],
@@ -272,6 +289,7 @@ def _prospect_from_player(
         pot_scb=_coerce_int(player.get("pot_scb"), scb),
         pot_kn=_coerce_int(player.get("pot_kn"), kn),
         durability=_coerce_int(player.get("durability"), 50),
+        rating_scale=rating_scale_of(player),
     )
 
 
@@ -281,7 +299,28 @@ def generate_draft_pool(
     size: int = 200,
     seed: int | None = None,
     rating_profile: str | None = None,
+    rating_scale: int | None = None,
 ) -> List[DraftProspect]:
+    """A draft class for the active league.
+
+    ``rating_scale`` is the scale the prospects' ratings are stored on;
+    ``None`` (every caller) takes the scale of the league's own
+    ``players.csv``, the file the picks are appended to. A league whose rows
+    are on more than one scale gets its MAJORITY scale (a few stray rows
+    must not stop the draft; logged), and one split evenly is refused with
+    ``MixedRatingScaleError``. The same seed gives the same class on any
+    scale: the stretch draws no random number.
+    """
+
+    if rating_scale is None:
+        counts = players_file_rating_scales(_players_path())
+        rating_scale = majority_rating_scale(counts)
+        if len(counts) > 1:
+            _LOGGER.warning(
+                "%s holds players on mixed rating scales (%s); the draft "
+                "class is generated on scale %s",
+                _players_path(), describe_rating_scales(counts), rating_scale,
+            )
     state = random.getstate()
     seed_value = seed
     if seed_value is None:
@@ -331,6 +370,7 @@ def generate_draft_pool(
                     age_range=(17, 21),
                     pitcher_archetype=archetype,
                     rating_profile=profile,
+                    rating_scale=rating_scale,
                 )
             else:
                 player = pg.generate_player(
@@ -339,6 +379,7 @@ def generate_draft_pool(
                     age_range=(17, 21),
                     primary_position=pos,
                     rating_profile=profile,
+                    rating_scale=rating_scale,
                 )
             if player.get("birthdate"):
                 birthdate = str(player.get("birthdate"))
@@ -362,11 +403,29 @@ def save_draft_pool(year: int, prospects: List[DraftProspect]) -> None:
     base.mkdir(parents=True, exist_ok=True)
     csv_path = base / f"draft_pool_{year}.csv"
     json_path = base / f"draft_pool_{year}.json"
+    # A scale 1 pool is written exactly as it always was, with no
+    # ``rating_scale`` entry. Otherwise every prospect carries his own
+    # scale, in both files, so a pick keeps it on the way into players.csv.
+    # A pool on mixed scales can only come from a bug: written as it is
+    # (each entry still reads correctly) and logged.
+    counts = rating_scale_counts(prospects)
+    marked = any(scale != LEGACY_RATING_SCALE for scale in counts)
+    if len(counts) > 1:
+        _LOGGER.warning(
+            "draft pool %s: prospects on mixed rating scales (%s)",
+            year, describe_rating_scales(counts),
+        )
+
+    def _record(prospect: DraftProspect) -> Dict[str, object]:
+        record = asdict(prospect)
+        if not marked:
+            record.pop(RATING_SCALE_FIELD, None)
+        return record
 
     def _write_files():
         # CSV
         with csv_path.open("w", newline="", encoding="utf-8") as fh:
-            fieldnames = list(asdict(prospects[0]).keys()) if prospects else [
+            fieldnames = list(_record(prospects[0]).keys()) if prospects else [
                 "player_id",
                 "first_name",
                 "last_name",
@@ -380,10 +439,10 @@ def save_draft_pool(year: int, prospects: List[DraftProspect]) -> None:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
             writer.writeheader()
             for p in prospects:
-                writer.writerow(asdict(p))
+                writer.writerow(_record(p))
         # JSON
         with json_path.open("w", encoding="utf-8") as fh:
-            json.dump([asdict(p) for p in prospects], fh, indent=2)
+            json.dump([_record(p) for p in prospects], fh, indent=2)
     _with_lock(json_path.with_suffix(json_path.suffix + ".lock"), _write_files)
 
 

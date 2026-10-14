@@ -13,6 +13,7 @@ from utils.path_utils import (
     resolve_app_path,
 )
 from .player_loader import load_players_from_csv
+from .rating_scale import engine_rating
 from .roster_io import write_roster_csv
 from .roster_rules import counts_as_pitcher
 from services.unified_data_service import get_unified_data_service
@@ -125,13 +126,13 @@ class _PlaceholderPool:
         pitchers = [
             p for p in players if getattr(p, "is_pitcher", False)
         ]
-        hitters_ordered = sorted(hitters, key=lambda p: getattr(p, "ch", 50))
+        hitters_ordered = sorted(hitters, key=lambda p: engine_rating(p, "ch", 50))
         hitter_limit = max(_PLACEHOLDER_HITTERS, int(len(hitters_ordered) * 0.2))
         self._hitter_pool = hitters_ordered[:hitter_limit]
         self._all_hitters = hitters_ordered
         pitchers_ordered = sorted(
             pitchers,
-            key=lambda p: getattr(p, "movement", 50) + getattr(p, "fb", 50),
+            key=lambda p: engine_rating(p, "movement", 50) + getattr(p, "fb", 50),
             reverse=True,
         )
         pitcher_limit = max(_PLACEHOLDER_PITCHERS, int(len(pitchers_ordered) * 0.4))

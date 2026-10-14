@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterable
 from utils.path_utils import get_data_dir
 from utils.pitcher_role import get_role, role_from_endurance
 from utils.player_loader import load_players_from_csv
+from utils.rating_scale import engine_potential, engine_rating
 from utils.roster_loader import load_roster
 
 # Simple org target counts; tune as needed.
@@ -130,13 +131,24 @@ def _strategy_bonus(
 
     if is_pitcher:
         endurance = _norm(prospect.get("endurance"))
-        control = _norm(prospect.get("control"))
-        movement = _norm(prospect.get("movement"))
+        # Every weight here is in engine points: the pool entry's ratings
+        # and potentials are read on the engine scale (utils.rating_scale).
+        control = _norm(engine_rating(prospect, "control"))
+        movement = _norm(engine_rating(prospect, "movement"))
         hold = _norm(prospect.get("hold_runner"))
-        arm = _norm(prospect.get("arm", prospect.get("fb", 0)))
-        pot_arm = _norm(prospect.get("pot_arm", prospect.get("arm", prospect.get("fb", 0))))
-        pot_control = _norm(prospect.get("pot_control", prospect.get("control", 0)))
-        pot_movement = _norm(prospect.get("pot_movement", prospect.get("movement", 0)))
+        raw_arm = engine_rating(prospect, "arm", prospect.get("fb", 0))
+        arm = _norm(raw_arm)
+        pot_arm = _norm(engine_potential(prospect, "arm", raw_arm))
+        pot_control = _norm(
+            engine_potential(
+                prospect, "control", engine_rating(prospect, "control", 0)
+            )
+        )
+        pot_movement = _norm(
+            engine_potential(
+                prospect, "movement", engine_rating(prospect, "movement", 0)
+            )
+        )
 
         if profile == "win_now":
             return (20.0 * control) + (18.0 * movement) + (12.0 * endurance) + (5.0 * veteran_bonus)
@@ -153,15 +165,19 @@ def _strategy_bonus(
             return (20.0 * arm) + (12.0 * movement) + (7.0 * endurance) - (4.0 * hold)
         return 0.0
 
-    ch = _norm(prospect.get("ch"))
-    ph = _norm(prospect.get("ph"))
+    ch = _norm(engine_rating(prospect, "ch"))
+    ph = _norm(engine_rating(prospect, "ph"))
     sp = _norm(prospect.get("sp"))
-    eye = _norm(prospect.get("eye"))
-    fa = _norm(prospect.get("fa"))
-    arm = _norm(prospect.get("arm"))
+    eye = _norm(engine_rating(prospect, "eye"))
+    fa = _norm(engine_rating(prospect, "fa"))
+    arm = _norm(engine_rating(prospect, "arm"))
     gf = _norm(prospect.get("gf"))
-    pot_ch = _norm(prospect.get("pot_ch", prospect.get("ch", 0)))
-    pot_ph = _norm(prospect.get("pot_ph", prospect.get("ph", 0)))
+    pot_ch = _norm(
+        engine_potential(prospect, "ch", engine_rating(prospect, "ch", 0))
+    )
+    pot_ph = _norm(
+        engine_potential(prospect, "ph", engine_rating(prospect, "ph", 0))
+    )
 
     if profile == "win_now":
         return (19.0 * ch) + (18.0 * ph) + (10.0 * eye) + (7.0 * veteran_bonus)
@@ -190,15 +206,15 @@ def score_prospect(
     if is_pitcher:
         base = (
             _safe_int(prospect.get("endurance"), 0)
-            + _safe_int(prospect.get("control"), 0)
-            + _safe_int(prospect.get("movement"), 0)
+            + _safe_int(engine_rating(prospect, "control"), 0)
+            + _safe_int(engine_rating(prospect, "movement"), 0)
         )
         endurance = _safe_int(prospect.get("endurance"), 0)
         bucket = role_from_endurance(endurance) or "RP"
     else:
         base = (
-            _safe_int(prospect.get("ch"), 0)
-            + _safe_int(prospect.get("ph"), 0)
+            _safe_int(engine_rating(prospect, "ch"), 0)
+            + _safe_int(engine_rating(prospect, "ph"), 0)
             + _safe_int(prospect.get("sp"), 0)
         )
         bucket = str(prospect.get("primary_position", "SS") or "SS").upper()

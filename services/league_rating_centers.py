@@ -206,6 +206,7 @@ from services.injury_settings import (
     _write_json_atomic,
 )
 from utils.path_utils import get_data_dir
+from utils.rating_scale import engine_row
 
 __all__ = [
     "RATING_CENTERS_FILENAME",
@@ -1361,6 +1362,9 @@ def active_rating_centers(
                 player_id = str(row.get("player_id") or "").strip()
                 if player_id not in active:
                     continue
+                # Centres are engine numbers: read the row as the engine
+                # does, whatever rating scale it is stored on.
+                row = engine_row(row)
                 if counts_as_pitcher(row):
                     groups = {"pitcher"}
                     grade = _pitch_grade(row)
@@ -1589,6 +1593,7 @@ def _active_player_rows(
                 player_id = str(row.get("player_id") or "").strip()
                 if player_id not in active:
                     continue
+                row = engine_row(row)  # as in active_rating_centers
                 (pitchers if counts_as_pitcher(row) else hitters)[player_id] = row
     except OSError:
         return None

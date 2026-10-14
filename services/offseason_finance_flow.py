@@ -43,6 +43,7 @@ from services.payroll_policy import (
 )
 from utils.league_settings import is_owner_league, load_league_settings
 from utils.path_utils import get_data_dir
+from utils.rating_scale import engine_rating
 
 __all__ = [
     "run_offseason_financial_rollover",
@@ -1043,19 +1044,19 @@ def _build_player_profiles(data_dir: Path) -> Dict[str, Dict[str, int]]:
 def _player_talent_score(player: object, *, is_pitcher: bool) -> int:
     if is_pitcher:
         values = [
-            _safe_int(getattr(player, "arm", 0), fallback=0),
-            _safe_int(getattr(player, "control", 0), fallback=0),
-            _safe_int(getattr(player, "movement", 0), fallback=0),
+            _safe_int(engine_rating(player, "arm", 0), fallback=0),
+            _safe_int(engine_rating(player, "control", 0), fallback=0),
+            _safe_int(engine_rating(player, "movement", 0), fallback=0),
             _safe_int(getattr(player, "endurance", 0), fallback=0),
         ]
     else:
         values = [
-            _safe_int(getattr(player, "ch", 0), fallback=0),
-            _safe_int(getattr(player, "ph", 0), fallback=0),
+            _safe_int(engine_rating(player, "ch", 0), fallback=0),
+            _safe_int(engine_rating(player, "ph", 0), fallback=0),
             _safe_int(getattr(player, "sp", 0), fallback=0),
-            _safe_int(getattr(player, "eye", 0), fallback=0),
-            _safe_int(getattr(player, "fa", 0), fallback=0),
-            _safe_int(getattr(player, "arm", 0), fallback=0),
+            _safe_int(engine_rating(player, "eye", 0), fallback=0),
+            _safe_int(engine_rating(player, "fa", 0), fallback=0),
+            _safe_int(engine_rating(player, "arm", 0), fallback=0),
         ]
     values = [value for value in values if value > 0]
     if not values:

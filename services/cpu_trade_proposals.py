@@ -15,6 +15,7 @@ from services.cpu_trade_evaluator import evaluate_cpu_trade_offer
 from services.trade_settings import load_trade_settings
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.rating_scale import engine_rating
 from utils.roster_loader import (
     active_pitcher_cap,
     effective_level_caps,
@@ -1225,13 +1226,15 @@ def _player_trade_value(player: object) -> float:
     is_pitcher = bool(getattr(player, "is_pitcher", False)) or str(
         getattr(player, "primary_position", "") or ""
     ).strip().upper() == "P"
+    # rating-scale: keys read through engine_rating below
     if is_pitcher:
         keys = ("arm", "control", "movement", "endurance", "fb", "cb", "sl")
     else:
         keys = ("ch", "ph", "sp", "fa", "arm", "sc")
     samples = []
     for key in keys:
-        raw = getattr(player, key, 0)
+        # Engine scale: the proposal band compares these means directly.
+        raw = engine_rating(player, key, 0)
         try:
             value = float(raw)
         except Exception:

@@ -39,6 +39,7 @@ from typing import Any, Dict, List, Optional
 from playbalance.aging import calculate_age
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.rating_scale import engine_rating
 from utils.roster_loader import load_roster, save_roster
 from utils.roster_rules import (
     AAA_CAP,
@@ -69,6 +70,7 @@ def _player_overall(player: object) -> int:
     """
 
     is_pitcher = bool(getattr(player, "is_pitcher", False))
+    # rating-scale: keys read through engine_rating below
     keys = (
         ("arm", "control", "movement", "endurance")
         if is_pitcher
@@ -76,7 +78,8 @@ def _player_overall(player: object) -> int:
     )
     values: list[float] = []
     for key in keys:
-        raw = getattr(player, key, None)
+        # Engine scale: the 55 / 65 / 72 bars are in engine points.
+        raw = engine_rating(player, key, None)
         if raw is None:
             continue
         try:

@@ -36,6 +36,10 @@ from physics_sim.engine import _resolve_data_root, simulate_matchup_from_files
 from physics_sim.usage import UsageState, calendar_day
 from scripts import kpi_extras
 from utils.team_loader import load_teams
+# Every players.csv parse in this script reads rows as the engine does
+# (engine_rows), so the slope and correlation KPIs keep their meaning on a
+# fixture stored on another rating scale.
+from utils.rating_scale import engine_rows
 from utils.park_utils import (
     PARK_DATA_ROOT_ENV,
     missing_park_data_files,
@@ -467,7 +471,7 @@ def _load_tolerances(
 def _load_player_names(path: Path) -> dict[str, str]:
     names: dict[str, str] = {}
     with path.open() as handle:
-        for row in csv.DictReader(handle):
+        for row in engine_rows(handle):
             player_id = row.get("player_id")
             if not player_id:
                 continue
@@ -482,7 +486,7 @@ def _load_player_positions(path: Path) -> dict[str, str]:
     """player_id -> primary_position (upper). S2-05 backup-catcher aggregate."""
     positions: dict[str, str] = {}
     with path.open() as handle:
-        for row in csv.DictReader(handle):
+        for row in engine_rows(handle):
             pid = row.get("player_id")
             if pid:
                 positions[str(pid)] = (row.get("primary_position") or "").strip().upper()
@@ -494,7 +498,7 @@ def _load_player_ratings(path: Path) -> tuple[dict[str, float], dict[str, float]
     power: dict[str, float] = {}
     control: dict[str, float] = {}
     with path.open() as handle:
-        for row in csv.DictReader(handle):
+        for row in engine_rows(handle):
             player_id = row.get("player_id")
             if not player_id:
                 continue
@@ -520,7 +524,7 @@ def _load_player_hands(path: Path) -> tuple[dict[str, str], dict[str, str]]:
     bats: dict[str, str] = {}
     throws: dict[str, str] = {}
     with path.open() as handle:
-        for row in csv.DictReader(handle):
+        for row in engine_rows(handle):
             player_id = row.get("player_id")
             if not player_id:
                 continue
@@ -992,7 +996,7 @@ def _load_hitter_ratings(path: Path) -> dict[str, tuple[float, float]]:
     """Return {player_id: (contact, power)} for hitters (S3 power calibration)."""
     ratings: dict[str, tuple[float, float]] = {}
     with path.open() as handle:
-        for row in csv.DictReader(handle):
+        for row in engine_rows(handle):
             player_id = row.get("player_id")
             if not player_id:
                 continue

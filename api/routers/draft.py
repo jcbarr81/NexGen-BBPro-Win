@@ -17,6 +17,7 @@ from services import draft_clock, draft_state
 from services.trade_settings import current_league_year
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.rating_scale import engine_rating
 
 from ..security import CurrentIdentity
 from ._rating_presentation import compute_overall
@@ -357,6 +358,7 @@ def draft_pool_view(
                 )
             except Exception:
                 age = None
+        # rating-scale: display payload; shows the stored ratings
         rows.append(
             {
                 "player_id": pid,
@@ -769,13 +771,16 @@ def _prospect_overall(prospect: Dict[str, Any]) -> int:
         "y",
     }
     try:
+        # rating-scale: keys read through engine_rating below
         if is_pitcher:
             keys = ("control", "movement", "endurance", "fb", "arm")
         else:
             keys = ("ch", "ph", "sp", "eye", "fa", "arm")
         values = []
         for k in keys:
-            v = prospect.get(k)
+            # Engine scale: this mean ranks the best available pick (the
+            # auto-pick), so it must not move with the pool's rating scale.
+            v = engine_rating(prospect, k)
             if v in (None, ""):
                 continue
             try:

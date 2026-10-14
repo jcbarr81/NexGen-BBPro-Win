@@ -58,6 +58,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Iterable
 
+# Every players.csv parse here reads rows as the engine does, whatever
+# rating scale the fixture is stored on (see physics_sim_season_kpis).
+from utils.rating_scale import engine_rows
+
 BASE_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_REFERENCE_PATH = (
     BASE_DIR / "data" / "MLB_avg" / "mlb_report_only_reference.csv"
@@ -326,7 +330,7 @@ class ReportOnlyKpis:
         if not path.exists():
             return
         with path.open(newline="", encoding="utf-8") as handle:
-            for row in csv.DictReader(handle):
+            for row in engine_rows(handle):
                 pid = str(row.get("player_id") or "")
                 if not pid:
                     continue
@@ -2749,7 +2753,7 @@ def _load_pitcher_control(path: Path) -> dict[str, float]:
     if not path.exists():
         return control
     with path.open(newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
+        for row in engine_rows(handle):
             pid = str(row.get("player_id") or "")
             if not pid or str(row.get("is_pitcher", "")).strip() not in {"1", "True", "true"}:
                 continue
@@ -2776,7 +2780,7 @@ def _load_pitcher_ratings(path: Path) -> dict[str, dict[str, float]]:
     if not path.exists():
         return ratings
     with path.open(newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
+        for row in engine_rows(handle):
             pid = str(row.get("player_id") or "")
             if not pid or str(row.get("is_pitcher", "")).strip() not in {"1", "True", "true"}:
                 continue
@@ -3000,7 +3004,7 @@ def _load_hitter_contact_eye(path: Path) -> tuple[dict[str, float], dict[str, fl
     if not path.exists():
         return contact, eye
     with path.open(newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
+        for row in engine_rows(handle):
             pid = str(row.get("player_id") or "")
             if not pid or str(row.get("is_pitcher", "")).strip() in {"1", "True", "true"}:
                 continue
@@ -3230,7 +3234,7 @@ def _load_r6_ratings(path: Path) -> dict[str, dict[str, Any]]:
             return 50.0
 
     with path.open(newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
+        for row in engine_rows(handle):
             pid = str(row.get("player_id") or "")
             if not pid:
                 continue
@@ -3472,7 +3476,7 @@ def _population_levels(players_path: Path) -> tuple[list[float], list[float]]:
     ph: list[float] = []
     comp: list[float] = []
     with Path(players_path).open(newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
+        for row in engine_rows(handle):
             try:
                 if str(row.get("is_pitcher", "")).strip() in {"1", "True", "true"}:
                     comp.append((float(row["control"]) + float(row["movement"])) / 2.0)

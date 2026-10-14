@@ -38,6 +38,7 @@ from services.team_outlook import (
 from services.team_ownership import human_owned_team_ids_strict
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.rating_scale import engine_rating
 from utils.roster_loader import (
     ACTIVE_ROSTER_SIZE,
     MIN_ACTIVE_PITCHERS,
@@ -96,12 +97,15 @@ def _primary_pos(player: object) -> str:
 
 
 def _num(player: object, key: str) -> float:
+    """One rating of ``player`` on the engine scale (utils.rating_scale)."""
+
     try:
-        return float(getattr(player, key, 0) or 0)
+        return float(engine_rating(player, key, 0) or 0)
     except (TypeError, ValueError):
         return 0.0
 
 
+# rating-scale: _num reads through engine_rating
 def _hitter_score(player: object) -> float:
     # Duplicated from utils.lineup_autofill.hitter_score (a closure; do not
     # refactor that module here).
@@ -113,6 +117,7 @@ def _hitter_score(player: object) -> float:
     )
 
 
+# rating-scale: _num reads through engine_rating
 def _pitcher_score(player: object) -> float:
     vals = [_num(player, k) for k in ("arm", "control", "movement", "endurance")]
     vals = [v for v in vals if v > 0]

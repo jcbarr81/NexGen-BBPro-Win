@@ -18,6 +18,7 @@ from playbalance.player_development import (
     TrainingWeights,
     apply_training_plan,
     build_training_plan,
+    require_engine_scale_players,
 )
 from services.training_history import record_training_session
 
@@ -39,6 +40,10 @@ def run_training_camp(
     player's gains are scaled by the configured multiplier.
     """
 
+    players = list(players)
+    # Every participant first: a scale 2 player stops the whole camp before
+    # anyone is developed or marked ready (utils.rating_scale).
+    require_engine_scale_players(players, "Training camp")
     reports: list[TrainingReport] = []
     for player in players:
         weights = None

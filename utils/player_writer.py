@@ -1,9 +1,53 @@
 import csv
+import logging
+
 from models.player import Player
 from models.pitcher import Pitcher
 from utils.atomic_write import atomic_text_writer
+from utils.rating_scale import (
+    LEGACY_RATING_SCALE,
+    RATING_SCALE_FIELD,
+    describe_rating_scales,
+    rating_scale_counts,
+    rating_scale_of,
+)
+
+_LOGGER = logging.getLogger(__name__)
+# How many player ids of a minority scale a warning names.
+_MIXED_IDS_SHOWN = 10
+
 
 def save_players_to_csv(players, file_path):
+    """Write ``players`` as a whole ``players.csv`` (the file is replaced).
+
+    Ratings are written as the objects hold them: STORED values on the
+    scale ``player.rating_scale`` names. A list on scale 1 (every league
+    today) produces exactly the file it always did, with no ``rating_scale``
+    column. When any player is on another scale the column is written, and
+    every row carries its OWN scale. A list on mixed scales is written as it
+    is, with a warning naming the rows off the majority scale: each row
+    still reads correctly, and refusing would stop every save in the league
+    over one stray row.
+    """
+
+    players = list(players)
+    counts = rating_scale_counts(players)
+    if len(counts) > 1:
+        majority = max(counts, key=lambda scale: counts[scale])
+        strays = [
+            str(getattr(p, "player_id", "?"))
+            for p in players
+            if rating_scale_of(p) != majority
+        ]
+        _LOGGER.warning(
+            "%s: players on mixed rating scales (%s); each row is written on "
+            "its own scale. Off the majority scale: %s%s",
+            file_path,
+            describe_rating_scales(counts),
+            ", ".join(strays[:_MIXED_IDS_SHOWN]),
+            " ..." if len(strays) > _MIXED_IDS_SHOWN else "",
+        )
+    marked = any(scale != LEGACY_RATING_SCALE for scale in counts)
     fieldnames = [
         "player_id", "first_name", "last_name", "birthdate", "height", "weight",
         "ethnicity", "skin_tone", "hair_color", "facial_hair", "bats", "throws",
@@ -20,6 +64,8 @@ def save_players_to_csv(players, file_path):
         "durability",
         "pitcher_archetype", "hitter_archetype",
     ]
+    if marked:
+        fieldnames.append(RATING_SCALE_FIELD)
 
     # Atomic: a parallel-day worker reading players.csv must never see a
     # half-written file (a cut on a row boundary silently drops players).
@@ -61,6 +107,8 @@ def save_players_to_csv(players, file_path):
                 "pitcher_archetype": getattr(p, "pitcher_archetype", ""),
                 "hitter_archetype": getattr(p, "hitter_archetype", ""),
             }
+            if marked:
+                row[RATING_SCALE_FIELD] = rating_scale_of(p)
 
             if is_pitcher:
                 row.update({

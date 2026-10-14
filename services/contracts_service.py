@@ -13,6 +13,7 @@ from services.finance_ledger import post_contract_buyout
 from services.prospect_event_log import record_option_decision_event
 from services.team_auto_reassign_settings import auto_reassign_team_if_enabled
 from utils.path_utils import get_data_dir
+from utils.rating_scale import engine_rating
 from utils.roster_io import read_roster_csv
 from utils.roster_loader import save_roster
 
@@ -644,19 +645,19 @@ def _player_quality_score(player: object | None) -> float | None:
 
     if is_pitcher:
         weighted = [
-            (_safe_number(getattr(player, "arm", 0)), 0.40),       # stuff / velocity
-            (_safe_number(getattr(player, "control", 0)), 0.34),   # command
-            (_safe_number(getattr(player, "movement", 0)), 0.18),  # movement
+            (_safe_number(engine_rating(player, "arm", 0)), 0.40),       # stuff / velocity
+            (_safe_number(engine_rating(player, "control", 0)), 0.34),   # command
+            (_safe_number(engine_rating(player, "movement", 0)), 0.18),  # movement
             (_safe_number(getattr(player, "endurance", 0)), 0.08), # workload (minor $ driver)
         ]
     else:
         weighted = [
-            (_safe_number(getattr(player, "ph", 0)), 0.34),   # power
-            (_safe_number(getattr(player, "ch", 0)), 0.30),   # contact
-            (_safe_number(getattr(player, "eye", 0)), 0.16),  # on-base
+            (_safe_number(engine_rating(player, "ph", 0)), 0.34),   # power
+            (_safe_number(engine_rating(player, "ch", 0)), 0.30),   # contact
+            (_safe_number(engine_rating(player, "eye", 0)), 0.16),  # on-base
             (_safe_number(getattr(player, "sp", 0)), 0.10),   # speed
-            (_safe_number(getattr(player, "fa", 0)), 0.06),   # fielding
-            (_safe_number(getattr(player, "arm", 0)), 0.04),  # arm
+            (_safe_number(engine_rating(player, "fa", 0)), 0.06),   # fielding
+            (_safe_number(engine_rating(player, "arm", 0)), 0.04),  # arm
         ]
     present = [(value, weight) for value, weight in weighted if value > 0]
     if not present:
@@ -684,6 +685,7 @@ def estimate_market_value_for_player(player: object | None) -> int:
     return int(max(MARKET_MIN_SALARY, min(MAX_ESTIMATED_SALARY, round(value))))
 
 
+# rating-scale: "fa" in this function is the free-agent stage, not fielding
 def _career_stage(*, service_time_days: int, age: int | None) -> tuple[str, int]:
     """Classify a player's earning stage. Returns (stage, arb_year).
 
