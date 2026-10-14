@@ -2192,3 +2192,46 @@ pitch-quality path into exit velocity, additive fatigue; values in
 - **CI:** add `--engine 6 --tuning-overrides
   scripts/kpi_profiles/r6_pitching.json --strict` on calibration until the
   values are folded into `engine_6.json`.
+
+## Release 6a integration: follow-ups (2026-10-14)
+
+Branch `r6a-int` merges the scale, fielding, power and pitching branches and
+builds `engine_6.json` from generation 5 plus the three area files (no key
+is set by two of them). Generation 6 is still a development generation.
+Measured on 8 / 4 / 2 seasons (calibration / league / flat fixtures):
+
+- **CI now has a generation 6 to run.** The pitching item above is done
+  by the profile itself: add `--engine 6 --strict` on calibration (seeds
+  2-8 passed every strict gate here) and `--engine 6 --gate-set running`
+  on the league fixture.
+- **Pooled gates have no checker.** `ENGINE_GATES[6]["pooled"]` records
+  the thirty-homer count (20 +/- 8) and the bottom-fifth HR ratio (at most
+  .75) as means over seeds; one harness run cannot express that, so both
+  are report-only and the per-season thirty-homer gate is dropped for
+  generation 6. A small pooled check over a directory of season JSONs
+  would close it (calibration .715 / 25.4, league .697 / 20.8 here: both
+  pass pooled).
+- **Generation 5's full strikeout-grid gate fails on the composite grid**
+  (`matchup_k_log5_max_abs_resid` .027 against .02, calibration seed 1,
+  60,000 PA a cell): the Contact 80 x pitcher 80 corner the pitching work
+  accepted. The inner grid (.009) and the p5-p95 HR grid (.019) pass.
+  Decide at the joint retune whether generation 6 keeps the full-grid gate
+  or drops it for the inner one.
+- **The league fixture's offence is high on generation 6** (the joint
+  retune): runs 4.77 (+.32 on generation 5), SLG .414, OPS .733, doubles
+  1.75, and SF/PA .0079 (fails the running set on 2 of 4 seasons). Almost
+  all of it is fielding's (+.41 runs alone on seeds 1-4); the three areas
+  together give .13 runs less than the sum of each alone.
+- **`hr_scale` is the pitching work's 0.9195**, re-levelled with the power
+  table off; the power work held home runs with the table's centre. Each
+  alone adds about +.02 / +.00 HR a team-game on calibration and together
+  +.02: no double count today, but both levers set the same level.
+- **The flat fixture misses three of the new gates** (report-only there;
+  bunched ratings): the pull-rating correlations .68 / .70 against .80,
+  BB% per +10 control -0.68 against -1.35, and shortstop outs per 8
+  points 6.06 against 6.9 +/- .8.
+- **`hitter_gf_center` is required in a generation 6 game** with the
+  doubles credit on (`centred_ratings.require_batted_ball_centers`), as
+  the fielder centres are under `fielder_centred_ratings`. The live path
+  supplies both for a generation 6 season
+  (`tests/test_r6a_fielding_centers.py`, live games on the full profile).
