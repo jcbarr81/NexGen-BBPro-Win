@@ -555,8 +555,13 @@ def test_harness_passes_the_fixture_centre(kpis, monkeypatch):
         raise _Captured
 
     monkeypatch.setattr(kpis, "simulate_matchup_from_files", fake_matchup)
-    # F4: the battery centres travel with the speed centre.
-    fixture = centers.active_rating_centers(CALIBRATION)
+    # F4: the battery centres travel with the speed centre. Release 6a: so
+    # do the centres only the harness supplies
+    # (tests/test_r6a_tools_centers.py).
+    fixture = {
+        **centers.active_rating_centers(CALIBRATION),
+        **centers.unstored_rating_centers(CALIBRATION),
+    }
     assert fixture["hitter_speed_center"] == pytest.approx(47.72)
     with pytest.raises(_Captured):
         kpis.run_sim(162, 1, CALIBRATION / "players.csv", None, CALIBRATION)
@@ -579,6 +584,7 @@ def test_explicit_centre_override_wins(kpis):
     assert merged["hitter_speed_center"] == 50.0
     assert merged == {
         **centers.active_rating_centers(CALIBRATION_LEAGUE),
+        **centers.unstored_rating_centers(CALIBRATION_LEAGUE),
         "hitter_speed_center": 50.0,
     }
 

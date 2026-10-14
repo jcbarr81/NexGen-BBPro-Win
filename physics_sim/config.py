@@ -827,6 +827,39 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "pitcher_movement_usage_center": 50.0,
     "pitcher_grade_usage_center": 50.0,
     "pitcher_arm_usage_center": 50.0,
+    # Release 6a (tooling): the centres the generation 6 fielding and
+    # batted-ball work will read. NOTHING reads them yet, and only the KPI
+    # harness supplies them (services.league_rating_centers
+    # .unstored_rating_centers, through with_rating_centers): they are not
+    # in a league's rating_centers.json, not delivered to a league game and
+    # not a centre a game refuses to start without. Storing them is part of
+    # the generation 6 switch-on.
+    #
+    # fielder_fa_center_<pos> / fielder_arm_center_<pos>: the mean fielding
+    # (fa) and arm of the lineup regulars at each of the seven positions a
+    # batted ball is fielded from, by the position the saved lineup plays
+    # them at (a club with no usable saved lineup: its best hitter at each
+    # primary position).
+    "fielder_fa_center_1b": 50.0,
+    "fielder_fa_center_2b": 50.0,
+    "fielder_fa_center_3b": 50.0,
+    "fielder_fa_center_ss": 50.0,
+    "fielder_fa_center_lf": 50.0,
+    "fielder_fa_center_cf": 50.0,
+    "fielder_fa_center_rf": 50.0,
+    "fielder_arm_center_1b": 50.0,
+    "fielder_arm_center_2b": 50.0,
+    "fielder_arm_center_3b": 50.0,
+    "fielder_arm_center_ss": 50.0,
+    "fielder_arm_center_lf": 50.0,
+    "fielder_arm_center_cf": 50.0,
+    "fielder_arm_center_rf": 50.0,
+    # The pitchers' ground-ball rating (gf), weighted by expected workload
+    # like the pitcher_*_usage_center keys above, and the lineup regulars'
+    # mean ground-ball (gf) and pull (pl) ratings.
+    "pitcher_gf_usage_center": 50.0,
+    "hitter_gf_center": 50.0,
+    "hitter_pull_center": 50.0,
     # Release 5 (plan 2.1, plate discipline). Five switches, all OFF: at 0
     # each path is the code it replaces, byte for byte, and draws no extra
     # random number. The values beside them are the design's starting

@@ -71,6 +71,16 @@ class GameResult:
     totals: Dict[str, int]
     pitch_log: List[Dict[str, Any]]
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # Release 6a (tooling): records for the KPI harness, kept OUT of the
+    # pitch log and the metadata so that a game's log, totals and metadata
+    # stay byte for byte what they were (the pinned-game tests hash those
+    # three, and the live paths ship them). Read by nothing in the engine
+    # and drawn from nothing:
+    #   "starting_positions": {"away" | "home": {player id: position}} --
+    #       who started where (DH included), after any pre-game rest swap;
+    #   "fld_pos": {pitch_log index: position} -- the position the engine
+    #       credited an out in play to, or charged the error on it to.
+    play_records: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -5780,6 +5790,9 @@ def simulate_game(
         "k_reach": 0,
     }
     pitch_log: List[Dict[str, Any]] = []
+    # Release 6a (tooling): pitch_log index -> the position an out or error
+    # in play went to, for the KPI harness (GameResult.play_records).
+    fielded_positions: Dict[int, str | None] = {}
     score_away = 0
     score_home = 0
     inning_runs_away: List[int] = []
@@ -7301,6 +7314,11 @@ def simulate_game(
                                 res.reached_on_error = True
                                 pitch_log[-1]["error_type"] = error_type
                                 pitch_log[-1]["error_on"] = out_type
+                                # Release 6a (tooling) play record for the
+                                # KPI harness (GameResult.play_records):
+                                # the position the error is charged to.
+                                # Read by nothing in the engine, no draws.
+                                fielded_positions[len(pitch_log) - 1] = error_pos
                                 pitch_log[-1].update(res.__dict__)
                                 before_ids = _base_runner_ids(bases)
                                 runners_before = (bases.first, bases.second, bases.third)
@@ -7424,6 +7442,10 @@ def simulate_game(
                                         primary_guess,
                                         fallback_positions=["SS", "2B", "3B", "1B"],
                                     )
+                                    # Release 6a (tooling) play record: the
+                                    # infielder the ground out is credited
+                                    # to; no draws.
+                                    fielded_positions[len(pitch_log) - 1] = primary_pos
                                     oneb_pos, oneb_fielder = _find_fielder(
                                         defense_map, "1B", fallback_positions=["P"]
                                     )
@@ -7585,6 +7607,10 @@ def simulate_game(
                                     pos, fielder = _find_fielder(
                                         defense_map, fielder_pos, fallback_positions=fallback
                                     )
+                                    # Release 6a (tooling) play record: the
+                                    # fielder's position on an air out; no
+                                    # draws.
+                                    fielded_positions[len(pitch_log) - 1] = pos
                                     fallback_fielding = (
                                         defense_ratings.infield
                                         if infield_play
@@ -8282,5 +8308,12 @@ def simulate_game(
             },
             "injury_events": injury_events,
             "bench_usage": bench_usage,
+        },
+        play_records={
+            "starting_positions": {
+                "away": dict(away_positions),
+                "home": dict(home_positions),
+            },
+            "fld_pos": fielded_positions,
         },
     )

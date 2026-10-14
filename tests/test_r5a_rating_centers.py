@@ -462,7 +462,10 @@ def test_harness_passes_and_records_the_new_keys(monkeypatch):
         CALIBRATION_LEAGUE / "players.csv",
         CALIBRATION_LEAGUE,
     )
-    assert merged == {**fixture, "hitter_vl_center_l": 50.0}
+    # Release 6a: the harness also supplies the centres no league stores
+    # yet (tests/test_r6a_tools_centers.py).
+    unstored = centers.unstored_rating_centers(CALIBRATION_LEAGUE)
+    assert merged == {**fixture, **unstored, "hitter_vl_center_l": 50.0}
 
     seen = {}
 
@@ -475,7 +478,7 @@ def test_harness_passes_and_records_the_new_keys(monkeypatch):
         kpis.run_sim(
             162, 1, CALIBRATION_LEAGUE / "players.csv", None, CALIBRATION_LEAGUE
         )
-    assert seen["tuning_overrides"] == fixture
+    assert seen["tuning_overrides"] == {**fixture, **unstored}
     # A profile may pin one, like any other knob.
     assert kpis.RATING_CENTER_KEYS == centers.RATING_CENTER_KEYS
 

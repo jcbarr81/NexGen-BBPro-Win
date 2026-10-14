@@ -1791,3 +1791,68 @@ leaves, on purpose or because it was out of scope:
 - **Training camp can still exceed potential.** `playbalance/player_development._boost_attribute` resets its room to `99 - current` once a rating reaches its potential, so it keeps adding up to 5 points a spring. Mild in practice (Contact sd 5.1 to 7.4 over five springs on a stats-test copy), but it belongs in the same rewrite.
 - **Owner development budgets** fed the paused aging step's multiplier (`playbalance/aging_model.age_and_retire`); the new model needs the same input.
 - **`_apply_yearly_aging` swallows a failed load or save** and returns silently; the replacement should report it in the rollover artifacts.
+
+## Release 6a tooling: follow-ups (2026-10-13)
+
+From the tooling step (generation 6 scaffolding, the new rating centres
+for the harness, the Release 6 report-only KPIs, the composite matchup
+grid). Nothing here changes a game.
+
+- **Store the new centres at the switch-on.** `fielder_fa_center_<pos>`,
+  `fielder_arm_center_<pos>`, `pitcher_gf_usage_center`, `hitter_gf_center`
+  and `hitter_pull_center` are worked out for the KPI harness only
+  (`services.league_rating_centers.unstored_rating_centers`). When
+  generation 6 reads them a league must store them per season like the
+  Release 5 centres (a season rule, a `centers_version` step, the "refuse
+  to play without it" list if a model needs one) and
+  `tests/test_r6a_tools_centers.py` must change with it: today it pins
+  that no league game is given them.
+- **The fielder-centre fallback is not the lineup a game would build.** A
+  club with no usable saved lineup contributes its best hitter by lineup
+  value at each PRIMARY position (none where nobody lists the position).
+  A game auto-fills a lineup instead. All three fixtures have saved
+  lineups, so the fallback is covered by synthetic tests only.
+- **The Power fifth ratio in the Release 6 plan reads low.** The design
+  prototype sorted hitters tied in Power by their home runs, which puts
+  the weak ones of a tie in the lower fifth: on the same season it reads
+  .04 to .06 below `hr_power_bottom_quintile_ratio`, which gives tied
+  hitters their group's mean (calibration seed 1: prototype .866, KPI
+  .928). The plan's .85 / .86 / .80 before and .70 / .67 / .75 after, and
+  the .75 target of owner decision 4, were all taken with the prototype's
+  order. Re-read the proposal with the KPI before the target is gated.
+- **MLB references for the new rows.** None was added to
+  `data/MLB_avg/mlb_report_only_reference.csv`: the Statcast per-class
+  shares, exit velocities and hit rates, errors by position, the
+  ground-ball share by infielder, home run distance and pull / straight /
+  opposite by batting side in the plan are from memory. Pull them before
+  any of these rows becomes a gate.
+- **Not built here, wanted by the design briefs:** per-ball out chances
+  (`oaa_per_fa_sd_<pos>`, `team_der_true_sd`, the share of balls with a
+  hit chance under .05 or over .95), which need the engine to log the out
+  probability and belong with the fielding model; errors by source;
+  pitcher chase true sd; hitter GB% and BABIP true sd; foul-outs per
+  team-game and per-park home run factors (the ball-flight step).
+- **Errors by position are by STARTING position.** The fielding lines
+  carry no position, so `e_per_team_game_<pos>` places an error by where
+  the fielder started (`GameResult.play_records["starting_positions"]`); a
+  substitute's error is in the table as `SUB` and a
+  starter moved in a defensive switch keeps his first position. If the
+  row is gated, log the position on each error instead (the two places
+  an error is charged: the ball in play and `_credit_throw_error`).
+- **The 35-80 home run box needs far more than 20,000 PA a cell.** A
+  composite-80 pitcher allows about 6 home runs in 20,000 PA on
+  generation 5, so the whole pitcher-80 column is skipped as thin
+  (`matchup_hr_log5_box_thin_cells` 4) and the maximum residual leaves it
+  out. Reading "within .3 logit over the whole box" needs about 100,000
+  PA a cell, or a lower `GRID_MIN_EVENTS` with a noise allowance.
+- **The batter-adjusted times-through-the-order rows are starters only;**
+  the raw `tto_pass2_woba_delta` / `tto_pass3_woba_delta` rows beside
+  them are every pitcher. `tables["batter_adjusted_deltas"]` holds the
+  starters-only raw value to compare like with like.
+- **`power_hr600_p<level>` and the catcher.** The table's hitter faces a
+  league-average catcher and carries the fixture's mean pull and
+  ground-ball rating; the design prototype used a 50 catcher and 50s.
+  Calibration seed 1 agrees with the prototype's table within noise
+  (Power 30 / 50 / 80: 11.0 / 15.8 / 69.3 against 10.9 / 15.9 / 68.0).
+- **CI does not run `--engine 6`.** Add a step when generation 6 has
+  values of its own (it is a copy of generation 5 until then).
