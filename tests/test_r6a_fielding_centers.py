@@ -201,6 +201,34 @@ def test_a_generation_5_season_is_not_asked_twice(league, monkeypatch):
     assert reads == []
 
 
+def test_clearing_the_centre_caches_forgets_which_seasons_do_not_read_them(league):
+    """The note that a season does not read the fielder centres is a cache
+    like the centres themselves: it is dropped with them
+    (``clear_rating_center_cache``, which the working copy calls when it
+    pulls a ``rating_centers.json`` from the durable copy), so a file that
+    now records generation 6 for the season is read again."""
+    write_schedule(league, 2027, played=2)
+    stored = centers.active_rating_centers(league)
+    _write_entry(league, {
+        **stored, centers.ENGINE_GENERATION_KEY: 5,
+        centers.CENTERS_VERSION_KEY: centers.CENTERS_VERSION,
+    })
+    assert not set(centers.league_rating_centers()) & set(FIELDER_KEYS)
+    assert centers._NOT_READ
+    # The durable copy says generation 6 (both records).
+    _write_entry(league, {
+        **stored, centers.ENGINE_GENERATION_KEY: 6,
+        centers.CENTERS_VERSION_KEY: centers.CENTERS_VERSION,
+    })
+    progress = json.loads((league / "season_progress.json").read_text())
+    progress["engine_generation"] = {"season": "2027", "generation": 6}
+    (league / "season_progress.json").write_text(json.dumps(progress))
+    assert not set(centers.league_rating_centers()) & set(FIELDER_KEYS)  # cached
+    centers.clear_rating_center_cache()
+    assert not centers._NOT_READ
+    assert set(FIELDER_KEYS) <= set(centers.league_rating_centers())
+
+
 # --- a legacy season ----------------------------------------------------------------
 
 

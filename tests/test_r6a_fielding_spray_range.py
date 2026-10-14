@@ -215,17 +215,22 @@ def test_without_the_model_a_left_handed_batter_s_balls_are_mirrored():
 @pytest.mark.parametrize("side", ["R", "L"])
 def test_the_credited_fielder_is_the_one_whose_rating_set_the_out_chance(side, bands):
     """With the spray fix on, the engine's credit and the range model's
-    responsible fielder are the same position on every ball."""
-    tuning = _tuning(**SPRAY, infield_band_model=bands)
+    responsible fielder are the same position on every ball -- a line
+    drive too, played in the infield or not (the review's fix: under the
+    range model that is decided before the out chance)."""
+    tuning = _tuning(**SPRAY, **RANGE, infield_band_model=bands)
     rng = random.Random(4)
     for _ in range(2000):
         angle = rng.gauss(0.0, 20.0)
-        for ball_type in ("gb", "fb"):
+        for ball_type, infield in (
+            ("gb", True), ("fb", False), ("ld", True), ("ld", False)
+        ):
             assert engine._fielder_position_for_ball(
                 ball_type=ball_type, spray_angle=angle, batter_side=side,
-                tuning=tuning, infield_play=ball_type == "gb",
+                tuning=tuning, infield_play=infield,
             ) == fielding.responsible_position(
-                ball_type=ball_type, spray_angle=angle, tuning=tuning
+                ball_type=ball_type, spray_angle=angle, tuning=tuning,
+                infield_play=infield,
             )
 
 

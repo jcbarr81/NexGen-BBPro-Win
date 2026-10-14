@@ -156,7 +156,9 @@ def _default_hitters(
     def score(pid: str) -> float:
         return lineup_hitter_score(by_id[pid], vs_hand="R", tuning=tuning)
 
-    picked, _counters = build_lineup(list(by_id), by_id, score=score)
+    # The league's tuning also ranks a stand-in by the generation's
+    # out-of-position rule (Release 6a; unchanged while it is off).
+    picked, _counters = build_lineup(list(by_id), by_id, score=score, tuning=tuning)
     if len(picked) >= 9:
         picked = _assign_batting_order(
             picked, by_id, vs_hand="R", overall_score=score, tuning=tuning

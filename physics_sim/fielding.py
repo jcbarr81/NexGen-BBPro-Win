@@ -339,18 +339,43 @@ def outfield_position(direction: float, tuning: TuningConfig) -> str:
 
 
 def responsible_position(
-    *, ball_type: str, spray_angle: float, tuning: TuningConfig
+    *,
+    ball_type: str,
+    spray_angle: float,
+    tuning: TuningConfig,
+    infield_play: bool | None = None,
 ) -> str:
     """The one fielder whose rating moves a ball's out chance under
-    ``range_model`` 1: the infield band owner on a ground ball, LF / CF / RF
-    on a ball in the air. Always by the PHYSICAL side (positive stored angle
-    = the right-field side), which is the side ``out_probability`` has
-    always read; the engine's fielder credit agrees with it once
+    ``range_model`` 1: the infield band owner on a ground ball or on a line
+    drive played in the infield (``infield_play``, decided before the out
+    chance: :func:`draw_infield_liner`), LF / CF / RF on any other ball in
+    the air. Always by the PHYSICAL side (positive stored angle = the
+    right-field side), which is the side ``out_probability`` has always
+    read; the engine's fielder credit agrees with it once
     ``spray_direction_model`` is on."""
     direction = -float(spray_angle)
-    if ball_type == "gb":
+    if ball_type == "gb" or (ball_type == "ld" and infield_play):
         return infield_position(direction, tuning)
     return outfield_position(direction, tuning)
+
+
+# A low line drive (under ``INFIELD_LINER_MAX_LA`` degrees) is played in the
+# infield this often (``select_out_type``).
+INFIELD_LINER_SHARE = 0.45
+INFIELD_LINER_MAX_LA = 18.0
+
+
+def draw_infield_liner(ball_type: str, launch_angle: float) -> bool | None:
+    """Whether a line drive is an infield play, decided BEFORE its out
+    chance (Release 6a, ``range_model`` 1), so the fielder whose range sets
+    the chance is the one credited and charged. ``None`` -- and no random
+    number drawn -- for any other ball. The draw is the one
+    ``select_out_type`` makes for a low liner that is an out, taken before
+    the hit roll instead of after it; on a liner that becomes a hit it is
+    one more draw."""
+    if ball_type != "ld" or launch_angle >= INFIELD_LINER_MAX_LA:
+        return None
+    return random.random() < INFIELD_LINER_SHARE
 
 
 def out_probability(
@@ -364,6 +389,7 @@ def out_probability(
     defense: DefenseRatings,
     tuning: TuningConfig,
     batter_speed: float | None = None,
+    infield_play: bool | None = None,
 ) -> float:
     """Chance a ball in play that stays in the park is turned into an out.
 
@@ -371,7 +397,8 @@ def out_probability(
     the defence's ratings added to every ball alike. ``range_model`` 1
     (Release 6a): the neutral chance (:func:`neutral_out_probability`)
     shifted in log-odds by the one responsible fielder's rating
-    (:func:`range_shifted_out_probability`).
+    (:func:`range_shifted_out_probability`); ``infield_play`` says a line
+    drive is played in the infield (:func:`responsible_position`).
     """
     if tuning.get("range_model", 0.0) < 0.5:
         return _additive_out_probability(
@@ -398,7 +425,8 @@ def out_probability(
     if spray_angle is None or not batter_side:
         return out0
     position = responsible_position(
-        ball_type=ball_type, spray_angle=spray_angle, tuning=tuning
+        ball_type=ball_type, spray_angle=spray_angle, tuning=tuning,
+        infield_play=infield_play,
     )
     rating = defense.positions.get(position)
     if rating is None:
@@ -593,14 +621,21 @@ def double_play_probability(
     return max(0.03, min(tuning.get("double_play_max", 0.45), prob))
 
 
-def select_out_type(ball_type: str, launch_angle: float) -> tuple[str, bool]:
+def select_out_type(
+    ball_type: str, launch_angle: float, infield_play: bool | None = None
+) -> tuple[str, bool]:
+    """The kind of out a ball ruled an out is. A low line drive is an
+    infield play ``INFIELD_LINER_SHARE`` of the time, drawn here -- unless
+    ``infield_play`` was already drawn for it (:func:`draw_infield_liner`,
+    ``range_model`` 1), which is then used and nothing is drawn."""
     if ball_type == "gb":
         return "groundout", True
     if ball_type == "fb":
         return "flyout", False
-    if launch_angle >= 18.0:
+    if launch_angle >= INFIELD_LINER_MAX_LA:
         return "flyout", False
-    infield_play = random.random() < 0.45
+    if infield_play is None:
+        infield_play = random.random() < INFIELD_LINER_SHARE
     return "lineout", infield_play
 
 

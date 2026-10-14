@@ -310,9 +310,12 @@ BALLS = {
 }
 
 
-def _scripted_game(monkeypatch, plan, *, seed, extra=None):
-    """A calibration game whose top of the first follows ``plan`` pitch by
-    pitch; every other pitch of the game is a called strike.
+def _scripted_game(monkeypatch, plan, *, seed, extra=None, half=(1, "away"),
+                   ground_out=None):
+    """A calibration game whose top of the first (or the ``half`` given:
+    inning, batting side) follows ``plan`` pitch by pitch; every other
+    pitch of the game is a called strike. ``ground_out`` replaces the
+    scripted force play at second.
 
     A step is a dict: ``pitch`` ("ball", "strike" or a key of ``BALLS``),
     and optionally ``pickoff`` (the event a pickoff attempt after the pitch
@@ -328,7 +331,7 @@ def _scripted_game(monkeypatch, plan, *, seed, extra=None):
 
     def fake_pitch(**_kwargs):
         frame = sys._getframe(1).f_locals
-        scripted = frame["inning"] == 1 and frame["batting_team"] == "away" and steps
+        scripted = (frame["inning"], frame["batting_team"]) == half and steps
         state["step"] = steps.pop(0) if scripted else {"pitch": "strike"}
         kind = state["step"]["pitch"]
         if kind in BALLS:
@@ -367,7 +370,7 @@ def _scripted_game(monkeypatch, plan, *, seed, extra=None):
         ("extra_error_probability", fake_extra),
         ("_attempt_pickoff", fake_pickoff),
         ("_attempt_steal", fake_steal),
-        ("_resolve_ground_out", fake_ground_out),
+        ("_resolve_ground_out", ground_out or fake_ground_out),
         ("_attempt_extra_base", lambda **_k: "hold"),
         ("_missed_pitch_type", lambda **_k: None),
         ("_should_bunt", lambda **_k: False),

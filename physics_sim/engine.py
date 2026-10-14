@@ -25,6 +25,7 @@ from .fielding import (
     error_probability,
     select_error_type,
     average_error_probability,
+    draw_infield_liner,
     extra_error_probability,
     field_direction,
     fielder_arm_rating,
@@ -3238,6 +3239,11 @@ def _hit_advance_log(
     return rows
 
 
+# Release 6a: bases a hit gives the batter (and so, at least, every runner
+# ahead of him in the reconstruction of rule 9.16(a)).
+_HIT_BASES = {"single": 1, "double": 2, "triple": 3, "hr": 4}
+
+
 def _advance_all_on_error(
     bases: BaseState,
 ) -> tuple[int, list[BatterRatings], list[BatterRatings]]:
@@ -3310,6 +3316,7 @@ def _ball_chance_record(
     average_defense: DefenseRatings | None,
     mound: PitcherRatings | None,
     tuning: TuningConfig,
+    infield_play: bool | None = None,
 ) -> tuple:
     """One ball in play for ``play_records["bip_chances"]`` (Release 6a,
     ``fielding_chance_log``): ``(pitch_log index, fielding side, ball type,
@@ -3317,7 +3324,8 @@ def _ball_chance_record(
     chance league-average fielders there would have had, hit chance
     rolled)``.
 
-    Under ``range_model`` 1 one fielder is responsible and the average
+    Under ``range_model`` 1 one fielder is responsible (an infielder on a
+    liner drawn as an infield play, ``infield_play``) and the average
     chance is the neutral ``out0``. Under the additive chance the two
     infielders on the ball's side share a ground ball, and the average
     chance is the additive one behind ``average_defense``
@@ -3340,7 +3348,8 @@ def _ball_chance_record(
         if spray is not None:
             positions = (
                 responsible_position(
-                    ball_type=ball_type, spray_angle=spray, tuning=tuning
+                    ball_type=ball_type, spray_angle=spray, tuning=tuning,
+                    infield_play=infield_play,
                 ),
             )
     else:
@@ -5983,6 +5992,7 @@ def simulate_game(
     error_chances: List[tuple] = []
     average_defense = league_average_defense(tuning) if chance_log else None
     error_model = tuning.get("error_model", 0.0)
+    range_model = tuning.get("range_model", 0.0) >= 0.5
     score_away = 0
     score_home = 0
     inning_runs_away: List[int] = []
@@ -6227,6 +6237,16 @@ def simulate_game(
         # entering pitcher is not charged with an inherited runner.
         auto_runner_ids: set[str] = set()
         unearned_outs = 0
+        # Release 6a (error_model 2): runner id -> the base he would hold
+        # had an extra-base error not moved him up (``extra_base_error``);
+        # the base he was on when that shadow was last moved on; the
+        # shadows made on the play under way; and the bases the batter's
+        # hit on that play gave every runner (4 for a home run). Empty
+        # unless an extra-base error happened: nothing reads them then.
+        shadow_bases: dict[str, int] = {}
+        shadow_seen: dict[str, int] = {}
+        shadow_fresh: set[str] = set()
+        play_hit_value = 0
         if batting_team == "away":
             offense_score = score_away
             defense_score = score_home
@@ -6404,6 +6424,18 @@ def simulate_game(
                         runner.player_id in unearned_runners
                         or outs + unearned_outs >= 3
                     )
+                    shadow = shadow_bases.pop(runner.player_id, None)
+                    shadow_seen.pop(runner.player_id, None)
+                    if shadow is not None and not unearned:
+                        # Release 6a (rule 9.16(a)): an extra-base error
+                        # moved him up. Earned only if he would have scored
+                        # without it -- his shadow carried home by this
+                        # play's hit (not by the error, if it came on this
+                        # same play).
+                        carried = (
+                            0 if runner.player_id in shadow_fresh else play_hit_value
+                        )
+                        unearned = shadow + carried < 4
                     if not unearned:
                         responsible_line.earned_runs += 1
                     unearned_runners.discard(runner.player_id)
@@ -6526,10 +6558,13 @@ def simulate_game(
 
             Charged to ``fielder`` at ``position`` (the box score's E, the
             game totals, the last log entry's ``error_type`` / ``error_on``
-            / ``error_runners``); every runner who moved up is from then on
-            an unearned runner, and no out is added to the inning's
-            reconstruction, because none was lost. Returns (runs, scored,
-            moved); the caller records the runs.
+            / ``error_runners``). No out is added to the inning's
+            reconstruction, because none was lost. Each runner it moved up
+            gets a SHADOW base -- where he would stand without the error
+            (``shadow_bases``) -- and his run is unearned only if the
+            shadow would not have scored (rule 9.16(a): see
+            ``sync_unearned_runners`` and ``record_runs``). Returns (runs,
+            scored, moved); the caller records the runs.
             """
             totals["e"] += 1
             totals["e_throw" if error_type == "throwing" else "e_field"] += 1
@@ -6539,9 +6574,19 @@ def simulate_game(
             error_records.append(
                 (len(pitch_log) - 1, source, position, fielder_id, defense_team)
             )
+            standing = {
+                runner.player_id: base
+                for base, runner in (
+                    (3, bases.third), (2, bases.second), (1, bases.first)
+                )
+                if runner is not None
+            }
             runs, scored_on_error, moved = _advance_all_on_error(bases)
             for runner in moved:
-                unearned_runners.add(runner.player_id)
+                pid = runner.player_id
+                # A runner the error moved again keeps the shadow he had.
+                shadow_bases.setdefault(pid, standing[pid])
+                shadow_fresh.add(pid)
             if pitch_log:
                 entry = pitch_log[-1]
                 _append_entry_value(entry, "error_type", error_type)
@@ -6554,13 +6599,65 @@ def simulate_game(
                         listed.append(runner.player_id)
             return runs, scored_on_error, moved
 
+        def ends_the_game(runs: int) -> bool:
+            """Release 6a: whether ``runs`` more for the batting side (not
+            yet recorded) end the game, or it is already over -- no
+            ``error_model`` 2 roll after a walk-off."""
+            if walkoff:
+                return True
+            return (
+                walkoff_allowed
+                and batting_team == "home"
+                and score_home + runs > score_away
+            )
+
         def sync_unearned_runners() -> None:
+            nonlocal play_hit_value
             base_ids = {
                 runner.player_id
                 for runner in (bases.first, bases.second, bases.third)
                 if runner is not None
             }
             unearned_runners.intersection_update(base_ids)
+            if shadow_bases:
+                _advance_shadows()
+            play_hit_value = 0
+
+        def _advance_shadows() -> None:
+            """Release 6a (error_model 2): move each shadow base on with the
+            play just finished (rule 9.16(a), the inning reconstructed
+            without the extra-base errors). The shadow advances as far as
+            the runner himself did, or as far as the batter's hit carried
+            every runner (``play_hit_value``: a double moves the shadow two
+            bases), and never past the runner; a shadow that catches him up
+            is dropped, and so is a runner no longer on base. Benefit of the
+            doubt to the pitcher: on anything else the shadow moves no
+            further than the runner did. A shadow made on this play (the
+            error came after the play's own advances) starts from here."""
+            standing = {
+                runner.player_id: base
+                for base, runner in (
+                    (1, bases.first), (2, bases.second), (3, bases.third)
+                )
+                if runner is not None
+            }
+            for pid in list(shadow_bases):
+                now = standing.get(pid)
+                if now is None:
+                    shadow_bases.pop(pid, None)
+                    shadow_seen.pop(pid, None)
+                    continue
+                if pid not in shadow_fresh:
+                    moved = max(0, now - shadow_seen.get(pid, now))
+                    shadow_bases[pid] = min(
+                        now, shadow_bases[pid] + max(moved, play_hit_value)
+                    )
+                if shadow_bases[pid] >= now:
+                    shadow_bases.pop(pid, None)
+                    shadow_seen.pop(pid, None)
+                else:
+                    shadow_seen[pid] = now
+            shadow_fresh.clear()
 
         open_pa: list[tuple[BatterLine, dict[str, int]]] = []
 
@@ -7279,6 +7376,8 @@ def simulate_game(
                             defense_arm=defense_ratings.arm,
                             tuning=tuning,
                         )
+                        # Release 6a: a home run brings every shadow home.
+                        play_hit_value = 4
                         record_runs(runs_scored, line, scored)
                         if scored:
                             rbi_runs = rbi_credit(scored, error_advances)
@@ -7296,6 +7395,18 @@ def simulate_game(
                         pitcher_hand = (pitcher.throws or "R").upper()
                         if batter_hand == "S":
                             batter_hand = "L" if pitcher_hand == "R" else "R"
+                        # Release 6a (range_model 1): whether a low liner is
+                        # played in the infield is drawn before its out
+                        # chance, so its responsible fielder is the one
+                        # credited and charged. Off: drawn as before, after
+                        # the hit roll and only for an out.
+                        liner_infield: dict[str, bool] = {}
+                        if range_model:
+                            drawn = draw_infield_liner(
+                                ball_type, res.launch_angle or 12.0
+                            )
+                            if drawn is not None:
+                                liner_infield = {"infield_play": drawn}
                         out_prob = out_probability(
                             ball_type=ball_type,
                             exit_velo=res.exit_velo or 90.0,
@@ -7306,6 +7417,7 @@ def simulate_game(
                             defense=defense_ratings,
                             tuning=tuning,
                             batter_speed=batter.speed,
+                            **liner_infield,
                         )
                         hit_prob = (1.0 - out_prob) * tuning.get("babip_scale", 1.0)
                         babip_edge = _contact_babip_edge(batter, tuning)
@@ -7330,6 +7442,7 @@ def simulate_game(
                                     average_defense=average_defense,
                                     mound=pitcher_state.pitcher,
                                     tuning=tuning,
+                                    infield_play=liner_infield.get("infield_play"),
                                 )
                             )
                         if rng.random() < hit_prob:
@@ -7473,12 +7586,15 @@ def simulate_game(
                             # lets the hit get by him and every runner, the
                             # batter included, takes one more base. After
                             # the hit's own advances are logged above; not
-                            # on a play that ended the inning. One draw,
+                            # on a play that ended the inning or the game,
+                            # nor with nobody there to charge. One draw,
                             # only under the model.
                             if (
                                 error_model >= 1.5
                                 and not advance_infield
+                                and advance_fielder is not None
                                 and outs + outs_added < 3
+                                and not ends_the_game(runs_scored)
                             ):
                                 misplay_fa, _ = _error_roll_ratings(
                                     fielder=advance_fielder,
@@ -7500,6 +7616,9 @@ def simulate_game(
                                     scored = scored + e_scored
                                     error_advances = error_advances + e_moved
                                     events = events + ["e_of"]
+                            # Release 6a: what the hit itself carried every
+                            # runner (the shadow bases of rule 9.16(a)).
+                            play_hit_value = _HIT_BASES.get(resolved_hit, 1)
                             record_runs(runs_scored, line, scored)
                             if scored:
                                 rbi_runs = rbi_credit(scored, error_advances)
@@ -7513,7 +7632,7 @@ def simulate_game(
                                 pitch_log[-1]["runner_event"] = "+".join(events)
                         else:
                             out_type, infield_play = select_out_type(
-                                ball_type, res.launch_angle or 12.0
+                                ball_type, res.launch_angle or 12.0, **liner_infield
                             )
                             res.out_type = out_type
                             error_pos = _fielder_position_for_ball(
@@ -7942,11 +8061,14 @@ def simulate_game(
                                     # at second the relay to first gets away
                                     # and every runner, the batter included,
                                     # takes a base. No RBI for a run it lets
-                                    # in. One draw, only under the model.
+                                    # in. Not after a walk-off, nor with
+                                    # nobody to throw. One draw, only under
+                                    # the model.
                                     if (
                                         error_model >= 1.5
                                         and events == ["fc"]
                                         and outs + outs_added < 3
+                                        and not ends_the_game(runs_scored)
                                     ):
                                         relay_pos = (
                                             "2B" if primary_pos in {"SS", "3B"} else "SS"
@@ -7959,7 +8081,7 @@ def simulate_game(
                                             position=relay_pos,
                                             tuning=tuning,
                                         )
-                                        if random.random() < extra_error_probability(
+                                        if relay_fielder is not None and random.random() < extra_error_probability(
                                             "error_relay_throw_rate",
                                             arm=relay_arm,
                                             tuning=tuning,
@@ -8393,9 +8515,11 @@ def simulate_game(
                                 # Release 6a (error_model 2): the catcher's
                                 # throw on a stolen base sails into the
                                 # outfield and every runner takes one more.
-                                # One draw, only under the model.
+                                # Only with a catcher to charge. One draw,
+                                # only under the model.
                                 if (
                                     error_model >= 1.5
+                                    and catcher is not None
                                     and outs < 3
                                     and not walkoff
                                     and any(

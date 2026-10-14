@@ -872,11 +872,12 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # the generation 6 values are in scripts/kpi_profiles/r6_fielding.json.
     #
     # fielding_chance_log 1: for each ball in play the engine records, in
-    # GameResult.play_records["bip"] (never the pitch log or the metadata),
-    # the responsible position and fielder, the out chance used and the out
-    # chance a league-average fielder there would have had; and for each
-    # error roll the chance used and an average fielder's. Passive: it
-    # draws nothing and changes nothing. The KPI harness turns it on.
+    # GameResult.play_records["bip_chances"] (never the pitch log or the
+    # metadata), the responsible position and fielder, the out chance used
+    # and the out chance a league-average fielder there would have had; and
+    # in play_records["error_chances"], for each error roll, the chance
+    # used and an average fielder's. Passive: it draws nothing and changes
+    # nothing. The KPI harness turns it on.
     "fielding_chance_log": 0.0,
     # fielder_centred_ratings 1 (owner decision 7): a fielder's fa at one of
     # the seven fielder_fa_center positions reads as 50 + (fa - the league
@@ -937,7 +938,9 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # fielder_fa_center_p), the catcher's throw on a stolen base, an
     # outfielder letting a hit through for an extra base, a pickoff throw
     # that gets away and the relay on a force play. Each is a rate times
-    # exp() of the same slopes; the runners move up a base, unearned.
+    # exp() of the same slopes; the runners move up a base. A run is
+    # unearned only if the runner would not have scored without the error
+    # (rule 9.16(a); engine.play_half_inning's shadow bases).
     "error_model": 0.0,
     "error_base_1b": 0.029,
     "error_base_2b": 0.020,
