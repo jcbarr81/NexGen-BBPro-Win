@@ -1907,7 +1907,7 @@ building them:
   stored ratings.** They are displays, left on stored values for the
   display step, but their "overall" mixes moved and unmoved ratings and
   will read differently on scale 2 than the overall everywhere else.
-- **`fixtures with eight active hitters`:** DEN and ELP in
+- **Two fixture clubs have eight active hitters.** DEN and ELP in
   `data/calibration_league` cannot field nine through the lineup
   auto-fill (the harness reads their saved lineup files, so no run is
   affected).
