@@ -2,7 +2,7 @@
 import logging
 import math
 import random
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Tuple, Set, Optional
 import csv
 from pathlib import Path
@@ -1239,29 +1239,44 @@ def reset_name_cache():
     
 # Helper Functions
 
-def _league_year() -> Optional[int]:
-    """The league's year (its sim date, as ``playbalance.aging`` reads it
-    for every age), or ``None`` outside a league."""
+def _league_sim_date() -> Optional[date]:
+    """The league's sim date (as ``playbalance.aging`` reads it for every
+    age), or ``None`` outside a league."""
 
     try:
         from playbalance.aging import get_sim_date
 
-        sim_date = get_sim_date()
+        return get_sim_date()
     except Exception:
         return None
+
+
+def _league_year() -> Optional[int]:
+    """The league's year (its sim date's), or ``None`` outside a league."""
+
+    sim_date = _league_sim_date()
     return sim_date.year if sim_date is not None else None
 
 
 def reference_datetime(year: Optional[int] = None) -> datetime:
     """The day a generated player's age is counted back from.
 
-    Today's date moved into the LEAGUE's year (``year``, else the league's
-    sim date year). A league whose year is the real year gets exactly
-    today, as it always did; one whose year runs ahead of (or behind) the
-    real calendar gets the same day of its own year, so a 19-year-old is 19
-    in that league. Until 8.0 the real date was always used, which made
-    every player generated for a league ahead of the calendar older by the
-    difference.
+    For the LEAGUE's year (``year``, else the league's sim date year). A
+    league whose year is the real year gets exactly today, as it always did.
+    For any other year:
+
+    * the league's sim date, when it falls in that year (a draft class made
+      during the season, a free agent made in the preseason): the player is
+      his age on the league's calendar, not on today's day of the year moved
+      into it (which could date a class months after its own draft and make
+      a 16-year-old draftee);
+    * 1 January of that year when the sim date is in another year (a class
+      made ahead, at the end of the season before), so no prospect is
+      younger at his draft than the class says;
+    * today moved into that year when the league has no sim date.
+
+    Until 8.0 the real date was always used, which made every player
+    generated for a league ahead of the calendar older by the difference.
     """
 
     today = datetime.today()
@@ -1269,10 +1284,16 @@ def reference_datetime(year: Optional[int] = None) -> datetime:
         year = _league_year()
     if year is None or int(year) == today.year:
         return today
+    year = int(year)
+    sim_date = _league_sim_date()
+    if sim_date is not None:
+        if sim_date.year == year:
+            return datetime(sim_date.year, sim_date.month, sim_date.day)
+        return datetime(year, 1, 1)
     try:
-        return today.replace(year=int(year))
+        return today.replace(year=year)
     except ValueError:  # 29 February in a year without one
-        return today.replace(year=int(year), day=28)
+        return today.replace(year=year, day=28)
 
 
 def generate_birthdate(

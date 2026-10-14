@@ -59,9 +59,38 @@ def test_scale_1_generation_in_a_league_of_this_year_is_unchanged(may_2026, monk
 
 def test_the_reference_day_is_today_in_the_leagues_year(may_2026, monkeypatch):
     assert pg.reference_datetime(2026) == _FakeToday.today()
+    # A league with no sim date: today moved into its year.
+    monkeypatch.setattr(pg, "_league_sim_date", lambda: None)
     assert pg.reference_datetime(2031).date() == date(2031, 5, 5)
+
+
+def test_the_reference_day_is_the_leagues_sim_date(may_2026, monkeypatch):
+    """Fix-up 8: a league ahead of the calendar dates players from its own
+    sim date (today's month and day moved into its year could date a draft
+    class months after its draft: a 16-year-old draftee). A class made for
+    a later year than the sim date's is dated 1 January of that year. A
+    league in the real year is unchanged."""
+
+    monkeypatch.setenv("PB_SIM_DATE", "2031-03-02")
+    assert pg.reference_datetime(2031).date() == date(2031, 3, 2)
+    assert pg.reference_datetime().date() == date(2031, 3, 2)
+    assert pg.reference_datetime(2032).date() == date(2032, 1, 1)
+    monkeypatch.setenv("PB_SIM_DATE", "2026-03-02")
+    assert pg.reference_datetime(2026) == _FakeToday.today()
+    monkeypatch.delenv("PB_SIM_DATE")
     monkeypatch.setenv("PB_SIM_YEAR", "2034")
-    assert pg.reference_datetime().date() == date(2034, 5, 5)
+    assert pg.reference_datetime().date() == date(2034, 7, 1)
+
+
+def test_a_draft_class_made_during_the_season_has_no_16_year_olds(may_2026, monkeypatch):
+    # Today is 5 May; the league's draft is in March of 2031 (a preseason
+    # draft): every prospect is at least 17 on the league's own date.
+    monkeypatch.setenv("PB_SIM_DATE", "2031-03-02")
+    pg.reset_name_cache()
+    pool = draft_pool.generate_draft_pool(2031, size=200, seed=11, rating_scale=1)
+    youngest = max(date.fromisoformat(str(p.birthdate)[:10]) for p in pool)
+    # Born on or before 2 March 2014: 17 on the league's date.
+    assert youngest <= date(2014, 3, 2), youngest
 
 
 @pytest.mark.parametrize("year", [2026, 2033])

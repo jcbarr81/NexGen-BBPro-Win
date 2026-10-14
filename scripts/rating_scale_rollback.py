@@ -27,6 +27,7 @@ engine generation over a higher one, by design).
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 from pathlib import Path
@@ -36,7 +37,24 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from services import rating_scale_migration as migration  # noqa: E402
-from utils.rating_scale import players_file_rating_scales, describe_rating_scales  # noqa: E402
+from utils.rating_scale import (  # noqa: E402
+    LEGACY_RATING_SCALE,
+    describe_rating_scales,
+    players_file_rating_scales,
+)
+
+
+def describe_players_file(players: Path) -> str:
+    """How many rows of ``players`` are on each scale. A file with no
+    ``rating_scale`` column (every row on scale 1, what an inverse rollback
+    writes) is counted row by row: ``players_file_rating_scales`` decides it
+    from the header alone and reports no count."""
+
+    counts = players_file_rating_scales(players)
+    if counts == {LEGACY_RATING_SCALE: 0}:
+        with players.open(newline="", encoding="utf-8") as fh:
+            counts = {LEGACY_RATING_SCALE: sum(1 for _ in csv.DictReader(fh))}
+    return describe_rating_scales(counts)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -58,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     if not players.exists():
         parser.error(f"{players} does not exist")
     log = migration.read_scale_log(base)
-    print("players.csv now:", describe_rating_scales(players_file_rating_scales(players)))
+    print("players.csv now:", describe_players_file(players))
     print("rating_scale.json events:", [e.get("event") for e in log.get("events", [])])
     if args.dry_run:
         backups = sorted(p.name for p in base.glob("players.scale1.*.csv"))
@@ -74,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
         print("generation:", json.dumps(
             migration.set_recorded_generation(base, season, args.generation)
         ))
-    print("players.csv after:", describe_rating_scales(players_file_rating_scales(players)))
+    print("players.csv after:", describe_players_file(players))
     return 0
 
 

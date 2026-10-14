@@ -555,10 +555,17 @@ TUTORIALS: List[Tutorial] = [
                 "<p>Nothing changes for a season that is already under way. Your league moves to the <b>updated game engine</b> at the start of its own next season: when the commissioner advances the league into the new season, before its first regular-season game. A brand-new league starts on it. A season's stats are never split between two engines, and resetting to Opening Day or regenerating the schedule does not change the engine a season is played on.</p>"
                 "<p>How to tell: when the league moves, one item in <b>Today → News</b> says the league now plays on the updated game engine. Commissioners can also check the line at the top of <b>Admin → Physics Tuning</b>, which reads either <i>This league uses the new game engine.</i> or <i>This league moves to the new game engine at the start of next season.</i></p>"
                 "<p>Three changes do not wait for the new season; the step <b>Changes every league sees right away</b> lists them.</p>",
+                rating_scale=1,
+            ),
+            TutorialStep(
+                "When a league moves to it",
+                "<p>A league plays the updated game engine from the start of a season, never from the middle of one. A league that existed before version 8.0.0 moved when the commissioner advanced it into a new season, before its first regular-season game; a league created since started on it. A season's stats are never split between two engines, and resetting to Opening Day or regenerating the schedule does not change the engine a season is played on.</p>"
+                "<p>How to tell: when an existing league moves, items in <b>Today → News</b> say so. Commissioners can also check the line at the top of <b>Admin → Physics Tuning</b>.</p>",
+                rating_scale=2,
             ),
             TutorialStep(
                 "The 8.0.0 update: what your league got",
-                "<p>With version 8.0.0 your league moved to the newest game engine and to the full 1 to 99 rating scale together, at the start of a new season, before its first game. Nothing changed in the middle of a season. One item in <b>Today → News</b> says when it happened.</p>"
+                "<p>Version 8.0.0 brought the newest game engine and the full 1 to 99 rating scale together. A league that existed before it moved to both at the start of a new season, before its first game (an item in <b>Today → News</b> says when); a league created since started on both.</p>"
                 "<p>What changed, in short (the steps below give the detail):</p>"
                 "<ul>"
                 "<li><b>Pitch grades drive a pitcher's stuff</b>, <b>Arm</b> is now a strikeout rating, and <b>Control</b> is mostly about where the pitch goes, so it shows in walks more than in strikeouts.</li>"
@@ -574,7 +581,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Ratings on the full 1 to 99 scale",
-                "<p>When your league moved to the updated game engine, its ratings moved to the full 1 to 99 scale. The move itself <b>changed no player</b>: each rating was rewritten on the wider scale, keeping every player's order, and the game reads it exactly as it read the old number (in testing, leagues and their rewritten copies played identical seasons, pitch for pitch). Salaries, the draft and the computer managers read the ratings as before, except that computer clubs now value a young player's upside by what development will deliver (see <b>Player development</b>). A league whose ratings were bunched closely together may also have had them spread out at the move, keeping every player's order; its commissioner announces that separately.</p>"
+                "<p>A league that moved with 8.0.0 had its ratings rewritten on the full 1 to 99 scale (a league created since was generated on it). The rewrite itself <b>changed no player</b>: each rating was rewritten on the wider scale, keeping every player's order, and the game reads it exactly as it read the old number (in testing, leagues and their rewritten copies played identical seasons, pitch for pitch). Salaries, the draft and the computer managers read the ratings as before, except that computer clubs now value a young player's upside by what development will deliver (see <b>Player development</b>). A league whose ratings were bunched closely together may also have had them spread out at the move, keeping every player's order; its commissioner announces that separately.</p>"
                 "<p>What the numbers mean now, for Contact, Power, Eye, Fielding and Arm, and a pitcher's Control, Movement and Arm:</p>"
                 "<ul>"
                 "<li><b>50</b> is an average regular: a player who holds a job in a big-league lineup or staff.</li>"
@@ -583,8 +590,8 @@ TUTORIALS: List[Tutorial] = [
                 "<li><b>90 and above</b> is the best handful of players in the league at that one skill; some leagues have none.</li>"
                 "<li><b>20 to 30</b> is a raw prospect or a player out of his depth.</li>"
                 "</ul>"
-                "<p><b>Overall</b> is on the same scale: an average regular reads about 50 and the best player in a league about 88 to 92. Stars follow the overall and are handed out about as often as before.</p>"
-                "<p><b>Why your screens changed.</b> Before the move, pages did not show a stored rating: they blended it with where the player ranked in your league, so a stored 65 read about 82 and nothing read below 35. Now every page shows the rating as it is stored: the roster, the player browser, free agents, the profile, and the draft page, which used to be the one page that showed stored numbers. Average players read lower than they did (about 50 instead of about 58), the best read higher, and the draft page agrees with every other page.</p>"
+                "<p><b>Overall</b> is on the same scale: an average regular reads about 50 and the best player in a league about 90 (88 to 94 in the test leagues). Stars follow the overall and are handed out about as often as before.</p>"
+                "<p><b>Why the screens changed</b> (a league that moved). Before the move, pages did not show a stored rating: they blended it with where the player ranked in your league, so a stored 65 read about 82 and nothing read below 35. Now every page shows the rating as it is stored: the roster, the player browser, free agents, the profile, and the draft page, which used to be the one page that showed stored numbers. Average players read lower than they did (about 50 instead of about 58), the best read higher, and the draft page agrees with every other page.</p>"
                 "<p>Speed, Endurance, Hold, the pitch grades, GB/FB, Platoon vs L and Scouting were already spread across the scale and were not rewritten; they now show as stored too. Scouting reports carry the same size of error as before. Every rating quoted in these steps is on the full scale.</p>",
                 rating_scale=2,
             ),
@@ -634,6 +641,19 @@ TUTORIALS: List[Tutorial] = [
                 "<li>Home teams win about 53% of games: .529 in that sample against .490 on the earlier engine (sampling error about .024 either way).</li>"
                 "</ul>"
                 "<p>Scoring comes down because the earlier engine read ratings as absolute numbers, which ran hot in live leagues. The updated game engine reads them against your league; the next step explains what that means.</p>",
+                rating_scale=1,
+            ),
+            TutorialStep(
+                "What the numbers look like",
+                "<p>Scoring is at about MLB's level, 4.47 runs per team per game: about 4.4 on the main test league (8 seasons), 4.6 on a test league with unusually fast runners (4 seasons) and 4.4 on a copy of stats-test (3 seasons). Strikeouts are about 22% and walks about 8% of plate appearances, home runs about 1.0 to 1.1 per team per game and doubles about 1.6.</p>"
+                "<p>Compared with the original game engine (the one every league played before version 7.51), that is about half a run per team per game less, with a few more strikeouts and fewer walks. Since then:</p>"
+                "<ul>"
+                "<li>Managers issue intentional walks, about 12 to 15 per team per season (MLB's rate; there were none).</li>"
+                "<li>Hit batters fell from 1.4% to about 0.9% of plate appearances.</li>"
+                "<li>Home teams win about 53% of games (they won about 49%).</li>"
+                "</ul>"
+                "<p>The updated game engine reads ratings against your league; the next step explains what that means.</p>",
+                rating_scale=2,
             ),
             TutorialStep(
                 "Ratings are read against your league",
@@ -641,6 +661,15 @@ TUTORIALS: List[Tutorial] = [
                 "<p>What that means for you: a 60 is good because it is ten points above the league's regulars, not because of the number 60. When the whole league is strong, an average player is still average, and a league whose players are all rated higher or lower than another's plays the same baseball. In testing, adding the same amount to every hitter's ratings in a league gave an identical season. Judge a player by how he compares with the rest of your league.</p>"
                 "<p>The league's averages are set when the season starts and stay fixed for that season.</p>"
                 "<p>Two differences between leagues are not evened out by this. A league whose hitters' pull and ground-ball tendencies are bunched together hits about 7 to 10% fewer home runs than a league with the full spread. alpha-test is such a league; leagues created since September 2026 are not. The next engine release reworks batted balls. And in a league whose relievers are not rated above its starters, the late innings are barely harder for hitters than the rest of the game.</p>",
+                rating_scale=1,
+            ),
+            TutorialStep(
+                "Ratings are read against your league",
+                "<p>On the updated game engine every rating that decides a plate appearance is read relative to your league. A hitter's <b>Contact</b>, <b>Power</b> and <b>Eye</b> are compared with the average of the league's lineup regulars, the hitters who actually bat. A pitcher's <b>Control</b>, <b>Movement</b>, pitch grades and arm are compared with the average of the league's pitching staffs, weighted by workload: a rotation starter counts 2.5 times a reliever. A fielder's <b>Fielding</b> and <b>Arm</b> are compared with the league's regulars at his position.</p>"
+                "<p>What that means for you: a rating is good because it is above the league's regulars, not because of its number. When the whole league is strong, an average player is still average, and a league whose players are all rated higher or lower than another's plays the same baseball. In testing, adding the same amount to every hitter's ratings in a league gave an identical season. Judge a player by how he compares with the rest of your league.</p>"
+                "<p>The league's averages are set when the season starts and stay fixed for that season.</p>"
+                "<p>Two differences between leagues are not evened out by this. A league whose hitters' pull and ground-ball tendencies are bunched together hits a few percent fewer home runs than a league with the full spread. And in a league whose relievers are not rated above its starters, the late innings are barely harder for hitters than the rest of the game.</p>",
+                rating_scale=2,
             ),
             TutorialStep(
                 "Contact",

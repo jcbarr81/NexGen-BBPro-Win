@@ -2789,6 +2789,9 @@ export const api = {
         focus: string;
         total_gain: number;
       }>;
+      // 8.0.0: the gains are this offseason's development (rollover), not
+      // camp's own (full rating scale).
+      gains_are_offseason_development?: boolean;
     }>("/season/preseason/training-camp", { method: "POST" }),
   seasonState: () => apiRequest<SeasonState>("/season/state"),
   seasonSimProgress: () =>

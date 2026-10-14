@@ -1403,6 +1403,16 @@ def _run_physics_game(
         else {}
     )
     box = _hydrate_physics_boxscore(boxscore, players_lookup)
+    # The fielding line of each side (who made each error, and the kind of
+    # the newer error types): presentation only, from the engine's records.
+    from playbalance.simulation import boxscore_errors
+
+    errors_by_side = boxscore_errors(
+        (getattr(result, "play_records", None) or {}).get("errors"), players_lookup
+    )
+    for side in ("home", "away"):
+        if isinstance(box.get(side), dict):
+            box[side]["errors"] = errors_by_side[side]
 
     score = (
         metadata.get("score", {}) if isinstance(metadata.get("score"), dict) else {}

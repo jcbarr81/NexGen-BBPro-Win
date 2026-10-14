@@ -43,9 +43,9 @@ def test_the_rollover_moves_the_league_before_the_offseason_steps(scratch, monke
     real_move = league_rollover.LeagueRolloverService._move_to_full_rating_scale
     real_aging = league_rollover.LeagueRolloverService._apply_yearly_aging
 
-    def move(self, year):
+    def move(self, year, *args, **kwargs):
         order.append(("move", year))
-        return real_move(self, year)
+        return real_move(self, year, *args, **kwargs)
 
     def aging(self):
         order.append(("aging", players_file_rating_scale(data / "players.csv")))

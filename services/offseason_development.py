@@ -62,16 +62,34 @@ from utils.players_file_writes import note_players_file_written
 from utils.rating_scale import RATING_SCALE_FIELD
 
 __all__ = [
+    "CAMP_WITHHELD_KEY",
     "DEVELOPMENT_RECORD",
     "OffseasonDevelopmentError",
+    "camp_gains_withheld",
+    "development_news",
     "load_development_record",
     "run_offseason_development",
+    "withhold_scale1_camp",
 ]
 
 _LOGGER = logging.getLogger(__name__)
 
 # The last offseason's changes, for the spring training camp to report.
 DEVELOPMENT_RECORD = "development_last.json"
+# Set in the record by a rollback to scale 1 (services.rating_scale_migration):
+# that offseason was developed already, so the scale 1 spring camp that
+# follows marks players ready but gives no rating gains.
+CAMP_WITHHELD_KEY = "scale1_camp_gains_withheld"
+# Players named in the development news item, each way.
+NEWS_NAMED = 3
+_LABELS = {  # rating-scale: display names of rating keys, no rating is read
+    "ch": "Contact", "ph": "Power", "eye": "Eye", "sp": "Speed",  # rating-scale: labels
+    "fa": "Fielding", "arm": "Arm", "control": "Control",  # rating-scale: labels
+    "movement": "Movement", "endurance": "Endurance", "hold_runner": "Hold",  # rating-scale: labels
+    "fb": "Fastball", "cu": "Changeup", "cb": "Curveball", "sl": "Slider",
+    "si": "Sinker", "scb": "Screwball", "kn": "Knuckleball", "gf": "GB/FB",
+    "pl": "Pull",
+}
 # The label the training history shows for the offseason's development.
 DEVELOPMENT_TIER = "offseason"
 DEVELOPMENT_NOTE = (
@@ -213,6 +231,7 @@ def run_offseason_development(
     params: DevelopmentParams = DEFAULT_PARAMS,
     record: bool = True,
     attempts: int = 3,
+    announce: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """Develop every scale 2 player in the league's ``players.csv``.
 
@@ -228,7 +247,8 @@ def run_offseason_development(
     artifacts. If the file is written by someone else meanwhile, the whole
     step is redone on the new file, up to ``attempts`` times. Raises
     :class:`OffseasonDevelopmentError` rather than write anything doubtful;
-    the file is then as it was.
+    the file is then as it was. ``announce`` posts the league news item
+    (:func:`development_news`).
     """
 
     resolved = Path(data_dir) if data_dir is not None else get_data_dir()
@@ -266,6 +286,8 @@ def run_offseason_development(
         _mark_developed(resolved, season, results)
         if record:
             _record_history(results, rows)
+        if announce:
+            _post_news(resolved, development_news(season, results, rows))
         _LOGGER.info("offseason development %s: %s", path, summary)
         return summary
     raise OffseasonDevelopmentError(
@@ -408,6 +430,89 @@ def _record_history(results: List[DevelopmentResult], rows: List[Dict[str, str]]
         record_training_session(_reports(results, rows))
     except Exception:
         _LOGGER.exception("offseason development: training history not written")
+
+
+def development_news(
+    season: object, results: List[DevelopmentResult], rows: List[Dict[str, str]]
+) -> str:
+    """The league news item for an offseason's development: how many
+    players improved and declined, and the biggest risers and decliners
+    with their before and after on the full scale (their two largest
+    changes each)."""
+
+    by_id = {str(r.get("player_id", "") or ""): r for r in rows}
+    improved = [r for r in results if sum(r.changes.values()) > 0]
+    declined = [r for r in results if sum(r.changes.values()) < 0]
+
+    def describe(result: DevelopmentResult) -> str:
+        row = by_id.get(result.player_id, {})
+        name = " ".join(
+            part for part in (row.get("first_name"), row.get("last_name")) if part
+        ) or result.player_id
+        moves = sorted(result.changes.items(), key=lambda kv: (-abs(kv[1]), kv[0]))[:2]
+        parts = []
+        for key, delta in moves:
+            try:
+                now = int(round(float(row.get(key))))
+            except (TypeError, ValueError):
+                continue
+            parts.append(f"{_LABELS.get(key, key)} {now - int(delta)} to {now}")
+        return f"{name} (age {result.age}): " + ", ".join(parts)
+
+    risers = sorted(improved, key=lambda r: (-sum(r.changes.values()), r.player_id))
+    fallers = sorted(declined, key=lambda r: (sum(r.changes.values()), r.player_id))
+    text = (
+        f"Offseason development for the {season} season: {len(improved)} "
+        f"players improved and {len(declined)} declined. Young players grow "
+        "toward their potential and veterans decline from about 30; each "
+        "club's training focus and budgets shaped it, and spring training "
+        "camp adds nothing on top."
+    )
+    if risers:
+        text += " Biggest risers: " + "; ".join(
+            describe(r) for r in risers[:NEWS_NAMED]
+        ) + "."
+    if fallers:
+        text += " Biggest declines: " + "; ".join(
+            describe(r) for r in fallers[:NEWS_NAMED]
+        ) + "."
+    return text
+
+
+def _post_news(data_dir: Path, text: str) -> None:
+    try:
+        from utils.news_logger import log_news_event
+
+        log_news_event(text, category="league", file_path=data_dir / "news_feed.txt")
+    except Exception:  # pragma: no cover - news never blocks the rollover
+        _LOGGER.exception("offseason development: news item not posted")
+
+
+def withhold_scale1_camp(data_dir: Path) -> bool:
+    """Mark the last offseason's development record so the scale 1 spring
+    camp that follows gives no rating gains (a rollback to scale 1 after
+    the offseason was developed: players must not grow twice). True when a
+    record was marked."""
+
+    path = Path(data_dir) / DEVELOPMENT_RECORD
+    payload = load_development_record(Path(data_dir))
+    if not payload or payload.get("season") is None:
+        return False
+    payload[CAMP_WITHHELD_KEY] = True
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return True
+
+
+def camp_gains_withheld(record: Mapping[str, Any], league_year: object) -> bool:
+    """True when ``record`` (the development record) was marked by a
+    rollback for the offseason before ``league_year``'s camp."""
+
+    if not record.get(CAMP_WITHHELD_KEY):
+        return False
+    try:
+        return int(record.get("season")) == int(league_year)
+    except (TypeError, ValueError):
+        return False
 
 
 def load_development_record(data_dir: Optional[Path] = None) -> Dict[str, Any]:

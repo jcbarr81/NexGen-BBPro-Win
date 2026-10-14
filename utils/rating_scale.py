@@ -151,6 +151,12 @@ GENERATED_RATING_SCALE = LEGACY_RATING_SCALE
 # it on; anything else, or no value, leaves it off.
 GENERATION6_SWITCH_ENV = "NEXGEN_GENERATION6_SCALE2"
 _SWITCH_ON_VALUES = frozenset({"1", "on", "true", "yes"})
+# The operations hold on new seasons' engine
+# (``services.league_rating_centers.NEW_SEASON_ENGINE_ENV``) and the
+# generations it can hold a league on below generation 6 (the legacy engine
+# 4 and generation 5; ``physics_sim.engine_generation``).
+NEW_SEASON_ENGINE_ENV = "NEXGEN_NEW_SEASON_ENGINE"
+_GENERATIONS_BELOW_6 = frozenset({4, 5})
 
 RATING_SCALE_FIELD = "rating_scale"
 # The height column of a players.csv: ``height`` in a file on scale 1 only,
@@ -184,11 +190,25 @@ def generation6_switch_on() -> bool:
 
 def generated_rating_scale() -> int:
     """The scale a NEW league is created on: 2 with the 8.0.0 switch on,
-    else :data:`GENERATED_RATING_SCALE` (1)."""
+    else :data:`GENERATED_RATING_SCALE` (1).
 
-    if generation6_switch_on():
-        return FULL_RATING_SCALE
-    return GENERATED_RATING_SCALE
+    The operations hold (:data:`NEW_SEASON_ENGINE_ENV`, ``4`` or ``5``)
+    keeps new leagues on scale 1 as well: scale 2 comes only with
+    generation 6, and a held league's first season gets the held
+    generation. (Read here, with the standard library, as
+    ``services.league_rating_centers`` reads it: a value that names no
+    generation is ignored there too.)"""
+
+    if not generation6_switch_on():
+        return GENERATED_RATING_SCALE
+    raw = str(os.getenv(NEW_SEASON_ENGINE_ENV, "") or "").strip()
+    try:
+        held = int(raw) if raw else None
+    except ValueError:
+        held = None
+    if held in _GENERATIONS_BELOW_6:
+        return GENERATED_RATING_SCALE
+    return FULL_RATING_SCALE
 
 
 def players_fieldnames(fieldnames: Iterable[str], *, scale2: bool) -> List[str]:

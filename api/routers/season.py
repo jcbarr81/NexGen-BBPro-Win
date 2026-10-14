@@ -4083,11 +4083,13 @@ def preseason_training_camp(
     # spring training rather than accumulating noise.
     try:
         import json as _json
-        from datetime import date as _date
 
         deltas_path = data_dir / "spring_training_last.json"
         deltas_payload: Dict[str, Any] = {
-            "year": _date.today().year,
+            # The league's year (the profile labels the gains with it), not
+            # the real calendar's: a league ahead of the calendar trains in
+            # its own year.
+            "year": _camp_league_year(),
             "players": {},
         }
         for report in reports:
@@ -4149,10 +4151,37 @@ def preseason_training_camp(
 
     _mark_preseason_done("training_camp")
 
-    return {
+    response: Dict[str, Any] = {
         "players_processed": len(players),
         "top_gainers": top_gainers,
     }
+    # 8.0.0: on the full rating scale camp adds no points; the gains it
+    # reports are this offseason's development (run at the rollover). Said
+    # so, so the client does not present them as camp gains. A league whose
+    # players all train in camp gets exactly the response it always did.
+    from services.offseason_development import DEVELOPMENT_TIER
+
+    if any(getattr(r, "tier", None) == DEVELOPMENT_TIER for r in reports):
+        response["gains_are_offseason_development"] = True
+    return response
+
+
+def _camp_league_year() -> int:
+    """The league year spring training belongs to: the season context's
+    current league year, else the sim date's or schedule's year
+    (``services.trade_settings.current_league_year``)."""
+
+    try:
+        from playbalance.season_context import SeasonContext
+
+        year = (SeasonContext.load().current or {}).get("league_year")
+        if year is not None:
+            return int(year)
+    except Exception:
+        pass
+    from services.trade_settings import current_league_year
+
+    return int(current_league_year())
 
 
 def _mark_preseason_done(flag: str) -> None:

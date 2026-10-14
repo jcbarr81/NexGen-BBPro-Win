@@ -11,7 +11,11 @@ development (growth shared out by the training focus, budgets, decline)
 ran at the season rollover (``playbalance.development``,
 ``services.offseason_development``). Camp marks them ready and reports
 that development, so the camp summary and the "(+x)" badges keep showing
-the year's gains. Players on scale 1 train exactly as they did in 7.51.2.
+the year's gains. Players on scale 1 train exactly as they did in 7.51.2,
+except in the spring after a rollback to scale 1 that came after the
+offseason's development (``services.offseason_development.
+withhold_scale1_camp``): those players already grew that offseason, so camp
+marks them ready and reports that development, with no gains of its own.
 """
 
 from __future__ import annotations
@@ -55,11 +59,14 @@ def run_training_camp(
     legacy = [p for p in players if rating_scale_of(p) == LEGACY_RATING_SCALE]
     # Scale 1 players only: the training mechanics refuse anyone else.
     require_engine_scale_players(legacy, "Training camp")
-    developed = _offseason_development() if len(legacy) < len(players) else {}
+    withheld = bool(legacy) and _camp_gains_withheld()
+    developed = (
+        _offseason_development() if withheld or len(legacy) < len(players) else {}
+    )
     reports: list[TrainingReport] = []
     trained: list[TrainingReport] = []
     for player in players:
-        if rating_scale_of(player) != LEGACY_RATING_SCALE:
+        if withheld or rating_scale_of(player) != LEGACY_RATING_SCALE:
             player.ready = True
             reports.append(_development_report(player, developed))
             continue
@@ -89,6 +96,34 @@ def run_training_camp(
     except Exception as exc:  # pragma: no cover - defensive, persistence should not block flow
         logger.exception("Failed to record training camp session: %s", exc)
     return reports
+
+
+def _current_league_year() -> Any:
+    try:
+        from playbalance.season_context import SeasonContext
+
+        return (SeasonContext.load().current or {}).get("league_year")
+    except Exception:
+        return None
+
+
+def _camp_gains_withheld() -> bool:
+    """True in the spring after a rollback to scale 1 that came after the
+    offseason's development (module docstring)."""
+
+    try:
+        from services.offseason_development import (
+            CAMP_WITHHELD_KEY,
+            camp_gains_withheld,
+            load_development_record,
+        )
+
+        record = load_development_record()
+        if not record.get(CAMP_WITHHELD_KEY):
+            return False  # every league that was not rolled back
+        return camp_gains_withheld(record, _current_league_year())
+    except Exception:
+        return False
 
 
 def _offseason_development() -> Dict[str, Any]:

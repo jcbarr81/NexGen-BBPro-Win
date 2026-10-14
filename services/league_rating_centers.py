@@ -237,7 +237,7 @@ import os
 from pathlib import Path
 import threading
 import time
-from typing import Dict, Iterable, Mapping, NamedTuple, Optional
+from typing import Any, Dict, Iterable, List, Mapping, NamedTuple, Optional
 
 from physics_sim.engine_generation import (
     CURRENT_ENGINE_GENERATION,
@@ -1448,8 +1448,37 @@ def _retry_busy(call):
     raise AssertionError("unreachable")  # pragma: no cover
 
 
+def respread_population_for_rollover(
+    data_dir: Path | str | None,
+) -> Optional[Dict[str, List[str]]]:
+    """The re-spread's population of a league that will move at this
+    rollover and is listed for the re-spread, taken from its rosters as the
+    season ended (``services.league_rollover`` calls this BEFORE its
+    contract rollover, which empties a large share of the active rosters
+    into free agency). ``None`` when the league will not move here (switch
+    off, a hold below generation 6, already on scale 2) or is not listed:
+    then nothing is read. Read-only."""
+
+    if not generation6_switch_on():
+        return None
+    if _configured_new_season_generation() < SCALE2_ENGINE_GENERATION:
+        return None
+    from services.rating_scale_migration import (
+        league_on_scale2,
+        respread_population,
+        respread_requested,
+    )
+
+    base = Path(data_dir) if data_dir is not None else get_data_dir()
+    if not respread_requested(base) or league_on_scale2(base):
+        return None
+    return respread_population(base)
+
+
 def move_league_at_rollover(
-    data_dir: Path | str | None, next_season: object
+    data_dir: Path | str | None,
+    next_season: object,
+    population: Optional[Mapping[str, Any]] = None,
 ) -> Optional[str]:
     """8.0.0: move a league to rating scale 2 at its ROLLOVER.
 
@@ -1464,6 +1493,10 @@ def move_league_at_rollover(
     it then starts that season on generation 5. ``None`` when the switch is
     off or the hold applies; else "converted", "already", "refused" or
     "busy"/"failed" (the first-game path tries again).
+
+    ``population`` is the re-spread's population the rollover took before
+    its contracts (:func:`respread_population_for_rollover`); a league that
+    is re-spread here is re-spread on the rosters it ended the season with.
     """
 
     if not generation6_switch_on():
@@ -1484,7 +1517,7 @@ def move_league_at_rollover(
     with _CENTER_LOCK:
         if league_on_scale2(base):
             return "already"
-        plan = plan_move(base)
+        plan = plan_move(base, population=population)
         if plan.blocker:
             post_refusal(
                 base, season_key, plan.blocker, CURRENT_ENGINE_GENERATION, plan.blocking
@@ -1497,6 +1530,7 @@ def move_league_at_rollover(
                 season_key,
                 generation=SCALE2_ENGINE_GENERATION,
                 previous_generation=_newest_stored_generation(seasons),
+                population=population,
             )
         except MoveBusy:
             _LOGGER.warning("%s: players file busy at the rollover; the move "

@@ -185,6 +185,15 @@ class LeagueRolloverService:
             ended_on=ended_val,
             next_league_year=next_league_year,
         )
+        # 8.0.0: who the re-spread of a listed league (alpha-test) counts as
+        # active and as rotation starters is taken NOW, from the rosters the
+        # season ended with: the contract rollover below turns a large share
+        # of the active players into free agents (alpha-test: 134 of 509),
+        # which would change which ratings look bunched. ``None`` (and
+        # nothing read) unless the league moves at this rollover and is
+        # listed. The move itself stays after contracts and finances.
+        respread_population = self._respread_population()
+
         # Qualifying offers: snapshot the soon-to-expire deals BEFORE the
         # contract rollover removes them, then CPU-resolve QOs for the new
         # season afterward (defensive — never block the rollover).
@@ -244,7 +253,7 @@ class LeagueRolloverService:
         # failure is reported and leaves the move to the next season's
         # first game.
         try:
-            moved = self._move_to_full_rating_scale(next_year)
+            moved = self._move_to_full_rating_scale(next_year, respread_population)
             if moved:
                 artifacts["rating_scale_move"] = moved
         except Exception as exc:  # pragma: no cover - defensive
@@ -352,7 +361,28 @@ class LeagueRolloverService:
             finance_rollover=finance_rollover,
         )
 
-    def _move_to_full_rating_scale(self, next_year: Optional[int]) -> Optional[str]:
+    def _respread_population(self) -> Optional[Dict[str, Any]]:
+        """The re-spread's population as the season ended
+        (``services.league_rating_centers.respread_population_for_rollover``);
+        ``None`` when the league does not move here or is not listed. A
+        failure is logged and leaves the move to read the rosters as they
+        are when it runs."""
+
+        try:
+            from services.league_rating_centers import (
+                respread_population_for_rollover,
+            )
+
+            return respread_population_for_rollover(Path(_DATA_DIR))
+        except Exception:  # pragma: no cover - defensive
+            _LOGGER.exception("rollover: could not take the re-spread population")
+            return None
+
+    def _move_to_full_rating_scale(
+        self,
+        next_year: Optional[int],
+        respread_population: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
         """The 8.0.0 move at the rollover (``None`` while the switch is off
         or the league has no next season)."""
 
@@ -360,7 +390,9 @@ class LeagueRolloverService:
             return None
         from services.league_rating_centers import move_league_at_rollover
 
-        return move_league_at_rollover(Path(_DATA_DIR), next_year)
+        return move_league_at_rollover(
+            Path(_DATA_DIR), next_year, population=respread_population
+        )
 
     def _apply_yearly_development(
         self, season_year: Optional[int]

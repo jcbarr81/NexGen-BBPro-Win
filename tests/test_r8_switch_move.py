@@ -364,8 +364,19 @@ def test_new_leagues_are_generated_on_scale_2(monkeypatch):
     switch_off(monkeypatch)
     assert rating_scale.generated_rating_scale() == 1
     switch_on(monkeypatch)
+    # (The suite holds new seasons on the legacy engine, tests/conftest.py.)
+    monkeypatch.delenv(rating_scale.NEW_SEASON_ENGINE_ENV, raising=False)
     assert rating_scale.generated_rating_scale() == 2
     assert rating_scale.GENERATED_RATING_SCALE == 1
+    # The operations hold keeps new leagues on scale 1 too (fix-up 9): a
+    # held league's first season gets the held generation, and scale 2
+    # comes only with generation 6.
+    for held, scale in (("5", 1), ("4", 1), ("6", 2), ("x", 2)):
+        monkeypatch.setenv(rating_scale.NEW_SEASON_ENGINE_ENV, held)
+        assert rating_scale.generated_rating_scale() == scale, held
+    switch_off(monkeypatch)
+    monkeypatch.setenv(rating_scale.NEW_SEASON_ENGINE_ENV, "6")
+    assert rating_scale.generated_rating_scale() == 1
 
 
 def test_a_scale_2_file_in_the_older_format_is_rewritten_in_the_new_one(

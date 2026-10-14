@@ -956,7 +956,11 @@ function PreseasonActionsCard({ state }: { state: SeasonState }) {
       const topNames = data.top_gainers
         .map((g) => `${g.name} (+${g.total_gain})`)
         .join(", ");
-      const msg = `Training camp completed for ${data.players_processed} players.${topNames ? ` Top gainers: ${topNames}.` : ""}`;
+      // On the full rating scale camp adds no points: the gains are this
+      // offseason's development, which ran when the league rolled over.
+      const msg = data.gains_are_offseason_development
+        ? `Training camp completed for ${data.players_processed} players; camp adds no rating points.${topNames ? ` Biggest gains from this offseason's development: ${topNames}.` : ""}`
+        : `Training camp completed for ${data.players_processed} players.${topNames ? ` Top gainers: ${topNames}.` : ""}`;
       setNotice(msg);
       toast.success(msg);
     },

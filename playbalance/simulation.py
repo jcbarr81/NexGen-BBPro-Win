@@ -4247,7 +4247,7 @@ def render_boxscore_html(
         repl[f"batting_totals.{side}.HR"] = hr
         repl[f"notes.{side}.batting"] = ""
         repl[f"notes.{side}.risp"] = ""
-        repl[f"notes.{side}.fielding"] = ""
+        repl[f"notes.{side}.fielding"] = fielding_note(box[side].get("errors") or [])
 
     for key, value in repl.items():
         template = template.replace(f"{{{{{key}}}}}", str(value))
@@ -4255,6 +4255,86 @@ def render_boxscore_html(
     # Remove any unreplaced placeholders to avoid leaking template tokens
     template = re.sub(r"{{[^{}]+}}", "", template)
     return template
+
+
+# The kinds of error a box score names (the physics engine's error sources,
+# ``GameResult.play_records["errors"]``). The older kinds -- a fielder's
+# error that puts the batter on, a throw on an advance or a tag-up -- are
+# shown by name only, as box scores do.
+ERROR_KIND_LABELS = {
+    "steal": "throw on a steal",
+    "pickoff": "pickoff throw",
+    "relay": "relay throw",
+    "of_hit": "misplayed a hit",
+    "comebacker": "comebacker",
+}
+
+
+def boxscore_errors(
+    records: object, players_lookup: Mapping[str, object] | None = None
+) -> Dict[str, list]:
+    """``{"home": [...], "away": [...]}``: each fielding side's errors, in
+    the order made, from the engine's error records ((pitch index, source,
+    position, fielder id, fielding side) tuples). A ball the pitcher fielded
+    for a batter's reach is a ``comebacker``. Presentation only: nothing
+    the game plays reads it."""
+
+    out: Dict[str, list] = {"home": [], "away": []}
+    for record in records or []:
+        try:
+            _index, source, position, fielder_id, side = record
+        except (TypeError, ValueError):
+            continue
+        if side not in out:
+            continue
+        kind = str(source or "")
+        if kind == "roe" and str(position or "").upper() == "P":
+            kind = "comebacker"
+        player = (players_lookup or {}).get(str(fielder_id)) if fielder_id else None
+        if player is not None:
+            name = f"{getattr(player, 'first_name', '')} {getattr(player, 'last_name', '')}".strip()
+        else:
+            name = str(fielder_id or position or "Unknown")
+        out[side].append({
+            "player_id": str(fielder_id or ""),
+            "name": name or str(fielder_id or ""),
+            "position": str(position or ""),
+            "source": kind,
+        })
+    return out
+
+
+def fielding_note(errors: list) -> str:
+    """The box score's fielding line for one side, e.g. ``E: Lopez 2
+    (throw on a steal), Diaz.`` -- each fielder once, in the order of his
+    first error, with his count when he made more than one and the kind of
+    each newer error type. ``""`` with no errors."""
+
+    if not errors:
+        return ""
+    order: list = []
+    seen: Dict[str, Dict[str, object]] = {}
+    for err in errors:
+        key = str(err.get("player_id") or err.get("name") or "")
+        entry = seen.get(key)
+        if entry is None:
+            entry = {"name": err.get("name") or key, "count": 0, "kinds": []}
+            seen[key] = entry
+            order.append(key)
+        entry["count"] = int(entry["count"]) + 1
+        label = ERROR_KIND_LABELS.get(str(err.get("source") or ""))
+        if label and label not in entry["kinds"]:
+            entry["kinds"].append(label)
+    parts = []
+    for key in order:
+        entry = seen[key]
+        text = str(entry["name"])
+        if int(entry["count"]) > 1:
+            text += f" {entry['count']}"
+        if entry["kinds"]:
+            text += " (" + ", ".join(entry["kinds"]) + ")"
+        parts.append(text)
+    return "E: " + ", ".join(parts) + "."
 
 
 def save_boxscore_html(game_type: str, html: str, game_id: str | None = None) -> str:
@@ -4295,6 +4375,8 @@ __all__ = [
     "FieldingState",
     "TeamState",
     "GameSimulation",
+    "boxscore_errors",
+    "fielding_note",
     "generate_boxscore",
     "render_boxscore_html",
     "save_boxscore_html",

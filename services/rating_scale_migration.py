@@ -560,17 +560,45 @@ def _counts_as_active(player_id: str, active_ids: Optional[set]) -> bool:
     return active_ids is None or player_id in active_ids
 
 
+def respread_population(base: Path | str) -> Dict[str, List[str]]:
+    """The re-spread's population as the league's rosters say NOW: the ACT
+    players (the bunched rule and the mean the re-spread keeps) and the
+    clubs' five-man rotations (endurance ranks them first), each rotation
+    limited to ACT arms -- a staff file can still name a pitcher who has
+    left the active roster.
+
+    The rollover takes this BEFORE its contract rollover
+    (``services.league_rollover``): expiring contracts turn a large share of
+    a league's active players into free agents (alpha-test: 134 of 509),
+    which would change who counts as active and so which ratings look
+    bunched. The move itself runs after contracts and finances and is
+    handed this snapshot. A dry run made before the rollover (the runbook)
+    reads the same rosters and gives the same re-spread.
+    """
+
+    base = Path(base)
+    levels = _roster_levels(base)
+    active = set() if levels is None else {p for p, lv in levels.items() if lv == "ACT"}
+    rotation = _rotation_ids(base) & active
+    return {"active_ids": sorted(active), "rotation_ids": sorted(rotation)}
+
+
 def plan_move(
     base: Path | str,
     *,
     respread: Optional[bool] = None,
     replay: Optional[Mapping[str, Any]] = None,
+    population: Optional[Mapping[str, Iterable[str]]] = None,
 ) -> MovePlan:
     """What converting ``base`` would do, without writing anything.
 
     ``respread`` None asks :func:`respread_requested`. ``replay`` (a repair
     of a league that was re-spread at its move) re-applies THAT re-spread
-    instead (:func:`_replay_respread`). The plan's ``blocker`` is ``None``
+    instead (:func:`_replay_respread`). ``population`` (from
+    :func:`respread_population`, taken earlier) is who the re-spread counts
+    as active and as rotation starters; ``None`` reads the rosters as they
+    are now. It changes nothing else: the clip rule always reads today's
+    roster levels. The plan's ``blocker`` is ``None``
     when the league can convert, else the reason it cannot: an operator
     hold, no readable players file, rows on no known scale, a file split
     evenly between scales, or a rating clip that refuses the move
@@ -620,12 +648,21 @@ def plan_move(
         plan.respread_replayed = result is not None
     elif respread and legacy:
         # Only rows still on scale 1 are re-spread.
-        rotation = _rotation_ids(base)
-        result = respread_rows(legacy, active_ids=active or (), rotation_ids=rotation)
-        plan.respread_inputs = {
-            "active_ids": sorted(active or ()),
-            "rotation_ids": sorted(rotation),
-        }
+        inputs = (
+            {
+                "active_ids": sorted(set(population.get("active_ids") or ())),
+                "rotation_ids": sorted(
+                    set(population.get("rotation_ids") or ())
+                    & set(population.get("active_ids") or ())
+                ),
+            }
+            if population is not None
+            else respread_population(base)
+        )
+        result = respread_rows(
+            legacy, active_ids=inputs["active_ids"], rotation_ids=inputs["rotation_ids"]
+        )
+        plan.respread_inputs = inputs
     if result is not None:
         plan.respread = result
         by_id = {id(r): new for r, new in zip(legacy, result.rows)}
@@ -827,6 +864,7 @@ def convert_league(
     replay: Optional[Mapping[str, Any]] = None,
     announce: bool = True,
     event_name: str = "converted",
+    population: Optional[Mapping[str, Iterable[str]]] = None,
 ) -> MoveResult:
     """Convert ``base`` to scale 2 for ``season`` (module docstring, steps
     1-8). Idempotent: a league already on scale 2 is left alone (an open
@@ -844,13 +882,18 @@ def convert_league(
 
     ``previous_generation`` is the engine the league played its last
     season on (for the news item); ``announce`` False posts no news.
+    ``population`` is the re-spread's population taken earlier
+    (:func:`respread_population`; the rollover takes it before its
+    contracts).
     """
 
     base = Path(base)
     season = str(season)
     with _move_guard(base) as lock_file:
         for attempt in range(3):
-            plan = plan_move(base, respread=respread, replay=replay)
+            plan = plan_move(
+                base, respread=respread, replay=replay, population=population
+            )
             if plan.blocker:
                 raise MoveRefused(plan.blocker, plan.blocking)
             if plan.to_convert == 0 and plan.in_scale2_format:
@@ -1233,12 +1276,19 @@ def _add_stored_ranges(plan: MovePlan) -> None:
         return
     by_id = {str(r.get("player_id")): r for r in plan.rows}
     spread = {str(r.get("player_id")): r for r in plan.respread.rows}
+    # The active rosters the re-spread read (at a rollover: taken before
+    # its contracts).
+    active = (
+        set(plan.respread_inputs.get("active_ids") or ())
+        if plan.respread_inputs
+        else plan.active_ids
+    )
     for entry in plan.respread.moved:
         pitcher = entry.group == "pitcher"
         spec = rating_map(entry.key, FULL_RATING_SCALE, pitcher=pitcher)
         before, after = [], []
         for pid, row in spread.items():
-            if _group(row) != entry.group or not _counts_as_active(pid, plan.active_ids):
+            if _group(row) != entry.group or not _counts_as_active(pid, active):
                 continue
             old, new = _value(by_id[pid], entry.key), _value(row, entry.key)
             if old is None or new is None:
@@ -1279,9 +1329,18 @@ def _scale_summary(plan: MovePlan) -> Dict[str, Any]:
     news item quotes."""
 
     out: Dict[str, Any] = {}
-    # Before = the engine values the stretch was given (after a re-spread,
-    # where there was one: the scale change is the stretch alone).
-    pairs = list(zip(plan.sources or plan.rows, plan.converted))
+    # The scale change alone: before = the engine values, after = their
+    # stretch. A re-spread league's rows are stretched again here from the
+    # values as they were, so the scale item never mixes in the re-spread
+    # (its own item reports that).
+    if plan.respread is not None:
+        pairs = [
+            (row, stretch_row(row, FULL_RATING_SCALE)[0])
+            for row in plan.rows
+            if rating_scale_of(row) == LEGACY_RATING_SCALE
+        ]
+    else:
+        pairs = list(zip(plan.sources or plan.rows, plan.converted))
     for group, key, label in _HEADLINES:
         before, after = [], []
         for old, new in pairs:
@@ -1325,9 +1384,12 @@ def engine_and_scale_news(
     season: str,
     backup: Optional[str],
     previous_generation: Optional[int],
+    respread: bool = False,
 ) -> str:
     """The news item every league gets when it moves (numbers from its
-    own log record)."""
+    own log record). The scale change itself changes no player; the same
+    rollover's development and, for a listed league, the re-spread are
+    reported in their own items (``respread`` says one follows)."""
 
     def pair(label: str) -> str:
         item = summary.get(label)
@@ -1351,15 +1413,39 @@ def engine_and_scale_news(
         )
     text = (
         f"Season {season}: the league now plays on the updated game engine, and "
-        "every rating is shown on the full 1-99 scale. Nobody got better or "
-        "worse: each player keeps his place, and a rating plays exactly as "
-        "before, it is just spread out so the best players read in the 80s and "
-        "90s and an average regular about 50. "
+        "every rating is shown on the full 1-99 scale. The change of scale "
+        "itself changed no player: each player keeps his place, and each "
+        "rating plays exactly as before, just spread out so the best players "
+        "read in the 80s and 90s and an average regular about 50. "
     )
     if tops:
-        text += "The league's best ratings went from " + ", ".join(tops) + ". "
+        text += (
+            "On the new scale the league's best ratings went from "
+            + ", ".join(tops) + ". "
+        )
     text += f"{players} players were converted. {engine}"
+    text += (
+        " Players' offseason development, which starts on the new scale this "
+        "offseason, is reported in its own item."
+    )
+    if respread:
+        text += (
+            " This league's ratings were also spread out, which does change "
+            "how it plays; see the separate item."
+        )
     return text
+
+
+def reconversion_news(season: str) -> str:
+    """The short item when a league that was rolled back is converted to
+    the full scale again (lifting the hold): it was told about the engine
+    and the scale at its first move."""
+
+    return (
+        f"Season {season}: the league's ratings were re-converted to the full "
+        "1-99 scale after a rollback. Nobody's ratings changed in play; they "
+        "are shown on the full scale again."
+    )
 
 
 def respread_news(record: Mapping[str, Any], *, league: str, season: str) -> str:
@@ -1437,14 +1523,25 @@ def refusal_news(
 def _post_move_news(
     base: Path, plan: MovePlan, record: Mapping[str, Any], previous_generation: Optional[int]
 ) -> List[str]:
-    items = [
-        engine_and_scale_news(
-            record.get("summary", {}), players=len(plan.rows), season=str(record.get("season")),
-            backup=record.get("backup"), previous_generation=previous_generation,
-        )
-    ]
-    if plan.respread is not None and plan.respread.moved:
-        items.append(respread_news(record, league=league_id_of(base), season=str(record.get("season"))))
+    season = str(record.get("season"))
+    respread = plan.respread is not None and bool(plan.respread.moved)
+    rolled_back = any(
+        e.get("event") == "rolled_back" for e in read_scale_log(base).get("events", [])
+    )
+    if rolled_back:
+        # A move after a rollback (the hold lifted): owners were told about
+        # the engine and the scale at the first move.
+        items = [reconversion_news(season)]
+    else:
+        items = [
+            engine_and_scale_news(
+                record.get("summary", {}), players=len(plan.rows), season=season,
+                backup=record.get("backup"), previous_generation=previous_generation,
+                respread=respread,
+            )
+        ]
+    if respread:
+        items.append(respread_news(record, league=league_id_of(base), season=season))
     for item in items:
         _post_news(base, item)
     return items
@@ -1596,6 +1693,15 @@ def rollback_league(
             "restored_from": backup.name if backup else None,
         })
         _set_hold(base, f"rolled back ({mode})", scale=LEGACY_RATING_SCALE)
+        # An offseason already developed on scale 2 must not be followed by
+        # scale 1 camp gains as well (the players would grow twice): the
+        # spring camp after this rollback marks players ready, no gains.
+        try:
+            from services.offseason_development import withhold_scale1_camp
+
+            withhold_scale1_camp(base)
+        except Exception:  # pragma: no cover - defensive
+            _LOGGER.exception("%s: could not mark the development record", base)
         _clear_player_caches()
         return event
 
@@ -1869,4 +1975,5 @@ def describe_counts(base: Path | str) -> str:
 __all__ += [
     "MAJOR_LEAGUE_LEVELS", "MoveBusy", "clear_caches", "conversion_events",
     "describe_counts", "log_refusal", "post_refusal", "set_recorded_generation",
+    "reconversion_news", "respread_population",
 ]

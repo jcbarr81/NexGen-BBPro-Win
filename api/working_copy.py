@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import threading
 import time
@@ -45,6 +46,21 @@ from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple
 # them on the remote.
 _SKIP_TOP_NAMES = {"system"}
 _SKIP_LEAGUE_PREFIX = "legacy"
+# Files that only exist while a write is in progress, never synced either way:
+# lock files (the players-file lock ``.players.csv.lock``, the stats lock
+# ``season_stats.json.lock``), atomic-write temporaries
+# (``.<name>.<pid>.<thread>.tmp``, utils.atomic_write) and this module's own
+# pull temporaries (``<name>.pull.<pid>.<thread>``). A push that walked the
+# folder while a save held a lock used to copy the lock to the remote.
+_TRANSIENT_PULL_TEMP = re.compile(r"\.pull\.\d+\.\d+$")
+
+
+def _transient(path: Path) -> bool:
+    name = path.name
+    return (
+        name.endswith((".lock", ".tmp"))
+        or _TRANSIENT_PULL_TEMP.search(name) is not None
+    )
 
 # FUSE ops are I/O-bound (GIL released during the syscall), so threads overlap
 # the GCS round-trips effectively.
@@ -389,13 +405,13 @@ def _iter_pull_files(remote: Path) -> Iterator[Path]:
                 if league.name.startswith(_SKIP_LEAGUE_PREFIX):
                     continue
                 for f in league.rglob("*"):
-                    if f.is_file():
+                    if f.is_file() and not _transient(f):
                         yield f.relative_to(remote)
         elif entry.is_dir():
             for f in entry.rglob("*"):
-                if f.is_file():
+                if f.is_file() and not _transient(f):
                     yield f.relative_to(remote)
-        elif entry.is_file():
+        elif entry.is_file() and not _transient(entry):
             yield entry.relative_to(remote)
 
 
@@ -436,7 +452,7 @@ def bulk_pull() -> None:
     # locally" and wrongly removed from the durable remote.
     synced: Dict[str, Tuple[int, int]] = {}
     for p in local.rglob("*"):
-        if p.is_file():
+        if p.is_file() and not _transient(p):
             sig = _signature(p)
             if sig is not None:
                 synced[p.relative_to(local).as_posix()] = sig
@@ -592,7 +608,7 @@ def push_changes(league_id: Optional[str] = None, *, full: bool = False) -> int:
         changed_sigs: List[Tuple[str, Tuple[int, int]]] = []
 
         def _scan(src: Path) -> None:
-            if not src.is_file():
+            if not src.is_file() or _transient(src):
                 return
             rel = src.relative_to(local).as_posix()
             current.add(rel)
