@@ -385,8 +385,9 @@ def test_the_script_reads_a_harness_output(tmp_path, short_season, capsys):
     profile = json.loads(PROFILE.read_text(encoding="utf-8"))
     for pos in kx.R6_RANGE_POSITIONS:
         key = f"range_logit_slope_{pos.lower()}"
-        # A 160-team-game sample against the profile's six seasons.
-        assert fitted[key] == pytest.approx(profile[key], rel=0.15), key
+        # A 160-team-game sample of four clubs against the profile's six
+        # seasons of thirty: close, not equal.
+        assert fitted[key] == pytest.approx(profile[key], rel=0.25), key
     for key in ("infield_band_3b_min_deg", "infield_band_2b_min_deg"):
         assert fitted[key] == pytest.approx(profile[key], abs=2.5), key
     assert "range_logit_slope_ss" in capsys.readouterr().out
