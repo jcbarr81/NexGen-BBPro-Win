@@ -348,6 +348,62 @@ def test_the_witness_alone_says_generation_6(league):
     assert set(FIELDER_KEYS) <= set(_entry(league))
 
 
+def test_live_games_on_generation_6_play_with_the_fielding_switches(
+    tmp_path, monkeypatch
+):
+    """Six dated games through the product's own game path
+    (``playbalance.game_runner``: the rotation tracker, the saved lineups,
+    the rest state) in a league whose season starts on generation 6 with
+    the fielding values laid over its profile. The engine refuses a game
+    whose fielder centres were not delivered, so that the games are played
+    at all is the live path supplying them."""
+    from tests import test_r5_live_path as live
+    from tests.test_r5_centred_entries import _live_league, _play_live
+
+    profile = json.loads(generations.engine_profile_path(6).read_text("utf-8"))
+    fielding = json.loads(
+        (REPO / "scripts" / "kpi_profiles" / "r6_fielding.json").read_text("utf-8")
+    )
+    merged = tmp_path / "engine_6_fielding.json"
+    merged.write_text(json.dumps({**profile, **fielding}), encoding="utf-8")
+    real_path = generations.engine_profile_path
+    monkeypatch.setattr(
+        generations, "engine_profile_path",
+        lambda generation: merged if int(generation) == 6 else real_path(generation),
+    )
+    _promote_generation_6(monkeypatch)
+
+    data = _live_league(tmp_path / "league")
+    games = _play_live(tmp_path / "league", data)
+    assert len(games) == len(live.GAMES)
+    entry = _entry(data, 2026)
+    assert entry[centers.ENGINE_GENERATION_KEY] == 6
+    assert set(FIELDER_KEYS) <= set(entry)
+    sources = set()
+    for game in games:
+        tuning = game["tuning"]
+        for switch in ("fielder_centred_ratings", "position_fit_model",
+                       "spray_direction_model", "infield_band_model", "range_model"):
+            assert tuning[switch] == 1, switch
+        assert tuning["error_model"] == 2
+        # Fixed on Opening Day: every game of the season reads the entry.
+        assert {k: tuning[k] for k in FIELDER_KEYS} == {k: entry[k] for k in FIELDER_KEYS}
+        require_fielder_centers(load_tuning(tuning))
+        assert "fielding_chance_log" not in tuning  # the harness's, not a league's
+        played = game["played"]
+        assert played["totals"]["pa"] > 50
+        for row in played["pitch_log"]:
+            if row.get("error_on"):
+                value = row["error_on"]
+                sources.update(value if isinstance(value, list) else [value])
+    # Whatever errors the six games had are of the kinds the engine knows
+    # (the out type of a batted ball, or one of the throws and misplays).
+    assert sources <= {
+        "groundout", "flyout", "lineout", "advance", "tag_up", "steal", "of_hit",
+        "relay", "pickoff",
+    }
+
+
 def test_generation_6_in_another_season_does_not_reach_this_one(league):
     """Only the season's own generation counts: a generation 5 season in a
     file that also holds a generation 6 season is given none."""

@@ -1856,3 +1856,72 @@ grid). Nothing here changes a game.
   (Power 30 / 50 / 80: 11.0 / 15.8 / 69.3 against 10.9 / 15.9 / 68.0).
 - **CI does not run `--engine 6`.** Add a step when generation 6 has
   values of its own (it is a copy of generation 5 until then).
+
+## Release 6a fielding: follow-ups (2026-10-13)
+
+Built switched off on branch `r6a-fielding` (the generation 6 values are in
+`scripts/kpi_profiles/r6_fielding.json`). Found while building:
+
+- **The engine throws almost no pickoffs.** About 0.1 failed pickoff throws
+  per team-game (MLB: a few a game), so `error_pickoff_throw_rate` at a
+  believable 2% of throws is .002 errors per team-game. The pitcher's
+  errors therefore come almost entirely from comebackers
+  (`error_base_p` .0586, which stands in for his bunt and pickoff errors
+  too). Re-split when pickoff volume is rebuilt.
+- **The catcher's only error is the throw on a stolen base** (about .045
+  per team-game). No catcher error on a bunt, a dropped third strike or a
+  pop-up, and no first baseman's error on a throw he should have caught
+  (every throwing error is the thrower's).
+- **Earned runs are the simple rule, not a scorer's reconstruction.** A
+  runner an error moved up is unearned from then on, even if a later home
+  run would have scored him anyway. With errors at MLB volume the
+  unearned share of runs is 9.2-9.4% on all three fixtures (generation 5:
+  4.5-5.7%; MLB about 7-8%, from memory). If that reads high, rebuild the
+  inning without the error for the runners an extra-base error moved.
+- **No injury roll on the new errors,** nor on a pitcher's error (the old
+  roll on a fielder's error is unchanged).
+- **`range_scale` under the range model** multiplies the range slopes (a 50
+  stays a 50), but still multiplies the catcher's fa and the double
+  play's range rating the old way. The commissioner sliders and their help
+  text for range, arm and errors need a pass at the generation 6
+  integration.
+- **Left and centre field sit at the edges of the 5-7 band.** One slope
+  cannot put both wide fixtures inside it: the regulars' fa SD is 6.8 (LF)
+  and 5.2 (CF) on calibration and 9.4 and 8.3 on the league fixture, a
+  wider gap than the band. As built: LF 4.7 / 6.9, CF 4.5 / 7.1 (5.5-5.9
+  and 6.8-6.9 per 8 points on both). The rating re-spread fixes the
+  spreads, not the slope.
+- **The pitcher's band is off centre** (-3.4 to 0.0 degrees, toward the
+  first-base side): the cut points are the quantiles that give the plan's
+  shares, and the ground balls are not centred (more right-handed
+  batters, who pull to the left side). The ball-flight step's spray
+  widening moves every cut point; re-run
+  `scripts/fit_fielding_slopes.py`.
+- **The out-of-position table's costs are slope arithmetic.** No season was
+  played with starters moved out of position to measure them.
+- **The default game lineup** (`utils/lineup_loader`) calls the auto-fill
+  with no tuning, so its last-resort stand-in is ranked by ratings alone
+  even in a generation 6 league (the saved-lineup auto-fill reads the
+  table).
+- **OVR defence weights were not changed** (`utils/player_overall.py`;
+  owner decision: with the rating scale). Derived from the measured run
+  values (runs per fa point per 150 games / 4.8; mean of calibration and
+  the league fixture, four seasons each): SS .135, CF .153, LF .128, RF
+  .122, 2B .120, 3B .120, 1B .081 (today .15 / .16 / .07 / .06 / .11 /
+  .09 / .04). The catcher and every arm weight were not measured.
+- **MLB references are from memory:** the split of errors by position and
+  by source, the ground-ball share by infielder, centre field's share of
+  outfield putouts, the unearned-run share. Pull them before any of the
+  new rows becomes a gate.
+- **`e_per_team_game_<pos>` is still by starting position;** the exact
+  split by the position charged is
+  `tables["errors_by_source"]["per_team_game_by_position_charged"]`
+  (from `GameResult.play_records["errors"]`). Gate that one.
+- **The runs level moves and was left to the joint retune:** against
+  generation 5, +.17 runs per team-game on calibration, +.39 on the
+  league fixture and +.08 on the flat fixture (four, four and two
+  seasons). Split on two seasons each: the range, centring and table work
+  without the error models is +.05 / +.25 / -.13 (the league fixture's
+  gloves no longer mask its offence; the flat fixture's no longer cost it
+  outs), and the errors at MLB volume add +.07 / +.16 / +.21. The league
+  fixture fails its runs, SLG, OPS, hits and doubles gates until then.

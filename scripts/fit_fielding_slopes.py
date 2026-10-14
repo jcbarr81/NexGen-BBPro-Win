@@ -56,16 +56,18 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 # Range outs one rating point is worth per 150 games, by position. With
-# the error slope beside it (about .22 a point at first, .2 at second, .25
-# at third, .5 at short, .03-.05 in the outfield) a rating SD on the wide
-# fixtures comes to 5-7 outs, first base 4-5 (owner decision 10). The
-# design brief's budget, moved where the built model's errors asked for it:
-# short .44 -> .37 and second .41 -> .46 (short's errors are worth more
-# than the brief had them, second's less), first .30 -> .28, left .64 ->
-# .67, centre .825 -> .86.
+# the error slope beside it (measured on the built model: about .20 a
+# point at first, .31 at second, .35 at third, .45 at short and .04-.07 in
+# the outfield) a rating SD on the wide fixtures comes to 5-7 outs, first
+# base 4-5 (owner decision 10), with shortstop and centre field worth at
+# least as many runs a point as the corners. The design brief's budget,
+# moved a little where the built model's errors asked for it: second .41
+# -> .46, short .44 -> .42, first .30 -> .28; left .64 -> .65 and centre
+# .825 -> .84 (the two fixtures' fa spreads there differ by more than the
+# band is wide, so they sit at its two edges).
 RANGE_BUDGET = {
-    "1B": 0.28, "2B": 0.46, "3B": 0.40, "SS": 0.37,
-    "LF": 0.67, "CF": 0.86, "RF": 0.64,
+    "1B": 0.28, "2B": 0.46, "3B": 0.40, "SS": 0.42,
+    "LF": 0.65, "CF": 0.84, "RF": 0.64,
 }
 # Share of ground balls by infielder, 3B to 1B across the diamond (the
 # plan's .20 / .29 / .07 / .27 / .14, which leave .03 for the catcher; the
