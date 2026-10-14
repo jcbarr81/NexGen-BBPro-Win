@@ -70,6 +70,7 @@ _TRACK_NOTES: Dict[str, str] = {
     "pitch_lab": "Pitch design groups focusing on a single breaking ball.",
 }
 
+
 def track_label(track: str) -> str:
     """The name a training track is shown under ("contact" -> "Barrel
     Control")."""

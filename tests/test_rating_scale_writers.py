@@ -50,6 +50,13 @@ PLAYER_ROW_WRITERS = {
         "prospect when it is not 1"
     ),
     "api/routers/draft.py": "draft pool through save_draft_pool",
+    "services/offseason_development.py": (
+        "rewrites players.csv under its own header (rating_scale kept), only "
+        "rating cells changed, ids and row count checked, atomic"
+    ),
+    "scripts/development_population_sim.py": (
+        "temp files of a simulated league, header (rating_scale) kept"
+    ),
     # -- not player rows
     "api/routers/trades.py": OTHER_FILE + " (trades_pending.csv)",
     "services/player_retirement.py": OTHER_FILE + " (roster files)",

@@ -51,10 +51,11 @@ STORED_VALUE_FILES = {
     "services/player_profile_view_model.py": "display: the profile page",
     "services/career_arc_analytics.py": "report export: shows stored ratings",
     "services/training_settings.py": "\"movement\" is a training track name",
-    # -- changes ratings: must be rebuilt on the stored scale before any
-    #    league is on scale 2 (development model, RATING_SCALE_DESIGN 3)
-    "playbalance/aging.py": "mutates stored ratings; paused since 7.51.2",
-    "playbalance/player_development.py": "training camp: mutates stored ratings",
+    # -- changes ratings
+    "playbalance/aging.py": "scale 1 aging (paused since 7.51.2); refuses scale 2",
+    "playbalance/player_development.py": "scale 1 training camp; refuses scale 2",
+    "playbalance/development.py": "the scale 2 development model: stored points, maps itself",
+    "scripts/development_population_sim.py": "measures stored ratings of a simulated league",
     # -- engine scale by construction
     "playbalance/player_generator.py": "builds on the engine scale; one stretch at the end",
     "playbalance/archetypes.py": "not imported by production code",
@@ -248,23 +249,31 @@ def test_the_archived_engine_refuses_a_scale_2_player():
         simulation.GameSimulation(team(1), team(2), config=None)
 
 
-def test_training_camp_refuses_a_scale_2_player_before_touching_anyone(tmp_path):
-    """Training adds engine-sized points to stored values; until the
-    development model is rebuilt on the stored scale it must not run on a
-    scale 2 player, and must not leave half a camp behind."""
+def test_training_camp_never_trains_a_scale_2_player(tmp_path, monkeypatch):
+    """Training adds engine-sized points to stored values. A scale 2 player
+    develops at the rollover instead (playbalance.development): camp marks
+    him ready and leaves his ratings alone, while the scale 1 mechanics
+    still refuse him outright."""
 
     import copy
 
     from playbalance import player_development, training_camp
 
+    monkeypatch.setattr(training_camp, "record_training_session", lambda reports: None)
+    monkeypatch.setattr(training_camp, "_offseason_development", lambda: {})
     league = support.copy_league(support.FIXTURES["calibration_league"], tmp_path / "lg")
     support.write_stretched_twin(league, tmp_path / "twin")
     plain = list(support.load_player_objects(league).values())[:6]
-    full = list(support.load_player_objects(tmp_path / "twin").values())[:1]
-    before = copy.deepcopy(plain)
-    with pytest.raises(RuntimeError, match="rating scale 2"):
-        training_camp.run_training_camp(plain + full)
-    assert [vars(p) for p in plain] == [vars(p) for p in before]  # nobody touched
+    full = list(support.load_player_objects(tmp_path / "twin").values())[:3]
+    before = copy.deepcopy(full)
+    reports = training_camp.run_training_camp(plain + full)
+    assert len(reports) == 9
+    for player, was in zip(full, before):
+        assert player.ready
+        assert {k: v for k, v in vars(player).items() if k != "ready"} == {
+            k: v for k, v in vars(was).items() if k != "ready"
+        }
+    assert [r.changes for r in reports[6:]] == [{}, {}, {}]
     for call in (
         lambda: player_development.execute_training_cycle(full),
         lambda: player_development.build_training_plan(full[0]),

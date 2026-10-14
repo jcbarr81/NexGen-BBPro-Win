@@ -37,13 +37,14 @@ regulars at 57), whatever the growth rate.
 **Not every point of a potential is real.** The generator's potentials are
 optimistic by construction (10-30 over talent for every young player), and
 a young player in a league today is already as good as a veteran. A player
-closes his gap only beyond ``gap_discount`` engine points, and only
-``realization`` of that: a draft pick (rated well under his talent, gap
-about 30) grows back to about his talent by his late twenties, while a
-21-year-old who is already a regular grows little. This is what keeps the
-league's average and spread where the scale put them (the stationarity gate
-of the design, ``scripts/development_population_sim.py``) without any
-league-wide correction.
+closes his gap only beyond ``gap_discount`` engine points: a draft pick
+(marked well under his talent by the draft, gap about 30) grows back to
+about his talent by his late twenties, while a 21-year-old who is already a
+regular grows little. This is what keeps the league's average where the
+scale put it (the stationarity gate of the design,
+``scripts/development_population_sim.py``) without any league-wide
+correction: the two kinds of young player differ only in how far below
+their potential they start.
 
 Decline is in stored points: the scale gives each moved rating about the
 same spread in stored points, so the same loss means the same to every
@@ -112,24 +113,31 @@ class RatingCurve:
 
 @dataclass(frozen=True)
 class DevelopmentParams:
-    """The model's sizes (module docstring). One set for every league."""
+    """The model's sizes (module docstring). One set for every league.
 
-    # Engine points of every gap that are never closed, and the share of
-    # the rest a player closes by his peak if he develops at an average rate.
-    gap_discount: float = 12.0
+    Tuned on 22-season population runs (``scripts/development_population_
+    sim.py``) of the league fixture and stats-test, seed 1, so that the
+    regulars' Contact, Power, Eye, control and movement keep their means,
+    and checked on seeds 2 and 3 and on alpha-test.
+    """
+
+    # Engine points of every gap that are never closed: the generator's
+    # optimism (it rolls a young player's potential 10-30 over his talent).
+    gap_discount: float = 20.5
     # The share of the remaining closable gap closed in a year:
     # ``share_base`` at ``share_age``, rising ``share_step`` a year, never
-    # above ``share_max``; scaled by the rating's ``growth``.
-    share_base: float = 0.12
+    # above ``share_max``; scaled by the rating's ``growth``. A draft pick
+    # of 19 closes about 85% of it by 30.
+    share_base: float = 0.18
     share_age: int = 18
-    share_step: float = 0.015
-    share_max: float = 0.30
+    share_step: float = 0.02
+    share_max: float = 0.41
     # Diminishing returns: above ``level_base`` stored points the year's
     # gain is scaled by ((level_top - rating) / (level_top - level_base))
     # ** level_power: the better a player already is, the harder each point.
     level_base: float = 45.0
     level_top: float = 105.0
-    level_power: float = 0.0
+    level_power: float = 1.0
     # Noise: one "good or bad year" draw shared by every rating of a player,
     # and one per rating, both as a relative sd on the year's change.
     year_noise: float = 0.20
@@ -142,26 +150,30 @@ class DevelopmentParams:
     budget_max: float = 1.15
     hitter: Mapping[str, RatingCurve] = field(
         default_factory=lambda: {
-            "ch": RatingCurve(peak=30, decline=0.7, decline_step=0.45),
+            "ch": RatingCurve(peak=30, decline=0.65, decline_step=0.42),
             "ph": RatingCurve(peak=30, decline=0.7, decline_step=0.45),
-            "eye": RatingCurve(peak=31, decline=0.5, decline_step=0.35),
-            "fa": RatingCurve(peak=29, decline=0.7, decline_step=0.40),
-            "arm": RatingCurve(peak=29, decline=0.7, decline_step=0.40),
-            "sp": RatingCurve(peak=27, decline=0.6, decline_step=0.30),
+            # Eye: a stored point above average is a fifth of an engine
+            # point, so it grows harder and ages well (late peak, slow loss).
+            "eye": RatingCurve(
+                peak=33, growth=1.8, decline=0.1, decline_step=0.08, level_power=3.0
+            ),
+            "fa": RatingCurve(peak=29, decline=0.5, decline_step=0.30),
+            "arm": RatingCurve(peak=29, decline=0.3, decline_step=0.20),
+            "sp": RatingCurve(peak=28, decline=0.1, decline_step=0.06),
         }
     )
     pitcher: Mapping[str, RatingCurve] = field(
         default_factory=lambda: {
-            "control": RatingCurve(peak=31, decline=0.6, decline_step=0.40),
-            "movement": RatingCurve(peak=30, decline=0.7, decline_step=0.45),
-            "arm": RatingCurve(peak=29, decline=0.7, decline_step=0.45),
-            "endurance": RatingCurve(peak=30, decline=0.5, decline_step=0.30),
+            "control": RatingCurve(peak=31, growth=0.6, decline=1.0, decline_step=0.65),
+            "movement": RatingCurve(peak=30, growth=0.65, decline=1.0, decline_step=0.65),
+            "arm": RatingCurve(peak=29, decline=0.4, decline_step=0.28),
+            "endurance": RatingCurve(peak=30, decline=0.25, decline_step=0.15),
             "hold_runner": RatingCurve(peak=31, decline=0.4, decline_step=0.25),
         }
     )
     # Every pitch the pitcher throws (a grade above 0) develops on this.
     pitch: RatingCurve = field(
-        default_factory=lambda: RatingCurve(peak=30, decline=0.6, decline_step=0.40)
+        default_factory=lambda: RatingCurve(peak=30, decline=0.25, decline_step=0.18)
     )
 
 

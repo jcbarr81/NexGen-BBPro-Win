@@ -111,8 +111,7 @@ def test_a_prospect_grows_toward_his_potential_and_never_past_it():
     values = [step["ch"] for step in path]
     assert values[-1] > 30 + 10  # he grew a lot
     assert all(b >= a for a, b in zip(values, values[1:]))  # never down while young
-    for step in range(len(path)):
-        assert engine_rating(player, "ch") <= engine_ceiling + 1e-9
+    assert engine_rating(player, "ch") <= engine_ceiling + 1e-9
     # Potential is never below the rating.
     for key in HITTER_KEYS:
         assert player.potential[key] >= getattr(player, key)
@@ -122,8 +121,7 @@ def test_from_his_peak_he_declines_and_his_potential_follows():
     player = _hitter(ch=70, ph=70, eye=70, gap=10)
     path = _career(player, range(31, 40))
     assert path[-1]["ch"] < 70 - 10
-    for step, key in ((s, k) for s in path for k in HITTER_KEYS):
-        pass
+    assert all(b["ch"] <= a["ch"] for a, b in zip(path, path[1:]))
     for key in HITTER_KEYS:
         assert player.potential[key] == getattr(player, key)
 
