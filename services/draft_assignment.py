@@ -10,9 +10,13 @@ from utils.exceptions import DraftRosterError
 from utils.news_logger import log_news_event
 from utils.path_utils import get_data_dir
 from utils.pitcher_role import role_from_endurance
+from utils.players_file_lock import players_file_lock
 from utils.rating_scale import (
+    HEIGHT_FIELD,
     LEGACY_RATING_SCALE,
     RATING_SCALE_FIELD,
+    SCALE2_HEIGHT_FIELD,
+    players_fieldnames,
     MixedRatingScaleError,
     describe_rating_scales,
     majority_rating_scale,
@@ -293,19 +297,40 @@ def _rows_on_file_scale(
     return out
 
 
+def _rewrite_in_scale2_format(path: Path) -> list[str]:
+    """Rewrite ``players.csv`` whole, unchanged but for its header (the
+    scale 2 format: ``height_in``, a ``rating_scale`` column); the new
+    header."""
+
+    from utils.atomic_write import atomic_text_writer
+
+    with path.open("r", encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        header = list(reader.fieldnames or [])
+        rows = list(reader)
+    new_header = players_fieldnames(header, scale2=True)
+    with atomic_text_writer(path, newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=new_header)
+        writer.writeheader()
+        for row in rows:
+            if HEIGHT_FIELD in row:
+                row[SCALE2_HEIGHT_FIELD] = row.pop(HEIGHT_FIELD)
+            writer.writerow({k: row.get(k, "") for k in new_header})
+    return new_header
+
+
 def _append_players(rows: list[Dict[str, Any]]) -> None:
     if not rows:
         return
     path = _players_csv_path()
-    header = _read_players_header()
-    rows = _rows_on_file_scale(rows, path, header)
-    with path.open("a", encoding="utf-8", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=header)
-        for row in rows:
-            # Ensure all columns exist
-            payload = {k: row.get(k, "") for k in header}
-            writer.writerow(payload)
-    note_players_file_written(path)
+    # Under the players-file lock (utils.players_file_lock): the 8.0.0 move
+    # to rating scale 2 holds it from its read to its replace, so a pick
+    # never lands in the middle of a move and is lost.
+    with players_file_lock(path):
+        _append_players_locked(rows, path)
+        # The display caches key on the file (utils.rating_display): the
+        # append (and any rewrite into the scale 2 format) must be seen.
+        note_players_file_written(path)
     reset_player_cache()
     # reset_player_cache only clears the transaction log's name lookup —
     # the unified data service holds a separate cached players list that
@@ -318,6 +343,27 @@ def _append_players(rows: list[Dict[str, Any]]) -> None:
         load_players_from_csv.cache_clear()  # type: ignore[attr-defined]
     except Exception:
         pass
+
+
+def _append_players_locked(rows: list[Dict[str, Any]], path: Path) -> None:
+    header = _read_players_header()
+    rows = _rows_on_file_scale(rows, path, header)
+    if SCALE2_HEIGHT_FIELD not in header and any(
+        rating_scale_of(row) != LEGACY_RATING_SCALE for row in rows
+    ):
+        # A file that will hold a scale 2 row is put in the scale 2 format
+        # first (utils.rating_scale), so no older build can load it.
+        header = _rewrite_in_scale2_format(path)
+    with path.open("a", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=header)
+        for row in rows:
+            # Ensure all columns exist; the height goes under the name the
+            # file uses.
+            row = dict(row)
+            if SCALE2_HEIGHT_FIELD in header and SCALE2_HEIGHT_FIELD not in row:
+                row[SCALE2_HEIGHT_FIELD] = row.get(HEIGHT_FIELD, "")
+            payload = {k: row.get(k, "") for k in header}
+            writer.writerow(payload)
 
 
 def _assign_to_low(team_id: str, player_id: str) -> tuple[bool, str | None, bool]:

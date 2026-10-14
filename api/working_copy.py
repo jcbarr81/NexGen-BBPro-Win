@@ -35,7 +35,7 @@ import shutil
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
@@ -178,6 +178,42 @@ def _finance_json_is_empty(path: Path) -> bool:
 _ENGINE_GENERATION_JSON = "rating_centers.json"
 _ENGINE_GENERATION_KEY = "engine_generation"
 
+# 8.0.0: a league's players.csv on rating scale 2 is written in a format that
+# names its height column ``height_in`` (utils.rating_scale), which no build
+# before 8.0.0 can load. A copy in the older format (``height``) -- a stale
+# working copy from before the league moved, pushed back by an instance that
+# pulled it earlier -- must never replace it: the league would silently lose
+# its conversion. Its rows still play correctly on their own scale, and the
+# next season game would convert them again, but nothing that changed since
+# would be in them. Same shape as the guards above, in either direction.
+_PLAYERS_CSV = "players.csv"
+_SCALE2_HEIGHT_FIELD = "height_in"
+_HEIGHT_FIELD = "height"
+
+
+def _players_header(path: Path) -> Optional[List[str]]:
+    try:
+        with path.open("r", encoding="utf-8", newline="") as fh:
+            first = fh.readline()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return [name.strip() for name in first.strip().split(",")] if first else None
+
+
+def _loses_rating_scale(src: Path, dst: Path) -> Optional[str]:
+    """Why copying ``src`` over ``dst`` (both players.csv) would put a
+    league back in the pre-8.0.0 format, or None."""
+    dst_header = _players_header(dst)
+    if not dst_header or _SCALE2_HEIGHT_FIELD not in dst_header:
+        return None
+    src_header = _players_header(src)
+    if src_header is None:
+        return "the copy cannot be read"
+    if _HEIGHT_FIELD in src_header and _SCALE2_HEIGHT_FIELD not in src_header:
+        return "the copy is in the format of rating scale 1, the file it would replace is on scale 2"
+    return None
+
+
 # Files whose startup pull FAILED (posix path relative to the data root). The
 # app rebuilds a missing rating_centers.json from today's rosters; pushing that
 # rebuilt copy would replace the season's stored centres (and, before the app
@@ -249,6 +285,18 @@ def _note_written(dst: Path) -> None:
         note_players_file_written(dst)
 
 
+def _local_players_lock(dst: Path):
+    """The players-file lock of a local ``players.csv`` being replaced
+    (``utils.players_file_lock``); nothing for any other file. A busy lock
+    raises ``PlayersFileBusy`` (a ``RuntimeError``): the caller retries."""
+
+    if dst.name != "players.csv":
+        return nullcontext()
+    from utils.players_file_lock import players_file_lock
+
+    return players_file_lock(dst, timeout=5.0)
+
+
 def _copy_one(pair: Tuple[Path, Path]) -> int:
     src, dst = pair
     try:
@@ -271,6 +319,15 @@ def _copy_one(pair: Tuple[Path, Path]) -> int:
             if lost:
                 _emit(
                     f"skip engine-generation overwrite: {lost} "
+                    f"({src} NOT copied over {dst})"
+                )
+                return 1  # handled: retried when the source file next changes
+        # Never put a league on rating scale 2 back in the older format.
+        if src.name == _PLAYERS_CSV and dst.exists():
+            lost = _loses_rating_scale(src, dst)
+            if lost:
+                _emit(
+                    f"skip rating-scale overwrite: {lost} "
                     f"({src} NOT copied over {dst})"
                 )
                 return 1  # handled: retried when the source file next changes
@@ -419,11 +476,14 @@ def _pull_again(rel: str, remote: Path, local: Path) -> bool:
             return True
         dst.parent.mkdir(parents=True, exist_ok=True)
         # Copy beside the target and swap it in, so a game reading the file
-        # never sees half of it.
-        shutil.copy2(src, tmp)
-        os.replace(tmp, dst)
-        _note_written(dst)
-    except OSError as exc:
+        # never sees half of it. A players.csv is swapped under its
+        # players-file lock, as every writer of the local file (the 8.0.0
+        # move holds it from its read to its replace).
+        with _local_players_lock(dst):
+            shutil.copy2(src, tmp)
+            os.replace(tmp, dst)
+            _note_written(dst)
+    except (OSError, RuntimeError) as exc:
         _emit(f"pull retry failed {src} -> {dst}: {exc}")
         try:
             tmp.unlink()

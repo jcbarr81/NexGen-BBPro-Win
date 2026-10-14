@@ -395,15 +395,15 @@ def create_league(
     """Create a league under ``base_dir``.
 
     ``rating_scale`` is the scale its players' ratings are stored on
-    (``utils.rating_scale``); ``None`` takes
-    ``GENERATED_RATING_SCALE``, which is 1 today. The same random seed gives
+    (``utils.rating_scale``); ``None`` takes ``generated_rating_scale()``:
+    1, or 2 while the 8.0.0 switch is on. The same random seed gives
     the same league on any scale: the players are generated on the engine
     scale and re-expressed at the end, and everything that ranks them while
     the league is built reads the engine value.
     """
 
     if rating_scale is None:
-        rating_scale = rating_scales.GENERATED_RATING_SCALE
+        rating_scale = rating_scales.generated_rating_scale()
     rating_scale = rating_scales.normalize_rating_scale(rating_scale)
 
     def _report_progress(phase: str) -> None:

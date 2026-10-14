@@ -50,6 +50,11 @@ PLAYER_ROW_WRITERS = {
         "prospect when it is not 1"
     ),
     "api/routers/draft.py": "draft pool through save_draft_pool",
+    "services/rating_scale_migration.py": (
+        "the 8.0.0 conversion: reads players.csv raw, writes every row on "
+        "scale 2 in the scale 2 format (and open draft pools), atomically; "
+        "the rollback writes scale 1 back"
+    ),
     # -- not player rows
     "api/routers/trades.py": OTHER_FILE + " (trades_pending.csv)",
     "services/player_retirement.py": OTHER_FILE + " (roster files)",

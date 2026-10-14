@@ -47,7 +47,29 @@ scale 1 potential wherever it was at or above the current rating and the
 result fits under 99, and is NOT an exact inverse otherwise (a potential
 below current is raised to current; a gap that would pass 99 is cut).
 
-Nothing here makes a league scale 2: :data:`GENERATED_RATING_SCALE` is 1.
+Nothing here makes a league scale 2 while the switch below is off:
+:data:`GENERATED_RATING_SCALE` is 1.
+
+**The 8.0.0 operations switch** (:data:`GENERATION6_SWITCH_ENV`, OFF unless
+the service's environment sets it) is read here because it is about the
+data: with it on, a new league and its draft classes are generated on scale
+2 (:func:`generated_rating_scale`), engine generation 6 becomes a generation
+a league season may be given (``physics_sim.engine_generation``), and a
+league moves to both at the start of its next season
+(``services.rating_scale_migration``). Off, nothing anywhere differs from
+7.51.
+
+**The scale 2 file format.** A ``players.csv`` holding any scale 2 row
+names its height column :data:`SCALE2_HEIGHT_FIELD` (``height_in``) instead
+of ``height``. Builds before 8.0.0 require ``height`` on every row
+(``_required_int(row, "height")`` in their ``utils.player_loader``), so they
+REFUSE such a file -- every page and game of that league fails loudly --
+instead of loading stretched ratings as engine ratings and saving them back
+without the ``rating_scale`` column. This build reads either name
+(:func:`row_height`). A row with a blank ``height_in`` in such a file was
+appended by an older build's draft (it copies the file's header and leaves
+the columns it does not know blank); it is refused too
+(``utils.player_loader``), because its ratings cannot be trusted.
 
 This module imports only the standard library, so the models, the loaders,
 the engine, the services and the scripts can all read it.
@@ -57,6 +79,7 @@ from __future__ import annotations
 
 import csv
 import math
+import os
 from dataclasses import dataclass
 from typing import (
     Any,
@@ -73,6 +96,13 @@ from typing import (
 __all__ = [
     "FULL_RATING_SCALE",
     "GENERATED_RATING_SCALE",
+    "GENERATION6_SWITCH_ENV",
+    "HEIGHT_FIELD",
+    "SCALE2_HEIGHT_FIELD",
+    "generated_rating_scale",
+    "generation6_switch_on",
+    "players_fieldnames",
+    "row_height",
     "KNOWN_RATING_SCALES",
     "LEGACY_RATING_SCALE",
     "MIXED_RATING_SCALES",
@@ -109,12 +139,20 @@ __all__ = [
 LEGACY_RATING_SCALE = 1
 FULL_RATING_SCALE = 2
 KNOWN_RATING_SCALES: Tuple[int, ...] = (LEGACY_RATING_SCALE, FULL_RATING_SCALE)
-# The scale a NEW league is created on (a draft class takes the scale of the
-# league it is for). Scale 2 is built and proved but switched on for no one:
-# moving this is the migration step's decision, not this module's.
+# The scale a NEW league is created on while the 8.0.0 switch is off (a
+# draft class takes the scale of the league it is for). With the switch on,
+# :func:`generated_rating_scale` answers scale 2 instead.
 GENERATED_RATING_SCALE = LEGACY_RATING_SCALE
+# The 8.0.0 operations switch (module docstring). Any of these values turns
+# it on; anything else, or no value, leaves it off.
+GENERATION6_SWITCH_ENV = "NEXGEN_GENERATION6_SCALE2"
+_SWITCH_ON_VALUES = frozenset({"1", "on", "true", "yes"})
 
 RATING_SCALE_FIELD = "rating_scale"
+# The height column of a players.csv: ``height`` in a file on scale 1 only,
+# ``height_in`` in a file holding any scale 2 row (module docstring).
+HEIGHT_FIELD = "height"
+SCALE2_HEIGHT_FIELD = "height_in"
 # What :func:`players_file_rating_scale` answers for a file whose rows are
 # not all on one scale.
 MIXED_RATING_SCALES = "mixed"
@@ -125,6 +163,56 @@ _POTENTIAL_PREFIX = "pot_"
 
 class MixedRatingScaleError(ValueError):
     """A set of player rows that is not all on one rating scale."""
+
+
+def generation6_switch_on() -> bool:
+    """True when the service runs with the 8.0.0 switch on
+    (:data:`GENERATION6_SWITCH_ENV`). Read on every call, so a test or an
+    operator can flip it without a restart of this module."""
+
+    raw = str(os.getenv(GENERATION6_SWITCH_ENV, "") or "").strip().lower()
+    return raw in _SWITCH_ON_VALUES
+
+
+def generated_rating_scale() -> int:
+    """The scale a NEW league is created on: 2 with the 8.0.0 switch on,
+    else :data:`GENERATED_RATING_SCALE` (1)."""
+
+    if generation6_switch_on():
+        return FULL_RATING_SCALE
+    return GENERATED_RATING_SCALE
+
+
+def players_fieldnames(fieldnames: Iterable[str], *, scale2: bool) -> List[str]:
+    """A players.csv header in the format its rows need.
+
+    ``scale2`` True (the file holds any scale 2 row): the height column is
+    named :data:`SCALE2_HEIGHT_FIELD` and :data:`RATING_SCALE_FIELD` is
+    there, last if it was missing. False: the names as given, ``height_in``
+    turned back into ``height`` (a file with no scale 2 row left is written
+    in the format every build reads). Order is kept.
+    """
+
+    out: List[str] = []
+    for name in fieldnames:
+        if name in (HEIGHT_FIELD, SCALE2_HEIGHT_FIELD):
+            name = SCALE2_HEIGHT_FIELD if scale2 else HEIGHT_FIELD
+        if name not in out:
+            out.append(name)
+    if scale2 and RATING_SCALE_FIELD not in out:
+        out.append(RATING_SCALE_FIELD)
+    return out
+
+
+def row_height(row: Mapping[str, Any]) -> Any:
+    """The height a players.csv row holds, whichever format its file is in.
+
+    ``height_in`` when the row has that column (a scale 2 file), else
+    ``height``; ``None`` when it has neither."""
+
+    if SCALE2_HEIGHT_FIELD in row:
+        return row.get(SCALE2_HEIGHT_FIELD)
+    return row.get(HEIGHT_FIELD)
 
 
 @dataclass(frozen=True)
@@ -641,13 +729,23 @@ def engine_row(row: Mapping[str, Any]) -> Mapping[str, Any]:
     ratings un-stretched (never rounded), its potentials given the engine
     view (:func:`engine_potential`) and its ``rating_scale`` cleared, so the
     result is an honest scale 1 row and converting twice is harmless.
+
+    A row of a file in the scale 2 format (``height_in``, module docstring)
+    also gets its height back under ``height``, the name the engine reads;
+    that is the only change to a scale 1 row of such a file.
     """
 
     scale = rating_scale_of(row)
     if scale == LEGACY_RATING_SCALE:
+        if SCALE2_HEIGHT_FIELD in row and HEIGHT_FIELD not in row:
+            out = dict(row)
+            out[HEIGHT_FIELD] = row[SCALE2_HEIGHT_FIELD]
+            return out
         return row
     table = _scale_tables(scale)[_PITCHER if player_is_pitcher(row) else _HITTER]
     out = dict(row)
+    if HEIGHT_FIELD not in row and SCALE2_HEIGHT_FIELD in row:
+        out[HEIGHT_FIELD] = row[SCALE2_HEIGHT_FIELD]
     for key, spec in table.items():
         if key not in row:
             continue

@@ -1883,6 +1883,11 @@ building them:
   old build fails loudly instead of playing stretched numbers; (c) never
   roll back past the column build once any league has converted. (b) is the
   only one that also protects against a restored old binary.
+  **Built (branch `r8-switch`): option (b).** A file holding any scale 2 row
+  names its height column `height_in`; a 7.51.3 export refuses it
+  (`ValueError: Missing required field: height` from both loaders). Its
+  draft append still writes a row (blank `height_in`), which this build's
+  loader then refuses by name. See "8.0.0 switch: follow-ups" below.
 - **MIGRATION REQUIREMENT: check a league for clipping before converting
   it.** The maps were fitted to today's generated leagues; older rating
   distributions do not fit. The repo's `data/players.csv` (600 players)
@@ -1895,6 +1900,10 @@ building them:
   the decision to the owner, e.g. a league re-spread before the stretch)
   when any ACTIVE player's rating would clip; clips on minor leaguers and
   potential cuts are reported with it.
+  **Built (`r8-switch`):** refuse on an ACT clip (every player counts in a
+  league with no rosters), allow and log the rest. alpha-test: 2 clips,
+  both LOW draft picks; stats-clean: none; repo `data/players.csv`: refused
+  (405).
 - **Draft classes must fit scale 2: raise the draft floors (decided).**
   The draft markdown (`_apply_draft_rating_scale`, floor 20) produces
   engine ratings below what scale 2 can store: Eye under 33.67, Contact or
@@ -1906,6 +1915,9 @@ building them:
   store, so every prospect fits. Do it in the generator step, when draft
   classes are first generated on scale 2, NOT now: it would change scale 1
   generation.
+  **Built (`r8-switch`):** floors Contact/Power 26, Eye 34, control 28,
+  movement 30 (engine points) when generating for scale 2 only; scale 1
+  classes are byte-identical to `r6a-int` (3 seeds x 240).
 - **Mixed files are written, not refused (review fix).** Each row carries
   its own scale and reads correctly, so `save_players_to_csv` writes every
   row's own `rating_scale` and logs a warning naming the rows off the
@@ -2322,3 +2334,62 @@ league's payloads are byte-identical (pinned in
   the draft append, the injury-date repair tool and the working copy's
   copies). A players.csv written by another process in the same timestamp
   tick with the same size is still only caught by the file's clock.
+
+## 8.0.0 switch: follow-ups (2026-10-14)
+
+Branch `r8-switch` builds the move to generation 6 and rating scale 2
+(`services/rating_scale_migration.py`, `docs/rating_scale_switch_runbook.md`)
+behind `NEXGEN_GENERATION6_SCALE2`, OFF. Open:
+
+- **Switch-on depends on two other 8.0.0 pieces.** Training camp refuses a
+  scale 2 player (`require_engine_scale_players`) until the development
+  model replaces it, so every converted league's next spring would stop;
+  and screens still show the percentile blend of stored values until the
+  display step lands. Do not turn the switch on before both.
+- **Turning the switch off breaks a season already on generation 6** (the
+  build no longer knows it, by the existing rule that a recorded generation
+  is never played on a guess). The runbook says to hold with
+  `NEXGEN_NEW_SEASON_ENGINE=5` instead. Owner/lead call: let a recorded
+  generation 6 play with the switch off.
+- **An older build can still append a draft pick** to a converted league
+  (its draft writes under the file's own header); the row has a blank
+  `height_in`, and this build refuses to load the league until it is fixed
+  by hand (runbook section 5). Detected, not prevented. A scale 2 draft pool
+  in a format older builds refuse would close it.
+- **The re-spread maps a whole population onto a whole population.** A
+  bunched league's regulars are spread through its population, so their
+  spread comes out near, not at, the reference's ACT spread (alpha-test 0.8
+  to 1.1x, the flat fixture up to 1.35x for movement). An ACT-only map would
+  hit it exactly but cannot keep order between levels.
+- **The bunched rule's threshold sits close to stats-clean** (lowest ratio
+  .64 against .60). It only matters for a league listed in
+  `NEXGEN_RESPREAD_LEAGUES`, but a league created before the donor file
+  existed could be picked up if listed.
+- **Re-spreading endurance changes roles read from endurance** (alpha-test's
+  rotation starters 59-81, median 64; its other active arms 29-58, median
+  36; every arm sat at 48-52 before): the
+  staff file still decides the rotation, but `role_from_endurance` and the
+  CPU's roster logic now see starters and relievers. Measured: starters
+  +0.25 innings and +4.3 pitches a start, -0.14 relievers a game.
+- **The commissioner is told through the news feed** (`[commissioner]`
+  item) and `rating_scale.json`; there is no commissioner inbox.
+- **Integration with r8-develop.** The move runs at the rollover in
+  `LeagueRolloverService.archive_season`, after `next_year` is worked out
+  and BEFORE `_apply_yearly_aging`; r8-develop's
+  `_apply_yearly_development` must sit right after it (move, development,
+  aging, retirements). `services/offseason_development.py` writes
+  `players.csv`: it must write through `save_players` / `update_players`
+  or take `utils.players_file_lock` itself. Both branches change
+  `utils/rating_scale.py` (`engine_potential`): merge by hand.
+- **A save of players loaded before a move writes scale 1 rows** into the
+  converted file (kept, correct on their own scale); a generation 6
+  season repairs them at its next game, but a league moved at its
+  rollover is not repaired until its next season's first game. Harmless
+  for play; owners could see a few unconverted numbers in between.
+- **A refused league is re-offered every season** and stays refused until
+  someone changes the blocking ratings (runbook section 3 lists the
+  remedies). There is no in-app tool for the commissioner to do it.
+- **The generator's draft class depended on whether the data dir had been
+  resolved before the first call** in a fresh process (seen while checking
+  scale 1 identity against `r6a-int`; both trees behaved the same once it
+  was). Not investigated.

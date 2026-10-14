@@ -434,4 +434,5 @@ def test_the_module_imports_only_the_standard_library():
             imported |= {alias.name.split(".")[0] for alias in node.names}
         elif isinstance(node, ast.ImportFrom):
             imported.add((node.module or "").split(".")[0])
-    assert imported <= {"__future__", "csv", "math", "dataclasses", "typing"}
+    # ``os``: the 8.0.0 switch is an environment setting.
+    assert imported <= {"__future__", "csv", "math", "dataclasses", "os", "typing"}

@@ -154,13 +154,18 @@ def apply(players_path: Path, report: Dict[str, Any]) -> Path:
         if fix["stint_days"]:
             row["injury_minimum_days"] = str(fix["stint_days"])
 
-    with players_path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=report["fieldnames"])
-        writer.writeheader()
-        writer.writerows(report["rows"])
+    from utils.players_file_lock import players_file_lock
     from utils.players_file_writes import note_players_file_written
 
-    note_players_file_written(players_path)
+    # Under the league's players-file lock, as every writer of the file
+    # (the 8.0.0 move to rating scale 2 holds it from its read to its
+    # replace).
+    with players_file_lock(players_path):
+        with players_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=report["fieldnames"])
+            writer.writeheader()
+            writer.writerows(report["rows"])
+        note_players_file_written(players_path)
     return backup
 
 

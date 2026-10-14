@@ -9,8 +9,15 @@ player once on the scale of the league he is for
 
 for a player, a draft class and a whole league, and everything the league
 creator decides from ratings along the way (staff roles, lineups) is the
-same. No league is generated on scale 2 today: ``GENERATED_RATING_SCALE``
-is 1 and the default output is exactly what it was.
+same. No league is generated on scale 2 while the 8.0.0 switch is off:
+``generated_rating_scale()`` is 1 and the default output is exactly what it
+was.
+
+One exception, decided for 8.0.0: a draft-age player generated FOR scale 2
+has the draft markdown's floors raised to what scale 2 can store
+(``player_generator._draft_floors``), so every prospect fits. Such a player
+is the stretch of the scale 1 player with those floors applied; scale 1
+generation is untouched.
 """
 
 from __future__ import annotations
@@ -39,6 +46,19 @@ def _player(seed, **kwargs):
     return player_generator.generate_player(**kwargs)
 
 
+def _floored(player, scale=2):
+    """``player`` (scale 1) with the scale's draft floors applied, as the
+    generator applies them to a draft-age player generated for it."""
+
+    floors = player_generator._draft_floors(scale, bool(player.get("is_pitcher")))
+    out = dict(player)
+    for key, floor in floors.items():
+        value = out.get(key)
+        if isinstance(value, (int, float)) and value > 0:
+            out[key] = max(value, floor)
+    return out
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -55,8 +75,11 @@ def test_a_player_on_scale_2_is_the_stretch_of_the_same_player(kwargs, caplog):
         assert "rating_scale" not in plain  # scale 1: the dict as it always was
         assert _player(seed, rating_scale=1, **kwargs) == plain
         full = _player(seed, rating_scale=2, **kwargs)
-        expected, _clips = stretch_row(plain, 2)
+        source = _floored(plain) if kwargs.get("for_draft") else plain
+        expected, clips = stretch_row(source, 2)
         assert full == expected and full["rating_scale"] == 2
+        if kwargs.get("for_draft"):
+            assert [c for c in clips if c.kind == "rating"] == []
 
 
 def test_the_stretch_draws_no_random_number():
@@ -100,14 +123,15 @@ def _draft_class(scale):
 def test_a_draft_class_on_scale_2_is_the_stretch_of_the_same_class():
     plain, full = _draft_class(1), _draft_class(2)
     assert _draft_class(1) == plain  # the seed fixes the class
-    stretched, clips = stretch_rows(plain, 2)
+    stretched, clips = stretch_rows([_floored(p) for p in plain], 2)
     assert full == stretched
     assert {p["rating_scale"] for p in plain} == {1}
     assert {p["rating_scale"] for p in full} == {2}
-    # The low tail of a draft class does not all fit (see the report-only
-    # count in the release notes): a handful of prospects, never most.
-    off_scale = {c.player_id for c in clips if c.kind == "rating"}
-    assert len(off_scale) <= 0.08 * len(plain)
+    # 8.0.0: every prospect fits scale 2 (the raised draft floors).
+    assert [c for c in clips if c.kind == "rating"] == []
+    # Without the floors a handful of the class would not have fitted.
+    _, unfloored = stretch_rows(plain, 2)
+    assert 0 < len({c.player_id for c in unfloored if c.kind == "rating"}) <= 0.08 * len(plain)
 
 
 @pytest.fixture(scope="module")
@@ -146,8 +170,14 @@ def test_a_new_league_is_on_scale_1_today(created):
 def test_a_league_created_on_scale_2_is_the_stretch_of_the_same_league(created):
     fields, plain = support.read_player_rows(created["one"] / "players.csv")
     full_fields, full = support.read_player_rows(created["two"] / "players.csv")
-    assert full_fields == fields + ["rating_scale"]
+    # The scale 2 file format: ``height_in`` (older builds refuse it).
+    assert full_fields == rating_scale.players_fieldnames(fields, scale2=True)
+    assert full_fields == [
+        "height_in" if f == "height" else f for f in fields
+    ] + ["rating_scale"]
     stretched, _clips = stretch_rows(plain, 2)
+    for row in stretched:
+        row["height_in"] = row.pop("height")
     assert len(full) == len(plain) == 4 * 51
     assert full == stretched
     changed = sum(a["ch"] != b["ch"] or a["control"] != b["control"] for a, b in zip(plain, full))

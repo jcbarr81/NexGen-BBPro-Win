@@ -7,6 +7,7 @@ from services.unified_data_service import get_unified_data_service
 from utils.path_utils import resolve_app_path
 from utils.player_loader import load_players_from_csv
 from utils.player_writer import save_players_to_csv
+from utils.players_file_lock import players_file_lock
 
 _RELATIVE_PATH = Path("data") / "players.csv"
 
@@ -130,6 +131,14 @@ def update_players(
         return []
 
     target = _resolve_target(path)
+    # Read, merge and write as one, under the players-file lock (the 8.0.0
+    # move holds it too): nothing written between the read and the write is
+    # lost, and a move cannot land in between.
+    with players_file_lock(resolve_app_path(target)):
+        return _update_players(updates, target, path)
+
+
+def _update_players(updates, target, path):
     try:
         everyone = list(load_players_from_csv(target))
     except Exception:
