@@ -59,15 +59,30 @@ def _league_rating_scale() -> Any:
         return None
 
 
+def _league_generation() -> Any:
+    """The engine generation of the league's season, read and never fixed,
+    for the steps written for the ball-flight engine (``None`` when it
+    cannot be told: those steps are then left out)."""
+
+    try:
+        from services.league_rating_centers import get_league_engine_generation
+
+        return get_league_engine_generation(store=False)
+    except Exception:
+        return None
+
+
 @router.get("/tutorials")
 def tutorials() -> Dict[str, Any]:
-    items: List[Dict[str, Any]] = tutorial_list(_league_rating_scale())  # type: ignore[assignment]
+    items: List[Dict[str, Any]] = tutorial_list(  # type: ignore[assignment]
+        _league_rating_scale(), _league_generation()
+    )
     return {"count": len(items), "tutorials": items}
 
 
 @router.get("/tutorials/{tutorial_id}")
 def tutorial_detail(tutorial_id: str) -> Dict[str, Any]:
-    catalog = tutorial_catalog(_league_rating_scale())
+    catalog = tutorial_catalog(_league_rating_scale(), _league_generation())
     data = catalog.get(tutorial_id)
     if data is None:
         raise HTTPException(

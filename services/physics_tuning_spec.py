@@ -440,8 +440,10 @@ _VELOCITY_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
 # before the league moved is reset to neutral and kept in its overrides file
 # (services/physics_tuning_settings, BALLFLIGHT_SLIDER_REBASE_MARKER).
 # SWITCH-ON TEXT: nothing shows it before a league runs generation 7. The
-# sizes quoted come from home runs moving about 13 times as fast as carry
-# (Release 6b design brief); re-measure at the switch-on.
+# sizes quoted were measured (generation 7, calibration seeds 1-2, 162
+# games): Home Run Rate 1.10 gave 1.26 HR per team-game against 1.14 at
+# 1.00 (+11%; runs +0.18); Launch Angle Base 13.1 gave 1.19 (+5% per
+# degree), ground balls -1.1 and fly balls +1.0 per 100 balls in play.
 _BALLFLIGHT_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
     "hr_scale": TuningSliderSpec(
         key="hr_scale",
@@ -462,8 +464,9 @@ _BALLFLIGHT_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
         label="Launch Angle Base",
         description=(
             "Raises or lowers every batted ball's launch angle by the "
-            "distance from 12.1 degrees (normal). Higher: more fly balls and "
-            "home runs, fewer ground balls. A setting saved before the new "
+            "distance from 12.1 degrees (normal). Each degree higher: about "
+            "5% more home runs, and about 1 more fly ball and 1 fewer ground "
+            "ball in every 100 balls in play. A setting saved before the new "
             "ball-flight engine was reset to 12.1."
         ),
         min_value=6.0,
