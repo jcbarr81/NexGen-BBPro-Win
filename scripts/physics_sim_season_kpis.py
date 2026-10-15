@@ -522,7 +522,8 @@ R7_OBSOLETE_GATES = (
 
 
 def _generation_7_gates() -> dict[str, Any]:
-    """Release 6b (the ball-flight step, a development generation):
+    """Release 6b (the ball-flight step; a league gets it only with its
+    operations switch on):
     generation 6's gates, a separate copy, with the gates the new model
     makes obsolete dropped and the new model's gates added. Single-season
     noisy rows are pooled over seeds (report-only, as generation 6's)."""

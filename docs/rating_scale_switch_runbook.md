@@ -22,6 +22,14 @@ does not know generation 6, and those leagues' games fail on purpose (a
 season never changes engine silently). To stop further moves, set
 `NEXGEN_NEW_SEASON_ENGINE=5` on the current revision instead.
 
+**Generation 7.** With `NEXGEN_GENERATION7` also on (it ships off; it is
+read only while this switch is on), the same move lands a league on
+engine generation 7, the ball-flight engine, instead of 6, and a league on
+scale 2 already moves to 7 at its next season. Everything in this runbook
+applies to it; its own settings, park data step and switch-off rule are in
+`docs/generation7_switch_runbook.md`. Turning THIS switch off also turns
+generation 7 off.
+
 ## 2. When a league moves, and what it looks like
 
 - **At its rollover** (`services/league_rollover.py`, after the season

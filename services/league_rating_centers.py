@@ -209,7 +209,8 @@ refuses to start without it (``physics_sim.centred_ratings
 .require_batted_ball_centers``).
 
 The other batted-ball centres (``pitcher_gf_usage_center``,
-``hitter_pull_center``) are still the harness's alone.
+``hitter_pull_center``) are generation 7's (``GENERATION_CENTER_KEYS[7]``),
+on the same terms: stored in and delivered to a generation 7 season only.
 
 8.0.0 (the switch-on of generation 6 and rating scale 2, behind the
 operations switch ``utils.rating_scale.GENERATION6_SWITCH_ENV``; off,
@@ -226,6 +227,15 @@ converted file (engine values, so they are the same numbers either way,
 except where the league's ratings were re-spread). A season recorded on
 generation 6 whose players file has scale 1 rows again (a stale copy pushed
 back) has them converted at its next storing read (``repair_league``).
+
+Release 6b (generation 7's operations switch,
+``utils.rating_scale.GENERATION7_SWITCH_ENV``, read only with the 8.0.0
+one; off, nothing below happens). The generation a new season is offered is
+7 instead of 6, through exactly the path above: a league on scale 1 is
+converted first and lands on 7 (the conversion's news item carries the
+ball-flight paragraph), one on scale 2 is simply given 7 and told in its own
+item (:func:`_announced_here`). ``NEXGEN_NEW_SEASON_ENGINE=6`` holds new
+seasons on generation 6.
 """
 
 from __future__ import annotations
@@ -440,7 +450,8 @@ GENERATION_CENTER_KEYS: Dict[int, tuple[str, ...]] = {
     6: FIELDER_CENTER_KEYS + (HITTER_GF_CENTER_KEY,),
     # Release 6b (the ball-flight step): the regulars' pull centre (spray
     # widening) and the pitchers' ground-ball centre (the pitcher's
-    # launch-angle term). No league can be given generation 7 yet.
+    # launch-angle term). A league is given generation 7 only with its
+    # operations switch on (utils.rating_scale.generation7_switch_on).
     7: (HITTER_PULL_CENTER_KEY, PITCHER_GF_USAGE_CENTER_KEY),
 }
 # key -> the first generation whose seasons read it.
