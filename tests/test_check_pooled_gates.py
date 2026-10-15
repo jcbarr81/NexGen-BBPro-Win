@@ -24,7 +24,8 @@ def test_a_mean_inside_every_band_passes_and_one_outside_fails(tmp_path):
     assert {row["metric"] for row in rows} == set(gates)
     assert all(row["ok"] and row["seasons"] == 3 for row in rows)
     # One season far out: the mean decides, not the season.
-    key = "qualified_hr30_count"
+    key = "hr30_share_of_qualified"
+    assert "qualified_hr30_count" not in gates  # decision 21: a share
     target, band = gates[key]
     noisy = [_season(tmp_path, f"n{i}", {**good, key: target + 1.5 * band * (1 if i else -1)})
              for i in range(2)]

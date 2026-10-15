@@ -185,8 +185,12 @@ def test_generation_7_is_gated_as_generation_6_with_the_ball_flight_gates():
     assert {"hard_hit_pct", "barrel_pct"} <= set(seven["tolerances"])
     # Pooled over seeds: generation 6's, the pitcher ground-ball spread and
     # decision 19's slopes.
+    # Decision 21: the thirty-homer tier as a share of qualified hitters
+    # (MLB 2023-2025 .184), not generation 6's raw count.
+    assert "qualified_hr30_count" in six["pooled"]
     assert seven["pooled"] == {
-        **six["pooled"],
+        **{k: v for k, v in six["pooled"].items() if k != "qualified_hr30_count"},
+        "hr30_share_of_qualified": (0.18, 0.07),
         "pitcher_gb_pct_true_sd": (0.075, 0.025),
         "pitcher_gf_gb_per10": (6.0, 2.0),
         "pitcher_gf_hr_pct_per10": (-12.0, 6.0),

@@ -509,6 +509,7 @@ R7_STATCAST_TARGETS = {
 # old fly-ball class alone); the share of ground balls each infielder plays
 # (generation 6's spray bands, which the play model does not read: the
 # fielder is whoever reaches the ball).
+R7_HR30_SHARE_GATE = (0.18, 0.07)
 R7_OBSOLETE_GATES = (
     "bip_gb_pct", "bip_ld_pct", "bip_fb_pct", "hr_per_fb_pct",
     "gb_play_share_3b", "gb_play_share_ss", "gb_play_share_p",
@@ -559,8 +560,22 @@ def _generation_7_gates() -> dict[str, Any]:
     for key, (target, band) in targets.items():
         gates["extras_targets"][key] = target
         gates["tolerances"][key] = band
+    # Owner decision 21: the thirty-homer tier is gated as a SHARE of the
+    # qualified hitters (pooled), not a raw count -- a fixture that never
+    # benches anyone qualifies about 240 regulars where MLB qualifies about
+    # 135. MLB (Baseball-Reference standard batting, qualified = 502+ PA,
+    # fetched 2026-10-15): 2023 26 of 134 (.194), 2024 22 of 129 (.171),
+    # 2025 27 of 145 (.186), so .18 (75 of 408 = .184). The band, +/- .07,
+    # spans the pitch-clock seasons and the dilution of a no-benching
+    # qualified pool, which reads the share low (calibration .128, league
+    # fixture .119 at 1.11-1.14 HR a team-game).
+    pooled = {
+        key: band for key, band in gates["pooled"].items()
+        if key != "qualified_hr30_count"
+    }
     gates["pooled"] = {
-        **gates["pooled"],
+        **pooled,
+        "hr30_share_of_qualified": R7_HR30_SHARE_GATE,
         # Plan 6b: pitcher GB% true sd at least .05 on the wide fixtures.
         "pitcher_gb_pct_true_sd": (0.075, 0.025),
         # Owner decision 19: about +6 ground balls per 100 and about -12%
