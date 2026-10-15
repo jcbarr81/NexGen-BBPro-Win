@@ -1718,7 +1718,7 @@ def _batted_ball_kernel(
     speed, bat speed and the rating part of quality: Power's and
     Pitching's) times ``eff``, soft-capped at ``bb6_ev_softcap``.
 
-    Launch angle: ``bb6_la_center`` minus the hitter's ground-ball rating
+    Launch angle: ``bb6_la_base`` minus the hitter's ground-ball rating
     against the league's (``hitter_gf_center``) times
     ``bb6_la_gf_per_point``, plus pitch height and timing terms and the
     offset slope, plus a small noise. The pitcher's ground-ball identity
@@ -1745,7 +1745,7 @@ def _batted_ball_kernel(
     eff = max(t("bb6_ev_eff_floor", 0.45), eff)
     gf = batter.get("gb_tendency", 50.0)
     launch_angle = (
-        t("bb6_la_center", 13.2)
+        t("bb6_la_base", 13.2)
         - (gf - rating_center(tuning, "hitter_gf_center")) * t("bb6_la_gf_per_point", 0.40)
         + vertical_loc * t("bb6_la_location_scale", 4.0)
         + timing_error * t("bb6_la_timing_scale", 7.0)

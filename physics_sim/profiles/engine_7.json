@@ -213,7 +213,7 @@
   "bb6_ev_mult": 1.155,
   "bb6_ev_softcap": 110.2,
   "bb6_ev_softcap_scale": 0.4,
-  "bb6_la_center": 13.2,
+  "bb6_la_base": 13.2,
   "bb6_la_gf_per_point": 0.4,
   "bb6_la_location_scale": 4.0,
   "bb6_la_timing_scale": 7.0,

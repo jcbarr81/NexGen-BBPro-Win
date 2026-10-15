@@ -5454,7 +5454,7 @@ def _pitcher_context(pitcher: PitcherRatings, tuning: TuningConfig) -> Dict[str,
             for pitch, grade in repertoire.items()
         }
     arm = _league_relative(pitcher.arm, "pitcher_arm_usage_center", tuning)
-    return {
+    context = {
         "repertoire": repertoire,
         # Fastball velocity; per-type offsets are subtracted in
         # simulate_pitch. +3 vs the old flat 80 recenters the
@@ -5470,10 +5470,12 @@ def _pitcher_context(pitcher: PitcherRatings, tuning: TuningConfig) -> Dict[str,
         "fatigue_factor": 1.0,
         "hand": pitcher.throws,
         "vs_left": pitcher.vs_left,
-        # Release 6b: his ground-ball rating, read by the batted-ball kernel's
-        # pitcher term (pitcher_gb_launch_scale) only.
-        "gb_tendency": pitcher.gb_tendency,
     }
+    if tuning.get("pitcher_gb_launch_scale", 0.0):
+        # Release 6b: his ground-ball rating, read by the batted-ball
+        # kernel's pitcher term only (and only there while it is on).
+        context["gb_tendency"] = pitcher.gb_tendency
+    return context
 
 
 def _lineup_hand_from_starter(starter: PitcherRatings | None) -> str:

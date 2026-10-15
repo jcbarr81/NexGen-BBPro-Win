@@ -1534,7 +1534,7 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # bb6_ev_eff_floor; exit velocity = the potential (ev_base times the
     # rating part of quality, contact_quality_scale and offense_scale) times
     # bb6_ev_mult times eff, soft-capped at bb6_ev_softcap (bb6_ev_softcap_
-    # scale above it). Launch angle = bb6_la_center - (gf - hitter_gf_center)
+    # scale above it). Launch angle = bb6_la_base - (gf - hitter_gf_center)
     # * bb6_la_gf_per_point + pitch height * bb6_la_location_scale + timing *
     # bb6_la_timing_scale + u * bb6_la_per_offset (bb6_la_per_offset_topped
     # for u < 0) + N(0, bb6_la_noise_sd), held to -75..85. The classes become
@@ -1552,7 +1552,7 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "bb6_ev_mult": 1.155,
     "bb6_ev_softcap": 110.2,
     "bb6_ev_softcap_scale": 0.40,
-    "bb6_la_center": 13.2,
+    "bb6_la_base": 13.2,
     "bb6_la_gf_per_point": 0.40,
     "bb6_la_location_scale": 4.0,
     "bb6_la_timing_scale": 7.0,
