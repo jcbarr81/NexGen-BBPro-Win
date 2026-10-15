@@ -15,6 +15,7 @@ from .ballflight import (
     carry_model_on,
     fielding_play_model_on,
     play,
+    require_park_fences,
     resolve_ball,
 )
 from .config import load_tuning, TuningConfig
@@ -6095,6 +6096,9 @@ def simulate_game(
     # Release 6a (double_line_drive_scale): and for the regulars' ground-ball
     # centre the doubles credit reads.
     require_batted_ball_centers(tuning)
+    # Release 6b: the ball-flight model plays every real park on generation
+    # 7's own fence file and never falls back to ParkConfig.csv's rows.
+    require_park_fences(tuning)
     park: Park = load_park(park_name)
     injury_sim: InjurySimulator | None = None
     if tuning.get("injuries_enabled", 1.0) > 0.5:

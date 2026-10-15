@@ -315,6 +315,30 @@ def home_run_fence(
     return distance + max(0.0, height) / max(0.3, slope), distance
 
 
+class ParkFencesMissing(RuntimeError):
+    """Generation 7's fences file (``ParkFences.csv``) is not where the park
+    data is read from: a game must not be played on the ParkConfig.csv rows
+    an earlier engine reads (docs/park_data_generation7_runbook.md)."""
+
+
+def require_park_fences(tuning: Any) -> None:
+    """Raise :class:`ParkFencesMissing` when the ball-flight model
+    (``carry_model`` or ``fielding_play_model``) is on and
+    ``ParkFences.csv`` cannot be read from the park data folder. Nothing to
+    check with both off."""
+    if not (carry_model_on(tuning) or fielding_play_model_on(tuning)):
+        return
+    from utils.park_utils import PARK_FENCES_FILE, _find_park_data_file, park_fences
+
+    if not park_fences():
+        raise ParkFencesMissing(
+            "the ball-flight model is on but the park data has no "
+            f"{PARK_FENCES_FILE} ({_find_park_data_file(PARK_FENCES_FILE)}); "
+            "upload it with the other park files before a league plays "
+            "engine generation 7 (docs/park_data_generation7_runbook.md)"
+        )
+
+
 @functools.lru_cache(maxsize=512)
 def _real_fence(name: str) -> Optional[Fence]:
     from utils.park_utils import park_fence_for_name
