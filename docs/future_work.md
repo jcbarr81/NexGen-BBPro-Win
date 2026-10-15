@@ -2541,3 +2541,68 @@ These are 7.51 behaviours it ran into, not 8.0.0 changes:
   leaguers) does not hold for long. Note it if the rule is revisited.
 - **8.0.0 tutorial filter (still open, above):** steps are filtered by
   rating scale, not engine generation.
+
+## Release 6b ball-flight core: follow-ups (2026-10-15, branch `r7-ballflight`)
+
+Engine generation 7 (development only; RELEASE6_PLAN section 9). Open:
+
+- **The top of the exit-velocity distribution against carry.** Hard-hit
+  .34-.36 (target .38), barrel .054-.058 (.075) and the mean home run
+  389 ft (about 400) are all short with home runs held at 1.1 a team-game.
+  Measured (calibration seed 1, everything else equal): exit velocity
+  +1.3% with carry .98-1.0 and the soft cap at 102-106 mph gives hard-hit
+  .41-.44, barrel .068-.074, mean HR 398-401 ft -- and 2.1-2.8 HR a
+  team-game. The kernel turns too many hard balls into home runs (HR per
+  barrel about .74 against MLB's roughly .6, from memory): the launch
+  angle of the hardest contact, the weak-contact mixture and the soft cap
+  have to be re-fitted together (`kern.py`'s procedure) before hard-hit,
+  barrels or HR distance are gated.
+- **HR per fly ball .11 is arithmetic, not a model target.** With fly balls
+  plus pop-ups at 31% of balls in play (Statcast's share) and about 26
+  balls in play a team-game, .11 means about .9 HR a team-game; the
+  model reads .134-.14 at 1.1. Restate the target from one season of
+  Savant data before gating it.
+- **Thirty-homer hitters 31-41 on calibration** (gate 20 +/- 8, pooled;
+  the league fixture 25, flat 27). The Power top was re-solved for
+  decision 16's per-hitter targets (stored 99 at 48 HR per 650 PA), but
+  the middle of the curve (57-63) was not; re-fit it with
+  `fit_power_table.py` and read `power_hr600_p30` / `_p40` off the
+  matchup grid (not run in this build).
+- **The play model's grounder shares** are 3B .22 / SS .23 / 2B .25 / 1B
+  .23 / P .07 against generation 6's gates (.21 / .30 / .28 / .15 / .07,
+  MLB from memory). The infielders' spots (`ballflight.INFIELD_SPOTS`)
+  decide them; move 1B and 2B toward the line and the middle, or restate
+  the gates. The infield band cut points (`infield_band_*`) are not read
+  under the play model.
+- **r(pull rating, pull angle) .63-.74** under spray widening (sd 40);
+  generation 6's gate (.80 or more) was set for sd 18. Restate it for
+  generation 7, and the bip_*_pct / hr_per_fb_pct legacy gates (they read
+  the old class cut points).
+- **The league fixture's runs** read 4.73 on seed 1 (band 4.22-4.72),
+  as generation 6's league seed 1 also runs high; judge on seeds 1-4.
+  BB .080-.083 and K .216-.220 are at the targets' low edges.
+- **Pitcher / hitter HR true-sd ratio .47-.57** (plan .5 or less; pooled
+  gate .40 +/- .25) with decision 19's ground-ball term on; `ev_pq_slope`
+  and `ev_base_offset_mph` were not re-fitted (the HR log5 grid was not
+  run).
+- **Parks.** Singles, doubles and triples by park against Savant (Monte
+  Carlo, `fit_park_hr_factors.py --hit-types`): singles flat (98-103;
+  Coors 103 against 115), Fenway doubles 110 against 120, Coors triples
+  214 against 215, Chase triples 114 against 208, Comerica triples 81
+  against 150. The largest home-run shifts are PNC's sides (+28.5 /
+  -22.8 ft), Tropicana's left (-26.7), Chase's left (-22.9), Rickwood's
+  left (-17.9) and both sides of Mexico City (+20, its altitude).
+  `ParkFences.csv` and `ParkHRTargets.csv` live under `data/` (not in the
+  backend image) and a league's data folder carries its own park files:
+  move them into the package, or copy them to each league, before a
+  league plays generation 7; without `ParkFences.csv` generation 7 falls
+  back to the ParkConfig row silently.
+- **Commissioner sliders under generation 7.** `hr_scale` (Home Run) and
+  `launch_angle_base` (Launch Angle) are not read by the ball-flight model;
+  give them meaning (or hide them) before generation 7 reaches a league.
+  `physics_tuning_settings` does not own the `bb6_*` keys yet.
+- **Foul-outs** are caught by the catcher (30%) or the corner infielder on
+  the ball's side, never by anyone else, and never drop for an error.
+- **The KPI rows** (`foul_outs_per_team_game`, the hit-chance shares,
+  hitter / pitcher GB% and BABIP true sd, `tables["park_factors"]`) are
+  written only for a ball-flight run, so every other run keeps its keys.

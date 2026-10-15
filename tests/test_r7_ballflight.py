@@ -227,6 +227,32 @@ def test_a_foul_out_is_one_draw_on_a_foul_and_only_when_on(monkeypatch):
     assert fouls > 100
 
 
+def test_the_ball_flight_kpis_are_written_only_for_a_ball_flight_run():
+    from scripts import kpi_extras
+
+    assert not kpis.ball_flight_run(None)
+    assert not kpis.ball_flight_run(engine_profile(6, development=True))
+    assert kpis.ball_flight_run(engine_profile(7, development=True))
+    assert kpis.ball_flight_run({"foul_out_model": 1})
+    game = engine.simulate_matchup_from_files(
+        away_team="CAL01", home_team="CAL02", base_dir=CAL, players_path=PLAYERS,
+        seed=5, tuning_overrides=kpis.with_rating_centers(
+            {**engine_profile(7, development=True), "fielding_chance_log": 1.0},
+            PLAYERS, CAL,
+        ),
+    )
+    for flag in (False, True):
+        extras = kpi_extras.ReportOnlyKpis(
+            players_path=PLAYERS, games_per_team=1, lineup_dir=CAL / "lineups",
+            ball_flight=flag, team_parks={"CAL02": "New Yankee Stadium"},
+        )
+        extras.add_game(game, away="CAL01", home="CAL02")
+        metrics = extras.finalize()["metrics"]
+        present = set(kpi_extras.R7_METRIC_KEYS) & set(metrics)
+        assert present == (set(kpi_extras.R7_METRIC_KEYS) if flag else set())
+    assert metrics["hit_chance_below_05_share"] is not None
+
+
 def test_a_game_on_generation_7_plays_and_credits_the_play_models_fielders():
     overrides = kpis.with_rating_centers(
         engine_profile(7, development=True), PLAYERS, CAL
