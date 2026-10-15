@@ -1,0 +1,19 @@
+{
+  "tag_up_release": 0.7,
+  "bb6_wall_catch_ft": 9.0,
+  "range_logit_slope_1b": 0.00988,
+  "range_logit_slope_2b": 0.01832,
+  "range_logit_slope_3b": 0.01106,
+  "range_logit_slope_ss": 0.01516,
+  "range_logit_slope_lf": 0.03245,
+  "range_logit_slope_cf": 0.03864,
+  "range_logit_slope_rf": 0.03187,
+  "bat_speed_power_table": {
+    "60": 6.56,
+    "61.67": 7.57,
+    "63.33": 8.41,
+    "65": 8.68,
+    "66.33": 8.95,
+    "80": 11.0
+  }
+}

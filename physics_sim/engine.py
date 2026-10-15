@@ -3310,12 +3310,14 @@ def _play_out_chance(
     defense: DefenseRatings,
     range_model: bool,
     tuning: TuningConfig,
+    ball_type: str,
 ) -> float:
     """The out chance of a ball the Release 6b play model resolved: its
     neutral ``out0`` moved by the responsible fielder's rating under
-    ``range_model`` 1 (in log-odds, a liner at ``range_ld_ratio``), within
-    ``bb6_hit_prob_min``..``max`` of certainty. The pitcher and the catcher
-    have no range slope."""
+    ``range_model`` 1 (in log-odds, a line drive -- the Statcast class,
+    ``ball_type`` -- at ``range_ld_ratio``, as scripts/fit_fielding_slopes.py
+    counts it), within ``bb6_hit_prob_min``..``max`` of certainty. The
+    pitcher and the catcher have no range slope."""
     out0 = flight.out0
     if not range_model:
         return out0
@@ -3328,9 +3330,7 @@ def _play_out_chance(
         min(hi, max(lo, out0)),
         position=flight.fielder,
         rating=rating,
-        ball_type="ld" if flight.out_type == "lineout" else (
-            "gb" if flight.route == "ground" else "fb"
-        ),
+        ball_type=ball_type,
         tuning=tuning,
         bounds=(lo, hi),
     )
@@ -7643,7 +7643,8 @@ def simulate_game(
                             play_pos = flight.fielder
                             liner_infield = {"infield_play": flight.infield_play}
                             out_prob = _play_out_chance(
-                                flight, defense_ratings, range_model, tuning
+                                flight, defense_ratings, range_model, tuning,
+                                ball_type,
                             )
                             hit_prob = (1.0 - out_prob) * tuning.get(
                                 "babip_scale", 1.0

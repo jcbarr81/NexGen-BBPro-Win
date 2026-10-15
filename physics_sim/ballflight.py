@@ -599,7 +599,15 @@ def play(ball: BallInPlay, tuning: Any, *, batter_speed: float = 50.0) -> BallIn
     r = min(ball.distance, ball.wall)
     x, y = _xy(r, ball.spray)
     p_air, air_pos = 0.0, ""
+    # A ball still higher than a fielder can reach when it gets to the wall
+    # hits the wall: nobody catches it (Fenway's wall-ball doubles).
+    off_wall = ball.distance > ball.wall and (
+        (ball.distance - ball.wall) * math.tan(math.radians(max(1.0, ball.descent)))
+        > t("bb6_wall_catch_ft", 1e9)
+    )
     for pos, (ox, oy) in _OUTFIELD_XY.items():
+        if off_wall:
+            break
         gap = math.hypot(x - ox, y - oy)
         reach = t("bb6_of_reach0", 5.0) + t("bb6_of_speed", 28.0) * max(
             0.0, ball.hang - t("bb6_of_react", 1.8)

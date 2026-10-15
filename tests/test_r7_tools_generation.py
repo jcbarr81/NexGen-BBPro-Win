@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 import physics_sim.engine_generation as generations
+import scripts.build_engine7_profile as builder
 import scripts.physics_sim_season_kpis as kpis
 from physics_sim.config import DEFAULT_TUNING, load_tuning
 from services import league_rating_centers as centers
@@ -36,11 +37,9 @@ REGISTRY_6 = REPO / "physics_sim" / "profiles" / "engine_6.json"
 REGISTRY_7 = REPO / "physics_sim" / "profiles" / "engine_7.json"
 HARNESS_COPY = REPO / "scripts" / "kpi_profiles" / "r7.json"
 # The build stages of generation 7, in the order they are laid over
-# generation 6 (a later stage may re-value an earlier stage's key).
-R7_STAGES: tuple[str, ...] = ()
-R7_STAGE_PROFILES = tuple(
-    REPO / "scripts" / "kpi_profiles" / f"r7_{stage}.json" for stage in R7_STAGES
-)
+# generation 6 (a later stage may re-value an earlier stage's key):
+# scripts/build_engine7_profile.py.
+R7_STAGE_PROFILES = tuple(builder.stage_path(stage) for stage in builder.R7_STAGES)
 
 
 def _text(path: Path) -> bytes:
@@ -48,10 +47,7 @@ def _text(path: Path) -> bytes:
 
 
 def _generation_6_and_the_stages() -> dict:
-    expected = json.loads(_text(REGISTRY_6))
-    for path in R7_STAGE_PROFILES:
-        expected.update(json.loads(_text(path)))
-    return expected
+    return builder.build()
 
 
 # --- the profile ------------------------------------------------------------------
@@ -80,6 +76,7 @@ def test_the_harness_copy_is_the_registry():
 def test_generation_7_is_generation_6_with_the_stages():
     payload = json.loads(_text(REGISTRY_7))
     assert payload == _generation_6_and_the_stages()
+    assert _text(REGISTRY_7).decode("utf-8") == builder.render(builder.build())
     profile_6 = json.loads(_text(REGISTRY_6))
     # Generation 6's keys keep their order (a stage re-values in place).
     assert list(payload)[: len(profile_6)] == list(profile_6)

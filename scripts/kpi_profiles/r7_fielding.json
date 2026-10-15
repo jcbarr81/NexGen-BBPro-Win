@@ -1,0 +1,17 @@
+{
+  "fielding_play_model": 1,
+  "babip_scale": 1.0,
+  "bb6_ground_carry_ft": 150.0,
+  "bb6_ground_max_la": 15.0,
+  "bb6_gb_double_line_deg": 39.0,
+  "bb6_gb_double_ev": 88.0,
+  "bb6_double_wall_frac": 0.92,
+  "bb6_double_gap_ft": 82.0,
+  "bb6_double_min_ft": 265.0,
+  "bb6_triple_wall_frac": 0.99,
+  "bb6_triple_gap_ft": 98.0,
+  "bb6_triple_speed_ft": 30.0,
+  "bb6_run_speed": 0.02,
+  "bb6_hit_prob_min": 0.002,
+  "bb6_hit_prob_max": 0.998
+}

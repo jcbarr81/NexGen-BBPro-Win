@@ -1642,6 +1642,9 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "bb6_ifa_react": 0.8,
     "bb6_ifa_sigma": 7.0,
     "bb6_air_out_max": 0.992,
+    # A ball that reaches the fence line higher than this (ft) hits the wall
+    # and cannot be caught (generation 7: 9 ft, a leap at the wall).
+    "bb6_wall_catch_ft": 1e9,
     "bb6_hit_prob_min": 0.002,
     "bb6_hit_prob_max": 0.998,
     # foul_out_model 1: a foul ball is caught for an out with chance

@@ -22,7 +22,9 @@ Procedure (Monte Carlo, neutral talent):
    as Savant's are (100 = the league's average for that side).
 3. Solve each park's two shifts for its two targets (a left-handed
    batter's home runs go mostly to the right-field side, a right-handed
-   batter's to the left), then re-read the league mean and repeat until no
+   batter's to the left), each target a rate against the 30 parks' mean
+   at shift 0 (the targets scaled to average exactly 100), so the league's
+   home-run level is the same before and after the fit; repeat until no
    shift moves by more than 0.05 ft.
 
     python scripts/fit_park_hr_factors.py --engine 7 --base-dir data/calibration \
@@ -120,6 +122,33 @@ def collect_balls(args: argparse.Namespace) -> np.ndarray:
     return np.array(rows, dtype=float)
 
 
+def carry_arrays(
+    exit_velo: np.ndarray, launch_angle: np.ndarray, altitude: float, tuning: Any
+) -> tuple[np.ndarray, np.ndarray]:
+    """``physics_sim.ballflight.carry`` over arrays: (carry, descent)."""
+    from physics_sim import ballflight as bf
+
+    layers = [tuple(np.array(grid) for grid in layer) for layer in bf._table()]
+    ev0, ev1, evs = bf.EV_GRID
+    la0, la1, las = bf.LA_GRID
+    fi = (np.clip(exit_velo, ev0, ev1 - 1e-6) - ev0) / evs
+    fj = (np.clip(launch_angle, la0, la1 - 1e-6) - la0) / las
+    i, j = fi.astype(int), fj.astype(int)
+    a, b = fi - i, fj - j
+
+    def look(tab):
+        return (tab[i, j] * (1 - b) + tab[i, j + 1] * b) * (1 - a) + (
+            tab[i + 1, j] * (1 - b) + tab[i + 1, j + 1] * b
+        ) * a
+
+    density = bf.park_density(altitude, tuning)
+    w = (1.0 - density) / (1.0 - bf.THIN_AIR_DENSITY)
+    sea_c, thin_c = look(layers[0][0]), look(layers[1][0])
+    sea_d, thin_d = look(layers[0][2]), look(layers[1][2])
+    dist = (sea_c + (thin_c - sea_c) * w) * tuning.get("bb6_carry_scale", 1.0)
+    return dist, sea_d + (thin_d - sea_d) * w
+
+
 class ParkModel:
     """Every ball's carry and descent in each park's air, and the fence."""
 
@@ -133,7 +162,6 @@ class ParkModel:
         alt_by_id, _ = _load_parks_master()
         fences = park_fences()
         self.parks: dict[str, Any] = {}
-        evs, las = balls[:, 0].tolist(), balls[:, 1].tolist()
         cache: dict[float, tuple[np.ndarray, np.ndarray]] = {}
         for pid in park_ids:
             listed = fences.get(pid)
@@ -151,33 +179,32 @@ class ParkModel:
             altitude = float(alt_by_id.get(pid, 0.0))
             key = round(altitude, 1)
             if key not in cache:
-                dist, desc = [], []
-                for ev, la in zip(evs, las):
-                    d, _h, a = ballflight.carry(ev, la, altitude, tuning)
-                    dist.append(d)
-                    desc.append(a)
-                cache[key] = (np.array(dist), np.array(desc))
+                cache[key] = carry_arrays(balls[:, 0], balls[:, 1], altitude, tuning)
+            # Everything but the shifts, worked out once: a ball leaves the
+            # park when its margin over the unshifted fence and wall passes
+            # left * a + right * b (the shifts' share at its angle).
+            d = np.array(distances, dtype=float)
+            h = np.array(heights, dtype=float)
+            dist, desc = cache[key]
+            phi = np.clip(balls[:, 2], -45.0, 45.0)
+            pos = (phi + 45.0) / 22.5
+            idx = np.minimum(3, pos.astype(int))
+            frac = pos - idx
+            wall = d[idx] * (1 - frac) + d[idx + 1] * frac
+            height = h[idx] * (1 - frac) + h[idx + 1] * frac
+            slope = np.maximum(0.3, np.tan(np.radians(np.maximum(15.0, desc))))
+            left_w = np.array([1.0, 1.0, 0.5, 0.0, 0.0])
+            right_w = 1.0 - left_w
             self.parks[pid] = {
-                "distances": np.array(distances, dtype=float),
-                "heights": np.array(heights, dtype=float),
                 "altitude": altitude,
-                "carry": cache[key],
+                "margin": dist - wall - np.maximum(0.0, height) / slope,
+                "a": left_w[idx] * (1 - frac) + left_w[idx + 1] * frac,
+                "b": right_w[idx] * (1 - frac) + right_w[idx + 1] * frac,
             }
 
     def hr_mask(self, pid: str, left: float, right: float) -> np.ndarray:
         park = self.parks[pid]
-        dist, desc = park["carry"]
-        moves = np.array([left, left, (left + right) / 2.0, right, right])
-        d = park["distances"] + moves
-        h = park["heights"]
-        phi = np.clip(self.balls[:, 2], -45.0, 45.0)
-        pos = (phi + 45.0) / 22.5
-        idx = np.minimum(3, pos.astype(int))
-        frac = pos - idx
-        wall = d[idx] * (1 - frac) + d[idx + 1] * frac
-        height = h[idx] * (1 - frac) + h[idx + 1] * frac
-        slope = np.maximum(0.3, np.tan(np.radians(np.maximum(15.0, desc))))
-        return dist > wall + np.maximum(0.0, height) / slope
+        return park["margin"] > left * park["a"] + right * park["b"]
 
     def rates(self, pid: str, left: float, right: float) -> tuple[float, float]:
         hr = self.hr_mask(pid, left, right)
@@ -202,7 +229,7 @@ def fit(model: ParkModel, targets: dict[str, dict[str, Any]], current: list[str]
 
     def solve(pid: str, side: int, goal_rate: float) -> float:
         lo, hi = -SHIFT_LIMIT_FT, SHIFT_LIMIT_FT
-        for _ in range(40):
+        for _ in range(24):
             mid = (lo + hi) / 2.0
             trial = list(shifts[pid])
             trial[1 - side] = mid  # side 0 = LHB -> right side; 1 = RHB -> left
@@ -213,19 +240,30 @@ def fit(model: ParkModel, targets: dict[str, dict[str, Any]], current: list[str]
                 hi = mid
         return round((lo + hi) / 2.0, 2)
 
-    for _outer in range(20):
-        base = league()
+    # The league's level is held: every target is a rate against the 30
+    # parks' mean at their own shapes (shift 0), with the targets scaled so
+    # the 30 average exactly 100 (they average about 101). So the parks'
+    # mean home-run rate after the fit is the one before it, and a league in
+    # the generic park and a league of the real parks play to one level.
+    base = league()
+    scale = {}
+    for side, key in ((0, "hr_lhb"), (1, "hr_rhb")):
+        goals = [float(targets[p][key]) for p in current if targets.get(p, {}).get(key)]
+        scale[key] = 100.0 / (sum(goals) / len(goals))
+    for _outer in range(4):
         moved = 0.0
         for pid in fit_ids:
             target = targets.get(pid)
             if not target or pid not in model.parks:
                 continue
-            for _inner in range(3):
+            for _inner in range(2):
                 for side, key in ((0, "hr_lhb"), (1, "hr_rhb")):
                     goal = target.get(key)
                     if goal is None:
                         continue
-                    new = solve(pid, side, base[side] * float(goal) / 100.0)
+                    new = solve(
+                        pid, side, base[side] * float(goal) * scale[key] / 100.0
+                    )
                     moved = max(moved, abs(new - shifts[pid][1 - side]))
                     shifts[pid][1 - side] = new
         if moved < 0.05:
