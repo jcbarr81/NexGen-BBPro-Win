@@ -423,7 +423,172 @@ def park_factor_for_name(name: str) -> float:
     return best_val / 100.0
 
 
+_FENCE_WALL_DEFAULT_FT = 8.0
+
+
+@functools.lru_cache(maxsize=32)
+def _load_fence_rows_cached(
+    token: tuple[str, int, int],
+) -> Dict[str, tuple[str, int, tuple, tuple]]:
+    """Normalized park name -> (park id, year, five distances, five wall
+    heights) from the newest row of each name, the row
+    :func:`_load_latest_parks_cached` keeps. A row without its LF, CF and
+    RF distances is left out."""
+    latest: Dict[str, tuple[str, int, tuple, tuple]] = {}
+    path = Path(token[0])
+    if not path.exists():
+        return latest
+    with path.open("r", newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            try:
+                year = int(row.get("Year") or 0)
+            except Exception:
+                continue
+            name = (row.get("NAME") or row.get("Name") or "").strip()
+            if not name:
+                continue
+            fence = _fence_from_row(row)
+            key = _norm(name)
+            prev = latest.get(key)
+            if prev is not None and year <= prev[1]:
+                continue
+            if fence is None:
+                # The newest row rules even without a fence (no fallback
+                # to an older configuration of the park).
+                latest[key] = ("", year, (), ())
+                continue
+            pid = (row.get("parkID") or row.get("ParkID") or "").strip()
+            latest[key] = (pid, year, fence[0], fence[1])
+    return {k: v for k, v in latest.items() if v[2]}
+
+
+def _fence_from_row(row: dict) -> tuple[tuple, tuple] | None:
+    """A ParkConfig row's five-point fence (Release 6b, ``carry_model``):
+    LF line, left-centre, centre, right-centre, RF line. Left-centre is the
+    row's ``LC_Dim``, else ``LCC_Dim``, else ``LFA_Dim``, else ten feet
+    beyond the mean of the line and centre (right-centre the same way);
+    a missing wall height reads 8 ft."""
+    lf = _parse_float(row.get("LF_Dim", ""))
+    cf = _parse_float(row.get("CF_Dim", ""))
+    rf = _parse_float(row.get("RF_Dim", ""))
+    if lf is None or cf is None or rf is None:
+        return None
+
+    def first(*keys: str) -> Optional[float]:
+        for key in keys:
+            value = _parse_float(row.get(key, ""))
+            if value is not None:
+                return value
+        return None
+
+    lc = first("LC_Dim", "LCC_Dim", "LFA_Dim")
+    rc = first("RC_Dim", "RCC_Dim", "RFA_Dim")
+    if lc is None:
+        lc = (lf + cf) / 2.0 + 10.0
+    if rc is None:
+        rc = (rf + cf) / 2.0 + 10.0
+    heights = tuple(
+        _parse_float(row.get(key, "")) or _FENCE_WALL_DEFAULT_FT
+        for key in ("LF_W", "LC_W", "CF_W", "RC_W", "RF_W")
+    )
+    return (lf, lc, cf, rc, rf), heights
+
+
+# Release 6b: the five-point fences generation 7 plays (owner decision 20),
+# a file of its own so nothing an earlier engine reads changes.
+PARK_FENCES_FILE = "ParkFences.csv"
+
+
+def _comment_free_lines(fh: Iterable[str]) -> Iterable[str]:
+    return (line for line in fh if not line.lstrip().startswith("#"))
+
+
+@functools.lru_cache(maxsize=32)
+def _load_park_fences_cached(
+    token: tuple[str, int, int],
+) -> Dict[str, tuple[tuple, tuple, bool]]:
+    """``ParkFences.csv``: park id -> (five distances, five wall heights,
+    whether it is one of the parks the generic park averages)."""
+    out: Dict[str, tuple[tuple, tuple, bool]] = {}
+    path = Path(token[0])
+    if not path.exists():
+        return out
+    with path.open("r", newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(_comment_free_lines(fh)):
+            pid = (row.get("park_id") or "").strip().upper()
+            distances = tuple(
+                _parse_float(row.get(k, "")) for k in ("lf", "lc", "cf", "rc", "rf")
+            )
+            heights = tuple(
+                _parse_float(row.get(k, ""))
+                for k in ("lf_w", "lc_w", "cf_w", "rc_w", "rf_w")
+            )
+            if not pid or None in distances or None in heights:
+                continue
+            out[pid] = (distances, heights, (row.get("generic") or "").strip() == "1")
+    return out
+
+
+def park_fences() -> Dict[str, tuple[tuple, tuple, bool]]:
+    """Every row of ``ParkFences.csv`` (``{}`` without the file)."""
+    path = _find_park_data_file(PARK_FENCES_FILE)
+    if not path.exists():
+        return {}
+    return _load_park_fences_cached(_file_token(path))
+
+
+def park_fence_for_name(name: str) -> tuple[str, tuple, tuple] | None:
+    """``(park id, five distances, five wall heights)`` of the park ``name``
+    resolves to, by the same lookup as :func:`stadium_from_name`: its
+    ``ParkFences.csv`` row, else its newest ParkConfig row by the five-point
+    rule (:func:`_fence_from_row`); ``None`` (the generic park) when it
+    resolves to none or the park has no full set of line and centre
+    distances."""
+    info = _park_info_for_name(name)
+    if info is None:
+        return None
+    path = _park_config_path()
+    if not path.exists():
+        return None
+    found = _load_fence_rows_cached(_file_token(path)).get(_norm(info.name))
+    if found is None:
+        return None
+    pid, _year, distances, heights = found
+    pid = pid or info.park_id
+    listed = park_fences().get((pid or "").upper())
+    if listed is not None:
+        distances, heights = listed[0], listed[1]
+    return pid, distances, heights
+
+
+def park_fence_rows(
+    park_ids: Iterable[str], year: int
+) -> dict[str, tuple[tuple, tuple]]:
+    """Park id -> its five-point fence in ``year``'s row of ParkConfig.csv
+    (the generic park of Release 6b is the mean of the 30 current parks)."""
+    wanted = {pid.upper() for pid in park_ids}
+    out: dict[str, tuple[tuple, tuple]] = {}
+    path = _park_config_path()
+    if not path.exists():
+        return out
+    with path.open("r", newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            pid = (row.get("parkID") or "").strip().upper()
+            try:
+                row_year = int(row.get("Year") or 0)
+            except Exception:
+                continue
+            if pid in wanted and row_year == year:
+                fence = _fence_from_row(row)
+                if fence is not None:
+                    out[pid] = fence
+    return out
+
+
 __all__ = [
+    "park_fence_for_name",
+    "park_fences",
+    "park_fence_rows",
     "stadium_from_name",
     "park_factor_for_name",
     "park_altitude_for_name",

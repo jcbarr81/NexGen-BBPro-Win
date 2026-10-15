@@ -173,12 +173,17 @@ def test_nothing_in_the_engine_reads_them_yet():
     in (and add the test of what reads it). The fielder centres are wired
     (tests/test_r6a_fielding_spray_range.py and test_r6a_fielding_errors.py),
     and so is ``hitter_gf_center``: the line-drive credit on doubles reads
-    it (tests/test_r6a_power_doubles.py, test_r6a_power_centers.py)."""
+    it (tests/test_r6a_power_doubles.py, test_r6a_power_centers.py).
+    Release 6b wired the last two: the batted-ball kernel reads them
+    (physics._batted_ball_kernel, under switches generation 7 turns on;
+    tests/test_r7_centers.py), and only there and in the check that they
+    were delivered."""
     pattern = re.compile(
         r"pitcher_gf_usage_center|hitter_pull_center"
     )
+    readers = {"config.py", "physics.py", "centred_ratings.py"}
     for path in sorted((REPO / "physics_sim").glob("*.py")):
-        if path.name == "config.py":
+        if path.name in readers:
             continue
         assert not pattern.search(path.read_text(encoding="utf-8")), path.name
     for folder in ("playbalance", "api", "utils"):

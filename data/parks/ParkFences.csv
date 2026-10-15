@@ -1,0 +1,45 @@
+# Release 6b (engine generation 7, carry_model 1): the five-point fences
+# (LF line, left-centre, centre, right-centre, RF line; ft) and wall heights
+# (ft) of the parks generation 7 plays, by ParkConfig park id. Read ONLY by
+# generation 7 (physics_sim.ballflight.park_fence); legacy and generations 5
+# and 6 read ParkConfig.csv as before. A park not listed here falls back to
+# its newest ParkConfig.csv row by the same five-point rule (left-centre =
+# LC_Dim, else LCC_Dim, else LFA_Dim, else 10 ft beyond the mean of line and
+# centre; a missing wall 8 ft). Rows with source 'ParkConfig' are that rule
+# applied to the 2024 (2025 for SAC01 / TAM02) row; the others are the
+# 2026-10-15 research figures (owner decision 20). 'assumed' marks a value
+# not verified. generic = 1 marks the 30 home parks of 2026 whose mean (with
+# its mirror image) is the generic park.
+park_id,name,year,lf,lc,cf,rc,rf,lf_w,lc_w,cf_w,rc_w,rf_w,generic,source
+ANA01,"Angel Stadium of Anaheim",2024,330,390,400,375,330,5,8,8,8,5,1,"ParkConfig"
+ARL03,"Globe Life Field",2024,329,410,407,410,326,8,8,8,8,8,1,"ParkConfig"
+ATL03,"Truist Park",2024,335,385,400,375,325,6,8,8,8,16,1,"ParkConfig"
+BAL12,"Oriole Park at Camden Yards",2025,333,374,400,373,318,7,8,7,7,21,1,"LF wall pulled in and lowered for 2025 (333 ft line, 373-376 ft, walls 6'11'-8 ft); centre and right unchanged from ParkConfig"
+BOS07,"Fenway Park",2024,310,379,390,383,302,37,18,9,5,3,1,"ParkConfig"
+CHI11,"Wrigley Field",2024,355,363,400,381,353,16,11,11,11,16,1,"ParkConfig"
+CHI12,"Guarantee Rate Park",2024,330,372,400,372,335,8,8,8,8,8,1,"ParkConfig"
+CIN09,"Great American Ballpark",2024,328,379,404,370,325,12,12,8,8,8,1,"ParkConfig"
+CLE08,"Progressive Field",2024,325,370,405,375,325,19,19,9,9,14,1,"ParkConfig"
+DEN02,"Coors Field",2024,347,390,415,375,350,13,8,8,16.5,16.5,1,"ParkConfig"
+DET05,"Comerica Park",2023,342,398,412,403,330,7,7,7,7,7,1,"since 2023 CF 412 ft, LF line 342 ft, walls 7 ft (RF-corner camera well not modelled); alleys kept from ParkConfig"
+HOU03,"Minute Maid Park",2024,315,390,409,397,326,21,25,9,9,7,1,"ParkConfig"
+KAN06,"Kauffman Stadium",2026,330,379,410,379,330,8.5,8.5,10,8.5,8.5,1,"2026 alleys 379 ft, wall 8.5 ft, CF 410 ft / 10 ft; the corners 8-10 ft in are not expressible at five points (lines kept 330 ft)"
+LOS03,"Dodger Stadium",2024,330,385,400,385,330,4,8,8,8,4,1,"ParkConfig"
+MIA02,"loanDepot Park",2024,344,393,407,391,335,7,14,20,11,7,1,"ParkConfig"
+MIL06,"American Family Field",2024,344,382,400,383,345,8,8,8,8,6,1,"ParkConfig"
+MIN04,"Target Field",2024,339,384,404,378,328,8,8,8,23,23,1,"ParkConfig"
+NYC20,"Citi Field",2024,331,373,408,384,330,8,8,11,18,8,1,"ParkConfig"
+NYC21,"New Yankee Stadium",2024,318,399,408,385,314,8,8,8,8,8,1,"ParkConfig"
+SAC01,"Sutter Health Park",2025,330,376.5,403,374,325,8,8,8,8,8,1,"ParkConfig (alleys by the rule; wall heights assumed)"
+PHI13,"Citizens Bank Park",2024,329,385,401,381,330,11,11,6,13,13,1,"ParkConfig"
+PHO01,"Chase Field",2024,328,412,407,414,335,8,8,25,8,8,1,"ParkConfig"
+PIT08,"PNC Park",2024,325,395,399,395,320,6,10,10,21,21,1,"ParkConfig"
+SAN02,"Petco Park",2024,336,390,396,396,322,4,7.5,7,10,10,1,"ParkConfig"
+SEA03,"T-Mobile Park",2024,331,378,401,381,326,8,8,8,8,8,1,"ParkConfig"
+SFO03,"Oracle Park",2024,339,378,399,384,309,8,11,8,25,25,1,"ParkConfig"
+STL10,"Busch Stadium III",2024,336,396,400,396,335,8,8,8,8,8,1,"ParkConfig"
+STP01,"Tropicana Field",2024,315,410,404,404,322,11,11,9,11,11,1,"ParkConfig"
+TOR02,"Rogers Centre",2023,328,381,400,372,328,14.3,12.8,8,10.8,12.6,1,"2023 official 328/368/381/400/372/359/328 ft, walls 14'4'/11'2'/12'9'/8'/10'9'/14'4'/12'7'"
+WAS11,"Nationals Park",2024,336,377,402,370,335,8,8,12,12,12,1,"ParkConfig"
+OAK01,"Oakland-Alameda County Coliseum",2024,330,388,400,388,330,8,15,8,15,8,0,"ParkConfig"
+TAM02,"George M. Steinbrenner Field",2025,318,373,408,371,314,8,8,8,8,8,0,"ParkConfig (alleys by the rule; wall heights assumed)"

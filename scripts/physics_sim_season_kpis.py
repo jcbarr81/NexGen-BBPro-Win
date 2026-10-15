@@ -1741,6 +1741,22 @@ def gate_set_failures(
     return selected
 
 
+BALL_FLIGHT_SWITCHES = (
+    "carry_model", "batted_ball_model", "fielding_play_model", "foul_out_model",
+)
+
+
+def ball_flight_run(overrides: dict[str, Any] | None) -> bool:
+    """Whether a run plays any part of the Release 6b ball-flight model."""
+    for key in BALL_FLIGHT_SWITCHES:
+        try:
+            if float((overrides or {}).get(key, 0.0)) >= 0.5:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def run_sim(
     games_per_team: int,
     seed: int,
@@ -1808,6 +1824,10 @@ def run_sim(
                 if base_dir is not None
                 else BASE_DIR / "data" / "lineups"
             ),
+            # Release 6b: its report-only rows only for a run on the
+            # ball-flight model, so every other run keeps its keys.
+            ball_flight=ball_flight_run(tuning_overrides),
+            team_parks=parks_by_team,
         )
     except Exception as exc:  # report-only: never break the gated run
         extras_error = f"{type(exc).__name__}: {exc}"

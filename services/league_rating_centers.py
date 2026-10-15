@@ -437,6 +437,10 @@ UNSTORED_CENTER_KEYS: tuple[str, ...] = (
 # (fielding) and the regulars' ground-ball centre (power and doubles).
 GENERATION_CENTER_KEYS: Dict[int, tuple[str, ...]] = {
     6: FIELDER_CENTER_KEYS + (HITTER_GF_CENTER_KEY,),
+    # Release 6b (the ball-flight step): the regulars' pull centre (spray
+    # widening) and the pitchers' ground-ball centre (the pitcher's
+    # launch-angle term). No league can be given generation 7 yet.
+    7: (HITTER_PULL_CENTER_KEY, PITCHER_GF_USAGE_CENTER_KEY),
 }
 # key -> the first generation whose seasons read it.
 _KEY_GENERATION: Dict[str, int] = {
@@ -2062,11 +2066,25 @@ def generation_rating_centers(
                 _pitcher_workloads(base / "rosters", active_by_team, pitchers),
             )
         )
-    if HITTER_GF_CENTER_KEY in wanted:
+    regular_specs = {
+        key: column
+        for key, column in _UNSTORED_REGULARS_SPECS.items()
+        if key in wanted
+    }
+    if regular_specs:
         centres.update(
             _regular_hitter_centers(
-                lineup_dir, active_by_team, hitters, hitter_value,
-                {HITTER_GF_CENTER_KEY: _UNSTORED_REGULARS_SPECS[HITTER_GF_CENTER_KEY]},
+                lineup_dir, active_by_team, hitters, hitter_value, regular_specs
+            )
+        )
+    if PITCHER_GF_USAGE_CENTER_KEY in wanted:
+        # Release 6b: the pitchers' ground-ball centre, weighted by expected
+        # workload as unstored_rating_centers weights it.
+        centres.update(
+            _pitcher_usage_centers(
+                pitchers,
+                _pitcher_workloads(base / "rosters", active_by_team, pitchers),
+                {PITCHER_GF_USAGE_CENTER_KEY: "gf"},
             )
         )
     return {

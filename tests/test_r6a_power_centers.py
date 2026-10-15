@@ -86,11 +86,12 @@ def test_it_is_a_generation_6_centre_and_nothing_else():
     # Generation 6 stores it with the fielding work's fielder centres
     # (integration: one set of generation centres, one read of the file).
     fielders = centers.FIELDER_CENTER_KEYS
-    assert centers.GENERATION_CENTER_KEYS == {6: fielders + (KEY,)}
+    # (Release 6b adds generation 7's two: tests/test_r7_centers.py.)
+    assert centers.GENERATION_CENTER_KEYS[6] == fielders + (KEY,)
     assert centers.generation_center_keys(4) == ()
     assert centers.generation_center_keys(5) == ()
     assert centers.generation_center_keys(6) == fielders + (KEY,)
-    assert centers.generation_center_keys(7) == fielders + (KEY,)
+    assert centers.generation_center_keys(7)[: len(fielders) + 1] == fielders + (KEY,)
     assert centers.generation_center_keys("nonsense") == ()
     # Still worked out with the other Release 6a centres (the harness).
     assert KEY in centers.UNSTORED_CENTER_KEYS
