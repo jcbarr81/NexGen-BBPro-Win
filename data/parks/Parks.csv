@@ -261,3 +261,5 @@ WNY01,West New York Field Club Grounds,West New York,NJ,18980911,18990917,NL,BRO
 WOR01,Agricultural County Fair Grounds I,Worcester,MA,18800501,18820929,NL,,Worcester Driving Park,Y,42.268844,-71.814226,496
 WOR02,Agricultural County Fair Grounds II,Worcester,MA,18870817,18870817,NL,1 BSN game,Worcester Driving Park,Y,42.268844,-71.814226,496
 WOR03,Worcester Driving Park Grounds,Worcester,MA,18741030,18741030,NA,1 BS1 game,,Y,42.268721,-71.812404,496
+SAC01,Sutter Health Park,West Sacramento,CA,20250331,,AL,Athletics temporary home 2025-2027 (added in Release 6b; coordinates and altitude approximate),Raley Field,Y,38.5804,-121.5136,20
+TAM02,George M. Steinbrenner Field,Tampa,FL,20250328,20250928,AL,Rays temporary home 2025 (added in Release 6b; park id assumed; coordinates and altitude approximate),Legends Field,Y,27.9800,-82.5068,20
