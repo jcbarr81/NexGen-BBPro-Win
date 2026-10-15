@@ -2562,8 +2562,8 @@ Engine generation 7 (development only; RELEASE6_PLAN section 9). Open:
   balls in play a team-game, .11 means about .9 HR a team-game; the
   model reads .134-.14 at 1.1. Restate the target from one season of
   Savant data before gating it.
-- **Thirty-homer hitters 31-41 on calibration** (gate 20 +/- 8, pooled;
-  the league fixture 25, flat 27). The Power top was re-solved for
+- **Thirty-homer hitters 38-43 on calibration** (gate 20 +/- 8, pooled;
+  the league fixture 25, flat 28). The Power top was re-solved for
   decision 16's per-hitter targets (stored 99 at 48 HR per 650 PA), but
   the middle of the curve (57-63) was not; re-fit it with
   `fit_power_table.py` and read `power_hr600_p30` / `_p40` off the
@@ -2578,10 +2578,14 @@ Engine generation 7 (development only; RELEASE6_PLAN section 9). Open:
   generation 6's gate (.80 or more) was set for sd 18. Restate it for
   generation 7, and the bip_*_pct / hr_per_fb_pct legacy gates (they read
   the old class cut points).
-- **The league fixture's runs** read 4.73 on seed 1 (band 4.22-4.72),
-  as generation 6's league seed 1 also runs high; judge on seeds 1-4.
-  BB .080-.083 and K .216-.220 are at the targets' low edges.
-- **Pitcher / hitter HR true-sd ratio .47-.57** (plan .5 or less; pooled
+- **The league fixture's runs** read 4.72 on seed 1 (band 4.22-4.72),
+  as generation 6's league seed 1 also runs high; judge on seeds 1-4
+  (only seeds 1-2 of calibration and seed 1 of the other two fixtures
+  were played on the final profile). BB .080-.083 and K .217-.221 sit
+  at the targets' low edges; hits per team-game 8.7-8.8 (gate 8.2 +/- .5)
+  and SS / 2B outs per 8 points (5.3-6.2 against 6.9 / 6.2 +/- .8) at
+  their edges too.
+- **Pitcher / hitter HR true-sd ratio .45-.52** (plan .5 or less; pooled
   gate .40 +/- .25) with decision 19's ground-ball term on; `ev_pq_slope`
   and `ev_base_offset_mph` were not re-fitted (the HR log5 grid was not
   run).
