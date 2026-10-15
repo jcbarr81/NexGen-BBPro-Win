@@ -8,8 +8,14 @@ folder of the data root, the bucket root `gs://nexgen-bbpro-data/parks/`
 (and a league's own `parks/` folder first, if it has one:
 `utils.park_utils._park_data_roots`).
 
-**Do this before any league plays generation 7.** Until then nothing here
-is needed. A generation 7 game whose park folder has no `ParkFences.csv`
+**Do this before any league plays generation 7: it is step 1 of the
+generation 7 switch-on (`docs/generation7_switch_runbook.md`, section 3),
+done before `NEXGEN_GENERATION7` is set.** It is safe at any time with the
+switch off: no earlier generation reads the two files
+(`tests/test_r7_park_data.py::test_the_bucket_upload_leaves_earlier_generations_identical`
+plays legacy, generation 5 and generation 6 games in Comerica, Fenway,
+Coors and Oakland on the bucket's folder before and after the upload, to
+the same digest). A generation 7 game whose park folder has no `ParkFences.csv`
 refuses to start (`physics_sim.ballflight.ParkFencesMissing`) rather than
 play the ParkConfig rows an earlier engine reads.
 
@@ -66,8 +72,11 @@ name in `ParkFences.csv` instead.
 Nothing. `tests/test_r7_park_data.py` reads every park name and every park
 id of `ParkConfig.csv` with and without the two new files beside it and gets
 the same stadium, park factor, altitude, foul territory and park; the two
-temporary parks are found by no earlier lookup; and a legacy, generation 5
-and generation 6 game plays to the same digest either way.
+temporary parks are found by no earlier lookup; the release's `data/parks/`
+is exactly the three files the bucket holds plus the two new ones; and a
+legacy, generation 5 and generation 6 game in four parks (a real park, a
+tall wall, altitude, a former home) plays to the same digest on the
+bucket's folder before and after only the two files are added.
 
 ## Rollback
 

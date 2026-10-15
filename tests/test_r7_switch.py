@@ -218,6 +218,27 @@ def test_the_hold_6_stops_moves_to_7(scratch, monkeypatch):
     assert centers.move_league_at_rollover(data, 2027) == "already"
 
 
+def test_a_league_on_7_starts_its_next_season_on_6_under_the_hold(scratch, monkeypatch):
+    """The runbook's hold: NEXGEN_NEW_SEASON_ENGINE=6 puts every NEXT season
+    on generation 6 (scale 2 plays correctly on it); the season recorded
+    on 7 keeps 7."""
+    data = scratch
+    _both_on(monkeypatch)
+    _on_scale_2(data)
+    write_schedule(data, 2026)
+    _first_game(monkeypatch)
+    assert stored_generation(data, 2026) == 7
+    monkeypatch.setenv(centers.NEW_SEASON_ENGINE_ENV, "6")
+    centers.clear_rating_center_cache()
+    assert _first_game(monkeypatch)["carry_model"] == 1.0  # 2026 stays on 7
+    roll_over(data, 2026)
+    centers.clear_rating_center_cache()
+    write_schedule(data, 2027)
+    tuning = _first_game(monkeypatch, 2027)
+    assert stored_generation(data, 2027) == 6
+    assert tuning.get("carry_model", 0.0) == 0.0
+
+
 def test_the_hold_5_moves_nobody(scratch, monkeypatch):
     data = scratch
     original = (data / "players.csv").read_bytes()

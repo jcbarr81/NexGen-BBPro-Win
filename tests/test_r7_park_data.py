@@ -129,6 +129,49 @@ def test_an_earlier_generation_plays_the_same_game_on_either_set(
     assert digests[0] == digests[1]
 
 
+UPLOADED = ("ParkFences.csv", "ParkHRTargets.csv")
+UNCHANGED = ("ParkConfig.csv", "ParkFactors.csv", "Parks.csv")
+
+
+@pytest.mark.parametrize("generation", [4, 5, 6])
+def test_the_bucket_upload_leaves_earlier_generations_identical(
+    tmp_path, monkeypatch, generation
+):
+    """The generation 7 runbook's step 1, as the bucket sees it: the park
+    folder as it is today (the three files every engine reads), then the
+    same folder with ONLY the two new files added. A legacy, generation 5
+    or generation 6 game in a real park, a park with a tall wall, an
+    altitude park and the generic park plays to the same digest."""
+    # The release changes no file the bucket already holds: data/parks is
+    # those three and the two uploaded, nothing else.
+    assert sorted(p.name for p in PARKS.iterdir()) == sorted(UNCHANGED + UPLOADED)
+    bucket = tmp_path / "bucket"
+    (bucket / "parks").mkdir(parents=True)
+    for name in UNCHANGED:
+        shutil.copy(PARKS / name, bucket / "parks" / name)
+    profile = engine_profile(generation, development=True)
+    overrides = kpis.with_rating_centers(dict(profile), PLAYERS, CAL) if profile else None
+    monkeypatch.setenv(park_utils.PARK_DATA_ROOT_ENV, str(bucket))
+
+    def digests():
+        out = []
+        for home in ("CAL06", "CAL01", "CAL27", "CAL13"):  # Comerica, Fenway, Coors, Oakland
+            game = engine.simulate_matchup_from_files(
+                away_team="CAL02", home_team=home, base_dir=CAL, players_path=PLAYERS,
+                seed=7, tuning_overrides=dict(overrides) if overrides else None,
+            )
+            out.append(_digest(game))
+        return out
+
+    before = digests()
+    for name in UPLOADED:  # the upload: two new files, nothing else touched
+        shutil.copy(PARKS / name, bucket / "parks" / name)
+    for name in UNCHANGED:
+        assert (bucket / "parks" / name).read_bytes() == (PARKS / name).read_bytes()
+    ballflight.clear_fence_cache()
+    assert digests() == before
+
+
 def test_generation_7_refuses_a_park_folder_without_its_fences(tmp_path, monkeypatch):
     old, new = _old_root(tmp_path), _new_root(tmp_path)
     seven = kpis.with_rating_centers(engine_profile(7, development=True), PLAYERS, CAL)
