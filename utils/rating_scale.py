@@ -62,6 +62,12 @@ league moves to both at the start of its next season
 (``services.rating_scale_migration``). Off, nothing anywhere differs from
 7.51.
 
+**Generation 7's switch** (:data:`GENERATION7_SWITCH_ENV`, OFF unless set,
+and read only while the 8.0.0 switch is on: :func:`generation7_switch_on`)
+makes the ball-flight engine the generation a new season is given instead
+of generation 6, through the same move: a league on scale 1 is converted
+first and lands on generation 7. It changes nothing about the data.
+
 **The scale 2 file format.** A ``players.csv`` holding any scale 2 row
 names its height column :data:`SCALE2_HEIGHT_FIELD` (``height_in``) instead
 of ``height``. Builds before 8.0.0 require ``height`` on every row
@@ -100,10 +106,12 @@ __all__ = [
     "FULL_RATING_SCALE",
     "GENERATED_RATING_SCALE",
     "GENERATION6_SWITCH_ENV",
+    "GENERATION7_SWITCH_ENV",
     "HEIGHT_FIELD",
     "SCALE2_HEIGHT_FIELD",
     "generated_rating_scale",
     "generation6_switch_on",
+    "generation7_switch_on",
     "players_fieldnames",
     "row_height",
     "KNOWN_RATING_SCALES",
@@ -150,6 +158,9 @@ GENERATED_RATING_SCALE = LEGACY_RATING_SCALE
 # The 8.0.0 operations switch (module docstring). Any of these values turns
 # it on; anything else, or no value, leaves it off.
 GENERATION6_SWITCH_ENV = "NEXGEN_GENERATION6_SCALE2"
+# Generation 7's operations switch (the ball-flight engine): read only
+# together with the 8.0.0 one (:func:`generation7_switch_on`).
+GENERATION7_SWITCH_ENV = "NEXGEN_GENERATION7"
 _SWITCH_ON_VALUES = frozenset({"1", "on", "true", "yes"})
 # The operations hold on new seasons' engine
 # (``services.league_rating_centers.NEW_SEASON_ENGINE_ENV``) and the
@@ -185,6 +196,19 @@ def generation6_switch_on() -> bool:
     operator can flip it without a restart of this module."""
 
     raw = str(os.getenv(GENERATION6_SWITCH_ENV, "") or "").strip().lower()
+    return raw in _SWITCH_ON_VALUES
+
+
+def generation7_switch_on() -> bool:
+    """True when the service runs with BOTH operations switches on: the
+    8.0.0 one and generation 7's (:data:`GENERATION7_SWITCH_ENV`).
+    Generation 7 needs rating scale 2, and the move to scale 2 is the 8.0.0
+    switch's, so generation 7's switch alone changes nothing. Read on every
+    call, as :func:`generation6_switch_on`."""
+
+    if not generation6_switch_on():
+        return False
+    raw = str(os.getenv(GENERATION7_SWITCH_ENV, "") or "").strip().lower()
     return raw in _SWITCH_ON_VALUES
 
 

@@ -1385,11 +1385,16 @@ def engine_and_scale_news(
     backup: Optional[str],
     previous_generation: Optional[int],
     respread: bool = False,
+    ballflight: str = "",
 ) -> str:
     """The news item every league gets when it moves (numbers from its
     own log record). The scale change itself changes no player; the same
     rollover's development and, for a listed league, the re-spread are
-    reported in their own items (``respread`` says one follows)."""
+    reported in their own items (``respread`` says one follows).
+    ``ballflight`` is what the ball-flight engine changes, for a move that
+    lands on generation 7 (``services.ballflight_news``): told here, in the
+    same item, so the league is told once; ``""`` (every move to
+    generation 6) leaves the item exactly as it was."""
 
     def pair(label: str) -> str:
         item = summary.get(label)
@@ -1424,6 +1429,8 @@ def engine_and_scale_news(
             + ", ".join(tops) + ". "
         )
     text += f"{players} players were converted. {engine}"
+    if ballflight:
+        text += " The engine also has real ball flight. " + ballflight
     text += (
         " Players' offseason development, which starts on the new scale this "
         "offseason, is reported in its own item."
@@ -1533,11 +1540,18 @@ def _post_move_news(
         # the engine and the scale at the first move.
         items = [reconversion_news(season)]
     else:
+        ballflight = ""
+        if _generation_of(record) >= 7:
+            # Generation 7 (its switch on): the ball-flight engine is told
+            # in this item, not in one of its own.
+            from services.ballflight_news import ballflight_paragraph
+
+            ballflight = ballflight_paragraph(base)
         items = [
             engine_and_scale_news(
                 record.get("summary", {}), players=len(plan.rows), season=season,
                 backup=record.get("backup"), previous_generation=previous_generation,
-                respread=respread,
+                respread=respread, ballflight=ballflight,
             )
         ]
     if respread:
@@ -1545,6 +1559,13 @@ def _post_move_news(
     for item in items:
         _post_news(base, item)
     return items
+
+
+def _generation_of(record: Mapping[str, Any]) -> int:
+    try:
+        return int(record.get("engine_generation") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _post_news(base: Path, text: str, category: str = "league") -> None:

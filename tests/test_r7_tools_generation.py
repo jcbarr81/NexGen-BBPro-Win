@@ -220,12 +220,18 @@ def test_generation_7_is_gated_as_generation_6_with_the_ball_flight_gates():
     }
 
 
-# --- no league is handed generation 7 ---------------------------------------------
+# --- with generation 7's switch off (as shipped) no league is handed it -----------
+# (Its switch on: tests/test_r7_switch.py.)
 
 
 @pytest.mark.parametrize("switch", ["", "1"])
-def test_the_league_side_never_knows_generation_7(monkeypatch, switch):
+@pytest.mark.parametrize("seven", ["", "1"])
+def test_the_league_side_never_knows_generation_7(monkeypatch, switch, seven):
+    from utils.rating_scale import GENERATION7_SWITCH_ENV
+
     monkeypatch.setenv(GENERATION6_SWITCH_ENV, switch)
+    # Generation 7's switch alone (the 8.0.0 one off) changes nothing.
+    monkeypatch.setenv(GENERATION7_SWITCH_ENV, seven if not switch else "")
     assert 7 not in generations.known_engine_generations()
     assert generations.CURRENT_ENGINE_GENERATION == 5
     with pytest.raises(ValueError, match="unknown engine generation 7"):

@@ -240,6 +240,7 @@ import time
 from typing import Any, Dict, Iterable, List, Mapping, NamedTuple, Optional
 
 from physics_sim.engine_generation import (
+    BALLFLIGHT_ENGINE_GENERATION,
     CURRENT_ENGINE_GENERATION,
     LEGACY_ENGINE_GENERATION,
     SCALE2_ENGINE_GENERATION,
@@ -621,7 +622,7 @@ def league_engine_generation(
         lambda: _generation_locked(base, season_key, store=store)
     )
     if announce:
-        _announce_engine_switch(base)
+        _announce_engine_switch(base, generation)
     return generation
 
 
@@ -739,7 +740,7 @@ def _league_centers(
         )
     )
     if announce:
-        _announce_engine_switch(base)
+        _announce_engine_switch(base, announce[0])
     return centres
 
 
@@ -905,10 +906,11 @@ def _league_centers_locked(
             if (
                 new_entry
                 and verdict.announce
-                and verdict.generation < SCALE2_ENGINE_GENERATION
+                and _announced_here(base, season_key, verdict.generation)
             ):
-                # (A move to generation 6 posted its news at the conversion.)
-                announce.append(True)
+                # (A move to generation 6 posted its news at the conversion;
+                # so did a move to 7 that converted the league.)
+                announce.append(verdict.generation)
             merged = {**entry, **computed}
             if verdict.generation > LEGACY_ENGINE_GENERATION and any(
                 key in merged for key in RELATIVE_CENTER_KEYS
@@ -998,9 +1000,33 @@ def _generation_locked(
         return verdict.generation, False
     _record_generation(base, path, season_key, seasons, verdict.generation)
     announce = verdict.announce and not had_entry
-    if announce and verdict.generation >= SCALE2_ENGINE_GENERATION:
+    if announce and not _announced_here(base, season_key, verdict.generation):
         announce = False  # the conversion posted the league's news itself
     return verdict.generation, announce
+
+
+def _announced_here(base: Path, season_key: str, generation: int) -> bool:
+    """True when the switch to ``generation`` is announced by the season's
+    first record (``_CENTER_LOCK`` held): generation 5 always; generation 6
+    never (its scale 2 move posts the news); generation 7 unless a scale 2
+    move logged for this season already named it (that move's news item
+    covered the ball-flight engine: one move, one set of news items)."""
+
+    if generation < SCALE2_ENGINE_GENERATION:
+        return True
+    if generation < BALLFLIGHT_ENGINE_GENERATION:
+        return False
+    from services.rating_scale_migration import read_scale_log
+
+    for event in read_scale_log(base).get("events", []):
+        if (
+            event.get("event") == "converted"
+            and str(event.get("season")) == str(season_key)
+            and normalize_engine_generation(event.get("engine_generation"))
+            >= BALLFLIGHT_ENGINE_GENERATION
+        ):
+            return False
+    return True
 
 
 def _season_verdict(base: Path, season_key: str, seasons: dict) -> _Verdict:
@@ -1264,8 +1290,9 @@ def _new_season_generation(base: Path, seasons: dict | None = None) -> int:
     if wanted <= LEGACY_ENGINE_GENERATION:
         return LEGACY_ENGINE_GENERATION
     if wanted >= SCALE2_ENGINE_GENERATION:
-        # 8.0.0: generation 6 only with rating scale 2 (module docstring).
-        wanted = _scale2_generation(base)
+        # 8.0.0: generation 6 (and 7) only with rating scale 2 (module
+        # docstring).
+        wanted = _scale2_generation(base, wanted)
     try:
         engine_profile(wanted)
     except ValueError:
@@ -1333,21 +1360,26 @@ def _configured_new_season_generation() -> int:
         _LOGGER.warning(
             "%s=%r is not an engine generation", NEW_SEASON_ENGINE_ENV, raw
         )
+    if BALLFLIGHT_ENGINE_GENERATION in known:
+        # Both operations switches on: the ball-flight engine (the hold
+        # above, 6, keeps new seasons on generation 6).
+        return BALLFLIGHT_ENGINE_GENERATION
     if SCALE2_ENGINE_GENERATION in known:
         return SCALE2_ENGINE_GENERATION
     return CURRENT_ENGINE_GENERATION
 
 
-def _scale2_generation(base: Path) -> int:
-    """Generation 6 for a league that is on rating scale 2 or can be
-    converted to it, else the current generation. Reads only (the
-    conversion itself is :func:`_settle_scale_move`'s)."""
+def _scale2_generation(base: Path, wanted: int = SCALE2_ENGINE_GENERATION) -> int:
+    """``wanted`` (generation 6, or 7 with its switch on) for a league that
+    is on rating scale 2 or can be converted to it, else the current
+    generation. Reads only (the conversion itself is
+    :func:`_settle_scale_move`'s)."""
 
     from services.rating_scale_migration import league_on_scale2, move_blocker
 
     try:
         if league_on_scale2(base) or move_blocker(base) is None:
-            return SCALE2_ENGINE_GENERATION
+            return wanted
     except Exception:  # pragma: no cover - a read fault is a refusal
         _LOGGER.exception("could not tell whether %s can move to rating scale 2", base)
     return CURRENT_ENGINE_GENERATION
@@ -1532,7 +1564,9 @@ def move_league_at_rollover(
             convert_league(
                 base,
                 season_key,
-                generation=SCALE2_ENGINE_GENERATION,
+                # 6, or 7 with its switch on: the news item and the log
+                # name the engine the next season will start on.
+                generation=_configured_new_season_generation(),
                 previous_generation=_newest_stored_generation(seasons),
                 population=population,
             )
@@ -1659,13 +1693,22 @@ def _is_engine_switch(base: Path, seasons: dict, generation: int) -> bool:
     return isinstance(archived, list) and bool(archived)
 
 
-def _announce_engine_switch(base: Path) -> None:
-    """Log :data:`ENGINE_SWITCH_NEWS` to the league's news feed (best effort)."""
+def _announce_engine_switch(
+    base: Path, generation: int = CURRENT_ENGINE_GENERATION
+) -> None:
+    """Log the switch to ``generation`` to the league's news feed (best
+    effort): :data:`ENGINE_SWITCH_NEWS` for generation 5, the ball-flight
+    item (``services.ballflight_news``) for generation 7."""
 
     try:
         from utils.news_logger import log_news_event
 
-        log_news_event(ENGINE_SWITCH_NEWS, file_path=base / "news_feed.txt")
+        text = ENGINE_SWITCH_NEWS
+        if generation >= BALLFLIGHT_ENGINE_GENERATION:
+            from services.ballflight_news import ballflight_switch_news
+
+            text = ballflight_switch_news(base, season=_season_key(base))
+        log_news_event(text, file_path=base / "news_feed.txt")
     except Exception:  # pragma: no cover - news must never stop a game
         _LOGGER.exception("could not log the engine switch news item")
 
