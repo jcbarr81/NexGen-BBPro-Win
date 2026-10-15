@@ -499,3 +499,13 @@ today's internal numbers through one accessor, so the economy does not shift.
     60-homer season stays rare but possible for a Power 99, Contact 89
     hitter. The top bat-speed anchor moves from about 15.0 to about 15.5 mph
     (engine Power 66.33) at integration.
+17. **Ship 8.0.0 with the switch on, for both live leagues** (2026-10-14,
+    after the rehearsal and the final review). The owner: alpha-test exists to
+    test the changes, so it moves at its rollover into 2027 (with its
+    re-spread); stats-test is not in active use and moves too. Condition:
+    "don't destroy the league so that we can keep going" -- a full verified
+    backup of both leagues was taken before the deploy, the runbook's dry run
+    passed on copies of it (no refusal; alpha-test 12 ratings re-spread), the
+    scheduler is paused across the revision swap, and the rollback runbook is
+    ready. A combined heads-up post goes to both leagues' news before their
+    rollover, its text shown to the owner first.
