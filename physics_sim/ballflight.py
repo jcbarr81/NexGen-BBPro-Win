@@ -520,8 +520,8 @@ def play(ball: BallInPlay, tuning: Any, *, batter_speed: float = 50.0) -> BallIn
     first against the runner (``bb6_run_time`` s, less ``bb6_run_speed`` a
     point of speed above average), the race's margin read through a
     normal of ``bb6_throw_sigma`` s. The out chance is the best fielder's
-    reach times his throw; the infield-hit chance his reach times the
-    runner winning.
+    reach times his throw; the infield-hit chance is the chance the
+    fielder likeliest to reach it does, less the out chance.
 
     Air route: an infield liner first (the ball between 0.3 ft and
     ``bb6_liner_max_h`` ft high when it passes an infielder, who reaches
@@ -546,7 +546,7 @@ def play(ball: BallInPlay, tuning: Any, *, batter_speed: float = 50.0) -> BallIn
         t_run = t("bb6_run_time", 4.35) - speed_points * t("bb6_run_speed", 0.02)
         react = t("bb6_if_react", 0.25)
         charge = t("bb6_charge_speed", 17.0)
-        best_out, best_pos, best_hit = -1.0, "SS", 0.0
+        best_out, best_pos, reach_any = -1.0, "SS", 0.0
         for pos, (depth, angle) in INFIELD_SPOTS.items():
             off = math.radians(ball.spray - angle)
             if abs(off) > 1.3:
@@ -557,6 +557,7 @@ def play(ball: BallInPlay, tuning: Any, *, batter_speed: float = 50.0) -> BallIn
                 3.0 if pitcher else t("bb6_if_speed", 17.5)
             ) * max(0.0, along / roll - react)
             p_reach = _phi((reach - lateral) / max(1e-6, t("bb6_if_sigma", 3.5)))
+            reach_any = max(reach_any, p_reach)
             if p_reach <= 0.001:
                 continue
             t_field = (along + charge * react) / (roll + charge)
@@ -573,12 +574,13 @@ def play(ball: BallInPlay, tuning: Any, *, batter_speed: float = 50.0) -> BallIn
             p_throw = 1.0 - _phi(-(t_run - t_play) / max(1e-6, t("bb6_throw_sigma", 0.35)))
             p_out = p_reach * p_throw
             if p_out > best_out:
-                best_out, best_pos, best_hit = p_out, pos, p_reach * (1.0 - p_throw)
+                best_out, best_pos = p_out, pos
         ball.out0 = max(0.0, best_out)
         ball.fielder = best_pos
         ball.out_type = "groundout"
         ball.infield_play = True
-        ball.infield_hit = best_hit
+        # An infield hit: somebody gets to it, but nobody gets the runner.
+        ball.infield_hit = max(0.0, reach_any - ball.out0)
         return ball
     p_liner, liner_pos = 0.0, ""
     if ball.launch_angle < 24.0:

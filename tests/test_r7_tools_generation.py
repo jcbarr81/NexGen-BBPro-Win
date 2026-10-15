@@ -99,7 +99,7 @@ def test_a_caller_cannot_poison_the_generation_7_profile():
         table.clear()
     again = generations.engine_profile(7, development=True)
     assert again["swing_model"] == 1.0
-    assert again == _generation_6_and_the_stages()
+    assert again == generations.load_engine_profile_file(REGISTRY_7)
 
 
 # --- the harness: --engine 7 ------------------------------------------------------

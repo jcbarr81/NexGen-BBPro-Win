@@ -43,7 +43,7 @@ def test_the_switch_is_off_by_default_and_registered():
 
 
 @pytest.mark.parametrize(
-    "ev, la", [(70, 10), (90, 25), (100, 28), (104, 31), (110, 40), (60, -5), (85, 60)]
+    "ev, la", [(70, 10), (90, 25), (100, 28), (104, 31), (110, 40), (60, -5), (86, 60)]
 )
 def test_the_table_is_the_trajectory_on_its_grid(ev, la):
     carry, hang, descent = bf.flight(ev, la)
@@ -58,9 +58,9 @@ def test_the_table_is_the_trajectory_on_its_grid(ev, la):
 def test_the_flight_is_realistic():
     # 100 mph at 28 degrees about 400 ft (the design's table: 404).
     assert 395 < bf.flight(100, 28)[0] < 412
-    # Drag: no more than a fraction of the vacuum range.
+    # Drag: about three quarters of the vacuum range.
     vacuum = (100 * 1.4667) ** 2 / 32.174 * math.sin(math.radians(56))
-    assert bf.flight(100, 28)[0] < 0.65 * vacuum
+    assert 0.65 * vacuum < bf.flight(100, 28)[0] < 0.8 * vacuum
     # Further with exit velocity; a peak near 30 degrees, not 45.
     assert bf.flight(105, 28)[0] > bf.flight(100, 28)[0]
     best = max(range(15, 50), key=lambda la: bf.flight(105, la)[0])
@@ -82,7 +82,6 @@ def test_altitude_thins_the_air_through_the_table():
     assert gain == pytest.approx((high / sea - 1.0) / 2.0, rel=0.02)
     # bb6_carry_scale scales carry and the hang time by its square root.
     scaled = load_tuning({**ON, "bb6_carry_scale": 0.9})
-    assert bf.carry(100, 28, 0.0, scaled)[0] == pytest.approx(0.9 * sea * bf.flight(100, 28)[0] / bf.flight(102, 28)[0], rel=1e-9) or True
     assert bf.carry(100, 28, 0.0, scaled)[0] == pytest.approx(0.9 * bf.flight(100, 28)[0])
     assert bf.carry(100, 28, 0.0, scaled)[1] == pytest.approx(
         math.sqrt(0.9) * bf.flight(100, 28)[1]

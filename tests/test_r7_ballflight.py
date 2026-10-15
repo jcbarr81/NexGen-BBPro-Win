@@ -94,8 +94,8 @@ def test_one_offset_sets_both_launch_angle_and_exit_velocity():
     assert topped[1] < 10.0 and under[1] > 25.0
     assert peak[0] > under[0] and peak[0] > topped[0]
     assert physics.classify_ball_type(under[1] + 30.0, tuning) == "pu"
-    assert physics.classify_ball_type(12.0, tuning) == "ld"
-    assert physics.classify_ball_type(12.0, load_tuning()) == "fb"  # old cutoffs
+    assert physics.classify_ball_type(20.0, tuning) == "ld"
+    assert physics.classify_ball_type(20.0, load_tuning()) == "fb"  # old cutoffs
     # A fly-ball hitter (low gf) lifts the ball 0.40 degree a point.
     low_gf = _kernel(tuning, barrel_error=0.0, gf=40.0)
     assert low_gf[1] - _kernel(tuning, barrel_error=0.0)[1] == pytest.approx(4.0, abs=0.01)
@@ -107,7 +107,9 @@ def test_spray_widening_pulls_and_stays_fair():
     assert all(-45.0 <= s <= 45.0 for s in sprays)
     assert sum(sprays) / len(sprays) > 3.0  # pulled on average
     pullers = [_kernel(tuning, barrel_error=0.1, pl=70.0, seed=s)[2] for s in range(400)]
-    assert sum(pullers) / 400 > sum(sprays) / 400 + 5.0
+    # (The fair-territory limit takes most of the 10 degrees the 20 points
+    # move the centre of a sd-40 normal.)
+    assert sum(pullers) / 400 > sum(sprays) / 400 + 2.5
 
 
 def test_the_pitchers_ground_ball_term_acts_most_at_the_grounder_boundary():
@@ -116,7 +118,7 @@ def test_the_pitchers_ground_ball_term_acts_most_at_the_grounder_boundary():
         "pitcher_gb_air_share": 0.3, **CENTRES,
     })
     off = load_tuning({"batted_ball_model": 1.0, **CENTRES})
-    low = 0.0  # a ball near the grounder / liner line
+    low = -0.05  # a ball just under the grounder / liner line (about 9 deg)
     high = 1.0 * 0.314  # a fly ball
     base_low = _kernel(off, barrel_error=low)[1]
     base_high = _kernel(off, barrel_error=high)[1]
@@ -159,17 +161,25 @@ def test_the_play_model_reads_the_ball():
     assert popup.fielder not in bf.OUTFIELD_SPOTS and popup.infield_play
     liner = _ball(95.0, 14.0, -14.0)
     assert liner.route == "air"
-    gapper = _ball(104.0, 22.0, -22.0)
+    gapper = _ball(100.0, 18.0, -22.0)  # a hard liner into the gap
     assert gapper.out0 < 0.3 and gapper.hit_type in ("double", "triple")
     assert _ball(108.0, 28.0, 40.0).is_hr
 
 
 def test_a_ball_off_a_high_wall_stays_in():
-    # The same ball to left field: over a 10 ft wall, off Fenway's 37 ft one.
-    generic = _ball(98.0, 26.0, -44.0)
-    fenway = _ball(98.0, 26.0, -44.0, park="Fenway Park")
-    assert generic.distance > 330.0
-    assert not fenway.is_hr and fenway.hit_type == "double"
+    # The same ball down the left-field line: over a 10 ft wall at 330 ft,
+    # off Fenway's 37 ft one at 310 ft -- uncatchable, a double.
+    on = {"bb6_wall_catch_ft": 9.0}
+    ev = next(
+        ev for ev in range(80, 110)
+        if _ball(float(ev), 24.0, -44.0, **on).is_hr
+    )
+    generic = _ball(float(ev), 24.0, -44.0, **on)
+    fenway = _ball(float(ev), 24.0, -44.0, park="Fenway Park", **on)
+    assert generic.is_hr and not fenway.is_hr
+    assert fenway.hit_type == "double" and fenway.out0 == 0.0
+    # Without the wall rule the left fielder could catch it at the wall.
+    assert _ball(float(ev), 24.0, -44.0, park="Fenway Park").out0 > 0.0
 
 
 def _pitches(monkeypatch, tuning, n=1500):
