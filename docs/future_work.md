@@ -2542,71 +2542,53 @@ These are 7.51 behaviours it ran into, not 8.0.0 changes:
 - **8.0.0 tutorial filter (still open, above):** steps are filtered by
   rating scale, not engine generation.
 
-## Release 6b ball-flight core: follow-ups (2026-10-15, branch `r7-ballflight`)
+## Release 6b round 2: ball-flight follow-ups (2026-10-15, branch `r7-ballflight`)
 
-Engine generation 7 (development only; RELEASE6_PLAN section 9). Open:
+Engine generation 7 (development only; RELEASE6_PLAN section 9). Round 2
+re-fitted the kernel, the whole Power curve, decision 19 and the parks,
+gated the new model and gave the Home Run and Launch Angle sliders their
+generation 7 meaning. Open:
 
-- **The top of the exit-velocity distribution against carry.** Hard-hit
-  .34-.36 (target .38), barrel .054-.058 (.075) and the mean home run
-  389 ft (about 400) are all short with home runs held at 1.1 a team-game.
-  Measured (calibration seed 1, everything else equal): exit velocity
-  +1.3% with carry .98-1.0 and the soft cap at 102-106 mph gives hard-hit
-  .41-.44, barrel .068-.074, mean HR 398-401 ft -- and 2.1-2.8 HR a
-  team-game. The kernel turns too many hard balls into home runs (HR per
-  barrel about .74 against MLB's roughly .6, from memory): the launch
-  angle of the hardest contact, the weak-contact mixture and the soft cap
-  have to be re-fitted together (`kern.py`'s procedure) before hard-hit,
-  barrels or HR distance are gated.
-- **HR per fly ball .11 is arithmetic, not a model target.** With fly balls
-  plus pop-ups at 31% of balls in play (Statcast's share) and about 26
-  balls in play a team-game, .11 means about .9 HR a team-game; the
-  model reads .134-.14 at 1.1. Restate the target from one season of
-  Savant data before gating it.
-- **Thirty-homer hitters 38-43 on calibration** (gate 20 +/- 8, pooled;
-  the league fixture 25, flat 28). The Power top was re-solved for
-  decision 16's per-hitter targets (stored 99 at 48 HR per 650 PA), but
-  the middle of the curve (57-63) was not; re-fit it with
-  `fit_power_table.py` and read `power_hr600_p30` / `_p40` off the
-  matchup grid (not run in this build).
-- **The play model's grounder shares** are 3B .22 / SS .23 / 2B .25 / 1B
-  .23 / P .07 against generation 6's gates (.21 / .30 / .28 / .15 / .07,
-  MLB from memory). The infielders' spots (`ballflight.INFIELD_SPOTS`)
-  decide them; move 1B and 2B toward the line and the middle, or restate
-  the gates. The infield band cut points (`infield_band_*`) are not read
-  under the play model.
-- **r(pull rating, pull angle) .63-.74** under spray widening (sd 40);
-  generation 6's gate (.80 or more) was set for sd 18. Restate it for
-  generation 7, and the bip_*_pct / hr_per_fb_pct legacy gates (they read
-  the old class cut points).
-- **The league fixture's runs** read 4.72 on seed 1 (band 4.22-4.72),
-  as generation 6's league seed 1 also runs high; judge on seeds 1-4
-  (only seeds 1-2 of calibration and seed 1 of the other two fixtures
-  were played on the final profile). BB .080-.083 and K .217-.221 sit
-  at the targets' low edges; hits per team-game 8.7-8.8 (gate 8.2 +/- .5)
-  and SS / 2B outs per 8 points (5.3-6.2 against 6.9 / 6.2 +/- .8) at
-  their edges too.
-- **Pitcher / hitter HR true-sd ratio .45-.52** (plan .5 or less; pooled
-  gate .40 +/- .25) with decision 19's ground-ball term on; `ev_pq_slope`
-  and `ev_base_offset_mph` were not re-fitted (the HR log5 grid was not
-  run).
-- **Parks.** Singles, doubles and triples by park against Savant (Monte
-  Carlo, `fit_park_hr_factors.py --hit-types`): singles flat (98-103;
-  Coors 103 against 115), Fenway doubles 110 against 120, Coors triples
-  214 against 215, Chase triples 114 against 208, Comerica triples 81
-  against 150. The largest home-run shifts are PNC's sides (+28.5 /
-  -22.8 ft), Tropicana's left (-26.7), Chase's left (-22.9), Rickwood's
-  left (-17.9) and both sides of Mexico City (+20, its altitude).
-  `ParkFences.csv` and `ParkHRTargets.csv` live under `data/` (not in the
-  backend image) and a league's data folder carries its own park files:
-  move them into the package, or copy them to each league, before a
-  league plays generation 7; without `ParkFences.csv` generation 7 falls
-  back to the ParkConfig row silently.
-- **Commissioner sliders under generation 7.** `hr_scale` (Home Run) and
-  `launch_angle_base` (Launch Angle) are not read by the ball-flight model;
-  give them meaning (or hide them) before generation 7 reaches a league.
-  `physics_tuning_settings` does not own the `bb6_*` keys yet.
+- **The mean home run is 389-390 ft (about 400 asked), 450+ ft .5%.** The
+  kernel re-fit (`kfit.py`, Savant 2024 shape: hard-hit, barrels, classes,
+  sweet spot, mean exit velocity, 83% of home runs barrels) reaches hard-hit
+  .40, barrel .077 and the classes with HR held at 1.14 a team-game, but
+  not the distance (Monte Carlo 390.6 ft). Round 1 measured +1.3% exit
+  velocity with carry .98-1.0 at 398-401 ft and 2.1-2.8 HR a team-game;
+  round 2's fits with carry pinned at 1.0 could not hold home runs (loss
+  956 against the chosen fit's 137).
+  The gate is 395 +/- 10. The next lever is the hardest contact's launch
+  angle spread (more high, long fly balls that are not home runs) or
+  descent-dependent wall clearance; neither was built.
+- **HR per barrel .43** (Monte Carlo on the calibration kernel inputs). The
+  ".6" asked for is 2017's figure; MLB 2024 is about .47 by arithmetic
+  (5,453 HR, 83% barrels, 9,716 barrels) and published figures run .45
+  (2022) to about .61 (2017). Not gated.
+- **Thirty-homer hitters 31.0 on calibration** (seeds 1-8, 23-36; pooled
+  gate 20 +/- 8). The league fixture passes (24.8) and the flat fixture
+  reads 20.0. The whole Power curve was re-fitted to decision 16's
+  per-hitter targets (Power 57 about 29, 60 about 35 HR per 650 PA), and
+  the calibration fixture has many qualified hitters there;
+  `barrel_power_weight` .6 instead of .75 makes it worse (34.0 on seeds
+  1-4). An owner call: lower the middle of the curve, or restate the gate
+  for this fixture.
+- **r(pull rating, pull angle) .58-.66** on the wide fixtures (gate .70 +/-
+  .20; one league season of four reads .50). Spray widening (sd 40) is the
+  cause.
+- **Park hit types** (not fitted, reported): Coors singles 102 against
+  Savant's 115, Fenway doubles 108 against 120, Chase triples 118 against
+  208, Comerica triples 97 against 150, Oracle triples 82 against 141,
+  Busch triples 128 against 69, Progressive triples 120 against 63. Fit
+  doubles and triples by park (a per-park gap or wall-carom term) if they
+  matter.
+- **`pitches_per_pa` 3.81-3.82 on calibration** (3.86 +/- .05; 3 of 8
+  seasons fail by under .01). The foul-out draw ends some plate
+  appearances a pitch early; a foul-rate nudge would cover it.
+- **The flat fixture** fails runs, HR, doubles, the pull correlations and
+  three pooled pitching slopes (pitcher GB% true sd .023 there): it has
+  almost no rating spread, so these are report-only for it, as before.
+- **Before a league plays generation 7**: upload the two park files
+  (`docs/park_data_generation7_runbook.md`); a generation 7 game refuses to
+  start without `ParkFences.csv`.
 - **Foul-outs** are caught by the catcher (30%) or the corner infielder on
   the ball's side, never by anyone else, and never drop for an error.
-- **The KPI rows** (`foul_outs_per_team_game`, the hit-chance shares,
-  hitter / pitcher GB% and BABIP true sd, `tables["park_factors"]`) are
-  written only for a ball-flight run, so every other run keeps its keys.

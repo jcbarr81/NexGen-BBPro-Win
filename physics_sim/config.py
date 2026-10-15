@@ -1674,6 +1674,12 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "bb6_hr_slider_neutral": 1.0,
     "bb6_la_slider_share": 0.0,
     "bb6_la_slider_neutral": 12.1,
+    # The play model's hit level as a log-odds shift on the chance a ball
+    # is not turned into an out (before babip_scale): a sure hit (a ball
+    # off the wall, out chance 0) stays sure and a sure out stays an out,
+    # where babip_scale below 1 would make every sure hit an out some of
+    # the time. 0: no shift (generation 7 sets it, babip_scale 1).
+    "bb6_hit_logit_shift": 0.0,
 }
 
 # Every key Release 6b (generation 7) registered: the block above from

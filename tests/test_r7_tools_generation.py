@@ -144,6 +144,7 @@ R7_NEW_GATES = {
     "statcast_fb_pct": (0.265, 0.02),
     "statcast_pu_pct": (0.071, 0.015),
     "hr_per_fb_pu": (0.132, 0.02),
+    "babip_mlb": (0.291, 0.015),
     "hr_distance_mean_ft": (395.0, 10.0),
     "hr_450plus_share": (0.01, 0.01),
     "foul_outs_per_team_game": (0.80, 0.15),
@@ -154,7 +155,7 @@ R7_NEW_GATES = {
 R7_DROPPED = (
     "bip_gb_pct", "bip_ld_pct", "bip_fb_pct", "hr_per_fb_pct",
     "gb_play_share_3b", "gb_play_share_ss", "gb_play_share_p",
-    "gb_play_share_2b", "gb_play_share_1b",
+    "gb_play_share_2b", "gb_play_share_1b", "babip",
 )
 
 

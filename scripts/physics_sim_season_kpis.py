@@ -513,6 +513,10 @@ R7_OBSOLETE_GATES = (
     "bip_gb_pct", "bip_ld_pct", "bip_fb_pct", "hr_per_fb_pct",
     "gb_play_share_3b", "gb_play_share_ss", "gb_play_share_p",
     "gb_play_share_2b", "gb_play_share_1b",
+    # The season row "babip" divides by every ball in play, home runs and
+    # caught fouls included; MLB's .291 is over AB - K - HR + SF. Generation
+    # 7 gates babip_mlb (below) on MLB's denominator instead.
+    "babip",
 )
 
 
@@ -534,6 +538,8 @@ def _generation_7_gates() -> dict[str, Any]:
     gates["tolerances"]["barrel_pct"] = 0.012
     targets = {
         **R7_STATCAST_TARGETS,
+        # BABIP on MLB's denominator (the benchmark's .291, its band).
+        "babip_mlb": (0.291, 0.015),
         # Mean home-run distance: about 400 ft in the plan; the model reads
         # 388-391 on this kernel with home runs held (docs/future_work.md,
         # "Release 6b round 2"), so the gate is the plan's, widened.

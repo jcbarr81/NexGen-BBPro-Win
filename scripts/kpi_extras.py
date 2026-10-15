@@ -1015,6 +1015,16 @@ class ReportOnlyKpis:
         n = r7.chances["n"]
         metrics["hit_chance_below_05_share"] = _ratio(r7.chances["below_05"], n)
         metrics["hit_chance_above_95_share"] = _ratio(r7.chances["above_95"], n)
+        # BABIP on MLB's denominator: hits that stayed in the park over the
+        # balls in play less home runs (a caught foul counts, as an out in
+        # MLB's AB - K - HR + SF does). The season row "babip" divides by
+        # every ball in play, home runs included, so it reads about 4% under
+        # this one at today's home-run rate.
+        league_bip = sum(c["bip"] for c in r7.batter.values())
+        league_hr = sum(c["hr"] for c in r7.batter.values())
+        metrics["babip_mlb"] = _ratio(
+            sum(c["hit"] for c in r7.batter.values()), league_bip - league_hr
+        )
         # True sd of ground-ball rate and BABIP (the balls that stay in the
         # park; a caught foul is one of them, as in MLB's BABIP) over the
         # hitters and pitchers with 250+ balls in play (scaled to the
@@ -3547,6 +3557,7 @@ R7_METRIC_KEYS: tuple[str, ...] = (
     "park_hr_factor_min",
     "pitcher_gf_gb_per10",
     "pitcher_gf_hr_pct_per10",
+    "babip_mlb",
 )
 
 

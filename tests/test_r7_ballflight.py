@@ -10,6 +10,7 @@ identity seasons hold every earlier generation to the last digit).
 
 from __future__ import annotations
 
+import math
 import random
 from pathlib import Path
 
@@ -182,6 +183,63 @@ def test_a_ball_off_a_high_wall_stays_in():
     assert _ball(float(ev), 24.0, -44.0, park="Fenway Park").out0 > 0.0
 
 
+def test_the_hit_level_shift_keeps_sure_hits_sure():
+    # babip_scale under 1 made a ball off the wall (out chance 0) an out
+    # some of the time; generation 7 levels hits with a log-odds shift.
+    from physics_sim.config import RELEASE_6B_KEYS
+
+    assert DEFAULT_TUNING["bb6_hit_logit_shift"] == 0.0
+    assert "bb6_hit_logit_shift" in RELEASE_6B_KEYS
+    shifted = engine._shifted_hit_chance
+    for chance in (0.0, 0.3, 1.0):
+        assert shifted(chance, 0.0) == chance
+    assert shifted(0.0, -0.3) == 0.0 and shifted(1.0, -0.3) == 1.0
+    assert shifted(0.5, -0.3) == pytest.approx(1.0 / (1.0 + math.exp(0.3)))
+    seven = engine_profile(7, development=True)
+    assert seven["bb6_hit_logit_shift"] < 0.0 and seven["babip_scale"] == 1.0
+
+
+def test_a_ground_ball_double_is_hit_hard_down_a_line():
+    # Review: 15.6% of ground-ball hits were doubles (MLB about 8%).
+    # Generation 7: within 3 degrees of a line and at 92 mph or more.
+    seven = engine_profile(7, development=True)
+    keys = {k: seven[k] for k in ("bb6_gb_double_line_deg", "bb6_gb_double_ev")}
+    assert keys == {"bb6_gb_double_line_deg": 42.0, "bb6_gb_double_ev": 92.0}
+    for spray in (-44.0, 43.0):
+        assert _ball(96.0, -3.0, spray, **keys).hit_type == "double", spray
+    assert _ball(96.0, -3.0, -40.0, **keys).hit_type == "single"  # off the line
+    assert _ball(90.0, -3.0, -44.0, **keys).hit_type == "single"  # not hard enough
+    assert _ball(96.0, -3.0, -40.0).hit_type == "double"  # the old 39-degree line
+
+
+def test_a_ball_off_the_monster_is_never_a_triple():
+    # Review: Fenway's 37 ft wall caroms the ball back to the left fielder,
+    # so even a fast runner stops at second.
+    seven = engine_profile(7, development=True)
+    on = {k: seven[k] for k in (
+        "bb6_wall_catch_ft", "bb6_tall_wall_ft", "bb6_triple_gap_ft",
+        "bb6_triple_wall_frac", "bb6_triple_speed_ft",
+    ) if k in seven}
+    assert on["bb6_tall_wall_ft"] == 20.0
+    balls = [(float(ev), float(la), spray) for ev in range(85, 116)
+             for la in range(14, 30, 3) for spray in (-44.0, -40.0, -35.0)]
+    off_wall = 0
+    for ev, la, spray in balls:
+        ball = _ball(ev, la, spray, park="Fenway Park", speed=99.0, **on)
+        if ball.is_hr or ball.distance <= ball.wall:
+            continue
+        off_wall += 1
+        assert ball.hit_type in ("single", "double"), (ev, la, spray)
+    assert off_wall > 10
+    # Without the rule some of the same balls are triples: the rule, not
+    # the distance, stops them.
+    assert any(
+        _ball(ev, la, spray, park="Fenway Park", speed=99.0,
+              **{**on, "bb6_tall_wall_ft": 1e9}).hit_type == "triple"
+        for ev, la, spray in balls
+    )
+
+
 def _pitches(monkeypatch, tuning, n=1500):
     """(outcome, draws) of ``n`` pitches, each from its own seed."""
     calls = {"n": 0}
@@ -264,6 +322,16 @@ def test_the_ball_flight_kpis_are_written_only_for_a_ball_flight_run():
         present = set(kpi_extras.R7_METRIC_KEYS) & set(metrics)
         assert present == (set(kpi_extras.R7_METRIC_KEYS) if flag else set())
     assert metrics["hit_chance_below_05_share"] is not None
+    # BABIP on MLB's denominator: non-HR hits over balls in play less HR.
+    hits = homers = bip = 0
+    for entry in game.pitch_log:
+        if entry.get("outcome") != "in_play" or entry.get("exit_velo") is None:
+            continue
+        token = str(entry.get("pa_result") or "")
+        bip += 1
+        homers += token == "hr"
+        hits += token in kpi_extras.HIT_TOKENS and token != "hr"
+    assert metrics["babip_mlb"] == pytest.approx(hits / (bip - homers))
 
 
 def test_a_game_on_generation_7_plays_and_credits_the_play_models_fielders():

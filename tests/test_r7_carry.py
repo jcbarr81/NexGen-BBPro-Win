@@ -70,6 +70,22 @@ def test_the_flight_is_realistic():
     assert bf.flight(100, 28)[2] > 28
 
 
+def test_the_tables_edges_never_crash_or_go_backwards():
+    # Review: a missing number (NaN) crashed int(); a ball hit almost
+    # straight up drifted behind the plate (negative carry) in a few cells.
+    for ev, la in ((math.nan, 20.0), (95.0, math.nan), (math.nan, math.nan),
+                   (math.inf, 30.0), (-math.inf, -math.inf)):
+        dist, hang, descent = bf.flight(ev, la)
+        assert all(math.isfinite(x) for x in (dist, hang, descent))
+        assert dist >= 0.0
+    for density in (1.0, bf.THIN_AIR_DENSITY):
+        for ev in range(30, 127, 2):
+            for la in range(-10, 81):
+                assert bf.flight(ev, la, density)[0] >= 0.0, (ev, la, density)
+    # Off the grid: the edge cell (clamped), not an extrapolation.
+    assert bf.flight(200.0, 30.0)[0] == pytest.approx(bf.flight(126.0, 30.0)[0], abs=1.0)
+
+
 def test_altitude_thins_the_air_through_the_table():
     coors = bf.air_density_ratio(5197)
     assert coors == pytest.approx(bf.THIN_AIR_DENSITY, abs=0.001)

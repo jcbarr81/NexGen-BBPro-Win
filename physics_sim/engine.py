@@ -3300,6 +3300,16 @@ def _is_infield_single(
 FOUL_OUT_DISTANCE_FT = 90.0
 
 
+def _shifted_hit_chance(open_chance: float, shift: float) -> float:
+    """``open_chance`` (the chance a ball is not turned into an out) moved by
+    ``shift`` in log-odds (``bb6_hit_logit_shift``); 0 and 1 stay put, and a
+    shift of 0 returns it unchanged. Draws nothing."""
+    if not shift or not 0.0 < open_chance < 1.0:
+        return open_chance
+    logit = math.log(open_chance / (1.0 - open_chance)) + shift
+    return 1.0 / (1.0 + math.exp(-logit))
+
+
 def _relative_speed(batter: BatterRatings, tuning: TuningConfig) -> float:
     """The batter's speed against the league's hitters (50 = average), as
     the Release 6b play model and hit types read it."""
@@ -7652,9 +7662,10 @@ def simulate_game(
                                 flight, defense_ratings, range_model, tuning,
                                 ball_type,
                             )
-                            hit_prob = (1.0 - out_prob) * tuning.get(
-                                "babip_scale", 1.0
-                            )
+                            hit_prob = _shifted_hit_chance(
+                                1.0 - out_prob,
+                                tuning.get("bb6_hit_logit_shift", 0.0),
+                            ) * tuning.get("babip_scale", 1.0)
                             babip_edge = _contact_babip_edge(batter, tuning)
                             if babip_edge:
                                 hit_prob += babip_edge

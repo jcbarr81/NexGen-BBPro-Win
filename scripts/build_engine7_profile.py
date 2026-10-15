@@ -43,6 +43,7 @@ R7_STAGES: tuple[str, ...] = (
     "retune2",  # the level again
     "sliders",  # Home Run Rate and Launch Angle Base on the new model
     "parks",  # owner decisions 18 / 20: each park's HR by batter side
+    "relevel",  # hits, double plays and shortstop range on the final model
 )
 
 
