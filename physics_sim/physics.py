@@ -1744,8 +1744,14 @@ def _batted_ball_kernel(
         eff *= lo + (t("bb6_weak_eff_hi", 0.90) - lo) * random.random()
     eff = max(t("bb6_ev_eff_floor", 0.45), eff)
     gf = batter.get("gb_tendency", 50.0)
+    # The commissioner's Launch Angle Base slider: degrees from its neutral
+    # (bb6_la_slider_share 0, the default: no term).
+    slider = t("bb6_la_slider_share", 0.0)
+    if slider:
+        slider *= t("launch_angle_base", 12.1) - t("bb6_la_slider_neutral", 12.1)
     launch_angle = (
         t("bb6_la_base", 13.2)
+        + slider
         - (gf - rating_center(tuning, "hitter_gf_center")) * t("bb6_la_gf_per_point", 0.40)
         + vertical_loc * t("bb6_la_location_scale", 4.0)
         + timing_error * t("bb6_la_timing_scale", 7.0)

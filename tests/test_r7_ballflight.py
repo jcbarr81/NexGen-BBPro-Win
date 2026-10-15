@@ -200,7 +200,9 @@ def _pitches(monkeypatch, tuning, n=1500):
 
             return counted
 
-    monkeypatch.setattr(physics, "random", Counted())
+    patch = monkeypatch.context()
+    patcher = patch.__enter__()
+    patcher.setattr(physics, "random", Counted())
     batter = {"contact": 70.0, "power": 50.0, "eye": 50.0, "gb_tendency": 50.0,
               "pull_tendency": 50.0, "bats": "R", "speed": 50.0}
     pitcher = {"repertoire": {"fb": 50.0}, "velocity": 92.0, "control": 50.0,
@@ -212,7 +214,8 @@ def _pitches(monkeypatch, tuning, n=1500):
         res = physics.simulate_pitch(batter=batter, pitcher=pitcher, tuning=tuning,
                                      count=(0, 0), context={"foul_territory_scale": 1.0})
         out.append((res.outcome, getattr(res, "foul_out", None), calls["n"] - before))
-    monkeypatch.undo()
+    # Only this patch is undone (not the autouse park-root setting).
+    patch.__exit__(None, None, None)
     return out
 
 
@@ -269,20 +272,30 @@ def test_a_game_on_generation_7_plays_and_credits_the_play_models_fielders():
     )
     overrides["fielding_chance_log"] = 1.0
     seen_pu = foul_outs = 0
-    for seed in (1, 2, 3):
+    credited = {"C": 0, "1B": 0, "3B": 0}
+    for seed in range(1, 9):
         game = engine.simulate_matchup_from_files(
             away_team="CAL27", home_team="CAL01", base_dir=CAL, players_path=PLAYERS,
             seed=seed, tuning_overrides=dict(overrides),
         )
         assert game.totals["pa"] > 50
-        for entry in game.pitch_log:
+        fielded = game.play_records.get("fld_pos") or {}
+        for index, entry in enumerate(game.pitch_log):
             if entry.get("outcome") != "in_play":
                 continue
             seen_pu += entry.get("ball_type") == "pu"
-            foul_outs += bool(entry.get("foul_out"))
             if entry.get("foul_out"):
-                assert entry["foul_out"] in ("C", "1B", "3B")
+                foul_outs += 1
+                assert entry["foul_out"] in credited
                 assert entry.get("pa_result") == "out"
+                assert not entry.get("reached_on_error")
+                # The out is the named fielder's.
+                assert fielded[index] == entry["foul_out"]
+                credited[entry["foul_out"]] += 1
         for row in game.play_records.get("bip_chances") or []:
             assert len(row[3]) == 1 and 0.0 <= row[6] <= 1.0
     assert seen_pu > 0
+    # About 0.8 a team-game: eight games give a dozen or more, and every
+    # fielder who catches them gets some.
+    assert 8 <= foul_outs <= 40
+    assert all(credited.values()), credited

@@ -1,0 +1,8 @@
+{
+  "hr_scale": 1.0,
+  "launch_angle_base": 12.1,
+  "bb6_hr_slider_carry_share": 0.08,
+  "bb6_hr_slider_neutral": 1.0,
+  "bb6_la_slider_share": 1.0,
+  "bb6_la_slider_neutral": 12.1
+}

@@ -1067,6 +1067,34 @@ class ReportOnlyKpis:
         )
         metrics["park_hr_factor_max"] = max(factors) if factors else None
         metrics["park_hr_factor_min"] = min(factors) if factors else None
+        # Owner decision 19: per 10 points of the pitcher's ground-ball
+        # rating, ground balls per 100 balls in play and the change in home
+        # runs per ball in play (least squares over the pitchers with 100+
+        # balls in play, weighted by them; home runs as a share of the
+        # league's rate).
+        gf = self.r6_ratings["pitcher_gf"]
+        rows = [
+            (gf[pid], c["gb"] / c["bip"], c["hr"] / c["bip"], c["bip"])
+            for pid, c in r7.pitcher.items()
+            if pid in gf and c["bip"] >= max(30, round(100 * gpt / 162))
+        ]
+        gb_slope = hr_slope = None
+        if len(rows) >= 20:
+            weights = [r[3] for r in rows]
+            total = sum(weights)
+            mean_x = sum(r[0] * w for r, w in zip(rows, weights)) / total
+            sxx = sum(w * (r[0] - mean_x) ** 2 for r, w in zip(rows, weights))
+            if sxx > 0:
+                mean_hr = sum(r[2] * w for r, w in zip(rows, weights)) / total
+                gb_slope = 1000.0 * sum(
+                    w * (r[0] - mean_x) * r[1] for r, w in zip(rows, weights)
+                ) / sxx
+                hr_slope = (
+                    1000.0 * sum(w * (r[0] - mean_x) * r[2] for r, w in zip(rows, weights))
+                    / sxx / mean_hr if mean_hr else None
+                )
+        metrics["pitcher_gf_gb_per10"] = gb_slope
+        metrics["pitcher_gf_hr_pct_per10"] = hr_slope
 
     def _situational(
         self,
@@ -3517,6 +3545,8 @@ R7_METRIC_KEYS: tuple[str, ...] = (
     "park_hr_factor_sd",
     "park_hr_factor_max",
     "park_hr_factor_min",
+    "pitcher_gf_gb_per10",
+    "pitcher_gf_hr_pct_per10",
 )
 
 

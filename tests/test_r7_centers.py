@@ -111,6 +111,6 @@ def test_a_game_with_the_switches_on_needs_them():
     )
     # Generation 7's profile reads all three.
     profile = engine_profile(7, development=True)
-    needs = batted_ball_center_needs(load_tuning(profile))
-    if profile.get("batted_ball_model"):
-        assert "hitter_gf_center" in needs
+    assert set(batted_ball_center_needs(load_tuning(profile))) == {
+        "hitter_gf_center", *NEW,
+    }

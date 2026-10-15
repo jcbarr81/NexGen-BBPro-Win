@@ -3,10 +3,12 @@ others (docs/park_data_generation7_runbook.md).
 
 Production reads park data from the data root's ``parks/`` folder (the
 bucket), not from the image. The upload adds ``ParkFences.csv`` and
-``ParkHRTargets.csv`` and appends two parks to ``ParkConfig.csv`` and
-``Parks.csv``. Every earlier generation must read the uploaded set exactly
-as it reads today's files; a generation 7 game must refuse to start without
-``ParkFences.csv`` instead of falling back to the ParkConfig rows.
+``ParkHRTargets.csv`` only: ``ParkConfig.csv`` and ``Parks.csv`` stay as
+they are, and the two parks only generation 7 knows (Sutter Health Park,
+George M. Steinbrenner Field) are named in ``ParkFences.csv`` alone, so no
+earlier lookup (the substring fallback included) can reach them. Every
+earlier generation reads the uploaded set exactly as today's files; a
+generation 7 game refuses to start without ``ParkFences.csv``.
 """
 
 from __future__ import annotations
@@ -33,17 +35,34 @@ NEW_PARK_IDS = ("SAC01", "TAM02")
 
 
 def _old_root(tmp_path: Path) -> Path:
-    """The park files as they were before this release: the two appended
-    parks taken out, and neither new file."""
+    """The park files earlier engines read, without the release's new ones."""
     root = tmp_path / "old"
     (root / "parks").mkdir(parents=True)
-    for name in ("ParkConfig.csv", "Parks.csv"):
-        lines = (PARKS / name).read_bytes().splitlines(keepends=True)
-        kept = [line for line in lines if not line.startswith(tuple(p.encode() for p in NEW_PARK_IDS))]
-        assert len(lines) - len(kept) == 2, name
-        (root / "parks" / name).write_bytes(b"".join(kept))
-    shutil.copy(PARKS / "ParkFactors.csv", root / "parks" / "ParkFactors.csv")
+    for name in ("ParkConfig.csv", "Parks.csv", "ParkFactors.csv"):
+        shutil.copy(PARKS / name, root / "parks" / name)
     return root
+
+
+def test_the_files_earlier_engines_read_do_not_name_the_new_parks():
+    for name in ("ParkConfig.csv", "Parks.csv", "ParkFactors.csv"):
+        text = (PARKS / name).read_text(encoding="utf-8")
+        for token in ("SAC01", "TAM02", "Sutter", "Steinbrenner"):
+            assert token not in text, (name, token)
+
+
+def test_only_generation_7_finds_the_new_parks(monkeypatch):
+    monkeypatch.setenv(park_utils.PARK_DATA_ROOT_ENV, str(REPO / "data"))
+    ballflight.clear_fence_cache()
+    for probe in ("Sutter Health Park", "George M. Steinbrenner Field",
+                  "Steinbrenner", "Sutter Health", "Health Park"):
+        assert park_utils.stadium_from_name(probe) is None, probe
+        assert park_utils._park_info_for_name(probe) is None, probe
+    for pid in NEW_PARK_IDS:
+        assert park_utils.park_info_for_id(pid) is None
+    assert park_utils.park_fence_for_name("Sutter Health Park")[0] == "SAC01"
+    assert park_utils.park_fence_for_name("George M. Steinbrenner Field")[0] == "TAM02"
+    # A name that is not exact gets no new park from generation 7 either.
+    assert park_utils.park_fence_for_name("Health Park") is None
 
 
 def _new_root(tmp_path: Path) -> Path:
@@ -81,13 +100,14 @@ def test_every_old_park_reads_the_same_from_the_uploaded_files(tmp_path, monkeyp
     before = _read_all(monkeypatch, old, names)
     after = _read_all(monkeypatch, new, names)
     assert after == before
-    # The only new names a club can choose are the two appended parks.
+    # And every id.
     monkeypatch.setenv(park_utils.PARK_DATA_ROOT_ENV, str(old))
-    old_list = set(park_utils.list_ballpark_names())
+    ids = sorted({info.park_id for info in park_utils._load_latest_parks().values()})
+    old_ids = {pid: park_utils.park_info_for_id(pid) for pid in ids}
+    old_list = park_utils.list_ballpark_names()
     monkeypatch.setenv(park_utils.PARK_DATA_ROOT_ENV, str(new))
-    new_list = set(park_utils.list_ballpark_names())
-    assert new_list - old_list == {"Sutter Health Park", "George M. Steinbrenner Field"}
-    assert old_list <= new_list
+    assert {pid: park_utils.park_info_for_id(pid) for pid in ids} == old_ids
+    assert park_utils.list_ballpark_names() == old_list
 
 
 @pytest.mark.parametrize("generation", [4, 5, 6])

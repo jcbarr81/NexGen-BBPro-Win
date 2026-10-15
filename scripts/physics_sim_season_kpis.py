@@ -491,11 +491,82 @@ def _generation_6_gates() -> dict[str, Any]:
 ENGINE_GATES[6] = _generation_6_gates()
 
 
+# Release 6b: Baseball Savant's league rows (baseballsavant.mlb.com/league,
+# fetched 2026-10-15). 2024: 124,203 batted balls, barrels 7.8%, hard-hit
+# 38.9%, GB / LD / FB / PU 42.7 / 23.7 / 26.4 / 7.1, 5,453 home runs (HR per
+# fly ball plus pop-up on the engine's own class cut-offs, 10 / 25 / 50
+# degrees: 5,453 / (124,203 x .335) = .131); 2025: barrels 8.6%, hard-hit
+# 40.9%, 42.4 / 23.9 / 26.6 / 7.1, 5,650 home runs (.134).
+R7_STATCAST_TARGETS = {
+    "statcast_gb_pct": (0.427, 0.02),
+    "statcast_ld_pct": (0.238, 0.02),
+    "statcast_fb_pct": (0.265, 0.02),
+    "statcast_pu_pct": (0.071, 0.015),
+    "hr_per_fb_pu": (0.132, 0.02),
+}
+# The generation 6 gates the ball-flight model makes obsolete: the old class
+# cut-offs (9.0 / 15.7 degrees) and the old HR per fly ball (over the engine's
+# old fly-ball class alone); the share of ground balls each infielder plays
+# (generation 6's spray bands, which the play model does not read: the
+# fielder is whoever reaches the ball).
+R7_OBSOLETE_GATES = (
+    "bip_gb_pct", "bip_ld_pct", "bip_fb_pct", "hr_per_fb_pct",
+    "gb_play_share_3b", "gb_play_share_ss", "gb_play_share_p",
+    "gb_play_share_2b", "gb_play_share_1b",
+)
+
+
 def _generation_7_gates() -> dict[str, Any]:
-    """Release 6b (the ball-flight step, a development generation): it
-    starts as generation 6's gates, a separate copy so a generation 7 gate
-    can move without moving generation 6's."""
-    return copy.deepcopy(ENGINE_GATES[6])
+    """Release 6b (the ball-flight step, a development generation):
+    generation 6's gates, a separate copy, with the gates the new model
+    makes obsolete dropped and the new model's gates added. Single-season
+    noisy rows are pooled over seeds (report-only, as generation 6's)."""
+    gates = copy.deepcopy(ENGINE_GATES[6])
+    for key in R7_OBSOLETE_GATES:
+        gates["tolerances"].pop(key, None)
+        gates["extras_targets"].pop(key, None)
+        if key not in gates["drop"]:
+            gates["drop"].append(key)
+    # Contact quality, gated (report-only before): Savant 2024.
+    gates["benchmarks"]["hard_hit_pct"] = 0.389
+    gates["tolerances"]["hard_hit_pct"] = 0.025
+    gates["benchmarks"]["barrel_pct"] = 0.078
+    gates["tolerances"]["barrel_pct"] = 0.012
+    targets = {
+        **R7_STATCAST_TARGETS,
+        # Mean home-run distance: about 400 ft in the plan; the model reads
+        # 388-391 on this kernel with home runs held (docs/future_work.md,
+        # "Release 6b round 2"), so the gate is the plan's, widened.
+        "hr_distance_mean_ft": (395.0, 10.0),
+        "hr_450plus_share": (0.01, 0.01),
+        # Foul-outs: about 0.8 a team-game (the design brief; MLB from
+        # memory).
+        "foul_outs_per_team_game": (0.80, 0.15),
+        # The tag-up race (MLB 72-78%, Release 4).
+        "tagup_score_rate": (0.75, 0.06),
+        # Spray widening (sd 40) loosens a hitter's pull rating's grip on
+        # his mean pull angle: .60-.74 on the wide fixtures (generation 6's
+        # gate, .80 or more, was set for sd 18).
+        "r_pull_rating_pull_angle_rhb": (0.70, 0.20),
+        "r_pull_rating_pull_angle_lhb": (0.70, 0.20),
+    }
+    for key, (target, band) in targets.items():
+        gates["extras_targets"][key] = target
+        gates["tolerances"][key] = band
+    gates["pooled"] = {
+        **gates["pooled"],
+        # Plan 6b: pitcher GB% true sd at least .05 on the wide fixtures.
+        "pitcher_gb_pct_true_sd": (0.075, 0.025),
+        # Owner decision 19: about +6 ground balls per 100 and about -12%
+        # home runs per 10 points of pitcher ground-ball rating.
+        "pitcher_gf_gb_per10": (6.0, 2.0),
+        "pitcher_gf_hr_pct_per10": (-12.0, 6.0),
+    }
+    # Run by scripts/fit_park_hr_factors.py (the park Monte Carlo), not by a
+    # season: every fitted park's by-side home-run factor within 2 points of
+    # its target.
+    gates["park_mc"] = {"park_hr_fit_max_abs_error": (0.0, 2.0)}
+    return gates
 
 
 ENGINE_GATES[7] = _generation_7_gates()

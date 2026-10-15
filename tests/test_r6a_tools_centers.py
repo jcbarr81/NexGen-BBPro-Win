@@ -26,6 +26,7 @@ two batted-ball centres are still read by nothing.
 
 from __future__ import annotations
 
+import ast
 import csv
 import json
 import re
@@ -168,6 +169,33 @@ def test_they_are_not_stored_centres_and_no_game_requires_them():
     require_rating_centers(load_tuning(overrides))
 
 
+def _literal_owners(tree: ast.AST, pattern: re.Pattern) -> list[str]:
+    """For every string literal matching ``pattern``: the name of the
+    function it is in, or of the module-level assignment it is part of."""
+    owners: list[str] = []
+
+    def visit(node: ast.AST, owner: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            here = owner
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                here = child.name
+            elif isinstance(child, ast.Assign) and owner == "<module>":
+                here = ",".join(
+                    t.id for t in child.targets if isinstance(t, ast.Name)
+                ) or owner
+            if (
+                isinstance(child, ast.Constant)
+                and isinstance(child.value, str)
+                and pattern.search(child.value)
+                and not (isinstance(node, ast.Expr))  # a docstring
+            ):
+                owners.append(owner)
+            visit(child, here)
+
+    visit(tree, "<module>")
+    return owners
+
+
 def test_nothing_in_the_engine_reads_them_yet():
     """The Release 6 build branches remove a key from here as they wire it
     in (and add the test of what reads it). The fielder centres are wired
@@ -181,11 +209,22 @@ def test_nothing_in_the_engine_reads_them_yet():
     pattern = re.compile(
         r"pitcher_gf_usage_center|hitter_pull_center"
     )
-    readers = {"config.py", "physics.py", "centred_ratings.py"}
+    # Where the two may appear, by (module, enclosing function or
+    # module-level name): the kernel that reads them and the check that
+    # they were delivered.
+    allowed = {
+        ("physics.py", "_batted_ball_kernel"),
+        ("centred_ratings.py", "PULL_CENTER_KEY"),
+        ("centred_ratings.py", "PITCHER_GF_CENTER_KEY"),
+    }
     for path in sorted((REPO / "physics_sim").glob("*.py")):
-        if path.name in readers:
+        if path.name == "config.py":
             continue
-        assert not pattern.search(path.read_text(encoding="utf-8")), path.name
+        source = path.read_text(encoding="utf-8")
+        if not pattern.search(source):
+            continue
+        for where in _literal_owners(ast.parse(source), pattern):
+            assert (path.name, where) in allowed, (path.name, where)
     for folder in ("playbalance", "api", "utils"):
         for path in sorted((REPO / folder).rglob("*.py")):
             assert not pattern.search(path.read_text(encoding="utf-8")), path

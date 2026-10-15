@@ -11,7 +11,11 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, Iterator, Tuple
 
-from physics_sim.config import DEFAULT_TUNING
+from physics_sim.config import (
+    DEFAULT_TUNING,
+    RELEASE_6B_KEYS,
+    RELEASE_6B_SWITCH_KEYS,
+)
 from physics_sim.engine_generation import (
     LEGACY_ENGINE_GENERATION,
     engine_defaults,
@@ -248,15 +252,41 @@ VELOCITY_SLIDER_REBASE_MARKER = "_velocity_slider_rebased_r6"
 PRE_GENERATION_6_MARKER = "_pre_generation_6_r6"
 
 
+# Release 6b (generation 7, the ball-flight step): the same rule again.
+# Every key it registered (``RELEASE_6B_KEYS``) means nothing to a league
+# below generation 7 -- a stored one is not read and a save does not keep
+# it -- and from generation 7 its switches are the generation's
+# (``RELEASE_6B_SWITCH_KEYS``); its sizes are ordinary knobs there.
+GENERATION_7 = 7
+# Release 6b: the Home Run Rate and Launch Angle Base sliders keep their keys
+# but from generation 7 move carry and the kernel's launch angle
+# (services/physics_tuning_spec). A value stored before is on the old
+# meaning: the slider goes back to neutral (the generation's default) and
+# the value is kept under ``PRE_GENERATION_7_MARKER``;
+# ``BALLFLIGHT_SLIDER_REBASE_MARKER`` marks a file whose two values are on
+# the generation 7 meaning. Same timing as the Velocity Scale conversion.
+BALLFLIGHT_SLIDER_KEYS = ("hr_scale", "launch_angle_base")
+BALLFLIGHT_SLIDER_REBASE_MARKER = "_ballflight_sliders_rebased_r7"
+PRE_GENERATION_7_MARKER = "_pre_generation_7_r7"
+
+
 def _owned_keys(generation: int) -> frozenset:
     """The keys a league on ``generation`` cannot store (see above)."""
+    if generation >= GENERATION_7:
+        return frozenset(
+            GENERATION_OWNED_KEYS
+            + R6A_GENERATION_6_GROUP_KEYS
+            + GENERATION_6_OWNED_KEYS
+            + RELEASE_6B_SWITCH_KEYS
+        )
     if generation >= GENERATION_6:
         return frozenset(
             GENERATION_OWNED_KEYS
             + R6A_GENERATION_6_GROUP_KEYS
             + GENERATION_6_OWNED_KEYS
+            + RELEASE_6B_KEYS
         )
-    return frozenset(GENERATION_OWNED_KEYS + R6A_KEYS)
+    return frozenset(GENERATION_OWNED_KEYS + R6A_KEYS + RELEASE_6B_KEYS)
 
 # The legacy defaults the replaced sliders were set against, frozen here so
 # the conversion does not move if DEFAULT_TUNING ever does.
@@ -521,6 +551,14 @@ def save_physics_tuning_overrides(
             # The whole state on an earlier generation is what the page
             # showed, the kept values included: nothing is held back.
             markers = _without_generation_6_markers(markers)
+        if number >= GENERATION_7:
+            # Release 6b: the same for Home Run Rate and Launch Angle Base.
+            _view, markers, _kept = _generation_7_view(
+                _sanitize_overrides(payload, generation=number), markers
+            )
+            markers = {**markers, BALLFLIGHT_SLIDER_REBASE_MARKER: True}
+        else:
+            markers = _without_generation_7_markers(markers)
         if not cleaned:
             _unlink(target)
             return
@@ -965,10 +1003,14 @@ def _migrated(
         stored["steal_freq_scale"] /= _STEAL_FREQ_REBASE_DIVISOR
         changed = True
     if generation <= LEGACY_ENGINE_GENERATION:
-        view = _legacy_view(_pre_generation_6_view(stored, markers), markers)
+        view = _legacy_view(
+            _pre_generation_7_view(_pre_generation_6_view(stored, markers), markers),
+            markers,
+        )
         return view, (_file_payload(stored, markers) if changed else None)
     view, converted_markers = _converted_for_new_sliders(stored, markers)
     generation_6 = generation >= GENERATION_6
+    generation_7 = generation >= GENERATION_7
     if generation_6:
         view, converted_markers, _kept = _generation_6_view(view, converted_markers)
     else:
@@ -977,15 +1019,29 @@ def _migrated(
             # Written back (below) with the kept values in the file itself.
             view = restored
             converted_markers = _without_generation_6_markers(converted_markers)
-    if convert and stored:
+    if generation_7:
+        # Release 6b: the old-meaning Home Run Rate and Launch Angle Base
+        # are set aside, as generation 6 sets aside Velocity Scale.
+        view, converted_markers, _kept = _generation_7_view(view, converted_markers)
+    else:
+        restored = _pre_generation_7_view(view, markers)
+        if restored is not view:
+            view = restored
+            converted_markers = _without_generation_7_markers(converted_markers)
+    if convert and (stored or view):
         # Also when nothing needs converting: a file read by a season game
         # of a generation 5 season is marked as on that generation's scales.
+        # (``view`` without ``stored``: a file that holds nothing but values
+        # an earlier conversion kept, which come back now.)
         marked = markers.get(SWING_SLIDER_REBASE_MARKER) is True
         if generation_6:
             marked = marked and markers.get(VELOCITY_SLIDER_REBASE_MARKER) is True
+        if generation_7:
+            marked = marked and markers.get(BALLFLIGHT_SLIDER_REBASE_MARKER) is True
         if changed or view is not stored or not marked:
             return view, _file_payload(
-                view, converted_markers, rebased=True, velocity_rebased=generation_6
+                view, converted_markers, rebased=True,
+                velocity_rebased=generation_6, ballflight_rebased=generation_7,
             )
         return view, None
     return view, (_file_payload(stored, markers) if changed else None)
@@ -1051,6 +1107,57 @@ def _pre_generation_6_view(
     return {**stored, **restorable}
 
 
+def _generation_7_view(
+    stored: Dict[str, float], markers: Dict[str, Any]
+) -> Tuple[Dict[str, float], Dict[str, Any], Dict[str, float]]:
+    """(overrides as generation 7 reads them, ``markers`` with the old-meaning
+    Home Run Rate and Launch Angle Base kept under
+    ``PRE_GENERATION_7_MARKER``, what was set aside). Nothing is set aside
+    from a file marked as on the new meaning
+    (``BALLFLIGHT_SLIDER_REBASE_MARKER``)."""
+    if markers.get(BALLFLIGHT_SLIDER_REBASE_MARKER) is True:
+        return stored, markers, {}
+    kept = {key: stored[key] for key in BALLFLIGHT_SLIDER_KEYS if key in stored}
+    if not kept:
+        return stored, markers, kept
+    view = {key: value for key, value in stored.items() if key not in kept}
+    previous = markers.get(PRE_GENERATION_7_MARKER)
+    markers = dict(markers)
+    markers[PRE_GENERATION_7_MARKER] = {
+        **(previous if isinstance(previous, dict) else {}),
+        **kept,
+    }
+    return view, markers, kept
+
+
+def _pre_generation_7_view(
+    stored: Dict[str, float], markers: Dict[str, Any]
+) -> Dict[str, float]:
+    """A file's overrides as a league below generation 7 reads them: the
+    values kept under ``PRE_GENERATION_7_MARKER`` come back unless the file
+    holds a value of that key since."""
+    kept = markers.get(PRE_GENERATION_7_MARKER)
+    if not isinstance(kept, dict):
+        return stored
+    restorable = {
+        key: value
+        for key, value in _sanitize_overrides(kept).items()
+        if key in BALLFLIGHT_SLIDER_KEYS and key not in stored
+    }
+    if not restorable:
+        return stored
+    return {**stored, **restorable}
+
+
+def _without_generation_7_markers(markers: Dict[str, Any]) -> Dict[str, Any]:
+    """``markers`` without the Release 6b conversion's two markers."""
+    return {
+        key: value
+        for key, value in markers.items()
+        if key not in (PRE_GENERATION_7_MARKER, BALLFLIGHT_SLIDER_REBASE_MARKER)
+    }
+
+
 def _without_generation_6_markers(markers: Dict[str, Any]) -> Dict[str, Any]:
     """``markers`` without the Release 6a conversion's two markers."""
     return {
@@ -1066,6 +1173,7 @@ def _file_payload(
     *,
     rebased: bool = False,
     velocity_rebased: bool = False,
+    ballflight_rebased: bool = False,
 ) -> Dict[str, Any]:
     """What an overrides file holds: the markers, the knobs, and the marks
     of the rebases it has been through (``rebased``: written while the
@@ -1078,6 +1186,8 @@ def _file_payload(
         payload[SWING_SLIDER_REBASE_MARKER] = True
     if velocity_rebased:
         payload[VELOCITY_SLIDER_REBASE_MARKER] = True
+    if ballflight_rebased:
+        payload[BALLFLIGHT_SLIDER_REBASE_MARKER] = True
     return payload
 
 

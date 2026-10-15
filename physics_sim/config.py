@@ -1645,6 +1645,9 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # A ball that reaches the fence line higher than this (ft) hits the wall
     # and cannot be caught (generation 7: 9 ft, a leap at the wall).
     "bb6_wall_catch_ft": 1e9,
+    # A ball that hits a wall at least this tall (ft) in the air is a double
+    # at most (it caroms back; generation 7: 20 ft, the Monster's kind).
+    "bb6_tall_wall_ft": 1e9,
     "bb6_hit_prob_min": 0.002,
     "bb6_hit_prob_max": 0.998,
     # foul_out_model 1: a foul ball is caught for an out with chance
@@ -1655,7 +1658,36 @@ DEFAULT_TUNING: Dict[str, Any] = {
     "foul_out_model": 0.0,
     "foul_out_rate": 0.031,
     "foul_out_park_exp": 1.0,
+    # The commissioner's Home Run Rate (hr_scale) and Launch Angle Base
+    # (launch_angle_base) sliders under the ball-flight model, which reads
+    # neither the old way: carry times 1 + (hr_scale - bb6_hr_slider_neutral)
+    # * bb6_hr_slider_carry_share, and the kernel's launch angle plus
+    # (launch_angle_base - bb6_la_slider_neutral) * bb6_la_slider_share. 0
+    # shares: no effect. A league's stored values are reset to the neutral
+    # when it moves to generation 7 (services.physics_tuning_settings).
+    "bb6_hr_slider_carry_share": 0.0,
+    "bb6_hr_slider_neutral": 1.0,
+    "bb6_la_slider_share": 0.0,
+    "bb6_la_slider_neutral": 12.1,
 }
+
+# Every key Release 6b (generation 7) registered: the block above from
+# carry_model to the end of DEFAULT_TUNING. Not one is read by an earlier
+# generation, so a league's tuning file below generation 7 cannot store one
+# (services.physics_tuning_settings, as R6A_KEYS for generation 6). New 6b
+# keys go at the end of the block.
+_DEFAULT_KEYS = list(DEFAULT_TUNING)
+RELEASE_6B_KEYS: tuple = tuple(_DEFAULT_KEYS[_DEFAULT_KEYS.index("carry_model"):])
+# The switches that make a season generation 7 (owned by the generation:
+# a league's file cannot switch part of it on or off).
+RELEASE_6B_SWITCH_KEYS: tuple = (
+    "carry_model",
+    "batted_ball_model",
+    "fielding_play_model",
+    "foul_out_model",
+    "spray_model",
+    "pitcher_gb_launch_scale",
+)
 
 
 @dataclass

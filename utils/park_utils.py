@@ -43,7 +43,9 @@ class ParkInfo:
 # a module global, so worker processes inherit it. Games played by the
 # product never set it.
 PARK_DATA_ROOT_ENV = "NEXGEN_PARK_DATA_ROOT"
-PARK_DATA_FILES = ("ParkConfig.csv", "ParkFactors.csv", "Parks.csv")
+# (ParkFences.csv: Release 6b, read by engine generation 7 only; the KPI
+# harness must not start without it either.)
+PARK_DATA_FILES = ("ParkConfig.csv", "ParkFactors.csv", "Parks.csv", "ParkFences.csv")
 
 
 def _pinned_park_root() -> Optional[Path]:
@@ -509,7 +511,15 @@ def _load_park_fences_cached(
 ) -> Dict[str, tuple[tuple, tuple, bool]]:
     """``ParkFences.csv``: park id -> (five distances, five wall heights,
     whether it is one of the parks the generic park averages)."""
-    out: Dict[str, tuple[tuple, tuple, bool]] = {}
+    return {pid: row[:3] for pid, row in _load_park_fence_rows_cached(token).items()}
+
+
+@functools.lru_cache(maxsize=32)
+def _load_park_fence_rows_cached(
+    token: tuple[str, int, int],
+) -> Dict[str, tuple[tuple, tuple, bool, str]]:
+    """``ParkFences.csv``: park id -> (distances, heights, generic, name)."""
+    out: Dict[str, tuple[tuple, tuple, bool, str]] = {}
     path = Path(token[0])
     if not path.exists():
         return out
@@ -525,7 +535,10 @@ def _load_park_fences_cached(
             )
             if not pid or None in distances or None in heights:
                 continue
-            out[pid] = (distances, heights, (row.get("generic") or "").strip() == "1")
+            out[pid] = (
+                distances, heights, (row.get("generic") or "").strip() == "1",
+                (row.get("name") or "").strip(),
+            )
     return out
 
 
@@ -537,13 +550,32 @@ def park_fences() -> Dict[str, tuple[tuple, tuple, bool]]:
     return _load_park_fences_cached(_file_token(path))
 
 
+def _park_fence_by_exact_name(name: str) -> tuple[str, tuple, tuple] | None:
+    """The ``ParkFences.csv`` row whose name is ``name`` (normalized, exact
+    match only). Release 6b: the parks only generation 7 knows (Sutter
+    Health Park, George M. Steinbrenner Field) are named there and nowhere
+    an earlier engine reads, so no earlier lookup can reach them."""
+    path = _find_park_data_file(PARK_FENCES_FILE)
+    if not path.exists() or not name:
+        return None
+    target = _norm(name)
+    for pid, row in _load_park_fence_rows_cached(_file_token(path)).items():
+        if row[3] and _norm(row[3]) == target:
+            return pid, row[0], row[1]
+    return None
+
+
 def park_fence_for_name(name: str) -> tuple[str, tuple, tuple] | None:
     """``(park id, five distances, five wall heights)`` of the park ``name``
-    resolves to, by the same lookup as :func:`stadium_from_name`: its
-    ``ParkFences.csv`` row, else its newest ParkConfig row by the five-point
-    rule (:func:`_fence_from_row`); ``None`` (the generic park) when it
-    resolves to none or the park has no full set of line and centre
-    distances."""
+    names (Release 6b, engine generation 7 only): the ``ParkFences.csv`` row
+    of that exact name; else the park :func:`stadium_from_name`'s lookup
+    resolves it to, by its ``ParkFences.csv`` row or else its newest
+    ParkConfig row by the five-point rule (:func:`_fence_from_row`);
+    ``None`` (the generic park) when it resolves to none or the park has no
+    full set of line and centre distances."""
+    exact = _park_fence_by_exact_name(name)
+    if exact is not None:
+        return exact
     info = _park_info_for_name(name)
     if info is None:
         return None

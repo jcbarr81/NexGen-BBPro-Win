@@ -36,6 +36,12 @@ R7_STAGES: tuple[str, ...] = (
     "pitcher_gb",  # 6. the pitcher's ground-ball identity
     "refit",  # 7. scripted re-fits: tag-up race, range slopes, Power top
     "retune",  # 8. the first joint retune (level, K / BB, pitcher term)
+    # Round 2:
+    "kernel_refit",  # the kernel re-fitted to Savant's shape (scratch kfit)
+    "power_refit",  # the whole Power curve re-solved on this model
+    "pitching_refit",  # ev_pq_slope / ev_base_offset_mph on this model
+    "retune2",  # the level again
+    "sliders",  # Home Run Rate and Launch Angle Base on the new model
     "parks",  # owner decisions 18 / 20: each park's HR by batter side
 )
 

@@ -189,6 +189,9 @@ def _table() -> tuple:
 
 def _cell(value: float, spec: Tuple[float, float, float]) -> Tuple[int, float]:
     start, stop, step = spec
+    if not math.isfinite(value):
+        # A missing number reads as the grid's first cell (never int(nan)).
+        value = start
     position = (min(max(value, start), stop - 1e-6) - start) / step
     index = int(position)
     return index, position - index
@@ -214,11 +217,16 @@ def flight(
             )
         out.append(values)
     if density == 1.0:
-        return out[0][0], out[0][1], out[0][2]
-    w = (1.0 - density) / (1.0 - THIN_AIR_DENSITY)
-    return tuple(  # type: ignore[return-value]
-        sea + (thin - sea) * w for sea, thin in zip(out[0], out[1])
-    )
+        dist, hang, descent = out[0]
+    else:
+        w = (1.0 - density) / (1.0 - THIN_AIR_DENSITY)
+        dist, hang, descent = (
+            sea + (thin - sea) * w for sea, thin in zip(out[0], out[1])
+        )
+    # A ball hit almost straight up with backspin drifts back behind the
+    # plate in the trajectory (a few cells at 79 degrees and 106 mph or
+    # more): it comes down at the plate, not behind it.
+    return max(0.0, dist), hang, descent
 
 
 def air_density_ratio(altitude_ft: float) -> float:
@@ -236,6 +244,22 @@ def park_density(altitude_ft: float, tuning: Any) -> float:
     return 1.0 - drop * tuning.get("bb6_altitude_strength", 1.0)
 
 
+def home_run_slider_factor(tuning: Any) -> float:
+    """The commissioner's Home Run Rate slider (``hr_scale``) under the
+    ball-flight model: carry times ``1 + (hr_scale - bb6_hr_slider_neutral)
+    * bb6_hr_slider_carry_share``. Home runs move about 13 times as fast as
+    carry, so generation 7's share (.08) makes +0.01 on the slider about +1%
+    home runs. 1.0 (no effect) with the share at its default 0."""
+    share = tuning.get("bb6_hr_slider_carry_share", 0.0)
+    if not share:
+        return 1.0
+    return max(
+        0.5,
+        1.0 + (tuning.get("hr_scale", 1.0) - tuning.get("bb6_hr_slider_neutral", 1.0))
+        * share,
+    )
+
+
 def carry(
     exit_velo: float, launch_angle: float, altitude_ft: float, tuning: Any
 ) -> Tuple[float, float, float]:
@@ -245,7 +269,7 @@ def carry(
     dist, hang, descent = flight(
         exit_velo, launch_angle, park_density(altitude_ft, tuning)
     )
-    scale = tuning.get("bb6_carry_scale", 1.0)
+    scale = tuning.get("bb6_carry_scale", 1.0) * home_run_slider_factor(tuning)
     return dist * scale, hang * math.sqrt(max(scale, 1e-9)), descent
 
 
@@ -510,8 +534,14 @@ def resolve_ball(
         r = min(dist, wall)
         triple_credit = t("bb6_triple_speed_ft", 30.0) * speed
         double_credit = t("bb6_double_speed_ft", 0.0) * speed
+        # A ball that hits a tall wall in the air caroms straight back to
+        # the fielder (Fenway's Monster): a double at most.
+        off_tall_wall = dist > wall and fence_at(fence, phi)[1] >= t(
+            "bb6_tall_wall_ft", 1e9
+        )
         if (
-            r >= wall * t("bb6_triple_wall_frac", 0.99) - triple_credit
+            not off_tall_wall
+            and r >= wall * t("bb6_triple_wall_frac", 0.99) - triple_credit
             and of_gap >= t("bb6_triple_gap_ft", 98.0) - triple_credit
         ):
             hit_type = "triple"

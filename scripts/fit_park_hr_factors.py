@@ -271,6 +271,30 @@ def fit(model: ParkModel, targets: dict[str, dict[str, Any]], current: list[str]
     return {pid: {"left": s[0], "right": s[1]} for pid, s in shifts.items()}
 
 
+def fit_errors(
+    fitted: dict[str, dict[str, float]],
+    targets: dict[str, dict[str, Any]],
+    current: list[str],
+) -> dict[str, dict[str, float]]:
+    """Park id -> fitted minus target by side, the targets scaled to average
+    exactly 100 over the 30 current parks (as :func:`fit` reads them)."""
+    scale = {}
+    for key in ("hr_lhb", "hr_rhb"):
+        goals = [float(targets[p][key]) for p in current if targets.get(p, {}).get(key)]
+        scale[key] = 100.0 / (sum(goals) / len(goals))
+    out = {}
+    for pid, row in fitted.items():
+        target = targets.get(pid)
+        if not target:
+            continue
+        out[pid] = {
+            key: round(row[key] - float(target[key]) * scale[key], 2)
+            for key in ("hr_lhb", "hr_rhb")
+            if target.get(key) is not None
+        }
+    return out
+
+
 def factors(model: ParkModel, shifts: dict[str, dict[str, float]], current: list[str]):
     def at(pid):
         s = shifts.get(pid, {"left": 0.0, "right": 0.0})
@@ -303,13 +327,19 @@ def hit_type_factors(balls: np.ndarray, tuning: Any, park_ids: list[str],
     from physics_sim.config import load_tuning
     from physics_sim.park import Park
     from playbalance.field_geometry import Stadium
-    from utils.park_utils import _load_latest_parks, _load_parks_master
+    from utils.park_utils import (
+        PARK_FENCES_FILE,
+        _file_token,
+        _find_park_data_file,
+        _load_park_fence_rows_cached,
+        _load_parks_master,
+    )
 
     sample = balls[:count]
     alt_by_id, _ = _load_parks_master()
-    names = {}
-    for info in _load_latest_parks().values():
-        names.setdefault(info.park_id, info.name)
+    # The parks by the names generation 7 resolves exactly (ParkFences.csv).
+    rows = _load_park_fence_rows_cached(_file_token(_find_park_data_file(PARK_FENCES_FILE)))
+    names = {pid: row[3] for pid, row in rows.items() if row[3]}
     rates = {}
     for pid in park_ids:
         if pid not in names:
@@ -361,6 +391,10 @@ def main() -> int:
     parser.add_argument("--hit-types", type=int, default=0)
     parser.add_argument("--write-profile", type=Path, default=None)
     parser.add_argument("--report", type=Path, default=None)
+    parser.add_argument(
+        "--strict", action="store_true",
+        help="Exit 1 when a park's fit misses ENGINE_GATES[7]['park_mc'].",
+    )
     args = parser.parse_args()
     os.environ.setdefault("NEXGEN_PARK_DATA_ROOT", str(REPO / "data"))
 
@@ -396,7 +430,16 @@ def main() -> int:
         report["shifts"] = shifts
         report["fitted"] = factors(model, shifts, current)
     else:
-        shifts = zero
+        shifts = report["shifts"] = zero
+        report["fitted"] = geometric
+    # How far each park's by-side factor lands from its target (the targets
+    # scaled to average 100 over the 30, as the fit reads them):
+    # ENGINE_GATES[7]["park_mc"].
+    errors = fit_errors(report["fitted"], targets, current)
+    report["fit_errors"] = errors
+    report["park_hr_fit_max_abs_error"] = max(
+        (abs(v) for row in errors.values() for v in row.values()), default=None
+    )
     if args.hit_types:
         report["hit_types"] = hit_type_factors(
             balls, tuning, fit_ids, shifts, args.hit_types, current
@@ -431,6 +474,11 @@ def main() -> int:
         }
         args.write_profile.write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
         print(f"wrote {args.write_profile}")
+    worst = report["park_hr_fit_max_abs_error"]
+    target, band = harness.ENGINE_GATES[7]["park_mc"]["park_hr_fit_max_abs_error"]
+    print(f"park_hr_fit_max_abs_error {worst:.2f} (gate {target:g} +/- {band:g})")
+    if args.strict and (worst is None or abs(worst - target) > band):
+        return 1
     return 0
 
 

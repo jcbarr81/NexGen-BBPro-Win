@@ -73,6 +73,22 @@ TARGETS: tuple[tuple[float, float, float], ...] = (
     (66.33, 50.0, 48.0),
     (66.33, 60.0, 57.0),
 )
+# Release 6b (``--whole``): every anchor of the table, not only the top, for
+# a batted-ball model on which the whole curve moved (drag carry). Average
+# Contact; HR per 650 PA. Decision 4: Power 30 and 40 inside 4-10 HR per
+# 600 PA (7.0 and 9.2 per 650 = 6.5 and 8.5 per 600); decision 16 at the
+# top (as TARGETS); the middle log-linear between Power 40 and 60, so the
+# curve has no flat spot and no kink.
+_LOW, _HIGH = (40.0, 9.2), (60.0, 35.0)
+_RATE = math.log(_HIGH[1] / _LOW[1]) / (_HIGH[0] - _LOW[0])
+WHOLE_TARGETS: tuple[tuple[float, float, float], ...] = (
+    (30.0, 50.0, 7.0),
+    (40.0, 50.0, 9.2),
+    *(
+        (power, 50.0, round(_LOW[1] * math.exp(_RATE * (power - _LOW[0])), 2))
+        for power in (45.0, 50.0, 52.0, 55.0, 57.0)
+    ),
+) + TARGETS
 SEASON_PA = 650.0
 # mph a point past the last anchor a stored rating can reach.
 TAIL_SLOPE = 0.15
@@ -225,6 +241,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seeds", default="101,202,303")
     parser.add_argument("--step", type=float, default=1.5, help="mph either side")
     parser.add_argument("--procs", type=int, default=4)
+    parser.add_argument(
+        "--whole", action="store_true",
+        help="Re-fit every anchor (WHOLE_TARGETS), not only the top.",
+    )
     args = parser.parse_args(argv)
     base = args.base_dir if args.base_dir.is_absolute() else BASE_DIR / args.base_dir
     run = resolve_run_overrides(
@@ -233,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
     overrides = with_rating_centers(run, base / "players.csv", base)
     result = fit(
         base_dir=base, overrides=overrides, pa=args.pa,
+        targets=WHOLE_TARGETS if args.whole else TARGETS,
         seeds=tuple(int(seed) for seed in args.seeds.split(",")),
         step=args.step, procs=args.procs,
     )

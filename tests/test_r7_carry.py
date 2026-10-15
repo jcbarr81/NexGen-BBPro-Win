@@ -177,8 +177,10 @@ def test_the_targets_file_and_the_fences_file_name_the_fitted_parks():
 
 
 def test_the_two_temporary_parks_resolve():
+    # Through generation 7's own file only (tests/test_r7_park_data.py).
     for name, pid in (("Sutter Health Park", "SAC01"), ("George M. Steinbrenner Field", "TAM02")):
         found = park_utils.park_fence_for_name(name)
         assert found is not None and found[0] == pid
-    rows = list(csv.DictReader(open(park_utils._parks_master_path(), newline="", encoding="utf-8")))
-    assert {"SAC01", "TAM02"} <= {r["PARKID"] for r in rows}
+    with open(park_utils._parks_master_path(), newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert not {"SAC01", "TAM02"} & {r["PARKID"] for r in rows}

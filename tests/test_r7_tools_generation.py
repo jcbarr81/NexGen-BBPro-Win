@@ -138,10 +138,68 @@ def test_the_command_line_takes_engine_7(monkeypatch, capsys):
     assert "--engine" in capsys.readouterr().err
 
 
-def test_generation_7_starts_with_generation_6s_gates():
+R7_NEW_GATES = {
+    "statcast_gb_pct": (0.427, 0.02),
+    "statcast_ld_pct": (0.238, 0.02),
+    "statcast_fb_pct": (0.265, 0.02),
+    "statcast_pu_pct": (0.071, 0.015),
+    "hr_per_fb_pu": (0.132, 0.02),
+    "hr_distance_mean_ft": (395.0, 10.0),
+    "hr_450plus_share": (0.01, 0.01),
+    "foul_outs_per_team_game": (0.80, 0.15),
+    "tagup_score_rate": (0.75, 0.06),
+    "r_pull_rating_pull_angle_rhb": (0.70, 0.20),
+    "r_pull_rating_pull_angle_lhb": (0.70, 0.20),
+}
+R7_DROPPED = (
+    "bip_gb_pct", "bip_ld_pct", "bip_fb_pct", "hr_per_fb_pct",
+    "gb_play_share_3b", "gb_play_share_ss", "gb_play_share_p",
+    "gb_play_share_2b", "gb_play_share_1b",
+)
+
+
+def test_generation_7_is_gated_as_generation_6_with_the_ball_flight_gates():
     seven, six = kpis.ENGINE_GATES[7], kpis.ENGINE_GATES[6]
-    for part in ("benchmarks", "drop", "pooled"):
-        assert seven[part] == six[part], part
+    # Generation 6's gates that the new model makes obsolete are gone ...
+    for key in R7_DROPPED:
+        assert key in seven["drop"], key
+        assert key not in seven["tolerances"], key
+        assert key not in seven["extras_targets"], key
+    # ... every other one is kept as it is (the pull correlation restated).
+    for key, band in six["tolerances"].items():
+        if key in R7_DROPPED or key in R7_NEW_GATES:
+            continue
+        assert seven["tolerances"][key] == band, key
+    for key, target in six["extras_targets"].items():
+        if key in R7_DROPPED or key in R7_NEW_GATES:
+            continue
+        assert seven["extras_targets"][key] == target, key
+    assert seven["grid_tolerances"] == six["grid_tolerances"]
+    # The new model's gates.
+    for key, (target, band) in R7_NEW_GATES.items():
+        assert seven["extras_targets"][key] == target, key
+        assert seven["tolerances"][key] == band, key
+    assert seven["benchmarks"]["hard_hit_pct"] == 0.389
+    assert seven["benchmarks"]["barrel_pct"] == 0.078
+    assert {"hard_hit_pct", "barrel_pct"} <= set(seven["tolerances"])
+    # Pooled over seeds: generation 6's, the pitcher ground-ball spread and
+    # decision 19's slopes.
+    assert seven["pooled"] == {
+        **six["pooled"],
+        "pitcher_gb_pct_true_sd": (0.075, 0.025),
+        "pitcher_gf_gb_per10": (6.0, 2.0),
+        "pitcher_gf_hr_pct_per10": (-12.0, 6.0),
+    }
+    assert seven["park_mc"] == {"park_hr_fit_max_abs_error": (0.0, 2.0)}
+    # Every promoted gate is a metric the harness computes for a
+    # ball-flight run.
+    from scripts import kpi_extras
+
+    computed = set(kpi_extras.R6_METRIC_KEYS) | set(kpi_extras.R7_METRIC_KEYS)
+    for key in R7_NEW_GATES:
+        if key == "tagup_score_rate":  # the Release 4 running rows
+            continue
+        assert key in computed, key
     # Separate objects: moving 7's gates cannot move 6's.
     saved_6 = copy.deepcopy(six)
     saved_7 = copy.deepcopy(seven)
@@ -151,7 +209,10 @@ def test_generation_7_starts_with_generation_6s_gates():
         assert kpis.ENGINE_GATES[6] == saved_6
     finally:
         kpis.ENGINE_GATES[7] = saved_7
-    assert kpis.engine_gates_for(7)["benchmarks"] == kpis.engine_gates_for(6)["benchmarks"]
+    assert kpis.engine_gates_for(7)["benchmarks"] == {
+        **kpis.engine_gates_for(6)["benchmarks"],
+        "hard_hit_pct": 0.389, "barrel_pct": 0.078,
+    }
 
 
 # --- no league is handed generation 7 ---------------------------------------------
