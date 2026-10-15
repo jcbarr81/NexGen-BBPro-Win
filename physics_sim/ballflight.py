@@ -600,7 +600,7 @@ def play(ball: BallInPlay, tuning: Any, *, batter_speed: float = 50.0) -> BallIn
         t_run = t("bb6_run_time", 4.35) - speed_points * t("bb6_run_speed", 0.02)
         react = t("bb6_if_react", 0.25)
         charge = t("bb6_charge_speed", 17.0)
-        best_out, best_pos, reach_any = -1.0, "SS", 0.0
+        best_out, best_pos, reach_any, best_beaten = -1.0, "SS", 0.0, 0.0
         for pos, (depth, angle) in INFIELD_SPOTS.items():
             off = math.radians(ball.spray - angle)
             if abs(off) > 1.3:
@@ -629,12 +629,17 @@ def play(ball: BallInPlay, tuning: Any, *, batter_speed: float = 50.0) -> BallIn
             p_out = p_reach * p_throw
             if p_out > best_out:
                 best_out, best_pos = p_out, pos
+                best_beaten = p_reach * (1.0 - p_throw)
         ball.out0 = max(0.0, best_out)
         ball.fielder = best_pos
         ball.out_type = "groundout"
         ball.infield_play = True
-        # An infield hit: somebody gets to it, but nobody gets the runner.
-        ball.infield_hit = max(0.0, reach_any - ball.out0)
+        # An infield hit: the fielder who makes the play reaches it and loses
+        # the race, plus bb6_infield_hit_other_share of the rest of the
+        # chance that somebody reaches it without getting the runner (1.0:
+        # all of it). Only how the runners move depends on it.
+        others = max(0.0, reach_any - ball.out0 - best_beaten)
+        ball.infield_hit = best_beaten + t("bb6_infield_hit_other_share", 1.0) * others
         return ball
     p_liner, liner_pos = 0.0, ""
     if ball.launch_angle < 24.0:

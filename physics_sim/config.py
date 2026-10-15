@@ -1648,6 +1648,11 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # A ball that hits a wall at least this tall (ft) in the air is a double
     # at most (it caroms back; generation 7: 20 ft, the Monster's kind).
     "bb6_tall_wall_ft": 1e9,
+    # Of a ground ball's chance that some infielder reaches it without
+    # getting the runner, beyond the one who makes the play, the share that
+    # is an infield single (runners move one base) rather than a ball
+    # through to the outfield (ballflight.play).
+    "bb6_infield_hit_other_share": 1.0,
     "bb6_hit_prob_min": 0.002,
     "bb6_hit_prob_max": 0.998,
     # foul_out_model 1: a foul ball is caught for an out with chance

@@ -9,22 +9,24 @@ folder of the data root, the bucket root `gs://nexgen-bbpro-data/parks/`
 `utils.park_utils._park_data_roots`).
 
 **Do this before any league plays generation 7.** Until then nothing here
-is needed: legacy and generations 5 and 6 read the same `ParkConfig.csv`,
-`ParkFactors.csv` and `Parks.csv` they read today, and the two new files are
-read by generation 7 only. A generation 7 game whose park folder has no
-`ParkFences.csv` refuses to start (`physics_sim.ballflight.ParkFencesMissing`)
-rather than play the old rows.
+is needed. A generation 7 game whose park folder has no `ParkFences.csv`
+refuses to start (`physics_sim.ballflight.ParkFencesMissing`) rather than
+play the ParkConfig rows an earlier engine reads.
 
 ## Files
 
-| File | What changes | Read by |
+| File | Change | Read by |
 |---|---|---|
-| `ParkFences.csv` | new | generation 7 only (the five-point fences and walls) |
+| `ParkFences.csv` | new | generation 7 only: the five-point fences and walls of the 30 home parks of 2026, the Athletics' and Rays' former and temporary homes and the one-off venues. Sutter Health Park (`SAC01`) and George M. Steinbrenner Field (`TAM02`) are named here and nowhere else |
 | `ParkHRTargets.csv` | new | `scripts/fit_park_hr_factors.py` only (no game reads it) |
-| `ParkConfig.csv` | two rows appended (`SAC01` Sutter Health Park, `TAM02` George M. Steinbrenner Field) | every generation (new names only) |
-| `Parks.csv` | the same two parks appended (altitude, city) | every generation (new ids only) |
+| `ParkConfig.csv`, `Parks.csv`, `ParkFactors.csv` | **none** | every generation, exactly as today |
 
-`ParkFactors.csv` is unchanged and stays as it is.
+Only the two new files are uploaded. `ParkConfig.csv` and `Parks.csv` are
+not touched: an earlier version of this step appended the two temporary
+parks to them, and the review of f6b7b0d2b found that the park lookup's
+substring fallback then sent names such as "Steinbrenner" or "Health Park"
+to the new rows on every engine. Generation 7 finds the two parks by exact
+name in `ParkFences.csv` instead.
 
 ## Steps
 
@@ -34,47 +36,41 @@ rather than play the old rows.
 
        gsutil -m cp -r gs://nexgen-bbpro-data/parks gs://nexgen-bbpro-data/backups/parks-$(date +%Y%m%d-%H%M)
 
-3. Check that the bucket's `ParkConfig.csv` and `Parks.csv` are the files
-   the repository had before this step (only then may the new files replace
-   them whole):
+3. Upload the two new files from the release's `data/parks/`:
 
-       gsutil cp gs://nexgen-bbpro-data/parks/ParkConfig.csv /tmp/ParkConfig.bucket.csv
-       gsutil cp gs://nexgen-bbpro-data/parks/Parks.csv /tmp/Parks.bucket.csv
-       git show 55fbb0c2c:data/parks/ParkConfig.csv | diff -q --strip-trailing-cr - /tmp/ParkConfig.bucket.csv
-       git show 55fbb0c2c:data/parks/Parks.csv | diff -q --strip-trailing-cr - /tmp/Parks.bucket.csv
+       gsutil cp data/parks/ParkFences.csv data/parks/ParkHRTargets.csv gs://nexgen-bbpro-data/parks/
 
-   If either differs, do not replace it: append only the two new lines (the
-   last two lines of the repository's file) to the bucket's copy and upload
-   that instead.
-4. Upload the four files from the release's `data/parks/`:
-
-       gsutil cp data/parks/ParkFences.csv data/parks/ParkHRTargets.csv \
-           data/parks/ParkConfig.csv data/parks/Parks.csv gs://nexgen-bbpro-data/parks/
-
-5. If any league has its own park folder, it is read before the bucket
-   root; give it the same four files (or delete it so the root's are read):
+4. If any league has its own park folder, it is read before the bucket
+   root; give it the same two files (or delete the folder so the root's are
+   read):
 
        gsutil ls "gs://nexgen-bbpro-data/**/parks/ParkConfig.csv"
 
+5. Check that nothing else changed in the bucket's park folder:
+
+       gsutil ls -l gs://nexgen-bbpro-data/parks/
+
+   lists `ParkConfig.csv`, `ParkFactors.csv` and `Parks.csv` with the sizes
+   and dates of the backup in step 2, and the two new files.
 6. Verify on one league (or a scratch copy) with the harness or a game on
    generation 7: no `ParkFencesMissing`, and a real park reads its fence
    from the new file, e.g.
 
        python -c "from utils.park_utils import park_fence_for_name; print(park_fence_for_name('Comerica Park'))"
 
-   prints `DET05` with a 412 ft centre field (the old row says 420).
+   prints `DET05` with a 412 ft centre field (ParkConfig's row says 420).
 7. Resume the scheduler.
 
 ## What it does to earlier generations
 
-Nothing: `tests/test_r7_park_data.py` reads every park name of the old
-`ParkConfig.csv` through the uploaded set and through the old files and
-gets the same stadium, park factor, altitude and foul territory, and plays a
-generation 6 game in both to the same digest. The two appended parks are
-new names; a club picks them only by choosing them.
+Nothing. `tests/test_r7_park_data.py` reads every park name and every park
+id of `ParkConfig.csv` with and without the two new files beside it and gets
+the same stadium, park factor, altitude, foul territory and park; the two
+temporary parks are found by no earlier lookup; and a legacy, generation 5
+and generation 6 game plays to the same digest either way.
 
 ## Rollback
 
-Restore the backup of step 2 (`gsutil -m cp -r` back over
-`gs://nexgen-bbpro-data/parks`). Earlier generations do not notice either
-way; a generation 7 game refuses to start until `ParkFences.csv` is back.
+Delete the two new files (or restore the backup of step 2). Earlier
+generations do not notice either way; a generation 7 game refuses to start
+until `ParkFences.csv` is back.
