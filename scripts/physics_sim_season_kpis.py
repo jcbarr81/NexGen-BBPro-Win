@@ -491,6 +491,16 @@ def _generation_6_gates() -> dict[str, Any]:
 ENGINE_GATES[6] = _generation_6_gates()
 
 
+def _generation_7_gates() -> dict[str, Any]:
+    """Release 6b (the ball-flight step, a development generation): it
+    starts as generation 6's gates, a separate copy so a generation 7 gate
+    can move without moving generation 6's."""
+    return copy.deepcopy(ENGINE_GATES[6])
+
+
+ENGINE_GATES[7] = _generation_7_gates()
+
+
 def engine_gates_for(engine: int | None, *, grid: bool = False) -> dict[str, Any]:
     """The strict-gate changes for engine generation ``engine`` (see
     ENGINE_GATES); empty for the legacy engine. ``grid`` adds the gates that
@@ -2374,9 +2384,11 @@ def main() -> None:
             "goes on top, the order a league's games use. Default: the "
             "legacy engine (DEFAULT_TUNING as it is), so every existing run "
             "and gate is unchanged. --engine 5 alone equals "
-            "--tuning-overrides scripts/kpi_profiles/r5.json. 6 is the "
-            "generation under development (no league plays it); it equals "
-            "scripts/kpi_profiles/r6.json."
+            "--tuning-overrides scripts/kpi_profiles/r5.json. 6 equals "
+            "scripts/kpi_profiles/r6.json (a league plays it only with the "
+            "8.0.0 switch on). 7 is the ball-flight generation under "
+            "development (no league plays it); it equals "
+            "scripts/kpi_profiles/r7.json."
         ),
     )
     parser.add_argument(

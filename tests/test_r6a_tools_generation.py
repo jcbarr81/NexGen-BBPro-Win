@@ -67,8 +67,9 @@ def _text(path: Path) -> bytes:
 def test_generation_6_has_a_profile_in_the_package():
     assert generations.engine_profile_path(6) == REGISTRY_6
     assert REGISTRY_6.exists()
-    assert generations.DEVELOPMENT_ENGINE_GENERATIONS == (6,)
-    assert generations.harness_engine_generations() == (4, 5, 6)
+    # Release 6b added generation 7 (tests/test_r7_tools_generation.py).
+    assert generations.DEVELOPMENT_ENGINE_GENERATIONS == (6, 7)
+    assert generations.harness_engine_generations() == (4, 5, 6, 7)
     payload = json.loads(REGISTRY_6.read_text(encoding="utf-8"))
     assert isinstance(payload, dict) and payload
     # TuningConfig.from_overrides drops an unregistered key without a word.
@@ -162,7 +163,7 @@ def test_the_command_line_takes_engine_6(monkeypatch, capsys):
     assert captured["overrides"] == generations.engine_profile(6, development=True)
     assert captured["overrides"] != generations.engine_profile(5)
     # A generation nobody is building is still refused.
-    monkeypatch.setattr(kpis.sys, "argv", ["kpis", "--engine", "7"])
+    monkeypatch.setattr(kpis.sys, "argv", ["kpis", "--engine", "8"])
     with pytest.raises(SystemExit):
         kpis.main()
     assert "--engine" in capsys.readouterr().err
@@ -288,8 +289,8 @@ def test_the_league_side_does_not_know_generation_6():
         generations.engine_profile(6)
     with pytest.raises(ValueError, match="unknown engine generation 6"):
         generations.engine_defaults(6)
-    with pytest.raises(ValueError, match="unknown engine generation 7"):
-        generations.engine_profile(7, development=True)
+    with pytest.raises(ValueError, match="unknown engine generation 8"):
+        generations.engine_profile(8, development=True)
 
 
 def test_a_new_season_still_starts_on_generation_5(league, monkeypatch):

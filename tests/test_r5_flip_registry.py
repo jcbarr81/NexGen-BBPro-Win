@@ -244,7 +244,7 @@ def test_tuning_overrides_stay_on_top_of_the_engine_profile(tmp_path):
 
 
 def test_the_command_line_takes_engine(monkeypatch, capsys):
-    monkeypatch.setattr(kpis.sys, "argv", ["kpis", "--engine", "7"])
+    monkeypatch.setattr(kpis.sys, "argv", ["kpis", "--engine", "8"])
     with pytest.raises(SystemExit):
         kpis.main()
     assert "--engine" in capsys.readouterr().err

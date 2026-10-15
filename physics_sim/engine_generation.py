@@ -43,6 +43,13 @@ what a new season gets when it does not move (the switch off, a league
 that cannot be converted, or ``NEXGEN_NEW_SEASON_ENGINE=5``). Off, nothing
 here differs from 7.51: generation 6 is the harness's alone.
 
+Release 6b (the ball-flight step) is generation 7, a development generation
+the way generation 6 was before 8.0.0: its profile
+(``physics_sim/profiles/engine_7.json``, harness copy
+``scripts/kpi_profiles/r7.json``, tests/test_r7_tools_generation.py) is run
+with ``--engine 7`` and no league season is ever given it, switch or no
+switch.
+
 This module imports nothing but the tuning defaults and the switch, so the
 engine, the services and the scripts can all read it.
 """
@@ -79,9 +86,11 @@ LEGACY_ENGINE_GENERATION = 4
 # The generation a season that has not started yet is given.
 CURRENT_ENGINE_GENERATION = 5
 # Generations being built (module docstring): the KPI harness runs them, no
-# league season is given one. Release 6a: generation 6, whose profile starts
-# as generation 5's values exactly.
-DEVELOPMENT_ENGINE_GENERATIONS: Tuple[int, ...] = (6,)
+# league season is given one. Release 6a: generation 6, whose profile started
+# as generation 5's values exactly (with the 8.0.0 switch on it is also a
+# generation a season may be given). Release 6b: generation 7, the ball-flight
+# step, whose profile started as generation 6's values exactly.
+DEVELOPMENT_ENGINE_GENERATIONS: Tuple[int, ...] = (6, 7)
 # The generation that comes with rating scale 2 (module docstring): a league
 # is given it only together with the conversion of its players, and only
 # while the 8.0.0 switch is on.
