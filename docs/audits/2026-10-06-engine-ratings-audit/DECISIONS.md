@@ -509,3 +509,19 @@ today's internal numbers through one accessor, so the economy does not shift.
     scheduler is paused across the revision swap, and the rollback runbook is
     ready. A combined heads-up post goes to both leagues' news before their
     rollover, its text shown to the owner first.
+
+## Ball-flight step (6b) owner decisions (2026-10-15)
+
+18. **Real ballparks are fitted one by one to MLB.** Each real park's
+    home-run factor is tuned to published multi-year MLB park factors rather
+    than to its geometry at a global strength. The figures must be sourced
+    (none are in the repo) and shown to the owner before the engine uses
+    them. Context: only alpha-test's San Diego club (Petco Park) plays in a
+    real park today; the other 39 live clubs play in the generic park, which
+    becomes the average of the 30 real parks (330 / 386 / 403 / 386 / 330 ft,
+    10 ft walls; today's alleys are about 21 ft short) whatever the choice.
+19. **Ground-ball pitchers suppress home runs modestly, MLB-like.** Per 10
+    points of pitcher ground-ball rating: about 6 more ground balls per 100
+    balls in play and about 12% fewer home runs allowed (the pitching
+    brief's k .20 with the shift acting at about 30% on fly balls), re-sized
+    on the new batted-ball model.
