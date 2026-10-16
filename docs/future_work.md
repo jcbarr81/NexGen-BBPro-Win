@@ -2541,3 +2541,32 @@ These are 7.51 behaviours it ran into, not 8.0.0 changes:
   leaguers) does not hold for long. Note it if the rule is revisited.
 - **8.0.0 tutorial filter (still open, above):** steps are filtered by
   rating scale, not engine generation.
+
+## Contract re-negotiation with your own players (owner request, 2026-10-16)
+
+Today a rejected extension offer locks the player out for a fixed 30 sim days
+(`services/contract_negotiator.py`, `REJECTION_COOLDOWN_DAYS = 30`, rule 4 of
+`check_extension_eligibility`), so an owner gets one try a month. The owner
+wants a negotiation instead:
+
+- **The player's own club can keep making offers** (counter after counter)
+  until the player either accepts or definitively rejects. No fixed 30-day
+  wait between offers.
+- **Some players refuse to sign during the season at all** and go to free
+  agency when the deal ends (a per-player, per-season decision, presumably
+  more likely for players near free agency, players who expect a big market,
+  or players unhappy with the club; to be designed).
+- **Repeated tries can frustrate a player:** after several offers he may
+  shut down talks for a period between 1 week and 30 days (length and the
+  chance of it depending on how many offers, how far below his asking price
+  they were, his personality / mood if the app models one). He tells the
+  owner, and the club can try again when the period ends.
+- Design questions for when this is built: how "definitively rejects" is
+  decided and shown (a clear final no that ends talks for the season vs. the
+  frustration shutdown); whether each counter-offer shows the owner how close
+  he is (today's evaluation preview); how CPU clubs negotiate under the same
+  rules; how the rules interact with the existing ones (phase gating during
+  the draft and playoffs, the walk-year lockout, the years-remaining cap,
+  pre-arb renewals, the FA bidding window); news / notifications when a
+  player refuses to negotiate or heads to free agency; tests and the
+  tutorial / help text for contracts.
