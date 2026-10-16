@@ -36,6 +36,7 @@ from utils.roster_loader import (
     load_roster,
     save_roster,
 )
+from utils.roster_ownership import club_owned_players, owning_club
 from utils.roster_rules import AAA_CAP, LOW_CAP, ORG_LIMIT, counts_as_pitcher
 from utils.team_loader import load_teams
 
@@ -100,7 +101,11 @@ def list_unsigned_players_from_files(
     """Load league data from disk and return unsigned players.
 
     Excludes retired players so the free-agency UI never offers a
-    signing for someone who's already left the league.
+    signing for someone who's already left the league, and every player a
+    club owns (``utils.roster_ownership``): any level of any club's roster
+    file -- the injured lists included -- or a contract with a club. Only
+    ACT / AAA / LOW used to count, so a player on a club's injured list was
+    offered (and signed) as a free agent.
     """
 
     resolved_data_dir = get_data_dir() if data_dir is None else Path(data_dir)
@@ -130,7 +135,110 @@ def list_unsigned_players_from_files(
     except Exception:
         pass
 
+    owned = club_owned_players(resolved_data_dir)
+    if owned:
+        players_by_id = {
+            pid: p for pid, p in players_by_id.items() if pid not in owned
+        }
+
     return list_unsigned_players(players_by_id, teams)
+
+
+def club_owning_player(
+    player_id: str, *, data_dir: Path | str | None = None
+) -> tuple[str, str] | None:
+    """``(team_id, LEVEL)`` of the club that owns ``player_id``, else None.
+
+    The check every signing path makes before it puts a player on a club:
+    a player on any level of another club's roster (injured lists included)
+    or under contract with a club is not a free agent.
+    """
+
+    base = get_data_dir() if data_dir is None else Path(data_dir)
+    return owning_club(player_id, base)
+
+
+def restore_contracted_player(
+    team_id: str,
+    player_id: str,
+    *,
+    data_dir: Path | str | None = None,
+    level: str | None = None,
+    players_by_id: Dict[str, object] | None = None,
+    details: str = "Returned to the roster under his contract",
+) -> str | None:
+    """Put a player under contract with ``team_id`` but on no roster file
+    back on ``team_id``'s roster, keeping his contract. Returns the level.
+
+    ``level`` (ACT / AAA / LOW) is the owner's choice; None places him like a
+    CPU signing (:func:`cpu_signing_level`: the active roster while it has
+    room, else AAA, else Low-A for a young player), so None comes back when
+    the organisation is full. A player rostered anywhere, or under contract
+    with another club, is never moved.
+    """
+
+    tid = str(team_id or "").strip()
+    pid = str(player_id or "").strip()
+    base = get_data_dir() if data_dir is None else Path(data_dir)
+    if not tid or not pid or owning_club(pid, base) != (tid, "CONTRACT"):
+        return None
+    roster_dir = base / "rosters"
+    roster = _read_team_roster(base, tid)
+    if roster is None:
+        return None
+    if level is None:
+        lookup = players_by_id
+        if lookup is None:
+            try:
+                lookup = {
+                    str(getattr(p, "player_id", "") or ""): p
+                    for p in load_players_from_csv(base / "players.csv")
+                }
+            except Exception:
+                lookup = {}
+        target = cpu_signing_level(roster, lookup.get(pid), lookup)
+    else:
+        target = str(level).upper() if str(level).upper() in _FA_LEVEL_ATTR else None
+    if target is None:
+        return None
+    getattr(roster, _FA_LEVEL_ATTR[target]).append(pid)
+    try:
+        save_roster(tid, roster, roster_dir=roster_dir)
+    except Exception:
+        return None
+    try:
+        record_transaction(
+            action="assign",
+            team_id=tid,
+            player_id=pid,
+            from_level="CONTRACT",
+            to_level=target,
+            details=details,
+            path=base / "transactions.csv",
+        )
+    except Exception:
+        pass
+    return target
+
+
+def not_a_free_agent_message(player_id: str, owner: tuple[str, str]) -> str:
+    """The owner-facing reason a signing or offer is refused."""
+
+    team_id, level = owner
+    where = {
+        "ACT": "active roster",
+        "AAA": "AAA roster",
+        "LOW": "Low-A roster",
+        "DL": "injured list",
+        "DL15": "injured list",
+        "DL45": "60-day injured list",
+        "IR": "60-day injured list",
+        "CONTRACT": "payroll (under contract)",
+    }.get(str(level).upper(), f"{level} roster")
+    return (
+        f"{player_id} is not a free agent: he is on {team_id}'s {where}. "
+        "A player can belong to only one club."
+    )
 
 
 def run_cpu_free_agency_round(
@@ -628,6 +736,9 @@ def _add_player_to_team_roster(
 
     if cpu_only and not _cpu_team_for_signing(team_id, data_dir):
         return None
+    if owning_club(player_id, data_dir) is not None:
+        # Rostered (any level) or under contract somewhere: not signable.
+        return None
     roster_dir = data_dir / "rosters"
     roster_path = roster_dir / f"{team_id}.csv"
     roster_path.parent.mkdir(parents=True, exist_ok=True)
@@ -695,6 +806,10 @@ def finalize_fa_signing(
     for a in ("act", "aaa", "low", "dl", "ir"):
         if pid in getattr(roster, a, []):
             return False
+    if club_owning_player(pid, data_dir=data_dir) is not None:
+        # Another club owns him (any level, the injured lists included):
+        # the negotiation must not take him from it.
+        return False
     if cpu_placement is None:
         cpu_placement = _cpu_team_for_signing(tid, data_dir)
     if cpu_placement:

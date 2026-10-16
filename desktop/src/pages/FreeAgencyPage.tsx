@@ -658,6 +658,8 @@ function YourNegotiationsCard({ teamId }: { teamId: string | null }) {
                 : `Outbid — ${r?.signed_team} signed ${n.player_name ?? n.player_id}`
               : r?.outcome === "no_deal"
               ? `${n.player_name ?? n.player_id} took no deal`
+              : r?.outcome === "not_a_free_agent"
+              ? `${n.player_name ?? n.player_id} is not a free agent (on ${r?.team_id ?? "another club"}'s roster)`
               : `Offer to ${n.player_name ?? n.player_id} withdrawn`;
           return (
             <div

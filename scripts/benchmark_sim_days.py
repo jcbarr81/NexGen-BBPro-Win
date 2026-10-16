@@ -125,6 +125,12 @@ def main() -> int:
         "pitcher_recovery": _canonical_json_digest(sandbox / "pitcher_recovery.json"),
         # Release 3 (M18): the persisted physics rest state.
         "physics_usage": _canonical_json_digest(sandbox / "physics_usage.json"),
+        # 8.1.1: the box scores too (a substitute's position used to depend
+        # on which games the process had played before). The simulator hands
+        # each game's HTML back on its schedule row; the API writes the file.
+        "boxscores": hashlib.sha256(
+            "\x00".join(str(g.get("boxscore_html", "")) for g in schedule).encode("utf-8")
+        ).hexdigest()[:16],
     }
 
     result = {
@@ -136,6 +142,8 @@ def main() -> int:
         "seconds_per_game": round(total / len(schedule), 3),
         "first_day_seconds": round(day_times[0], 2),
         "last_day_seconds": round(day_times[-1], 2),
+        # Days the parallel workers played (0 = every day serial).
+        "parallel_days": getattr(sim, "parallel_days", 0),
         "digests": digests,
     }
     if args.json:

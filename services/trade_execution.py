@@ -7,12 +7,18 @@ keeps a thin wrapper that re-raises them as ``HTTPException(400)``.
 """
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 from models.trade import Trade
-from services.draft_pick_ledger import format_pick_label, transfer_pick
+from services.draft_pick_ledger import (
+    format_pick_label,
+    get_pick_owner,
+    parse_pick_id,
+    transfer_pick,
+)
 from services.transaction_log import record_transaction
-from utils.roster_loader import claim_players, load_roster, save_roster
+from utils.roster_loader import check_rosters, claim_players, load_roster, save_rosters
 
 __all__ = ["commit_trade", "announce_trade"]
 
@@ -62,6 +68,17 @@ def _move(pid: str, source, dest) -> str:
     return (left or "act").upper()
 
 
+def _check_pick_owner(pick_id: str, owner: str) -> None:
+    """ValueError unless ``owner`` holds ``pick_id`` now (moves nothing)."""
+
+    year, round_no, original_team = parse_pick_id(pick_id)
+    current = str(get_pick_owner(year, round_no, original_team) or original_team)
+    if current != str(owner or "").strip():
+        raise ValueError(
+            f"{format_pick_label(pick_id)} is owned by {current}, not {owner}."
+        )
+
+
 def commit_trade(trade: Trade, *, data_dir=None) -> None:
     """Apply a trade's roster + pick swap and log the transactions.
 
@@ -72,16 +89,13 @@ def commit_trade(trade: Trade, *, data_dir=None) -> None:
 
     roster_dir = _roster_dir(data_dir)
 
-    # Transfer draft picks first (raises ValueError on bad ownership). The
-    # rosters below are the roster cache's own objects: editing them before a
-    # failure here would leave a half-applied trade for the next save to write.
-    for pick_id in trade.give_pick_ids or []:
-        transfer_pick(pick_id, trade.from_team, trade.to_team)
-    for pick_id in trade.receive_pick_ids or []:
-        transfer_pick(pick_id, trade.to_team, trade.from_team)
-
-    from_roster = load_roster(trade.from_team, roster_dir=roster_dir)
-    to_roster = load_roster(trade.to_team, roster_dir=roster_dir)
+    # All or nothing (8.1.1): build both clubs' rosters after the trade on
+    # COPIES (load_roster hands out the cache's own objects), check them --
+    # no player may end up on a second club -- and check every pick's owner,
+    # all before anything moves. A refused trade used to keep its picks
+    # moved: they were transferred before the rosters were checked.
+    from_roster = copy.deepcopy(load_roster(trade.from_team, roster_dir=roster_dir))
+    to_roster = copy.deepcopy(load_roster(trade.to_team, roster_dir=roster_dir))
 
     came_from: dict[str, str] = {}
     for pid in trade.give_player_ids:
@@ -89,8 +103,32 @@ def commit_trade(trade: Trade, *, data_dir=None) -> None:
     for pid in trade.receive_player_ids:
         came_from[pid] = _move(pid, to_roster, from_roster)
 
-    save_roster(trade.from_team, from_roster, roster_dir=roster_dir)
-    save_roster(trade.to_team, to_roster, roster_dir=roster_dir)
+    pairs = [(trade.from_team, from_roster), (trade.to_team, to_roster)]
+    check_rosters(pairs, roster_dir=roster_dir)  # DoubleRosterError (ValueError)
+    pick_moves = [
+        (pick_id, trade.from_team, trade.to_team) for pick_id in trade.give_pick_ids or []
+    ] + [
+        (pick_id, trade.to_team, trade.from_team) for pick_id in trade.receive_pick_ids or []
+    ]
+    for pick_id, owner, _ in pick_moves:
+        _check_pick_owner(pick_id, owner)
+
+    moved: list[tuple[str, str, str]] = []
+    try:
+        for pick_id, owner, receiver in pick_moves:
+            transfer_pick(pick_id, owner, receiver)
+            moved.append((pick_id, owner, receiver))
+        # One checked write for both clubs: each one's new player is still on
+        # the other's file until the pair lands (a lone save would be refused
+        # as a second club for him).
+        save_rosters(pairs, roster_dir=roster_dir)
+    except Exception:
+        for pick_id, owner, receiver in reversed(moved):
+            try:
+                transfer_pick(pick_id, receiver, owner)
+            except Exception:  # pragma: no cover - best effort
+                pass
+        raise
     claim_players(trade.to_team, trade.give_player_ids)
     claim_players(trade.from_team, trade.receive_player_ids)
 

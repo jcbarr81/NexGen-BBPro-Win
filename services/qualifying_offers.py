@@ -245,19 +245,46 @@ def process_qualifying_offers(
     }
 
 
-def _resign_on_qo(player_id: str, team_id: str, *, data_dir: Path) -> None:
+def _resign_on_qo(player_id: str, team_id: str, *, data_dir: Path) -> bool:
+    """Re-sign an accepted QO: the one-year contract AND a roster spot.
+
+    The rollover takes an expiring player off his roster before the QOs
+    resolve, so restoring only the contract left him on no roster: owned by
+    the club (nobody else may sign him) yet on none of its lists. He goes
+    back where a CPU signing would (active roster while it has room, else
+    AAA, else Low-A for a young player; none once the organisation is
+    full, when the club places him itself). False -- nothing written -- when
+    another club has signed him in the meantime.
+    """
+
+    from utils.roster_ownership import owning_club
+
+    pid, tid = str(player_id), str(team_id)
+    owner = owning_club(pid, data_dir)
+    if owner is not None and owner[0] != tid:
+        return False
     try:
         from services.contracts_service import upsert_contract
 
         upsert_contract(
-            str(player_id),
-            team_id=team_id,
+            pid,
+            team_id=tid,
             annual_salary=QO_VALUE,
             years_left=1,
             data_dir=data_dir,
         )
     except Exception:
+        return False
+    try:
+        from services.free_agency import restore_contracted_player
+
+        restore_contracted_player(
+            tid, pid, data_dir=data_dir,
+            details="Accepted the qualifying offer (one year)",
+        )
+    except Exception:
         pass
+    return True
 
 
 def list_team_qualifying_offers(
@@ -309,8 +336,9 @@ def resolve_qualifying_offer(
     salary = _safe_int(rec.get("salary", 0))
     accepts = salary <= QO_VALUE
     rec["decision"] = "accepted" if accepts else "declined"
-    if accepts:
-        _resign_on_qo(str(player_id), str(team_id), data_dir=resolved)
+    if accepts and not _resign_on_qo(str(player_id), str(team_id), data_dir=resolved):
+        # Another club signed him while the tender was pending.
+        rec["decision"] = "signed_elsewhere"
     _save_qo_state(y, state, data_dir=resolved)
     return {"applied": True, "decision": rec["decision"]}
 

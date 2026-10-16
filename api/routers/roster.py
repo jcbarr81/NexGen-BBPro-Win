@@ -572,6 +572,9 @@ def cut_roster(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="player_id is required.",
         )
+    import copy
+
+    before = copy.deepcopy(load_roster(team_id))
     try:
         cut_player(team_id, player_id)
     except ValueError as exc:
@@ -585,11 +588,24 @@ def cut_roster(
     # Tear down the contract too. Without this the cut player remains
     # in contracts.json forever, distorting payroll calculations and
     # leaving stale entries when the player is eventually re-signed.
+    # All or nothing (8.1.1): off the roster but under contract, he would
+    # still be the club's (utils.roster_ownership) on none of its lists, so
+    # a failed release puts him back and reports it.
     try:
         from services.contracts_service import release_contracts_to_free_agency
 
         release_contracts_to_free_agency([player_id])
-    except Exception:
-        pass
+    except Exception as exc:
+        try:
+            save_roster(team_id, before)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                f"Could not release {player_id}'s contract ({exc}); the cut was "
+                "undone and he is still on the roster."
+            ),
+        ) from exc
 
     return team_roster(team_id)

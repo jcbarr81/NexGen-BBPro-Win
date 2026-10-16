@@ -1074,8 +1074,10 @@ export interface FaOffer {
 }
 
 export interface FaNegotiationResolution {
-  outcome: "signed" | "no_deal" | "withdrawn";
+  outcome: "signed" | "no_deal" | "withdrawn" | "not_a_free_agent";
   signed_team?: string;
+  /** not_a_free_agent: the club that owns the player. */
+  team_id?: string;
   years?: number;
   annual_salary?: number;
   signing_bonus?: number;
