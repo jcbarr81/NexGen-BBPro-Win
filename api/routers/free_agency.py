@@ -35,12 +35,17 @@ from services.contracts_service import (
     estimate_salary_for_player,
     sign_free_agent_contract,
 )
-from services.free_agency import list_unsigned_players_from_files
+from services.free_agency import (
+    club_owning_player,
+    list_unsigned_players_from_files,
+    not_a_free_agent_message,
+)
 from services.payroll_policy import evaluate_free_agent_signing
 from services.transaction_log import record_transaction
 from utils.pitcher_role import get_role
 from utils.player_loader import load_players_from_csv
 from utils.roster_loader import load_roster, save_roster
+from utils.roster_ownership import DoubleRosterError
 
 from ..security import CurrentIdentity, require_bearer, require_team_owner
 from ._rating_presentation import (
@@ -54,6 +59,28 @@ from ._rating_presentation import (
 router = APIRouter(tags=["free-agency"], dependencies=[CurrentIdentity])
 
 _LEVEL_ATTR = {"ACT": "act", "AAA": "aaa", "LOW": "low"}
+
+
+def _refuse_if_owned(player_id: str) -> None:
+    """409 when a club owns ``player_id`` (any roster level or a contract).
+
+    The free-agent list leaves these players out; this stops a request that
+    names one directly (an old page, a script) from signing or bidding on a
+    player another club holds -- an injured one included.
+    """
+
+    owner = club_owning_player(player_id)
+    if owner is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "not_a_free_agent",
+                "message": not_a_free_agent_message(player_id, owner),
+                "player_id": player_id,
+                "team_id": owner[0],
+                "level": owner[1],
+            },
+        )
 
 # rating-scale: display keys; the summary shows the stored ratings
 _SUMMARY_RATING_KEYS = (
@@ -264,6 +291,7 @@ def evaluate_fa_offer(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Player {pid} not found.",
         )
+    _refuse_if_owned(pid)
 
     try:
         offered_years = max(1, int(payload.get("years", 1) or 1))
@@ -450,6 +478,9 @@ def sign_free_agent(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"{player_id} is already on {team_id}'s {attr.upper()} roster.",
             )
+    # ... nor on another club's (any level, the injured lists included).
+    # Admin force does not bypass this: it would put him on two clubs.
+    _refuse_if_owned(player_id)
 
     # Resolve the player record once so payroll evaluation + contract
     # creation share the same source.
@@ -540,10 +571,9 @@ def sign_free_agent(
         # bookkeeping bug; the contract still gets created below.
         payroll_warning = None
 
-    # We don't re-validate "free agent" here because the roster_loader's
-    # placeholder pool re-assigns IDs at signing time; trust the caller and
-    # let save_roster + the placeholder reconciler resolve conflicts the
-    # same way trades do.
+    # The free-agent check is above (_refuse_if_owned); save_roster refuses
+    # a second club for him too, should another request have signed him in
+    # between.
     roster_warnings, roster_caps = _signing_roster_warnings(
         roster, player_id, level_raw
     )
@@ -552,6 +582,11 @@ def sign_free_agent(
 
     try:
         save_roster(team_id, roster)
+    except DoubleRosterError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "not_a_free_agent", "message": str(exc)},
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -665,6 +700,7 @@ def submit_fa_offer(
     phase_block = _phase_gate_for_fa()
     if phase_block:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=phase_block)
+    _refuse_if_owned(pid)
 
     player = _find_player(pid)
     try:

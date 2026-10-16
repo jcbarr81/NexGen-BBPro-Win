@@ -635,22 +635,68 @@ def claim_players(team_id: str, player_ids) -> None:
         _get_placeholder_pool().claim(str(team_id), list(player_ids))
 
 
-def save_roster(team_id, roster: Roster, roster_dir: str | Path = "data/rosters"):
-    raw_dir = Path(str(roster_dir))
+def _resolved_roster_dir(raw_dir: Path) -> Path:
     resolved_dir = raw_dir
     if not resolved_dir.is_absolute():
         resolved_dir = resolve_app_path(resolved_dir)
-    resolved_dir = resolved_dir.resolve(strict=False)
-    filepath = resolved_dir / f"{team_id}.csv"
-    try:
-        if filepath.exists():
-            filepath.chmod(0o644)
-    except Exception:
-        pass
-    write_roster_csv(roster, filepath)
+    return resolved_dir.resolve(strict=False)
 
+
+def _write_checked_rosters(
+    rosters: list[tuple[str, Roster]], roster_dir: str | Path
+) -> None:
+    """Write ``rosters`` after checking no player lands on two clubs.
+
+    The check (``utils.roster_ownership.check_roster_writes``) sees every
+    roster of the call as written, so a trade's two clubs pass together. On
+    a refusal nothing is written and the cached copies of these clubs are
+    dropped: callers edit the cache's own objects before saving.
+    """
+
+    from utils.roster_ownership import check_roster_writes, roster_player_ids
+
+    raw_dir = Path(str(roster_dir))
+    resolved_dir = _resolved_roster_dir(raw_dir)
     service = get_unified_data_service()
-    service.update_roster(str(team_id), raw_dir, roster)
+    try:
+        check_roster_writes(
+            {str(tid): roster_player_ids(r) for tid, r in rosters}, resolved_dir
+        )
+    except Exception:
+        for tid, _ in rosters:
+            service.invalidate_roster(team_id=str(tid), roster_dir=raw_dir)
+        raise
+    for tid, roster in rosters:
+        filepath = resolved_dir / f"{tid}.csv"
+        try:
+            if filepath.exists():
+                filepath.chmod(0o644)
+        except Exception:
+            pass
+        write_roster_csv(roster, filepath)
+        service.update_roster(str(tid), raw_dir, roster)
+
+
+def save_roster(team_id, roster: Roster, roster_dir: str | Path = "data/rosters"):
+    """Write ``team_id``'s roster file.
+
+    Raises ``utils.roster_ownership.DoubleRosterError`` (a ``ValueError``),
+    writing nothing, when the roster adds a player who is on another club's
+    roster: one player belongs to one club.
+    """
+
+    _write_checked_rosters([(team_id, roster)], roster_dir)
+
+
+def save_rosters(rosters, roster_dir: str | Path = "data/rosters") -> None:
+    """Write several clubs' rosters as one change (a trade's two clubs).
+
+    ``rosters`` is a mapping or ``(team_id, roster)`` pairs. Checked together
+    (see :func:`save_roster`), then written in order.
+    """
+
+    pairs = list(rosters.items()) if hasattr(rosters, "items") else list(rosters)
+    _write_checked_rosters([(str(tid), r) for tid, r in pairs], roster_dir)
 
 
 def _cache_clear_rosters(team_id: str | None = None, roster_dir: str | Path | None = None) -> None:

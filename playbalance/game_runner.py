@@ -678,7 +678,19 @@ def _player_for_boxscore(
 def _hydrate_physics_boxscore(
     box: dict[str, object],
     players_lookup: Mapping[str, object],
+    lineup_positions: Mapping[str, Mapping[str, str]] | None = None,
 ) -> dict[str, object]:
+    """Attach player objects and derived rates to the engine's box score.
+
+    ``lineup_positions`` (``{"home": {pid: pos}, "away": ...}``, the game's
+    starting lineups) fixes each batter's box-score position: a starter's
+    lineup position, anyone else's primary position. The position on the
+    shared player object is whatever the last lineup this process applied
+    set it to, so a substitute's label used to depend on which games the
+    process had run before -- a parallel-day worker and the serial path
+    printed different positions for the same game.
+    """
+
     from playbalance.stats import (
         compute_batting_derived,
         compute_batting_rates,
@@ -708,11 +720,18 @@ def _hydrate_physics_boxscore(
             else []
         )
 
+        side_positions = (lineup_positions or {}).get(side) or {}
         for entry in batting:
             if not isinstance(entry, dict):
                 continue
             pid = str(entry.get("player_id") or "")
             entry["player"] = _player_for_boxscore(pid, players_lookup)
+            if lineup_positions is not None:
+                entry["pos"] = str(
+                    side_positions.get(pid)
+                    or getattr(entry["player"], "primary_position", "")
+                    or ""
+                )
             state = SimpleNamespace(
                 b1=_int(entry.get("1b", entry.get("b1", 0))),
                 b2=_int(entry.get("2b", entry.get("b2", 0))),
@@ -1402,7 +1421,11 @@ def _run_physics_game(
         if isinstance(payload.get("boxscore"), dict)
         else {}
     )
-    box = _hydrate_physics_boxscore(boxscore, players_lookup)
+    box = _hydrate_physics_boxscore(
+        boxscore,
+        players_lookup,
+        lineup_positions={"home": home_positions, "away": away_positions},
+    )
     # The fielding line of each side (who made each error, and the kind of
     # the newer error types): presentation only, from the engine's records.
     from playbalance.simulation import boxscore_errors

@@ -12,7 +12,7 @@ from pathlib import Path
 from models.trade import Trade
 from services.draft_pick_ledger import format_pick_label, transfer_pick
 from services.transaction_log import record_transaction
-from utils.roster_loader import claim_players, load_roster, save_roster
+from utils.roster_loader import claim_players, load_roster, save_rosters
 
 __all__ = ["commit_trade", "announce_trade"]
 
@@ -89,8 +89,13 @@ def commit_trade(trade: Trade, *, data_dir=None) -> None:
     for pid in trade.receive_player_ids:
         came_from[pid] = _move(pid, to_roster, from_roster)
 
-    save_roster(trade.from_team, from_roster, roster_dir=roster_dir)
-    save_roster(trade.to_team, to_roster, roster_dir=roster_dir)
+    # One checked write for both clubs: each one's new player is still on the
+    # other's file until the pair lands (a lone save would be refused as a
+    # second club for him).
+    save_rosters(
+        [(trade.from_team, from_roster), (trade.to_team, to_roster)],
+        roster_dir=roster_dir,
+    )
     claim_players(trade.to_team, trade.give_player_ids)
     claim_players(trade.from_team, trade.receive_player_ids)
 

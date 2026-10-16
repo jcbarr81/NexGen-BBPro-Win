@@ -137,6 +137,15 @@ def ensure_active_rosters(
             and not getattr(player, "injured", False)
         )
 
+    # A player under contract with a club is that club's even off its
+    # roster file (utils.roster_ownership); never a free agent here.
+    try:
+        from utils.path_utils import get_data_dir
+        from utils.roster_ownership import contract_teams
+
+        rostered.update(contract_teams(data_dir if data_dir is not None else get_data_dir()))
+    except Exception:  # pragma: no cover - defensive
+        pass
     free_agents = [
         pid
         for pid in players.keys()

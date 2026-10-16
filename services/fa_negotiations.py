@@ -501,9 +501,33 @@ def process_negotiations(
         "no_deal": [],
     }
     changed = False
+    # A player some club owns (any roster level, the injured lists included,
+    # or under contract) is not a free agent: his negotiation closes without
+    # a deal. Older builds listed injured players as free agents, so a
+    # window could be open on one.
+    owned: Dict[str, Any] = {}
+    if any(isinstance(n, dict) and n.get("status") == "open" for n in negs.values()):
+        try:
+            from utils.roster_ownership import club_owned_players
+
+            owned = club_owned_players(get_data_dir() if data_dir is None else Path(data_dir))
+        except Exception:
+            owned = {}
 
     for pid, neg in list(negs.items()):
         if not isinstance(neg, dict) or neg.get("status") != "open":
+            continue
+        if pid in owned:
+            team_id, level = owned[pid]
+            neg["status"] = "resolved"
+            neg["resolution"] = {
+                "outcome": "not_a_free_agent",
+                "team_id": team_id,
+                "level": level,
+                "date": str(sim_date),
+            }
+            summary.setdefault("not_a_free_agent", []).append(pid)
+            changed = True
             continue
         summary["processed"] += 1
         player = (players_by_id or {}).get(pid)

@@ -262,6 +262,22 @@ class SeasonSimulator:
 
         workers = parallel_day.resolve_worker_count(len(games))
         parallel = workers >= 2 and self._parallel_eligible()
+        if parallel:
+            shared = self._players_in_two_games(games)
+            if shared:
+                # A worker starts every game from the day's opening state and
+                # its journal carries the player's cumulative season line, so
+                # a player in two of the day's games (on two clubs' active
+                # rosters, or a club playing twice) kept only one game's
+                # line -- and his rest state too. Serial play is exact.
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "%s: playing the day serially; %s in two of its games",
+                    current_date,
+                    ", ".join(shared[:10]) + (" ..." if len(shared) > 10 else ""),
+                )
+                parallel = False
 
         with (
             batched_stats_writes(),
@@ -363,6 +379,37 @@ class SeasonSimulator:
             return _resolve_game_engine(None) == "physics"
         except Exception:
             return False
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _players_in_two_games(games: List[Dict[str, str]]) -> List[str]:
+        """Who would take part in two of ``games``: sorted labels, [] if none.
+
+        A club playing twice in the day, or a player on the active roster of
+        two of the day's clubs (a state older builds could write; see
+        ``scripts/find_double_rostered_players.py``). Unreadable rosters
+        count as shared, so the day plays serially.
+        """
+
+        from utils.roster_loader import load_roster
+
+        data_dir = get_data_dir()
+        roster_dir = str(data_dir / "rosters")
+        teams: List[str] = []
+        for game in games:
+            teams.extend([str(game.get("home")), str(game.get("away"))])
+        shared: set[str] = {f"club {t}" for t in teams if teams.count(t) > 1}
+        seen: Dict[str, str] = {}
+        for team in dict.fromkeys(teams):
+            try:
+                act = list(load_roster(team, roster_dir).act)
+            except Exception:
+                return [f"club {team} (roster unreadable)"]
+            for pid in act:
+                other = seen.setdefault(str(pid), team)
+                if other != team:
+                    shared.add(str(pid))
+        return sorted(shared)
 
     # ------------------------------------------------------------------
     def _simulate_day_parallel(

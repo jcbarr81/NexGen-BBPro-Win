@@ -4188,7 +4188,9 @@ def render_boxscore_html(
             if var == "batter":
                 mapping = {
                     "name": name,
-                    "pos": getattr(p, "position", ""),
+                    # The game's own position when the box carries one
+                    # (physics games), else the player object's.
+                    "pos": entry.get("pos") or getattr(p, "position", ""),
                     "AB": entry.get("ab", 0),
                     "R": entry.get("r", 0),
                     "H": entry.get("h", 0),
