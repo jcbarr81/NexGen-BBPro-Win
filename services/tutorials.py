@@ -59,6 +59,15 @@ class Tutorial:
     route: str | None = None
 
 
+# The part of "Home field, late innings and intentional walks" every league
+# reads the same (its home-field sentence differs by rating scale).
+_LATE_INNINGS_HTML = (
+    "<p><b>Late innings.</b> A reliever is a little tougher for his first four batters: about 0.2 runs per nine innings better than a starter with the same ratings, fading to nothing by his seventh batter. The pitcher who starts the game never gets it. Pitchers no longer pitch around hitters just because first base is open with nobody in scoring position, or because the game is late and close; both habits were adding walks. On the two test leagues hitters do a little worse late in close games, by about as much as MLB hitters do; in a league whose relievers are not rated above its starters the difference is close to nothing.</p>"
+    "<p><b>Second time through the order.</b> Hitters gain about 9 to 12 points of wOBA the second time they face a starter (MLB about 10; it was about 2).</p>"
+    "<p><b>Intentional walks.</b> Managers now issue them: about 12 to 15 per team per season, around MLB's rate. They come with first base open and a runner in scoring position, mostly late in close games, and only when the hitter is clearly better than the man on deck. Lineup protection matters: a strong bat behind your best hitter means he gets pitched to.</p>"
+    "<p><b>Parks.</b> A park's foul territory no longer changes strikeouts and walks. It returns in a later release as caught foul pop-ups.</p>"
+)
+
 TUTORIALS: List[Tutorial] = [
     Tutorial(
         tutorial_id="overview",
@@ -717,7 +726,7 @@ TUTORIALS: List[Tutorial] = [
                 "<ul>"
                 "<li>Managers issue intentional walks, about 12 to 15 per team per season (MLB's rate; there were none).</li>"
                 "<li>Hit batters fell from 1.4% to about 0.9% of plate appearances.</li>"
-                "<li>Home teams win about 53% of games (they won about 49%).</li>"
+                "<li>Home teams win about 53 to 55% of games (they won about 49%).</li>"
                 "</ul>"
                 "<p>The updated game engine reads ratings against your league; the next step explains what that means.</p>",
                 rating_scale=2,
@@ -806,10 +815,17 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Home field, late innings and intentional walks",
                 "<p><b>Home field.</b> Home teams win about 53% of the time, the same for every club and park, in the playoffs too. The All-Star game is not affected. The earlier engine had no home edge.</p>"
-                "<p><b>Late innings.</b> A reliever is a little tougher for his first four batters: about 0.2 runs per nine innings better than a starter with the same ratings, fading to nothing by his seventh batter. The pitcher who starts the game never gets it. Pitchers no longer pitch around hitters just because first base is open with nobody in scoring position, or because the game is late and close; both habits were adding walks. On the two test leagues hitters do a little worse late in close games, by about as much as MLB hitters do; in a league whose relievers are not rated above its starters the difference is close to nothing.</p>"
-                "<p><b>Second time through the order.</b> Hitters gain about 9 to 12 points of wOBA the second time they face a starter (MLB about 10; it was about 2).</p>"
-                "<p><b>Intentional walks.</b> Managers now issue them: about 12 to 15 per team per season, around MLB's rate. They come with first base open and a runner in scoring position, mostly late in close games, and only when the hitter is clearly better than the man on deck. Lineup protection matters: a strong bat behind your best hitter means he gets pitched to.</p>"
-                "<p><b>Parks.</b> A park's foul territory no longer changes strikeouts and walks. It returns in a later release as caught foul pop-ups.</p>",
+                + _LATE_INNINGS_HTML,
+                rating_scale=1,
+            ),
+            TutorialStep(
+                # Round 5: measured on the full scale's engines, home teams
+                # win a little more (generation 6: 55.3% over three seasons
+                # of the live leagues' copies; .53-.56 on the test leagues).
+                "Home field, late innings and intentional walks",
+                "<p><b>Home field.</b> Home teams win about 53 to 55% of the time (55% over three seasons on copies of the live leagues), the same for every club and park, in the playoffs too. The All-Star game is not affected. The earlier engine had no home edge.</p>"
+                + _LATE_INNINGS_HTML,
+                rating_scale=2,
             ),
             TutorialStep(
                 "Changes every league sees right away",

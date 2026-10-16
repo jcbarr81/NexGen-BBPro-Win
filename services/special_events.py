@@ -400,13 +400,52 @@ def record_game_special_events(
 
     if events:
         record_special_events(events)
-        for event in events:
+        for message, team_id in _news_items(events):
             try:
-                message = _format_event_message(event)
-                team_id = event.get("team_id")
                 log_news_event(message, category="special_event", team_id=team_id)
             except Exception:
                 pass
+
+
+def _news_items(events: List[Dict[str, Any]]) -> List[tuple]:
+    """(message, team id) per news item. Every pitcher of a combined
+    no-hitter or perfect game keeps his own special event (each is
+    credited), but the game is ONE news item naming them all; every other
+    event is an item of its own, as before."""
+
+    items: List[tuple] = []
+    combined: Dict[tuple, List[Dict[str, Any]]] = {}
+    for event in events:
+        kind = str(event.get("type") or "")
+        if kind.startswith("combined_"):
+            key = (kind, event.get("team_id"), event.get("opponent_id"))
+            if key not in combined:
+                combined[key] = []
+                items.append(key)
+            combined[key].append(event)
+        else:
+            items.append((_format_event_message(event), event.get("team_id")))
+    out: List[tuple] = []
+    for item in items:
+        group = combined.get(item) if len(item) == 3 else None
+        if group is None:
+            out.append(item)
+            continue
+        first = group[0]
+        names = ", ".join(
+            f"{str(e.get('player_name') or e.get('player_id') or '').strip()}"
+            f" ({_ip_of(e)} IP)"
+            for e in group
+        )
+        message = f"{first.get('label')} vs {first.get('opponent_id')}: {names}"
+        out.append((message, first.get("team_id")))
+    return out
+
+
+def _ip_of(event: Dict[str, Any]) -> str:
+    detail = str(event.get("detail") or "")
+    start = detail.find("(")
+    return detail[start + 1:].split(" IP", 1)[0] if start >= 0 else "?"
     return events
 
 
