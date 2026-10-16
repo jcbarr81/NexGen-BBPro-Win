@@ -507,6 +507,12 @@ def _fence_from_row(row: dict) -> tuple[tuple, tuple] | None:
 # Release 6b: the five-point fences generation 7 plays (owner decision 20),
 # a file of its own so nothing an earlier engine reads changes.
 PARK_FENCES_FILE = "ParkFences.csv"
+# Generation 7: a catalog name of a park listed in ParkFences.csv counts as
+# that park only if the park carried it in a configuration from this year
+# on (park_fence_for_name). Every current park's names since 2000 (U.S.
+# Cellular Field, Guarantee Rate Field, the Oakland Coliseum's sponsors)
+# keep it; Royals Stadium (1973-93) and UMAX Coliseum (1997) do not.
+GENERATION7_NAME_SINCE = 2000
 
 
 def _comment_free_lines(fh: Iterable[str]) -> Iterable[str]:
@@ -576,16 +582,28 @@ def _park_fence_by_exact_name(name: str) -> tuple[str, tuple, tuple] | None:
 def park_fence_for_name(name: str) -> tuple[str, tuple, tuple] | None:
     """``(park id, five distances, five wall heights)`` of the park ``name``
     names (Release 6b, engine generation 7 only): the ``ParkFences.csv`` row
-    of that exact name; else the park :func:`stadium_from_name`'s lookup
-    resolves it to, by its ``ParkFences.csv`` row or else its newest
+    of that exact name; else the catalog park of that EXACT name (no
+    substring fallback, unlike :func:`stadium_from_name`, which earlier
+    engines keep), by its ``ParkFences.csv`` row or else its newest
     ParkConfig row by the five-point rule (:func:`_fence_from_row`);
-    ``None`` (the generic park) when it resolves to none or the park has no
-    full set of line and centre distances."""
+    ``None`` (the generic park) when no park has that exact name, when it
+    is a name a ParkFences.csv park carried only before
+    :data:`GENERATION7_NAME_SINCE`, or when the park has no full set of
+    line and centre distances."""
     exact = _park_fence_by_exact_name(name)
     if exact is not None:
         return exact
-    info = _park_info_for_name(name)
+    # Generation 7 resolves a real park by its EXACT name only (no
+    # substring fallback): a real park is an explicit pick, a park id (whose
+    # catalog name comes here) or an exact real-park name (audit L13). A
+    # name a park generation 7 plays on its own fences carried only before
+    # GENERATION7_NAME_SINCE (Royals Stadium, Kauffman's 1973-93 name, or a
+    # club named the Royals' generated "Royals Stadium") names a
+    # configuration generation 7 does not have: the generic park.
+    info = park_info_for_exact_name(name)
     if info is None:
+        return None
+    if info.year < GENERATION7_NAME_SINCE and (info.park_id or "").upper() in park_fences():
         return None
     path = _park_config_path()
     if not path.exists():

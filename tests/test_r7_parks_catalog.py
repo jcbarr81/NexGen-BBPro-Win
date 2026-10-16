@@ -97,3 +97,46 @@ def test_a_picked_park_plays_its_fences_on_7_and_the_generic_park_earlier():
     assert park_utils.park_lookup_name("Comerica Park", "DET05") == "Comerica Park"
     assert park_utils.park_lookup_name("x", "") is None
     assert park_utils.park_lookup_name("x", "NOPE1") is None
+
+
+def test_on_generation_7_a_real_park_is_an_exact_current_name(tmp_path, monkeypatch):
+    """Round 5: alpha-test's FOR club is "Royals Stadium" (a generated name,
+    no park_id). Earlier engines play it as Kauffman's 1973-93 park through
+    the name lookup, unchanged; generation 7 plays the generic park."""
+    seven = load_tuning(engine_profile(7, development=True))
+    # Earlier engines: exactly as before.
+    assert park_utils.stadium_from_name("Royals Stadium") is not None
+    assert park_utils.park_lookup_name("Royals Stadium", None) == "Royals Stadium"
+    # Generation 7: no stale name, no substring.
+    assert park_utils.park_fence_for_name("Royals Stadium") is None
+    assert ballflight.park_fence(load_park("Royals Stadium"), seven) is ballflight.GENERIC_FENCE
+    assert park_utils.park_fence_for_name("Royals") is None
+    assert park_utils.park_fence_for_name("Kauffman Stadium")[0] == "KAN06"
+    # Names a current park has carried since 2000 still count (the
+    # calibration fixture's Guarantee Rate Field and Oakland Coliseum).
+    assert park_utils.park_fence_for_name("Guarantee Rate Field")[0] == "CHI12"
+    assert park_utils.park_fence_for_name("Oakland Coliseum")[0] == "OAK01"
+    # The news counts it as the generic park (alpha-test: 1 of 20).
+    from services.ballflight_news import league_parks_sentence
+
+    (tmp_path / "teams.csv").write_text(
+        "team_id,name,stadium\nFOR,Royals,Royals Stadium\nSAN1,Padres,Petco Park\n"
+        "BAL,Dolphins,Dolphins Stadium\n",
+        encoding="utf-8",
+    )
+    assert league_parks_sentence(tmp_path) == (
+        "1 of the league's 3 clubs plays in a real major-league park (Petco Park), "
+        "on its own fences; the other 2 play in the average major-league park."
+    )
+    # A generation 7 league's catalog and Team Settings do not offer it.
+    _generation(monkeypatch, True)
+    names = {p["name"] for p in parks_router.list_parks()["parks"]}
+    assert "Royals Stadium" not in names and "Kauffman Stadium" in names
+    assert "Royals Stadium" not in team_settings._ballpark_names()
+    team = SimpleNamespace(park_id="", stadium="Old Park")
+    assert team_settings._resolve_park_id(team, "Royals Stadium", {}) == ""
+    assert team_settings._resolve_park_id(team, "Kauffman Stadium", {}) == "KAN06"
+    # Below generation 7 nothing changed.
+    _generation(monkeypatch, False)
+    assert "Royals Stadium" in {p["name"] for p in parks_router.list_parks()["parks"]}
+    assert team_settings._resolve_park_id(team, "Royals Stadium", {}) == "KAN06"

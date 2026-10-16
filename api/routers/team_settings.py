@@ -49,12 +49,18 @@ try:  # ballpark catalog is best-effort -- absent in some test fixtures
         except Exception:
             return []
         if _ballflight_league():
-            # Release 6b: the parks only generation 7 plays, for its leagues.
+            # Release 6b: the parks only generation 7 plays, for its leagues,
+            # without the names generation 7 plays as the generic park.
             try:
                 extra = {row["name"] for row in generation7_only_parks().values()}
+                stale = {
+                    name for name in names
+                    if (info := park_info_for_exact_name(name)) is not None
+                    and _stale_on_generation7(info)
+                }
             except Exception:
-                extra = set()
-            names = sorted(set(names) | {name for name in extra if name})
+                extra, stale = set(), set()
+            names = sorted((set(names) - stale) | {name for name in extra if name})
         return names
 except Exception:  # pragma: no cover
 
@@ -94,9 +100,24 @@ def _park_by_id(park_id: str, prefer_name: str = ""):
 
 def _park_by_exact_name(name: str):
     info = park_info_for_exact_name(name)
-    if info is None and _ballflight_league():
-        info = generation7_park_info_for_exact_name(name)
+    if _ballflight_league():
+        if info is None:
+            info = generation7_park_info_for_exact_name(name)
+        elif _stale_on_generation7(info):
+            # Generation 7 plays a park's current fences: a name it carried
+            # only before GENERATION7_NAME_SINCE (Royals Stadium) is the
+            # generic park there, so typing it picks nothing.
+            info = None
     return info
+
+
+def _stale_on_generation7(info) -> bool:
+    from utils.park_utils import GENERATION7_NAME_SINCE, park_fences
+
+    return (
+        int(getattr(info, "year", 0) or 0) < GENERATION7_NAME_SINCE
+        and str(getattr(info, "park_id", "") or "").upper() in park_fences()
+    )
 
 router = APIRouter(
     prefix="/teams/{team_id}/settings",

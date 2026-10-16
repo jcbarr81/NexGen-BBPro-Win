@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
 
 from utils.park_utils import (
+    GENERATION7_NAME_SINCE,
     _load_latest_parks,
     _park_config_path,
     generation7_only_parks,
@@ -86,6 +87,15 @@ def _as_generation7_plays(items: List[Dict[str, Any]]) -> None:
     fences = generation7_parks()
     if not fences:
         return
+    # A name one of these parks carried only before GENERATION7_NAME_SINCE
+    # (Royals Stadium) plays the generic park on generation 7: not offered.
+    items[:] = [
+        item for item in items
+        if not (
+            str(item.get("park_id") or "").upper() in fences
+            and int(item.get("year") or 0) < GENERATION7_NAME_SINCE
+        )
+    ]
     for item in items:
         row = fences.get(str(item.get("park_id") or "").upper())
         if row is None:

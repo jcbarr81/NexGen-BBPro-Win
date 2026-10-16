@@ -93,10 +93,20 @@ def league_parks_sentence(base: Path | str) -> str:
             f"All {clubs} of the league's clubs play in real major-league "
             f"parks ({named}), each on its own fences."
         )
+    others = clubs - in_real
+    rest = (
+        f"the other {others} play in the average major-league park."
+        if others > 1
+        else "the other one plays in the average major-league park."
+    )
+    if in_real == 1:
+        return (
+            f"1 of the league's {clubs} clubs plays in a real major-league "
+            f"park ({named}), on its own fences; {rest}"
+        )
     return (
         f"{in_real} of the league's {clubs} clubs play in real major-league "
-        f"parks ({named}), each on its own fences; the other "
-        f"{clubs - in_real} play in the average major-league park."
+        f"parks ({named}), each on its own fences; {rest}"
     )
 
 
