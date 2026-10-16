@@ -45,17 +45,58 @@ try:  # ballpark catalog is best-effort -- absent in some test fixtures
 
     def _ballpark_names() -> List[str]:
         try:
-            return list(list_ballpark_names())
+            names = list(list_ballpark_names())
         except Exception:
             return []
+        if _ballflight_league():
+            # Release 6b: the parks only generation 7 plays, for its leagues.
+            try:
+                extra = {row["name"] for row in generation7_only_parks().values()}
+            except Exception:
+                extra = set()
+            names = sorted(set(names) | {name for name in extra if name})
+        return names
 except Exception:  # pragma: no cover
 
     def _ballpark_names() -> List[str]:
         return []
 
-from utils.park_utils import park_info_for_exact_name, park_info_for_id
+from utils.park_utils import (
+    generation7_only_parks,
+    generation7_park_info_for_exact_name,
+    generation7_park_info_for_id,
+    park_info_for_exact_name,
+    park_info_for_id,
+)
 
 from ..security import CurrentIdentity, require_bearer, require_team_owner
+
+
+def _ballflight_league() -> bool:
+    """True when the league's season is on engine generation 7 (read, never
+    fixed): its Team Settings also offer the parks only generation 7 knows
+    (Sutter Health Park, George M. Steinbrenner Field). Every other league's
+    payload and choices are exactly as before."""
+    try:
+        from services.league_rating_centers import get_league_engine_generation
+
+        return get_league_engine_generation(store=False) >= 7
+    except Exception:
+        return False
+
+
+def _park_by_id(park_id: str, prefer_name: str = ""):
+    info = park_info_for_id(park_id, prefer_name=prefer_name)
+    if info is None and _ballflight_league():
+        info = generation7_park_info_for_id(park_id)
+    return info
+
+
+def _park_by_exact_name(name: str):
+    info = park_info_for_exact_name(name)
+    if info is None and _ballflight_league():
+        info = generation7_park_info_for_exact_name(name)
+    return info
 
 router = APIRouter(
     prefix="/teams/{team_id}/settings",
@@ -79,7 +120,7 @@ def _park_summary(team: Team) -> Optional[Dict[str, Any]]:
     if not team.park_id:
         return None
     try:
-        info = park_info_for_id(team.park_id, prefer_name=team.stadium)
+        info = _park_by_id(team.park_id, prefer_name=team.stadium)
     except Exception:
         return None
     if info is None:
@@ -106,7 +147,7 @@ def _resolve_park_id(
         requested = str(payload.get("park_id") or "").strip()
         if not requested:
             return ""
-        info = park_info_for_id(requested, prefer_name=new_stadium)
+        info = _park_by_id(requested, prefer_name=new_stadium)
         if info is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -115,7 +156,7 @@ def _resolve_park_id(
         return info.park_id
     if new_stadium.strip() == (team.stadium or "").strip():
         return team.park_id
-    info = park_info_for_exact_name(new_stadium)
+    info = _park_by_exact_name(new_stadium)
     return info.park_id if info is not None and info.park_id else ""
 
 

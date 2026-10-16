@@ -325,12 +325,20 @@ def park_lookup_name(stadium: str, park_id: str | None) -> str | None:
       stadium happens to be called.
     * otherwise -- that catalog park's name, which resolves exactly. An ID no
       longer in the catalog falls back to the generic park.
+
+    Release 6b: an id only ``ParkFences.csv`` holds (a park only engine
+    generation 7 knows, which only a generation 7 league's Team Settings
+    offers) gives that park's name. Generation 7 plays it on its fences
+    (``physics_sim.ballflight``); an earlier engine finds it in no file it
+    reads and plays the generic park, as it would for no name.
     """
 
     if park_id is None:
         name = (stadium or "").strip()
         return name or None
     info = park_info_for_id(park_id, prefer_name=stadium or "")
+    if info is None:
+        info = generation7_park_info_for_id(park_id)
     return info.name if info is not None else None
 
 
@@ -593,6 +601,79 @@ def park_fence_for_name(name: str) -> tuple[str, tuple, tuple] | None:
     return pid, distances, heights
 
 
+@functools.lru_cache(maxsize=32)
+def _load_generation7_parks_cached(token: tuple[str, int, int]) -> Dict[str, dict]:
+    """``ParkFences.csv``: park id -> {name, year, distances, heights}."""
+    out: Dict[str, dict] = {}
+    path = Path(token[0])
+    if not path.exists():
+        return out
+    rows = _load_park_fence_rows_cached(token)
+    with path.open("r", newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(_comment_free_lines(fh)):
+            pid = (row.get("park_id") or "").strip().upper()
+            if pid not in rows:
+                continue
+            try:
+                year = int(row.get("year") or 0)
+            except ValueError:
+                year = 0
+            distances, heights, _generic, name = rows[pid]
+            out[pid] = {"name": name, "year": year, "distances": distances,
+                        "heights": heights}
+    return out
+
+
+def generation7_parks() -> Dict[str, dict]:
+    """Every park generation 7 plays on its own fences (``ParkFences.csv``):
+    park id -> ``{"name", "year", "distances", "heights"}``, the five-point
+    fence and walls as generation 7 reads them (before the fitted per-side
+    shifts). ``{}`` without the file. Read by generation 7 leagues' pages
+    only."""
+    path = _find_park_data_file(PARK_FENCES_FILE)
+    if not path.exists():
+        return {}
+    return _load_generation7_parks_cached(_file_token(path))
+
+
+def generation7_only_parks() -> Dict[str, dict]:
+    """The :func:`generation7_parks` with no ParkConfig.csv entry at all
+    (Sutter Health Park and George M. Steinbrenner Field): parks no earlier
+    engine knows."""
+    known = {
+        (info.park_id or "").strip().upper()
+        for info in _load_latest_parks().values()
+    }
+    return {pid: row for pid, row in generation7_parks().items() if pid not in known}
+
+
+def _generation7_info(pid: str, row: dict) -> ParkInfo:
+    distances = row["distances"]
+    return ParkInfo(
+        park_id=pid, name=row["name"], year=row["year"],
+        lf=distances[0], cf=distances[2], rf=distances[4], foul_territory=None,
+    )
+
+
+def generation7_park_info_for_id(park_id: str) -> ParkInfo | None:
+    """A park only generation 7 knows, by id (``None`` for any other id):
+    what a generation 7 league's Team Settings may pick beyond the catalog."""
+    pid = (park_id or "").strip().upper()
+    row = generation7_only_parks().get(pid) if pid else None
+    return _generation7_info(pid, row) if row is not None else None
+
+
+def generation7_park_info_for_exact_name(name: str) -> ParkInfo | None:
+    """A park only generation 7 knows, by its exact (normalized) name."""
+    if not name or not name.strip():
+        return None
+    target = _norm(name)
+    for pid, row in generation7_only_parks().items():
+        if _norm(row["name"]) == target:
+            return _generation7_info(pid, row)
+    return None
+
+
 def park_fence_rows(
     park_ids: Iterable[str], year: int
 ) -> dict[str, tuple[tuple, tuple]]:
@@ -621,6 +702,10 @@ __all__ = [
     "park_fence_for_name",
     "park_fences",
     "park_fence_rows",
+    "generation7_parks",
+    "generation7_only_parks",
+    "generation7_park_info_for_id",
+    "generation7_park_info_for_exact_name",
     "stadium_from_name",
     "park_factor_for_name",
     "park_altitude_for_name",
