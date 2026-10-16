@@ -525,3 +525,39 @@ today's internal numbers through one accessor, so the economy does not shift.
     balls in play and about 12% fewer home runs allowed (the pitching
     brief's k .20 with the shift acting at about 30% on fly balls), re-sized
     on the new batted-ball model.
+20. **The park figures** (taken after the park-factor research, 2026-10-15;
+    implements decision 18). Source: Baseball Savant Statcast park factors,
+    2024-2026 rolling three years, all batters (the repo's old
+    `ParkFactors.csv` was computed in-house by `scripts/generate_park_factors.py`
+    from home/road splits, not published figures; up to 27 points off).
+    Parks changed in the window use only their seasons since the change
+    (Kauffman 2026, pulled part-way toward 100; Camden Yards 2025-2026); the
+    Athletics' temporary Sutter Health Park uses its two seasons pulled
+    part-way toward 100; one-off venues are set to 100. Home-run factors are
+    fitted BY BATTER SIDE (Savant publishes LHB / RHB). Only home runs are
+    fitted; singles, doubles and triples come from each park's real shape
+    and are checked against Savant, with any large miss brought back to the
+    owner. `ParkConfig.csv` is updated for Camden Yards, Rogers Centre,
+    Comerica and Kauffman from MLB.com, and Sutter Health Park and
+    Steinbrenner Field are added (their wall heights assumed typical, noted).
+
+### Ball-flight round 2 (2026-10-16)
+
+21. **Thirty-homer hitters are measured as a share of qualified hitters**
+    (pooled over seasons), not a raw count, which depends on how many hitters
+    qualify. Generation 7 gives 12.8% on the calibration fixture (about 31 of
+    its unusually many qualifiers) and 11.9% on the league fixture; the Power
+    curve of decisions 4, 6 and 16 is kept.
+22. **Mean home-run distance of about 390 ft is accepted for now** (gate
+    395 +/- 10). 500-ft shots are gone and 450+ is about 0.5%. Reaching 400
+    needs a new lever (wider launch-angle spread on the hardest contact, or a
+    different wall-clearance model); revisit later.
+23. **The large per-side park fence shifts are accepted** (PNC +26.6 / -22.1
+    ft, Tropicana -26.7, Chase -22.6, Fenway's right +22.3): they stand in for
+    wind, roofs and the batter's eye, and let every park match its Savant
+    home-run factor by batter side.
+24. **Singles, doubles and triples by park stay unfitted** (they come from
+    each park's shape); the misses against Savant are recorded in
+    `RELEASE6_PLAN.md` section 9 (largest: Chase triples 118 vs 208,
+    Comerica 97 vs 150, Oracle 82 vs 141, Busch 128 vs 69, Coors singles 102
+    vs 115, Fenway doubles 108 vs 120).
