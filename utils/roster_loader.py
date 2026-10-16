@@ -688,6 +688,23 @@ def save_roster(team_id, roster: Roster, roster_dir: str | Path = "data/rosters"
     _write_checked_rosters([(team_id, roster)], roster_dir)
 
 
+def check_rosters(rosters, roster_dir: str | Path = "data/rosters") -> None:
+    """Run :func:`save_rosters`' check without writing anything.
+
+    Raises ``DoubleRosterError`` when the rosters would put a player on a
+    second club. For changes that must not start unless they can finish
+    (a trade checks before any draft pick moves).
+    """
+
+    from utils.roster_ownership import check_roster_writes, roster_player_ids
+
+    pairs = list(rosters.items()) if hasattr(rosters, "items") else list(rosters)
+    check_roster_writes(
+        {str(tid): roster_player_ids(r) for tid, r in pairs},
+        _resolved_roster_dir(Path(str(roster_dir))),
+    )
+
+
 def save_rosters(rosters, roster_dir: str | Path = "data/rosters") -> None:
     """Write several clubs' rosters as one change (a trade's two clubs).
 

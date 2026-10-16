@@ -889,6 +889,24 @@ def _protect_draft_picks(
     return released
 
 
+def _unrostered_contracted(
+    team_id: str, roster_dir: str, players: Dict[str, object]
+) -> List[str]:
+    """``team_id``'s players under contract but on no roster file (sorted)."""
+
+    try:
+        from utils.path_utils import resolve_app_path
+        from utils.roster_ownership import unrostered_contracts
+
+        directory = Path(str(roster_dir))
+        if not directory.is_absolute():
+            directory = resolve_app_path(directory)
+        found = unrostered_contracts(directory.parent, team_id=str(team_id))
+    except Exception:
+        return []
+    return sorted(pid for pid in found if pid in (players or {}))
+
+
 def auto_assign_team(
     team_id: str,
     *,
@@ -935,14 +953,21 @@ def auto_assign_team(
     # and a real run can't leave the cache holding uncommitted edits.
     roster = copy.deepcopy(load_roster(team_id, roster_dir))
 
+    # Players under contract with this club but on none of its lists (a
+    # qualifying offer accepted after the rollover took him off) are the
+    # club's: they join the pool and get placed like everyone else.
+    contracted = _unrostered_contracted(team_id, roster_dir, players)
+
     # Build the pool from current org players (ACT/AAA/LOW); keep DL/IR intact
-    pool_ids = roster.act + roster.aaa + roster.low
+    pool_ids = roster.act + roster.aaa + roster.low + contracted
     # Remember each pool player's pre-assign level for the transaction log
     # entries we generate below.
     pre_levels: Dict[str, str] = {}
     for level in ("act", "aaa", "low"):
         for pid in getattr(roster, level, []) or []:
             pre_levels.setdefault(pid, level.upper())
+    for pid in contracted:
+        pre_levels.setdefault(pid, "CONTRACT")
     if mode == "gaps":
         # "Fill gaps only" — preserve the owner's placements, fix only what's
         # illegal. Never releases anyone; over-cap surplus is reported as overflow.
@@ -1100,8 +1125,15 @@ def auto_assign_team(
             from services.contracts_service import release_contracts_to_free_agency
 
             release_contracts_to_free_agency(released)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Off the roster but still under contract: the club still owns
+            # them (utils.roster_ownership), so they are not free agents.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "%s: released %s from the roster but their contracts could not "
+                "be released (%s)", team_id, released, exc,
+            )
 
     # Report exactly which players changed level, so the UI can show the owner
     # what auto-assign did rather than just the resulting counts. A player is

@@ -5,9 +5,30 @@
 
 ``<league data dir>`` is the folder holding ``rosters/``, ``contracts.json``,
 ``players.csv``, ``transactions.csv`` and ``users.txt`` (for a hosted league,
-``<root>/leagues/<league>/data``). Nothing is written: every file is opened
-for reading only, and no repair is made. Repairing a live league is the
-owner's decision.
+``<root>/leagues/<league>/data``). Nothing is written to it: every file is
+opened for reading only. Repairing a live league is the owner's decision.
+
+Do NOT repair a double by cutting the player. A cut releases his contract
+through ``release_contracts_to_free_agency``, which takes him off EVERY
+club's roster file (``contracts_service._release_players_from_rosters``)
+and deletes his contract: the club that should keep him loses him too.
+
+Optional repair, into a separate folder (never in place):
+
+    python scripts/find_double_rostered_players.py <league data dir> \\
+        --repair P2739=BAL --repair P4720=COL \\
+        [--contracts-from <older contracts.json>] --output <folder>
+
+For each ``PLAYER=CLUB`` it takes the player off every other club's roster
+and pitching-staff file, and -- when ``--contracts-from`` (a copy of
+``contracts.json`` from before the void signing) holds his contract with
+CLUB -- puts that contract back. Only the files it changes are written, under
+``<folder>`` at the same relative paths (``rosters/BAL.csv``,
+``contracts.json``), with ``REPAIR.txt`` saying what changed. Check them,
+then upload them over the league's files with the league idle (scheduler
+paused). Saved lineups and depth charts that still name him on the other
+club are left alone: the game rebuilds a lineup that names a player who is
+not on the active roster.
 
 For each player on two (or more) clubs' roster files it prints his clubs and
 levels, his contract, his injury, his transactions, and a proposed
@@ -308,6 +329,11 @@ def _print(report: Dict[str, Any]) -> None:
     doubles = report["double_rostered"]
     print(f"League files: {report['data_dir']}")
     print(f"Players on more than one club: {len(doubles)}")
+    if doubles:
+        print(
+            "Do NOT repair by cutting him: a cut releases his contract and takes him "
+            "off EVERY club's roster. Use --repair PLAYER=CLUB --output <folder>."
+        )
     for item in doubles:
         clubs = ", ".join(
             f"{c['team_id']} {c['level']}" + (" (owner)" if c["owner_club"] else "")
@@ -360,14 +386,155 @@ def _print(report: Dict[str, Any]) -> None:
                   f"roster {', '.join(d['roster_clubs'])} (last tx: {d['last_transaction'] or '-'})")
 
 
+def repair(
+    data: Path,
+    keep: Dict[str, str],
+    output: Path,
+    *,
+    contracts_from: Optional[Path] = None,
+) -> List[str]:
+    """Write a repaired copy of the changed files into ``output``.
+
+    ``keep`` maps player id -> the club that keeps him. Reads ``data`` only;
+    writes only under ``output`` (which must not be inside ``data``).
+    Returns the lines of ``REPAIR.txt``. Raises ValueError on a request that
+    does not match the files (the player is not on two clubs, or not on the
+    club named).
+    """
+
+    data = data.resolve()
+    output = output.resolve()
+    if output == data or data in output.parents or output in data.parents:
+        raise ValueError("--output must be a separate folder, outside the league's files")
+    rosters = _rosters(data)
+    places: Dict[str, List[Tuple[str, str]]] = {}
+    for team, rows in rosters.items():
+        for pid, level in rows:
+            places.setdefault(pid, []).append((team, level))
+    for pid, club in keep.items():
+        clubs = {team for team, _ in places.get(pid, [])}
+        if len(clubs) < 2:
+            raise ValueError(f"{pid} is not on two clubs' rosters ({sorted(clubs) or 'none'})")
+        if club not in clubs:
+            raise ValueError(f"{pid} is not on {club}'s roster (clubs: {sorted(clubs)})")
+
+    report: List[str] = [f"Repair of {data} (files changed are in this folder)"]
+    changed: Dict[Path, str] = {}
+    roster_dir = data / "rosters"
+
+    def _without(path: Path, pids: set) -> Optional[str]:
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines(keepends=True)
+        kept = [ln for ln in lines if ln.split(",")[0].strip() not in pids]
+        return "".join(kept) if len(kept) != len(lines) else None
+
+    for path in sorted(roster_dir.glob("*.csv")):
+        if path.name.startswith("_"):
+            continue
+        team = path.stem[: -len("_pitching")] if path.stem.endswith("_pitching") else path.stem
+        drop = {pid for pid, club in keep.items() if club != team}
+        new = _without(path, drop) if drop else None
+        if new is not None:
+            changed[path] = new
+            if not path.stem.endswith("_pitching"):
+                before = _counts(rosters.get(team, []))
+                after = _counts([r for r in rosters.get(team, []) if r[0] not in drop])
+                gone = sorted(pid for pid, _ in rosters.get(team, []) if pid in drop)
+                report.append(
+                    f"rosters/{path.name}: removed {', '.join(gone)}; ACT {before['ACT']}->{after['ACT']}, "
+                    f"organisation {before['org']}->{after['org']}"
+                )
+            else:
+                report.append(f"rosters/{path.name}: removed from the pitching staff")
+
+    contracts_path = data / "contracts.json"
+    try:
+        payload = json.loads(contracts_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        payload = {"version": 1, "players": {}}
+    current = payload.setdefault("players", {})
+    older: Dict[str, Any] = {}
+    if contracts_from is not None:
+        try:
+            older_payload = json.loads(Path(contracts_from).read_text(encoding="utf-8"))
+            older = older_payload.get("players", {}) if isinstance(older_payload, dict) else {}
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"cannot read --contracts-from {contracts_from}: {exc}")
+    contracts_changed = False
+    for pid, club in keep.items():
+        now = current.get(pid) or {}
+        if str(now.get("team_id", "")) == club:
+            report.append(f"contracts.json: {pid} already under contract with {club}; unchanged")
+            continue
+        old = older.get(pid) if isinstance(older, dict) else None
+        if isinstance(old, dict) and str(old.get("team_id", "")) == club:
+            current[pid] = old
+            contracts_changed = True
+            report.append(
+                f"contracts.json: {pid} restored to {club}'s contract "
+                f"(${int(old.get('annual_salary', 0) or 0):,}/yr, {old.get('years_left')} yr left) "
+                f"from {contracts_from}, replacing {now.get('team_id')}'s"
+            )
+        else:
+            report.append(
+                f"contracts.json: {pid} still names {now.get('team_id') or 'no club'}; "
+                f"no earlier {club} contract given (--contracts-from): restore it by hand"
+            )
+    if contracts_changed:
+        changed[contracts_path] = json.dumps(payload, indent=2)
+
+    output.mkdir(parents=True, exist_ok=True)
+    for path, text in changed.items():
+        target = output / path.relative_to(data)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+    report.append(
+        "Not changed: saved lineups / depth charts naming a removed player "
+        "(rebuilt by the game), transactions, payroll ledgers."
+    )
+    (output / "REPAIR.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
+    return report
+
+
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("data_dir", type=Path, help="the league's data folder")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
+    parser.add_argument(
+        "--repair", action="append", default=[], metavar="PLAYER=CLUB",
+        help="write a repaired copy keeping PLAYER with CLUB (needs --output)",
+    )
+    parser.add_argument(
+        "--contracts-from", type=Path, default=None,
+        help="an older contracts.json holding the kept club's contract",
+    )
+    parser.add_argument(
+        "--output", type=Path, default=None,
+        help="folder for the repaired files (never the league's own folder)",
+    )
     args = parser.parse_args(argv)
     if not (args.data_dir / "rosters").is_dir():
         print(f"no rosters/ folder under {args.data_dir}", file=sys.stderr)
         return 2
+    if args.repair:
+        if args.output is None:
+            print("--repair needs --output <folder>", file=sys.stderr)
+            return 2
+        keep: Dict[str, str] = {}
+        for item in args.repair:
+            pid, sep, club = item.partition("=")
+            if not sep or not pid.strip() or not club.strip():
+                print(f"bad --repair {item!r}: use PLAYER=CLUB", file=sys.stderr)
+                return 2
+            keep[pid.strip()] = club.strip()
+        try:
+            lines = repair(args.data_dir, keep, args.output, contracts_from=args.contracts_from)
+        except ValueError as exc:
+            print(f"repair refused: {exc}", file=sys.stderr)
+            return 2
+        print("\n".join(lines))
+        return 0
     report = find(args.data_dir)
     if args.json:
         print(json.dumps(report, indent=1, default=str))

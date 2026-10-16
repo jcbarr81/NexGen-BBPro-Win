@@ -138,12 +138,24 @@ def ensure_active_rosters(
         )
 
     # A player under contract with a club is that club's even off its
-    # roster file (utils.roster_ownership); never a free agent here.
+    # roster file (utils.roster_ownership); never a free agent here. A CPU
+    # club gets its own such players back first, placed like a CPU signing
+    # (active roster while it has room, else AAA, else Low-A when young).
     try:
+        from services.free_agency import cpu_signing_level
         from utils.path_utils import get_data_dir
-        from utils.roster_ownership import contract_teams
+        from utils.roster_ownership import contract_teams, unrostered_contracts
 
-        rostered.update(contract_teams(data_dir if data_dir is not None else get_data_dir()))
+        contracts_root = data_dir if data_dir is not None else get_data_dir()
+        rostered.update(contract_teams(contracts_root))
+        for pid, club in sorted(unrostered_contracts(contracts_root).items()):
+            roster = rosters.get(club)
+            if roster is None or pid not in players:
+                continue
+            level = cpu_signing_level(roster, players.get(pid), players)
+            if level is not None:
+                getattr(roster, level.lower()).append(pid)
+                adjustments += 1
     except Exception:  # pragma: no cover - defensive
         pass
     free_agents = [
@@ -280,7 +292,9 @@ def ensure_active_rosters(
             option(victim, destination(victim))
 
         roster.act = act_ids
-        save_roster(team_id, roster)
+        # The folder the rosters were read from (it used to write the active
+        # league's, whatever ``roster_dir`` said).
+        save_roster(team_id, roster, roster_dir=roster_dir)
 
     return {
         "adjustments": adjustments,

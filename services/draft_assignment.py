@@ -599,7 +599,10 @@ def commit_single_pick(
         settings = load_financial_settings(
             path=_data_dir() / "league_financial_settings.json"
         )
-        if settings.enabled and settings.module_level("gm_contracts") != "off":
+        # No roster spot, no contract (8.1.1): a contract alone would make
+        # him the club's on no list of its own (utils.roster_ownership), and a
+        # pick refused as another club's player must not get one at all.
+        if ok and settings.enabled and settings.module_level("gm_contracts") != "off":
             bonus = _draft_slot_bonus(overall_pick)
             from services.contracts_service import upsert_contract
 
@@ -624,6 +627,8 @@ def commit_single_pick(
                 bonus_applied = int(charged.get("amount", 0) or 0)
     except Exception:
         pass
+    if not ok:
+        note = (f"{note}; " if note else "") + "no contract signed until he is on a roster"
 
     return {
         "added": added,

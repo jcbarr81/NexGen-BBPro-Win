@@ -115,6 +115,8 @@ class SeasonSimulator:
         # would feed the next day's seeds; a private generator makes serial and
         # parallel day-simulation produce byte-identical seeds by construction.
         self._seed_rng: random.Random | None = None
+        # Days this simulator handed to the parallel workers (diagnostics).
+        self.parallel_days = 0
 
         self._seed_positional = False
         self._seed_keyword = False
@@ -285,6 +287,7 @@ class SeasonSimulator:
             usage_store.deferred_saves(),
         ):
             if parallel:
+                self.parallel_days += 1
                 self._simulate_day_parallel(
                     games,
                     seeds,

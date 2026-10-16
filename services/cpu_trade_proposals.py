@@ -822,7 +822,15 @@ def _run_cpu_cpu_pass(
         final.status = "accepted"
         try:
             commit_trade(final, data_dir=data_dir)
-        except ValueError:
+        except ValueError as exc:
+            # commit_trade is all or nothing: nothing moved (players, picks).
+            # The deal is dropped.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "CPU trade %s -> %s dropped, nothing moved: %s",
+                final.from_team, final.to_team, exc,
+            )
             filtered["commit_failed"] += 1
             continue
         save_trade(final, data_dir / "trades_pending.csv")

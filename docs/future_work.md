@@ -2632,3 +2632,21 @@ two of its games plays serially under `PB_PARALLEL_GAMES`. Left open:
   the box scores begin (none exist before 2026-05-06) and cannot be traced
   or repaired from them. stats-test's player and team totals agree, but its
   CHI and WAS show 161 team games each against 162 scheduled; not traced.
+- **Parallel and serial differ on a season's first day** (found by the
+  branch review, 2026-10-16; the base commit has the same difference). The
+  season's `rating_centers.json` entry is fixed from a different league
+  state in each mode: the parallel day fixes it in the parent before the
+  fan-out (`SeasonSimulator._simulate_day_parallel`, "fix the league's
+  rating centres here, once"), the serial day inside its first game. The
+  review's copy of alpha-test played 2027-04-09 COL at LAS 5-6 in parallel
+  and 6-7 serially; every later day matched. Fix by fixing the centres at
+  the same point in both modes (before the day's games, serial too); that
+  changes which numbers a serial league records, so it needs its own
+  identity check and was left out of the hotfix.
+- **Do not repair a double by cutting the player.** A cut releases his
+  contract (`release_contracts_to_free_agency`), which takes him off every
+  club's roster file (`contracts_service._release_players_from_rosters`)
+  and deletes the contract. Use the diagnostic's `--repair PLAYER=CLUB
+  --contracts-from <older contracts.json> --output <folder>` (writes only
+  the changed files into a separate folder) and upload them with the league
+  idle.

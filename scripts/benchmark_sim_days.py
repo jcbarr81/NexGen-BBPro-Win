@@ -142,6 +142,8 @@ def main() -> int:
         "seconds_per_game": round(total / len(schedule), 3),
         "first_day_seconds": round(day_times[0], 2),
         "last_day_seconds": round(day_times[-1], 2),
+        # Days the parallel workers played (0 = every day serial).
+        "parallel_days": getattr(sim, "parallel_days", 0),
         "digests": digests,
     }
     if args.json:

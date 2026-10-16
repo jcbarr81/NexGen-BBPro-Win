@@ -157,6 +157,29 @@ def club_owned_players(
     return owned
 
 
+def unrostered_contracts(
+    data_dir: Path | str, *, team_id: Optional[str] = None
+) -> Dict[str, str]:
+    """``{pid: team_id}``: under contract with a club, on no roster file.
+
+    The club owns him (no one else may sign him) and may put him back on its
+    roster (``services.free_agency.restore_contracted_player``): a qualifying
+    offer accepted after the rollover took him off, or an older build's
+    leftover. ``team_id`` limits it to one club.
+    """
+
+    base = Path(data_dir)
+    rostered = roster_memberships(base / "rosters")
+    out: Dict[str, str] = {}
+    for pid, team in contract_teams(base).items():
+        if pid in rostered:
+            continue
+        if team_id is not None and team != str(team_id):
+            continue
+        out[pid] = team
+    return out
+
+
 def owning_club(
     player_id: str,
     data_dir: Path | str,
@@ -253,4 +276,5 @@ __all__ = [
     "read_roster_rows",
     "roster_memberships",
     "roster_player_ids",
+    "unrostered_contracts",
 ]

@@ -522,10 +522,16 @@ def test_box_score_position_comes_from_the_game_not_the_player_object():
     assert [r["pos"] for r in rows] == ["CF", "LF"]
 
 
-def test_parallel_matches_serial_with_a_player_on_two_clubs(tmp_path):
+@pytest.mark.parametrize("with_shared_player", [False, True])
+def test_parallel_matches_serial_with_a_player_on_two_clubs(tmp_path, with_shared_player):
     """The same days from the same state, serial versus two workers: the
-    same scores, season stats, recovery, rest state and box scores -- with a
-    player on two clubs' active rosters (the state that lost lines)."""
+    same scores, season stats, recovery, rest state and box scores.
+
+    Without a shared player the days really run in two worker processes.
+    With a starter on two clubs' active rosters (the state that lost lines)
+    every such day is played serially BY DESIGN, so that case compares
+    serial with serial and checks the fallback keeps every game's line.
+    """
 
     source = BASE_DIR / "data" / "leagues" / "cbl" / "data"
     if not source.exists():
@@ -534,7 +540,7 @@ def test_parallel_matches_serial_with_a_player_on_two_clubs(tmp_path):
     shutil.copytree(
         source, league, ignore=shutil.ignore_patterns("boxscores", "season_history", "*.bak", "logs")
     )
-    shared = _share_a_starter(league)
+    shared = _share_a_starter(league) if with_shared_player else None
 
     def run(workers: int, sandbox: Path) -> dict:
         env = dict(os.environ)
@@ -549,11 +555,17 @@ def test_parallel_matches_serial_with_a_player_on_two_clubs(tmp_path):
             env=env, capture_output=True, text=True, cwd=str(BASE_DIR),
         )
         assert out.returncode == 0, out.stderr
-        return json.loads(out.stdout)["digests"]
+        result = json.loads(out.stdout)
+        # Both days go to the workers unless a player is shared.
+        expected = 0 if not workers or shared else 2
+        assert result["parallel_days"] == expected, (workers, shared, out.stderr[-2000:])
+        return result["digests"]
 
     serial = run(0, tmp_path / "serial")
     parallel = run(2, tmp_path / "parallel")
     assert serial == parallel
+    if shared is None:
+        return
     # He started for both clubs each day; serial play counts every game
     # (on the base commit two workers kept one game's line a day).
     lines = [
