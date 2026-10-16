@@ -151,8 +151,12 @@ def test_a_league_on_generation_6_moves_to_7_at_its_next_season(scratch, monkeyp
     write_schedule(data, 2027)
     tuning = _first_game(monkeypatch, 2027)
     assert stored_generation(data, 2027) == 7
-    # No second conversion; its own news item, once.
-    assert scale_log(data)["events"] == events
+    # No second conversion; its own news item, once, and recorded.
+    after = scale_log(data)["events"]
+    assert after[: len(events)] == events
+    assert [e["event"] for e in after[len(events):]] == [
+        migration.BALLFLIGHT_ANNOUNCED_EVENT
+    ]
     feed = news(data)
     assert feed.count(LEAD) == 1 and feed.count(BALLFLIGHT_ENGINE_TEXT) == 1
     _first_game(monkeypatch, 2027)
@@ -169,22 +173,161 @@ def test_a_league_on_generation_6_moves_to_7_at_its_next_season(scratch, monkeyp
         assert key not in _stored_entry(data, 2026)
 
 
-def test_the_rollover_converts_onto_generation_7_and_tells_once(scratch, monkeypatch):
-    data = scratch
+def _rolled_over_onto_7(data, monkeypatch, *, sliders=None):
+    """A legacy season under way, both switches on, the rollover's move (a
+    scale 1 league converted for its next season, offered 7)."""
     write_schedule(data, 2026, played=3)
-    game_tuning(monkeypatch, "2026-04-04")  # a legacy season under way
+    game_tuning(monkeypatch, "2026-04-04")
     _both_on(monkeypatch)
+    if sliders:
+        (data / "physics_tuning_overrides.json").write_text(
+            json.dumps(sliders), encoding="utf-8"
+        )
     assert centers.move_league_at_rollover(data, 2027) == "converted"
     (event,) = scale_log(data)["events"]
     assert event["engine_generation"] == 7 and event["season"] == "2027"
+    # Told about the scale now; about ball flight only when 2027 is
+    # recorded on 7 (review fix 1).
+    assert "full 1-99 scale" in news(data)
+    assert BALLFLIGHT_ENGINE_TEXT not in news(data)
+    assert migration.BALLFLIGHT_TOLD_KEY not in event
     archive_a_season(data)
     (data / "season_progress.json").unlink()  # the rollover rebuilds it
+    centers.clear_rating_center_cache()
+    write_schedule(data, 2027)
+
+
+def test_the_rollover_converts_and_the_first_game_tells_ball_flight_once(
+    scratch, monkeypatch
+):
+    data = scratch
+    sliders = {"hr_scale": 0.95}
+    _rolled_over_onto_7(data, monkeypatch, sliders=sliders)
+    tuning = _first_game(monkeypatch, 2027)
+    assert stored_generation(data, 2027) == 7
+    feed = news(data)
+    assert feed.count("full 1-99 scale") == 1
+    assert feed.count(BALLFLIGHT_ENGINE_TEXT) == 1 and feed.count(LEAD) == 1
+    assert tuning["hr_scale"] == pytest.approx(1.0)
+    stored = json.loads((data / "physics_tuning_overrides.json").read_text())
+    assert stored[PRE_GENERATION_7_MARKER] == sliders
+    _first_game(monkeypatch, 2027)
+    assert news(data).count(LEAD) == 1
+
+
+def test_a_hold_set_after_the_rollover_leaves_nothing_claimed(scratch, monkeypatch):
+    """Review fix 1: the operator's safe stop (NEXGEN_NEW_SEASON_ENGINE=6)
+    set between the rollover and the first game. The season is recorded on
+    6, the league is told nothing about ball flight, and its sliders keep
+    their generation 6 meaning."""
+    data = scratch
+    sliders = {"hr_scale": 0.95}
+    _rolled_over_onto_7(data, monkeypatch, sliders=sliders)
+    monkeypatch.setenv(centers.NEW_SEASON_ENGINE_ENV, "6")
+    tuning = _first_game(monkeypatch, 2027)
+    assert stored_generation(data, 2027) == 6
+    assert BALLFLIGHT_ENGINE_TEXT not in news(data) and LEAD not in news(data)
+    assert tuning["hr_scale"] == pytest.approx(0.95)
+    stored = json.loads((data / "physics_tuning_overrides.json").read_text())
+    assert PRE_GENERATION_7_MARKER not in stored
+    assert BALLFLIGHT_SLIDER_REBASE_MARKER not in stored
+    assert not migration.ballflight_told(data)
+
+
+def test_a_league_rolled_back_and_converted_again_onto_7_is_told(scratch, monkeypatch):
+    """Review fix 2: moved to 6, rolled back, the hold lifted with
+    generation 7 switched on. The re-conversion posts only its short item,
+    so the league gets the ball-flight item on its own -- once."""
+    data = scratch
+    archive_a_season(data)
+    switch_on(monkeypatch)
+    write_schedule(data, 2026)
+    _first_game(monkeypatch)
+    assert stored_generation(data, 2026) == 6
+    migration.rollback_league(data, mode="inverse")
+    roll_over(data, 2026)
+    _both_on(monkeypatch)
+    log = scale_log(data)
+    log.pop("hold")
+    (data / "rating_scale.json").write_text(json.dumps(log), encoding="utf-8")
+    migration.clear_caches()
     centers.clear_rating_center_cache()
     write_schedule(data, 2027)
     _first_game(monkeypatch, 2027)
     assert stored_generation(data, 2027) == 7
     feed = news(data)
-    assert feed.count(BALLFLIGHT_ENGINE_TEXT) == 1 and LEAD not in feed
+    assert feed.count("re-converted to the full 1-99 scale") == 1
+    assert feed.count(BALLFLIGHT_ENGINE_TEXT) == 1 and feed.count(LEAD) == 1
+    assert migration.ballflight_told(data)
+    _first_game(monkeypatch, 2027)
+    assert news(data).count(LEAD) == 1
+
+
+def test_a_stale_copy_on_a_generation_7_season_is_repaired_and_logged_as_7(
+    scratch, monkeypatch, capsys
+):
+    """Review fix 4: the repair names the season's own generation."""
+    data = scratch
+    stale = (data / "players.csv").read_bytes()  # scale 1, as a stale copy
+    _both_on(monkeypatch)
+    _on_scale_2(data)
+    write_schedule(data, 2026)
+    _first_game(monkeypatch)
+    assert stored_generation(data, 2026) == 7
+    (data / "players.csv").write_bytes(stale)
+    migration.clear_caches()
+    centers.clear_rating_center_cache()
+    capsys.readouterr()
+    _first_game(monkeypatch)
+    assert players_file_rating_scale(data / "players.csv") == FULL_RATING_SCALE
+    (event,) = [e for e in scale_log(data)["events"] if e["event"] == "repaired"]
+    assert event["engine_generation"] == 7
+    out = capsys.readouterr().out
+    assert "of a generation 7 league" in out and "generation 6 league" not in out
+    assert LEAD not in news(data)  # a new league: nothing to be told
+
+
+def test_the_rollback_tool_and_the_runbook_name_generation_7():
+    from pathlib import Path
+
+    from scripts import rating_scale_rollback
+
+    assert "generation 7" in rating_scale_rollback.__doc__
+    runbook = (Path(__file__).resolve().parents[1] / "docs" / "generation7_switch_runbook.md")
+    text = runbook.read_text(encoding="utf-8")
+    assert "recorded on generation 7" in text and "NEXGEN_NEW_SEASON_ENGINE=6" in text
+
+
+def test_a_season_on_7_repaired_after_a_rollback_tells_a_league_never_told(
+    scratch, monkeypatch
+):
+    """Review fix 2, the repair path: a season already recorded on 7 whose
+    players were rolled back to scale 1, the hold then lifted: its next game
+    converts again (the short item) and the league, never told, is told."""
+    data = scratch
+    archive_a_season(data)
+    _both_on(monkeypatch)
+    _on_scale_2(data)
+    write_schedule(data, 2026)
+    _first_game(monkeypatch)
+    assert stored_generation(data, 2026) == 7
+    assert news(data).count(LEAD) == 1  # told at the season's first record
+    # As an operator's mistake would leave it: the told record lost.
+    migration.rollback_league(data, mode="inverse", season="2026", allow_unrecorded=True)
+    log = scale_log(data)
+    log.pop("hold")
+    log["events"] = [e for e in log["events"] if e.get("event") == "rolled_back"]
+    (data / "rating_scale.json").write_text(json.dumps(log), encoding="utf-8")
+    (data / "news_feed.txt").unlink()
+    migration.clear_caches()
+    centers.clear_rating_center_cache()
+    _first_game(monkeypatch)
+    assert players_file_rating_scale(data / "players.csv") == FULL_RATING_SCALE
+    (moved,) = [e for e in scale_log(data)["events"] if e["event"] == "converted"]
+    assert moved["engine_generation"] == 7  # the repair logs the season's engine
+    feed = news(data)
+    assert feed.count("re-converted to the full 1-99 scale") == 1
+    assert feed.count(LEAD) == 1
 
 
 def test_a_league_created_with_both_switches_on_starts_on_7(scratch, monkeypatch):

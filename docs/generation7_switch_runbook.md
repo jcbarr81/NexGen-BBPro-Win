@@ -45,11 +45,35 @@ section 2), never mid-season:
   season on generation 5 and scale 1 and the commissioner is told; a league
   with a `"hold"` in `rating_scale.json` is not moved.
 
-**News.** One item per league: a league converted in the same move gets the
-engine-and-scale item with the ball-flight paragraph in it; a league already
-on scale 2 gets its own ball-flight item ("... now plays on the newest game
-engine, with real ball flight ..."), naming how many of its clubs play in
-real major-league parks. Neither is posted twice.
+**News follows the generation actually recorded.** A season's generation is
+decided when the season starts (its first game), never at the rollover, so
+the hold still applies between the two; the news and the slider conversion
+follow what is recorded then:
+
+- The rollover's conversion (a scale 1 league) posts the 8.0.0
+  engine-and-scale item only. It says nothing about ball flight, even
+  though `rating_scale.json` logs the move with `engine_generation: 7`
+  (the engine it was offered).
+- When a season is first recorded on generation 7, a league that has played
+  before and has never been told gets the ball-flight item ("... now plays
+  on the newest game engine, with real ball flight ..."), naming how many
+  of its clubs play in real major-league parks; `rating_scale.json` records
+  `ballflight_announced`. A league converted at that same first game gets
+  the ball-flight paragraph inside its engine-and-scale item instead (the
+  `converted` event carries `ballflight_told: true`).
+- A league is told once: a league already told is not told again (a later
+  season on 7, a move after a rollback, a return to 7 after a hold). A
+  league whose move after an operator rollback posted only the short
+  re-conversion item, and which was never told, gets the ball-flight item
+  then. A league created on generation 7 is told nothing.
+- If `NEXGEN_NEW_SEASON_ENGINE=6` is set after a league's rollover and
+  before its first game, that season is recorded on 6: no ball-flight item,
+  and Home Run Rate and Launch Angle keep their generation 6 meaning. The
+  league is told at the first season actually recorded on 7.
+
+(Chosen over recording the generation at the rollover: that would make the
+hold miss every league that had already rolled over, so the runbook's safe
+stop would not stop them.)
 
 **Sliders.** At the league's first generation 7 game its tuning file is
 rewritten once: Home Run Rate and Launch Angle Base go back to neutral

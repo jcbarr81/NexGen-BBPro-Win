@@ -1000,7 +1000,7 @@ def _generation_locked(
         if not had_entry:
             verdict = _settle_scale_move(base, season_key, seasons, verdict)
         elif verdict.generation >= SCALE2_ENGINE_GENERATION:
-            _repair_scale(base, season_key)
+            _repair_scale(base, season_key, verdict.generation)
     if had_entry or (store and verdict.record):
         _GENERATION_CACHE[(root, season_key)] = verdict.generation
     if not store or not verdict.record:
@@ -1019,25 +1019,21 @@ def _generation_locked(
 def _announced_here(base: Path, season_key: str, generation: int) -> bool:
     """True when the switch to ``generation`` is announced by the season's
     first record (``_CENTER_LOCK`` held): generation 5 always; generation 6
-    never (its scale 2 move posts the news); generation 7 unless a scale 2
-    move logged for this season already named it (that move's news item
-    covered the ball-flight engine: one move, one set of news items)."""
+    never (its scale 2 move posts the news); generation 7 unless the league
+    has been told about it already (``rating_scale_migration
+    .ballflight_told``: the move that decided this season carried the
+    ball-flight paragraph, or an earlier season posted the item). The item
+    is tied to the season being RECORDED on 7, never to the rollover's
+    conversion, so a hold set in between cannot leave a league told about
+    an engine it does not play; and a league that reaches 7 is told once."""
 
     if generation < SCALE2_ENGINE_GENERATION:
         return True
     if generation < BALLFLIGHT_ENGINE_GENERATION:
         return False
-    from services.rating_scale_migration import read_scale_log
+    from services.rating_scale_migration import ballflight_told
 
-    for event in read_scale_log(base).get("events", []):
-        if (
-            event.get("event") == "converted"
-            and str(event.get("season")) == str(season_key)
-            and normalize_engine_generation(event.get("engine_generation"))
-            >= BALLFLIGHT_ENGINE_GENERATION
-        ):
-            return False
-    return True
+    return not ballflight_told(base)
 
 
 def _season_verdict(base: Path, season_key: str, seasons: dict) -> _Verdict:
@@ -1575,9 +1571,12 @@ def move_league_at_rollover(
             convert_league(
                 base,
                 season_key,
-                # 6, or 7 with its switch on: the news item and the log
-                # name the engine the next season will start on.
+                # 6, or 7 with its switch on: the log names the engine the
+                # next season is offered. Its generation is recorded when it
+                # starts (a hold set in between still applies), so the
+                # ball-flight engine is told then, not here.
                 generation=_configured_new_season_generation(),
+                ballflight_news=False,
                 previous_generation=_newest_stored_generation(seasons),
                 population=population,
             )
@@ -1601,10 +1600,15 @@ def move_league_at_rollover(
 _SCALE_CHECKED: Dict[str, tuple] = {}
 
 
-def _repair_scale(base: Path, season_key: str) -> None:
-    """A season recorded on generation 6 whose players file holds scale 1
-    rows has them converted (``_CENTER_LOCK`` held). Cheap when there is
-    nothing to do: the file is read once per change."""
+def _repair_scale(
+    base: Path, season_key: str, generation: int = SCALE2_ENGINE_GENERATION
+) -> None:
+    """A season recorded on generation 6 (or 7) whose players file holds
+    scale 1 rows has them converted (``_CENTER_LOCK`` held). Cheap when there
+    is nothing to do: the file is read once per change. A fresh move after
+    an operator rollback onto a generation 7 season tells a league that was
+    never told about generation 7 (the move itself posts only the short
+    re-conversion item)."""
 
     path = base / "players.csv"
     try:
@@ -1618,10 +1622,22 @@ def _repair_scale(base: Path, season_key: str) -> None:
     from services.rating_scale_migration import repair_league
 
     try:
-        repair_league(base, season_key)
+        result = repair_league(base, season_key, generation=generation)
     except Exception:  # pragma: no cover - the game still plays (per-row scale)
         _LOGGER.exception("could not repair the rating scale of %s", base)
         return
+    if (
+        result is not None
+        and result.status == "converted"
+        and generation >= BALLFLIGHT_ENGINE_GENERATION
+    ):
+        from services.rating_scale_migration import ballflight_told
+
+        archived = _read_json(base / "career_index.json").get("seasons")
+        # (A league created on generation 7 has nothing to be told, as
+        # _is_engine_switch says for a season's first record.)
+        if isinstance(archived, list) and archived and not ballflight_told(base):
+            _tell_ballflight(base, season_key)
     try:
         stat = path.stat()
         _SCALE_CHECKED[root] = (stat.st_mtime_ns, stat.st_size)
@@ -1714,14 +1730,31 @@ def _announce_engine_switch(
     try:
         from utils.news_logger import log_news_event
 
-        text = ENGINE_SWITCH_NEWS
         if generation >= BALLFLIGHT_ENGINE_GENERATION:
-            from services.ballflight_news import ballflight_switch_news
-
-            text = ballflight_switch_news(base, season=_season_key(base))
-        log_news_event(text, file_path=base / "news_feed.txt")
+            _tell_ballflight(base, _season_key(base))
+            return
+        log_news_event(ENGINE_SWITCH_NEWS, file_path=base / "news_feed.txt")
     except Exception:  # pragma: no cover - news must never stop a game
         _LOGGER.exception("could not log the engine switch news item")
+
+
+def _tell_ballflight(base: Path, season_key: str) -> None:
+    """Post the league's own ball-flight item and record it
+    (``rating_scale.json``, ``ballflight_announced``) so it is posted once
+    (best effort)."""
+
+    try:
+        from services.ballflight_news import ballflight_switch_news
+        from services.rating_scale_migration import record_ballflight_announced
+        from utils.news_logger import log_news_event
+
+        log_news_event(
+            ballflight_switch_news(base, season=season_key),
+            file_path=base / "news_feed.txt",
+        )
+        record_ballflight_announced(base, season_key)
+    except Exception:  # pragma: no cover - news must never stop a game
+        _LOGGER.exception("could not log the ball-flight news item")
 
 
 def _is_active_league(base: Path) -> bool:

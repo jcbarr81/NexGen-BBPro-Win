@@ -147,6 +147,10 @@ _LOCK_WAIT_SECONDS = 2.0
 _PLAYERS = "players.csv"
 _POOL_RE = re.compile(r"^draft_pool_(\d{4})\.(json|csv)$")
 _NEWS_FILE = "news_feed.txt"
+# Release 6b: how rating_scale.json records that a league was told about
+# engine generation 7 (``ballflight_told``).
+BALLFLIGHT_TOLD_KEY = "ballflight_told"
+BALLFLIGHT_ANNOUNCED_EVENT = "ballflight_announced"
 # How many blocking ratings the commissioner's news item names (the log
 # names every one).
 _NEWS_NAMED = 25
@@ -865,6 +869,7 @@ def convert_league(
     announce: bool = True,
     event_name: str = "converted",
     population: Optional[Mapping[str, Iterable[str]]] = None,
+    ballflight_news: bool = True,
 ) -> MoveResult:
     """Convert ``base`` to scale 2 for ``season`` (module docstring, steps
     1-8). Idempotent: a league already on scale 2 is left alone (an open
@@ -885,6 +890,14 @@ def convert_league(
     ``population`` is the re-spread's population taken earlier
     (:func:`respread_population`; the rollover takes it before its
     contracts).
+
+    ``ballflight_news`` False (the rollover's move): a move for generation 7
+    does not tell the league about the ball-flight engine here; the league
+    is told when a season is RECORDED on generation 7
+    (``services.league_rating_centers``), so a hold set between the rollover
+    and the first game cannot leave it told about an engine it does not
+    play. The event records ``ballflight_told`` when this move's item
+    carried the ball-flight paragraph.
     """
 
     base = Path(base)
@@ -934,8 +947,13 @@ def convert_league(
         # league is stretched on the way in (services.draft_assignment), the
         # other way round is refused.
         pools, pool_clips = _convert_pools(base, season)
+        tell_ballflight = bool(
+            announce and ballflight_news and generation >= 7
+            and event_name == "converted" and not _rolled_back(base)
+        )
         record = _log_conversion(
-            base, season, plan, generation, backup, pools, event_name, pool_clips
+            base, season, plan, generation, backup, pools, event_name, pool_clips,
+            ballflight_told=tell_ballflight,
         )
         result = MoveResult(
             "converted", season, players=len(plan.rows), converted=plan.to_convert,
@@ -944,7 +962,9 @@ def convert_league(
         )
         _clear_player_caches()
         if announce:
-            result.news = _post_move_news(base, plan, record, previous_generation)
+            result.news = _post_move_news(
+                base, plan, record, previous_generation, ballflight=tell_ballflight
+            )
         _print(
             f"{base}: {plan.to_convert} players converted to rating scale 2 for "
             f"season {season} (generation {generation}, {event_name})"
@@ -1023,8 +1043,11 @@ def _unlogged_backup(base: Path, season: str) -> Optional[Path]:
     return None  # pragma: no cover
 
 
-def repair_league(base: Path | str, season: str) -> Optional[MoveResult]:
-    """A league recorded on generation 6 whose players file holds scale 1
+def repair_league(
+    base: Path | str, season: str, generation: int = 6
+) -> Optional[MoveResult]:
+    """A league recorded on generation 6 (or 7: ``generation``, what the
+    season is recorded on, for the log) whose players file holds scale 1
     rows again (module docstring); ``None`` when there are none.
 
     * After an operator rollback whose hold was lifted, this is a FRESH move
@@ -1055,7 +1078,9 @@ def repair_league(base: Path | str, season: str) -> Optional[MoveResult]:
     )
     try:
         if last_rollback is not None and (last_move is None or last_rollback > last_move):
-            result = convert_league(base, season, respread=None, announce=True)
+            result = convert_league(
+                base, season, generation=generation, respread=None, announce=True
+            )
             _print(f"{base}: moved again after an operator rollback ({result.status})")
             return result
         replay = None
@@ -1063,16 +1088,17 @@ def repair_league(base: Path | str, season: str) -> Optional[MoveResult]:
         if move and move.get("respread"):
             replay = {"backup": move.get("backup"), "inputs": move["respread"].get("inputs")}
         result = convert_league(
-            base, season, respread=False, replay=replay, announce=False,
-            event_name="repaired",
+            base, season, generation=generation, respread=False, replay=replay,
+            announce=False, event_name="repaired",
         )
     except MoveRefused as exc:
-        _print(f"{base}: scale 1 rows found in a generation 6 league and left as "
-               f"they are ({exc.reason}); each still plays on its own scale")
+        _print(f"{base}: scale 1 rows found in a generation {generation} league and "
+               f"left as they are ({exc.reason}); each still plays on its own scale")
         return None
     if result.status == "converted":
         result.status = "repaired"
-        _print(f"{base}: repaired {result.converted} scale 1 rows of a generation 6 league")
+        _print(f"{base}: repaired {result.converted} scale 1 rows of a generation "
+               f"{generation} league")
     return result
 
 
@@ -1228,6 +1254,7 @@ def _log_conversion(
     pools: List[str],
     event_name: str = "converted",
     pool_clips: Optional[List[Dict[str, Any]]] = None,
+    ballflight_told: bool = False,
 ) -> Dict[str, Any]:
     event: Dict[str, Any] = {
         "event": event_name,
@@ -1247,6 +1274,9 @@ def _log_conversion(
         "potentials_raised_by_rating": dict(sorted(plan.potentials_raised.items())),
         "summary": _scale_summary(plan),
     }
+    if ballflight_told:
+        # This move's news item told the league about generation 7.
+        event[BALLFLIGHT_TOLD_KEY] = True
     if plan.respread_replayed:
         event["respread_replayed"] = True
     if plan.respread is not None and not plan.respread_replayed:
@@ -1527,31 +1557,63 @@ def refusal_news(
     )
 
 
+def _rolled_back(base: Path) -> bool:
+    return any(
+        e.get("event") == "rolled_back" for e in read_scale_log(base).get("events", [])
+    )
+
+
+def ballflight_told(base: Path | str) -> bool:
+    """True when the league has been told about engine generation 7: a move
+    whose item carried the ball-flight paragraph (``ballflight_told``), or
+    the ball-flight item of its own (a ``ballflight_announced`` event,
+    :func:`record_ballflight_announced`). Every league that reaches
+    generation 7 is told once (``services.league_rating_centers``)."""
+
+    return any(
+        e.get(BALLFLIGHT_TOLD_KEY) is True or e.get("event") == BALLFLIGHT_ANNOUNCED_EVENT
+        for e in read_scale_log(base).get("events", [])
+    )
+
+
+def record_ballflight_announced(base: Path | str, season: str) -> None:
+    """Log that the league's own ball-flight item was posted for ``season``."""
+
+    _append_log(Path(base), {
+        "event": BALLFLIGHT_ANNOUNCED_EVENT, "season": str(season), "at": _now(),
+    })
+
+
 def _post_move_news(
-    base: Path, plan: MovePlan, record: Mapping[str, Any], previous_generation: Optional[int]
+    base: Path,
+    plan: MovePlan,
+    record: Mapping[str, Any],
+    previous_generation: Optional[int],
+    *,
+    ballflight: bool = False,
 ) -> List[str]:
     season = str(record.get("season"))
     respread = plan.respread is not None and bool(plan.respread.moved)
-    rolled_back = any(
-        e.get("event") == "rolled_back" for e in read_scale_log(base).get("events", [])
-    )
-    if rolled_back:
+    if _rolled_back(base):
         # A move after a rollback (the hold lifted): owners were told about
-        # the engine and the scale at the first move.
+        # the engine and the scale at the first move. (Generation 7, if this
+        # season is recorded on it and the league was never told, gets its
+        # own item: services.league_rating_centers.)
         items = [reconversion_news(season)]
     else:
-        ballflight = ""
-        if _generation_of(record) >= 7:
-            # Generation 7 (its switch on): the ball-flight engine is told
-            # in this item, not in one of its own.
+        paragraph = ""
+        if ballflight:
+            # Generation 7, decided in this same step (a season's first
+            # record): the ball-flight engine is told in this item, not in
+            # one of its own.
             from services.ballflight_news import ballflight_paragraph
 
-            ballflight = ballflight_paragraph(base)
+            paragraph = ballflight_paragraph(base)
         items = [
             engine_and_scale_news(
                 record.get("summary", {}), players=len(plan.rows), season=season,
                 backup=record.get("backup"), previous_generation=previous_generation,
-                respread=respread, ballflight=ballflight,
+                respread=respread, ballflight=paragraph,
             )
         ]
     if respread:
@@ -1559,13 +1621,6 @@ def _post_move_news(
     for item in items:
         _post_news(base, item)
     return items
-
-
-def _generation_of(record: Mapping[str, Any]) -> int:
-    try:
-        return int(record.get("engine_generation") or 0)
-    except (TypeError, ValueError):
-        return 0
 
 
 def _post_news(base: Path, text: str, category: str = "league") -> None:
@@ -1997,4 +2052,6 @@ __all__ += [
     "MAJOR_LEAGUE_LEVELS", "MoveBusy", "clear_caches", "conversion_events",
     "describe_counts", "log_refusal", "post_refusal", "set_recorded_generation",
     "reconversion_news", "respread_population",
+    "BALLFLIGHT_TOLD_KEY", "BALLFLIGHT_ANNOUNCED_EVENT", "ballflight_told",
+    "record_ballflight_announced",
 ]

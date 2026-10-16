@@ -19,9 +19,13 @@ engine generation over a higher one, by design).
     backup; with --mode inverse --season X this un-stretches it anyway.
 --generation N: also rewrite the season's recorded engine generation
     (rating_centers.json entry and the season_progress.json witness). Only
-    needed when the league must also leave generation 6 (a binary rollback
-    below 8.0.0, which does not know generation 6). Scale 1 plays correctly
-    on generation 6, so a scale rollback alone does not need it.
+    needed when the league must also leave generation 6 or 7 (a binary
+    rollback below 8.0.0, which does not know generation 6, or below the
+    release carrying generation 7; or generation 7's switch turned off).
+    Scale 1 plays correctly on generations 6 and 7, so a scale rollback
+    alone does not need it. A league on generation 7 that should only go
+    back to generation 6 stays on scale 2: docs/generation7_switch_runbook.md,
+    section 4.
 """
 
 from __future__ import annotations
