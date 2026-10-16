@@ -7999,6 +7999,14 @@ def simulate_game(
                             if foul_caught is not None:
                                 # A dropped foul pop is no way on base.
                                 error_prob = 0.0
+                                # Who caught it, for the box score's note
+                                # (presentation only; foul-outs exist only
+                                # with foul_out_model on, so no earlier
+                                # generation's log changes).
+                                if pitch_log and error_fielder is not None:
+                                    pitch_log[-1]["foul_out_fielder"] = str(
+                                        getattr(error_fielder, "player_id", "") or ""
+                                    )
                             if chance_log and foul_caught is None:
                                 # Release 6a play record (no draws): this
                                 # error roll and an average fielder's.

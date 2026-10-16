@@ -1405,14 +1405,21 @@ def _run_physics_game(
     box = _hydrate_physics_boxscore(boxscore, players_lookup)
     # The fielding line of each side (who made each error, and the kind of
     # the newer error types): presentation only, from the engine's records.
-    from playbalance.simulation import boxscore_errors
+    from playbalance.simulation import boxscore_errors, boxscore_foul_outs
 
     errors_by_side = boxscore_errors(
         (getattr(result, "play_records", None) or {}).get("errors"), players_lookup
     )
+    # Release 6b: the foul pop-ups caught for outs (generation 7 only; an
+    # empty list, and no note, on every earlier generation).
+    foul_outs_by_side = boxscore_foul_outs(
+        getattr(result, "pitch_log", None), metadata.get("fielding_lines"), players_lookup
+    )
     for side in ("home", "away"):
         if isinstance(box.get(side), dict):
             box[side]["errors"] = errors_by_side[side]
+            if foul_outs_by_side[side]:
+                box[side]["foul_outs"] = foul_outs_by_side[side]
 
     score = (
         metadata.get("score", {}) if isinstance(metadata.get("score"), dict) else {}

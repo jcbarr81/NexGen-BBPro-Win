@@ -6,7 +6,7 @@ import random
 import os
 from collections import defaultdict
 from dataclasses import dataclass, field, fields, replace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from models.player import Player
 from models.pitcher import Pitcher
@@ -4247,7 +4247,14 @@ def render_boxscore_html(
         repl[f"batting_totals.{side}.HR"] = hr
         repl[f"notes.{side}.batting"] = ""
         repl[f"notes.{side}.risp"] = ""
-        repl[f"notes.{side}.fielding"] = fielding_note(box[side].get("errors") or [])
+        repl[f"notes.{side}.fielding"] = " ".join(
+            note
+            for note in (
+                fielding_note(box[side].get("errors") or []),
+                foul_out_note(box[side].get("foul_outs") or []),
+            )
+            if note
+        )
 
     for key, value in repl.items():
         template = template.replace(f"{{{{{key}}}}}", str(value))
@@ -4337,6 +4344,65 @@ def fielding_note(errors: list) -> str:
     return "E: " + ", ".join(parts) + "."
 
 
+def boxscore_foul_outs(
+    pitch_log: object,
+    fielding_lines: object,
+    players_lookup: Mapping[str, object] | None = None,
+) -> Dict[str, list]:
+    """``{"home": [...], "away": [...]}``: the foul pop-ups each fielding
+    side caught for an out (Release 6b, engine generation 7: the pitch
+    log's ``foul_out`` entries, ``foul_out_fielder`` naming the catcher),
+    as ``{"player_id", "name", "position"}``. Empty on every earlier
+    generation (no foul-outs). Presentation only."""
+
+    out: Dict[str, list] = {"home": [], "away": []}
+    side_of: Dict[str, str] = {}
+    if isinstance(fielding_lines, Mapping):
+        for side in ("home", "away"):
+            for line in fielding_lines.get(side) or []:
+                if isinstance(line, Mapping) and line.get("player_id"):
+                    side_of[str(line["player_id"])] = side
+    for entry in pitch_log or []:
+        if not isinstance(entry, Mapping) or not entry.get("foul_out"):
+            continue
+        fielder_id = str(entry.get("foul_out_fielder") or "")
+        side = side_of.get(fielder_id)
+        if side is None:
+            continue
+        player = (players_lookup or {}).get(fielder_id)
+        if player is not None:
+            name = f"{getattr(player, 'first_name', '')} {getattr(player, 'last_name', '')}".strip()
+        else:
+            name = fielder_id
+        out[side].append({
+            "player_id": fielder_id,
+            "name": name or fielder_id,
+            "position": str(entry.get("foul_out") or ""),
+        })
+    return out
+
+
+def foul_out_note(foul_outs: list) -> str:
+    """The box score's foul-out line for one side, e.g. ``Foul outs: Diaz
+    2, Lopez.`` -- each fielder once, with his count when more than one.
+    ``""`` with none."""
+
+    if not foul_outs:
+        return ""
+    order: list = []
+    counts: Dict[str, int] = {}
+    names: Dict[str, str] = {}
+    for item in foul_outs:
+        key = str(item.get("player_id") or item.get("name") or "")
+        if key not in counts:
+            order.append(key)
+            counts[key] = 0
+            names[key] = str(item.get("name") or key)
+        counts[key] += 1
+    parts = [names[k] + (f" {counts[k]}" if counts[k] > 1 else "") for k in order]
+    return "Foul outs: " + ", ".join(parts) + "."
+
+
 def save_boxscore_html(game_type: str, html: str, game_id: str | None = None) -> str:
     """Persist ``html`` to the appropriate box score directory.
 
@@ -4376,7 +4442,9 @@ __all__ = [
     "TeamState",
     "GameSimulation",
     "boxscore_errors",
+    "boxscore_foul_outs",
     "fielding_note",
+    "foul_out_note",
     "generate_boxscore",
     "render_boxscore_html",
     "save_boxscore_html",
