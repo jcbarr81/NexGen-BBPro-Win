@@ -1,0 +1,14 @@
+{
+  "pitcher_gb_launch_scale": 0.2,
+  "pitcher_gb_full_deg": 10.0,
+  "pitcher_gb_air_deg": 30.0,
+  "pitcher_gb_air_share": 0.3,
+  "pitch_type_launch_offset": {
+    "fb": 1.5,
+    "si": -4.0
+  },
+  "pitch_type_usage_weight": {
+    "fb": 1.25,
+    "si": 1.25
+  }
+}

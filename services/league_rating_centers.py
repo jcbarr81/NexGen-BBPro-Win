@@ -209,7 +209,8 @@ refuses to start without it (``physics_sim.centred_ratings
 .require_batted_ball_centers``).
 
 The other batted-ball centres (``pitcher_gf_usage_center``,
-``hitter_pull_center``) are still the harness's alone.
+``hitter_pull_center``) are generation 7's (``GENERATION_CENTER_KEYS[7]``),
+on the same terms: stored in and delivered to a generation 7 season only.
 
 8.0.0 (the switch-on of generation 6 and rating scale 2, behind the
 operations switch ``utils.rating_scale.GENERATION6_SWITCH_ENV``; off,
@@ -226,6 +227,15 @@ converted file (engine values, so they are the same numbers either way,
 except where the league's ratings were re-spread). A season recorded on
 generation 6 whose players file has scale 1 rows again (a stale copy pushed
 back) has them converted at its next storing read (``repair_league``).
+
+Release 6b (generation 7's operations switch,
+``utils.rating_scale.GENERATION7_SWITCH_ENV``, read only with the 8.0.0
+one; off, nothing below happens). The generation a new season is offered is
+7 instead of 6, through exactly the path above: a league on scale 1 is
+converted first and lands on 7 (the conversion's news item carries the
+ball-flight paragraph), one on scale 2 is simply given 7 and told in its own
+item (:func:`_announced_here`). ``NEXGEN_NEW_SEASON_ENGINE=6`` holds new
+seasons on generation 6.
 """
 
 from __future__ import annotations
@@ -240,6 +250,7 @@ import time
 from typing import Any, Dict, Iterable, List, Mapping, NamedTuple, Optional
 
 from physics_sim.engine_generation import (
+    BALLFLIGHT_ENGINE_GENERATION,
     CURRENT_ENGINE_GENERATION,
     LEGACY_ENGINE_GENERATION,
     SCALE2_ENGINE_GENERATION,
@@ -437,6 +448,11 @@ UNSTORED_CENTER_KEYS: tuple[str, ...] = (
 # (fielding) and the regulars' ground-ball centre (power and doubles).
 GENERATION_CENTER_KEYS: Dict[int, tuple[str, ...]] = {
     6: FIELDER_CENTER_KEYS + (HITTER_GF_CENTER_KEY,),
+    # Release 6b (the ball-flight step): the regulars' pull centre (spray
+    # widening) and the pitchers' ground-ball centre (the pitcher's
+    # launch-angle term). A league is given generation 7 only with its
+    # operations switch on (utils.rating_scale.generation7_switch_on).
+    7: (HITTER_PULL_CENTER_KEY, PITCHER_GF_USAGE_CENTER_KEY),
 }
 # key -> the first generation whose seasons read it.
 _KEY_GENERATION: Dict[str, int] = {
@@ -617,7 +633,7 @@ def league_engine_generation(
         lambda: _generation_locked(base, season_key, store=store)
     )
     if announce:
-        _announce_engine_switch(base)
+        _announce_engine_switch(base, generation)
     return generation
 
 
@@ -735,7 +751,7 @@ def _league_centers(
         )
     )
     if announce:
-        _announce_engine_switch(base)
+        _announce_engine_switch(base, announce[0])
     return centres
 
 
@@ -901,10 +917,11 @@ def _league_centers_locked(
             if (
                 new_entry
                 and verdict.announce
-                and verdict.generation < SCALE2_ENGINE_GENERATION
+                and _announced_here(base, season_key, verdict.generation)
             ):
-                # (A move to generation 6 posted its news at the conversion.)
-                announce.append(True)
+                # (A move to generation 6 posted its news at the conversion;
+                # so did a move to 7 that converted the league.)
+                announce.append(verdict.generation)
             merged = {**entry, **computed}
             if verdict.generation > LEGACY_ENGINE_GENERATION and any(
                 key in merged for key in RELATIVE_CENTER_KEYS
@@ -983,7 +1000,7 @@ def _generation_locked(
         if not had_entry:
             verdict = _settle_scale_move(base, season_key, seasons, verdict)
         elif verdict.generation >= SCALE2_ENGINE_GENERATION:
-            _repair_scale(base, season_key)
+            _repair_scale(base, season_key, verdict.generation)
     if had_entry or (store and verdict.record):
         _GENERATION_CACHE[(root, season_key)] = verdict.generation
     if not store or not verdict.record:
@@ -994,9 +1011,29 @@ def _generation_locked(
         return verdict.generation, False
     _record_generation(base, path, season_key, seasons, verdict.generation)
     announce = verdict.announce and not had_entry
-    if announce and verdict.generation >= SCALE2_ENGINE_GENERATION:
+    if announce and not _announced_here(base, season_key, verdict.generation):
         announce = False  # the conversion posted the league's news itself
     return verdict.generation, announce
+
+
+def _announced_here(base: Path, season_key: str, generation: int) -> bool:
+    """True when the switch to ``generation`` is announced by the season's
+    first record (``_CENTER_LOCK`` held): generation 5 always; generation 6
+    never (its scale 2 move posts the news); generation 7 unless the league
+    has been told about it already (``rating_scale_migration
+    .ballflight_told``: the move that decided this season carried the
+    ball-flight paragraph, or an earlier season posted the item). The item
+    is tied to the season being RECORDED on 7, never to the rollover's
+    conversion, so a hold set in between cannot leave a league told about
+    an engine it does not play; and a league that reaches 7 is told once."""
+
+    if generation < SCALE2_ENGINE_GENERATION:
+        return True
+    if generation < BALLFLIGHT_ENGINE_GENERATION:
+        return False
+    from services.rating_scale_migration import ballflight_told
+
+    return not ballflight_told(base)
 
 
 def _season_verdict(base: Path, season_key: str, seasons: dict) -> _Verdict:
@@ -1260,8 +1297,9 @@ def _new_season_generation(base: Path, seasons: dict | None = None) -> int:
     if wanted <= LEGACY_ENGINE_GENERATION:
         return LEGACY_ENGINE_GENERATION
     if wanted >= SCALE2_ENGINE_GENERATION:
-        # 8.0.0: generation 6 only with rating scale 2 (module docstring).
-        wanted = _scale2_generation(base)
+        # 8.0.0: generation 6 (and 7) only with rating scale 2 (module
+        # docstring).
+        wanted = _scale2_generation(base, wanted)
     try:
         engine_profile(wanted)
     except ValueError:
@@ -1329,21 +1367,26 @@ def _configured_new_season_generation() -> int:
         _LOGGER.warning(
             "%s=%r is not an engine generation", NEW_SEASON_ENGINE_ENV, raw
         )
+    if BALLFLIGHT_ENGINE_GENERATION in known:
+        # Both operations switches on: the ball-flight engine (the hold
+        # above, 6, keeps new seasons on generation 6).
+        return BALLFLIGHT_ENGINE_GENERATION
     if SCALE2_ENGINE_GENERATION in known:
         return SCALE2_ENGINE_GENERATION
     return CURRENT_ENGINE_GENERATION
 
 
-def _scale2_generation(base: Path) -> int:
-    """Generation 6 for a league that is on rating scale 2 or can be
-    converted to it, else the current generation. Reads only (the
-    conversion itself is :func:`_settle_scale_move`'s)."""
+def _scale2_generation(base: Path, wanted: int = SCALE2_ENGINE_GENERATION) -> int:
+    """``wanted`` (generation 6, or 7 with its switch on) for a league that
+    is on rating scale 2 or can be converted to it, else the current
+    generation. Reads only (the conversion itself is
+    :func:`_settle_scale_move`'s)."""
 
     from services.rating_scale_migration import league_on_scale2, move_blocker
 
     try:
         if league_on_scale2(base) or move_blocker(base) is None:
-            return SCALE2_ENGINE_GENERATION
+            return wanted
     except Exception:  # pragma: no cover - a read fault is a refusal
         _LOGGER.exception("could not tell whether %s can move to rating scale 2", base)
     return CURRENT_ENGINE_GENERATION
@@ -1528,7 +1571,12 @@ def move_league_at_rollover(
             convert_league(
                 base,
                 season_key,
-                generation=SCALE2_ENGINE_GENERATION,
+                # 6, or 7 with its switch on: the log names the engine the
+                # next season is offered. Its generation is recorded when it
+                # starts (a hold set in between still applies), so the
+                # ball-flight engine is told then, not here.
+                generation=_configured_new_season_generation(),
+                ballflight_news=False,
                 previous_generation=_newest_stored_generation(seasons),
                 population=population,
             )
@@ -1552,10 +1600,15 @@ def move_league_at_rollover(
 _SCALE_CHECKED: Dict[str, tuple] = {}
 
 
-def _repair_scale(base: Path, season_key: str) -> None:
-    """A season recorded on generation 6 whose players file holds scale 1
-    rows has them converted (``_CENTER_LOCK`` held). Cheap when there is
-    nothing to do: the file is read once per change."""
+def _repair_scale(
+    base: Path, season_key: str, generation: int = SCALE2_ENGINE_GENERATION
+) -> None:
+    """A season recorded on generation 6 (or 7) whose players file holds
+    scale 1 rows has them converted (``_CENTER_LOCK`` held). Cheap when there
+    is nothing to do: the file is read once per change. A fresh move after
+    an operator rollback onto a generation 7 season tells a league that was
+    never told about generation 7 (the move itself posts only the short
+    re-conversion item)."""
 
     path = base / "players.csv"
     try:
@@ -1569,10 +1622,22 @@ def _repair_scale(base: Path, season_key: str) -> None:
     from services.rating_scale_migration import repair_league
 
     try:
-        repair_league(base, season_key)
+        result = repair_league(base, season_key, generation=generation)
     except Exception:  # pragma: no cover - the game still plays (per-row scale)
         _LOGGER.exception("could not repair the rating scale of %s", base)
         return
+    if (
+        result is not None
+        and result.status == "converted"
+        and generation >= BALLFLIGHT_ENGINE_GENERATION
+    ):
+        from services.rating_scale_migration import ballflight_told
+
+        archived = _read_json(base / "career_index.json").get("seasons")
+        # (A league created on generation 7 has nothing to be told, as
+        # _is_engine_switch says for a season's first record.)
+        if isinstance(archived, list) and archived and not ballflight_told(base):
+            _tell_ballflight(base, season_key)
     try:
         stat = path.stat()
         _SCALE_CHECKED[root] = (stat.st_mtime_ns, stat.st_size)
@@ -1655,15 +1720,43 @@ def _is_engine_switch(base: Path, seasons: dict, generation: int) -> bool:
     return isinstance(archived, list) and bool(archived)
 
 
-def _announce_engine_switch(base: Path) -> None:
-    """Log :data:`ENGINE_SWITCH_NEWS` to the league's news feed (best effort)."""
+def _announce_engine_switch(
+    base: Path, generation: int = CURRENT_ENGINE_GENERATION
+) -> None:
+    """Log the switch to ``generation`` to the league's news feed (best
+    effort): :data:`ENGINE_SWITCH_NEWS` for generation 5, the ball-flight
+    item (``services.ballflight_news``) for generation 7."""
 
     try:
         from utils.news_logger import log_news_event
 
+        if generation >= BALLFLIGHT_ENGINE_GENERATION:
+            _tell_ballflight(base, _season_key(base))
+            return
         log_news_event(ENGINE_SWITCH_NEWS, file_path=base / "news_feed.txt")
     except Exception:  # pragma: no cover - news must never stop a game
         _LOGGER.exception("could not log the engine switch news item")
+
+
+def _tell_ballflight(base: Path, season_key: str) -> None:
+    """Post the league's own ball-flight item and record it
+    (``rating_scale.json``, ``ballflight_announced``) so it is posted once
+    (best effort)."""
+
+    try:
+        from services.ballflight_news import ballflight_switch_news
+        from services.rating_scale_migration import record_ballflight_announced
+        from utils.news_logger import log_news_event
+
+        log_news_event(
+            ballflight_switch_news(base, season=season_key),
+            # Tagged as the conversion and development items are.
+            category="league",
+            file_path=base / "news_feed.txt",
+        )
+        record_ballflight_announced(base, season_key)
+    except Exception:  # pragma: no cover - news must never stop a game
+        _LOGGER.exception("could not log the ball-flight news item")
 
 
 def _is_active_league(base: Path) -> bool:
@@ -2062,11 +2155,25 @@ def generation_rating_centers(
                 _pitcher_workloads(base / "rosters", active_by_team, pitchers),
             )
         )
-    if HITTER_GF_CENTER_KEY in wanted:
+    regular_specs = {
+        key: column
+        for key, column in _UNSTORED_REGULARS_SPECS.items()
+        if key in wanted
+    }
+    if regular_specs:
         centres.update(
             _regular_hitter_centers(
-                lineup_dir, active_by_team, hitters, hitter_value,
-                {HITTER_GF_CENTER_KEY: _UNSTORED_REGULARS_SPECS[HITTER_GF_CENTER_KEY]},
+                lineup_dir, active_by_team, hitters, hitter_value, regular_specs
+            )
+        )
+    if PITCHER_GF_USAGE_CENTER_KEY in wanted:
+        # Release 6b: the pitchers' ground-ball centre, weighted by expected
+        # workload as unstored_rating_centers weights it.
+        centres.update(
+            _pitcher_usage_centers(
+                pitchers,
+                _pitcher_workloads(base / "rosters", active_by_team, pitchers),
+                {PITCHER_GF_USAGE_CENTER_KEY: "gf"},
             )
         )
     return {

@@ -43,7 +43,9 @@ class ParkInfo:
 # a module global, so worker processes inherit it. Games played by the
 # product never set it.
 PARK_DATA_ROOT_ENV = "NEXGEN_PARK_DATA_ROOT"
-PARK_DATA_FILES = ("ParkConfig.csv", "ParkFactors.csv", "Parks.csv")
+# (ParkFences.csv: Release 6b, read by engine generation 7 only; the KPI
+# harness must not start without it either.)
+PARK_DATA_FILES = ("ParkConfig.csv", "ParkFactors.csv", "Parks.csv", "ParkFences.csv")
 
 
 def _pinned_park_root() -> Optional[Path]:
@@ -323,12 +325,20 @@ def park_lookup_name(stadium: str, park_id: str | None) -> str | None:
       stadium happens to be called.
     * otherwise -- that catalog park's name, which resolves exactly. An ID no
       longer in the catalog falls back to the generic park.
+
+    Release 6b: an id only ``ParkFences.csv`` holds (a park only engine
+    generation 7 knows, which only a generation 7 league's Team Settings
+    offers) gives that park's name. Generation 7 plays it on its fences
+    (``physics_sim.ballflight``); an earlier engine finds it in no file it
+    reads and plays the generic park, as it would for no name.
     """
 
     if park_id is None:
         name = (stadium or "").strip()
         return name or None
     info = park_info_for_id(park_id, prefer_name=stadium or "")
+    if info is None:
+        info = generation7_park_info_for_id(park_id)
     return info.name if info is not None else None
 
 
@@ -423,7 +433,297 @@ def park_factor_for_name(name: str) -> float:
     return best_val / 100.0
 
 
+_FENCE_WALL_DEFAULT_FT = 8.0
+
+
+@functools.lru_cache(maxsize=32)
+def _load_fence_rows_cached(
+    token: tuple[str, int, int],
+) -> Dict[str, tuple[str, int, tuple, tuple]]:
+    """Normalized park name -> (park id, year, five distances, five wall
+    heights) from the newest row of each name, the row
+    :func:`_load_latest_parks_cached` keeps. A row without its LF, CF and
+    RF distances is left out."""
+    latest: Dict[str, tuple[str, int, tuple, tuple]] = {}
+    path = Path(token[0])
+    if not path.exists():
+        return latest
+    with path.open("r", newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            try:
+                year = int(row.get("Year") or 0)
+            except Exception:
+                continue
+            name = (row.get("NAME") or row.get("Name") or "").strip()
+            if not name:
+                continue
+            fence = _fence_from_row(row)
+            key = _norm(name)
+            prev = latest.get(key)
+            if prev is not None and year <= prev[1]:
+                continue
+            if fence is None:
+                # The newest row rules even without a fence (no fallback
+                # to an older configuration of the park).
+                latest[key] = ("", year, (), ())
+                continue
+            pid = (row.get("parkID") or row.get("ParkID") or "").strip()
+            latest[key] = (pid, year, fence[0], fence[1])
+    return {k: v for k, v in latest.items() if v[2]}
+
+
+def _fence_from_row(row: dict) -> tuple[tuple, tuple] | None:
+    """A ParkConfig row's five-point fence (Release 6b, ``carry_model``):
+    LF line, left-centre, centre, right-centre, RF line. Left-centre is the
+    row's ``LC_Dim``, else ``LCC_Dim``, else ``LFA_Dim``, else ten feet
+    beyond the mean of the line and centre (right-centre the same way);
+    a missing wall height reads 8 ft."""
+    lf = _parse_float(row.get("LF_Dim", ""))
+    cf = _parse_float(row.get("CF_Dim", ""))
+    rf = _parse_float(row.get("RF_Dim", ""))
+    if lf is None or cf is None or rf is None:
+        return None
+
+    def first(*keys: str) -> Optional[float]:
+        for key in keys:
+            value = _parse_float(row.get(key, ""))
+            if value is not None:
+                return value
+        return None
+
+    lc = first("LC_Dim", "LCC_Dim", "LFA_Dim")
+    rc = first("RC_Dim", "RCC_Dim", "RFA_Dim")
+    if lc is None:
+        lc = (lf + cf) / 2.0 + 10.0
+    if rc is None:
+        rc = (rf + cf) / 2.0 + 10.0
+    heights = tuple(
+        _parse_float(row.get(key, "")) or _FENCE_WALL_DEFAULT_FT
+        for key in ("LF_W", "LC_W", "CF_W", "RC_W", "RF_W")
+    )
+    return (lf, lc, cf, rc, rf), heights
+
+
+# Release 6b: the five-point fences generation 7 plays (owner decision 20),
+# a file of its own so nothing an earlier engine reads changes.
+PARK_FENCES_FILE = "ParkFences.csv"
+# Generation 7: a catalog name of a park listed in ParkFences.csv counts as
+# that park only if the park carried it in a configuration from this year
+# on (park_fence_for_name). Every current park's names since 2000 (U.S.
+# Cellular Field, Guarantee Rate Field, the Oakland Coliseum's sponsors)
+# keep it; Royals Stadium (1973-93) and UMAX Coliseum (1997) do not.
+GENERATION7_NAME_SINCE = 2000
+
+
+def _comment_free_lines(fh: Iterable[str]) -> Iterable[str]:
+    return (line for line in fh if not line.lstrip().startswith("#"))
+
+
+@functools.lru_cache(maxsize=32)
+def _load_park_fences_cached(
+    token: tuple[str, int, int],
+) -> Dict[str, tuple[tuple, tuple, bool]]:
+    """``ParkFences.csv``: park id -> (five distances, five wall heights,
+    whether it is one of the parks the generic park averages)."""
+    return {pid: row[:3] for pid, row in _load_park_fence_rows_cached(token).items()}
+
+
+@functools.lru_cache(maxsize=32)
+def _load_park_fence_rows_cached(
+    token: tuple[str, int, int],
+) -> Dict[str, tuple[tuple, tuple, bool, str]]:
+    """``ParkFences.csv``: park id -> (distances, heights, generic, name)."""
+    out: Dict[str, tuple[tuple, tuple, bool, str]] = {}
+    path = Path(token[0])
+    if not path.exists():
+        return out
+    with path.open("r", newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(_comment_free_lines(fh)):
+            pid = (row.get("park_id") or "").strip().upper()
+            distances = tuple(
+                _parse_float(row.get(k, "")) for k in ("lf", "lc", "cf", "rc", "rf")
+            )
+            heights = tuple(
+                _parse_float(row.get(k, ""))
+                for k in ("lf_w", "lc_w", "cf_w", "rc_w", "rf_w")
+            )
+            if not pid or None in distances or None in heights:
+                continue
+            out[pid] = (
+                distances, heights, (row.get("generic") or "").strip() == "1",
+                (row.get("name") or "").strip(),
+            )
+    return out
+
+
+def park_fences() -> Dict[str, tuple[tuple, tuple, bool]]:
+    """Every row of ``ParkFences.csv`` (``{}`` without the file)."""
+    path = _find_park_data_file(PARK_FENCES_FILE)
+    if not path.exists():
+        return {}
+    return _load_park_fences_cached(_file_token(path))
+
+
+def _park_fence_by_exact_name(name: str) -> tuple[str, tuple, tuple] | None:
+    """The ``ParkFences.csv`` row whose name is ``name`` (normalized, exact
+    match only). Release 6b: the parks only generation 7 knows (Sutter
+    Health Park, George M. Steinbrenner Field) are named there and nowhere
+    an earlier engine reads, so no earlier lookup can reach them."""
+    path = _find_park_data_file(PARK_FENCES_FILE)
+    if not path.exists() or not name:
+        return None
+    target = _norm(name)
+    for pid, row in _load_park_fence_rows_cached(_file_token(path)).items():
+        if row[3] and _norm(row[3]) == target:
+            return pid, row[0], row[1]
+    return None
+
+
+def park_fence_for_name(name: str) -> tuple[str, tuple, tuple] | None:
+    """``(park id, five distances, five wall heights)`` of the park ``name``
+    names (Release 6b, engine generation 7 only): the ``ParkFences.csv`` row
+    of that exact name; else the catalog park of that EXACT name (no
+    substring fallback, unlike :func:`stadium_from_name`, which earlier
+    engines keep), by its ``ParkFences.csv`` row or else its newest
+    ParkConfig row by the five-point rule (:func:`_fence_from_row`);
+    ``None`` (the generic park) when no park has that exact name, when it
+    is a name a ParkFences.csv park carried only before
+    :data:`GENERATION7_NAME_SINCE`, or when the park has no full set of
+    line and centre distances."""
+    exact = _park_fence_by_exact_name(name)
+    if exact is not None:
+        return exact
+    # Generation 7 resolves a real park by its EXACT name only (no
+    # substring fallback): a real park is an explicit pick, a park id (whose
+    # catalog name comes here) or an exact real-park name (audit L13). A
+    # name a park generation 7 plays on its own fences carried only before
+    # GENERATION7_NAME_SINCE (Royals Stadium, Kauffman's 1973-93 name, or a
+    # club named the Royals' generated "Royals Stadium") names a
+    # configuration generation 7 does not have: the generic park.
+    info = park_info_for_exact_name(name)
+    if info is None:
+        return None
+    if info.year < GENERATION7_NAME_SINCE and (info.park_id or "").upper() in park_fences():
+        return None
+    path = _park_config_path()
+    if not path.exists():
+        return None
+    found = _load_fence_rows_cached(_file_token(path)).get(_norm(info.name))
+    if found is None:
+        return None
+    pid, _year, distances, heights = found
+    pid = pid or info.park_id
+    listed = park_fences().get((pid or "").upper())
+    if listed is not None:
+        distances, heights = listed[0], listed[1]
+    return pid, distances, heights
+
+
+@functools.lru_cache(maxsize=32)
+def _load_generation7_parks_cached(token: tuple[str, int, int]) -> Dict[str, dict]:
+    """``ParkFences.csv``: park id -> {name, year, distances, heights}."""
+    out: Dict[str, dict] = {}
+    path = Path(token[0])
+    if not path.exists():
+        return out
+    rows = _load_park_fence_rows_cached(token)
+    with path.open("r", newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(_comment_free_lines(fh)):
+            pid = (row.get("park_id") or "").strip().upper()
+            if pid not in rows:
+                continue
+            try:
+                year = int(row.get("year") or 0)
+            except ValueError:
+                year = 0
+            distances, heights, _generic, name = rows[pid]
+            out[pid] = {"name": name, "year": year, "distances": distances,
+                        "heights": heights}
+    return out
+
+
+def generation7_parks() -> Dict[str, dict]:
+    """Every park generation 7 plays on its own fences (``ParkFences.csv``):
+    park id -> ``{"name", "year", "distances", "heights"}``, the five-point
+    fence and walls as generation 7 reads them (before the fitted per-side
+    shifts). ``{}`` without the file. Read by generation 7 leagues' pages
+    only."""
+    path = _find_park_data_file(PARK_FENCES_FILE)
+    if not path.exists():
+        return {}
+    return _load_generation7_parks_cached(_file_token(path))
+
+
+def generation7_only_parks() -> Dict[str, dict]:
+    """The :func:`generation7_parks` with no ParkConfig.csv entry at all
+    (Sutter Health Park and George M. Steinbrenner Field): parks no earlier
+    engine knows."""
+    known = {
+        (info.park_id or "").strip().upper()
+        for info in _load_latest_parks().values()
+    }
+    return {pid: row for pid, row in generation7_parks().items() if pid not in known}
+
+
+def _generation7_info(pid: str, row: dict) -> ParkInfo:
+    distances = row["distances"]
+    return ParkInfo(
+        park_id=pid, name=row["name"], year=row["year"],
+        lf=distances[0], cf=distances[2], rf=distances[4], foul_territory=None,
+    )
+
+
+def generation7_park_info_for_id(park_id: str) -> ParkInfo | None:
+    """A park only generation 7 knows, by id (``None`` for any other id):
+    what a generation 7 league's Team Settings may pick beyond the catalog."""
+    pid = (park_id or "").strip().upper()
+    row = generation7_only_parks().get(pid) if pid else None
+    return _generation7_info(pid, row) if row is not None else None
+
+
+def generation7_park_info_for_exact_name(name: str) -> ParkInfo | None:
+    """A park only generation 7 knows, by its exact (normalized) name."""
+    if not name or not name.strip():
+        return None
+    target = _norm(name)
+    for pid, row in generation7_only_parks().items():
+        if _norm(row["name"]) == target:
+            return _generation7_info(pid, row)
+    return None
+
+
+def park_fence_rows(
+    park_ids: Iterable[str], year: int
+) -> dict[str, tuple[tuple, tuple]]:
+    """Park id -> its five-point fence in ``year``'s row of ParkConfig.csv
+    (the generic park of Release 6b is the mean of the 30 current parks)."""
+    wanted = {pid.upper() for pid in park_ids}
+    out: dict[str, tuple[tuple, tuple]] = {}
+    path = _park_config_path()
+    if not path.exists():
+        return out
+    with path.open("r", newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            pid = (row.get("parkID") or "").strip().upper()
+            try:
+                row_year = int(row.get("Year") or 0)
+            except Exception:
+                continue
+            if pid in wanted and row_year == year:
+                fence = _fence_from_row(row)
+                if fence is not None:
+                    out[pid] = fence
+    return out
+
+
 __all__ = [
+    "park_fence_for_name",
+    "park_fences",
+    "park_fence_rows",
+    "generation7_parks",
+    "generation7_only_parks",
+    "generation7_park_info_for_id",
+    "generation7_park_info_for_exact_name",
     "stadium_from_name",
     "park_factor_for_name",
     "park_altitude_for_name",

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from statistics import NormalDist
 from typing import Dict, Any
 import math
 import random
 
+from . import ballflight
 from .centred_ratings import rating_center
 from .config import DEFAULT_TUNING, TuningConfig
 from .park import Park
@@ -35,6 +37,13 @@ class PitchResult:
     reached_on_error: bool = False
 
 
+_STD_NORMAL = NormalDist()
+# Release 6b foul-outs (foul_out_model 1): the catcher's share of the catches
+# (the rest go to the corner infielder on the ball's side), and the exit
+# velocity and launch angle a caught foul is recorded with (a pop-up).
+FOUL_OUT_CATCHER_SHARE = 0.30
+FOUL_OUT_MAX_EV = 80.0
+FOUL_OUT_MIN_LA = 55.0
 FASTBALL_PITCHES = {"fb", "si"}
 # The shortest carry a double can need, as a share of the park's double
 # distance (times park_size_scale and double_distance_scale), whatever the
@@ -407,8 +416,13 @@ def choose_pitch_type(
     if isinstance(objective_bias, dict):
         bias_map = objective_bias.get(objective, {})
 
+    # Release 6b: a weight per pitch type (1.0 everywhere by default, which
+    # leaves every weight exactly as it was).
+    usage = tuning.values.get("pitch_type_usage_weight")
     for pitch_type, rating in repertoire.items():
         weight = max(1.0, float(rating))
+        if isinstance(usage, dict):
+            weight *= float(usage.get(pitch_type, 1.0))
         if pitch_type in FASTBALL_PITCHES:
             weight *= tuning.get("pitch_seq_fastball_bias", 1.0)
             if balls == 0 and strikes == 0:
@@ -1311,6 +1325,7 @@ def simulate_pitch(
     contact = False
     foul = False
     in_play = False
+    foul_out_fielder = None
     outcome = "ball"
     exit_velo = None
     launch_angle = None
@@ -1478,44 +1493,65 @@ def simulate_pitch(
                 quality *= max(0.75, 1.0 - (pitch_quality - 50.0) / 250.0)
             else:
                 quality *= max(0.75, 1.0 - (pitch_quality - 50.0) * ev_pq_slope)
-            quality *= 0.7 + 0.6 * contact_quality
-            quality *= max(
-                0.65,
-                1.0 - abs(timing_error) * tuning.get("timing_ev_penalty", 0.18),
-            )
-            quality *= max(
-                0.65,
-                1.0 - abs(barrel_error) * tuning.get("barrel_ev_penalty", 0.22),
-            )
-            quality = max(0.5, min(1.2, quality))
-            exit_velo = max(50.0, ev_base * quality)
-            exit_velo *= tuning.get("contact_quality_scale", 1.0)
-            exit_velo *= tuning.get("offense_scale", 1.0)
-            softcap = tuning.get("exit_velo_softcap", 0.0)
-            if softcap and exit_velo > softcap:
-                high_scale = tuning.get("exit_velo_softcap_scale", 0.5)
-                exit_velo = softcap + (exit_velo - softcap) * high_scale
-            gb_bias = (batter.get("gb_tendency", 50.0) - 50.0) / 10.0
-            launch_angle_base = tuning.get("launch_angle_base", 10.0)
-            launch_angle = random.gauss(
-                launch_angle_base - gb_bias, tuning.get("launch_angle_sd", 11.0)
-            )
             vertical_loc = 0.0
             if zone_half_height > 0:
                 vertical_loc = (loc[1] - zone_center) / zone_half_height
                 vertical_loc = max(-1.5, min(1.5, vertical_loc))
-            launch_angle += vertical_loc * tuning.get("location_launch_scale", 10.0)
-            launch_angle += timing_error * tuning.get("timing_launch_scale", 8.0)
-            launch_angle += random.gauss(
-                0.0, abs(barrel_error) * tuning.get("barrel_launch_sd_scale", 4.0)
-            )
-            launch_angle *= tuning.get("gb_fb_tilt", 1.0)
-            launch_angle = max(-20.0, min(60.0, launch_angle))
-            pull_bias = (batter.get("pull_tendency", 50.0) - 50.0) / 2.0
-            spray_angle = random.gauss(
-                pull_bias + timing_error * tuning.get("timing_spray_scale", 12.0),
-                18.0,
-            )
+            if batted_ball_model_on(tuning):
+                # Release 6b: one signed barrel offset sets both how squarely
+                # the ball is met (exit velocity) and its launch angle.
+                exit_velo, launch_angle, spray_angle = _batted_ball_kernel(
+                    potential=(
+                        ev_base
+                        * quality
+                        * tuning.get("contact_quality_scale", 1.0)
+                        * tuning.get("offense_scale", 1.0)
+                    ),
+                    timing_error=timing_error,
+                    barrel_error=barrel_error,
+                    vertical_loc=vertical_loc,
+                    batter=batter,
+                    pitcher=pitcher,
+                    pitch_type=pitch_type,
+                    tuning=tuning,
+                )
+            else:
+                quality *= 0.7 + 0.6 * contact_quality
+                quality *= max(
+                    0.65,
+                    1.0 - abs(timing_error) * tuning.get("timing_ev_penalty", 0.18),
+                )
+                quality *= max(
+                    0.65,
+                    1.0 - abs(barrel_error) * tuning.get("barrel_ev_penalty", 0.22),
+                )
+                quality = max(0.5, min(1.2, quality))
+                exit_velo = max(50.0, ev_base * quality)
+                exit_velo *= tuning.get("contact_quality_scale", 1.0)
+                exit_velo *= tuning.get("offense_scale", 1.0)
+                softcap = tuning.get("exit_velo_softcap", 0.0)
+                if softcap and exit_velo > softcap:
+                    high_scale = tuning.get("exit_velo_softcap_scale", 0.5)
+                    exit_velo = softcap + (exit_velo - softcap) * high_scale
+                gb_bias = (batter.get("gb_tendency", 50.0) - 50.0) / 10.0
+                launch_angle_base = tuning.get("launch_angle_base", 10.0)
+                launch_angle = random.gauss(
+                    launch_angle_base - gb_bias, tuning.get("launch_angle_sd", 11.0)
+                )
+                launch_angle += vertical_loc * tuning.get(
+                    "location_launch_scale", 10.0
+                )
+                launch_angle += timing_error * tuning.get("timing_launch_scale", 8.0)
+                launch_angle += random.gauss(
+                    0.0, abs(barrel_error) * tuning.get("barrel_launch_sd_scale", 4.0)
+                )
+                launch_angle *= tuning.get("gb_fb_tilt", 1.0)
+                launch_angle = max(-20.0, min(60.0, launch_angle))
+                pull_bias = (batter.get("pull_tendency", 50.0) - 50.0) / 2.0
+                spray_angle = random.gauss(
+                    pull_bias + timing_error * tuning.get("timing_spray_scale", 12.0),
+                    18.0,
+                )
             # Release 6a (spray_direction_model 1, audit M4): the draw above
             # is batter-relative (positive = pull); it is stored once as a
             # physical angle (positive = the right-field side), so a
@@ -1555,6 +1591,24 @@ def simulate_pitch(
             )
             foul_rate = max(0.05, min(0.9, foul_rate))
             foul = random.random() < foul_rate
+            if foul and tuning.get("foul_out_model", 0.0) >= 0.5:
+                # Release 6b: a foul caught for an out. One draw, and only
+                # on a foul; the share of that draw under the chance places
+                # the catch, so nothing else is drawn.
+                caught = tuning.get("foul_out_rate", 0.031) * max(
+                    0.0, foul_territory
+                ) ** tuning.get("foul_out_park_exp", 1.0)
+                roll = random.random()
+                if roll < caught:
+                    # (The stored spray angle is physical, negative toward
+                    # third base, under spray_direction_model 1.)
+                    if roll / caught < FOUL_OUT_CATCHER_SHARE:
+                        foul_out_fielder = "C"
+                    else:
+                        foul_out_fielder = "3B" if spray_angle < 0.0 else "1B"
+                    foul = False
+                    exit_velo = min(exit_velo, FOUL_OUT_MAX_EV)
+                    launch_angle = max(launch_angle, FOUL_OUT_MIN_LA)
             in_play = not foul
             outcome = "in_play" if in_play else "foul"
         else:
@@ -1586,7 +1640,7 @@ def simulate_pitch(
         if not swing and called_in_zone:
             outcome = "strike"
 
-    return PitchResult(
+    result = PitchResult(
         pitch_type=pitch_type,
         pitch_quality=pitch_quality,
         velocity=velocity,
@@ -1609,9 +1663,154 @@ def simulate_pitch(
         out_type=None,
         reached_on_error=False,
     )
+    if foul_out_fielder is not None:
+        # Release 6b (foul_out_model 1): set only on a caught foul, so every
+        # other pitch's record (and the pitch log) is as it was.
+        result.foul_out = foul_out_fielder
+    return result
+
+
+def batted_ball_model_on(tuning: TuningConfig) -> bool:
+    """Release 6b ``batted_ball_model`` 1: the exit-velocity / launch-angle
+    kernel and the Statcast classes with pop-ups."""
+    return tuning.get("batted_ball_model", 0.0) >= 0.5
+
+
+# Statcast's launch-angle class cutoffs (degrees): ground ball under 10, line
+# drive under 25, fly ball to 50, pop-up above.
+STATCAST_LD_MIN = 10.0
+STATCAST_FB_MIN = 25.0
+STATCAST_PU_MIN = 50.0
+
+
+def _truncated_normal(mean: float, sd: float, limit: float) -> float:
+    """One draw from a normal(``mean``, ``sd``) held to +/- ``limit`` by
+    its inverse CDF (one uniform: nothing piles up at the limits)."""
+    sd = max(1e-6, sd)
+    lo = _STD_NORMAL.cdf((-limit - mean) / sd)
+    hi = _STD_NORMAL.cdf((limit - mean) / sd)
+    p = lo + (hi - lo) * random.random()
+    p = min(1.0 - 1e-12, max(1e-12, p))
+    return max(-limit, min(limit, mean + sd * _STD_NORMAL.inv_cdf(p)))
+
+
+def _batted_ball_kernel(
+    *,
+    potential: float,
+    timing_error: float,
+    barrel_error: float,
+    vertical_loc: float,
+    batter: Dict[str, Any],
+    pitcher: Dict[str, Any],
+    pitch_type: str,
+    tuning: TuningConfig,
+) -> tuple[float, float, float]:
+    """Release 6b (``batted_ball_model`` 1; RELEASE6_PLAN section 3):
+    ``(exit velocity, launch angle, batter-relative spray angle)``.
+
+    One signed barrel offset ``u = barrel_error / bb6_offset_ref`` makes
+    both: under the ball (u > 0) lifts it, over it (u < 0) tops it, and
+    either way away from ``bb6_ev_peak_offset`` costs exit velocity
+    (``eff = 1 - k * (u - peak)^2``, a steeper ``k`` under the ball), so
+    topped balls and pop-ups are the weak ones. With chance
+    ``bb6_weak_share`` the contact is weaker still (``eff`` times a uniform
+    ``bb6_weak_eff_lo``..``hi``). Exit velocity is ``potential`` (pitch
+    speed, bat speed and the rating part of quality: Power's and
+    Pitching's) times ``eff``, soft-capped at ``bb6_ev_softcap``.
+
+    Launch angle: ``bb6_la_base`` minus the hitter's ground-ball rating
+    against the league's (``hitter_gf_center``) times
+    ``bb6_la_gf_per_point``, plus pitch height and timing terms and the
+    offset slope, plus a small noise. The pitcher's ground-ball identity
+    (``pitcher_gb_launch_scale``, pitching brief item E) lowers it by
+    ``k * (pitcher gf - pitcher_gf_usage_center)`` minus the pitch type's
+    ``pitch_type_launch_offset`` (a sinker's is negative), fully at or
+    below ``pitcher_gb_full_deg`` and by ``pitcher_gb_air_share`` of it at
+    or above ``pitcher_gb_air_deg``.
+
+    Spray (batter-relative, positive = pull): ``spray_model`` 0, the old
+    draw; 1, a normal around ``bb6_spray_base`` plus the pull rating
+    against ``hitter_pull_center``, timing, and less pull the higher the
+    ball, held to the fair-territory +/- 45 degrees, and a pulled ball in
+    the air is hit up to ``bb6_pull_ev_gain`` harder.
+    """
+    t = tuning.get
+    u = barrel_error / max(1e-6, t("bb6_offset_ref", 0.314))
+    du = u - t("bb6_ev_peak_offset", 0.33)
+    loss = t("bb6_ev_loss_topped", 0.0244) if du < 0.0 else t("bb6_ev_loss_under", 0.059)
+    eff = 1.0 - loss * du * du
+    if random.random() < t("bb6_weak_share", 0.147):
+        lo = t("bb6_weak_eff_lo", 0.40)
+        eff *= lo + (t("bb6_weak_eff_hi", 0.90) - lo) * random.random()
+    eff = max(t("bb6_ev_eff_floor", 0.45), eff)
+    gf = batter.get("gb_tendency", 50.0)
+    # The commissioner's Launch Angle Base slider: degrees from its neutral
+    # (bb6_la_slider_share 0, the default: no term).
+    slider = t("bb6_la_slider_share", 0.0)
+    if slider:
+        slider *= t("launch_angle_base", 12.1) - t("bb6_la_slider_neutral", 12.1)
+    launch_angle = (
+        t("bb6_la_base", 13.2)
+        + slider
+        - (gf - rating_center(tuning, "hitter_gf_center")) * t("bb6_la_gf_per_point", 0.40)
+        + vertical_loc * t("bb6_la_location_scale", 4.0)
+        + timing_error * t("bb6_la_timing_scale", 7.0)
+        + (t("bb6_la_per_offset_topped", 26.0) if u < 0.0 else t("bb6_la_per_offset", 22.0))
+        * u
+        + random.gauss(0.0, t("bb6_la_noise_sd", 0.5))
+    )
+    shift = 0.0
+    gb_scale = t("pitcher_gb_launch_scale", 0.0)
+    if gb_scale:
+        shift += (
+            float(pitcher.get("gb_tendency", 50.0))
+            - rating_center(tuning, "pitcher_gf_usage_center")
+        ) * gb_scale
+    offsets = tuning.values.get("pitch_type_launch_offset")
+    if isinstance(offsets, dict):
+        shift -= float(offsets.get(pitch_type, 0.0))
+    if shift:
+        full = t("pitcher_gb_full_deg", 10.0)
+        air = t("pitcher_gb_air_deg", 30.0)
+        share = t("pitcher_gb_air_share", 1.0)
+        weight = max(0.0, min(1.0, (air - launch_angle) / max(1e-6, air - full)))
+        launch_angle -= shift * (share + (1.0 - share) * weight)
+    launch_angle = max(-75.0, min(85.0, launch_angle))
+    if t("spray_model", 0.0) >= 0.5:
+        mean = (
+            t("bb6_spray_base", 9.0)
+            + (batter.get("pull_tendency", 50.0) - rating_center(tuning, "hitter_pull_center"))
+            * t("bb6_spray_pull_per_point", 0.5)
+            + timing_error * t("bb6_spray_timing_scale", 12.0)
+            - t("bb6_spray_la_slope", 0.35) * (max(-20.0, min(45.0, launch_angle)) - 12.0)
+        )
+        spray = _truncated_normal(mean, t("bb6_spray_sd", 40.0), 45.0)
+        ramp = max(0.0, min(1.0, (launch_angle - 5.0) / 15.0))
+        eff *= 1.0 + t("bb6_pull_ev_gain", 0.035) * ramp * spray / 45.0
+    else:
+        pull_bias = (batter.get("pull_tendency", 50.0) - 50.0) / 2.0
+        spray = random.gauss(
+            pull_bias + timing_error * t("timing_spray_scale", 12.0), 18.0
+        )
+    exit_velo = potential * t("bb6_ev_mult", 1.155) * eff
+    cap = t("bb6_ev_softcap", 110.2)
+    if exit_velo > cap:
+        exit_velo = cap + (exit_velo - cap) * t("bb6_ev_softcap_scale", 0.40)
+    return max(25.0, exit_velo), launch_angle, spray
 
 
 def classify_ball_type(launch_angle: float, tuning: TuningConfig) -> str:
+    """The engine's batted-ball class. Under ``batted_ball_model`` 1
+    Statcast's (``STATCAST_*``; ``"pu"`` above 50 degrees); otherwise the
+    old cutoffs and three classes."""
+    if batted_ball_model_on(tuning):
+        if launch_angle < STATCAST_LD_MIN:
+            return "gb"
+        if launch_angle < STATCAST_FB_MIN:
+            return "ld"
+        if launch_angle <= STATCAST_PU_MIN:
+            return "fb"
+        return "pu"
     gb_cutoff = tuning.get("bip_gb_cutoff", 6.0)
     ld_cutoff = tuning.get("bip_ld_cutoff", 13.0)
     if launch_angle < gb_cutoff:
@@ -1625,6 +1824,13 @@ def spray_to_field_angle(spray_deg: float) -> float:
     """Convert spray angle to stadium angle in radians (0=RF line, pi/2=LF line)."""
 
     return max(0.0, min(math.pi / 2, math.radians(45.0 - spray_deg)))
+
+
+def _park_altitude(park: Park) -> float:
+    try:
+        return float(getattr(park, "altitude_ft", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def estimate_carry_distance(
@@ -1671,12 +1877,26 @@ def resolve_batted_ball(
     """
 
     ball_type = classify_ball_type(launch_angle, tuning)
-    dist = estimate_carry_distance(exit_velo, launch_angle, tuning, park)
     angle = spray_to_field_angle(spray_angle)
-    park_scale = tuning.get("park_size_scale", 1.0)
-    wall = park.stadium.wall_distance(angle) * park_scale
-    if dist > wall:
-        return dist, True, ball_type, "hr"
+    if ballflight.carry_model_on(tuning):
+        # Release 6b (carry_model 1): carry with drag from the table and the
+        # five-point fence with its walls. The double and triple lines below
+        # read this fence: park_scale becomes its distance over the
+        # stadium's at this angle, so ``double_distance`` is the fence's.
+        dist, _hang, descent = ballflight.carry(
+            exit_velo, launch_angle, _park_altitude(park), tuning
+        )
+        fence = ballflight.park_fence(park, tuning)
+        needed, wall = ballflight.home_run_fence(fence, spray_angle, descent)
+        if dist > needed:
+            return dist, True, ball_type, "hr"
+        park_scale = wall / max(1.0, park.stadium.wall_distance(angle))
+    else:
+        dist = estimate_carry_distance(exit_velo, launch_angle, tuning, park)
+        park_scale = tuning.get("park_size_scale", 1.0)
+        wall = park.stadium.wall_distance(angle) * park_scale
+        if dist > wall:
+            return dist, True, ball_type, "hr"
     # Non-HR hit type determined by wall-relative distance.
     speed_norm = 0.0
     if batter_speed is not None:

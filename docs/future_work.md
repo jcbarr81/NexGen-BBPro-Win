@@ -2570,3 +2570,77 @@ wants a negotiation instead:
   pre-arb renewals, the FA bidding window); news / notifications when a
   player refuses to negotiate or heads to free agency; tests and the
   tutorial / help text for contracts.
+
+## Release 6b round 2: ball-flight follow-ups (2026-10-15, branch `r7-ballflight`)
+
+Engine generation 7 (RELEASE6_PLAN section 9). Round 2 re-fitted the
+kernel, the whole Power curve, decision 19 and the parks, gated the new
+model and gave the Home Run and Launch Angle sliders their generation 7
+meaning; round 3 made it ready to ship switched OFF behind
+`NEXGEN_GENERATION7` (section 9.5, `docs/generation7_switch_runbook.md`).
+The owner accepted the misses below as they stand (decisions 21-24,
+2026-10-15); they stay here as backlog. Open:
+
+- **The mean home run is 389-390 ft (about 400 asked), 450+ ft .5%**
+  (decision 22: accepted for now, gate 395 +/- 10). The kernel re-fit
+  (`kfit.py`, Savant 2024 shape: hard-hit, barrels, classes, sweet spot,
+  mean exit velocity, 83% of home runs barrels) reaches hard-hit .40, barrel
+  .077 and the classes with HR held at 1.14 a team-game, but not the
+  distance (Monte Carlo 390.6 ft). Round 1 measured +1.3% exit velocity
+  with carry .98-1.0 at 398-401 ft and 2.1-2.8 HR a team-game; round 2's
+  fits with carry pinned at 1.0 could not hold home runs (loss 956 against
+  the chosen fit's 137). The next lever is the hardest contact's launch
+  angle spread (more high, long fly balls that are not home runs) or
+  descent-dependent wall clearance; neither was built.
+- **HR per barrel .43** (Monte Carlo on the calibration kernel inputs). The
+  ".6" asked for is 2017's figure; MLB 2024 is about .47 by arithmetic
+  (5,453 HR, 83% barrels, 9,716 barrels) and published figures run .45
+  (2022) to about .61 (2017). Not gated.
+- **Thirty-homer hitters** (decision 21, done in round 3): gated as the
+  pooled SHARE of qualified hitters, .18 +/- .07 (MLB 2023-2025: .184).
+  Calibration reads .128 (31 a season: it qualifies about 240 regulars),
+  the league fixture .119, the flat fixture .079. The Power curve is kept.
+- **r(pull rating, pull angle) .58-.66** on the wide fixtures (gate .70 +/-
+  .20; one league season of four reads .50). Spray widening (sd 40) is the
+  cause.
+- **Park hit types** (decision 24: left unfitted): Coors singles 102 against
+  Savant's 115, Fenway doubles 108 against 120, Chase triples 118 against
+  208, Comerica triples 97 against 150, Oracle triples 82 against 141,
+  Busch triples 128 against 69, Progressive triples 120 against 63. Fit
+  doubles and triples by park (a per-park gap or wall-carom term) if they
+  ever matter. The large per-side home-run shifts are accepted (decision
+  23).
+- **`pitches_per_pa` 3.81-3.82 on calibration** (3.86 +/- .05; 3 of 8
+  seasons fail by under .01; seed 1 passes). The foul-out draw ends some
+  plate appearances a pitch early; a foul-rate nudge would cover it.
+- **The flat fixture** fails runs, HR, doubles, the pull correlations and
+  three pooled pitching slopes (pitcher GB% true sd .023 there): it has
+  almost no rating spread, so these are report-only for it, as before.
+- **The CI step** (`--engine 7 --strict`, calibration seed 1) is not
+  blocking; make it blocking once it has passed on the runner (Python 3.12
+  there; seed 1 passes locally on 3.11).
+- **A per-league engine hold.** Holding a league on generation 6 while
+  others move to 7 needs either the service-wide hold or an operator's
+  `set_recorded_generation` (the runbook, section 4); a `"hold_generation"`
+  in `rating_scale.json` would be cleaner if leagues ever need it.
+- **Foul-outs** are caught by the catcher (30%) or the corner infielder on
+  the ball's side, never by anyone else, and never drop for an error.
+- **Pop-ups and foul-outs in season stats** (round 5, backlog). Box scores
+  name the foul-outs (the fielding note); the season stats pages have no
+  batted-ball columns at all (a pop-up counts as a fly ball in the box
+  lines), so pop-ups and foul-outs per hitter and pitcher need new stat
+  keys, their accumulation (`playbalance.stats`) and columns on the stats
+  pages. Do it with any batted-ball columns (GB / LD / FB / PU, hard-hit).
+- **The live-league copies' pooled pitching gates** (round 5): two seasons
+  each of the rehearsal's 2028 rosters miss pitcher GB% true sd (alpha-test
+  .049, gate .075 +/- .025) and, on stats-test, three pitching slopes
+  (walk rate per 10 control -1.18, pitcher / hitter HR true-sd ratio .71,
+  HR per 10 points of pitcher GB rating -21%). Roster-driven (bunched
+  ground-ball ratings, a different staff mix); look again after a season of
+  generation 7 play.
+- **Old park names on generation 7** (round 5): a team whose explicit
+  `park_id` was picked under a name the park carried only before 2000
+  (KAN06 as "Royals Stadium") plays the generic park on generation 7,
+  because the engine reads the park by its name. The generation 7 catalog
+  no longer offers such names; carry the park id into the engine if one is
+  ever found.

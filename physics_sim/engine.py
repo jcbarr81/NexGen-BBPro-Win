@@ -9,6 +9,16 @@ import re
 import zlib
 
 from .arm_injury import roll_post_game_injuries
+from .ballflight import (
+    BallInPlay,
+    carry as ball_carry,
+    carry_model_on,
+    fielding_play_model_on,
+    play,
+    real_park_on_generation7,
+    require_park_fences,
+    resolve_ball,
+)
 from .config import load_tuning, TuningConfig
 from .data_loader import load_players_by_id
 from .models import BatterRatings, PitcherRatings
@@ -33,6 +43,7 @@ from .fielding import (
     league_average_defense,
     neutral_out_probability,
     outfield_position,
+    range_shifted_out_probability,
     responsible_position,
 )
 from .centred_ratings import (
@@ -47,6 +58,7 @@ from .centred_ratings import (
 from .park import load_park, Park
 from .platoon import platoon_shift
 from .physics import (
+    classify_ball_type,
     simulate_pitch,
     resolve_batted_ball,
     PitchResult,
@@ -2920,8 +2932,13 @@ def _tag_up_race(
         "tag_up_throw_arm", 1.0
     )
     velo = max(40.0, velo)
-    la = math.radians(max(1.0, min(60.0, launch_angle)))
-    hang = 2.0 * exit_velo * 1.467 * math.sin(la) / 32.17
+    if carry_model_on(tuning):
+        # Release 6b: the ball's hang time with drag (the carry table, at
+        # sea-level air), not the drag-free one.
+        hang = ball_carry(exit_velo, launch_angle, 0.0, tuning)[1]
+    else:
+        la = math.radians(max(1.0, min(60.0, launch_angle)))
+        hang = 2.0 * exit_velo * 1.467 * math.sin(la) / 32.17
     t_throw = tuning.get("tag_up_release", 2.0)
     t_throw += distance * tuning.get("tag_up_carry_k", 1.2) / velo
     t_throw -= tuning.get("tag_up_hang_k", 0.15) * max(
@@ -3205,7 +3222,13 @@ def _fielder_position_for_ball(
     batter_side: str,
     tuning: TuningConfig,
     infield_play: bool,
+    play_fielder: str | None = None,
 ) -> str:
+    """The fielder a ball is credited to. ``play_fielder`` is the one the
+    Release 6b fielding play model chose for this ball
+    (``fielding_play_model`` 1), which is then the answer."""
+    if play_fielder:
+        return play_fielder
     angle = spray_angle or 0.0
     spray_dir = _spray_dir(angle, batter_side, tuning)
     if ball_type == "gb":
@@ -3272,6 +3295,57 @@ def _is_infield_single(
     if ev_max <= 0.0 or ball_type != "gb" or (hit_type or "single") != "single":
         return False
     return float(exit_velo if exit_velo is not None else 90.0) <= ev_max
+
+
+# Release 6b: the carry a caught foul is logged with (ft).
+FOUL_OUT_DISTANCE_FT = 90.0
+
+
+def _shifted_hit_chance(open_chance: float, shift: float) -> float:
+    """``open_chance`` (the chance a ball is not turned into an out) moved by
+    ``shift`` in log-odds (``bb6_hit_logit_shift``); 0 and 1 stay put, and a
+    shift of 0 returns it unchanged. Draws nothing."""
+    if not shift or not 0.0 < open_chance < 1.0:
+        return open_chance
+    logit = math.log(open_chance / (1.0 - open_chance)) + shift
+    return 1.0 / (1.0 + math.exp(-logit))
+
+
+def _relative_speed(batter: BatterRatings, tuning: TuningConfig) -> float:
+    """The batter's speed against the league's hitters (50 = average), as
+    the Release 6b play model and hit types read it."""
+    return float(batter.speed) - tuning.get("hitter_speed_center", 50.0) + 50.0
+
+
+def _play_out_chance(
+    flight: BallInPlay,
+    defense: DefenseRatings,
+    range_model: bool,
+    tuning: TuningConfig,
+    ball_type: str,
+) -> float:
+    """The out chance of a ball the Release 6b play model resolved: its
+    neutral ``out0`` moved by the responsible fielder's rating under
+    ``range_model`` 1 (in log-odds, a line drive -- the Statcast class,
+    ``ball_type`` -- at ``range_ld_ratio``, as scripts/fit_fielding_slopes.py
+    counts it), within ``bb6_hit_prob_min``..``max`` of certainty. The
+    pitcher and the catcher have no range slope."""
+    out0 = flight.out0
+    if not range_model:
+        return out0
+    rating = defense.positions.get(flight.fielder)
+    if rating is None:
+        return out0
+    lo = tuning.get("bb6_hit_prob_min", 0.002)
+    hi = 1.0 - lo
+    return range_shifted_out_probability(
+        min(hi, max(lo, out0)),
+        position=flight.fielder,
+        rating=rating,
+        ball_type=ball_type,
+        tuning=tuning,
+        bounds=(lo, hi),
+    )
 
 
 def _contact_babip_edge(batter: BatterRatings, tuning: TuningConfig) -> float:
@@ -3404,6 +3478,8 @@ def _ball_chance_record(
     mound: PitcherRatings | None,
     tuning: TuningConfig,
     infield_play: bool | None = None,
+    neutral: float | None = None,
+    positions: tuple[str, ...] | None = None,
 ) -> tuple:
     """One ball in play for ``play_records["bip_chances"]`` (Release 6a,
     ``fielding_chance_log``): ``(pitch_log index, fielding side, ball type,
@@ -3417,8 +3493,21 @@ def _ball_chance_record(
     infielders on the ball's side share a ground ball, and the average
     chance is the additive one behind ``average_defense``
     (``fielding.league_average_defense``). Draws nothing.
+
+    Release 6b (``fielding_play_model`` 1): the caller hands in the play
+    model's neutral chance and its one fielder (``neutral``,
+    ``positions``).
     """
     spray = res.spray_angle
+    if neutral is not None and positions is not None:
+        fielders = []
+        for pos in positions:
+            _, fielder = _fielder_at(defense_map, pos, pitcher=mound)
+            fielders.append(fielder.player_id if fielder is not None else None)
+        return (
+            index, side, ball_type, tuple(positions), tuple(fielders),
+            out_prob, neutral, hit_prob,
+        )
     ball = dict(
         ball_type=ball_type,
         exit_velo=res.exit_velo or 90.0,
@@ -4310,8 +4399,12 @@ def _resolve_ground_out(
     inning: int = 1,
     fielding_lead: int = 0,
     mound: PitcherRatings | None = None,
+    play_fielder: str | None = None,
 ) -> tuple[int, int, list[str], list[BatterRatings]]:
     """Resolve a ground-ball out with runners on.
+
+    ``play_fielder``: the infielder the Release 6b play model gave the ball
+    (``fielding_play_model`` 1), instead of the spray band's.
 
     ``ground_out_model`` 0 is the 7.47.0 play; 1 hands everything after the
     triple-play roll to ``_ground_out_runners_v2`` (audit M8), which reads
@@ -4339,6 +4432,7 @@ def _resolve_ground_out(
         batter_side=batter_side,
         tuning=tuning,
         infield_play=True,
+        play_fielder=play_fielder,
     )
     primary_pos, primary_fielder = _fielder_at(
         defense_map,
@@ -5372,7 +5466,7 @@ def _pitcher_context(pitcher: PitcherRatings, tuning: TuningConfig) -> Dict[str,
             for pitch, grade in repertoire.items()
         }
     arm = _league_relative(pitcher.arm, "pitcher_arm_usage_center", tuning)
-    return {
+    context = {
         "repertoire": repertoire,
         # Fastball velocity; per-type offsets are subtracted in
         # simulate_pitch. +3 vs the old flat 80 recenters the
@@ -5389,6 +5483,11 @@ def _pitcher_context(pitcher: PitcherRatings, tuning: TuningConfig) -> Dict[str,
         "hand": pitcher.throws,
         "vs_left": pitcher.vs_left,
     }
+    if tuning.get("pitcher_gb_launch_scale", 0.0):
+        # Release 6b: his ground-ball rating, read by the batted-ball
+        # kernel's pitcher term only (and only there while it is on).
+        context["gb_tendency"] = pitcher.gb_tendency
+    return context
 
 
 def _lineup_hand_from_starter(starter: PitcherRatings | None) -> str:
@@ -6008,7 +6107,17 @@ def simulate_game(
     # Release 6a (double_line_drive_scale): and for the regulars' ground-ball
     # centre the doubles credit reads.
     require_batted_ball_centers(tuning)
+    # Release 6b: the ball-flight model plays every real park on generation
+    # 7's own fence file and never falls back to ParkConfig.csv's rows.
+    require_park_fences(tuning)
     park: Park = load_park(park_name)
+    if carry_model_on(tuning) and not real_park_on_generation7(park):
+        # Round 5: a park generation 7 does not play on its own fences is
+        # the generic park in everything -- its air, its foul ground, its
+        # factor -- not only its fence (a club named the Royals' "Royals
+        # Stadium" took Kansas City's altitude and foul ground from the
+        # earlier engines' name lookup).
+        park = load_park(None)
     injury_sim: InjurySimulator | None = None
     if tuning.get("injuries_enabled", 1.0) > 0.5:
         injury_sim = InjurySimulator(rng=rng)
@@ -7436,21 +7545,46 @@ def simulate_game(
                 elif res.outcome == "in_play":
                     totals["ab"] += 1
                     batter_line.ab += 1
-                    dist, is_hr, ball_type, hit_type = resolve_batted_ball(
-                        exit_velo=res.exit_velo or 90.0,
-                        launch_angle=res.launch_angle or 12.0,
-                        spray_angle=res.spray_angle or 0.0,
-                        park=park,
-                        tuning=tuning,
-                        batter_speed=batter.speed,
-                        batter_contact=_league_relative(
-                            batter.contact, "hitter_contact_center", tuning
-                        ),
-                        batter_power=_league_relative(
-                            batter.power, "hitter_power_center", tuning
-                        ),
-                        batter_gb_tendency=batter.gb_tendency,
-                    )
+                    # Release 6b: a foul caught for an out (foul_out_model
+                    # 1) names its fielder; the fielding play model
+                    # (fielding_play_model 1) resolves every other ball.
+                    # Both None (and nothing new drawn) with them off.
+                    foul_caught = getattr(res, "foul_out", None)
+                    flight = None
+                    if foul_caught is not None:
+                        dist, is_hr, hit_type = FOUL_OUT_DISTANCE_FT, False, None
+                        ball_type = "pu"
+                    elif fielding_play_model_on(tuning):
+                        flight = resolve_ball(
+                            res.exit_velo or 90.0,
+                            res.launch_angle or 12.0,
+                            res.spray_angle or 0.0,
+                            park=park,
+                            tuning=tuning,
+                            batter_speed=_relative_speed(batter, tuning),
+                        )
+                        dist, is_hr, hit_type = (
+                            flight.distance, flight.is_hr, flight.hit_type
+                        )
+                        ball_type = classify_ball_type(
+                            res.launch_angle or 12.0, tuning
+                        )
+                    else:
+                        dist, is_hr, ball_type, hit_type = resolve_batted_ball(
+                            exit_velo=res.exit_velo or 90.0,
+                            launch_angle=res.launch_angle or 12.0,
+                            spray_angle=res.spray_angle or 0.0,
+                            park=park,
+                            tuning=tuning,
+                            batter_speed=batter.speed,
+                            batter_contact=_league_relative(
+                                batter.contact, "hitter_contact_center", tuning
+                            ),
+                            batter_power=_league_relative(
+                                batter.power, "hitter_power_center", tuning
+                            ),
+                            batter_gb_tendency=batter.gb_tendency,
+                        )
                     res.distance = dist
                     res.ball_type = ball_type
                     res.hit_type = hit_type
@@ -7461,7 +7595,8 @@ def simulate_game(
                     elif ball_type == "ld":
                         batter_line.ld += 1
                         line.ld += 1
-                    elif ball_type == "fb":
+                    elif ball_type in ("fb", "pu"):
+                        # Release 6b: a pop-up is a fly ball in the box line.
                         batter_line.fb += 1
                         line.fb += 1
                     if is_hr:
@@ -7512,30 +7647,75 @@ def simulate_game(
                         # credited and charged. Off: drawn as before, after
                         # the hit roll and only for an out.
                         liner_infield: dict[str, bool] = {}
-                        if range_model:
-                            drawn = draw_infield_liner(
-                                ball_type, res.launch_angle or 12.0
+                        # Release 6b: the play model's (or a caught foul's)
+                        # fielder, out type and infield flag, and the share
+                        # of its hits that are infield hits. None / {} off.
+                        play_pos: str | None = None
+                        play_kw: dict[str, str] = {}
+                        infield_hit_share = 0.0
+                        chance_override: dict[str, Any] = {}
+                        if foul_caught is not None:
+                            play_pos = foul_caught
+                            liner_infield = {"infield_play": True}
+                            out_prob = 1.0
+                            hit_prob = 0.0
+                        elif flight is not None:
+                            play(
+                                flight, tuning,
+                                batter_speed=_relative_speed(batter, tuning),
                             )
-                            if drawn is not None:
-                                liner_infield = {"infield_play": drawn}
-                        out_prob = out_probability(
-                            ball_type=ball_type,
-                            exit_velo=res.exit_velo or 90.0,
-                            launch_angle=res.launch_angle or 12.0,
-                            spray_angle=res.spray_angle,
-                            batter_side=batter_hand,
-                            pull_tendency=batter.pull_tendency,
-                            defense=defense_ratings,
-                            tuning=tuning,
-                            batter_speed=batter.speed,
-                            **liner_infield,
-                        )
-                        hit_prob = (1.0 - out_prob) * tuning.get("babip_scale", 1.0)
-                        babip_edge = _contact_babip_edge(batter, tuning)
-                        if babip_edge:
-                            hit_prob += babip_edge
-                        hit_prob = max(0.02, min(0.95, hit_prob))
-                        if chance_log:
+                            play_pos = flight.fielder
+                            liner_infield = {"infield_play": flight.infield_play}
+                            out_prob = _play_out_chance(
+                                flight, defense_ratings, range_model, tuning,
+                                ball_type,
+                            )
+                            hit_prob = _shifted_hit_chance(
+                                1.0 - out_prob,
+                                tuning.get("bb6_hit_logit_shift", 0.0),
+                            ) * tuning.get("babip_scale", 1.0)
+                            babip_edge = _contact_babip_edge(batter, tuning)
+                            if babip_edge:
+                                hit_prob += babip_edge
+                            hit_prob = max(
+                                tuning.get("bb6_hit_prob_min", 0.002),
+                                min(tuning.get("bb6_hit_prob_max", 0.998), hit_prob),
+                            )
+                            if flight.route == "ground" and flight.out0 < 1.0:
+                                infield_hit_share = min(
+                                    1.0, flight.infield_hit / (1.0 - flight.out0)
+                                )
+                            chance_override = {
+                                "neutral": flight.out0,
+                                "positions": (flight.fielder,),
+                            }
+                        else:
+                            if range_model:
+                                drawn = draw_infield_liner(
+                                    ball_type, res.launch_angle or 12.0
+                                )
+                                if drawn is not None:
+                                    liner_infield = {"infield_play": drawn}
+                            out_prob = out_probability(
+                                ball_type=ball_type,
+                                exit_velo=res.exit_velo or 90.0,
+                                launch_angle=res.launch_angle or 12.0,
+                                spray_angle=res.spray_angle,
+                                batter_side=batter_hand,
+                                pull_tendency=batter.pull_tendency,
+                                defense=defense_ratings,
+                                tuning=tuning,
+                                batter_speed=batter.speed,
+                                **liner_infield,
+                            )
+                            hit_prob = (1.0 - out_prob) * tuning.get("babip_scale", 1.0)
+                            babip_edge = _contact_babip_edge(batter, tuning)
+                            if babip_edge:
+                                hit_prob += babip_edge
+                            hit_prob = max(0.02, min(0.95, hit_prob))
+                        if play_pos is not None:
+                            play_kw = {"play_fielder": play_pos}
+                        if chance_log and foul_caught is None:
                             # Release 6a play record (no draws): who the
                             # ball belonged to and what an average fielder
                             # there would have made of it.
@@ -7554,9 +7734,11 @@ def simulate_game(
                                     mound=pitcher_state.pitcher,
                                     tuning=tuning,
                                     infield_play=liner_infield.get("infield_play"),
+                                    **chance_override,
                                 )
                             )
-                        if rng.random() < hit_prob:
+                        hit_roll = rng.random()
+                        if hit_roll < hit_prob:
                             totals["h"] += 1
                             line.hits += 1
                             line.inning_hits += 1
@@ -7567,18 +7749,33 @@ def simulate_game(
                             # outfielder who picks the ball up, including on
                             # a ground-ball single; only an infield single
                             # (4b, off by default) stays with the infielder.
-                            advance_infield = _is_infield_single(
-                                ball_type=ball_type,
-                                hit_type=hit_type,
-                                exit_velo=res.exit_velo or 90.0,
-                                tuning=tuning,
-                            )
-                            advance_primary = _hit_advance_position(
-                                spray_angle=res.spray_angle,
-                                batter_side=batter_hand,
-                                tuning=tuning,
-                                infield_hit=advance_infield,
-                            )
+                            if flight is not None:
+                                # Release 6b: the hit roll's own draw says
+                                # whether a ground-ball hit beat the throw
+                                # (an infield single, on the fielder who
+                                # had it) or got through to the outfielder
+                                # nearest where it went.
+                                advance_infield = (
+                                    hit_roll < hit_prob * infield_hit_share
+                                )
+                                if advance_infield:
+                                    hit_type = "single"
+                                    advance_primary = flight.fielder
+                                else:
+                                    advance_primary = flight.of_position
+                            else:
+                                advance_infield = _is_infield_single(
+                                    ball_type=ball_type,
+                                    hit_type=hit_type,
+                                    exit_velo=res.exit_velo or 90.0,
+                                    tuning=tuning,
+                                )
+                                advance_primary = _hit_advance_position(
+                                    spray_angle=res.spray_angle,
+                                    batter_side=batter_hand,
+                                    tuning=tuning,
+                                    infield_hit=advance_infield,
+                                )
                             advance_pos = advance_primary
                             advance_fallback = (
                                 ["SS", "2B", "3B", "1B"]
@@ -7742,9 +7939,16 @@ def simulate_game(
                             if events:
                                 pitch_log[-1]["runner_event"] = "+".join(events)
                         else:
-                            out_type, infield_play = select_out_type(
-                                ball_type, res.launch_angle or 12.0, **liner_infield
-                            )
+                            if flight is not None:
+                                out_type, infield_play = (
+                                    flight.out_type, flight.infield_play
+                                )
+                            elif foul_caught is not None:
+                                out_type, infield_play = "flyout", True
+                            else:
+                                out_type, infield_play = select_out_type(
+                                    ball_type, res.launch_angle or 12.0, **liner_infield
+                                )
                             res.out_type = out_type
                             error_pos = _fielder_position_for_ball(
                                 ball_type=ball_type,
@@ -7752,6 +7956,7 @@ def simulate_game(
                                 batter_side=batter_hand,
                                 tuning=tuning,
                                 infield_play=infield_play,
+                                **play_kw,
                             )
                             error_fallback = (
                                 ["SS", "2B", "3B", "1B"]
@@ -7799,7 +8004,18 @@ def simulate_game(
                                 tuning=tuning,
                                 **roll_position,
                             )
-                            if chance_log:
+                            if foul_caught is not None:
+                                # A dropped foul pop is no way on base.
+                                error_prob = 0.0
+                                # Who caught it, for the box score's note
+                                # (presentation only; foul-outs exist only
+                                # with foul_out_model on, so no earlier
+                                # generation's log changes).
+                                if pitch_log and error_fielder is not None:
+                                    pitch_log[-1]["foul_out_fielder"] = str(
+                                        getattr(error_fielder, "player_id", "") or ""
+                                    )
+                            if chance_log and foul_caught is None:
                                 # Release 6a play record (no draws): this
                                 # error roll and an average fielder's.
                                 error_chances.append(
@@ -7945,6 +8161,11 @@ def simulate_game(
                                     batter_side=batter_side,
                                     tuning=tuning,
                                     mound=pitcher_state.pitcher,
+                                    **(
+                                        {"fielder_pos": play_pos}
+                                        if play_pos is not None
+                                        else {}
+                                    ),
                                 )
                                 apply_advance_errors(
                                     error_runners=error_advances,
@@ -7953,6 +8174,11 @@ def simulate_game(
                                     batter_side=batter_side,
                                     infield_play=infield_play,
                                     error_on="advance",
+                                    **(
+                                        {"fielder_pos": play_pos}
+                                        if play_pos is not None
+                                        else {}
+                                    ),
                                 )
                                 record_runs(runs_scored, line, scored)
                                 if outs_added:
@@ -7987,6 +8213,7 @@ def simulate_game(
                                         inning=inning,
                                         fielding_lead=fielding_lead,
                                         mound=pitcher_state.pitcher,
+                                        **play_kw,
                                     )
                                     if go_runner3 is not None and outs < 2:
                                         # Release 4 (W3) play record for the
@@ -8013,6 +8240,7 @@ def simulate_game(
                                         batter_side=batter_side,
                                         tuning=tuning,
                                         infield_play=True,
+                                        **play_kw,
                                     )
                                     primary_pos, primary_fielder = _fielder_at(
                                         defense_map,
@@ -8214,6 +8442,7 @@ def simulate_game(
                                         batter_side=batter_side,
                                         tuning=tuning,
                                         infield_play=infield_play,
+                                        **play_kw,
                                     )
                                     fallback = (
                                         ["SS", "2B", "3B", "1B"]
@@ -8288,6 +8517,11 @@ def simulate_game(
                                             batter_side=batter_side,
                                             infield_play=infield_play,
                                             error_on="tag_up",
+                                            **(
+                                                {"fielder_pos": play_pos}
+                                                if play_pos is not None
+                                                else {}
+                                            ),
                                         )
                                     _reconcile_runner_pitchers(
                                         runner_pitchers,

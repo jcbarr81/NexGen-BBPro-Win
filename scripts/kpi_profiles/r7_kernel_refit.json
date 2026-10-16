@@ -1,0 +1,15 @@
+{
+  "bb6_ev_mult": 1.1806,
+  "bb6_ev_softcap": 143.282,
+  "bb6_ev_softcap_scale": 0.3293,
+  "bb6_ev_peak_offset": 0.1304,
+  "bb6_ev_loss_under": 0.0853,
+  "bb6_ev_loss_topped": 0.0482,
+  "bb6_weak_share": 0.134,
+  "bb6_weak_eff_lo": 0.3612,
+  "bb6_la_base": 14.4281,
+  "bb6_la_per_offset": 22.8337,
+  "bb6_la_per_offset_topped": 34.9816,
+  "bb6_la_noise_sd": 0.5106,
+  "bb6_carry_scale": 0.934
+}

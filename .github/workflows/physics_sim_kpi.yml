@@ -19,9 +19,16 @@ on:
       - "scripts/generate_league_fixture.py"
       - "data/MLB_avg/**"
       - "data/calibration_flat/**"
+      # Release 6b (engine generation 7): the park files the harness reads
+      # (ParkFences.csv, ParkHRTargets.csv beside ParkConfig.csv), the
+      # profile's stage builder and the pooled-gate checker.
+      - "data/parks/**"
+      - "scripts/build_engine7_profile.py"
+      - "scripts/check_pooled_gates.py"
       # The services a harness run imports (measured on an --engine 6
-      # season, 8.0.0): the league's rating centres and engine generation,
-      # the tuning settings and presets, and what they read.
+      # season, 8.0.0, and again on an --engine 7 one: the same list): the
+      # league's rating centres and engine generation, the tuning settings
+      # and presets, and what they read.
       - "services/__init__.py"
       - "services/decision_explanations.py"
       - "services/injury_settings.py"
@@ -56,9 +63,16 @@ on:
       - "scripts/generate_league_fixture.py"
       - "data/MLB_avg/**"
       - "data/calibration_flat/**"
+      # Release 6b (engine generation 7): the park files the harness reads
+      # (ParkFences.csv, ParkHRTargets.csv beside ParkConfig.csv), the
+      # profile's stage builder and the pooled-gate checker.
+      - "data/parks/**"
+      - "scripts/build_engine7_profile.py"
+      - "scripts/check_pooled_gates.py"
       # The services a harness run imports (measured on an --engine 6
-      # season, 8.0.0): the league's rating centres and engine generation,
-      # the tuning settings and presets, and what they read.
+      # season, 8.0.0, and again on an --engine 7 one: the same list): the
+      # league's rating centres and engine generation, the tuning settings
+      # and presets, and what they read.
       - "services/__init__.py"
       - "services/decision_explanations.py"
       - "services/injury_settings.py"
@@ -79,10 +93,11 @@ on:
 jobs:
   physics-sim-kpis:
     runs-on: ubuntu-latest
-    # Four 162-game seasons in sequence: two strict on the legacy engine, one
-    # strict on engine generation 5 and one, not blocking yet, on generation
-    # 6 (the report-only league step reuses the running-game step's season).
-    timeout-minutes: 75
+    # Five 162-game seasons in sequence: two strict on the legacy engine, one
+    # strict on engine generation 5 and two, not blocking yet, on
+    # generations 6 and 7 (the report-only league step reuses the
+    # running-game step's season).
+    timeout-minutes: 95
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -257,6 +272,49 @@ jobs:
         with:
           name: physics-kpis-engine6
           path: tmp/physics_kpis_engine6.json
+          if-no-files-found: warn
+      - name: Run KPI harness (strict, engine generation 7; not blocking)
+        # Release 6b. Engine generation 7 (physics_sim/profiles/engine_7.json,
+        # the ball-flight engine; ships with its operations switch
+        # NEXGEN_GENERATION7 off) against ENGINE_GATES[7]: generation 6's
+        # gates less the ones the model makes obsolete, plus the Statcast
+        # classes, hard-hit and barrels, HR distance, foul-outs, tag-ups and
+        # BABIP on MLB's denominator. The gates read as a mean over seeds
+        # (scripts/check_pooled_gates.py) are report-only here. NOT BLOCKING
+        # (continue-on-error), as generation 6's step: it becomes blocking
+        # once it has passed on this runner.
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          PYTHONHASHSEED: "0"
+        run: |
+          mkdir -p tmp
+          set -o pipefail
+          if ! python scripts/physics_sim_season_kpis.py \
+              --games 162 \
+              --seed 1 \
+              --base-dir data/calibration \
+              --players data/calibration/players.csv \
+              --engine 7 \
+              --output tmp/physics_kpis_engine7.json \
+              --strict 2>&1 | tee tmp/kpi_engine7.log; then
+            {
+              if [ -f tmp/physics_kpis_engine7.json ]; then
+                python -c "import json; d=json.load(open('tmp/physics_kpis_engine7.json')); [print(f\"{f['metric']}: {f['value']:.4f} (target {f['target']} +/- {f['tolerance']}) {f.get('reason', '')}\") for f in d.get('tolerance_failures', [])]"
+              fi
+              echo "--- last lines of output ---"
+              tail -n 40 tmp/kpi_engine7.log
+            } > tmp/kpi_engine7_failure.txt
+            msg=$(sed -e 's/%/%25/g' -e 's/\r//g' tmp/kpi_engine7_failure.txt | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::warning title=KPI engine generation 7 gates failed (not blocking)::${msg}"
+            exit 1
+          fi
+      - name: Upload engine generation 7 KPI report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: physics-kpis-engine7
+          path: tmp/physics_kpis_engine7.json
           if-no-files-found: warn
       - name: Run KPI harness (report-only, league-like fixture)
         # Audit 2026-10-06 H3 / Release 2. data/calibration_league is built by

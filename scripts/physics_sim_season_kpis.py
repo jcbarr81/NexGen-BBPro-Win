@@ -491,6 +491,109 @@ def _generation_6_gates() -> dict[str, Any]:
 ENGINE_GATES[6] = _generation_6_gates()
 
 
+# Release 6b: Baseball Savant's league rows (baseballsavant.mlb.com/league,
+# fetched 2026-10-15). 2024: 124,203 batted balls, barrels 7.8%, hard-hit
+# 38.9%, GB / LD / FB / PU 42.7 / 23.7 / 26.4 / 7.1, 5,453 home runs (HR per
+# fly ball plus pop-up on the engine's own class cut-offs, 10 / 25 / 50
+# degrees: 5,453 / (124,203 x .335) = .131); 2025: barrels 8.6%, hard-hit
+# 40.9%, 42.4 / 23.9 / 26.6 / 7.1, 5,650 home runs (.134).
+R7_STATCAST_TARGETS = {
+    "statcast_gb_pct": (0.427, 0.02),
+    "statcast_ld_pct": (0.238, 0.02),
+    "statcast_fb_pct": (0.265, 0.02),
+    "statcast_pu_pct": (0.071, 0.015),
+    "hr_per_fb_pu": (0.132, 0.02),
+}
+# The generation 6 gates the ball-flight model makes obsolete: the old class
+# cut-offs (9.0 / 15.7 degrees) and the old HR per fly ball (over the engine's
+# old fly-ball class alone); the share of ground balls each infielder plays
+# (generation 6's spray bands, which the play model does not read: the
+# fielder is whoever reaches the ball).
+R7_HR30_SHARE_GATE = (0.18, 0.07)
+R7_OBSOLETE_GATES = (
+    "bip_gb_pct", "bip_ld_pct", "bip_fb_pct", "hr_per_fb_pct",
+    "gb_play_share_3b", "gb_play_share_ss", "gb_play_share_p",
+    "gb_play_share_2b", "gb_play_share_1b",
+    # The season row "babip" divides by every ball in play, home runs and
+    # caught fouls included; MLB's .291 is over AB - K - HR + SF. Generation
+    # 7 gates babip_mlb (below) on MLB's denominator instead.
+    "babip",
+)
+
+
+def _generation_7_gates() -> dict[str, Any]:
+    """Release 6b (the ball-flight step; a league gets it only with its
+    operations switch on):
+    generation 6's gates, a separate copy, with the gates the new model
+    makes obsolete dropped and the new model's gates added. Single-season
+    noisy rows are pooled over seeds (report-only, as generation 6's)."""
+    gates = copy.deepcopy(ENGINE_GATES[6])
+    for key in R7_OBSOLETE_GATES:
+        gates["tolerances"].pop(key, None)
+        gates["extras_targets"].pop(key, None)
+        if key not in gates["drop"]:
+            gates["drop"].append(key)
+    # Contact quality, gated (report-only before): Savant 2024.
+    gates["benchmarks"]["hard_hit_pct"] = 0.389
+    gates["tolerances"]["hard_hit_pct"] = 0.025
+    gates["benchmarks"]["barrel_pct"] = 0.078
+    gates["tolerances"]["barrel_pct"] = 0.012
+    targets = {
+        **R7_STATCAST_TARGETS,
+        # BABIP on MLB's denominator (the benchmark's .291, its band).
+        "babip_mlb": (0.291, 0.015),
+        # Mean home-run distance: about 400 ft in the plan; the model reads
+        # 388-391 on this kernel with home runs held (docs/future_work.md,
+        # "Release 6b round 2"), so the gate is the plan's, widened.
+        "hr_distance_mean_ft": (395.0, 10.0),
+        "hr_450plus_share": (0.01, 0.01),
+        # Foul-outs: about 0.8 a team-game (the design brief; MLB from
+        # memory).
+        "foul_outs_per_team_game": (0.80, 0.15),
+        # The tag-up race (MLB 72-78%, Release 4).
+        "tagup_score_rate": (0.75, 0.06),
+        # Spray widening (sd 40) loosens a hitter's pull rating's grip on
+        # his mean pull angle: .60-.74 on the wide fixtures (generation 6's
+        # gate, .80 or more, was set for sd 18).
+        "r_pull_rating_pull_angle_rhb": (0.70, 0.20),
+        "r_pull_rating_pull_angle_lhb": (0.70, 0.20),
+    }
+    for key, (target, band) in targets.items():
+        gates["extras_targets"][key] = target
+        gates["tolerances"][key] = band
+    # Owner decision 21: the thirty-homer tier is gated as a SHARE of the
+    # qualified hitters (pooled), not a raw count -- a fixture that never
+    # benches anyone qualifies about 240 regulars where MLB qualifies about
+    # 135. MLB (Baseball-Reference standard batting, qualified = 502+ PA,
+    # fetched 2026-10-15): 2023 26 of 134 (.194), 2024 22 of 129 (.171),
+    # 2025 27 of 145 (.186), so .18 (75 of 408 = .184). The band, +/- .07,
+    # spans the pitch-clock seasons and the dilution of a no-benching
+    # qualified pool, which reads the share low (calibration .128, league
+    # fixture .119 at 1.11-1.14 HR a team-game).
+    pooled = {
+        key: band for key, band in gates["pooled"].items()
+        if key != "qualified_hr30_count"
+    }
+    gates["pooled"] = {
+        **pooled,
+        "hr30_share_of_qualified": R7_HR30_SHARE_GATE,
+        # Plan 6b: pitcher GB% true sd at least .05 on the wide fixtures.
+        "pitcher_gb_pct_true_sd": (0.075, 0.025),
+        # Owner decision 19: about +6 ground balls per 100 and about -12%
+        # home runs per 10 points of pitcher ground-ball rating.
+        "pitcher_gf_gb_per10": (6.0, 2.0),
+        "pitcher_gf_hr_pct_per10": (-12.0, 6.0),
+    }
+    # Run by scripts/fit_park_hr_factors.py (the park Monte Carlo), not by a
+    # season: every fitted park's by-side home-run factor within 2 points of
+    # its target.
+    gates["park_mc"] = {"park_hr_fit_max_abs_error": (0.0, 2.0)}
+    return gates
+
+
+ENGINE_GATES[7] = _generation_7_gates()
+
+
 def engine_gates_for(engine: int | None, *, grid: bool = False) -> dict[str, Any]:
     """The strict-gate changes for engine generation ``engine`` (see
     ENGINE_GATES); empty for the legacy engine. ``grid`` adds the gates that
@@ -1731,6 +1834,22 @@ def gate_set_failures(
     return selected
 
 
+BALL_FLIGHT_SWITCHES = (
+    "carry_model", "batted_ball_model", "fielding_play_model", "foul_out_model",
+)
+
+
+def ball_flight_run(overrides: dict[str, Any] | None) -> bool:
+    """Whether a run plays any part of the Release 6b ball-flight model."""
+    for key in BALL_FLIGHT_SWITCHES:
+        try:
+            if float((overrides or {}).get(key, 0.0)) >= 0.5:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def run_sim(
     games_per_team: int,
     seed: int,
@@ -1798,6 +1917,10 @@ def run_sim(
                 if base_dir is not None
                 else BASE_DIR / "data" / "lineups"
             ),
+            # Release 6b: its report-only rows only for a run on the
+            # ball-flight model, so every other run keeps its keys.
+            ball_flight=ball_flight_run(tuning_overrides),
+            team_parks=parks_by_team,
         )
     except Exception as exc:  # report-only: never break the gated run
         extras_error = f"{type(exc).__name__}: {exc}"
@@ -2374,9 +2497,11 @@ def main() -> None:
             "goes on top, the order a league's games use. Default: the "
             "legacy engine (DEFAULT_TUNING as it is), so every existing run "
             "and gate is unchanged. --engine 5 alone equals "
-            "--tuning-overrides scripts/kpi_profiles/r5.json. 6 is the "
-            "generation under development (no league plays it); it equals "
-            "scripts/kpi_profiles/r6.json."
+            "--tuning-overrides scripts/kpi_profiles/r5.json. 6 equals "
+            "scripts/kpi_profiles/r6.json (a league plays it only with the "
+            "8.0.0 switch on). 7 is the ball-flight generation under "
+            "development (no league plays it); it equals "
+            "scripts/kpi_profiles/r7.json."
         ),
     )
     parser.add_argument(

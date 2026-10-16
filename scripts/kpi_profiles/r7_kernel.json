@@ -1,0 +1,22 @@
+{
+  "batted_ball_model": 1,
+  "bb6_offset_ref": 0.314,
+  "bb6_ev_peak_offset": 0.33,
+  "bb6_ev_loss_topped": 0.0244,
+  "bb6_ev_loss_under": 0.059,
+  "bb6_weak_share": 0.147,
+  "bb6_weak_eff_lo": 0.4,
+  "bb6_weak_eff_hi": 0.9,
+  "bb6_ev_eff_floor": 0.45,
+  "bb6_ev_mult": 1.155,
+  "bb6_ev_softcap": 110.2,
+  "bb6_ev_softcap_scale": 0.4,
+  "bb6_la_base": 13.2,
+  "bb6_la_gf_per_point": 0.4,
+  "bb6_la_location_scale": 4.0,
+  "bb6_la_timing_scale": 7.0,
+  "bb6_la_per_offset": 22.0,
+  "bb6_la_per_offset_topped": 26.0,
+  "bb6_la_noise_sd": 0.5,
+  "bb6_carry_scale": 0.94
+}

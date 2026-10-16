@@ -41,7 +41,7 @@ def test_the_switch_is_off_unless_the_environment_says_on(monkeypatch):
 def test_off_the_league_side_does_not_know_generation_6(monkeypatch):
     switch_off(monkeypatch)
     assert generations.known_engine_generations() == (4, 5)
-    assert generations.harness_engine_generations() == (4, 5, 6)
+    assert generations.harness_engine_generations() == (4, 5, 6, 7)
     assert generations.CURRENT_ENGINE_GENERATION == 5
     with pytest.raises(ValueError, match="unknown engine generation 6"):
         generations.engine_profile(6)
@@ -49,7 +49,7 @@ def test_off_the_league_side_does_not_know_generation_6(monkeypatch):
     # On, generation 6 is a generation a season may be played on.
     switch_on(monkeypatch)
     assert generations.known_engine_generations() == (4, 5, 6)
-    assert generations.harness_engine_generations() == (4, 5, 6)
+    assert generations.harness_engine_generations() == (4, 5, 6, 7)
     assert generations.engine_profile(6) == generations.engine_profile(6, development=True)
 
 

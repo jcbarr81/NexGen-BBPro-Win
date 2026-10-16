@@ -244,7 +244,7 @@ def test_tuning_overrides_stay_on_top_of_the_engine_profile(tmp_path):
 
 
 def test_the_command_line_takes_engine(monkeypatch, capsys):
-    monkeypatch.setattr(kpis.sys, "argv", ["kpis", "--engine", "7"])
+    monkeypatch.setattr(kpis.sys, "argv", ["kpis", "--engine", "8"])
     with pytest.raises(SystemExit):
         kpis.main()
     assert "--engine" in capsys.readouterr().err
@@ -298,9 +298,23 @@ def test_the_ci_step_for_generation_5_is_blocking():
     six = [s for s in steps if "--engine 6" in s.get("run", "")]
     assert len(six) == 1 and six[0].get("continue-on-error") is True
     assert "--strict" in six[0]["run"] and "--gate-set" not in six[0]["run"]
+    # Release 6b: one step runs generation 7 (the ball-flight engine, its
+    # switch shipped off), the full strict set on calibration seed 1, NOT
+    # blocking.
+    seven = [s for s in steps if "--engine 7" in s.get("run", "")]
+    assert len(seven) == 1 and seven[0].get("continue-on-error") is True
+    assert "--strict" in seven[0]["run"] and "--gate-set" not in seven[0]["run"]
+    assert "--seed 1" in seven[0]["run"] and "data/calibration " in seven[0]["run"]
+    # Its path filters cover the files generation 7 adds.
+    for trigger in ("pull_request", "push"):
+        paths = workflow[True][trigger]["paths"] if True in workflow else workflow["on"][trigger]["paths"]
+        for path in ("data/parks/**", "scripts/build_engine7_profile.py",
+                     "scripts/check_pooled_gates.py", "physics_sim/**",
+                     "scripts/kpi_profiles/**"):
+            assert path in paths, (trigger, path)
     # The other blocking steps run the legacy engine: no --engine at all.
     for other in steps:
-        if other is step or other is six[0]:
+        if other is step or other is six[0] or other is seven[0]:
             continue
         if "physics_sim_season_kpis.py" in other.get("run", ""):
             assert "--engine" not in other["run"]

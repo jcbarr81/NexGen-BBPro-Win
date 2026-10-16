@@ -43,6 +43,19 @@ what a new season gets when it does not move (the switch off, a league
 that cannot be converted, or ``NEXGEN_NEW_SEASON_ENGINE=5``). Off, nothing
 here differs from 7.51: generation 6 is the harness's alone.
 
+Release 6b (the ball-flight step) is generation 7
+(``BALLFLIGHT_ENGINE_GENERATION``; profile
+``physics_sim/profiles/engine_7.json``, harness copy
+``scripts/kpi_profiles/r7.json``, tests/test_r7_tools_generation.py). It
+ships off the way generation 6 did, behind its own operations switch
+(``utils.rating_scale.GENERATION7_SWITCH_ENV``), which is read only while
+the 8.0.0 switch is on (``generation7_switch_on``): generation 7 needs
+rating scale 2. With both on it is a generation a season may be given, and
+the generation the scale 2 move lands a league on (a league on scale 1 is
+converted first; a league on scale 2 already simply starts its next season
+on 7); a league created with both on starts on it. Off, no league can be
+given it and the KPI harness alone runs it (``--engine 7``).
+
 This module imports nothing but the tuning defaults and the switch, so the
 engine, the services and the scripts can all read it.
 """
@@ -55,7 +68,7 @@ import math
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
-from utils.rating_scale import generation6_switch_on
+from utils.rating_scale import generation6_switch_on, generation7_switch_on
 
 from .config import DEFAULT_TUNING
 
@@ -63,6 +76,7 @@ __all__ = [
     "LEGACY_ENGINE_GENERATION",
     "CURRENT_ENGINE_GENERATION",
     "SCALE2_ENGINE_GENERATION",
+    "BALLFLIGHT_ENGINE_GENERATION",
     "DEVELOPMENT_ENGINE_GENERATIONS",
     "ENGINE_PROFILE_DIR",
     "engine_defaults",
@@ -79,13 +93,19 @@ LEGACY_ENGINE_GENERATION = 4
 # The generation a season that has not started yet is given.
 CURRENT_ENGINE_GENERATION = 5
 # Generations being built (module docstring): the KPI harness runs them, no
-# league season is given one. Release 6a: generation 6, whose profile starts
-# as generation 5's values exactly.
-DEVELOPMENT_ENGINE_GENERATIONS: Tuple[int, ...] = (6,)
+# league season is given one. Release 6a: generation 6, whose profile started
+# as generation 5's values exactly (with the 8.0.0 switch on it is also a
+# generation a season may be given). Release 6b: generation 7, the ball-flight
+# step, whose profile started as generation 6's values exactly.
+DEVELOPMENT_ENGINE_GENERATIONS: Tuple[int, ...] = (6, 7)
 # The generation that comes with rating scale 2 (module docstring): a league
 # is given it only together with the conversion of its players, and only
 # while the 8.0.0 switch is on.
 SCALE2_ENGINE_GENERATION = 6
+# The ball-flight engine (module docstring): a generation a season may be
+# given only while both operations switches are on, and then the one the
+# scale 2 move lands a league on.
+BALLFLIGHT_ENGINE_GENERATION = 7
 
 ENGINE_PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
 
@@ -97,10 +117,18 @@ _PROFILE_CACHE: Dict[str, Tuple[Tuple[int, int], Dict[str, Any]]] = {}
 def known_engine_generations() -> Tuple[int, ...]:
     """Every generation a season may be given, the legacy one first.
 
-    Generation 6 is among them only while the 8.0.0 switch is on (module
+    Generation 6 is among them only while the 8.0.0 switch is on, and
+    generation 7 only while generation 7's switch is on as well (module
     docstring).
     """
 
+    if generation7_switch_on():
+        return (
+            LEGACY_ENGINE_GENERATION,
+            CURRENT_ENGINE_GENERATION,
+            SCALE2_ENGINE_GENERATION,
+            BALLFLIGHT_ENGINE_GENERATION,
+        )
     if generation6_switch_on():
         return (
             LEGACY_ENGINE_GENERATION,

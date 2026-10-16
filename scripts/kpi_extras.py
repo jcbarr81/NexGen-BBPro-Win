@@ -251,8 +251,17 @@ class ReportOnlyKpis:
         players_path: Path,
         games_per_team: int,
         lineup_dir: Path | None = None,
+        ball_flight: bool = False,
+        team_parks: dict[str, str] | None = None,
     ) -> None:
         self.games_per_team = games_per_team
+        # Release 6b: the ball-flight rows (R7_METRIC_KEYS) are written only
+        # for a run that plays the ball-flight model (the harness says so),
+        # so every other run's output keeps exactly its keys. ``team_parks``
+        # names each club's park for the per-park home-run table.
+        self.ball_flight = bool(ball_flight)
+        self.team_parks = dict(team_parks or {})
+        self.r7: _R7Tallies = _R7Tallies()
         self.bats: dict[str, str] = {}
         self.throws: dict[str, str] = {}
         self.primary_pos: dict[str, str] = {}
@@ -481,6 +490,8 @@ class ReportOnlyKpis:
                 self._add_r6(meta, log, pas, starters, records or {}, teams)
             except Exception as exc:
                 self.r6_error = f"{type(exc).__name__}: {exc}"
+        if self.ball_flight:
+            self._add_r7(log, getattr(result, "play_records", None) or {}, teams)
 
     def _add_bullpen_usage(
         self, meta: dict[str, Any], log: list[dict[str, Any]] | None = None
@@ -940,7 +951,160 @@ class ReportOnlyKpis:
             metrics.setdefault(key, value)
         for key, value in r6_tables.items():
             tables.setdefault(key, value)
+        if self.ball_flight:
+            # Release 6b: only for a run on the ball-flight model.
+            r7_metrics: dict[str, Any] = {key: None for key in R7_METRIC_KEYS}
+            try:
+                self._r7_metrics(r7_metrics, tables, gpt, team_games)
+            except Exception as exc:
+                tables["r7_kpi_error"] = f"{type(exc).__name__}: {exc}"
+            for key, value in r7_metrics.items():
+                metrics.setdefault(key, value)
         return {"metrics": metrics, "tables": tables, "coverage": coverage}
+
+    def _add_r7(
+        self,
+        log: list[dict[str, Any]],
+        records: dict[str, Any],
+        teams: dict[str, str],
+    ) -> None:
+        """One game's Release 6b tallies: caught fouls, balls in play by
+        hitter and pitcher (ground balls, hits, home runs) and by the home
+        park and batting side, and the hit chance of every ball the fielding
+        chance log holds."""
+        r7 = self.r7
+        park = teams.get("home", "")
+        for entry in log:
+            if entry.get("outcome") != "in_play" or entry.get("exit_velo") is None:
+                continue
+            token = str(entry.get("pa_result") or "")
+            batter_id = str(entry.get("batter_id", ""))
+            pitcher_id = str(entry.get("pitcher_id", ""))
+            hit = token in HIT_TOKENS
+            homer = token == "hr"
+            grounder = statcast_class(float(entry.get("launch_angle") or 0.0)) == "gb"
+            if entry.get("foul_out"):
+                r7.foul_outs += 1
+            for counter in (r7.batter[batter_id], r7.pitcher[pitcher_id]):
+                counter["bip"] += 1
+                counter["gb"] += grounder
+                counter["hit"] += hit and not homer
+                counter["hr"] += homer
+            side = self._batting_side(batter_id, pitcher_id)
+            at_park = r7.park[park]
+            at_park[f"bip_{side}"] += 1
+            at_park[f"hr_{side}"] += homer
+            for kind in ("1b", "2b", "3b"):
+                at_park[f"{kind}_{side}"] += token == kind
+        for row in records.get("bip_chances") or []:
+            hit_prob = float(row[7])
+            r7.chances["n"] += 1
+            r7.chances["below_05"] += hit_prob < 0.05
+            r7.chances["above_95"] += hit_prob > 0.95
+
+    def _r7_metrics(
+        self,
+        metrics: dict[str, Any],
+        tables: dict[str, Any],
+        gpt: int,
+        team_games: int,
+    ) -> None:
+        """The Release 6b report-only rows (batted-ball brief, section 7)."""
+        r7 = self.r7
+        metrics["foul_outs_per_team_game"] = _ratio(r7.foul_outs, team_games)
+        n = r7.chances["n"]
+        metrics["hit_chance_below_05_share"] = _ratio(r7.chances["below_05"], n)
+        metrics["hit_chance_above_95_share"] = _ratio(r7.chances["above_95"], n)
+        # BABIP on MLB's denominator: hits that stayed in the park over the
+        # balls in play less home runs (a caught foul counts, as an out in
+        # MLB's AB - K - HR + SF does). The season row "babip" divides by
+        # every ball in play, home runs included, so it reads about 4% under
+        # this one at today's home-run rate.
+        league_bip = sum(c["bip"] for c in r7.batter.values())
+        league_hr = sum(c["hr"] for c in r7.batter.values())
+        metrics["babip_mlb"] = _ratio(
+            sum(c["hit"] for c in r7.batter.values()), league_bip - league_hr
+        )
+        # True sd of ground-ball rate and BABIP (the balls that stay in the
+        # park; a caught foul is one of them, as in MLB's BABIP) over the
+        # hitters and pitchers with 250+ balls in play (scaled to the
+        # season's length).
+        min_bip = max(50, round(250 * gpt / 162))
+        for who, rows in (("hitter", r7.batter), ("pitcher", r7.pitcher)):
+            qualified = [c for c in rows.values() if c["bip"] >= min_bip]
+            gb_sd, _, gb_n = true_sd((c["gb"], c["bip"]) for c in qualified)
+            babip_sd, _, _ = true_sd(
+                (c["hit"], c["bip"] - c["hr"]) for c in qualified
+            )
+            metrics[f"{who}_gb_pct_true_sd_r7"] = gb_sd
+            metrics[f"{who}_babip_true_sd"] = babip_sd
+            tables.setdefault("r7_true_sd", {})[who] = {
+                "n": gb_n, "min_bip": min_bip,
+            }
+        # Home runs per ball in play at each home park, by batting side,
+        # against the league's (a season's per-park figure: about 1,000
+        # balls a side, so roughly +/- 10% of noise; the neutral fit is
+        # scripts/fit_park_hr_factors.py). Singles, doubles and triples the
+        # same way.
+        league: Counter = Counter()
+        for counts in r7.park.values():
+            league.update(counts)
+        parks = {}
+        factors = []
+        for club, counts in sorted(r7.park.items()):
+            row = {"park": self.team_parks.get(club, "")}
+            for kind in ("hr", "1b", "2b", "3b"):
+                for side in ("L", "R"):
+                    here = _ratio(counts[f"{kind}_{side}"], counts[f"bip_{side}"])
+                    every = _ratio(league[f"{kind}_{side}"], league[f"bip_{side}"])
+                    row[f"{kind}_{side.lower()}hb"] = (
+                        100.0 * here / every if here is not None and every else None
+                    )
+                bip = counts["bip_L"] + counts["bip_R"]
+                here = _ratio(counts[f"{kind}_L"] + counts[f"{kind}_R"], bip)
+                every = _ratio(
+                    league[f"{kind}_L"] + league[f"{kind}_R"],
+                    league["bip_L"] + league["bip_R"],
+                )
+                row[kind] = 100.0 * here / every if here is not None and every else None
+            row["bip"] = counts["bip_L"] + counts["bip_R"]
+            parks[club] = row
+            if row["hr"] is not None:
+                factors.append(row["hr"])
+        tables["park_factors"] = parks
+        metrics["park_hr_factor_sd"] = (
+            statistics.pstdev(factors) if len(factors) >= 2 else None
+        )
+        metrics["park_hr_factor_max"] = max(factors) if factors else None
+        metrics["park_hr_factor_min"] = min(factors) if factors else None
+        # Owner decision 19: per 10 points of the pitcher's ground-ball
+        # rating, ground balls per 100 balls in play and the change in home
+        # runs per ball in play (least squares over the pitchers with 100+
+        # balls in play, weighted by them; home runs as a share of the
+        # league's rate).
+        gf = self.r6_ratings["pitcher_gf"]
+        rows = [
+            (gf[pid], c["gb"] / c["bip"], c["hr"] / c["bip"], c["bip"])
+            for pid, c in r7.pitcher.items()
+            if pid in gf and c["bip"] >= max(30, round(100 * gpt / 162))
+        ]
+        gb_slope = hr_slope = None
+        if len(rows) >= 20:
+            weights = [r[3] for r in rows]
+            total = sum(weights)
+            mean_x = sum(r[0] * w for r, w in zip(rows, weights)) / total
+            sxx = sum(w * (r[0] - mean_x) ** 2 for r, w in zip(rows, weights))
+            if sxx > 0:
+                mean_hr = sum(r[2] * w for r, w in zip(rows, weights)) / total
+                gb_slope = 1000.0 * sum(
+                    w * (r[0] - mean_x) * r[1] for r, w in zip(rows, weights)
+                ) / sxx
+                hr_slope = (
+                    1000.0 * sum(w * (r[0] - mean_x) * r[2] for r, w in zip(rows, weights))
+                    / sxx / mean_hr if mean_hr else None
+                )
+        metrics["pitcher_gf_gb_per10"] = gb_slope
+        metrics["pitcher_gf_hr_pct_per10"] = hr_slope
 
     def _situational(
         self,
@@ -3376,6 +3540,40 @@ R6_METRIC_KEYS: tuple[str, ...] = tuple(
     + [f"{third}_pct" for third in SPRAY_THIRDS]
     + list(R6_FIELDING_LOG_KEYS)
 )
+
+
+# Release 6b (the ball-flight step): rows written only for a run on the
+# ball-flight model (ReportOnlyKpis(ball_flight=True)).
+R7_METRIC_KEYS: tuple[str, ...] = (
+    "foul_outs_per_team_game",
+    "hit_chance_below_05_share",
+    "hit_chance_above_95_share",
+    "hitter_gb_pct_true_sd_r7",
+    "hitter_babip_true_sd",
+    "pitcher_gb_pct_true_sd_r7",
+    "pitcher_babip_true_sd",
+    "park_hr_factor_sd",
+    "park_hr_factor_max",
+    "park_hr_factor_min",
+    "pitcher_gf_gb_per10",
+    "pitcher_gf_hr_pct_per10",
+    "babip_mlb",
+)
+
+
+class _R7Tallies:
+    """Release 6b accumulator for ``ReportOnlyKpis._add_r7``."""
+
+    def __init__(self) -> None:
+        self.foul_outs = 0
+        self.batter: dict[str, Counter] = defaultdict(Counter)
+        self.pitcher: dict[str, Counter] = defaultdict(Counter)
+        # Home club -> balls in play, home runs, singles, doubles and
+        # triples by batting side (``bip_L``, ``hr_R``, ...).
+        self.park: dict[str, Counter] = defaultdict(Counter)
+        # Balls in the chance log, and those with a hit chance under .05 /
+        # over .95.
+        self.chances: Counter = Counter()
 
 
 def statcast_class(launch_angle: float) -> str:

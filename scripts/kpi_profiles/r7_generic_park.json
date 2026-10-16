@@ -1,0 +1,7 @@
+{
+  "bb6_generic_fence_shift_ft": -6.76,
+  "bb6_generic_wall_add_ft": 4.0,
+  "bb6_triple_gap_ft": 100.0,
+  "bb6_double_gap_ft": 77.0,
+  "bb6_hit_logit_shift": -0.22
+}

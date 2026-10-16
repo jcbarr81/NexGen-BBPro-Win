@@ -1,0 +1,20 @@
+{
+  "bb6_gb_double_line_deg": 42.0,
+  "bb6_gb_double_ev": 92.0,
+  "bb6_tall_wall_ft": 20.0,
+  "bb6_infield_hit_other_share": 0.45,
+  "bb6_carry_scale": 0.9325,
+  "babip_scale": 0.993,
+  "xbt_single_r1_extra": -0.12,
+  "xbt_double_r1_extra": -0.09,
+  "barrel_power_weight": 0.75,
+  "bb6_double_gap_ft": 79.0,
+  "bb6_triple_gap_ft": 102.0,
+  "range_logit_slope_1b": 0.00819,
+  "range_logit_slope_2b": 0.02186,
+  "range_logit_slope_3b": 0.01069,
+  "range_logit_slope_ss": 0.01759,
+  "range_logit_slope_lf": 0.03226,
+  "range_logit_slope_cf": 0.03685,
+  "range_logit_slope_rf": 0.03161
+}

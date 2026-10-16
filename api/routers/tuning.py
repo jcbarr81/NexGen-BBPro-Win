@@ -107,7 +107,9 @@ def _engine_block(generation: int) -> Dict[str, Any]:
         message = ENGINE_MESSAGE_LEGACY
     return {
         "generation": generation,
-        "latest_generation": CURRENT_ENGINE_GENERATION,
+        # A league on a later generation than the one new seasons get by
+        # default (6 or 7 through an operations switch) is on the latest.
+        "latest_generation": max(generation, CURRENT_ENGINE_GENERATION),
         "message": message,
     }
 

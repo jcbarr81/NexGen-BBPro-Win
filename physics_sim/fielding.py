@@ -470,6 +470,7 @@ def range_shifted_out_probability(
     rating: float,
     ball_type: str,
     tuning: TuningConfig,
+    bounds: tuple[float, float] = (0.02, 0.98),
 ) -> float:
     """``out0`` moved by the responsible fielder (``range_model`` 1):
 
@@ -477,6 +478,8 @@ def range_shifted_out_probability(
     * range_scale`` (times ``range_ld_ratio`` on a line drive), so a ball
     near a coin flip moves most and a routine play or a sure hit hardly at
     all. A position without a slope (the pitcher) leaves ``out0`` alone.
+    The result is kept within ``bounds`` (Release 6b's play model passes
+    its own, wider ones, and an ``out0`` of exactly 0 or 1).
     """
     key = _RANGE_SLOPE_KEYS.get(position)
     if key is None:
@@ -485,10 +488,10 @@ def range_shifted_out_probability(
     if ball_type == "ld":
         slope *= tuning.get("range_ld_ratio", 0.6)
     shift = slope * (rating - 50.0)
-    if not shift:
+    if not shift or out0 <= 0.0 or out0 >= 1.0:
         return out0
     odds = out0 / (1.0 - out0) * math.exp(shift)
-    return max(0.02, min(0.98, odds / (1.0 + odds)))
+    return max(bounds[0], min(bounds[1], odds / (1.0 + odds)))
 
 
 def _additive_out_probability(

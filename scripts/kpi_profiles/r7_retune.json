@@ -1,0 +1,11 @@
+{
+  "bb6_carry_scale": 0.95,
+  "babip_scale": 0.96,
+  "contact_logit_zone": 1.6,
+  "contact_logit_chase": 0.34,
+  "zone_target_base": 0.287,
+  "barrel_power_weight": 0.6,
+  "pitcher_gb_launch_scale": 0.48,
+  "pitcher_gb_air_deg": 23.0,
+  "pitcher_gb_air_share": 0.0
+}

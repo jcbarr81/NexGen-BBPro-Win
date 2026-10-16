@@ -1,0 +1,9 @@
+{
+  "spray_model": 1,
+  "bb6_spray_base": 9.0,
+  "bb6_spray_pull_per_point": 0.5,
+  "bb6_spray_timing_scale": 12.0,
+  "bb6_spray_la_slope": 0.35,
+  "bb6_spray_sd": 40.0,
+  "bb6_pull_ev_gain": 0.035
+}

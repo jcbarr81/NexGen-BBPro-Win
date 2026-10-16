@@ -21,6 +21,29 @@ class TutorialStep:
     # shown to; ``None`` shows it to every league. A step about the full
     # 1-99 scale is only true in a league that has moved to it.
     rating_scale: Optional[int] = None
+    # The engine generations (``physics_sim.engine_generation``) of the
+    # leagues this step is shown to, inclusive; ``None`` is no limit. A step
+    # about the ball-flight engine (generation 7) is only true in a league
+    # whose season is on it; a step it replaces stops at 6.
+    min_generation: Optional[int] = None
+    max_generation: Optional[int] = None
+
+    def shown(self, scale: int, generation: Optional[int]) -> bool:
+        """Shown to a league on ``scale`` whose season is on
+        ``generation`` (``None``: not known, read as no later than 6)."""
+        if self.rating_scale is not None and self.rating_scale != scale:
+            return False
+        if self.min_generation is not None and (
+            generation is None or generation < self.min_generation
+        ):
+            return False
+        if (
+            self.max_generation is not None
+            and generation is not None
+            and generation > self.max_generation
+        ):
+            return False
+        return True
 
 
 @dataclass(frozen=True)
@@ -35,6 +58,15 @@ class Tutorial:
     # (library-only tutorial).
     route: str | None = None
 
+
+# The part of "Home field, late innings and intentional walks" every league
+# reads the same (its home-field sentence differs by rating scale).
+_LATE_INNINGS_HTML = (
+    "<p><b>Late innings.</b> A reliever is a little tougher for his first four batters: about 0.2 runs per nine innings better than a starter with the same ratings, fading to nothing by his seventh batter. The pitcher who starts the game never gets it. Pitchers no longer pitch around hitters just because first base is open with nobody in scoring position, or because the game is late and close; both habits were adding walks. On the two test leagues hitters do a little worse late in close games, by about as much as MLB hitters do; in a league whose relievers are not rated above its starters the difference is close to nothing.</p>"
+    "<p><b>Second time through the order.</b> Hitters gain about 9 to 12 points of wOBA the second time they face a starter (MLB about 10; it was about 2).</p>"
+    "<p><b>Intentional walks.</b> Managers now issue them: about 12 to 15 per team per season, around MLB's rate. They come with first base open and a runner in scoring position, mostly late in close games, and only when the hitter is clearly better than the man on deck. Lineup protection matters: a strong bat behind your best hitter means he gets pitched to.</p>"
+    "<p><b>Parks.</b> A park's foul territory no longer changes strikeouts and walks. It returns in a later release as caught foul pop-ups.</p>"
+)
 
 TUTORIALS: List[Tutorial] = [
     Tutorial(
@@ -608,6 +640,14 @@ TUTORIALS: List[Tutorial] = [
                 "<p><b>Power follows a curve.</b> Home runs in a full season (about 650 plate appearances) for a hitter with average Contact against average pitching: Power 10 about 5, 30 about 9, 50 about 17, 70 about 28, 80 about 36, 90 about 45 and 99 about 48. With Contact 80, Power 90 hits about 53 and Power 99 about 57. Sixty in a season is rare. The weakest bats lose home runs and the best gain them; the league's total is unchanged, and Power now tracks home runs much more closely than it did.</p>"
                 "<p><b>Doubles go to hitters who make contact.</b> High Contact counts most, some Power helps, and a line-drive hitter (in the middle of the GB/FB range) hits more doubles than an extreme ground-ball or fly-ball hitter. League doubles come down to about MLB's level, about 1.6 per team per game (they were about 1.8).</p>",
                 rating_scale=2,
+                max_generation=6,
+            ),
+            TutorialStep(
+                "Power and doubles",
+                "<p><b>Power follows a curve.</b> Home runs in a full season (about 650 plate appearances) for a hitter with average Contact against average pitching: Power 90 about 45 and Power 99 about 48, and the weakest bats about 5 to 10. With better Contact a big bat hits more (Power 99 about 56). Sixty in a season is rare. Power decides how hard a hitter can hit the ball; how far it then carries decides whether it leaves the park (see <b>Real ball flight</b>).</p>"
+                "<p><b>Doubles come from where the ball lands.</b> A ball dropped into a gap, one off the wall, and a hard grounder down a line go for two; a fast runner turns more of the deep gappers into triples. Hitters who make hard contact on a line hit the most. League doubles are about MLB's level, about 1.6 per team per game.</p>",
+                rating_scale=2,
+                min_generation=7,
             ),
             TutorialStep(
                 "Fielding by position, out of position, errors",
@@ -615,6 +655,42 @@ TUTORIALS: List[Tutorial] = [
                 "<p><b>Out of position costs what the move costs.</b> A centre fielder in a corner loses nothing and a shortstop at second base almost nothing; second and third base swap at a small cost; a second or third baseman at shortstop, or a corner outfielder in centre, pays more; an outfielder or first baseman at shortstop pays the most, about 10 runs over 150 games. A position listed among a player's other positions costs a quarter as much. Only a catcher should catch.</p>"
                 "<p><b>Errors at MLB volume:</b> about half an error per team per game (it was about a fifth), from Fielding and Arm against the position's regulars, with new kinds in the box score: a catcher's throw on a steal, a pitcher's error on a ball hit back to him, an outfielder's error on a hit, a relay throw. About 9% of runs are now unearned (it was about 5%).</p>",
                 rating_scale=2,
+            ),
+            TutorialStep(
+                "Real ball flight",
+                "<p>Your league plays on the <b>ball-flight engine</b>, the newest game engine. It started at the start of a season, never in the middle of one, and an item in <b>Today → News</b> said so.</p>"
+                "<p>Every ball a hitter puts in play now has a speed off the bat, an angle and a direction, and it flies: air slows it, thin air at altitude lets it carry further (Coors Field about 4 to 5% further), and it is a home run only if it clears that park's own fence and wall at the spot it gets there. A ball hit about 100 mph at about 28 degrees carries about 400 feet; the average home run travels about 390 feet.</p>"
+                "<p>Balls in play come off the bat as <b>ground balls</b> (about 42%), <b>line drives</b> (about 24%), <b>fly balls</b> (about 25%) and <b>pop-ups</b> (about 8%), close to MLB's mix, and about 40% of them are hit 95 mph or harder. Scoring stays at about MLB's level: about 4.4 runs per team per game in testing (4.25 to 4.4 on copies of the live leagues, 4.3 to 4.7 on the test leagues), with about 1.1 home runs, 1.6 doubles and 0.14 triples per team per game.</p>",
+                rating_scale=2,
+                min_generation=7,
+            ),
+            TutorialStep(
+                "Ballparks and fences",
+                "<p>Each of the 30 current major-league parks plays with its <b>real dimensions and wall heights</b>, including the newer fences at Camden Yards, Rogers Centre, Comerica Park and Kauffman Stadium, the temporary homes of the Athletics and the Rays, and the one-off venues. A club in a park that is not one of them plays in the <b>average major-league park</b>. Commissioners choose a club's park in <b>Team Settings</b>.</p>"
+                "<p>Each park gives up home runs the way its real one does, <b>separately for left- and right-handed batters</b>, matched to MLB's park factors for 2024 to 2026: a left-handed pull hitter gains in a park with a short right-field fence, and a tall wall (Fenway's Green Monster) turns would-be home runs into doubles off the wall. Only home runs are matched; singles, doubles and triples come from each park's shape, so they do not always match a real park's.</p>",
+                rating_scale=2,
+                min_generation=7,
+            ),
+            TutorialStep(
+                "Fielders run balls down; pop-ups and foul-outs",
+                "<p>Whether a ball in play is an out or a hit, and which hit, is decided by <b>where it lands and who can get there</b>. An infielder has to reach a grounder and throw the runner out; an outfielder has to run to where a fly ball comes down before it lands. So a fielder's range and a runner's speed show up on every ball: a fast runner beats out more infield hits and turns more balls in the gaps into triples. Most balls are certain outs or certain hits; the plays in between are where fielding and speed decide.</p>"
+                "<p>A <b>pop-up</b> is almost always caught. A foul pop-up can now be caught for an out, by the catcher or by the first or third baseman on its side: about 0.8 a team per game, a little more in parks with lots of foul ground.</p>",
+                rating_scale=2,
+                min_generation=7,
+            ),
+            TutorialStep(
+                "Ground-ball and fly-ball pitchers",
+                "<p>A pitcher's <b>GB/FB</b> rating now changes the balls hitters put in play against him. About every 10 points toward ground balls is worth about 7 more ground balls in every 100 balls in play and about 12% fewer home runs, so a sinkerballer keeps the ball in the park and gets more double plays, and a fly-ball pitcher gives up more fly balls and more home runs. Sinkers produce the most ground balls of any pitch, and fastballs the fewest.</p>"
+                "<p>A hitter's own GB/FB and Pull ratings decide how high he hits the ball and where: pull hitters hit more balls to their side of the field, and hit their pulled fly balls harder.</p>",
+                rating_scale=2,
+                min_generation=7,
+            ),
+            TutorialStep(
+                "Home Run Rate and Launch Angle sliders",
+                "<p>On the ball-flight engine two commissioner sliders in <b>Admin → Physics Tuning</b> have new meanings. <b>Home Run Rate</b> sets how far fly balls carry: 1.00 is normal, and each +0.01 gives about 1% more home runs (and long fly balls that stay in the park go further too). <b>Launch Angle Base</b> raises or lowers every batted ball's angle by its distance from 12.1 (normal): each degree higher gives about 5% more home runs, and about 1 more fly ball and 1 fewer ground ball in every 100 balls in play.</p>"
+                "<p>A setting the commissioner had made for the earlier engine was put back to normal when the league moved, because it meant something else there; it is kept, and comes back if the league ever plays the earlier engine again.</p>",
+                rating_scale=2,
+                min_generation=7,
             ),
             TutorialStep(
                 "Player development",
@@ -650,7 +726,7 @@ TUTORIALS: List[Tutorial] = [
                 "<ul>"
                 "<li>Managers issue intentional walks, about 12 to 15 per team per season (MLB's rate; there were none).</li>"
                 "<li>Hit batters fell from 1.4% to about 0.9% of plate appearances.</li>"
-                "<li>Home teams win about 53% of games (they won about 49%).</li>"
+                "<li>Home teams win about 53 to 55% of games (they won about 49%).</li>"
                 "</ul>"
                 "<p>The updated game engine reads ratings against your league; the next step explains what that means.</p>",
                 rating_scale=2,
@@ -739,10 +815,17 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Home field, late innings and intentional walks",
                 "<p><b>Home field.</b> Home teams win about 53% of the time, the same for every club and park, in the playoffs too. The All-Star game is not affected. The earlier engine had no home edge.</p>"
-                "<p><b>Late innings.</b> A reliever is a little tougher for his first four batters: about 0.2 runs per nine innings better than a starter with the same ratings, fading to nothing by his seventh batter. The pitcher who starts the game never gets it. Pitchers no longer pitch around hitters just because first base is open with nobody in scoring position, or because the game is late and close; both habits were adding walks. On the two test leagues hitters do a little worse late in close games, by about as much as MLB hitters do; in a league whose relievers are not rated above its starters the difference is close to nothing.</p>"
-                "<p><b>Second time through the order.</b> Hitters gain about 9 to 12 points of wOBA the second time they face a starter (MLB about 10; it was about 2).</p>"
-                "<p><b>Intentional walks.</b> Managers now issue them: about 12 to 15 per team per season, around MLB's rate. They come with first base open and a runner in scoring position, mostly late in close games, and only when the hitter is clearly better than the man on deck. Lineup protection matters: a strong bat behind your best hitter means he gets pitched to.</p>"
-                "<p><b>Parks.</b> A park's foul territory no longer changes strikeouts and walks. It returns in a later release as caught foul pop-ups.</p>",
+                + _LATE_INNINGS_HTML,
+                rating_scale=1,
+            ),
+            TutorialStep(
+                # Round 5: measured on the full scale's engines, home teams
+                # win a little more (generation 6: 55.3% over three seasons
+                # of the live leagues' copies; .53-.56 on the test leagues).
+                "Home field, late innings and intentional walks",
+                "<p><b>Home field.</b> Home teams win about 53 to 55% of the time (55% over three seasons on copies of the live leagues), the same for every club and park, in the playoffs too. The All-Star game is not affected. The earlier engine had no home edge.</p>"
+                + _LATE_INNINGS_HTML,
+                rating_scale=2,
             ),
             TutorialStep(
                 "Changes every league sees right away",
@@ -1056,14 +1139,21 @@ TUTORIALS: List[Tutorial] = [
 ]
 
 
-def tutorial_catalog(rating_scale: Optional[int] = None) -> Dict[str, Dict[str, object]]:
+def tutorial_catalog(
+    rating_scale: Optional[int] = None, generation: Optional[int] = None
+) -> Dict[str, Dict[str, object]]:
     """Return the catalog as a dict keyed by tutorial_id for API serving.
 
     ``rating_scale`` is the scale the league's ratings are on (``None``: 1,
     every league today); a step written for another scale is left out.
+    ``generation`` is the engine generation of the league's season
+    (``None``: not known); a step written for a later (or an earlier)
+    generation is left out. A league below generation 7 gets exactly the
+    payload it got before generation filtering existed.
     """
 
     scale = 1 if rating_scale is None else int(rating_scale)
+    number = None if generation is None else int(generation)
     out: Dict[str, Dict[str, object]] = {}
     for t in TUTORIALS:
         out[t.tutorial_id] = {
@@ -1074,14 +1164,16 @@ def tutorial_catalog(rating_scale: Optional[int] = None) -> Dict[str, Dict[str, 
             "steps": [
                 {"title": s.title, "body_html": s.body_html}
                 for s in t.steps
-                if s.rating_scale is None or s.rating_scale == scale
+                if s.shown(scale, number)
             ],
         }
     return out
 
 
-def tutorial_list(rating_scale: Optional[int] = None) -> List[Dict[str, object]]:
-    return list(tutorial_catalog(rating_scale).values())
+def tutorial_list(
+    rating_scale: Optional[int] = None, generation: Optional[int] = None
+) -> List[Dict[str, object]]:
+    return list(tutorial_catalog(rating_scale, generation).values())
 
 
 __all__ = [

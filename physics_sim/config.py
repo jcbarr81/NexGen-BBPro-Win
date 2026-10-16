@@ -6,6 +6,18 @@ from typing import Any, Dict, Optional
 import json
 
 
+# Release 6b: the parks with a home-run target (physics_sim.ballflight
+# .FITTED_PARK_IDS, which tests/test_r7_carry.py holds equal to this): the 30
+# home parks of 2026, then OAK01, TAM02 and the one-off venues.
+_BALLFLIGHT_FITTED_PARK_IDS = (
+    "ANA01", "ARL03", "ATL03", "BAL12", "BOS07", "CHI11", "CHI12", "CIN09",
+    "CLE08", "DEN02", "DET05", "HOU03", "KAN06", "LOS03", "MIA02", "MIL06",
+    "MIN04", "NYC20", "NYC21", "SAC01", "PHI13", "PHO01", "PIT08", "SAN02",
+    "SEA03", "SFO03", "STL10", "STP01", "TOR02", "WAS11",
+    "OAK01", "TAM02", "MEX02", "DYE01", "SEO01", "WIL02", "LON01", "BIR01",
+)
+
+
 DEFAULT_TUNING: Dict[str, Any] = {
     # Global run environment
     # 1.015 -> 1.0175 (7.44.6): pinch runners now enter only for the tying or
@@ -1481,7 +1493,222 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # double_play_max. k 0 and the 0.45 cap are the 7.47.0 behaviour.
     "double_play_batter_speed_k": 0.2,
     "double_play_max": 0.6,
+    # Release 6b (engine generation 7, the ball-flight step;
+    # RELEASE6_PLAN.md section 3, release6_briefs/battedball.md). Every
+    # switch is OFF: at 0 each path is the code it replaces and draws no
+    # extra random number. Generation 7's values are in
+    # physics_sim/profiles/engine_7.json, built from
+    # scripts/kpi_profiles/r7_<stage>.json.
+    #
+    # carry_model 1 (physics_sim.ballflight): carry, hang time and descent
+    # angle from a drag-and-lift trajectory table (no random number), times
+    # bb6_carry_scale; a five-point fence with wall heights from
+    # ParkConfig.csv (a ball leaves the park when its carry passes the fence
+    # plus the wall's height over the tangent of its descent angle); the
+    # generic park is the mean of the 30 current parks; the park's altitude
+    # thins the air through the table (bb6_altitude_strength of the
+    # physical effect). hr_scale, park_factor_scale, altitude_ft_scale,
+    # altitude_scale and park_size_scale are not read under it. The tag-up
+    # race reads the table's hang time.
+    "carry_model": 0.0,
+    "bb6_carry_scale": 1.0,
+    "bb6_altitude_strength": 1.0,
+    # Owner decisions 18 and 20: each real park's left-field side (LF line,
+    # left-centre) and right-field side (right-centre, RF line) moved out
+    # (+) or in (-) by this many feet, centre field by the mean of the two,
+    # fitted to Baseball Savant's home-run factors by batter side
+    # (data/parks/ParkHRTargets.csv, scripts/fit_park_hr_factors.py). 0
+    # everywhere: every real park plays at its geometry. Keyed by park id
+    # (physics_sim.ballflight.FITTED_PARK_IDS).
+    "bb6_park_fence_shift_left_ft": {
+        park_id: 0.0 for park_id in _BALLFLIGHT_FITTED_PARK_IDS
+    },
+    "bb6_park_fence_shift_right_ft": {
+        park_id: 0.0 for park_id in _BALLFLIGHT_FITTED_PARK_IDS
+    },
+    # batted_ball_model 1 (physics._batted_ball_kernel): exit velocity and
+    # launch angle from one signed barrel offset u = barrel_error /
+    # bb6_offset_ref. eff = 1 - k * (u - bb6_ev_peak_offset)^2 (k
+    # bb6_ev_loss_topped over the ball, bb6_ev_loss_under under it), times a
+    # uniform bb6_weak_eff_lo..hi with chance bb6_weak_share, at least
+    # bb6_ev_eff_floor; exit velocity = the potential (ev_base times the
+    # rating part of quality, contact_quality_scale and offense_scale) times
+    # bb6_ev_mult times eff, soft-capped at bb6_ev_softcap (bb6_ev_softcap_
+    # scale above it). Launch angle = bb6_la_base - (gf - hitter_gf_center)
+    # * bb6_la_gf_per_point + pitch height * bb6_la_location_scale + timing *
+    # bb6_la_timing_scale + u * bb6_la_per_offset (bb6_la_per_offset_topped
+    # for u < 0) + N(0, bb6_la_noise_sd), held to -75..85. The classes become
+    # Statcast's 10 / 25 / 50 degrees with a pop-up class ("pu"). The old
+    # launch-angle, exit-velocity penalty and soft-cap knobs are not read.
+    "batted_ball_model": 0.0,
+    "bb6_offset_ref": 0.314,
+    "bb6_ev_peak_offset": 0.33,
+    "bb6_ev_loss_topped": 0.0244,
+    "bb6_ev_loss_under": 0.059,
+    "bb6_weak_share": 0.147,
+    "bb6_weak_eff_lo": 0.40,
+    "bb6_weak_eff_hi": 0.90,
+    "bb6_ev_eff_floor": 0.45,
+    "bb6_ev_mult": 1.155,
+    "bb6_ev_softcap": 110.2,
+    "bb6_ev_softcap_scale": 0.40,
+    "bb6_la_base": 13.2,
+    "bb6_la_gf_per_point": 0.40,
+    "bb6_la_location_scale": 4.0,
+    "bb6_la_timing_scale": 7.0,
+    "bb6_la_per_offset": 22.0,
+    "bb6_la_per_offset_topped": 26.0,
+    "bb6_la_noise_sd": 0.5,
+    # spray_model 1 (with batted_ball_model): the batter-relative spray is a
+    # normal around bb6_spray_base + (pl - hitter_pull_center) *
+    # bb6_spray_pull_per_point + timing * bb6_spray_timing_scale -
+    # bb6_spray_la_slope * (launch angle held to -20..45, - 12), sd
+    # bb6_spray_sd, held to fair territory by its inverse CDF (one draw); a
+    # ball in the air (ramp over 5..20 degrees) hit to the pull side gains up
+    # to bb6_pull_ev_gain of exit velocity, the opposite side loses as much.
+    "spray_model": 0.0,
+    "bb6_spray_base": 9.0,
+    "bb6_spray_pull_per_point": 0.5,
+    "bb6_spray_timing_scale": 12.0,
+    "bb6_spray_la_slope": 0.35,
+    "bb6_spray_sd": 40.0,
+    "bb6_pull_ev_gain": 0.035,
+    # The pitcher's ground-ball identity (pitching brief item E; owner
+    # decision 19), with batted_ball_model: launch angle lowered by
+    # pitcher_gb_launch_scale * (pitcher gf - pitcher_gf_usage_center) minus
+    # the pitch type's pitch_type_launch_offset, in full at or below
+    # pitcher_gb_full_deg and by pitcher_gb_air_share of it at or above
+    # pitcher_gb_air_deg. pitch_type_usage_weight multiplies a pitch type's
+    # selection weight (1.0: no change). 0 / 0 / 1.0: off.
+    "pitcher_gb_launch_scale": 0.0,
+    "pitcher_gb_full_deg": 10.0,
+    "pitcher_gb_air_deg": 30.0,
+    "pitcher_gb_air_share": 1.0,
+    "pitch_type_launch_offset": {
+        "fb": 0.0, "si": 0.0, "sl": 0.0, "cu": 0.0, "cb": 0.0, "scb": 0.0, "kn": 0.0,
+    },
+    "pitch_type_usage_weight": {
+        "fb": 1.0, "si": 1.0, "sl": 1.0, "cu": 1.0, "cb": 1.0, "scb": 1.0, "kn": 1.0,
+    },
+    # fielding_play_model 1 (physics_sim.ballflight.resolve_ball / play; the
+    # carry table is read whether or not carry_model is on): one function
+    # gives a ball in play its neutral out chance, the fielder, the out type
+    # and whether it is an infield play, and its hit type from where it
+    # lands (the double / triple lines, the line-drive credit and the
+    # additive out chance are not read). A ball is on the ground route
+    # under bb6_ground_carry_ft of carry and bb6_ground_max_la degrees. The
+    # fielders' ratings then move the neutral chance through range_model 1
+    # (re-fit the range_logit_slope_<pos> on this model's out chances with
+    # scripts/fit_fielding_slopes.py), the error models read the play's
+    # fielder, and the hit chance is held to bb6_hit_prob_min..max instead
+    # of .02..95. The shift term and infield_hit_speed_scale are not read
+    # (batter speed is in the throw race). Formulas: ballflight.play.
+    "fielding_play_model": 0.0,
+    "bb6_ground_carry_ft": 150.0,
+    "bb6_ground_max_la": 15.0,
+    "bb6_gb_double_line_deg": 39.0,
+    "bb6_gb_double_ev": 88.0,
+    "bb6_double_wall_frac": 0.92,
+    "bb6_double_gap_ft": 82.0,
+    "bb6_double_min_ft": 265.0,
+    "bb6_double_speed_ft": 0.0,
+    "bb6_triple_wall_frac": 0.99,
+    "bb6_triple_gap_ft": 98.0,
+    "bb6_triple_speed_ft": 30.0,
+    "bb6_roll_speed": 0.95,
+    "bb6_roll_topped_deg": 45.0,
+    "bb6_run_time": 4.35,
+    "bb6_run_speed": 0.02,
+    "bb6_if_react": 0.25,
+    "bb6_charge_speed": 17.0,
+    "bb6_if_reach0": 3.0,
+    "bb6_if_speed": 17.5,
+    "bb6_if_sigma": 3.5,
+    "bb6_if_exchange": 0.90,
+    "bb6_if_set_per_ft": 0.02,
+    "bb6_throw_speed": 120.0,
+    "bb6_throw_sigma": 0.35,
+    "bb6_liner_max_h": 9.5,
+    "bb6_liner_reach0": 5.0,
+    "bb6_liner_speed": 16.0,
+    "bb6_liner_react": 0.45,
+    "bb6_liner_sigma": 2.5,
+    "bb6_of_reach0": 5.0,
+    "bb6_of_speed": 28.0,
+    "bb6_of_react": 1.8,
+    "bb6_of_back_scale": 0.90,
+    "bb6_of_sigma": 9.0,
+    "bb6_ifa_speed": 16.0,
+    "bb6_ifa_react": 0.8,
+    "bb6_ifa_sigma": 7.0,
+    "bb6_air_out_max": 0.992,
+    # A ball that reaches the fence line higher than this (ft) hits the wall
+    # and cannot be caught (generation 7: 9 ft, a leap at the wall).
+    "bb6_wall_catch_ft": 1e9,
+    # A ball that hits a wall at least this tall (ft) in the air is a double
+    # at most (it caroms back; generation 7: 20 ft, the Monster's kind).
+    "bb6_tall_wall_ft": 1e9,
+    # Of a ground ball's chance that some infielder reaches it without
+    # getting the runner, beyond the one who makes the play, the share that
+    # is an infield single (runners move one base) rather than a ball
+    # through to the outfield (ballflight.play).
+    "bb6_infield_hit_other_share": 1.0,
+    "bb6_hit_prob_min": 0.002,
+    "bb6_hit_prob_max": 0.998,
+    # foul_out_model 1: a foul ball is caught for an out with chance
+    # foul_out_rate times the park's foul-territory scale to the power
+    # foul_out_park_exp (one extra draw per foul, only while it is on), by
+    # the catcher or the corner infielder on its side. Off: a foul is always
+    # a strike, as before.
+    "foul_out_model": 0.0,
+    "foul_out_rate": 0.031,
+    "foul_out_park_exp": 1.0,
+    # The commissioner's Home Run Rate (hr_scale) and Launch Angle Base
+    # (launch_angle_base) sliders under the ball-flight model, which reads
+    # neither the old way: carry times 1 + (hr_scale - bb6_hr_slider_neutral)
+    # * bb6_hr_slider_carry_share, and the kernel's launch angle plus
+    # (launch_angle_base - bb6_la_slider_neutral) * bb6_la_slider_share. 0
+    # shares: no effect. A league's stored values are reset to the neutral
+    # when it moves to generation 7 (services.physics_tuning_settings).
+    "bb6_hr_slider_carry_share": 0.0,
+    "bb6_hr_slider_neutral": 1.0,
+    "bb6_la_slider_share": 0.0,
+    "bb6_la_slider_neutral": 12.1,
+    # The play model's hit level as a log-odds shift on the chance a ball
+    # is not turned into an out (before babip_scale): a sure hit (a ball
+    # off the wall, out chance 0) stays sure and a sure out stays an out,
+    # where babip_scale below 1 would make every sure hit an out some of
+    # the time. 0: no shift (generation 7 sets it, babip_scale 1).
+    "bb6_hit_logit_shift": 0.0,
+    # Round 5: the generic park (every club not in a real park: most live
+    # leagues' clubs) is the AVERAGE major-league park. Its mirrored mean
+    # fence gives about 9% fewer home runs than the 30 parks' mean (home
+    # runs are convex in the fence distance), so it moves this far (ft, both
+    # sides; negative = in). 0: the mean fence as it is.
+    "bb6_generic_fence_shift_ft": 0.0,
+    # ... and its walls this much taller (ft, all five points): the real
+    # parks' tall walls (Fenway, Minute Maid, ...) turn balls into hits off
+    # the wall that a mean wall of about 10 ft catches or lets out.
+    "bb6_generic_wall_add_ft": 0.0,
 }
+
+# Every key Release 6b (generation 7) registered: the block above from
+# carry_model to the end of DEFAULT_TUNING. Not one is read by an earlier
+# generation, so a league's tuning file below generation 7 cannot store one
+# (services.physics_tuning_settings, as R6A_KEYS for generation 6). New 6b
+# keys go at the end of the block.
+_DEFAULT_KEYS = list(DEFAULT_TUNING)
+RELEASE_6B_KEYS: tuple = tuple(_DEFAULT_KEYS[_DEFAULT_KEYS.index("carry_model"):])
+# The switches that make a season generation 7 (owned by the generation:
+# a league's file cannot switch part of it on or off).
+RELEASE_6B_SWITCH_KEYS: tuple = (
+    "carry_model",
+    "batted_ball_model",
+    "fielding_play_model",
+    "foul_out_model",
+    "spray_model",
+    "pitcher_gb_launch_scale",
+)
 
 
 @dataclass

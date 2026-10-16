@@ -432,10 +432,56 @@ _VELOCITY_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
 }
 
 
+# Release 6b (generation 7, the ball-flight model): Home Run Rate and Launch
+# Angle Base keep their keys and ranges but act on the new model -- Home Run
+# Rate scales carry (physics_sim.ballflight.home_run_slider_factor, .08 of
+# the slider's distance from 1.00), Launch Angle Base moves every batted
+# ball's launch angle by its distance from 12.1 degrees. A value stored
+# before the league moved is reset to neutral and kept in its overrides file
+# (services/physics_tuning_settings, BALLFLIGHT_SLIDER_REBASE_MARKER).
+# SWITCH-ON TEXT: nothing shows it before a league runs generation 7. The
+# sizes quoted were measured (generation 7, calibration seeds 1-2, 162
+# games): Home Run Rate 1.10 gave 1.26 HR per team-game against 1.14 at
+# 1.00 (+11%; runs +0.18); Launch Angle Base 13.1 gave 1.19 (+5% per
+# degree), ground balls -1.1 and fly balls +1.0 per 100 balls in play.
+_BALLFLIGHT_MODEL_SLIDERS: Dict[str, Optional[TuningSliderSpec]] = {
+    "hr_scale": TuningSliderSpec(
+        key="hr_scale",
+        label="Home Run Rate",
+        description=(
+            "How far fly balls carry. 1.00 = normal: about 1% more home runs "
+            "per +0.01 (the ball carries 0.08% further), and long fly balls "
+            "that stay in the park go further too. A setting saved before the "
+            "new ball-flight engine was reset to 1.00."
+        ),
+        min_value=0.75,
+        max_value=1.25,
+        step=0.01,
+        fmt="{:.2f}",
+    ),
+    "launch_angle_base": TuningSliderSpec(
+        key="launch_angle_base",
+        label="Launch Angle Base",
+        description=(
+            "Raises or lowers every batted ball's launch angle by the "
+            "distance from 12.1 degrees (normal). Each degree higher: about "
+            "5% more home runs, and about 1 more fly ball and 1 fewer ground "
+            "ball in every 100 balls in play. A setting saved before the new "
+            "ball-flight engine was reset to 12.1."
+        ),
+        min_value=6.0,
+        max_value=18.0,
+        step=0.1,
+        fmt="{:.1f}",
+    ),
+}
+
+
 def tuning_sections(
     swing_model: float = 0.0,
     contact_model: float = 0.0,
     velocity_model: float = 0.0,
+    ballflight_model: float = 0.0,
 ) -> List[Tuple[str, List[TuningSliderSpec]]]:
     """The slider catalog for a league running these engine models.
 
@@ -457,6 +503,8 @@ def tuning_sections(
         replaced.update(_CONTACT_MODEL_SLIDERS)
     if velocity_model >= 1.0:
         replaced.update(_VELOCITY_MODEL_SLIDERS)
+    if ballflight_model >= 1.0:
+        replaced.update(_BALLFLIGHT_MODEL_SLIDERS)
     if not replaced:
         return _TUNING_SECTIONS
     sections: List[Tuple[str, List[TuningSliderSpec]]] = []
@@ -482,11 +530,13 @@ def tuning_sections_for_generation(
         defaults.get("swing_model", 0.0),
         defaults.get("contact_model", 0.0),
         defaults.get("ev_velocity_model", 0.0),
+        defaults.get("carry_model", 0.0),
     )
 
 
 __all__ = [
     "TuningSliderSpec",
+    "_BALLFLIGHT_MODEL_SLIDERS",
     "_CONTACT_MODEL_SLIDERS",
     "_SWING_MODEL_SLIDERS",
     "_VELOCITY_MODEL_SLIDERS",

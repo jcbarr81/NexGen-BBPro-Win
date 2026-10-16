@@ -277,21 +277,46 @@ def require_fielder_centers(tuning: Any) -> None:
 BATTED_BALL_CENTER_KEY = "hitter_gf_center"
 
 
-def require_batted_ball_centers(tuning: Any) -> None:
-    """Raise :class:`RatingCenterMissing` when the line-drive credit on
-    doubles is on (``double_line_drive_scale`` not 0) and the league's
-    ``hitter_gf_center`` was not delivered. Nothing to check with it off."""
+PULL_CENTER_KEY = "hitter_pull_center"
+PITCHER_GF_CENTER_KEY = "pitcher_gf_usage_center"
 
-    if tuning is None or not tuning.get("double_line_drive_scale", 0.0):
-        return
-    if BATTED_BALL_CENTER_KEY not in getattr(tuning, "delivered", ()):
-        raise RatingCenterMissing(
-            "double_line_drive_scale is on but the league's "
-            f"{BATTED_BALL_CENTER_KEY} was not delivered with the tuning; the "
-            "doubles credit would read every hitter against 50. The centre "
-            "comes from services.league_rating_centers (KPI harness: "
-            "with_rating_centers)."
-        )
+
+def batted_ball_center_needs(tuning: Any) -> dict[str, str]:
+    """The batted-ball centres a game on ``tuning`` reads -> the switch that
+    reads it: ``hitter_gf_center`` under the line-drive credit on doubles
+    (``double_line_drive_scale``) or the Release 6b kernel
+    (``batted_ball_model``); under the kernel also ``hitter_pull_center``
+    with ``spray_model`` and ``pitcher_gf_usage_center`` with the pitcher's
+    ground-ball term (``pitcher_gb_launch_scale``)."""
+
+    needs: dict[str, str] = {}
+    if tuning is None:
+        return needs
+    if tuning.get("double_line_drive_scale", 0.0):
+        needs[BATTED_BALL_CENTER_KEY] = "double_line_drive_scale"
+    if tuning.get("batted_ball_model", 0.0) >= 0.5:
+        needs.setdefault(BATTED_BALL_CENTER_KEY, "batted_ball_model")
+        if tuning.get("spray_model", 0.0) >= 0.5:
+            needs[PULL_CENTER_KEY] = "spray_model"
+        if tuning.get("pitcher_gb_launch_scale", 0.0):
+            needs[PITCHER_GF_CENTER_KEY] = "pitcher_gb_launch_scale"
+    return needs
+
+
+def require_batted_ball_centers(tuning: Any) -> None:
+    """Raise :class:`RatingCenterMissing` when a switch that reads a
+    batted-ball centre is on (:func:`batted_ball_center_needs`) and the
+    league's centre was not delivered. Nothing to check with them off."""
+
+    delivered = getattr(tuning, "delivered", ())
+    for key, switch in batted_ball_center_needs(tuning).items():
+        if key not in delivered:
+            raise RatingCenterMissing(
+                f"{switch} is on but the league's {key} was not delivered "
+                "with the tuning; the game would read every player against "
+                "50. The centre comes from services.league_rating_centers "
+                "(KPI harness: with_rating_centers)."
+            )
 
 
 def fielder_shift(tuning: Any, key: str) -> float:

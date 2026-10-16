@@ -96,7 +96,9 @@ def test_the_fifteen_keys_and_who_reads_them():
     assert set(FIELDER_KEYS) == set(centred_ratings.FIELDER_CENTER_KEYS)
     # Generation 6 also stores the power work's hitter_gf_center
     # (tests/test_r6a_power_centers.py), after the fielder centres.
-    assert centers.GENERATION_CENTER_KEYS == {6: FIELDER_KEYS + ("hitter_gf_center",)}
+    assert centers.GENERATION_CENTER_KEYS[6] == FIELDER_KEYS + ("hitter_gf_center",)
+    # (Release 6b adds generation 7's two: tests/test_r7_centers.py.)
+    assert set(centers.GENERATION_CENTER_KEYS) == {6, 7}
     assert centers.PITCHER_FA_CENTER_KEY == "fielder_fa_center_p"
     for key in FIELDER_KEYS:
         assert DEFAULT_TUNING[key] == 50.0
