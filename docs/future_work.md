@@ -2698,3 +2698,29 @@ two of its games plays serially under `PB_PARALLEL_GAMES`. Left open:
   --contracts-from <older contracts.json> --output <folder>` (writes only
   the changed files into a separate folder) and upload them with the league
   idle.
+
+## Playoff stat totals (owner request via an alpha-test owner, 2026-10-16)
+
+An alpha-test owner (El_Jayel) won the championship from the wild-card round
+with an injury-hit roster and asked: "Is there any way to see the playoff stat
+totals?" Today there is no postseason stats view. What exists: every playoff
+game's box score is saved under `data/boxscores/playoffs/` and viewable one game
+at a time; playoff games run through `playbalance/game_runner.simulate_game_scores`
+with `postseason=True` (`playbalance/playoffs._default_simulate_game`).
+
+- **Investigate first:** whether playoff games are currently added into the
+  regular-season player and team totals (which would inflate season stats and
+  leaders, and affect awards / records) or are not saved anywhere at all. The
+  answer decides whether this is a new feature only or also a fix.
+- **Want:** postseason batting and pitching totals per player and per club for
+  each year, kept separate from the regular season (MLB-style), shown on the
+  player profile (a postseason line per year and career), on the club page,
+  and as postseason leaders; series-by-series lines would be a bonus (round,
+  opponent, result). Champion and series MVP would fit naturally here.
+- **Back-fill:** seasons already played could be rebuilt from the saved playoff
+  box scores, but only partly: box scores carry AB / R / H / RBI / BB / K / HR
+  and IP / H / R / ER / BB / K / HR, not plate appearances, batters faced,
+  doubles, triples or steals. Decide whether to back-fill those fields or start
+  clean from the next postseason.
+- Archive with the season at rollover like the regular-season stats; include
+  in the almanac / exports.
