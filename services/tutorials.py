@@ -660,7 +660,7 @@ TUTORIALS: List[Tutorial] = [
                 "Real ball flight",
                 "<p>Your league plays on the <b>ball-flight engine</b>, the newest game engine. It started at the start of a season, never in the middle of one, and an item in <b>Today → News</b> said so.</p>"
                 "<p>Every ball a hitter puts in play now has a speed off the bat, an angle and a direction, and it flies: air slows it, thin air at altitude lets it carry further (Coors Field about 4 to 5% further), and it is a home run only if it clears that park's own fence and wall at the spot it gets there. A ball hit about 100 mph at about 28 degrees carries about 400 feet; the average home run travels about 390 feet.</p>"
-                "<p>Balls in play come off the bat as <b>ground balls</b> (about 42%), <b>line drives</b> (about 24%), <b>fly balls</b> (about 25%) and <b>pop-ups</b> (about 8%), close to MLB's mix, and about 40% of them are hit 95 mph or harder. Scoring stays at about MLB's level (about 4.3 to 4.5 runs per team per game in testing), with about 1.1 home runs per team per game.</p>",
+                "<p>Balls in play come off the bat as <b>ground balls</b> (about 42%), <b>line drives</b> (about 24%), <b>fly balls</b> (about 25%) and <b>pop-ups</b> (about 8%), close to MLB's mix, and about 40% of them are hit 95 mph or harder. Scoring stays at about MLB's level: about 4.4 runs per team per game in testing (4.25 to 4.4 on copies of the live leagues, 4.3 to 4.7 on the test leagues), with about 1.1 home runs, 1.6 doubles and 0.14 triples per team per game.</p>",
                 rating_scale=2,
                 min_generation=7,
             ),

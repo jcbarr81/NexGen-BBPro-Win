@@ -2596,3 +2596,22 @@ The owner accepted the misses below as they stand (decisions 21-24,
   in `rating_scale.json` would be cleaner if leagues ever need it.
 - **Foul-outs** are caught by the catcher (30%) or the corner infielder on
   the ball's side, never by anyone else, and never drop for an error.
+- **Pop-ups and foul-outs in season stats** (round 5, backlog). Box scores
+  name the foul-outs (the fielding note); the season stats pages have no
+  batted-ball columns at all (a pop-up counts as a fly ball in the box
+  lines), so pop-ups and foul-outs per hitter and pitcher need new stat
+  keys, their accumulation (`playbalance.stats`) and columns on the stats
+  pages. Do it with any batted-ball columns (GB / LD / FB / PU, hard-hit).
+- **The live-league copies' pooled pitching gates** (round 5): two seasons
+  each of the rehearsal's 2028 rosters miss pitcher GB% true sd (alpha-test
+  .049, gate .075 +/- .025) and, on stats-test, three pitching slopes
+  (walk rate per 10 control -1.18, pitcher / hitter HR true-sd ratio .71,
+  HR per 10 points of pitcher GB rating -21%). Roster-driven (bunched
+  ground-ball ratings, a different staff mix); look again after a season of
+  generation 7 play.
+- **Old park names on generation 7** (round 5): a team whose explicit
+  `park_id` was picked under a name the park carried only before 2000
+  (KAN06 as "Royals Stadium") plays the generic park on generation 7,
+  because the engine reads the park by its name. The generation 7 catalog
+  no longer offers such names; carry the park id into the engine if one is
+  ever found.

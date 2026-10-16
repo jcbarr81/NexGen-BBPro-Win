@@ -1680,6 +1680,16 @@ DEFAULT_TUNING: Dict[str, Any] = {
     # where babip_scale below 1 would make every sure hit an out some of
     # the time. 0: no shift (generation 7 sets it, babip_scale 1).
     "bb6_hit_logit_shift": 0.0,
+    # Round 5: the generic park (every club not in a real park: most live
+    # leagues' clubs) is the AVERAGE major-league park. Its mirrored mean
+    # fence gives about 9% fewer home runs than the 30 parks' mean (home
+    # runs are convex in the fence distance), so it moves this far (ft, both
+    # sides; negative = in). 0: the mean fence as it is.
+    "bb6_generic_fence_shift_ft": 0.0,
+    # ... and its walls this much taller (ft, all five points): the real
+    # parks' tall walls (Fenway, Minute Maid, ...) turn balls into hits off
+    # the wall that a mean wall of about 10 ft catches or lets out.
+    "bb6_generic_wall_add_ft": 0.0,
 }
 
 # Every key Release 6b (generation 7) registered: the block above from

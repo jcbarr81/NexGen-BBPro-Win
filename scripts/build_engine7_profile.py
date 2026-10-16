@@ -44,6 +44,9 @@ R7_STAGES: tuple[str, ...] = (
     "sliders",  # Home Run Rate and Launch Angle Base on the new model
     "parks",  # owner decisions 18 / 20: each park's HR by batter side
     "relevel",  # hits, double plays and shortstop range on the final model
+    # Round 5 (the switch-on rehearsal): the generic park made the average
+    # park, doubles and triples to their targets, the level again.
+    "generic_park",
 )
 
 

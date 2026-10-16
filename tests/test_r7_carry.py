@@ -131,6 +131,33 @@ def test_a_real_park_reads_its_own_fence_and_a_made_up_one_the_generic():
     assert park_utils.stadium_from_name("Comerica Park").center == 420.0
 
 
+def test_the_generic_park_is_moved_to_play_as_the_average_park():
+    """Round 5: the mirrored mean fence gave about 9% fewer home runs and
+    fewer hits off the wall than the 30 parks' mean (convexity); live
+    leagues, whose clubs mostly play the generic park, scored about 0.3 runs
+    a team-game under the fixtures. Generation 7 moves its fence in and
+    raises its walls; registered off."""
+    from physics_sim.config import RELEASE_6B_KEYS
+    from physics_sim.engine_generation import engine_profile
+
+    for key in ("bb6_generic_fence_shift_ft", "bb6_generic_wall_add_ft"):
+        assert DEFAULT_TUNING[key] == 0.0 and key in RELEASE_6B_KEYS
+    off = load_tuning(ON)
+    assert bf.park_fence(load_park("Nowhere Field"), off) is bf.GENERIC_FENCE
+    seven = engine_profile(7, development=True)
+    tuning = load_tuning({**ON, **{k: seven[k] for k in (
+        "bb6_generic_fence_shift_ft", "bb6_generic_wall_add_ft")}})
+    generic = bf.park_fence(load_park("Nowhere Field"), tuning)
+    shift, add = seven["bb6_generic_fence_shift_ft"], seven["bb6_generic_wall_add_ft"]
+    assert shift < 0 and add > 0
+    assert generic.distances == pytest.approx(
+        tuple(d + shift for d in bf.GENERIC_FENCE.distances))
+    assert generic.heights == pytest.approx(
+        tuple(h + add for h in bf.GENERIC_FENCE.heights))
+    # A real park is not touched.
+    assert bf.park_fence(load_park("Fenway Park"), tuning).heights[0] == 37.0
+
+
 def test_the_fence_is_five_straight_lines_and_the_wall_counts():
     fence = bf.Fence((330.0, 380.0, 400.0, 370.0, 320.0), (10.0, 10.0, 10.0, 20.0, 20.0))
     assert bf.fence_at(fence, -45.0) == (330.0, 10.0)

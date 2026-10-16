@@ -109,8 +109,30 @@ def test_on_generation_7_a_real_park_is_an_exact_current_name(tmp_path, monkeypa
     assert park_utils.park_lookup_name("Royals Stadium", None) == "Royals Stadium"
     # Generation 7: no stale name, no substring.
     assert park_utils.park_fence_for_name("Royals Stadium") is None
-    assert ballflight.park_fence(load_park("Royals Stadium"), seven) is ballflight.GENERIC_FENCE
+    generic = ballflight.park_fence(load_park("Nowhere Field"), seven)
+    assert ballflight.park_fence(load_park("Royals Stadium"), seven) == generic
+    assert not ballflight.real_park_on_generation7(load_park("Royals Stadium"))
+    assert ballflight.real_park_on_generation7(load_park("Kauffman Stadium"))
     assert park_utils.park_fence_for_name("Royals") is None
+    # In a game: generation 7 plays the generic park in everything (air and
+    # foul ground too); generation 6 plays Royals Stadium as it always did.
+    import physics_sim.engine as engine
+    import scripts.physics_sim_season_kpis as kpis
+
+    cal = REPO / "data" / "calibration"
+    parks = {}
+    for generation in (6, 7):
+        overrides = kpis.with_rating_centers(
+            engine_profile(generation, development=True), cal / "players.csv", cal
+        )
+        game = engine.simulate_matchup_from_files(
+            away_team="CAL01", home_team="CAL02", base_dir=cal,
+            players_path=cal / "players.csv", seed=1, tuning_overrides=overrides,
+            park_name="Royals Stadium",
+        )
+        parks[generation] = game.metadata["park"]
+    assert parks[6] != parks[7]
+    assert "Royals" in str(parks[6]) and "Royals" not in str(parks[7])
     assert park_utils.park_fence_for_name("Kauffman Stadium")[0] == "KAN06"
     # Names a current park has carried since 2000 still count (the
     # calibration fixture's Guarantee Rate Field and Oakland Coliseum).

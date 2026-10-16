@@ -68,6 +68,7 @@ __all__ = [
     "home_run_fence",
     "park_density",
     "park_fence",
+    "real_park_on_generation7",
     "trajectory",
 ]
 
@@ -400,6 +401,13 @@ def shifted_fence(fence: Fence, left: float, right: float) -> Fence:
     )
 
 
+def real_park_on_generation7(park: Any) -> bool:
+    """True when generation 7 plays ``park`` on a real park's own fences
+    (its exact current name; ``utils.park_utils.park_fence_for_name``);
+    False for the generic park."""
+    return _real_fence(str(getattr(park, "name", "") or "")) is not None
+
+
 def park_fence(park: Any, tuning: Any) -> Fence:
     """The fence of ``park`` (a ``physics_sim.park.Park``): its real
     park's five points (``data/parks/ParkFences.csv``, else its
@@ -411,7 +419,22 @@ def park_fence(park: Any, tuning: Any) -> Fence:
     side)."""
     fence = _real_fence(str(getattr(park, "name", "") or ""))
     if fence is None:
-        return GENERIC_FENCE
+        # The average major-league park (round 5): the mirrored mean fence
+        # moved by ``bb6_generic_fence_shift_ft`` and its walls raised by
+        # ``bb6_generic_wall_add_ft``, so it plays to the 30 parks' mean --
+        # a mean fence alone gives about 9% fewer home runs (convex in the
+        # distance) and fewer hits off the wall (the real parks' tall walls).
+        get = tuning.get if hasattr(tuning, "get") else (lambda _k, d=None: d)
+        shift = optional_float(get("bb6_generic_fence_shift_ft", 0.0)) or 0.0
+        wall = optional_float(get("bb6_generic_wall_add_ft", 0.0)) or 0.0
+        if not shift and not wall:
+            return GENERIC_FENCE
+        moved = shifted_fence(GENERIC_FENCE, shift, shift)
+        return Fence(
+            distances=moved.distances,
+            heights=tuple(h + wall for h in moved.heights),  # type: ignore[arg-type]
+            park_id=moved.park_id,
+        )
     return shifted_fence(
         fence,
         _shift(tuning, "bb6_park_fence_shift_left_ft", fence.park_id),

@@ -226,10 +226,10 @@
   "bb6_gb_double_line_deg": 42.0,
   "bb6_gb_double_ev": 92.0,
   "bb6_double_wall_frac": 0.92,
-  "bb6_double_gap_ft": 79.0,
+  "bb6_double_gap_ft": 77.0,
   "bb6_double_min_ft": 265.0,
   "bb6_triple_wall_frac": 0.99,
-  "bb6_triple_gap_ft": 102.0,
+  "bb6_triple_gap_ft": 100.0,
   "bb6_triple_speed_ft": 30.0,
   "bb6_run_speed": 0.02,
   "bb6_hit_prob_min": 0.002,
@@ -348,5 +348,7 @@
     "LON01": 3.32,
     "BIR01": 8.62
   },
-  "bb6_hit_logit_shift": -0.25
+  "bb6_hit_logit_shift": -0.22,
+  "bb6_generic_fence_shift_ft": -6.76,
+  "bb6_generic_wall_add_ft": 4.0
 }

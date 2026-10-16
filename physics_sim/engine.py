@@ -15,6 +15,7 @@ from .ballflight import (
     carry_model_on,
     fielding_play_model_on,
     play,
+    real_park_on_generation7,
     require_park_fences,
     resolve_ball,
 )
@@ -6110,6 +6111,13 @@ def simulate_game(
     # 7's own fence file and never falls back to ParkConfig.csv's rows.
     require_park_fences(tuning)
     park: Park = load_park(park_name)
+    if carry_model_on(tuning) and not real_park_on_generation7(park):
+        # Round 5: a park generation 7 does not play on its own fences is
+        # the generic park in everything -- its air, its foul ground, its
+        # factor -- not only its fence (a club named the Royals' "Royals
+        # Stadium" took Kansas City's altitude and foul ground from the
+        # earlier engines' name lookup).
+        park = load_park(None)
     injury_sim: InjurySimulator | None = None
     if tuning.get("injuries_enabled", 1.0) > 0.5:
         injury_sim = InjurySimulator(rng=rng)
