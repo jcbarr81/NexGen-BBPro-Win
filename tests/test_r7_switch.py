@@ -159,8 +159,17 @@ def test_a_league_on_generation_6_moves_to_7_at_its_next_season(scratch, monkeyp
     ]
     feed = news(data)
     assert feed.count(LEAD) == 1 and feed.count(BALLFLIGHT_ENGINE_TEXT) == 1
+    # Tagged as the conversion and development items are (round 5).
+    (line,) = [ln for ln in feed.splitlines() if LEAD in ln]
+    assert "[league]" in line
     _first_game(monkeypatch, 2027)
     assert news(data).count(LEAD) == 1
+    # The Physics Tuning page's engine line (round 5): the latest is 7.
+    from api.routers import tuning as tuning_router
+
+    block = tuning_router._engine_block(7)
+    assert block["generation"] == 7 and block["latest_generation"] == 7
+    assert tuning_router._engine_block(5)["latest_generation"] == 5
     # The sliders on their generation 7 meaning: back at neutral, the old
     # values kept in the marker.
     assert tuning["hr_scale"] == pytest.approx(1.0)

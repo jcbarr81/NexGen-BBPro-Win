@@ -1750,6 +1750,8 @@ def _tell_ballflight(base: Path, season_key: str) -> None:
 
         log_news_event(
             ballflight_switch_news(base, season=season_key),
+            # Tagged as the conversion and development items are.
+            category="league",
             file_path=base / "news_feed.txt",
         )
         record_ballflight_announced(base, season_key)
