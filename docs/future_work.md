@@ -2596,3 +2596,39 @@ The owner accepted the misses below as they stand (decisions 21-24,
   in `rating_scale.json` would be cleaner if leagues ever need it.
 - **Foul-outs** are caught by the catcher (30%) or the corner infielder on
   the ball's side, never by anyone else, and never drop for an error.
+
+## 8.1 hotfix: one club per player, parallel days (2026-10-16, branch `r81-hotfix`)
+
+Fixed on the branch: a player on any level of a club's roster (the injured
+lists included) or under contract with a club is no longer a free agent;
+`save_roster` refuses a second club for a player; a day with a player in
+two of its games plays serially under `PB_PARALLEL_GAMES`. Left open:
+
+- **Repair the production doubles (owner's decision).** alpha-test has two
+  players on two clubs (P2739 BAL 15-day IL + COL active; P4720 COL + OKL
+  active), stats-test none (backup of 2026-10-14 21:49). Run
+  `scripts/find_double_rostered_players.py <league data>` on the live files
+  first; it proposes keeping each with the club that held him before the
+  void free-agent signing. Both void signings overwrote the contract (COL
+  $8.69M x 5, OKL $8.25M x 5); the original terms are only in an older
+  copy of `contracts.json` (GCS object versioning). Until repaired, P2739
+  becomes active for BAL and COL when his injury clears, and a game day on
+  which a shared player's two clubs both play runs serially.
+- **Trades do not move the contract's club.** 23 alpha-test contracts name
+  the club that traded the player away (the web app's `commit_trade` never
+  calls `transfer_contracts`; the old desktop dialog did). Check what reads
+  `contracts.json` `team_id` (payroll, the contracts page) before fixing.
+- **Pitching-staff files list players the club no longer has** (6 in
+  alpha-test; P7902 is on WAS's and COL's). A staff file only labels roles;
+  clean them when a player leaves.
+- **Placeholder pitchers can be shared in memory.** `load_roster` pads a
+  club with fewer than six pitchers from the placeholder pool; with toy test
+  rosters two clubs got the same placeholder arm. Real leagues have full
+  staffs, and the write guard refuses to save such a roster.
+- **Lost 2026 lines.** alpha-test's pitching totals are one start short of
+  its team totals (13 batters faced, 5 runs, 5 hits, 1 home run, 1 GS). No
+  box score from 2026-05-06 on shows a player in two games of a day, and no
+  player's season line is below his box-score sum, so it happened before
+  the box scores begin (none exist before 2026-05-06) and cannot be traced
+  or repaired from them. stats-test's player and team totals agree, but its
+  CHI and WAS show 161 team games each against 162 scheduled; not traced.
