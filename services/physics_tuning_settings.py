@@ -1135,8 +1135,26 @@ def _pre_generation_7_view(
 ) -> Dict[str, float]:
     """A file's overrides as a league below generation 7 reads them: the
     values kept under ``PRE_GENERATION_7_MARKER`` come back unless the file
-    holds a value of that key since."""
+    holds a value of that key since.
+
+    A file marked as on generation 7's meaning
+    (``BALLFLIGHT_SLIDER_REBASE_MARKER``: the league played a generation 7
+    season, and anything set since was set on 7) never hands an earlier
+    generation its Home Run Rate or Launch Angle Base: those mean carry and
+    launch angle there, and generation 6 reads Home Run Rate very steeply
+    (1.08 against its .92 gave about 2.5 home runs and 6.4 runs a
+    team-game). The value kept from before generation 7 comes back, else
+    the generation's own default."""
     kept = markers.get(PRE_GENERATION_7_MARKER)
+    if markers.get(BALLFLIGHT_SLIDER_REBASE_MARKER) is True:
+        view = {k: v for k, v in stored.items() if k not in BALLFLIGHT_SLIDER_KEYS}
+        if isinstance(kept, dict):
+            view.update({
+                key: value
+                for key, value in _sanitize_overrides(kept).items()
+                if key in BALLFLIGHT_SLIDER_KEYS
+            })
+        return stored if view == stored else view
     if not isinstance(kept, dict):
         return stored
     restorable = {

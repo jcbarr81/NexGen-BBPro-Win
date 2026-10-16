@@ -150,11 +150,15 @@ on generation 6:
 
   Upload `rating_centers.json`, `season_progress.json` and
   `rating_scale.json` (it records the `generation_set` event). The league
-  stays on scale 2, which plays correctly on generation 6. Its earlier Home
-  Run Rate and Launch Angle Base settings (kept under
-  `_pre_generation_7_r7`) come back, unless the commissioner set those
-  sliders while on generation 7: those settings stay and are then read with
-  the earlier meaning (tell the commissioner to check them). With `NEXGEN_GENERATION7` still on, that league's FOLLOWING
+  stays on scale 2, which plays correctly on generation 6. Home Run Rate
+  and Launch Angle Base go back to what they were before generation 7
+  (kept under `_pre_generation_7_r7`), or to generation 6's defaults when
+  nothing was kept; a value the commissioner set on generation 7 is NOT
+  carried over (it means carry and launch angle there, and generation 6
+  reads Home Run Rate steeply: 1.08 against its default .92 gave about 2.5
+  home runs and 6.4 runs a team-game on a live copy). The file is written
+  back on generation 6's meaning at the first generation 6 game. Tell the
+  commissioner the two sliders were reset. With `NEXGEN_GENERATION7` still on, that league's FOLLOWING
   season moves to 7 again unless the hold is set.
 - **Mid-season** the same call changes how the rest of that season plays;
   do it only to recover a league that cannot play (for example after the

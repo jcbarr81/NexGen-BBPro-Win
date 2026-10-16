@@ -157,6 +157,42 @@ def test_an_earlier_generation_gets_its_sliders_back(tmp_path):
     assert S.BALLFLIGHT_SLIDER_REBASE_MARKER not in stored
 
 
+def test_a_setting_made_on_7_never_reaches_an_earlier_generation(tmp_path):
+    """Round 5: Home Run Rate and Launch Angle Base set on generation 7 mean
+    carry and launch angle; read on generation 6 they would mean something
+    else (generation 6's Home Run Rate is steep: 1.08 against its .92 gave
+    about 2.5 HR and 6.4 runs a team-game). Back below 7 the value kept from
+    before 7 returns, else the generation's own default."""
+    path = _write(tmp_path, {"hr_scale": 0.95, "launch_angle_base": 14.0})
+    S.load_physics_tuning_overrides(7, path=path, convert=True)
+    S.save_physics_tuning_overrides(
+        {"hr_scale": 1.08, "launch_angle_base": 13.0, "babip_scale": 0.97}, 7, path=path
+    )
+    assert S.load_physics_tuning_overrides(7, path=path) == {
+        "hr_scale": 1.08, "launch_angle_base": 13.0, "babip_scale": 0.97,
+    }
+    for generation in (4, 5, 6):
+        assert S.load_physics_tuning_overrides(generation, path=path) == {
+            "hr_scale": 0.95, "launch_angle_base": 14.0, "babip_scale": 0.97,
+        }
+    # Nothing kept from before 7: the earlier generation's defaults.
+    other = tmp_path / "other"
+    other.mkdir()
+    path2 = _write(other, {"babip_scale": 0.97})
+    S.load_physics_tuning_overrides(7, path=path2, convert=True)
+    S.save_physics_tuning_overrides({"babip_scale": 0.97, "hr_scale": 1.08}, 7, path=path2)
+    assert S.load_physics_tuning_overrides(6, path=path2) == {"babip_scale": 0.97}
+    # A generation 6 game writes the file back on generation 6's meaning.
+    S.load_physics_tuning_overrides(6, path=path2, convert=True)
+    stored = _stored(path2)
+    assert "hr_scale" not in stored and S.BALLFLIGHT_SLIDER_REBASE_MARKER not in stored
+    # A setting made on generation 6 afterwards is read as set.
+    S.save_physics_tuning_overrides({"babip_scale": 0.97, "hr_scale": 0.93}, 6, path=path2)
+    assert S.load_physics_tuning_overrides(6, path=path2) == {
+        "babip_scale": 0.97, "hr_scale": 0.93,
+    }
+
+
 def test_what_the_sliders_do_on_generation_7():
     profile = engine_profile(7, development=True)
     tuning = load_tuning(profile)
