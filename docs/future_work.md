@@ -2662,10 +2662,13 @@ two of its games plays serially under `PB_PARALLEL_GAMES`. Left open:
   copy of `contracts.json` (GCS object versioning). Until repaired, P2739
   becomes active for BAL and COL when his injury clears, and a game day on
   which a shared player's two clubs both play runs serially.
-- **Trades do not move the contract's club.** 23 alpha-test contracts name
-  the club that traded the player away (the web app's `commit_trade` never
-  calls `transfer_contracts`; the old desktop dialog did). Check what reads
-  `contracts.json` `team_id` (payroll, the contracts page) before fixing.
+- **Trades do not move the contract's club. FIXED 8.1.1:** `commit_trade`
+  now moves each traded player's existing contract (never creates one) after
+  the rosters are saved. Payroll (`services/payroll_engine.py`) sums by the
+  contract's `team_id`, so the old club kept paying. alpha-test's 23 were
+  repaired (all 23 traced to a logged trade; stats-test had none);
+  `scripts/repair_contract_clubs.py` reports and repairs from the roster
+  files.
 - **Pitching-staff files list players the club no longer has** (6 in
   alpha-test; P7902 is on WAS's and COL's). A staff file only labels roles;
   clean them when a player leaves.
@@ -2708,19 +2711,28 @@ game's box score is saved under `data/boxscores/playoffs/` and viewable one game
 at a time; playoff games run through `playbalance/game_runner.simulate_game_scores`
 with `postseason=True` (`playbalance/playoffs._default_simulate_game`).
 
-- **Investigate first:** whether playoff games are currently added into the
-  regular-season player and team totals (which would inflate season stats and
-  leaders, and affect awards / records) or are not saved anywhere at all. The
-  answer decides whether this is a new feature only or also a fix.
+- **Investigated and fixed in 8.1.1 (2026-10-16):** playoff games WERE added
+  into the regular-season player and team totals (alpha-test's COL and OKL
+  read 175 games, 100-75 / 101-74; 134 players' lines), which also fed the
+  awards (their qualifying minimums come from the most games played), career
+  ledgers and records at the rollover. A physics-engine playoff game now adds
+  into `postseason_stats.json` (same structure and keys as
+  `season_stats.json`, no daily history shards), archived at rollover as
+  `careers/<season>/postseason_stats.json` and emptied for the next season.
+  alpha-test's and stats-test's 2026 totals were split exactly: regular season
+  = the `season_stats.json` version saved when every club reached its
+  scheduled count (alpha 2026-10-11T08:01:27Z, stats-test
+  2026-08-31T15:19:40Z), postseason = final minus that, derived stats
+  recomputed (`scripts/split_postseason_stats.py`). Left open: the
+  legacy `GameSimulation` path (disabled in production by `legacy_guard`)
+  still adds a playoff game into the season totals; and no page shows the
+  postseason totals yet (below).
 - **Want:** postseason batting and pitching totals per player and per club for
   each year, kept separate from the regular season (MLB-style), shown on the
   player profile (a postseason line per year and career), on the club page,
   and as postseason leaders; series-by-series lines would be a bonus (round,
   opponent, result). Champion and series MVP would fit naturally here.
-- **Back-fill:** seasons already played could be rebuilt from the saved playoff
-  box scores, but only partly: box scores carry AB / R / H / RBI / BB / K / HR
-  and IP / H / R / ER / BB / K / HR, not plate appearances, batters faced,
-  doubles, triples or steals. Decide whether to back-fill those fields or start
-  clean from the next postseason.
+- **Back-fill:** done exactly for 2026 in both live leagues (above), so the
+  box-score rebuild is not needed there.
 - Archive with the season at rollover like the regular-season stats; include
   in the almanac / exports.

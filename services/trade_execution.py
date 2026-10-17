@@ -8,6 +8,7 @@ keeps a thin wrapper that re-raises them as ``HTTPException(400)``.
 from __future__ import annotations
 
 import copy
+import logging
 from pathlib import Path
 
 from models.trade import Trade
@@ -79,6 +80,38 @@ def _check_pick_owner(pick_id: str, owner: str) -> None:
         )
 
 
+def _transfer_contracts(trade: Trade, data_dir) -> None:
+    """Move each traded player's contract to his new club (8.1.1).
+
+    Payroll is summed by the contract's ``team_id``, so a contract left with
+    the old club kept charging it for the player. Only existing contracts
+    move; a player without one (a minor leaguer, a league without finance)
+    gets none. Never fails the trade, which has already been saved.
+    """
+
+    from services.contracts_service import transfer_contracts
+
+    for ids, receiver in (
+        (trade.give_player_ids, trade.to_team),
+        (trade.receive_player_ids, trade.from_team),
+    ):
+        if not ids:
+            continue
+        try:
+            transfer_contracts(
+                list(ids),
+                receiver,
+                create_if_missing=False,
+                data_dir=data_dir,
+            )
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "trade %s: could not move contracts to %s",
+                getattr(trade, "trade_id", "?"),
+                receiver,
+            )
+
+
 def commit_trade(trade: Trade, *, data_dir=None) -> None:
     """Apply a trade's roster + pick swap and log the transactions.
 
@@ -131,6 +164,7 @@ def commit_trade(trade: Trade, *, data_dir=None) -> None:
         raise
     claim_players(trade.to_team, trade.give_player_ids)
     claim_players(trade.from_team, trade.receive_player_ids)
+    _transfer_contracts(trade, data_dir)
 
     # Best-effort transaction log entries.
     for pid in trade.give_player_ids:

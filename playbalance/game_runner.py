@@ -823,7 +823,15 @@ def _persist_physics_stats(
     players_lookup: Mapping[str, object],
     home_team: Team | None,
     away_team: Team | None,
+    postseason: bool = False,
 ) -> None:
+    """Add one game's lines into the season totals and save them.
+
+    A ``postseason`` game adds into the postseason totals
+    (``POSTSEASON_STATS_PATH``, same keys) instead, and never touches the
+    regular-season totals or the ``season_stats`` on the player and team
+    objects.
+    """
     from playbalance.stats import (
         compute_batting_derived,
         compute_batting_rates,
@@ -834,7 +842,11 @@ def _persist_physics_stats(
         compute_team_rates,
         fielding_season_key,
     )
-    from utils.stats_persistence import save_stats
+    from utils.stats_persistence import (
+        POSTSEASON_STATS_PATH,
+        load_stats,
+        save_stats,
+    )
 
     def _int(value: object) -> int:
         try:
@@ -856,11 +868,24 @@ def _persist_physics_stats(
         score = {}
 
     updated_players: dict[str, object] = {}
+    post_players: dict[str, Any] = {}
+    post_teams: dict[str, Any] = {}
+    if postseason:
+        stored = load_stats(POSTSEASON_STATS_PATH)
+        post_players = stored.get("players", {}) or {}
+        post_teams = stored.get("teams", {}) or {}
 
     def _player_and_season(pid: str) -> tuple[object, dict[str, Any]] | None:
         player = players_lookup.get(pid)
         if player is None:
             return None
+        if postseason:
+            holder = updated_players.get(pid)
+            if holder is None:
+                season = dict(post_players.get(pid) or {})
+                holder = SimpleNamespace(player_id=pid, season_stats=season)
+                updated_players[pid] = holder
+            return player, holder.season_stats
         season = getattr(player, "season_stats", None)
         if not isinstance(season, dict):
             season = {}
@@ -1085,10 +1110,15 @@ def _persist_physics_stats(
             season.update(compute_fielding_derived(state))
             season.update(compute_fielding_rates(state))
 
+    post_team_holders: list[SimpleNamespace] = []
+
     def _update_team(team: Team | None, runs: int, opp_runs: int, lob: int, opp_lines: list[dict]) -> None:
         if team is None:
             return
-        season = dict(getattr(team, "season_stats", {}) or {})
+        if postseason:
+            season = dict(post_teams.get(team.team_id) or {})
+        else:
+            season = dict(getattr(team, "season_stats", {}) or {})
         if runs > opp_runs:
             season["w"] = season.get("w", 0) + 1
         elif runs < opp_runs:
@@ -1109,6 +1139,11 @@ def _persist_physics_stats(
         season["opp_hr"] = season.get("opp_hr", 0) + _sum("hr")
         season["opp_roe"] = season.get("opp_roe", 0) + _sum("roe")
         season.update(compute_team_rates(season))
+        if postseason:
+            post_team_holders.append(
+                SimpleNamespace(team_id=team.team_id, season_stats=season)
+            )
+            return
         team.season_stats = season
 
     home_runs = _int(score.get("home", 0))
@@ -1133,6 +1168,17 @@ def _persist_physics_stats(
         _lob(away_batting),
         home_batting,
     )
+
+    if postseason:
+        # Playoff days are played one game at a time (playoffs._play_next_day),
+        # never through the parallel-day journal, so this writes directly.
+        save_stats(
+            updated_players.values(),
+            post_team_holders,
+            POSTSEASON_STATS_PATH,
+            daily_snapshot=False,
+        )
+        return
 
     teams = [team for team in (home_team, away_team) if team is not None]
     jr = active_journal()
@@ -1510,6 +1556,7 @@ def _run_physics_game(
             players_lookup=players_lookup,
             home_team=home_state.team,
             away_team=away_state.team,
+            postseason=postseason,
         )
 
     if jr is not None:

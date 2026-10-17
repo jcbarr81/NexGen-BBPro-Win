@@ -76,6 +76,12 @@ from utils.path_utils import get_data_dir, resolve_app_path
 from utils.sim_date import get_current_sim_date
 
 
+# Playoff games' totals (8.1.1): the same structure and keys as
+# ``season_stats.json``, kept apart so the postseason never adds into the
+# regular season. Archived with the season and emptied at rollover.
+POSTSEASON_STATS_PATH = "data/postseason_stats.json"
+
+
 def _resolve_path(path: str | Path) -> Path:
     p = Path(path)
     if p.is_absolute():
@@ -379,6 +385,8 @@ def save_stats(
     players: Iterable[Any],
     teams: Iterable[Any],
     path: str | Path = "data/season_stats.json",
+    *,
+    daily_snapshot: bool = True,
 ) -> None:
     """Persist season statistics with an inter-process file lock.
 
@@ -386,9 +394,15 @@ def save_stats(
     the objects are collected and written once at batch exit instead of
     parsing + rewriting the whole file per call. ``season_stats`` values are
     cumulative, so last-write-wins per entity is exact.
+
+    ``daily_snapshot=False`` skips the per-day ``season_history`` shard (the
+    postseason totals keep none).
     """
 
     file_path = _resolve_path(path)
+    if not daily_snapshot:
+        _write_stats(players, teams, file_path, daily_snapshot=False)
+        return
     target = _batch_target()
     if target is not None and target == file_path:
         from types import SimpleNamespace
@@ -421,6 +435,8 @@ def _write_stats(
     players: Iterable[Any],
     teams: Iterable[Any],
     file_path: Path,
+    *,
+    daily_snapshot: bool = True,
 ) -> None:
     lock_path = file_path.with_suffix(file_path.suffix + ".lock")
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -449,7 +465,9 @@ def _write_stats(
             # appending to the canonical history list. This keeps per-game writes
             # small while preserving the ability to merge a full history later.
             # Daily sharding is enabled by default to keep writes bounded.
-            if _truthy_env("PB_SHARD_HISTORY", True):
+            if not daily_snapshot:
+                pass
+            elif _truthy_env("PB_SHARD_HISTORY", True):
                 try:
                     write_daily_snapshot(players, teams)
                 except Exception:

@@ -105,6 +105,12 @@ def test_league_rollover_archives_and_resets(sandbox, monkeypatch):
             "history": [],
         },
     )
+    postseason = {
+        "players": {"BAT1": {"g": 7, "pa": 30, "h": 9}},
+        "teams": {"T1": {"g": 7, "w": 4, "l": 3}},
+        "history": [],
+    }
+    _write_json(data_dir / "postseason_stats.json", postseason)
     _write_json(data_dir / "standings.json", {"T1": {"wins": 98, "losses": 64}})
     _write_json(data_dir / "season_progress.json", {"sim_index": 162})
     _write_json(
@@ -271,6 +277,21 @@ def test_league_rollover_archives_and_resets(sandbox, monkeypatch):
 
     stats_after = json.loads((data_dir / "season_stats.json").read_text(encoding="utf-8"))
     assert stats_after == {"players": {}, "teams": {}, "history": []}
+
+    # 8.1.1: the postseason totals are archived with the season, emptied for
+    # the next one, and never added into the regular-season career ledger.
+    archived_post = json.loads(
+        (archive_dir / "postseason_stats.json").read_text(encoding="utf-8")
+    )
+    assert archived_post == postseason
+    metadata = json.loads((archive_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["artifacts"]["postseason_stats"].endswith(
+        "test-2025/postseason_stats.json"
+    )
+    post_after = json.loads(
+        (data_dir / "postseason_stats.json").read_text(encoding="utf-8")
+    )
+    assert post_after == {"players": {}, "teams": {}, "history": []}
 
     standings_after = json.loads((data_dir / "standings.json").read_text(encoding="utf-8"))
     assert standings_after == {}
