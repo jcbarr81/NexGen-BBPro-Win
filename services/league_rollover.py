@@ -3,7 +3,7 @@ from __future__ import annotations
 """League rollover archival service."""
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 import json
@@ -356,6 +356,17 @@ class LeagueRolloverService:
         except Exception as exc:  # pragma: no cover - defensive
             artifacts["hall_of_fame_error"] = str(exc)
 
+        # 8.1.2: the offseason heals. Injuries that end before next opening
+        # day are over (day-to-day knocks, and stints whose clock runs out
+        # by then: a CPU club activates its returners, an owner's follow the
+        # owner's injured-list choices); longer ones carry into the season.
+        try:
+            healed = self._heal_for_opening_day(next_year)
+            if healed:
+                artifacts["offseason_injuries"] = json.dumps(healed)
+        except Exception as exc:  # pragma: no cover - defensive
+            artifacts["offseason_injuries_error"] = str(exc)
+
         # Note: the offseason checklist is intentionally LEFT for the
         # owner (or commish in owner leagues) to drive — reviewing
         # contracts, signing free agents, finalizing budgets, etc. is
@@ -374,6 +385,41 @@ class LeagueRolloverService:
             contract_rollover=contract_rollover,
             finance_rollover=finance_rollover,
         )
+
+    def _heal_for_opening_day(self, next_year: Optional[int]) -> Optional[Dict[str, Any]]:
+        """Run the daily injured-list step as of next opening day.
+
+        Opening day is the first date of the schedule the PRESEASON step will
+        generate (``api.routers.season``: the ``mlb_162`` template for the new
+        league year). ``None`` when there is no next year.
+        """
+
+        if next_year is None:
+            return None
+        from services.dl_automation import process_disabled_lists
+        from services.league_presets import get_schedule_template
+        from utils.roster_loader import load_roster
+
+        month, day = 4, 1  # the template's own default, if it can't be read
+        try:
+            template = get_schedule_template("mlb_162")
+            if template is not None:
+                month, day = template.start_month, template.start_day
+        except Exception:  # pragma: no cover - defensive
+            pass
+        opening_day = date(int(next_year), month, day)
+        try:
+            load_roster.cache_clear()  # the contract step rewrote rosters
+        except Exception:  # pragma: no cover - defensive
+            pass
+        summary = process_disabled_lists(today=opening_day, auto_activate=True)
+        return {
+            "opening_day": opening_day.isoformat(),
+            "day_to_day_healed": len(summary.healed),
+            "activated": len(summary.activated),
+            "awaiting_owner": len(summary.awaiting_owner),
+            "awaiting_room": len(summary.awaiting_room),
+        }
 
     def _respread_population(self) -> Optional[Dict[str, Any]]:
         """The re-spread's population as the season ended

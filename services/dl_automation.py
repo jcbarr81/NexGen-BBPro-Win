@@ -66,6 +66,8 @@ class DLAutomationSummary:
     awaiting_owner: List[str] = field(default_factory=list)
     # Owner returners sent to the minors because the active roster was full.
     awaiting_room: List[str] = field(default_factory=list)
+    # Players whose day-to-day injury (off the injured lists) ended.
+    healed: List[str] = field(default_factory=list)
 
     def has_updates(self) -> bool:
         return any(
@@ -105,6 +107,51 @@ def _coerce_date(value: DateLike) -> date:
     except Exception:  # pragma: no cover - defensive
         pass
     return datetime.now(timezone.utc).date()
+
+
+def _parse_day(value) -> Optional[date]:
+    try:
+        return date.fromisoformat(str(value or "").strip()[:10])
+    except ValueError:
+        return None
+
+
+def _on_a_stint(player) -> bool:
+    """Whether the player's injury is an injured-list stint (with a clock)."""
+
+    stored = str(getattr(player, "injury_list", None) or "").strip().lower()
+    return bool(stored) and stored not in {"none", "null"}
+
+
+def _day_to_day_over(player, today: date) -> bool:
+    """Whether a day-to-day injury (one with no injured-list stint) is over.
+
+    It ends on its eligible date (the game sets it to the injury day plus a
+    few days), or its return date; one with neither date is over. These used
+    to be cleared by nothing at all (backlog #49), so a "day-to-day" knock
+    lasted the rest of the player's career.
+    """
+
+    for field_name in ("injury_eligible_date", "return_date"):
+        ends = _parse_day(getattr(player, field_name, None))
+        if ends is not None:
+            return ends <= today
+    return True
+
+
+def _clear_injury(player) -> None:
+    """Mark ``player`` healthy without any roster move (as recovery does)."""
+
+    player.injured = False
+    player.injury_description = None
+    player.return_date = None
+    player.injury_list = None
+    player.injury_start_date = None
+    player.injury_minimum_days = None
+    player.injury_eligible_date = None
+    player.injury_rehab_assignment = None
+    player.injury_rehab_days = 0
+    player.ready = True
 
 
 def _player_name(player) -> str:
@@ -303,6 +350,32 @@ def _process_disabled_lists(
     mutated_players: set[str] = set()
     parked: Dict[str, List[dict]] = {}
 
+    # Day-to-day injuries off the injured lists (on a club's active roster or
+    # minors, or a free agent): over once their date passes. Nothing moves.
+    on_lists: set[str] = set()
+    for team in teams:
+        team_id = getattr(team, "team_id", "")
+        if not team_id:
+            continue
+        try:
+            listed = load_roster(team_id)
+        except Exception:
+            continue
+        on_lists.update(getattr(listed, "dl", []) or [])
+        on_lists.update(getattr(listed, "ir", []) or [])
+    for pid, player in player_map.items():
+        if pid in on_lists or not getattr(player, "injured", False):
+            continue
+        if _on_a_stint(player):
+            remaining = disabled_list_days_remaining(player, today=target_date)
+            if remaining is not None and remaining > 0:
+                continue
+        elif not _day_to_day_over(player, target_date):
+            continue
+        _clear_injury(player)
+        mutated_players.add(pid)
+        summary.healed.append(pid)
+
     for team in teams:
         team_id = getattr(team, "team_id", "")
         if not team_id:
@@ -320,7 +393,16 @@ def _process_disabled_lists(
             if player is None:
                 continue
             days_remaining = disabled_list_days_remaining(player, today=target_date)
-            if days_remaining is None or days_remaining > 0:
+            if days_remaining is None:
+                # On a list level with no stint to count down: a day-to-day
+                # injury (or none at all) parked there. He returns once it is
+                # over, like any other returner; before, nothing ever brought
+                # him back (alpha-test had 17 such, some since April).
+                if getattr(player, "injured", False) and not _day_to_day_over(
+                    player, target_date
+                ):
+                    continue
+            elif days_remaining > 0:
                 continue
             # ``ready`` also records that the "ready" news line went out. On a
             # day ownership can't be read the only line logged is "retrying",
@@ -331,7 +413,11 @@ def _process_disabled_lists(
                 player.ready = True
                 mutated_players.add(pid)
 
-            list_label = disabled_list_label(getattr(player, "injury_list", ""))
+            list_label = (
+                disabled_list_label(getattr(player, "injury_list", ""))
+                if _on_a_stint(player)
+                else ""
+            )
             base_msg = f"{_player_name(player)} ready to return from {list_label or 'injury list'} ({team_id})"
 
             if not auto_activate:
