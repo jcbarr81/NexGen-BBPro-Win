@@ -54,3 +54,19 @@ def test_reset_to_opening_day_keeps_the_playoff_format(league_root):
 
     assert json.loads((league_root / "playoffs_config.json").read_text(encoding="utf-8")) == config
     assert not (league_root / "playoffs_2026.json").exists()
+
+
+def test_reset_to_opening_day_empties_the_postseason_totals(league_root):
+    """8.1.1: a replayed postseason must not add on top of the erased one."""
+
+    from api.routers import admin_league
+
+    (league_root / "postseason_stats.json").write_text(
+        json.dumps({"players": {"P1": {"g": 7}}, "teams": {"AAA": {"g": 7}}, "history": []}),
+        encoding="utf-8",
+    )
+
+    admin_league.reset_to_opening_day(payload={}, _={"r": "admin"})
+
+    after = json.loads((league_root / "postseason_stats.json").read_text(encoding="utf-8"))
+    assert after == {"players": {}, "teams": {}, "history": []}

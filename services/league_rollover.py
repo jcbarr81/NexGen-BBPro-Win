@@ -35,6 +35,9 @@ YEARLY_AGING_PAUSED = True
 # (see _apply_yearly_development); it never touches a scale 1 row.
 SCALE_2_DEVELOPMENT = True
 _STATS_PATH = ActivePath(lambda: get_data_dir() / "season_stats.json")
+_POSTSEASON_STATS_PATH = ActivePath(
+    lambda: get_data_dir() / "postseason_stats.json"
+)
 _STANDINGS_PATH = ActivePath(lambda: get_data_dir() / "standings.json")
 _SCHEDULE_PATH = ActivePath(lambda: get_data_dir() / "schedule.csv")
 _PROGRESS_PATH = ActivePath(lambda: get_data_dir() / "season_progress.json")
@@ -151,6 +154,12 @@ class LeagueRolloverService:
         progress_path = self._archive_file(_PROGRESS_PATH, season_dir / "season_progress.json", artifacts, "progress")
         self._archive_history(season_dir, artifacts)
         playoffs_path = self._archive_playoffs(season_dir, artifacts, league_year)
+        postseason_stats_path = self._archive_file(
+            _POSTSEASON_STATS_PATH,
+            season_dir / "postseason_stats.json",
+            artifacts,
+            "postseason_stats",
+        )
         champions_path = self._archive_file(_DATA_DIR / "champions.csv", season_dir / "champions.csv", artifacts, "champions")
         transactions_path = self._archive_file(_TRANSACTIONS_PATH, season_dir / "transactions.csv", artifacts, "transactions")
         self._archive_file(_DATA_DIR / "special_events.json", season_dir / "special_events.json", artifacts, "special_events")
@@ -171,6 +180,11 @@ class LeagueRolloverService:
                 "schedule": _relative(_SCHEDULE_PATH) if schedule_path else None,
                 "season_progress": _relative(_PROGRESS_PATH) if progress_path else None,
                 "playoffs": _relative(playoffs_path) if playoffs_path else None,
+                "postseason_stats": (
+                    _relative(_POSTSEASON_STATS_PATH)
+                    if postseason_stats_path
+                    else None
+                ),
                 "transactions": _relative(_TRANSACTIONS_PATH) if transactions_path else None,
                 "champions": _relative(_DATA_DIR / "champions.csv") if champions_path else None,
                 "players": _relative(_DATA_DIR / "players.csv") if players_path else None,
@@ -681,6 +695,14 @@ class LeagueRolloverService:
             reset_stats(_STATS_PATH)
         except Exception:
             _write_json(_STATS_PATH, {"players": {}, "teams": {}, "history": []})
+        if _POSTSEASON_STATS_PATH.exists():
+            try:
+                reset_stats(_POSTSEASON_STATS_PATH)
+            except Exception:
+                _write_json(
+                    _POSTSEASON_STATS_PATH,
+                    {"players": {}, "teams": {}, "history": []},
+                )
         if _SEASON_HISTORY_DIR.exists():
             for shard in _SEASON_HISTORY_DIR.glob("*.json"):
                 try:
