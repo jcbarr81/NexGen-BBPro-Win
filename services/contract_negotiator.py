@@ -456,6 +456,33 @@ def fair_market_years(player: object, *, service_time_days: int = 0) -> int:
     return 7 if quality >= QUALITY_STAR else 5
 
 
+def asking_salary(
+    player: object,
+    *,
+    years: int,
+    service_time_days: int = 0,
+    current_annual_salary: int = 0,
+    current_years_left: int = 0,
+) -> int:
+    """The annual salary *player* asks for a deal of *years* new seasons.
+
+    Exactly the figure :func:`evaluate_extension_offer` measures an offer
+    against, so offering it is accepted (unless the term is too long for his
+    age). A signing or offer made without a salary uses this, never
+    :func:`fair_market_salary`: that one-season figure carries an aging
+    discount the negotiator does not apply, so a 34-year-old offered it
+    countered.
+    """
+
+    covered_years = max(1, int(current_years_left or 0) + max(1, int(years)))
+    return extension_annual_value(
+        player,
+        covered_years=covered_years,
+        service_time_days=service_time_days,
+        current_annual_salary=current_annual_salary,
+    )
+
+
 def evaluate_extension_offer(
     player: object,
     *,
@@ -494,12 +521,12 @@ def evaluate_extension_offer(
 
     # The new salary applies to the seasons still on the deal as well as the
     # ones being added, so price all of them.
-    covered_years = max(1, int(current_years_left or 0) + offered_years)
-    fair_salary = extension_annual_value(
+    fair_salary = asking_salary(
         player,
-        covered_years=covered_years,
+        years=offered_years,
         service_time_days=service_time_days,
         current_annual_salary=current_annual_salary,
+        current_years_left=current_years_left,
     )
     fair_years = fair_market_years(player, service_time_days=service_time_days)
 

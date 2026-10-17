@@ -144,6 +144,28 @@ def list_players(
     return out
 
 
+def _affiliation(
+    player_id: str,
+    owned: Dict[str, Any],
+    retired: set,
+) -> tuple[str, str]:
+    """``(team_id, level)`` the browser shows for one player.
+
+    A roster level wins (the roster files decide); then retirement (a
+    retiree's leftover contract does not make him a club's player); then a
+    contract with no roster spot; else a free agent.
+    """
+
+    team, level = owned.get(player_id) or ("", "")
+    if team and level != "CONTRACT":
+        return team, level
+    if player_id in retired:
+        return "", "RET"
+    if team:
+        return team, "UNASSIGNED"
+    return "", "FA"
+
+
 @router.get("/browse")
 def browse_players(
     q: Optional[str] = Query(default=None, description="Substring match on name or id"),
@@ -155,35 +177,27 @@ def browse_players(
 ) -> Dict[str, Any]:
     """League-wide player browser with team affiliation joined.
 
-    Walks every team roster once to figure out who plays where (and which
-    minors level they're on). Free agents are rows where no team claimed
-    them. Filters apply server-side so the React table can stay light.
+    Who belongs where is the one-club-per-player rule
+    (``utils.roster_ownership``), the same one the free-agent list uses: any
+    level of a club's roster file (the injured lists included), else a
+    contract with a club -- a contracted player on no roster level reads
+    ``UNASSIGNED`` with that club. A retired player reads ``RET`` with no
+    club. Only the rest are free agents (``FA``). Filters apply server-side
+    so the React table can stay light.
     """
 
-    from utils.roster_loader import load_roster
-    from utils.team_loader import load_teams
+    from services.player_retirement import load_retirees
+    from utils.roster_ownership import club_owned_players
 
-    # Build (team_id, level) lookup by walking each team's roster.
-    affiliation: Dict[str, Dict[str, str]] = {}
+    data_dir = get_data_dir()
     try:
-        for team in load_teams():
-            try:
-                roster = load_roster(team.team_id)
-            except Exception:
-                continue
-            for level, ids in (
-                ("ACT", roster.act),
-                ("AAA", roster.aaa),
-                ("LOW", roster.low),
-                ("DL", roster.dl),
-                ("IR", roster.ir),
-            ):
-                for pid in ids:
-                    affiliation.setdefault(
-                        pid, {"team_id": team.team_id, "level": level}
-                    )
+        owned = club_owned_players(data_dir)
     except Exception:
-        affiliation = {}
+        owned = {}
+    try:
+        retired = set(load_retirees(data_dir))
+    except Exception:
+        retired = set()
 
     needle = q.strip().lower() if q else ""
     role_norm = role.strip().lower() if role else ""
@@ -199,11 +213,9 @@ def browse_players(
         if role_norm == "pitchers" and not summary.is_pitcher:
             continue
 
-        affil = affiliation.get(summary.player_id)
-        team = affil["team_id"] if affil else ""
-        level = affil["level"] if affil else "FA"
+        team, level = _affiliation(summary.player_id, owned, retired)
 
-        if free_agents_only and team:
+        if free_agents_only and level != "FA":
             continue
         if team_id and team != team_id:
             continue

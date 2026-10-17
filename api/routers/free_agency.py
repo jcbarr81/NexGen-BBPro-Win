@@ -27,8 +27,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from services.contract_negotiator import (
     FA_SERVICE_DAYS,
     REJECTION_COOLDOWN_DAYS,
+    asking_salary,
     evaluate_extension_offer,
-    fair_market_salary,
     fair_market_years,
 )
 from services.contracts_service import (
@@ -154,6 +154,14 @@ def _summarize(player: Any, league_scale: Any = "page") -> Dict[str, Any]:
         "overall_raw": overall["overall_raw"],
         "overall_display": overall["overall_display"],
         "overall_stars_text": overall["overall_stars_text"],
+        # A genuine free agent can be hurt (released injured, or hurt when
+        # his contract ran out); a player on a club's injured list is that
+        # club's and never listed here.
+        "injured": bool(getattr(player, "injured", False)),
+        "injury_description": (
+            str(getattr(player, "injury_description", None) or "").strip() or None
+        ),
+        "return_date": str(getattr(player, "return_date", None) or "").strip() or None,
     }
 
 
@@ -170,6 +178,14 @@ def list_free_agents(limit: int = 1000) -> Dict[str, Any]:
     rows = [_summarize(p, league_scale) for p in players]
     rows.sort(key=lambda r: (r["last_name"], r["first_name"]))
     return {"count": len(rows), "limit": limit, "free_agents": rows[:limit]}
+
+
+def _asking_salary(player: Any, years: int) -> int:
+    """What a free agent asks per year for ``years``: the salary every
+    endpoint here uses when the request names none, so an offer at the
+    default is one the negotiator accepts."""
+
+    return int(asking_salary(player, years=years, service_time_days=FA_SERVICE_DAYS))
 
 
 def _find_player(player_id: str) -> Any:
@@ -317,16 +333,12 @@ def evaluate_fa_offer(
         offered_years = 1
     salary_raw = payload.get("annual_salary")
     if salary_raw in (None, ""):
-        offered_salary = fair_market_salary(
-            player, service_time_days=FA_SERVICE_DAYS
-        )
+        offered_salary = _asking_salary(player, offered_years)
     else:
         try:
             offered_salary = int(salary_raw)
         except (TypeError, ValueError):
-            offered_salary = fair_market_salary(
-                player, service_time_days=FA_SERVICE_DAYS
-            )
+            offered_salary = _asking_salary(player, offered_years)
 
     evaluation = evaluate_extension_offer(
         player,
@@ -443,9 +455,8 @@ def sign_free_agent(
     player_id = str(payload.get("player_id", "")).strip()
     level_raw = str(payload.get("level", "ACT")).strip().upper()
     # Optional override: caller can supply a salary / years from the
-    # contract-offer dialog. When omitted we fall back to the player's
-    # fair-market value rather than the simple estimator so the offer
-    # has a chance of being accepted.
+    # contract-offer dialog. When omitted the player's preferred length
+    # and his asking price for it are used, so the signing goes through.
     salary_override = payload.get("annual_salary")
     years_override = payload.get("years")
     # Optional up-front signing bonus that debits team cash on signing.
@@ -524,16 +535,6 @@ def sign_free_agent(
     # creation share the same source.
     player_record = _find_player(player_id)
     try:
-        salary = (
-            int(salary_override)
-            if salary_override is not None
-            else fair_market_salary(player_record, service_time_days=FA_SERVICE_DAYS)
-            if player_record is not None
-            else estimate_salary_for_player(player_record)
-        )
-    except (TypeError, ValueError):
-        salary = estimate_salary_for_player(player_record)
-    try:
         years = max(1, int(years_override)) if years_override is not None else (
             fair_market_years(player_record, service_time_days=FA_SERVICE_DAYS)
             if player_record is not None
@@ -541,6 +542,24 @@ def sign_free_agent(
         )
     except (TypeError, ValueError):
         years = 1
+    # No salary given: his asking price for this length -- the figure the
+    # negotiation below accepts. (The one-season fair-market figure used to
+    # stand in here; its aging discount got a 34-year-old's "default"
+    # signing countered.)
+    try:
+        salary = (
+            int(salary_override)
+            if salary_override not in (None, "")
+            else _asking_salary(player_record, years)
+            if player_record is not None
+            else estimate_salary_for_player(player_record)
+        )
+    except (TypeError, ValueError):
+        salary = (
+            _asking_salary(player_record, years)
+            if player_record is not None
+            else estimate_salary_for_player(player_record)
+        )
 
     # Run the negotiation. Same engine as contract extensions — the
     # player evaluates the offer based on talent, age, and FA-tier
@@ -633,12 +652,10 @@ def sign_free_agent(
 
     # Create the contract. Without this the player sits on the roster
     # with $0 owed and finance pages misreport payroll until the next
-    # offseason rollover backfills.
+    # offseason rollover backfills. The length is the one negotiated above
+    # (it used to fall back to one year here when none was given, so the
+    # contract was not the deal the player accepted).
     contract: Dict[str, Any] | None = None
-    try:
-        years = max(1, int(years_override)) if years_override is not None else 1
-    except (TypeError, ValueError):
-        years = 1
     try:
         contract = sign_free_agent_contract(
             player_id,
@@ -747,16 +764,12 @@ def submit_fa_offer(
         years = 1
     salary_raw = payload.get("annual_salary")
     if salary_raw in (None, "") and player is not None:
-        salary = int(fair_market_salary(player, service_time_days=FA_SERVICE_DAYS))
+        salary = _asking_salary(player, years)
     else:
         try:
             salary = int(salary_raw)
         except (TypeError, ValueError):
-            salary = (
-                int(fair_market_salary(player, service_time_days=FA_SERVICE_DAYS))
-                if player is not None
-                else 0
-            )
+            salary = _asking_salary(player, years) if player is not None else 0
     try:
         bonus = max(0, int(payload.get("signing_bonus") or 0))
     except (TypeError, ValueError):
