@@ -139,7 +139,7 @@ export function CommandPalette() {
           all.push({
             kind: "player",
             label: label || p.player_id,
-            sub: `${p.primary_position || "?"} · ${p.team_id || "FA"}`,
+            sub: `${p.primary_position || "?"} · ${p.team_id || (p.level === "RET" ? "Retired" : "FA")}`,
             haystack: hay,
             to: `/player/${encodeURIComponent(p.player_id)}`,
           });

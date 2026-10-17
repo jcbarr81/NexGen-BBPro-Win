@@ -58,6 +58,10 @@ export function PlayersBrowserPage() {
     "players-browser:freeOnly",
     false,
   );
+  const [hideRetired, setHideRetired] = usePersistedState(
+    "players-browser:hideRetired",
+    false,
+  );
   const [sortKey, setSortKey] = usePersistedState<SortKey>(
     "players-browser:sortKey",
     "name",
@@ -118,7 +122,9 @@ export function PlayersBrowserPage() {
   const ratingCols = showPitcherCols ? PITCHER_RATING_COLS : RATING_COLS;
 
   const sorted = useMemo(() => {
-    const arr = [...(players.data?.players ?? [])];
+    const arr = (players.data?.players ?? []).filter(
+      (p) => !hideRetired || p.level !== "RET",
+    );
     const valueFor = (
       p: (typeof arr)[number],
     ): string | number | null | undefined => {
@@ -141,7 +147,7 @@ export function PlayersBrowserPage() {
     };
     arr.sort((a, b) => cmp(valueFor(a), valueFor(b), sortDir));
     return arr;
-  }, [players.data, sortKey, sortDir]);
+  }, [players.data, sortKey, sortDir, hideRetired]);
 
   // Virtualize the (up to 5000-row) table body — only the visible window
   // of rows mounts; spacer rows keep the scrollbar honest.
@@ -220,15 +226,26 @@ export function PlayersBrowserPage() {
               </button>
             ))}
           </div>
-          <label className="flex items-center gap-2 text-xs text-muted">
-            <input
-              type="checkbox"
-              checked={freeOnly}
-              onChange={(e) => setFreeOnly(e.target.checked)}
-              className="h-4 w-4 accent-amber"
-            />
-            Free agents only
-          </label>
+          <div className="flex flex-col justify-center gap-1">
+            <label className="flex items-center gap-2 text-xs text-muted">
+              <input
+                type="checkbox"
+                checked={freeOnly}
+                onChange={(e) => setFreeOnly(e.target.checked)}
+                className="h-4 w-4 accent-amber"
+              />
+              Free agents only
+            </label>
+            <label className="flex items-center gap-2 text-xs text-muted">
+              <input
+                type="checkbox"
+                checked={hideRetired}
+                onChange={(e) => setHideRetired(e.target.checked)}
+                className="h-4 w-4 accent-amber"
+              />
+              Hide retired
+            </label>
+          </div>
         </CardContent>
       </Card>
 
@@ -335,11 +352,15 @@ export function PlayersBrowserPage() {
                           );
                         })()
                       ) : (
-                        <span className="text-xs text-muted">FA</span>
+                        <span className="text-xs text-muted">
+                          {p.level === "RET" ? "—" : "FA"}
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <Badge tone={levelTone(p.level)}>{p.level}</Badge>
+                      <Badge tone={levelTone(p.level)} title={levelTitle(p.level, p.team_id)}>
+                        {levelLabel(p.level)}
+                      </Badge>
                     </td>
                     <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
                       {p.primary_position || "—"}
@@ -385,9 +406,25 @@ function levelTone(
 ): "amber" | "neutral" | "success" | "warning" | "danger" {
   if (level === "ACT") return "success";
   if (level === "AAA" || level === "LOW") return "neutral";
-  if (level === "DL") return "warning";
-  if (level === "IR") return "danger";
+  if (level === "DL" || level === "DL15") return "warning";
+  if (level === "IR" || level === "DL45") return "danger";
+  if (level === "RET" || level === "UNASSIGNED") return "neutral";
   return "amber";
+}
+
+function levelLabel(level: string): string {
+  if (level === "RET") return "Retired";
+  if (level === "UNASSIGNED") return "No spot";
+  return level;
+}
+
+function levelTitle(level: string, teamId: string): string | undefined {
+  if (level === "RET") return "Retired: not a free agent";
+  if (level === "UNASSIGNED") {
+    return `Under contract with ${teamId} but on no roster level: ${teamId}'s player, not a free agent`;
+  }
+  if (level === "FA") return "Free agent";
+  return undefined;
 }
 
 function Header({

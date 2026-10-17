@@ -22,6 +22,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  HeartPulse,
   Loader2,
   Search,
   UserPlus,
@@ -82,6 +83,13 @@ const PITCHER_COLUMNS: Array<{ key: string; label: string }> = [
 type FreeAgent = NonNullable<
   Awaited<ReturnType<typeof api.freeAgents>>
 >["free_agents"][number];
+
+/** Tooltip for an injured free agent's badge: what he has and when he is
+ * expected back. */
+function injuryTitle(fa: FreeAgent): string {
+  const what = fa.injury_description || "Injured";
+  return fa.return_date ? `${what} (expected back ${fa.return_date})` : what;
+}
 
 const POSITION_CONTEXT_KEY = "nexgen:free-agency:position-context";
 
@@ -426,6 +434,16 @@ export function FreeAgencyPage() {
                                 myOpenOffers.get(fa.player_id)!.annual_salary,
                               )}
                               /yr
+                            </Badge>
+                          )}
+                          {fa.injured && (
+                            <Badge
+                              tone="danger"
+                              className="text-[10px]"
+                              title={injuryTitle(fa)}
+                            >
+                              <HeartPulse className="h-3 w-3" /> Injured
+                              {fa.return_date ? ` · back ${fa.return_date}` : ""}
                             </Badge>
                           )}
                         </div>

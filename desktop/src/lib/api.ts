@@ -2387,7 +2387,10 @@ export const api = {
         role: string;
         ratings: Record<string, number | string | null>;
         team_id: string;
-        level: "ACT" | "AAA" | "LOW" | "DL" | "IR" | "FA";
+        // The roster level (any token a roster file holds: DL15 / DL45
+        // too); UNASSIGNED = under contract with team_id but on no roster
+        // level; RET = retired (no club); FA = a free agent.
+        level: string;
         overall_raw?: number | null;
         overall_display?: number | null;
         overall_stars_text?: string | null;
@@ -2442,6 +2445,9 @@ export const api = {
         overall_raw?: number | null;
         overall_display?: number | null;
         overall_stars_text?: string | null;
+        injured?: boolean;
+        injury_description?: string | null;
+        return_date?: string | null;
       }>;
     }>(`/free-agents?limit=${limit}`),
   signFreeAgent: (

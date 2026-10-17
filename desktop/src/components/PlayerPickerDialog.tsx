@@ -133,7 +133,7 @@ export function PlayerPickerDialog({
                       </span>
                       <span className="flex shrink-0 items-center gap-3 text-[11px] uppercase tracking-wider text-muted">
                         <span>{p.primary_position || "?"}</span>
-                        <span>{p.team_id || "FA"}</span>
+                        <span>{p.team_id || (p.level === "RET" ? "Retired" : "FA")}</span>
                         <span className="font-mono text-[10px]">
                           {p.player_id}
                         </span>
