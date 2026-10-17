@@ -41,6 +41,7 @@ import {
   type RosterCompliance,
   type RosterMoveResult,
   type RosterPlayer,
+  type RosterShortfall,
   type TeamRoster,
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
@@ -84,6 +85,8 @@ import {
 } from "@/components/ui";
 
 const LEVEL_ORDER: RosterLevel[] = ["ACT", "AAA", "LOW", "DL", "IR"];
+// Phases in which the Roster page shows "spots to fill before Opening Day".
+const SHORTFALL_PHASES = new Set(["OFFSEASON", "PRESEASON"]);
 const LEVEL_LABEL: Record<RosterLevel, string> = {
   ACT: "Active",
   AAA: "AAA",
@@ -164,9 +167,26 @@ export function RosterPage() {
     refetchOnWindowFocus: true,
   });
 
+  // What the club must fill before Opening Day (8.1.2): after the rollover
+  // expiring contracts empty a quarter of the league's active spots, and the
+  // CPU never signs for an owner. Shown in the offseason and preseason only;
+  // in season the open-spot badge below covers an injury's open spot.
+  const shortfall = useQuery({
+    queryKey: ["team-roster-shortfall", fallbackTeamId],
+    queryFn: () => api.teamRosterShortfall(fallbackTeamId as string),
+    enabled: !!fallbackTeamId,
+    refetchOnWindowFocus: true,
+  });
+  const showShortfall =
+    !!shortfall.data?.short &&
+    SHORTFALL_PHASES.has(String(shortfall.data?.phase ?? ""));
+
   const invalidateCompliance = () => {
     queryClient.invalidateQueries({
       queryKey: ["team-roster-compliance", fallbackTeamId],
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["team-roster-shortfall", fallbackTeamId],
     });
   };
 
@@ -323,7 +343,12 @@ export function RosterPage() {
         </Card>
       ) : roster.data && actions ? (
         <>
-          {compliance.data && !compliance.data.ok && (
+          {showShortfall && shortfall.data && (
+            <SpotsToFillBanner data={shortfall.data} />
+          )}
+          {/* The spots-to-fill banner lists the same errors (it reads the
+              readiness check's own list), so it stands in for this one. */}
+          {compliance.data && !compliance.data.ok && !showShortfall && (
             <ComplianceBanner data={compliance.data} />
           )}
           {compliance.data && (compliance.data.warnings?.length ?? 0) > 0 && (
@@ -430,6 +455,89 @@ function OpenSpotBadge({ roster }: { roster: TeamRoster | undefined }) {
       ACT {roster.active_size}/{cap} ·{" "}
       {open === 1 ? "a spot is open" : `${open} spots are open`}
     </Badge>
+  );
+}
+
+/** Offseason / preseason: what the club must fill before Opening Day (8.1.2).
+ *  The blocking list is the readiness check's own; open spots alone are legal
+ *  and said to be optional. The CPU never signs for an owner's club. */
+function SpotsToFillBanner({ data }: { data: RosterShortfall }) {
+  const navigate = useNavigate();
+  const blocking = data.blocking.length > 0;
+  const open = data.open_spots;
+  const title = blocking
+    ? "Roster not ready for Opening Day"
+    : open === 1
+      ? "1 active-roster spot to fill"
+      : `${open} active-roster spots to fill`;
+  return (
+    <div
+      className={cn(
+        "mb-4 rounded-md border px-4 py-3 text-sm",
+        blocking
+          ? "border-danger/40 bg-danger/10 text-danger"
+          : "border-info/40 bg-info/10",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <Users className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="flex-1">
+          <div className="font-semibold">{title}</div>
+          <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-muted">
+            <span>
+              ACT {data.active}/{data.active_cap}
+              {open > 0 && ` · ${open === 1 ? "1 spot" : `${open} spots`} open`}
+            </span>
+            <span>
+              P {data.pitchers}/{data.pitcher_cap}
+            </span>
+            <span
+              className={cn(
+                data.position_players_short > 0 && "font-semibold text-danger",
+              )}
+            >
+              Position players {data.position_players} (min{" "}
+              {data.min_position_players})
+            </span>
+            {data.missing_positions.length > 0 && (
+              <span className="font-semibold text-danger">
+                Nobody plays {data.missing_positions.join(", ")}
+              </span>
+            )}
+            <span>
+              Org {data.org_count}/{data.org_limit}
+            </span>
+          </div>
+          {blocking ? (
+            <>
+              <p className="mt-2 text-xs">Fix these before the season can start:</p>
+              <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs">
+                {data.blocking.map((msg, idx) => (
+                  <li key={idx}>{msg}</li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="mt-2 text-xs text-muted">
+              Optional: an open spot is legal and does not hold up the season.
+            </p>
+          )}
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <span className="text-xs text-muted">
+              Sign free agents or promote players from AAA. The CPU never signs
+              players for your club.
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => navigate("/free-agency")}
+            >
+              Free agency
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

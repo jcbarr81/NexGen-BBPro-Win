@@ -635,6 +635,30 @@ export interface RosterCompliance {
   org_limit?: number;
 }
 
+/** What a club must fill before Opening Day (8.1.2). ``blocking`` is the
+ *  readiness check's own roster errors; ``open_spots`` are legal open active
+ *  spots; ``short`` is either. ``phase`` is the league's season phase. */
+export interface RosterShortfall {
+  team_id: string;
+  active: number;
+  active_cap: number;
+  open_spots: number;
+  pitchers: number;
+  pitcher_cap: number;
+  position_players: number;
+  min_position_players: number;
+  position_players_short: number;
+  missing_positions: string[];
+  org_count: number;
+  org_limit: number;
+  blocking: string[];
+  ready: boolean;
+  notes: string[];
+  short: boolean;
+  message: string;
+  phase: string | null;
+}
+
 /** A move / swap returns the updated roster plus the validator's warnings
  *  (a move into a full level or a 14th active pitcher is allowed, but warned). */
 export interface RosterMoveResult extends TeamRoster {
@@ -2019,6 +2043,10 @@ export const api = {
   teamRosterCompliance: (teamId: string) =>
     apiRequest<RosterCompliance>(
       `/teams/${encodeURIComponent(teamId)}/roster/compliance`,
+    ),
+  teamRosterShortfall: (teamId: string) =>
+    apiRequest<RosterShortfall>(
+      `/teams/${encodeURIComponent(teamId)}/roster/shortfall`,
     ),
   moveRoster: (
     teamId: string,

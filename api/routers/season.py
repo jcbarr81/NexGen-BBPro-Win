@@ -942,27 +942,13 @@ def _team_roster_compliance_errors(team_id: str | None) -> List[str]:
     if not team_id:
         return []
 
-    from api.routers.validation import (
-        effective_caps,
-        level_caps_only,
-        load_players_map,
-        load_team_levels,
-    )
-    from services.roster_validation import validate_roster_state
+    from services.roster_shortfall import roster_compliance_errors
 
-    players = load_players_map()
-    levels = load_team_levels(team_id)
     # The caps in force today: 26 active / 13 pitchers, or 28 / 14 from
     # Sept 1 in the regular season (S2-11 expansion). Over the pitcher limit
-    # blocks the sim like any cap; there is no active-roster minimum.
-    caps = effective_caps()
-    result = validate_roster_state(
-        current_levels=levels,
-        players=players,
-        level_caps=level_caps_only(caps),
-        pitcher_cap=caps["act_pitchers"],
-    )
-    return [f"{team_id}: {msg}" for msg in result.errors]
+    # blocks the sim like any cap; there is no active-roster minimum. The
+    # owner's "spots to fill" report (8.1.2) reads this same function.
+    return [f"{team_id}: {msg}" for msg in roster_compliance_errors(team_id)]
 
 
 def _team_lineup_issues(team_id: str) -> List[str]:
