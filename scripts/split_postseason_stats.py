@@ -86,30 +86,62 @@ def _fielding(s, pid):
     return out
 
 
+# The counting keys each block of the game writer
+# (playbalance.game_runner._persist_physics_stats) adds for a player with a
+# line in that block. Batting and pitching share several (g, h, hr, bb, ...).
+BATTING_KEYS = {
+    "g", "gs", "pa", "ab", "r", "h", "b1", "b2", "b3", "hr", "rbi", "bb", "ibb",
+    "hbp", "so", "so_looking", "so_swinging", "sh", "sf", "roe", "fc", "ci",
+    "gidp", "sb", "cs", "po", "pocs", "pitches", "lob", "lead", "gb", "ld", "fb",
+}
+PITCHING_KEYS = {
+    "g", "gs", "w", "l", "gf", "sv", "hld", "bs", "ir", "irs", "bf", "outs", "r",
+    "er", "h", "b1", "b2", "b3", "hr", "bb", "ibb", "so", "so_looking",
+    "so_swinging", "hbp", "wp", "bk", "pk", "pocs", "pitches_thrown",
+    "balls_thrown", "strikes_thrown", "first_pitch_strikes", "zone_pitches",
+    "o_zone_pitches", "zone_swings", "o_zone_swings", "zone_contacts",
+    "o_zone_contacts", "gb", "ld", "fb",
+}
+FIELDING_KEYS = {"f_po", "a", "e", "dp", "tp", "f_pk", "pb", "f_ci", "f_cs", "sba"}
+
+
 def split_player(pid, fin, reg):
-    post = {}
+    diff = {}
     for k, v in fin.items():
         if isinstance(v, bool):
             continue
         if isinstance(v, int) and k not in RECOMPUTED_INTS:
-            post[k] = v - _i(reg, k)
-    if not any(post.values()):
+            diff[k] = v - _i(reg, k)
+    if not any(diff.values()):
         return None, []
+    # Which blocks he had a line in during the playoffs: the game writer adds
+    # a block's keys (and derives its rates) only for a player in it.
+    pitched = _i(diff, "bf") > 0 or _i(diff, "outs") > 0
+    # A pinch runner has a batting line with no plate appearance; "r" and
+    # "po" are shared with pitching, so they only count for a non-pitcher.
+    batted = _i(diff, "pa") > 0 or _i(diff, "ab") > 0 or (
+        not pitched and any(_i(diff, k) for k in ("r", "sb", "cs", "po", "pocs", "lob"))
+    )
+    fielded = _i(diff, "g") > 0 and ("fpct" in fin or any(_i(diff, k) for k in FIELDING_KEYS))
+    keys = set()
+    if batted:
+        keys |= BATTING_KEYS
+    if pitched:
+        keys |= PITCHING_KEYS
+    if fielded:
+        keys |= FIELDING_KEYS
+    post = {k: v for k, v in diff.items() if v or k in keys}
     derived = {}
-    if "avg" in fin:
+    if batted:
         derived.update(_batting(post))
-    if "era" in fin or "ip" in fin:
+    if pitched:
         derived.update(_pitching(post))
-    if "fpct" in fin:
+    if fielded:
         derived.update(_fielding(post, pid))
-    unhandled = []
-    for k, v in fin.items():
-        if k in post:
-            continue
-        if k in derived:
-            post[k] = derived[k]
-        else:
-            unhandled.append(k)
+    unhandled = [k for k, v in diff.items() if v and k not in keys]
+    for k, v in derived.items():
+        if k in fin:
+            post[k] = v
     return post, unhandled
 
 
@@ -156,7 +188,7 @@ for tid, t in sorted(teams_out.items(), key=lambda x: -x[1]["g"]):
     print(f"  {tid}: {t['g']} games, {t.get('w', 0)}-{t.get('l', 0)}, {t.get('r', 0)} runs for, {t.get('ra', 0)} against")
 print("counting-stat mismatches:", mismatch)
 print("players with a negative count:", negatives)
-print("final keys not rebuilt:", unhandled_keys)
+print("changed keys outside the player's playoff blocks:", unhandled_keys)
 lead = sorted(
     ((pid, p) for pid, p in players_out.items() if "avg" in p and "era" not in p),
     key=lambda x: -x[1].get("hr", 0),

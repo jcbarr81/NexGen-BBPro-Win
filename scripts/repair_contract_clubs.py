@@ -15,6 +15,9 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+# The levels utils.roster_io.read_roster_csv keeps.
+LEVELS = {"ACT", "AAA", "LOW", "DL", "DL15", "DL45", "IR"}
+
 data = Path(sys.argv[1])
 out = Path(sys.argv[2]) if len(sys.argv) > 2 else None
 
@@ -24,14 +27,17 @@ for f in sorted((data / "rosters").glob("*.csv")):
         continue
     with f.open(encoding="utf-8") as fh:
         for row in csv.reader(fh):
-            if row and row[0].strip():
+            # The rows read_roster_csv keeps: a player id and a known level.
+            if len(row) > 1 and row[0].strip() and row[1].strip().upper() in LEVELS:
                 clubs[row[0].strip()].add(f.stem)
 
 last_trade = {}
-with (data / "transactions.csv").open(encoding="utf-8", newline="") as fh:
-    for row in csv.DictReader(fh):
-        if row.get("action") == "trade_in":
-            last_trade[row["player_id"]] = (row["team_id"], row.get("counterparty"), row.get("season_date"))
+tx_path = data / "transactions.csv"
+if tx_path.exists():
+    with tx_path.open(encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh):
+            if row.get("action") == "trade_in":
+                last_trade[row["player_id"]] = (row["team_id"], row.get("counterparty"), row.get("season_date"))
 
 raw = (data / "contracts.json").read_text(encoding="utf-8")
 payload = json.loads(raw)
@@ -54,7 +60,7 @@ print(f"contracts {len(contracts)}; to move {len(moves)}; on no roster {len(no_r
 by_trade = sum(1 for m in moves if m[3] and m[3][0] == m[2] and m[3][1] == m[1])
 print(f"moves explained by a logged trade (old club -> roster club): {by_trade} of {len(moves)}")
 for pid, team, club, trade, salary, years in moves:
-    print(f"  {pid}: contract {team} -> roster {club}  ${salary:,}/yr x{years}  trade {trade}")
+    print(f"  {pid}: contract {team} -> roster {club}  ${int(salary or 0):,}/yr x{years}  trade {trade}")
 if no_roster:
     print("on no roster (left alone):", no_roster[:20], "..." if len(no_roster) > 20 else "")
 if two_clubs:

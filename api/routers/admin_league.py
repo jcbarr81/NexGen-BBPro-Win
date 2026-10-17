@@ -124,7 +124,8 @@ async def regenerate_schedule(
 
 @router.post("/reset-stats")
 def reset_stats_action(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
-    """Wipe season_stats.json. Does not touch schedule or rosters."""
+    """Wipe season_stats.json (and the postseason totals). Does not touch
+    schedule or rosters."""
 
     try:
         from utils.stats_persistence import reset_stats
@@ -134,8 +135,11 @@ def reset_stats_action(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
             detail=f"Stats module unavailable: {exc}",
         ) from exc
     stats_path = get_data_dir() / "season_stats.json"
+    post_path = get_data_dir() / "postseason_stats.json"
     try:
         reset_stats(stats_path)
+        if post_path.exists():
+            reset_stats(post_path)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -364,6 +368,10 @@ def reset_to_opening_day(
         from utils.stats_persistence import reset_stats
 
         reset_stats(data_root / "season_stats.json")
+        # 8.1.1: the playoffs' own totals, so a replayed postseason does not
+        # add on top of the one this reset erases.
+        if (data_root / "postseason_stats.json").exists():
+            reset_stats(data_root / "postseason_stats.json")
     except Exception as exc:
         notes.append(f"Season stats reset failed: {exc}")
 
