@@ -993,6 +993,13 @@ an unresolvable configured root an error, not a fallback, and stop
 
 ## 49. Day-to-day injuries never clear
 
+> **Fixed in 8.1.2 (2026-10-17):** the daily injured-list step
+> (`services/dl_automation.py`) ends a day-to-day injury on its eligible /
+> return date, and a player on a list level with no stint returns once it is
+> over; the rollover runs the step as of next opening day
+> (`LeagueRolloverService._heal_for_opening_day`). alpha-test had 80 such flags
+> (63 active, 17 parked on the 15-day list).
+
 Seen in every H9 stress season (pre- and post-fix): 66-91 players end a season
 flagged `injured=True` with no injury list and no return date, and 35-44 of the
 50 such flags present at the start are still set 91 days later. They stay on
@@ -1002,6 +1009,13 @@ coverage check -- treats them as unavailable. Day-to-day injuries need an
 expiry.
 
 ## 50. Tell owners when a roster spot is left open
+
+> **Offseason part shipped in 8.1.2 (2026-10-17):** `services/roster_shortfall.py`
+> (same rules as the readiness check), a news item + notification per short
+> owner club after the rollover, and a "spots to fill" banner on the Roster
+> page in the offseason/preseason. The in-season open-spot badge already
+> existed. Open: the readiness lineup check only confirms each lineup player
+> exists in players.csv, not that he is still on the club.
 
 Decision 14 leaves an owner's active-roster spot open after an injury the depth
 chart covers. Owners currently learn about it only from the injury news line.
@@ -2523,13 +2537,16 @@ These are 7.51 behaviours it ran into, not 8.0.0 changes:
 - **Contract expirations leave owner teams unready.** After the rollover's
   contract step (alpha-test: 134 of its 509 active players became free
   agents) owners' clubs were not ready for the preseason until they, or the
-  CPU fill, refilled their rosters. Not investigated beyond that.
+  CPU fill, refilled their rosters. 8.1.2 tells each owner what to fill
+  (#50); an open spot alone does not block the season.
 - **A single-owner league started its season without a catcher**
   in the rehearsal. Not investigated.
-- **The Players browser lists retired players as free agents.**
-- **Free-agent rows do not show injuries.**
+- **The Players browser lists retired players as free agents.** Fixed 8.1.2.
+- **Free-agent rows do not show injuries.** Fixed 8.1.2.
 - **The sign endpoint's default salary is countered** (a signing with no
-  salary given was answered with a counter-offer).
+  salary given was answered with a counter-offer). Fixed 8.1.2: the default
+  is the negotiator's own asking price (`contract_negotiator.asking_salary`);
+  the offer endpoint's default length is still one year.
 - **The 2026 World Series was dated 2027-01-19 to 01-24** on a copied
   league in the rehearsal. Not investigated.
 - **An allowed bottom clip reached a major-league roster in the same
