@@ -315,6 +315,29 @@ def roster_compliance_endpoint(team_id: str) -> Dict[str, Any]:
     return payload
 
 
+@router.get("/teams/{team_id}/roster/shortfall")
+def roster_shortfall_endpoint(team_id: str) -> Dict[str, Any]:
+    """What the club must fill before Opening Day (backlog #50, 8.1.2).
+
+    ``services.roster_shortfall.team_roster_shortfall``: ``blocking`` is the
+    readiness check's own roster errors, ``open_spots`` the legal open active
+    spots, ``short`` either. ``phase`` lets the Roster page show its
+    "spots to fill" banner in the offseason and preseason only. A read, like
+    the compliance GET beside it: any signed-in user of the league.
+    """
+
+    from services.roster_shortfall import team_roster_shortfall
+
+    payload = team_roster_shortfall(team_id)
+    try:
+        from playbalance.season_manager import SeasonManager
+
+        payload["phase"] = SeasonManager().phase.value
+    except Exception:
+        payload["phase"] = None
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # Trade
 

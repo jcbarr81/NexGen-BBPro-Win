@@ -356,6 +356,12 @@ class LeagueRolloverService:
         except Exception as exc:  # pragma: no cover - defensive
             artifacts["hall_of_fame_error"] = str(exc)
 
+        # Tell each owner what their club must fill (backlog #50, 8.1.2).
+        # After every roster step above -- contract expirations, retirements,
+        # promotions -- so the count is what the owner now faces. The CPU
+        # refills its own clubs in free agency; it never signs for an owner.
+        self._notify_owner_roster_shortfalls(contract_rollover, artifacts)
+
         # Note: the offseason checklist is intentionally LEFT for the
         # owner (or commish in owner leagues) to drive — reviewing
         # contracts, signing free agents, finalizing budgets, etc. is
@@ -374,6 +380,31 @@ class LeagueRolloverService:
             contract_rollover=contract_rollover,
             finance_rollover=finance_rollover,
         )
+
+    def _notify_owner_roster_shortfalls(
+        self,
+        contract_rollover: Optional[Dict[str, Any]],
+        artifacts: Dict[str, str],
+    ) -> None:
+        """One news item and notification per short human-owned club
+        (``services.roster_shortfall.notify_owner_shortfalls``; it stands down
+        when ownership cannot be read). Best-effort: a failure is logged and
+        kept as ``roster_shortfall_error``, never raised."""
+
+        try:
+            from services.roster_shortfall import notify_owner_shortfalls
+
+            expired = []
+            if isinstance(contract_rollover, dict):
+                expired = list(contract_rollover.get("release_teams") or [])
+            outcome = notify_owner_shortfalls(expired_teams=expired)
+            if outcome.get("teams"):
+                artifacts["roster_shortfall"] = json.dumps(
+                    {"teams": list(outcome["teams"])}
+                )
+        except Exception as exc:
+            _LOGGER.exception("rollover: could not post the owners' roster notices")
+            artifacts["roster_shortfall_error"] = str(exc)
 
     def _respread_population(self) -> Optional[Dict[str, Any]]:
         """The re-spread's population as the season ended

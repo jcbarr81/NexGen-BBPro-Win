@@ -737,31 +737,54 @@ def validate_roster_state(
             )
 
     # ACT composition.
-    act_ids = levels.get("act", [])
-    n_pitchers = _active_pitcher_count(act_ids, players)
+    shape = active_roster_shape(levels.get("act", []), players)
+    n_pitchers = shape["pitchers"]
     if n_pitchers > max_pitchers:
         result.error(
             f"Active roster carries {n_pitchers} pitchers (maximum {max_pitchers})."
         )
 
-    act_players = [players[pid] for pid in act_ids if pid in players]
-    non_pitchers = [p for p in act_players if not counts_as_pitcher(p)]
-    if len(non_pitchers) < MIN_POSITION_PLAYERS_ACT:
+    if shape["position_players"] < MIN_POSITION_PLAYERS_ACT:
         result.error(
-            f"Active roster carries {len(non_pitchers)} position players "
+            f"Active roster carries {shape['position_players']} position players "
             f"(minimum {MIN_POSITION_PLAYERS_ACT})."
         )
 
-    covered: Set[str] = set()
-    for p in non_pitchers:
-        covered |= _player_positions(p)
-    missing = [pos for pos in REQUIRED_DEF_POSITIONS if pos not in covered]
+    missing = shape["missing_positions"]
     if missing:
         result.error(
             f"Active roster is missing defensive coverage at: {', '.join(missing)}."
         )
 
     return result
+
+
+def active_roster_shape(
+    act_ids: Iterable[str], players: Mapping[str, Mapping[str, Any]]
+) -> dict[str, Any]:
+    """The active-roster numbers :func:`validate_roster_state` judges.
+
+    ``{"pitchers", "position_players", "missing_positions"}``: active
+    pitchers (``counts_as_pitcher``; injured-but-active ones count), position
+    players, and the required defensive positions no active position player
+    covers, in ``REQUIRED_DEF_POSITIONS`` order. Ids missing from ``players``
+    count as neither. One computation, so a report of what a club is short
+    of (``services.roster_shortfall``) reads the same numbers as the gate.
+    """
+
+    act_ids = list(act_ids or ())
+    act_players = [players[pid] for pid in act_ids if pid in players]
+    non_pitchers = [p for p in act_players if not counts_as_pitcher(p)]
+    covered: Set[str] = set()
+    for p in non_pitchers:
+        covered |= _player_positions(p)
+    return {
+        "pitchers": _active_pitcher_count(act_ids, players),
+        "position_players": len(non_pitchers),
+        "missing_positions": [
+            pos for pos in REQUIRED_DEF_POSITIONS if pos not in covered
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -929,6 +952,7 @@ __all__ = [
     "validate_roster_move",
     "validate_roster_swap",
     "validate_roster_state",
+    "active_roster_shape",
     "validate_trade",
     "ALL_POSITIONS",
     "REQUIRED_DEF_POSITIONS",
