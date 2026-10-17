@@ -71,6 +71,24 @@ def test_stint_injury_off_the_lists_waits_for_its_clock(tmp_path, monkeypatch):
     assert _player("PSTI").injured is False
 
 
+def test_stint_with_no_dates_waits_for_its_return_date(tmp_path, monkeypatch):
+    """A list injury with no start / eligible date has no clock; its own
+    return date decides, as it does for a player on the lists."""
+
+    data = _owner_league(tmp_path, monkeypatch)
+    player = _make_player("PNOD", injury_list="dl15", start=date(2026, 6, 1))
+    player.injury_start_date = None
+    player.injury_eligible_date = None
+    player.return_date = "2026-07-01"
+    save_players_to_csv([player], str(data / "players.csv"))
+    (data / "rosters" / "TST.csv").write_text("PNOD,ACT\n", encoding="utf-8")
+
+    process_disabled_lists(today="2026-06-10", auto_activate=True)
+    assert _player("PNOD").injured is True
+    process_disabled_lists(today="2026-07-01", auto_activate=True)
+    assert _player("PNOD").injured is False
+
+
 def test_day_to_day_parked_on_a_cpu_injured_list_comes_back(tmp_path, monkeypatch):
     data = _owner_league(tmp_path, monkeypatch, owners=())
     save_players_to_csv([_day_to_day("PDL", date(2026, 4, 29))], str(data / "players.csv"))

@@ -415,10 +415,13 @@ class LeagueRolloverService:
         except Exception:  # pragma: no cover - defensive
             pass
         opening_day = date(int(next_year), month, day)
-        try:
-            load_roster.cache_clear()  # the contract step rewrote rosters
-        except Exception:  # pragma: no cover - defensive
-            pass
+        # The contract step and retirements rewrote rosters, and development
+        # the players file: read both fresh.
+        for loader in (load_roster, load_players_from_csv):
+            try:
+                loader.cache_clear()
+            except Exception:  # pragma: no cover - defensive
+                pass
         summary = process_disabled_lists(today=opening_day, auto_activate=True)
         return {
             "opening_day": opening_day.isoformat(),

@@ -366,11 +366,17 @@ def _process_disabled_lists(
     for pid, player in player_map.items():
         if pid in on_lists or not getattr(player, "injured", False):
             continue
-        if _on_a_stint(player):
-            remaining = disabled_list_days_remaining(player, today=target_date)
-            if remaining is not None and remaining > 0:
+        remaining = (
+            disabled_list_days_remaining(player, today=target_date)
+            if _on_a_stint(player)
+            else None
+        )
+        if remaining is not None:
+            if remaining > 0:
                 continue
         elif not _day_to_day_over(player, target_date):
+            # No stint clock (day-to-day, or a stint with no dates): his own
+            # eligible / return date decides, as on the lists below.
             continue
         _clear_injury(player)
         mutated_players.add(pid)
