@@ -1252,6 +1252,33 @@ export interface SeasonActionItem {
   href: string;
 }
 
+/** One row of the dashboard Spotlight (GET /teams/{id}/spotlight). */
+export interface SpotlightPlayer {
+  player_id: string;
+  name: string;
+  position: string;
+  note: string;
+}
+
+export interface SpotlightItem {
+  /** free_agency | draft | expiring_contracts | qualifying_offers |
+   *  rollover_roster | plus the Season page's action-item kinds. */
+  kind: string;
+  severity: "action" | "warning" | "info";
+  title: string;
+  detail: string;
+  href: string;
+  count?: number;
+  deadline_utc?: string | null;
+  players?: SpotlightPlayer[];
+}
+
+export interface TeamSpotlight {
+  team_id: string;
+  phase: string | null;
+  items: SpotlightItem[];
+}
+
 export interface SeasonActionItems {
   team_id: string | null;
   items: SeasonActionItem[];
@@ -2053,6 +2080,8 @@ export const api = {
     apiRequest<DivisionStandings>(`/teams/${encodeURIComponent(teamId)}/division`),
   teamWidgets: (teamId: string) =>
     apiRequest<TeamWidgets>(`/teams/${encodeURIComponent(teamId)}/widgets`),
+  teamSpotlight: (teamId: string) =>
+    apiRequest<TeamSpotlight>(`/teams/${encodeURIComponent(teamId)}/spotlight`),
   teamRoster: (teamId: string) =>
     apiRequest<TeamRoster>(`/teams/${encodeURIComponent(teamId)}/roster`),
   teamRosterCompliance: (teamId: string) =>

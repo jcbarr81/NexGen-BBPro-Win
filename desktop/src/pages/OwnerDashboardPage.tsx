@@ -7,21 +7,33 @@
  * card is planned (docs/deep_review_plan.md S3-09) but not yet implemented.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   Award,
+  Bell,
   Calendar,
+  CheckCircle2,
   CircleDot,
+  Clock,
+  FileClock,
+  FileSignature,
   Flame,
+  GraduationCap,
+  Handshake,
+  HeartPulse,
   Loader2,
   Snowflake,
   Sparkles,
   Stethoscope,
   TrendingDown,
   TrendingUp,
+  UserPlus,
+  Users,
+  type LucideIcon,
 } from "lucide-react";
 
 import {
@@ -32,11 +44,13 @@ import {
   type MatchupScout,
   type PerformerRow,
   type Performers,
+  type SpotlightItem,
   type Team,
   type TeamSnapshot,
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { isCloud } from "@/lib/cloud-auth";
+import { formatCountdown, formatDeadlineLocal } from "@/lib/deadline-format";
 import { toast } from "@/lib/toast-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
@@ -105,6 +119,12 @@ export function OwnerDashboardPage() {
     queryFn: () => api.teamWidgets(activeTeamId as string),
     enabled: !!activeTeamId,
   });
+  const spotlight = useQuery({
+    queryKey: ["team-spotlight", activeTeamId],
+    queryFn: () => api.teamSpotlight(activeTeamId as string),
+    enabled: !!activeTeamId,
+    refetchOnWindowFocus: true,
+  });
 
   // Reorderable layout: register this page so the Header shows "Edit layout".
   useRegisterLayoutPage("owner-dashboard");
@@ -154,6 +174,20 @@ export function OwnerDashboardPage() {
   // within it). The conditional team-switcher is only pushed when shown;
   // useCardLayout keeps its saved slot for when it reappears.
   const dashboardItems: CardItem[] = [
+    {
+      // The phase's big items for this club (free agency, the draft,
+      // expiring contracts, ...). First by default; still movable.
+      id: "spotlight",
+      label: "Spotlight",
+      node: (
+        <SpotlightCard
+          items={spotlight.data?.items}
+          isLoading={spotlight.isLoading}
+          isError={spotlight.isError}
+          onNavigate={(to) => navigate(to)}
+        />
+      ),
+    },
     {
       id: "hero",
       label: "Team header",
@@ -371,6 +405,188 @@ function ClaimTeamView({
         </div>
       </div>
     </AppShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Spotlight: the phase's big items for this club (GET /teams/{id}/spotlight)
+
+const SPOTLIGHT_ICON: Record<string, LucideIcon> = {
+  free_agency: Handshake,
+  fa_bid_needed: Handshake,
+  draft: GraduationCap,
+  expiring_contracts: FileClock,
+  qualifying_offers: FileSignature,
+  rollover_roster: Users,
+  roster_not_ready: AlertTriangle,
+  roster_spot_open: UserPlus,
+  trade_offer: ArrowLeftRight,
+  il_return_needs_room: HeartPulse,
+  il_return_ready: HeartPulse,
+};
+
+const SPOTLIGHT_BUTTON: Record<string, string> = {
+  free_agency: "Free agency",
+  fa_bid_needed: "Free agency",
+  draft: "Draft",
+  expiring_contracts: "Contracts",
+  qualifying_offers: "Decide",
+  rollover_roster: "Roster",
+  roster_not_ready: "Roster",
+  roster_spot_open: "Roster",
+  trade_offer: "Trades",
+  il_return_needs_room: "Roster",
+  il_return_ready: "Injuries",
+};
+
+/** Re-render every 30s so a deadline countdown stays current. */
+function useTicker(active: boolean, ms = 30_000): void {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), ms);
+    return () => window.clearInterval(id);
+  }, [active, ms]);
+}
+
+function SpotlightCard({
+  items,
+  isLoading,
+  isError,
+  onNavigate,
+}: {
+  items: SpotlightItem[] | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  onNavigate: (to: string) => void;
+}) {
+  const rows = items ?? [];
+  useTicker(rows.some((i) => !!i.deadline_utc));
+
+  // Nothing waiting (or the feed is unavailable): one quiet line, not a card
+  // full of empty space.
+  if (isLoading || isError || rows.length === 0) {
+    return (
+      <Card>
+        <CardContent className="flex items-center gap-2 py-3 text-sm text-muted">
+          {isLoading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" /> Checking what needs
+              you…
+            </>
+          ) : (
+            <>
+              <CheckCircle2 className="h-4 w-4 text-success" />
+              <span>
+                <span className="font-semibold text-ink">Spotlight:</span>{" "}
+                {isError
+                  ? "couldn't load right now."
+                  : "nothing needs you right now."}
+              </span>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const urgent = rows.filter((i) => i.severity === "action").length;
+  return (
+    <Card className={cn(urgent > 0 && "border-amber/40")}>
+      <CardHeader>
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="h-4 w-4 text-amber" />
+            Spotlight
+          </CardTitle>
+          <CardDescription>
+            {urgent > 0
+              ? `${urgent} item${urgent === 1 ? "" : "s"} need${urgent === 1 ? "s" : ""} you`
+              : "What's happening for your club this phase"}
+          </CardDescription>
+        </div>
+        <Badge tone={urgent > 0 ? "amber" : "neutral"}>{rows.length}</Badge>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {rows.map((item, i) => (
+          <SpotlightRow
+            key={`${item.kind}-${i}`}
+            item={item}
+            onNavigate={onNavigate}
+          />
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SpotlightRow({
+  item,
+  onNavigate,
+}: {
+  item: SpotlightItem;
+  onNavigate: (to: string) => void;
+}) {
+  const Icon = SPOTLIGHT_ICON[item.kind] ?? Bell;
+  const players = item.players ?? [];
+  const shown = players.slice(0, 5);
+  const more = Math.max(0, (item.count ?? players.length) - shown.length);
+  const countdown = item.deadline_utc ? formatCountdown(item.deadline_utc) : "";
+  const tone =
+    item.severity === "action"
+      ? "text-amber"
+      : item.severity === "warning"
+        ? "text-warning"
+        : "text-muted";
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-border bg-surfaceAlt/40 px-3 py-2">
+      <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", tone)} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold">{item.title}</span>
+          {countdown && (
+            <Badge
+              tone={item.severity === "action" ? "amber" : "neutral"}
+              title={formatDeadlineLocal(item.deadline_utc)}
+            >
+              <Clock className="h-3 w-3" /> Due {countdown}
+            </Badge>
+          )}
+        </div>
+        {item.detail && (
+          <div className="mt-0.5 text-xs text-muted">{item.detail}</div>
+        )}
+        {shown.length > 0 && (
+          <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+            {shown.map((p) => (
+              <li key={p.player_id || p.name} className="min-w-0">
+                {p.player_id ? (
+                  <Link
+                    to={`/player/${encodeURIComponent(p.player_id)}`}
+                    className="font-semibold hover:text-amber"
+                  >
+                    {p.name}
+                  </Link>
+                ) : (
+                  <span className="font-semibold">{p.name}</span>
+                )}
+                {p.position && <span className="text-muted"> {p.position}</span>}
+                {p.note && <span className="text-muted"> · {p.note}</span>}
+              </li>
+            ))}
+            {more > 0 && <li className="text-muted">+{more} more</li>}
+          </ul>
+        )}
+      </div>
+      <Button
+        size="sm"
+        variant={item.severity === "action" ? "primary" : "outline"}
+        className="shrink-0"
+        onClick={() => onNavigate(item.href)}
+      >
+        {SPOTLIGHT_BUTTON[item.kind] ?? "Open"}
+      </Button>
+    </div>
   );
 }
 

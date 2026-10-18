@@ -8,9 +8,9 @@
  * the user isn't surprised at year-end.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowDown,
@@ -79,6 +79,19 @@ export function ContractsPage() {
     "contracts:expiringOnly",
     false,
   );
+  // A link can switch the toggles on (the dashboard Spotlight's "final
+  // year" row opens ?mine=1&expiring=1). The params are dropped once read so
+  // the toggles stay the owner's to change.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const mine = searchParams.get("mine");
+    const expiring = searchParams.get("expiring");
+    if (mine === null && expiring === null) return;
+    if (mine === "1") setMineOnly(true);
+    if (expiring === "1") setExpiringOnly(true);
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [search, setSearch] = usePersistedState("contracts:search", "");
   const [sortKey, setSortKey] = usePersistedState<SortKey>(
     "contracts:sortKey",

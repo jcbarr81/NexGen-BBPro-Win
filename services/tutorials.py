@@ -72,9 +72,15 @@ TUTORIALS: List[Tutorial] = [
     Tutorial(
         tutorial_id="overview",
         title="Dashboard Overview",
-        summary="Tour the owner dashboard — hero, scoreboard stats, division, widgets.",
+        summary="Tour the owner dashboard — Spotlight, hero, scoreboard stats, division, widgets.",
         route="/home",
         steps=[
+            TutorialStep(
+                "Spotlight",
+                "<p>The <b>Spotlight</b> card at the top of the Dashboard lists the big things happening for your club right now, so you never have to go looking for them: free-agent bidding (the day, when bids are due, where you lead and where you've been outbid), the amateur draft (when it is, and whether you're on the clock), players in the final year of their contracts, qualifying offers waiting on your decision, and who left your club at the rollover with the roster spots still to fill. Trade offers and injured-list returns show here too.</p>"
+                "<p>Each row has a button to the page where you act on it; a row with a deadline shows a countdown. Rows that need you are listed first. When nothing needs you, the card shrinks to a single line. Like every dashboard card, you can move it with <b>Edit layout</b>.</p>"
+                "<p>You also get a notification when free-agent bidding opens and whenever you've been outbid; turn it off on the <b>Notifications</b> page (Preferences tab, \"Free-agent bidding opened, or you were outbid\").</p>",
+            ),
             TutorialStep(
                 "Hero & team logo",
                 "<p>The hero banner at the top of <b>Dashboard</b> shows your team name, record, run differential, and current streak. The team logo is auto-generated or falls back to a colored square with your abbreviation. Record / Run Diff / Streak render as a stadium scoreboard readout — tabular monospace with an amber LED glow.</p>",

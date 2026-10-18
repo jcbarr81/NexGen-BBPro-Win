@@ -25,7 +25,10 @@ import {
  * Merge a saved order with the cards present this render.
  * - no saved order → defaults verbatim.
  * - saved ids still present → kept in saved order (removed ids dropped).
- * - present ids missing from saved (new cards) → appended in default order.
+ * - present ids missing from saved (new cards) → appended in default order,
+ *   except new cards that lead the defaults (before every saved card), which
+ *   go on top: a card added at the top of a page (the dashboard Spotlight)
+ *   shows there for users who had already arranged the page.
  * Pure + exported for unit testing.
  */
 export function reconcileOrder(
@@ -36,8 +39,14 @@ export function reconcileOrder(
   const presentSet = new Set(present);
   const kept = saved.filter((id) => presentSet.has(id));
   const keptSet = new Set(kept);
-  const appended = present.filter((id) => !keptSet.has(id));
-  return [...kept, ...appended];
+  const savedSet = new Set(saved);
+  const firstSaved = present.findIndex((id) => savedSet.has(id));
+  const lead = firstSaved === -1 ? present.length : firstSaved;
+  const leading = present.slice(0, lead);
+  const appended = present
+    .slice(lead)
+    .filter((id) => !keptSet.has(id));
+  return [...leading, ...kept, ...appended];
 }
 
 export interface CardLayout {

@@ -725,7 +725,9 @@ def _rollover_item(
         "title": title,
         "detail": " ".join(parts),
         "href": "/roster",
-        "count": open_spots or left,
+        # With names listed, ``count`` is how many there are (the card shows
+        # "+N more" past the first few); otherwise the spots to fill.
+        "count": left or open_spots,
         "players": players[:MAX_PLAYERS],
     }
 

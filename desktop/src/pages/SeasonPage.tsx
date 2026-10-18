@@ -55,6 +55,7 @@ import {
 } from "@/lib/api";
 import { toast } from "@/lib/toast-store";
 import { cn } from "@/lib/cn";
+import { formatCountdown, formatDeadlineLocal } from "@/lib/deadline-format";
 import { AppShell } from "@/components/layout/AppShell";
 import { LeagueTrainingDialog } from "@/components/LeagueTrainingDialog";
 import { SimProgressOverlay } from "@/components/SimProgressOverlay";
@@ -1534,28 +1535,6 @@ function isoToLocalInput(iso: string | null): string {
   if (Number.isNaN(d.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function formatCountdown(iso: string | null): string {
-  if (!iso) return "";
-  const ms = new Date(iso).getTime() - Date.now();
-  const abs = Math.abs(ms);
-  const mins = Math.round(abs / 60000);
-  const h = Math.floor(mins / 60);
-  const d = Math.floor(h / 24);
-  let rel: string;
-  if (d >= 1) rel = `${d}d ${h % 24}h`;
-  else if (h >= 1) rel = `${h}h ${mins % 60}m`;
-  else rel = `${mins}m`;
-  return ms >= 0 ? `in ${rel}` : `${rel} ago`;
-}
-
-/** Format a stored deadline (ISO) as local time; a legacy free-form label is
- *  shown as-is. */
-function formatDeadlineLocal(s: string | null | undefined): string {
-  if (!s) return "";
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? s : d.toLocaleString();
 }
 
 /** Commissioner-configurable progression schedule: a real deadline + what runs
