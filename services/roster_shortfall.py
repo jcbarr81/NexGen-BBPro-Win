@@ -184,6 +184,7 @@ def notify_owner_shortfalls(
     Returns ``{"status", "teams": [team ids notified]}``.
     """
 
+    from services.offseason_departures import departures_text, load_departures
     from services.team_ownership import human_owned_team_ids_strict
     from utils.news_logger import log_news_event
     from utils.path_utils import get_data_dir
@@ -203,10 +204,23 @@ def notify_owner_shortfalls(
         except Exception:
             _LOGGER.exception("roster shortfall: could not read %s", tid)
             continue
-        if not report.get("short"):
+        # 8.1.3: name who left (retired, or contract expired), from the
+        # rollover's departures record; a club that is not short but lost
+        # players still hears who.
+        try:
+            left = departures_text(load_departures(tid, data_dir=root))
+        except Exception:
+            _LOGGER.exception("roster shortfall: could not read %s's departures", tid)
+            left = ""
+        if not report.get("short") and not left:
             continue
         reason = reason_expired if tid in expired else ""
-        message = shortfall_message(report, reason=reason)
+        if report.get("short"):
+            message = shortfall_message(report, reason=reason)
+            if left:
+                message = f"{message} {left}"
+        else:
+            message = f"{tid}: left the club this offseason. {left}"
         try:
             log_news_event(
                 message,
@@ -240,6 +254,8 @@ def _notify_owner(team_id: str, report: Mapping[str, Any], message: str) -> None
                 "Roster not ready for Opening Day"
                 if blocking
                 else "Active roster spots to fill"
+                if report.get("short")
+                else "Players who left your club"
             ),
             message=message,
             payload={

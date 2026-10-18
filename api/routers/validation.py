@@ -329,6 +329,14 @@ def roster_shortfall_endpoint(team_id: str) -> Dict[str, Any]:
     from services.roster_shortfall import team_roster_shortfall
 
     payload = team_roster_shortfall(team_id)
+    # 8.1.3: who left the club at the last rollover (retired / contract
+    # expired), for the offseason banner.
+    try:
+        from services.offseason_departures import load_departures
+
+        payload["departures"] = load_departures(team_id)
+    except Exception:
+        payload["departures"] = {"year": None, "retired": [], "contract_expired": []}
     try:
         from playbalance.season_manager import SeasonManager
 

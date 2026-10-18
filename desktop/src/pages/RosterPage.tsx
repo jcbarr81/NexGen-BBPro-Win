@@ -41,6 +41,8 @@ import {
   type RosterCompliance,
   type RosterMoveResult,
   type RosterPlayer,
+  type DeparturePlayer,
+  type OffseasonDepartures,
   type RosterShortfall,
   type TeamRoster,
 } from "@/lib/api";
@@ -177,8 +179,11 @@ export function RosterPage() {
     enabled: !!fallbackTeamId,
     refetchOnWindowFocus: true,
   });
+  const departed =
+    (shortfall.data?.departures?.retired.length ?? 0) +
+    (shortfall.data?.departures?.contract_expired.length ?? 0);
   const showShortfall =
-    !!shortfall.data?.short &&
+    (!!shortfall.data?.short || departed > 0) &&
     SHORTFALL_PHASES.has(String(shortfall.data?.phase ?? ""));
 
   const invalidateCompliance = () => {
@@ -467,9 +472,11 @@ function SpotsToFillBanner({ data }: { data: RosterShortfall }) {
   const open = data.open_spots;
   const title = blocking
     ? "Roster not ready for Opening Day"
-    : open === 1
-      ? "1 active-roster spot to fill"
-      : `${open} active-roster spots to fill`;
+    : !data.short
+      ? "Players who left your club this offseason"
+      : open === 1
+        ? "1 active-roster spot to fill"
+        : `${open} active-roster spots to fill`;
   return (
     <div
       className={cn(
@@ -517,11 +524,12 @@ function SpotsToFillBanner({ data }: { data: RosterShortfall }) {
                 ))}
               </ul>
             </>
-          ) : (
+          ) : data.short ? (
             <p className="mt-2 text-xs text-muted">
               Optional: an open spot is legal and does not hold up the season.
             </p>
-          )}
+          ) : null}
+          {data.departures && <DeparturesList departures={data.departures} />}
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <span className="text-xs text-muted">
               Sign free agents or promote players from AAA. The CPU never signs
@@ -537,6 +545,45 @@ function SpotsToFillBanner({ data }: { data: RosterShortfall }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Who left the club at the rollover (8.1.3): retirements, and expired
+ *  contracts (now free agents; each links to his page, where the club can
+ *  make him an offer). */
+function DeparturesList({ departures }: { departures: OffseasonDepartures }) {
+  const navigate = useNavigate();
+  const { retired, contract_expired: expired } = departures;
+  if (retired.length === 0 && expired.length === 0) return null;
+  const label = (p: DeparturePlayer) =>
+    `${p.name}${p.position ? ` (${p.position}${p.age != null ? `, ${p.age}` : ""})` : ""}`;
+  return (
+    <div className="mt-2 space-y-1 text-xs text-fg">
+      {retired.length > 0 && (
+        <div>
+          <span className="font-semibold">Retired: </span>
+          {retired.map(label).join(", ")}
+        </div>
+      )}
+      {expired.length > 0 && (
+        <div>
+          <span className="font-semibold">Contract expired, now free agents: </span>
+          {expired.map((p, idx) => (
+            <span key={p.player_id}>
+              {idx > 0 && ", "}
+              <button
+                type="button"
+                className="underline decoration-dotted hover:text-amber"
+                title="Open his page to make an offer"
+                onClick={() => navigate(`/player/${encodeURIComponent(p.player_id)}`)}
+              >
+                {label(p)}
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

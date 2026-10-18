@@ -657,6 +657,21 @@ export interface RosterShortfall {
   short: boolean;
   message: string;
   phase: string | null;
+  /** Who left the club at the last rollover (8.1.3). */
+  departures?: OffseasonDepartures;
+}
+
+export interface DeparturePlayer {
+  player_id: string;
+  name: string;
+  position: string;
+  age: number | null;
+}
+
+export interface OffseasonDepartures {
+  year: number | null;
+  retired: DeparturePlayer[];
+  contract_expired: DeparturePlayer[];
 }
 
 /** A move / swap returns the updated roster plus the validator's warnings

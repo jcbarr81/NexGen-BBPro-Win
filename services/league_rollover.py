@@ -218,6 +218,16 @@ class LeagueRolloverService:
         except Exception:
             _qo_candidates = {}
 
+        # 8.1.3: whose contract is expiring and with which club, read before
+        # the contract step deletes the deals (for the owners' departures).
+        try:
+            from services.offseason_departures import expiring_contract_clubs
+
+            _expiring_clubs = expiring_contract_clubs(data_dir=_DATA_DIR)
+        except Exception:
+            _LOGGER.exception("rollover: could not read the expiring contracts")
+            _expiring_clubs = {}
+
         contract_rollover = rollover_contracts_for_new_season(
             season_year=next_descriptor.get("league_year") if isinstance(next_descriptor, dict) else None,
             data_dir=_DATA_DIR,
@@ -302,6 +312,7 @@ class LeagueRolloverService:
         # Run retirements AFTER development so the new ratings feed into
         # the "washed" / "declining" thresholds. Retirees are removed from
         # rosters, released from contracts, and surfaced in the news feed.
+        retire_summary: Dict[str, Any] = {}
         try:
             from services.player_retirement import run_yearly_retirements
 
@@ -314,6 +325,22 @@ class LeagueRolloverService:
                 )
         except Exception as exc:  # pragma: no cover - defensive
             artifacts["retirement_error"] = str(exc)
+
+        # 8.1.3: who left each club (retired, or contract expired and not
+        # re-signed), for the owners' notices and the Roster page.
+        try:
+            from services.offseason_departures import record_departures
+
+            record_departures(
+                next_year,
+                data_dir=_DATA_DIR,
+                expiring=_expiring_clubs,
+                expired_ids=(contract_rollover or {}).get("expired_player_ids") or [],
+                retirees=(retire_summary or {}).get("retirees") or [],
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            _LOGGER.exception("rollover: could not record the clubs' departures")
+            artifacts["departures_error"] = str(exc)
 
         # Promote prospects AFTER retirements so newly-vacated ACT spots
         # get filled by the AAA / LOW pipeline. Single-step per offseason
