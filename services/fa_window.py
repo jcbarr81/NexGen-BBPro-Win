@@ -274,7 +274,32 @@ def open_window(
         ],
     }
     _save_window(state, data_dir=base)
+    _announce_opened(state, base)
     return state
+
+
+def _announce_opened(state: Dict[str, Any], base: Path) -> None:
+    """Owners hear that bidding is open (news + notifications). Never fails
+    the window: the state is already saved and nothing here changes it."""
+    try:
+        from services.fa_window_notices import window_opened
+
+        window_opened(state, data_dir=base)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
+def _announce_day(
+    state: Dict[str, Any], day: int, signed: List[Dict[str, Any]], base: Path
+) -> None:
+    """The day's signings + outbid owners (news + notifications). Never fails
+    the window step, and reads only after the state is saved."""
+    try:
+        from services.fa_window_notices import day_advanced
+
+        day_advanced(state, day=day, signed=signed, data_dir=base)
+    except Exception:  # pragma: no cover - defensive
+        pass
 
 
 def advance_day(
@@ -357,6 +382,7 @@ def advance_day(
         state["current_date"] = (start + timedelta(days=day)).isoformat()
 
     _save_window(state, data_dir=base)
+    _announce_day(state, day, signed, base)
     return {"ok": True, "day": day, "signed": signed, "window": state}
 
 

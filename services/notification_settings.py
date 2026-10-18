@@ -193,6 +193,16 @@ RULE_CATEGORIES: List[Dict[str, Any]] = [
                 "default_notify": True,
                 "default_stop": False,
             },
+            {
+                # 8.2.0 (services.fa_window_notices): posted when the FA
+                # bidding window opens and, each window day, to an owner
+                # now outbid on someone. Never stops a sim (the window has
+                # no game days). Saved files without it get these defaults.
+                "id": "fa_bidding",
+                "label": "Free-agent bidding opened, or you were outbid",
+                "default_notify": True,
+                "default_stop": False,
+            },
         ],
     },
     {

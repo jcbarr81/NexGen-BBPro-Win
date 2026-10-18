@@ -171,6 +171,27 @@ def team_dashboard_widgets(team_id: str) -> Dict[str, Any]:
     }
 
 
+@router.get("/spotlight")
+def team_spotlight(team_id: str) -> Dict[str, Any]:
+    """The dashboard Spotlight: this club's big items for the current phase
+    (free agency, the amateur draft, expiring contracts, qualifying offers,
+    rollover departures and spots to fill, plus the Season page's action
+    items), most urgent first. Like the other dashboard reads, any signed-in
+    user of the league may read any club's (a commissioner browsing a team).
+    Never mutates anything; see ``api.routers._spotlight``."""
+
+    from ._spotlight import build_spotlight
+    from .teams import _load_teams
+
+    try:
+        known = {t.team_id.strip().upper() for t in _load_teams()}
+    except Exception:
+        known = set()
+    if known and str(team_id or "").strip().upper() not in known:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+    return build_spotlight(team_id)
+
+
 def _leader_rows(source: Any, meta: Any) -> List[Dict[str, Any]]:
     """Normalize quick_metrics' dict-or-list leader shape to a flat list.
 

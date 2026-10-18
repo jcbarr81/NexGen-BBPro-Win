@@ -862,6 +862,7 @@ def _rule_title(rule_id: str) -> str:
         "trade_decided": "Trade outcome",
         "fa_signed_elsewhere": "Free agent signed elsewhere",
         "contract_expiring": "Contract expiring",
+        "fa_bidding": "Free-agent bidding",
         "trade_deadline_approaching": "Trade deadline approaching",
         "phase_transition": "Phase transition",
         "all_star_break": "All-Star break",

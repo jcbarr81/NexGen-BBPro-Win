@@ -3648,7 +3648,6 @@ def season_action_items(
     nothing here mutates state or auto-advances."""
 
     team_id = str(identity.get("t") or "").strip()
-    items: List[Dict[str, Any]] = []
     deadline = _read_season_deadline()
 
     if not team_id:
@@ -3656,6 +3655,21 @@ def season_action_items(
         # their coordination view, so there are no per-owner action items.
         return {"team_id": None, "items": [], "count": 0, "deadline": deadline}
 
+    items = team_action_items(team_id)
+    return {
+        "team_id": team_id,
+        "items": items,
+        "count": len(items),
+        "deadline": deadline,
+    }
+
+
+def team_action_items(team_id: str) -> List[Dict[str, Any]]:
+    """The action items for one club: the Season page's feed (for the token's
+    club) and the dashboard Spotlight (``GET /teams/{team_id}/spotlight``,
+    for the club on screen). Purely a read."""
+
+    items: List[Dict[str, Any]] = []
     try:
         phase = SeasonManager().phase.value
     except Exception:
@@ -3776,13 +3790,7 @@ def season_action_items(
     # owner activates by hand. Read-only: the automation never moves anyone
     # else on an owner's roster to make room.
     items.extend(_il_return_action_items(team_id))
-
-    return {
-        "team_id": team_id,
-        "items": items,
-        "count": len(items),
-        "deadline": deadline,
-    }
+    return items
 
 
 def _il_return_action_items(team_id: str) -> List[Dict[str, Any]]:
