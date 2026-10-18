@@ -568,6 +568,9 @@ def test_the_feed_changes_no_file(league, monkeypatch):
     save_draft_settings(DraftSettings(timing="preseason", pick_clock_hours=12))
     (league / "draft_pool_2027.csv").write_text("player_id\nD1\n", encoding="utf-8")
     monkeypatch.setattr("api.routers.draft._upcoming_preseason_draft_year", lambda: 2027)
+    # A real league always has its phase file (a SeasonManager writes one
+    # when it is missing, as the roster-cap lookup's does).
+    (league / "season_state.json").write_text('{"phase": "OFFSEASON"}', encoding="utf-8")
     before = _tree_hashes(league)
     out = spotlight()
     assert {"free_agency", "draft", "rollover_roster"} <= set(kinds(out))
