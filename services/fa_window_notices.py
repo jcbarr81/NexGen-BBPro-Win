@@ -263,8 +263,8 @@ def day_advanced(
                 f" and {len(names) - 6} more" if len(names) > 6 else ""
             )
             message = (
-                f"You've been outbid on {shown}. Day {day + 1} of {total} is open; "
-                f"counter {due} on the Free Agency page."
+                f"You've been outbid on {shown}. Day {day + 1} of {total} is open: "
+                f"counter on the Free Agency page; bids are due {due}."
             )
             if _notify(
                 tid,
