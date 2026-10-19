@@ -178,7 +178,16 @@ def test_day_to_day_players_have_no_minimum(sim_clock):
 def test_falls_back_to_the_wall_clock_without_a_schedule(monkeypatch):
     """A bare fixture or a league with no season yet must still work."""
     monkeypatch.setattr("utils.sim_date.get_current_sim_date", lambda: None)
+    monkeypatch.setattr(im, "_opening_day_between_seasons", lambda: None)
     assert im._today() == date.today()
+
+
+def test_between_seasons_it_reads_next_opening_day(monkeypatch):
+    """8.2.1: no schedule but a league year (the offseason): next opening
+    day, the date the rollover's heal measured stints against."""
+    monkeypatch.setattr("utils.sim_date.get_current_sim_date", lambda: None)
+    monkeypatch.setattr(im, "_opening_day_between_seasons", lambda: date(2027, 4, 1))
+    assert im._today() == date(2027, 4, 1)
 
 
 # --- the recovery automation ------------------------------------------------
