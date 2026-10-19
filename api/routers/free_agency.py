@@ -162,7 +162,21 @@ def _summarize(player: Any, league_scale: Any = "page") -> Dict[str, Any]:
             str(getattr(player, "injury_description", None) or "").strip() or None
         ),
         "return_date": str(getattr(player, "return_date", None) or "").strip() or None,
+        # On the league's calendar, as every other page shows it (8.2.1).
+        "age": _age(player),
     }
+
+
+def _age(player: Any) -> Optional[int]:
+    birthdate = str(getattr(player, "birthdate", "") or "").strip()
+    if not birthdate:
+        return None
+    try:
+        from playbalance.aging import calculate_age
+
+        return int(calculate_age(birthdate[:10]))
+    except Exception:
+        return None
 
 
 @router.get("/free-agents")

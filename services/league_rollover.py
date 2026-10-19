@@ -3,7 +3,7 @@ from __future__ import annotations
 """League rollover archival service."""
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 import json
@@ -431,17 +431,10 @@ class LeagueRolloverService:
         if next_year is None:
             return None
         from services.dl_automation import process_disabled_lists
-        from services.league_presets import get_schedule_template
+        from services.league_presets import opening_day as _opening_day
         from utils.roster_loader import load_roster
 
-        month, day = 4, 1  # the template's own default, if it can't be read
-        try:
-            template = get_schedule_template("mlb_162")
-            if template is not None:
-                month, day = template.start_month, template.start_day
-        except Exception:  # pragma: no cover - defensive
-            pass
-        opening_day = date(int(next_year), month, day)
+        opening_day = _opening_day(int(next_year))
         # The contract step and retirements rewrote rosters, and development
         # the players file: read both fresh.
         for loader in (load_roster, load_players_from_csv):

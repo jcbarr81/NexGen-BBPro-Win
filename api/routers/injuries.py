@@ -29,17 +29,13 @@ router = APIRouter(prefix="/teams/{team_id}", tags=["injuries"], dependencies=[C
 
 
 def _sim_today() -> date:
-    """The league's current date — the clock the injured list is measured in."""
+    """The league's current date — the clock the injured list is measured in
+    (``services.injury_manager.league_today``: the sim date, or next opening
+    day between seasons)."""
 
-    try:
-        from utils.sim_date import get_current_sim_date
+    from services.injury_manager import league_today
 
-        sim_date = (get_current_sim_date() or "").strip()
-        if sim_date:
-            return date.fromisoformat(sim_date[:10])
-    except Exception:  # pragma: no cover - defensive
-        pass
-    return date.today()
+    return league_today()
 
 
 def _player_block(player: Any, level: str, dl_tier: str | None) -> Dict[str, Any]:

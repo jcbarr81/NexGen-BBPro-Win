@@ -198,6 +198,22 @@ def get_schedule_template(template_id: str) -> Optional[ScheduleTemplate]:
     return None
 
 
+def opening_day(year: int, template_id: str = "mlb_162") -> date:
+    """Opening day of ``year``: the first date of the schedule the PRESEASON
+    step generates (``api.routers.season``, the ``mlb_162`` template for the
+    new league year); 1 April, the template's own default, if it cannot be
+    read."""
+
+    month, day = 4, 1
+    try:
+        template = get_schedule_template(template_id)
+        if template is not None:
+            month, day = template.start_month, template.start_day
+    except Exception:  # pragma: no cover - defensive
+        pass
+    return date(int(year), month, day)
+
+
 def get_quickstart_preset(preset_id: str) -> Optional[QuickStartPreset]:
     for preset in load_quickstart_presets():
         if preset.preset_id == preset_id:

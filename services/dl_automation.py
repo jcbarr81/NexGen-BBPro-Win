@@ -99,11 +99,10 @@ def _coerce_date(value: DateLike) -> date:
         except ValueError:
             pass
     try:
-        from utils.sim_date import get_current_sim_date
+        from services.injury_manager import league_today
 
-        sim_date = (get_current_sim_date() or "").strip()
-        if sim_date:
-            return date.fromisoformat(sim_date[:10])
+        # The sim date, or next opening day between seasons (8.2.1).
+        return league_today()
     except Exception:  # pragma: no cover - defensive
         pass
     return datetime.now(timezone.utc).date()

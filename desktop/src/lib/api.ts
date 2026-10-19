@@ -1113,7 +1113,9 @@ export interface FaOffer {
 }
 
 export interface FaNegotiationResolution {
-  outcome: "signed" | "no_deal" | "withdrawn" | "not_a_free_agent";
+  /** reversed (8.2.1): a signing undone afterwards (``note`` says why). */
+  outcome: "signed" | "no_deal" | "withdrawn" | "not_a_free_agent" | "reversed";
+  note?: string;
   signed_team?: string;
   /** not_a_free_agent: the club that owns the player. */
   team_id?: string;
@@ -2520,6 +2522,8 @@ export const api = {
         injured?: boolean;
         injury_description?: string | null;
         return_date?: string | null;
+        /** Age on the league's calendar (8.2.1). */
+        age?: number | null;
       }>;
     }>(`/free-agents?limit=${limit}`),
   signFreeAgent: (

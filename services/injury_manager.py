@@ -78,6 +78,14 @@ def _today() -> date:
     season in an afternoon and nobody healed, leave the league alone for a
     fortnight and everyone did. Falls back to the wall clock only when there is
     no schedule to read (a bare fixture, or before a season exists).
+
+    Between seasons (8.2.1) there is no schedule either: the rollover deletes
+    it and the PRESEASON step writes the next one. The league's clock then
+    reads next opening day, the day the rollover's offseason heal measured
+    every stint against (``LeagueRolloverService._heal_for_opening_day``).
+    It used to fall back to the wall clock here too, so a 60-day stint the
+    heal had found over (January, on the league's calendar) read "85 days
+    left" in October and could not be activated.
     """
 
     try:
@@ -88,7 +96,33 @@ def _today() -> date:
             return parsed
     except Exception:  # pragma: no cover - defensive
         pass
+    between = _opening_day_between_seasons()
+    if between is not None:
+        return between
     return date.today()
+
+
+def league_today() -> date:
+    """Public name for :func:`_today`: the date the injured list counts in."""
+
+    return _today()
+
+
+def _opening_day_between_seasons() -> Optional[date]:
+    """Next opening day while the league is between seasons (no schedule,
+    a known league year), else ``None``."""
+
+    try:
+        from playbalance.season_context import SeasonContext
+        from services.league_presets import opening_day
+
+        current = SeasonContext.load().current
+        year = current.get("league_year") if isinstance(current, dict) else None
+        if year is None:
+            return None
+        return opening_day(int(year))
+    except Exception:  # pragma: no cover - defensive
+        return None
 
 
 def injury_list_for(player: Player, list_name: str) -> str:

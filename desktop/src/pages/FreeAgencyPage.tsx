@@ -391,6 +391,7 @@ export function FreeAgencyPage() {
                   <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
                     <HeaderCell label="Player" keyId="name" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="left" />
                     <HeaderCell label="Pos" keyId="pos" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
+                    <HeaderCell label="Age" keyId="age" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                     <HeaderCell label="B" keyId="bats" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                     <HeaderCell label="Role" keyId="role" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                     <HeaderCell label="OVR" keyId="overall" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
@@ -450,6 +451,9 @@ export function FreeAgencyPage() {
                       </td>
                       <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
                         {fa.primary_position || "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {fa.age ?? "—"}
                       </td>
                       <td className="px-3 py-2 text-right">{fa.bats || "—"}</td>
                       <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
@@ -678,6 +682,8 @@ function YourNegotiationsCard({ teamId }: { teamId: string | null }) {
               ? `${n.player_name ?? n.player_id} took no deal`
               : r?.outcome === "not_a_free_agent"
               ? `${n.player_name ?? n.player_id} is not a free agent (on ${r?.team_id ?? "another club"}'s roster)`
+              : r?.outcome === "reversed"
+              ? `Signing of ${n.player_name ?? n.player_id} reversed${r?.note ? `: ${r.note}` : ""}`
               : `Offer to ${n.player_name ?? n.player_id} withdrawn`;
           return (
             <div
@@ -1041,6 +1047,8 @@ function sortValue(p: FreeAgent, key: SortKey): string | number | null {
       return `${p.last_name}, ${p.first_name}`;
     case "pos":
       return p.primary_position;
+    case "age":
+      return p.age ?? null;
     case "bats":
       return p.bats;
     case "role":
