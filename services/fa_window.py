@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from utils.path_utils import get_data_dir
 
@@ -222,6 +222,42 @@ def _open_leaders(players_by_id: Dict[str, Any], *, data_dir: Path) -> List[Dict
 # Lifecycle
 # ---------------------------------------------------------------------------
 
+def current_season_key(*, data_dir: Path | str | None = None) -> str:
+    """The league's current season id (``career_index.json``, e.g.
+    "alpha-test-2027"; it changes at each rollover), or "" when unknown.
+    Read only."""
+
+    try:
+        from playbalance.season_context import SeasonContext
+
+        path = None if data_dir is None else Path(data_dir) / "career_index.json"
+        if path is not None and not path.exists():
+            path = None
+        current = SeasonContext.load(path).current
+        if isinstance(current, dict):
+            key = current.get("season_id") or current.get("league_year")
+            return str(key or "")
+    except Exception:
+        pass
+    return ""
+
+
+def _same_season(existing: Mapping[str, Any], season_key: str, start_iso: str) -> bool:
+    """Whether ``existing`` is this season's window.
+
+    By season key when both have one. A window from before 8.2.2 has none:
+    it is this season's if it started on the same date (the old rule) or is
+    still open (an earlier offseason's window was closed at its preseason).
+    """
+
+    key = str(existing.get("season_key") or "")
+    if key and season_key:
+        return key == season_key
+    if existing.get("start_date") == start_iso:
+        return True
+    return existing.get("status") == "open"
+
+
 def open_window(
     sim_date: str,
     *,
@@ -240,10 +276,17 @@ def open_window(
 
     start = _parse_date(sim_date) or date.today()
     start_iso = start.isoformat()
+    season_key = current_season_key(data_dir=base)
 
     existing = load_window(data_dir=base)
-    if existing and existing.get("start_date") == start_iso:
-        # Same preseason — don't reopen or re-seed.
+    if existing and _same_season(existing, season_key, start_iso):
+        # This season's window -- open or already closed: don't reopen or
+        # re-seed. (8.2.2) The offseason has no sim date, so start_date is
+        # the wall-clock date, and keying on it alone opened a NEW window
+        # each real day: alpha-test's was replaced overnight, day back to 1.
+        if season_key and existing.get("season_key") != season_key:
+            existing["season_key"] = season_key
+            _save_window(existing, data_dir=base)
         return existing
 
     deadline = start + timedelta(days=TOTAL_DAYS)
@@ -254,6 +297,7 @@ def open_window(
     state = {
         "version": 1,
         "status": "open",
+        "season_key": season_key,
         "start_date": start_iso,
         "deadline_date": deadline.isoformat(),
         "day": 1,
@@ -460,6 +504,16 @@ def _human_participation(base: Path) -> Dict[str, Any]:
     }
 
 
+def _this_season(state: Optional[Mapping[str, Any]], base: Path) -> Optional[bool]:
+    if not state:
+        return None
+    key = str(state.get("season_key") or "")
+    current = current_season_key(data_dir=base)
+    if key and current:
+        return key == current
+    return None
+
+
 def window_status(*, data_dir: Path | str | None = None) -> Dict[str, Any]:
     """UI-facing status payload for the Season page FA-window panel."""
     base = get_data_dir() if data_dir is None else Path(data_dir)
@@ -474,6 +528,11 @@ def window_status(*, data_dir: Path | str | None = None) -> Dict[str, Any]:
         "total_days": (state or {}).get("total_days", TOTAL_DAYS),
         "start_date": (state or {}).get("start_date"),
         "deadline_date": (state or {}).get("deadline_date"),
+        # 8.2.2: which season the window belongs to, and whether that is
+        # the league's current one (None when either key is unknown, e.g. a
+        # window opened before 8.2.2 that has since closed).
+        "season_key": (state or {}).get("season_key"),
+        "this_season": _this_season(state, base),
         "latest": log[-1] if log else None,
         "sweep_locked": unsigned_sweep_locked(data_dir=base),
         **_human_participation(base),

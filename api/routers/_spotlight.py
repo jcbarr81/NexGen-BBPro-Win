@@ -163,7 +163,12 @@ def _free_agency_item(
     # when there is none, as there).
     sim_day = _parse_day(_sim_date()) or date.today()
     start = _parse_day(win.get("start_date"))
-    this_offseason = bool(win.get("exists") and start and start == sim_day)
+    # 8.2.2: the window carries its season; the start-date rule is only for
+    # a window opened before then.
+    if win.get("this_season") is not None:
+        this_offseason = bool(win.get("exists") and win.get("this_season"))
+    else:
+        this_offseason = bool(win.get("exists") and start and start == sim_day)
     if this_offseason and status == "closed":
         return _closed_window_item(team_id, win)
     if not this_offseason:
