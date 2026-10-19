@@ -71,6 +71,7 @@ import {
 } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { useLeagueCapabilities } from "@/lib/league-capabilities";
+import { latestSeasonRow } from "@/lib/stats-rows";
 
 export function PlayerProfilePage() {
   const { playerId } = useParams<{ playerId: string }>();
@@ -413,10 +414,10 @@ function RatingsCard({
 }
 
 function SprayChartCard({ profile }: { profile: PlayerProfile }) {
-  // First stats row is the most-relevant season (typically the current
-  // year). Look up raw hit counts by key; the view-model stores both
-  // ``b2`` and ``2b`` aliases so we fall back across both.
-  const row = profile.stats_rows[0];
+  // The most recent season (8.2.3: rows run oldest first, then Career).
+  // Look up raw hit counts by key; the view-model stores both ``b2`` and
+  // ``2b`` aliases so we fall back across both.
+  const row = latestSeasonRow(profile.stats_rows);
   if (!row) return null;
   const [label, data] = row;
 

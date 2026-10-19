@@ -765,9 +765,22 @@ class LeagueRolloverService:
         players_map: Dict[str, Dict[str, Any]] = players_doc.setdefault("players", {})
         teams_map: Dict[str, Dict[str, Any]] = teams_doc.setdefault("teams", {})
 
+        # 8.2.3: the club(s) each player played for, read now, while the
+        # rosters are still as the season ended (the contract step below
+        # clears the expiring players off them). The profile shows it.
+        try:
+            from services.season_teams import season_team_labels
+
+            clubs = season_team_labels(Path(_DATA_DIR))
+        except Exception:  # pragma: no cover - defensive
+            _LOGGER.exception("rollover: could not read the players' clubs")
+            clubs = {}
+
         for pid, stats in stats_payload.get("players", {}).items():
             player_entry = players_map.setdefault(pid, {"seasons": {}, "totals": {}})
             player_entry.setdefault("seasons", {})
+            if clubs.get(pid) and isinstance(stats, dict):
+                stats = {**stats, "team": clubs[pid]}
             player_entry["seasons"][season_id] = stats
             player_entry["totals"] = _aggregate_numeric(player_entry["seasons"])
 

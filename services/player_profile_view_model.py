@@ -796,14 +796,19 @@ def _collect_stats_rows(
     team_id: str,
     is_pitcher: bool,
 ) -> List[Tuple[str, Dict[str, Any]]]:
+    # 8.2.3: seasons run oldest first, the current one last, then Career
+    # (they ran newest first, the current season on top). A past season
+    # shows the club(s) the rollover recorded with it, never the player's
+    # current club (a free agent's whole history read "--"), and his age
+    # that season.
     rows: List[Tuple[str, Dict[str, Any]]] = []
     current_year = _current_season_year()
+    birthdate = getattr(player, "birthdate", "")
     season = _stats_to_dict(getattr(player, "season_stats", {}), is_pitcher)
     if season:
-        season.setdefault("age", _calculate_age(getattr(player, "birthdate", "")))
+        season.setdefault("age", _league_age(birthdate))
         season.setdefault("team", team_id)
         _clamp_games_to_team_max(season)
-        rows.append((f"{current_year:04d}", season))
 
     history_rows: List[Tuple[Tuple[int, str], str, Dict[str, Any]]] = []
     history_map = getattr(player, "career_history", {}) or {}
@@ -812,10 +817,16 @@ def _collect_stats_rows(
             data = _stats_to_dict(raw_stats, is_pitcher)
             if not data:
                 continue
-            data.setdefault("team", team_id)
+            year = _year_from_token(str(season_id))
+            if year is not None:
+                data.setdefault("age", _league_age(birthdate, year=year))
             history_rows.append((_season_sort_key(str(season_id)), _format_season_label(str(season_id)), data))
-    history_rows.sort(key=lambda item: item[0], reverse=True)
+    history_rows.sort(key=lambda item: item[0])
     rows.extend((label, data) for _, label, data in history_rows)
+    # The current season once he has played in it (an offseason row of
+    # dashes for a season not yet begun said nothing).
+    if season and _has_played(season):
+        rows.append((f"{current_year:04d}", season))
 
     career_components: List[Dict[str, Any]] = []
     if season:
@@ -836,6 +847,29 @@ def _collect_stats_rows(
     for label, data in aggregated:
         data.setdefault("team", team_id)
     return aggregated
+
+
+def _league_age(birthdate: Any, *, year: Optional[int] = None) -> Optional[int]:
+    """Age on the league's calendar (``playbalance.aging.calculate_age``, as
+    every other page reads it); for a past ``year``, as of July 1 of it."""
+
+    text = str(birthdate or "").strip()[:10]
+    if not text:
+        return None
+    try:
+        from playbalance.aging import calculate_age
+
+        as_of = date(int(year), 7, 1) if year is not None else None
+        return max(int(calculate_age(text, as_of=as_of)), 0)
+    except Exception:
+        return _calculate_age(text)
+
+
+def _has_played(stats: Mapping[str, Any]) -> bool:
+    for key in ("g", "pa", "ab", "bf", "outs", "ip", "gs"):
+        if _safe_float(stats.get(key)) > 0:
+            return True
+    return False
 
 
 def _current_season_year() -> int:
@@ -864,9 +898,22 @@ def _format_season_label(season_id: str) -> str:
     except ValueError:
         return str(season_id)
     league_token = league_token.strip().upper()
-    if league_token and league_token not in {"LEAGUE"}:
+    # 8.2.3: this league's own seasons read as the year alone ("2026", not
+    # "2026 (ALPHA-TEST)"); a season from another league keeps its name.
+    if league_token and league_token not in {"LEAGUE", _current_league_token()}:
         return f"{year_int:04d} ({league_token})"
     return f"{year_int:04d}"
+
+
+def _current_league_token() -> str:
+    try:
+        ctx = SeasonContext.load()
+        current = str(ctx.current_season_id or "")
+        if "-" in current:
+            return current.rsplit("-", 1)[0].strip().upper()
+    except Exception:
+        pass
+    return ""
 
 
 def _stats_to_dict(stats: Any, is_pitcher: bool) -> Dict[str, Any]:

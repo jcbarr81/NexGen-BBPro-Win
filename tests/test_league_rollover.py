@@ -310,6 +310,10 @@ def test_league_rollover_archives_and_resets(sandbox, monkeypatch):
     career_players = json.loads((data_dir / "careers" / "career_players.json").read_text(encoding="utf-8"))
     assert "BAT1" in career_players["players"]
     assert career_players["players"]["BAT1"]["seasons"]["test-2025"]["pa"] == 100
+    # 8.2.3: each season's line carries the club, read before the contract
+    # step released PIT1 (expiring) off T1's roster.
+    assert career_players["players"]["BAT1"]["seasons"]["test-2025"]["team"] == "T1"
+    assert career_players["players"]["PIT1"]["seasons"]["test-2025"]["team"] == "T1"
 
     career_teams = json.loads((data_dir / "careers" / "career_teams.json").read_text(encoding="utf-8"))
     assert "T1" in career_teams["teams"]

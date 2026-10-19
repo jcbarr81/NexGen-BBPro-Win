@@ -31,6 +31,7 @@ import {
   CardTitle,
   InfoTip,
 } from "@/components/ui";
+import { latestSeasonRow } from "@/lib/stats-rows";
 
 export function ComparePage() {
   const { playerA, playerB } = useParams<{ playerA: string; playerB: string }>();
@@ -293,8 +294,9 @@ function StatsCompare({ a, b }: { a: PlayerProfile; b: PlayerProfile }) {
   // Stats rows come keyed by time window ("Career", "2025 season", etc.).
   // Find the row that appears in BOTH so the side-by-side line up; prefer
   // the first overlapping pair.
-  const aRow = a.stats_rows[0];
-  const bRow = b.stats_rows[0];
+  // Each player's most recent season (8.2.3: rows run oldest first).
+  const aRow = latestSeasonRow(a.stats_rows);
+  const bRow = latestSeasonRow(b.stats_rows);
   if (!aRow || !bRow) return null;
   const aLabel = aRow[0];
   const aData = aRow[1];
