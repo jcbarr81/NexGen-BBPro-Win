@@ -392,8 +392,13 @@ def close_window(*, data_dir: Path | str | None = None) -> Dict[str, Any]:
     state = load_window(data_dir=base)
     if not state or state.get("status") == "closed":
         return {"ok": False, "reason": "no_open_window"}
-    # Jump to the final day and resolve.
-    state["day"] = int(state.get("total_days", TOTAL_DAYS) or TOTAL_DAYS)
+    # Jump to the final day and resolve. The day it was really on is kept for
+    # the closing news line (services.fa_window_notices).
+    total = int(state.get("total_days", TOTAL_DAYS) or TOTAL_DAYS)
+    current = int(state.get("day", total) or total)
+    if current < total:
+        state["closed_early_on_day"] = current
+    state["day"] = total
     _save_window(state, data_dir=base)
     return advance_day(data_dir=base)
 

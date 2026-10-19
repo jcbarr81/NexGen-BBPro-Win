@@ -22,7 +22,7 @@ window step and never change what any club, CPU or human, does.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -41,13 +41,7 @@ def format_utc(value: Any) -> str:
     dt = parse_iso_utc(value)
     if dt is None:
         return ""
-    return dt.strftime("%b %d, %Y %H:%M UTC").replace(" 0", " ", 1)
-
-
-def _format_day(value: Optional[date]) -> str:
-    if value is None:
-        return ""
-    return value.strftime("%B %d, %Y").replace(" 0", " ", 1)
+    return f"{dt.strftime('%b')} {dt.day}, {dt.year} {dt.strftime('%H:%M')} UTC"
 
 
 def _active_league(base: Path) -> bool:
@@ -145,12 +139,12 @@ def window_opened(state: Mapping[str, Any], *, data_dir: Path | str) -> Dict[str
         if not _active_league(base):
             return out
         total = int(state.get("total_days") or 14)
-        start = _parse(state.get("start_date"))
-        last = start + timedelta(days=total - 1) if start else None
-        through = f", through {_format_day(last)}" if last else ""
+        # No calendar end date: a bidding day ends when the commissioner
+        # advances it (or at its deadline), not on the window's own dates.
+        through = ""
         due = _due_text(base, after_advance=False)
         news = (
-            f"Free-agent bidding is open: {total} days{through}; "
+            f"Free-agent bidding is open: {total} bidding days; "
             f"bids for day 1 are due {due}."
         )
         _news(base, news)
@@ -163,7 +157,7 @@ def window_opened(state: Mapping[str, Any], *, data_dir: Path | str) -> Dict[str
         if log:
             seeded = int((log[0] or {}).get("cpu_seeded") or 0)
         message = (
-            f"Bidding runs {total} days{through}. Bids for day 1 are due {due}. "
+            f"Bidding runs {total} bidding days{through}. Bids for day 1 are due {due}. "
             f"CPU clubs have posted opening offers on {seeded} "
             f"player{'s' if seeded != 1 else ''}. Make your offers on the Free "
             "Agency page; each day the market moves and players sign."
@@ -241,9 +235,16 @@ def day_advanced(
         signings = f"{n} signing{'s' if n != 1 else ''}"
         closed = state.get("status") == "closed"
         if closed:
+            early = state.get("closed_early_on_day")
+            when = (
+                f"closed early on day {early} of {total}"
+                if early
+                else f"has closed: {signings} on day {day} of {total}"
+            )
             news = (
-                f"Free-agent bidding has closed: {signings} on day {day} of {total}; "
-                "the remaining players took their best offer."
+                f"Free-agent bidding {when}"
+                + (f" ({signings} at the close)" if early else "")
+                + "; the remaining players took their best offer."
             )
         else:
             news = (
@@ -276,10 +277,3 @@ def day_advanced(
     except Exception:
         _LOGGER.exception("fa notices: day-advance notices failed")
     return out
-
-
-def _parse(value: Any) -> Optional[date]:
-    try:
-        return datetime.strptime(str(value or "").split("T", 1)[0], "%Y-%m-%d").date()
-    except Exception:
-        return None

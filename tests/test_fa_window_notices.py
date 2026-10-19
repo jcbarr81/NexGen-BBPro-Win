@@ -81,8 +81,8 @@ def test_opening_posts_news_and_tells_each_owner(league):
     news = _news(league)
     assert len(news) == 1
     assert news[0].endswith(
-        "[free_agency] Free-agent bidding is open: 14 days, through November 14, "
-        "2026; bids for day 1 are due before the commissioner advances the day."
+        "[free_agency] Free-agent bidding is open: 14 bidding days; "
+        "bids for day 1 are due before the commissioner advances the day."
     )
     history = _history("BAL")
     assert len(history) == 1
@@ -90,7 +90,7 @@ def test_opening_posts_news_and_tells_each_owner(league):
     assert event["rule_id"] == "fa_bidding"
     assert event["title"] == "Free-agent bidding is open"
     assert event["message"] == (
-        "Bidding runs 14 days, through November 14, 2026. Bids for day 1 are due "
+        "Bidding runs 14 bidding days. Bids for day 1 are due "
         "before the commissioner advances the day. CPU clubs have posted opening "
         "offers on 7 players. Make your offers on the Free Agency page; each day "
         "the market moves and players sign."
@@ -155,11 +155,33 @@ def test_no_outbid_notice_when_you_lead(league):
 
 def test_closing_day_news(league):
     w.open_window("2026-11-01")
-    w.close_window()
+    for _ in range(13):
+        w.advance_day()
+    w.advance_day()
     assert _news(league)[-1].endswith(
         "Free-agent bidding has closed: 0 signings on day 14 of 14; the remaining "
         "players took their best offer."
     )
+
+
+def test_a_forced_close_names_the_day_it_ended(league):
+    """A phase advance closes the window early; the news says when."""
+
+    w.open_window("2026-11-01")
+    w.advance_day()
+    w.advance_day()
+    w.close_window()
+    assert _news(league)[-1].endswith(
+        "Free-agent bidding closed early on day 3 of 14 (0 signings at the close); "
+        "the remaining players took their best offer."
+    )
+
+
+def test_utc_times_read_the_same_whatever_the_day():
+    from services.fa_window_notices import format_utc
+
+    assert format_utc("2026-10-19T08:00:00+00:00") == "Oct 19, 2026 08:00 UTC"
+    assert format_utc("2026-10-09T08:00:00+00:00") == "Oct 9, 2026 08:00 UTC"
 
 
 def test_stands_down_when_ownership_is_unreadable(league, monkeypatch):

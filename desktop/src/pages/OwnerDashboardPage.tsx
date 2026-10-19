@@ -123,6 +123,10 @@ export function OwnerDashboardPage() {
     queryKey: ["team-spotlight", activeTeamId],
     queryFn: () => api.teamSpotlight(activeTeamId as string),
     enabled: !!activeTeamId,
+    // Always fresh on return: a bid or a decision made on another page must
+    // not leave "outbid" / "no live bid" showing for the global 30s staleTime.
+    staleTime: 0,
+    refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
 
