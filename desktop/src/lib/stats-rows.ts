@@ -4,7 +4,8 @@ export function latestSeasonRow(
   rows: Array<[string, Record<string, unknown>]>,
 ): [string, Record<string, unknown>] | undefined {
   for (let i = rows.length - 1; i >= 0; i -= 1) {
-    if (rows[i][0] !== "Career") return rows[i];
+    const row = rows[i];
+    if (row && row[0] !== "Career") return row;
   }
   return rows[0];
 }
