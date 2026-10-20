@@ -56,9 +56,10 @@ PINNED_SCALE_1 = {
 # The whole /help/tutorials payload of a scale 1 league as 04364883a
 # served it (sha256 of its canonical JSON): no scale 2 step may reach it.
 # Re-pin only when a tutorial is edited on purpose (re-pinned for 8.2.0: the
-# Dashboard tutorial's new Spotlight step, the same for every scale).
+# Dashboard tutorial's new Spotlight step, the same for every scale; for
+# 8.3.0: the Player Avatars tutorial's "New club, new colors" step).
 PINNED_SCALE_1_TUTORIALS = (
-    "a90d406084886ef6cfc97b62efdb87a319a06d7d9c94ebf2dc477eac60962e38"
+    "73bb4d3091153c1fd09e2d32d8fb2a341f00abf4df3a3a046d8cf6d16c3cbb38"
 )
 
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")

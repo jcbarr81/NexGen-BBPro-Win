@@ -993,6 +993,17 @@ TUTORIALS: List[Tutorial] = [
                 "</ul>",
             ),
             TutorialStep(
+                "New club, new colors",
+                "<p>When a player is traded or signs with a new club, his picture is "
+                "redone in the new club's cap and jersey colors in the background; "
+                "his face stays the same. If a club changes its colors in Team "
+                "Settings, its players' pictures follow. Free agents keep their "
+                "last club's look until they sign.</p>"
+                "<p>Commissioners: if a picture still shows old colors or an edit "
+                "came out wrong, open the player's profile and click <b>Refresh "
+                "picture</b>.</p>",
+            ),
+            TutorialStep(
                 "Manual overrides",
                 "<p>Drop a custom PNG into <code>images/avatars/</code> to override the generated image.</p>"
                 "<ul>"
