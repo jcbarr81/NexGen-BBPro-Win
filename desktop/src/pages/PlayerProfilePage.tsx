@@ -23,6 +23,7 @@ import {
   ChevronRight,
   Handshake,
   Loader2,
+  Palette,
   Pencil,
   RefreshCw,
   ShieldCheck,
@@ -239,6 +240,19 @@ function HeroCard({ profile }: { profile: PlayerProfile }) {
     staleTime: 5 * 60_000,
   });
   const isSuperAdmin = isCloud() && !!me.data?.super_admin;
+  // Commissioner: redo the picture in his current club's colors, same face.
+  const isAdmin = useAuthStore((s) => s.role === "admin");
+  const recolor = useMutation({
+    mutationFn: () => api.recolorPlayerAvatar(profile.player_id),
+    onSuccess: (res) => {
+      if (res.changed) setAvatarVersion((v) => v + 1);
+      toast.success(res.message);
+    },
+    onError: (err: unknown) =>
+      toast.error("Couldn't refresh the picture", {
+        description: err instanceof Error ? err.message : "Try again.",
+      }),
+  });
   const regen = useMutation({
     mutationFn: () => api.regeneratePlayerAvatar(profile.player_id),
     onSuccess: () => {
@@ -262,21 +276,41 @@ function HeroCard({ profile }: { profile: PlayerProfile }) {
               version={avatarVersion}
               className="h-32 w-32 shrink-0 overflow-hidden rounded-2xl text-5xl shadow-panel"
             />
-            {isSuperAdmin && (
-              <button
-                type="button"
-                onClick={() => regen.mutate()}
-                disabled={regen.isPending}
-                title="Regenerate this player's AI avatar (super-admin)"
-                aria-label="Regenerate avatar"
-                className="absolute -bottom-1 -right-1 rounded-full border border-border bg-surface p-1.5 text-muted shadow-panel transition hover:text-amber disabled:opacity-60"
-              >
-                {regen.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-3.5 w-3.5" />
+            {(isAdmin || isSuperAdmin) && (
+              <div className="absolute -bottom-1 -right-1 flex gap-1">
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => recolor.mutate()}
+                    disabled={recolor.isPending}
+                    title="Refresh picture: show his current club's colors (same face)"
+                    aria-label="Refresh picture"
+                    className="rounded-full border border-border bg-surface p-1.5 text-muted shadow-panel transition hover:text-amber disabled:opacity-60"
+                  >
+                    {recolor.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Palette className="h-3.5 w-3.5" />
+                    )}
+                  </button>
                 )}
-              </button>
+                {isSuperAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => regen.mutate()}
+                    disabled={regen.isPending}
+                    title="Regenerate this player's AI avatar (super-admin)"
+                    aria-label="Regenerate avatar"
+                    className="rounded-full border border-border bg-surface p-1.5 text-muted shadow-panel transition hover:text-amber disabled:opacity-60"
+                  >
+                    {regen.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                )}
+              </div>
             )}
           </div>
 

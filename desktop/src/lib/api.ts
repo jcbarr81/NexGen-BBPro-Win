@@ -2046,6 +2046,20 @@ export const api = {
       `/players/${encodeURIComponent(playerId)}/avatar/regenerate`,
       { method: "POST" },
     ),
+  /** Commissioner: redo one player's picture in his current club's colors
+   *  (same face; skipped at no cost when it already shows them). */
+  recolorPlayerAvatar: (playerId: string) =>
+    apiRequest<{
+      player_id: string;
+      team_id: string;
+      status: string;
+      colors: string;
+      ok: boolean;
+      changed: boolean;
+      message: string;
+    }>(`/players/${encodeURIComponent(playerId)}/avatar/recolor`, {
+      method: "POST",
+    }),
   /** Super-admin: permanently delete ANY league (control plane + game data + GCS). */
   platformDeleteLeague: (leagueId: string) =>
     apiRequest<{ deleted: boolean; league_id: string; errors: string[] }>(
