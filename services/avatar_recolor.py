@@ -90,6 +90,8 @@ def _empty_state() -> Dict[str, Any]:
         "skipped": 0,
         "ai_edits": 0,
         "recent": [],
+        # club -> when its last colors-change batch may run (cost cap)
+        "team_batches": {},
     }
 
 
@@ -107,6 +109,8 @@ def _read(base: Path) -> Dict[str, Any]:
         state["pending"] = []
     if not isinstance(state["recent"], list):
         state["recent"] = []
+    if not isinstance(state["team_batches"], dict):
+        state["team_batches"] = {}
     return state
 
 
@@ -134,8 +138,11 @@ def enqueue(
     *,
     data_dir: Path | str | None = None,
     start: bool = True,
+    not_before: Optional[str] = None,
 ) -> int:
     """Queue ``player_ids`` for a picture in their club's colors.
+
+    ``not_before`` (an ISO UTC time) holds the entries until then.
 
     Deduplicated by player (an already-pending player keeps his place). The
     worker is started unless ``start`` is False. Never raises: a failure is
@@ -155,9 +162,10 @@ def enqueue(
             for pid in ids:
                 if pid in pending:
                     continue
-                state["pending"].append(
-                    {"player_id": pid, "reason": str(reason), "queued_at": _now(), "attempts": 0}
-                )
+                entry = {"player_id": pid, "reason": str(reason), "queued_at": _now(), "attempts": 0}
+                if not_before:
+                    entry["not_before"] = not_before
+                state["pending"].append(entry)
                 pending.add(pid)
                 added += 1
             if added:
@@ -170,14 +178,49 @@ def enqueue(
         return 0
 
 
+# A club's whole roster (up to ~50 paid edits) is redone at most once per
+# this many seconds, however often its colors change: an owner can save new
+# colors, and each batch costs about $2. A change inside the window is held
+# until it ends; the pictures use the colors in force when they are made, so
+# several changes in a day cost one batch.
+TEAM_BATCH_COOLDOWN_S = 24 * 3600
+
+
+def _iso(ts: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
+
+
+def _parse_iso(text: Any) -> Optional[float]:
+    import calendar
+
+    try:
+        return float(calendar.timegm(time.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ")))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def enqueue_team(team_id: str, reason: str, *, data_dir: Path | str | None = None) -> int:
-    """Queue every player on ``team_id``'s roster file (any level)."""
+    """Queue every player on ``team_id``'s roster file (any level), at most
+    one batch per club per ``TEAM_BATCH_COOLDOWN_S``."""
     try:
         from utils.roster_ownership import read_roster_rows
 
         base = _base(data_dir)
+        tid = str(team_id).strip().upper()
+        now = time.time()
+        with _keyed_lock(_file_locks, str(base)):
+            state = _read(base)
+            last = _parse_iso(state["team_batches"].get(tid))
+            run_at = now if last is None else max(now, last + TEAM_BATCH_COOLDOWN_S)
+            state["team_batches"][tid] = _iso(run_at)
+            _write(base, state)
         rows = read_roster_rows(base / "rosters" / f"{str(team_id).strip()}.csv")
-        return enqueue([pid for pid, _level in rows], reason, data_dir=base)
+        return enqueue(
+            [pid for pid, _level in rows],
+            reason,
+            data_dir=base,
+            not_before=None if run_at <= now else _iso(run_at),
+        )
     except Exception:
         _LOG.exception("avatar recolor: could not queue club %s", team_id)
         return 0
@@ -202,7 +245,12 @@ def status(*, data_dir: Path | str | None = None) -> Dict[str, Any]:
     }
 
 
-def process_player(player_id: str, *, data_dir: Path | str | None = None) -> Dict[str, Any]:
+def process_player(
+    player_id: str,
+    *,
+    data_dir: Path | str | None = None,
+    write_guard: Any = None,
+) -> Dict[str, Any]:
     """Redo one player's picture in the colors of the club whose roster lists
     him now. ``"free_agent"`` (nothing done) when no roster does."""
     from utils.avatar_generator import recolor_avatar
@@ -214,7 +262,7 @@ def process_player(player_id: str, *, data_dir: Path | str | None = None) -> Dic
         club = owning_club(pid, base, include_contracts=False)
         if club is None:
             return {"player_id": pid, "team_id": "", "status": "free_agent", "colors": ""}
-        return recolor_avatar(pid, club[0], data_dir=base)
+        return recolor_avatar(pid, club[0], data_dir=base, write_guard=write_guard)
 
 
 def record_result(result: Dict[str, Any], *, data_dir: Path | str | None = None) -> None:
@@ -271,10 +319,19 @@ def _claim(base: Path) -> Optional[Dict[str, Any]]:
             state["pending"].insert(0, leftover)
         state["active"] = None
         entry = None
-        while state["pending"] and entry is None:
-            head = state["pending"].pop(0)
-            if isinstance(head, dict) and head.get("player_id"):
-                entry = head
+        now = time.time()
+        kept: List[Any] = []
+        for item in state["pending"]:
+            if entry is not None or not isinstance(item, dict) or not item.get("player_id"):
+                if isinstance(item, dict) and item.get("player_id"):
+                    kept.append(item)
+                continue
+            held = _parse_iso(item.get("not_before"))
+            if held is not None and held > now:
+                kept.append(item)  # held (a club's colors batch); later
+                continue
+            entry = item
+        state["pending"] = kept
         state["active"] = entry
         if entry is not None or leftover:
             _write(base, state)
@@ -335,36 +392,46 @@ def drain(
     push_every: int = 10,
 ) -> Dict[str, int]:
     """Process queued entries one at a time until the queue is empty (or
-    ``max_items``). Each entry runs inside ``background_writer`` -- marked
-    only while it writes, so a long catch-up never holds off the shutdown
-    flush between pictures -- and the league's files are pushed after every
-    AI edit and every ``push_every`` entries. Returns counts by status."""
+    ``max_items``). Each entry is marked as a ``background_writer`` only
+    while it writes (the claim, the picture swap, the result) -- never
+    through the image request -- so a long catch-up never holds off the
+    shutdown flush; the league's files are pushed after every AI edit and
+    every ``push_every`` entries. Returns counts by status."""
     base = _base(data_dir)
     counts: Dict[str, int] = {}
     since_push = 0
     processed = 0
     while max_items is None or processed < max_items:
+        # Marked as a background writer only while files change (the claim,
+        # the picture swap, the result): the image request in between can
+        # take minutes, and a mark held through it would hold off every
+        # shutdown flush for the whole catch-up.
         with _background_writer("avatar-recolor"):
             entry = _claim(base)
-            if entry is None:
-                break
-            try:
-                result = process_player(str(entry["player_id"]), data_dir=base)
-            except Exception as exc:  # never let one picture stop the queue
-                _LOG.exception("avatar recolor failed for %s", entry.get("player_id"))
-                result = {
-                    "player_id": entry.get("player_id"),
-                    "status": "failed",
-                    "error": str(exc),
-                }
+        if entry is None:
+            break
+        try:
+            result = process_player(
+                str(entry["player_id"]),
+                data_dir=base,
+                write_guard=lambda: _background_writer("avatar-recolor"),
+            )
+        except Exception as exc:  # never let one picture stop the queue
+            _LOG.exception("avatar recolor failed for %s", entry.get("player_id"))
+            result = {
+                "player_id": entry.get("player_id"),
+                "status": "failed",
+                "error": str(exc),
+            }
+        with _background_writer("avatar-recolor"):
             _finish(base, entry, result)
-            processed += 1
-            since_push += 1
-            status_ = str(result.get("status") or "")
-            counts[status_] = counts.get(status_, 0) + 1
-            if status_ == "ai_edited" or since_push >= push_every:
-                _push(league_id)
-                since_push = 0
+        processed += 1
+        since_push += 1
+        status_ = str(result.get("status") or "")
+        counts[status_] = counts.get(status_, 0) + 1
+        if status_ == "ai_edited" or since_push >= push_every:
+            _push(league_id)
+            since_push = 0
     if since_push:
         _push(league_id)
     return counts

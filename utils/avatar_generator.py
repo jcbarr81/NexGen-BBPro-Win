@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import csv
 import logging
 import os
@@ -12,7 +13,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path, PurePosixPath
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 try:
     from PIL import Image  # type: ignore
@@ -679,8 +680,14 @@ def recolor_avatar(
     *,
     data_dir: str | Path | None = None,
     out_dir: str | Path | None = None,
+    write_guard: Any = None,
 ) -> Dict[str, str]:
     """Show ``player_id``'s picture in ``team_id``'s colors, keeping his face.
+
+    ``write_guard`` (a no-argument context-manager factory) wraps only the
+    moment the finished picture replaces the old one -- the background
+    queue passes its working-copy writer mark, so the slow image request
+    itself never holds off a shutdown flush.
 
     * The club's colors are read fresh from teams.csv.
     * A picture whose ``nexgen_colors`` record already equals them is left
@@ -689,9 +696,12 @@ def recolor_avatar(
       jersey change), resized to 512x512 and saved with the AI marker
       (``"ai_edited"``). With Vertex unavailable it is left as it is
       (``"no_vertex"``) -- never replaced by a template.
-    * A template picture, or no picture, is re-rendered by the template
-      engine in the new colors (``"template"``); ``"no_template"`` when the
-      engine cannot render him.
+    * A picture of unknown kind (no AI marker and no colors record: made
+      before 8.3.0) is edited like an AI portrait when Vertex is available,
+      and re-rendered as a template when it is not.
+    * A template picture (colors record, no AI marker), or no picture, is
+      re-rendered by the template engine in the new colors (``"template"``);
+      ``"no_template"`` when the engine cannot render him.
     * The previous file is kept as ``<pid>.prev.png``. A failed edit
       (``"failed"``, with ``error``) leaves the original untouched.
 
@@ -722,7 +732,20 @@ def recolor_avatar(
         result.update(status="failed", error="Pillow (PIL) is required.")
         return result
 
-    if out_file.exists() and _avatar_is_ai(out_file):
+    # A picture with neither the AI marker nor a colors record was made
+    # before both existed: it may be an AI portrait from before the marker
+    # (7.17.3), so where Vertex is available (the only way AI portraits are
+    # made) it is EDITED, the face kept, rather than redrawn from a template.
+    # Without Vertex it is taken for the template picture it must be.
+    from utils import vertex_image as _vertex
+
+    unknown_kind = (
+        out_file.exists()
+        and not _avatar_is_ai(out_file)
+        and _recorded_colors(out_file) is None
+        and _vertex.is_available()
+    )
+    if out_file.exists() and (_avatar_is_ai(out_file) or unknown_kind):
         from utils import vertex_image
 
         if not vertex_image.is_available():
@@ -738,7 +761,8 @@ def recolor_avatar(
                 if im.size != (512, 512):
                     im = im.resize((512, 512), Image.LANCZOS)
                 _save_ai_png(im, tmp_file, colors=record)
-            _replace_keeping_prev(tmp_file, out_file)
+            with (write_guard or contextlib.nullcontext)():
+                _replace_keeping_prev(tmp_file, out_file)
         except Exception as exc:
             tmp_file.unlink(missing_ok=True)
             _log.warning("avatar recolor: AI edit failed for %s: %s", pid, exc)
@@ -771,7 +795,8 @@ def recolor_avatar(
         result["status"] = "no_template"
         return result
     try:
-        _replace_keeping_prev(tmp_file, out_file)
+        with (write_guard or contextlib.nullcontext)():
+            _replace_keeping_prev(tmp_file, out_file)
     except OSError as exc:
         tmp_file.unlink(missing_ok=True)
         result.update(status="failed", error=str(exc))

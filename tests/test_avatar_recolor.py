@@ -215,6 +215,43 @@ def test_template_picture_is_rerendered_in_the_new_colors(league, monkeypatch):
     assert out.with_name("b1.prev.png").read_bytes() == before
 
 
+def test_a_picture_of_unknown_kind_is_edited_not_redrawn(league, fake_vertex):
+    """No AI marker and no colors record (made before 8.3.0): it may be an
+    AI portrait from before the marker, so with Vertex it is edited (the
+    face kept), never redrawn from a template."""
+    out = _avatars(league) / "u1.png"
+    Image.new("RGB", (512, 512), (9, 9, 9)).save(out, format="PNG")
+
+    result = ag.recolor_avatar("u1", "AAA", data_dir=league)
+
+    assert result["status"] == "ai_edited"
+    assert len(fake_vertex) == 1
+    assert ag._recorded_colors(out) == "#112233|#AABBCC"
+
+
+def test_the_swap_is_guarded_not_the_request(league, monkeypatch):
+    """``write_guard`` wraps only the moment the new picture replaces the
+    old one."""
+    _ai_portrait(league, "a1")
+    events: list[str] = []
+
+    class _Guard:
+        def __enter__(self):
+            events.append("enter")
+
+        def __exit__(self, *exc):
+            events.append("exit")
+
+    def _edit(*_a, **_k):
+        events.append("edit")
+        return _png_bytes()
+
+    monkeypatch.setattr(vertex_image, "is_available", lambda: True)
+    monkeypatch.setattr(vertex_image, "edit_png", _edit)
+    ag.recolor_avatar("a1", "AAA", data_dir=league, write_guard=_Guard)
+    assert events == ["edit", "enter", "exit"]
+
+
 def test_player_without_a_picture_gets_a_template(league):
     pytest.importorskip("cv2")
 
@@ -396,7 +433,9 @@ def test_drain_marks_a_background_writer_and_pushes(league, monkeypatch):
 
     avatar_recolor.drain(data_dir=league, league_id="lg1")
 
-    assert busy_during_edit == [{"avatar-recolor": 1}]
+    # Not marked through the image request (it can take minutes and would
+    # hold off every shutdown flush); only around the file writes.
+    assert busy_during_edit == [{}]
     assert "avatar-recolor" not in working_copy._busy  # released between pictures
     assert pushes and set(pushes) == {"lg1"}
 
@@ -521,6 +560,30 @@ def test_club_color_change_queues_the_whole_roster(league):
     save_settings("BBB", payload={"primary_color": "#00ff00"}, identity={"r": "admin"})
 
     assert sorted(_pending(league)) == ["b1", "b2"]
+
+
+def test_a_club_recolors_its_roster_at_most_once_a_day(league, monkeypatch):
+    """Each batch costs up to ~$2; an owner saving colors again within 24h
+    waits for the window to end (one batch, in the colors then in force)."""
+    clock = {"now": 1_800_000_000.0}
+    monkeypatch.setattr(avatar_recolor.time, "time", lambda: clock["now"])
+    assert avatar_recolor.enqueue_team("BBB", "colors", data_dir=league, ) == 2
+    state = json.loads((league / avatar_recolor.QUEUE_FILE).read_text(encoding="utf-8"))
+    assert all("not_before" not in e for e in state["pending"])
+
+    # The first batch runs; a second change two hours later is held.
+    for _ in range(2):
+        entry = avatar_recolor._claim(league)
+        avatar_recolor._finish(league, entry, {"status": "unchanged"})
+    clock["now"] += 2 * 3600
+    avatar_recolor.enqueue_team("BBB", "colors again", data_dir=league)
+    assert avatar_recolor._claim(league) is None  # held until the window ends
+    state = json.loads((league / avatar_recolor.QUEUE_FILE).read_text(encoding="utf-8"))
+    held = {e["not_before"] for e in state["pending"]}
+    assert held == {avatar_recolor._iso(1_800_000_000.0 + 24 * 3600)}
+
+    clock["now"] = 1_800_000_000.0 + 24 * 3600 + 1
+    assert avatar_recolor._claim(league)["player_id"] in {"b1", "b2"}
 
 
 def test_same_club_level_move_does_not_queue(league, monkeypatch):

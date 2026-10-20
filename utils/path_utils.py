@@ -51,6 +51,8 @@ _SEED_EXCLUDE_FILES = frozenset(
         "physics_usage.json",
         "rating_centers.json",
         "pitcher_durability_center.json",
+        # 8.3.0: a league's own picture-recolor queue, never a seed.
+        "avatar_recolor_queue.json",
     }
 )
 
