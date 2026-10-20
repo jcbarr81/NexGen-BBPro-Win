@@ -501,6 +501,9 @@ def _render_template_avatar(
     img = cv2.imread(str(template), cv2.IMREAD_UNCHANGED)
     if img is None:
         return False
+    # Team Settings accepts #RGB; the recolor needs #RRGGBB.
+    primary_hex = _normalize_hex(primary_hex) or primary_hex
+    secondary_hex = _normalize_hex(secondary_hex) or secondary_hex
     img = _recolor_by_hex(img, _HAT_HEX, primary_hex)
     img = _recolor_by_hex(img, _JERSEY_HEX, secondary_hex)
     hair_key = (hair_color or "").strip().lower()
