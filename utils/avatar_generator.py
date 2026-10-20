@@ -5,6 +5,7 @@ import base64
 import csv
 import logging
 import os
+import re
 import shutil
 import threading
 from collections import Counter, defaultdict
@@ -227,13 +228,52 @@ _AI_MARKER_KEY = "nexgen_avatar"
 _AI_MARKER_VALUE = "ai"
 _AI_MARKER_BYTES = _AI_MARKER_KEY.encode() + b"\x00" + _AI_MARKER_VALUE.encode()
 
+# Every picture written records the club colors it shows (a tEXt chunk,
+# "#PRIMARY|#SECONDARY"), so a recolor can skip a picture already in its
+# club's colors. Pictures made before 8.3.0 carry no record.
+_COLORS_KEY = "nexgen_colors"
+_COLORS_RE = re.compile(rb"nexgen_colors\x00(#[0-9A-F]{6}\|#[0-9A-F]{6})")
 
-def _save_ai_png(im, out_file: Path) -> None:
-    """Save an AI-generated avatar PNG tagged with the engine marker."""
+
+def _normalize_hex(value: str | None) -> str | None:
+    """``#RRGGBB`` (upper case) for a 3- or 6-digit hex color, else None."""
+    h = str(value or "").strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(ch * 2 for ch in h)
+    if not re.fullmatch(r"[0-9a-fA-F]{6}", h):
+        return None
+    return "#" + h.upper()
+
+
+def _colors_record(primary: str | None, secondary: str | None) -> str | None:
+    """The ``nexgen_colors`` value for a cap/jersey pair, or None if invalid."""
+    p, s = _normalize_hex(primary), _normalize_hex(secondary)
+    if p is None or s is None:
+        return None
+    return f"{p}|{s}"
+
+
+def _recorded_colors(path: Path) -> str | None:
+    """The colors a picture says it shows, or None (no record / unreadable).
+    Reads raw bytes, like :func:`_avatar_is_ai`."""
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+    match = _COLORS_RE.search(data)
+    return match.group(1).decode("ascii") if match else None
+
+
+def _save_ai_png(im, out_file: Path, colors: str | None = None) -> None:
+    """Save an AI-generated avatar PNG tagged with the engine marker, and the
+    colors record when ``colors`` is given."""
     from PIL.PngImagePlugin import PngInfo
 
     meta = PngInfo()
     meta.add_text(_AI_MARKER_KEY, _AI_MARKER_VALUE)
+    if colors:
+        meta.add_text(_COLORS_KEY, colors)
     out_file.parent.mkdir(parents=True, exist_ok=True)
     im.save(out_file, format="PNG", pnginfo=meta)
 
@@ -390,7 +430,11 @@ def generate_player_avatars(
             with Image.open(BytesIO(img_bytes)) as im:
                 if im.size != (512, 512):
                     im = im.resize((512, 512))
-                _save_ai_png(im, out_file)
+                _save_ai_png(
+                    im,
+                    out_file,
+                    colors=_colors_record(colors.get("primary"), colors.get("secondary")),
+                )
             return
 
         # Template engine: recolor a bundled face template to team/player colors.
@@ -449,7 +493,8 @@ def _render_template_avatar(
     """Recolor a bundled face template to the given team/player colors and write
     it to ``out_file``. Returns False (without writing) if the template image is
     missing/unreadable. Pure of any team-color cache — callers pass exact hexes
-    so this is safe in the multi-tenant cloud."""
+    so this is safe in the multi-tenant cloud. The PNG records the colors it
+    shows (``nexgen_colors``)."""
     import cv2
 
     template = _select_template(ethnicity or "Anglo", facial_hair or "clean_shaven")
@@ -464,7 +509,19 @@ def _render_template_avatar(
         base_hex = _BASE_HAIR_HEX.get(template.parent.name, _HAIR_COLOR_HEX["brown"])
         img = _recolor_by_hex(img, base_hex, hair_hex)
     out_file.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out_file), img)
+    record = _colors_record(primary_hex, secondary_hex)
+    if record and _PIL_AVAILABLE:
+        ok, encoded = cv2.imencode(".png", img)
+        if not ok:
+            return False
+        from PIL.PngImagePlugin import PngInfo
+
+        meta = PngInfo()
+        meta.add_text(_COLORS_KEY, record)
+        with Image.open(BytesIO(encoded.tobytes())) as im:
+            im.save(out_file, format="PNG", pnginfo=meta)
+    else:
+        cv2.imwrite(str(out_file), img)
     return True
 
 
@@ -545,8 +602,179 @@ def regenerate_one_avatar(player_id: str, out_dir: str | None = None) -> str:
     with Image.open(BytesIO(img_bytes)) as im:
         if im.size != (512, 512):
             im = im.resize((512, 512))
-        _save_ai_png(im, out_file)
+        _save_ai_png(
+            im,
+            out_file,
+            colors=_colors_record(colors.get("primary"), colors.get("secondary")),
+        )
     return str(out_file)
+
+
+def _fresh_team_colors(team_id: str, data_dir: Path) -> Dict[str, str] | None:
+    """``{"primary", "secondary"}`` (``#RRGGBB``) for ``team_id``, read from the
+    league's teams.csv now -- never the process-global color cache, which goes
+    stale when a club changes its colors and is shared across leagues."""
+    try:
+        with (Path(data_dir) / "teams.csv").open(newline="", encoding="utf-8-sig") as fh:
+            for row in csv.DictReader(fh):
+                if str(row.get("team_id") or "").strip().upper() != team_id.upper():
+                    continue
+                primary = _normalize_hex(row.get("primary_color"))
+                secondary = _normalize_hex(row.get("secondary_color"))
+                if primary is None or secondary is None:
+                    return None
+                return {"primary": primary, "secondary": secondary}
+    except OSError:
+        return None
+    return None
+
+
+def _player_row(player_id: str, data_dir: Path) -> Dict[str, str] | None:
+    """The player's players.csv row (traits for the template engine)."""
+    try:
+        with (Path(data_dir) / "players.csv").open(newline="", encoding="utf-8-sig") as fh:
+            for row in csv.DictReader(fh):
+                if str(row.get("player_id") or "").strip() == player_id:
+                    return row
+    except OSError:
+        return None
+    return None
+
+
+def _build_recolor_prompt(colors: dict) -> str:
+    """The image-edit prompt that changes only the cap and jersey colors.
+
+    Same color NAMES as :func:`_build_avatar_prompt` (cap = primary, jersey =
+    secondary), with the hex beside each. Verified on real portraits: face,
+    framing and style stay; only the clothing colors change.
+    """
+    cap_hex = colors.get("primary", "")
+    jersey_hex = colors.get("secondary", "")
+    cap = _hex_to_color_name(cap_hex)
+    jersey = _hex_to_color_name(jersey_hex)
+    return (
+        f"Edit this portrait. Change ONLY the colors of his clothing: make the "
+        f"baseball cap plain {cap} ({cap_hex}) and the jersey plain {jersey} "
+        f"({jersey_hex}), with no logos, letters or numbers. Keep everything else "
+        "exactly the same: the same person, face, expression, skin, hair, facial "
+        "hair, pose, framing and crop, lighting, painterly art style, and the plain "
+        "light-gray background. Keep the cap and jersey shapes, folds and shading."
+    )
+
+
+def _replace_keeping_prev(new_file: Path, out_file: Path) -> None:
+    """Move ``new_file`` over ``out_file``, keeping the old picture one level
+    back as ``<pid>.prev.png`` so a bad edit can be undone by hand."""
+    if out_file.exists():
+        shutil.copyfile(out_file, out_file.with_name(f"{out_file.stem}.prev.png"))
+    os.replace(new_file, out_file)
+
+
+def recolor_avatar(
+    player_id: str,
+    team_id: str,
+    *,
+    data_dir: str | Path | None = None,
+    out_dir: str | Path | None = None,
+) -> Dict[str, str]:
+    """Show ``player_id``'s picture in ``team_id``'s colors, keeping his face.
+
+    * The club's colors are read fresh from teams.csv.
+    * A picture whose ``nexgen_colors`` record already equals them is left
+      alone (``"unchanged"``). Pictures without a record are always redone.
+    * An AI portrait is EDITED by the Vertex image model (only the cap and
+      jersey change), resized to 512x512 and saved with the AI marker
+      (``"ai_edited"``). With Vertex unavailable it is left as it is
+      (``"no_vertex"``) -- never replaced by a template.
+    * A template picture, or no picture, is re-rendered by the template
+      engine in the new colors (``"template"``); ``"no_template"`` when the
+      engine cannot render him.
+    * The previous file is kept as ``<pid>.prev.png``. A failed edit
+      (``"failed"``, with ``error``) leaves the original untouched.
+
+    Returns ``{"player_id", "team_id", "status", "colors"[, "error"]}``.
+    """
+    from utils.path_utils import get_data_dir
+
+    base = Path(data_dir) if data_dir is not None else get_data_dir()
+    out_path = Path(out_dir) if out_dir else base / "images" / "avatars"
+    pid = str(player_id or "").strip()
+    tid = str(team_id or "").strip()
+    result: Dict[str, str] = {"player_id": pid, "team_id": tid, "status": "", "colors": ""}
+    _log = logging.getLogger("nexgen.avatars")
+
+    colors = _fresh_team_colors(tid, base)
+    if colors is None:
+        result.update(status="failed", error=f"No valid colors for club {tid!r}.")
+        return result
+    record = f"{colors['primary']}|{colors['secondary']}"
+    result["colors"] = record
+
+    out_file = out_path / f"{pid}.png"
+    tmp_file = out_path / f"{pid}.recolor.tmp"
+    if out_file.exists() and _recorded_colors(out_file) == record:
+        result["status"] = "unchanged"
+        return result
+    if not _PIL_AVAILABLE:
+        result.update(status="failed", error="Pillow (PIL) is required.")
+        return result
+
+    if out_file.exists() and _avatar_is_ai(out_file):
+        from utils import vertex_image
+
+        if not vertex_image.is_available():
+            _log.warning(
+                "avatar recolor: Vertex unavailable; AI portrait of %s left as it is", pid
+            )
+            result["status"] = "no_vertex"
+            return result
+        try:
+            edited = vertex_image.edit_png(out_file.read_bytes(), _build_recolor_prompt(colors))
+            with Image.open(BytesIO(edited)) as im:
+                im.load()
+                if im.size != (512, 512):
+                    im = im.resize((512, 512), Image.LANCZOS)
+                _save_ai_png(im, tmp_file, colors=record)
+            _replace_keeping_prev(tmp_file, out_file)
+        except Exception as exc:
+            tmp_file.unlink(missing_ok=True)
+            _log.warning("avatar recolor: AI edit failed for %s: %s", pid, exc)
+            result.update(status="failed", error=str(exc))
+            return result
+        result["status"] = "ai_edited"
+        return result
+
+    row = _player_row(pid, base)
+    if row is None:
+        result.update(status="failed", error=f"Unknown player {pid!r}.")
+        return result
+    ethnicity = (row.get("ethnicity") or "").strip() or _infer_ethnicity(
+        f"{row.get('first_name', '')} {row.get('last_name', '')}"
+    )
+    try:
+        rendered = _render_template_avatar(
+            ethnicity,
+            row.get("hair_color"),
+            row.get("facial_hair"),
+            colors["primary"],
+            colors["secondary"],
+            tmp_file,
+        )
+    except Exception as exc:  # OpenCV missing, unreadable template, ...
+        tmp_file.unlink(missing_ok=True)
+        _log.warning("avatar recolor: template render failed for %s: %s", pid, exc)
+        rendered = False
+    if not rendered:
+        result["status"] = "no_template"
+        return result
+    try:
+        _replace_keeping_prev(tmp_file, out_file)
+    except OSError as exc:
+        tmp_file.unlink(missing_ok=True)
+        result.update(status="failed", error=str(exc))
+        return result
+    result["status"] = "template"
+    return result
 
 
 _TEAM_COLOR_MAP: Dict[str, Dict[str, str]] = {}
@@ -831,4 +1059,4 @@ def generate_avatar(
         _save_ai_png(img, Path(out_file))
     return out_file
 
-__all__ = ["generate_avatar", "generate_player_avatars"]
+__all__ = ["generate_avatar", "generate_player_avatars", "recolor_avatar"]

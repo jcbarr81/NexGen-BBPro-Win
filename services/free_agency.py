@@ -762,7 +762,15 @@ def _add_player_to_team_roster(
         save_roster(team_id, roster, roster_dir=roster_dir)
     except Exception:
         return None
+    _queue_picture(player_id, "signing", data_dir)
     return target_level
+
+
+def _queue_picture(player_id: str, reason: str, data_dir: Path | str | None) -> None:
+    """Queue a signed free agent's picture for his new club's colors."""
+    from services.avatar_recolor import enqueue
+
+    enqueue([player_id], reason, data_dir=data_dir)
 
 
 _FA_LEVEL_ATTR = {"ACT": "act", "AAA": "aaa", "LOW": "low"}
@@ -832,6 +840,7 @@ def finalize_fa_signing(
         save_roster(tid, roster)
     except Exception:
         return False
+    _queue_picture(pid, "signing", data_dir)
     try:
         sign_free_agent_contract(
             pid,

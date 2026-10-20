@@ -13,6 +13,7 @@ Public surface mirrors what ``logo_generator`` needs:
   * ``is_available()`` -> bool
   * ``status()``       -> {"status", "ok", "message"}
   * ``generate_png(prompt, size)`` -> PNG bytes
+  * ``edit_png(image_png_bytes, prompt)`` -> PNG bytes (recolor a portrait)
 """
 
 from __future__ import annotations
@@ -147,8 +148,6 @@ def generate_png(prompt: str, size: int = 1024) -> bytes:
     """
     if not is_available():
         raise RuntimeError("Vertex AI image generation is not available.")
-    import httpx
-
     token, project = _access_token()
     is_imagen = _MODEL.lower().startswith("imagen")
     verb = "predict" if is_imagen else "generateContent"
@@ -170,14 +169,21 @@ def generate_png(prompt: str, size: int = 1024) -> bytes:
             "generationConfig": {"responseModalities": ["IMAGE"]},
         }
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    return _decode_image(_post_paced(url, headers, body, timeout=120.0), is_imagen)
+
+
+def _post_paced(url: str, headers: dict, body: dict, *, timeout: float) -> dict:
+    """POST ``body`` under the shared pacing, retrying on 429 with exponential
+    backoff; the decoded JSON payload, or RuntimeError once it keeps failing."""
+    import httpx
 
     backoff = 8.0
     last_err = ""
     for attempt in range(_MAX_RETRIES + 1):
         _throttle()
-        resp = httpx.post(url, headers=headers, json=body, timeout=120.0)
+        resp = httpx.post(url, headers=headers, json=body, timeout=timeout)
         if resp.status_code == 200:
-            return _decode_image(resp.json() or {}, is_imagen)
+            return resp.json() or {}
         if resp.status_code == 429 and attempt < _MAX_RETRIES:
             # Rate limited — wait out the per-minute window and retry.
             _LOG.warning("Vertex image 429 (attempt %d); backing off %.0fs", attempt + 1, backoff)
@@ -187,6 +193,49 @@ def generate_png(prompt: str, size: int = 1024) -> bytes:
         last_err = f"{resp.status_code}: {resp.text[:300]}"
         break
     raise RuntimeError(f"Vertex image error {last_err}")
+
+
+def edit_png(image_png_bytes: bytes, prompt: str) -> bytes:
+    """Edit an existing PNG with *prompt* and return the new image's bytes.
+
+    Gemini image models take the picture as an inline part beside the text
+    (``generateContent``, IMAGE response modality); the legacy Imagen
+    ``:predict`` models cannot, so they raise. Same auth, pacing and 429
+    retries as :func:`generate_png`. Raises RuntimeError when Vertex is
+    unavailable, the request keeps failing, or no image comes back.
+    """
+    if not is_available():
+        raise RuntimeError("Vertex AI image generation is not available.")
+    if _MODEL.lower().startswith("imagen"):
+        raise RuntimeError(f"Image edits need a Gemini image model, not {_MODEL}.")
+
+    token, project = _access_token()
+    url = (
+        f"https://{_api_host()}/v1/projects/{project}"
+        f"/locations/{_LOCATION}/publishers/google/models/{_MODEL}:generateContent"
+    )
+    body = {
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"inlineData": {
+                    "mimeType": "image/png",
+                    "data": base64.b64encode(image_png_bytes).decode("ascii"),
+                }},
+                {"text": prompt},
+            ],
+        }],
+        "generationConfig": {"responseModalities": ["IMAGE"]},
+    }
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = _post_paced(url, headers, body, timeout=180.0)
+    usage = payload.get("usageMetadata") or {}
+    _LOG.info(
+        "Vertex image edit: %s tokens in / %s out",
+        usage.get("promptTokenCount"),
+        usage.get("candidatesTokenCount"),
+    )
+    return _decode_image(payload, False)
 
 
 def _decode_image(payload: dict, is_imagen: bool) -> bytes:

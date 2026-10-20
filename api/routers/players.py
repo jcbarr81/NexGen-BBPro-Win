@@ -345,6 +345,63 @@ def regenerate_player_avatar(
     return {"player_id": player_id, "ok": True}
 
 
+_RECOLOR_MESSAGES = {
+    "ai_edited": "Picture redone in {team}'s colors.",
+    "template": "Picture redone in {team}'s colors.",
+    "unchanged": "Picture already shows {team}'s colors.",
+    "free_agent": "Free agent: his picture keeps his last club's colors.",
+    "no_vertex": "The AI image service is unavailable; picture left as it is.",
+    "no_template": "No picture could be drawn for him; picture left as it is.",
+}
+
+
+@router.post("/{player_id}/avatar/recolor")
+def recolor_player_avatar(
+    player_id: str,
+    identity: Dict[str, Any] = CurrentIdentity,
+) -> Dict[str, Any]:
+    """Redo one player's picture in his current club's colors, keeping his
+    face (an image edit of an AI portrait; a template is re-rendered).
+    COMMISSIONER / ADMIN ONLY. Runs now, so the profile shows the result; a
+    picture already in the club's colors is left alone (no cost). The result
+    counts toward the recolor queue's totals (``GET /admin/avatars/recolor``).
+    """
+    if str(identity.get("r", "")).lower() != "admin" and not identity.get("super_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Commissioner (admin) access required.",
+        )
+    clean = "".join(ch for ch in player_id if ch.isalnum() or ch in {"-", "_"})
+    if not clean or clean != player_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid player id")
+
+    from services import avatar_recolor
+
+    try:
+        result = avatar_recolor.process_player(player_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Picture refresh failed: {exc}",
+        ) from exc
+    try:
+        avatar_recolor.record_result(result)
+    except Exception:
+        logging.getLogger("nexgen.avatars").exception("recolor result not recorded")
+    if result.get("status") == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Picture refresh failed: {result.get('error') or 'unknown error'}",
+        )
+    message = _RECOLOR_MESSAGES.get(str(result.get("status")), "Done.")
+    return {
+        **result,
+        "ok": True,
+        "changed": result.get("status") in {"ai_edited", "template"},
+        "message": message.format(team=result.get("team_id") or "his club"),
+    }
+
+
 def _coerce(value: Any) -> Any:
     """Recursively turn dataclasses / tuples / sets into JSON-friendly forms."""
 

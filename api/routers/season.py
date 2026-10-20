@@ -3546,6 +3546,11 @@ def tick_season_schedule(
     considered: List[Dict[str, Any]] = []
     fired: List[Dict[str, Any]] = []
 
+    # Player-picture recolors left queued by a restarted instance: restart
+    # each such league's worker (independent of the sim lock; a no-op for a
+    # league with an empty queue or a running worker).
+    avatar_recolor = _tick_avatar_recolor()
+
     # Global sim lock: if a sim is already running, do nothing this tick.
     if _sim_running():
         return {
@@ -3554,6 +3559,7 @@ def tick_season_schedule(
             "considered": considered,
             "fa_advanced": [],
             "drafts_advanced": [],
+            "avatar_recolor": avatar_recolor,
         }
 
     # Free-agency day deadlines run first: they're quick, and a season run below
@@ -3631,7 +3637,22 @@ def tick_season_schedule(
         "considered": considered,
         "fa_advanced": fa_advanced,
         "drafts_advanced": drafts_advanced,
+        "avatar_recolor": avatar_recolor,
     }
+
+
+def _tick_avatar_recolor() -> List[str]:
+    """Leagues whose picture-recolor worker this tick restarted."""
+    from services import avatar_recolor
+
+    started: List[str] = []
+    for league in _iter_league_ids():
+        try:
+            if avatar_recolor.resume(league):
+                started.append(league)
+        except Exception:  # pragma: no cover - defensive
+            continue
+    return started
 
 
 @router.get("/action-items")

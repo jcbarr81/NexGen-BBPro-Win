@@ -165,6 +165,15 @@ def commit_trade(trade: Trade, *, data_dir=None) -> None:
     claim_players(trade.to_team, trade.give_player_ids)
     claim_players(trade.from_team, trade.receive_player_ids)
     _transfer_contracts(trade, data_dir)
+    # Both directions: every traded player's picture goes to his new club's
+    # colors (queued; never fails the trade).
+    from services.avatar_recolor import enqueue as _queue_pictures
+
+    _queue_pictures(
+        list(trade.give_player_ids or []) + list(trade.receive_player_ids or []),
+        f"trade {getattr(trade, 'trade_id', '')}".strip(),
+        data_dir=data_dir,
+    )
 
     # Best-effort transaction log entries.
     for pid in trade.give_player_ids:

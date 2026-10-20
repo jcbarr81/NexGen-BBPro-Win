@@ -255,6 +255,20 @@ def _serialize(team_id: str) -> Dict[str, Any]:
     }
 
 
+def _colors_changed(team: Team, new_primary: str, new_secondary: str) -> bool:
+    """True when the saved cap/jersey colors differ from the club's old ones
+    (``#abc`` and ``#AABBCC`` are the same color)."""
+
+    def _norm(value: Any) -> str:
+        h = str(value or "").strip().lstrip("#").upper()
+        return "".join(ch * 2 for ch in h) if len(h) == 3 else h
+
+    return (
+        _norm(team.primary_color) != _norm(new_primary)
+        or _norm(team.secondary_color) != _norm(new_secondary)
+    )
+
+
 @router.get("")
 def get_settings(team_id: str) -> Dict[str, Any]:
     return _serialize(team_id)
@@ -306,6 +320,13 @@ def save_settings(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
+
+    # New colors: every player on the club gets his picture redone in them
+    # (queued; never fails the save).
+    if _colors_changed(team, new_primary, new_secondary):
+        from services.avatar_recolor import enqueue_team
+
+        enqueue_team(team.team_id, "club colors changed")
 
     if strategy is not None:
         # "" / "default" / a valid profile id -- helper handles all cases.

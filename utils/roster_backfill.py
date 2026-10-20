@@ -174,6 +174,7 @@ def ensure_active_rosters(
         act_ids = list(dict.fromkeys(roster.act))
         act_hitters = [pid for pid in act_ids if not is_pitcher(pid)]
         act_pitchers = [pid for pid in act_ids if is_pitcher(pid)]
+        signed: list[str] = []  # free agents this club signs (new pictures)
 
         def org_size() -> int:
             return len(act_ids) + len(roster.aaa) + len(roster.low)
@@ -200,6 +201,7 @@ def ensure_active_rosters(
             pid = pool.pop()
             act_ids.append(pid)
             (act_pitchers if want_pitcher else act_hitters).append(pid)
+            signed.append(pid)
             return True
 
         def add_hitter() -> bool:
@@ -295,6 +297,12 @@ def ensure_active_rosters(
         # The folder the rosters were read from (it used to write the active
         # league's, whatever ``roster_dir`` said).
         save_roster(team_id, roster, roster_dir=roster_dir)
+        if signed:
+            from services.avatar_recolor import enqueue
+
+            # ``data_dir`` is the rosters' league (set above from an
+            # absolute ``roster_dir``); None means the active league.
+            enqueue(signed, "signing", data_dir=data_dir)
 
     return {
         "adjustments": adjustments,

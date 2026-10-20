@@ -164,3 +164,33 @@ def edit_user(
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return updated
+
+
+class AvatarRecolorPayload(BaseModel):
+    player_ids: List[str] = Field(..., min_length=1, max_length=5000)
+
+
+@router.post("/avatars/recolor")
+def queue_avatar_recolor(
+    payload: AvatarRecolorPayload,
+    _: Dict[str, Any] = AdminIdentity,
+) -> Dict[str, Any]:
+    """Queue players' pictures to be redone in their current club's colors
+    (the one-time catch-up for players who changed clubs before 8.3.0). The
+    background worker does them one at a time; a free agent is dropped, and a
+    picture already in its club's colors costs nothing."""
+    from services import avatar_recolor
+
+    queued = avatar_recolor.enqueue(payload.player_ids, "commissioner")
+    return {"queued": queued, **avatar_recolor.status()}
+
+
+@router.get("/avatars/recolor")
+def avatar_recolor_status(_: Dict[str, Any] = AdminIdentity) -> Dict[str, Any]:
+    """The picture-recolor queue: pending, done, failed and skipped counts,
+    and the number of paid AI edits made. Restarts the worker if the queue
+    has work and none is running (e.g. after an instance restart)."""
+    from services import avatar_recolor
+
+    avatar_recolor.kick()
+    return avatar_recolor.status()

@@ -141,6 +141,8 @@ data/physics_usage.json
 # Per-season league rating centres (Release 4, services/league_rating_centers.py),
 # same rule as above.
 data/rating_centers.json
+# Player-picture recolor queue (8.3.0, services/avatar_recolor.py), same rule.
+data/avatar_recolor_queue.json
 
 # Discord release-announcement webhook (secret, do not commit)
 scripts/.discord_webhook

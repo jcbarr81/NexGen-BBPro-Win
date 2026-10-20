@@ -33,7 +33,9 @@ def _remove_stray_usage_files(root: Path = _REPO_ROOT) -> None:
     data = root / "data"
     if not data.is_dir():
         return
-    for name in ("physics_usage.json", "rating_centers.json"):
+    # The picture-recolor queue (8.3.0) is the same kind of runtime file: a
+    # test that trades or signs in the base data dir leaves one behind.
+    for name in ("physics_usage.json", "rating_centers.json", "avatar_recolor_queue.json"):
         for path in data.rglob(name):
             try:
                 path.unlink()
@@ -51,6 +53,10 @@ def pytest_sessionstart(session):
     # legacy engine, so new seasons start on it here; the tests of the
     # switch-on itself (test_r5_flip_*.py) set the variable they need.
     os.environ.setdefault("NEXGEN_NEW_SEASON_ENGINE", "4")
+    # 8.3.0: trades and signings queue player pictures for a recolor; no
+    # background worker may pick them up (and write images) during tests.
+    # The recolor tests drive the queue directly.
+    os.environ.setdefault("NEXGEN_AVATAR_RECOLOR_WORKER", "0")
     _remove_stray_usage_files()
 
 

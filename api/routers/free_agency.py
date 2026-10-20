@@ -664,6 +664,11 @@ def sign_free_agent(
             detail=f"Failed to save roster: {exc}",
         ) from exc
 
+    # His picture goes to the new club's colors (queued; never fails this).
+    from services.avatar_recolor import enqueue as _queue_picture
+
+    _queue_picture([player_id], "signing")
+
     # Create the contract. Without this the player sits on the roster
     # with $0 owed and finance pages misreport payroll until the next
     # offseason rollover backfills. The length is the one negotiated above
