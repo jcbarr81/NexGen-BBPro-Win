@@ -80,6 +80,54 @@ const PITCHER_COLUMNS: Array<{ key: string; label: string }> = [
   { key: "endurance", label: "END" },
 ];
 
+/** Stats view (8.3.1): the most recent season's line (this season once
+ *  played, else last season). Keys are the server's ``stats`` fields. */
+type StatFormat = "int" | "avg" | "pct" | "ip" | "rate";
+const HITTER_STAT_COLUMNS: Array<{ key: string; label: string; fmt: StatFormat }> = [
+  { key: "g", label: "G", fmt: "int" },
+  { key: "pa", label: "PA", fmt: "int" },
+  { key: "avg", label: "AVG", fmt: "avg" },
+  { key: "obp", label: "OBP", fmt: "avg" },
+  { key: "slg", label: "SLG", fmt: "avg" },
+  { key: "hr", label: "HR", fmt: "int" },
+  { key: "rbi", label: "RBI", fmt: "int" },
+  { key: "sb", label: "SB", fmt: "int" },
+  { key: "bb_pct", label: "BB%", fmt: "pct" },
+  { key: "k_pct", label: "K%", fmt: "pct" },
+];
+const PITCHER_STAT_COLUMNS: Array<{ key: string; label: string; fmt: StatFormat }> = [
+  { key: "g", label: "G", fmt: "int" },
+  { key: "gs", label: "GS", fmt: "int" },
+  { key: "w", label: "W", fmt: "int" },
+  { key: "l", label: "L", fmt: "int" },
+  { key: "sv", label: "SV", fmt: "int" },
+  { key: "ip", label: "IP", fmt: "ip" },
+  { key: "era", label: "ERA", fmt: "rate" },
+  { key: "whip", label: "WHIP", fmt: "rate" },
+  { key: "k9", label: "K/9", fmt: "rate" },
+  { key: "bb9", label: "BB/9", fmt: "rate" },
+  { key: "hr9", label: "HR/9", fmt: "rate" },
+];
+
+function formatStat(value: number | undefined, fmt: StatFormat): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  switch (fmt) {
+    case "int":
+      return String(Math.round(value));
+    case "avg":
+      return value.toFixed(3).replace(/^0(?=\.)/, "");
+    case "pct":
+      return `${(value * 100).toFixed(1)}%`;
+    case "ip": {
+      // Baseball notation: 78.1 = 78 and one third.
+      const outs = Math.round(value * 3);
+      return `${Math.floor(outs / 3)}.${outs % 3}`;
+    }
+    default:
+      return value.toFixed(2);
+  }
+}
+
 type FreeAgent = NonNullable<
   Awaited<ReturnType<typeof api.freeAgents>>
 >["free_agents"][number];
@@ -226,6 +274,11 @@ export function FreeAgencyPage() {
     writePositionContextPref(value);
   };
 
+  const [view, setView] = usePersistedState<"ratings" | "stats">(
+    "free-agency:view",
+    "ratings",
+  );
+
   const list = useQuery({
     queryKey: ["free-agents"],
     queryFn: () => api.freeAgents(2000),
@@ -304,6 +357,16 @@ export function FreeAgencyPage() {
       filtered.length > 0 &&
       filtered.filter((p) => p.is_pitcher).length / filtered.length > 0.5);
   const columns = pitcherHeavy ? PITCHER_COLUMNS : HITTER_COLUMNS;
+  const statColumns = pitcherHeavy ? PITCHER_STAT_COLUMNS : HITTER_STAT_COLUMNS;
+  // Which season the Stats view shows: the latest any listed player has.
+  const statSeasons = new Set(
+    filtered.map((p) => p.stats?.season).filter((s): s is string => !!s),
+  );
+  const statSeasonLabel = statSeasons.has("current")
+    ? "this season"
+    : statSeasons.size
+      ? `${[...statSeasons].sort().slice(-1)[0]} season`
+      : "";
 
   return (
     <AppShell
@@ -359,6 +422,16 @@ export function FreeAgencyPage() {
           />
           Position context
         </label>
+        <div
+          className="flex gap-1 rounded-lg border border-border bg-surfaceAlt p-1"
+          title="Show each free agent's ratings, or his most recent season's stats"
+        >
+          {(["ratings", "stats"] as const).map((opt) => (
+            <Pill key={opt} active={view === opt} onClick={() => setView(opt)}>
+              {opt}
+            </Pill>
+          ))}
+        </div>
         <span className="text-xs text-muted">{filtered.length} shown</span>
       </div>
 
@@ -379,7 +452,14 @@ export function FreeAgencyPage() {
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle>Available</CardTitle>
+            <CardTitle>
+              Available
+              {view === "stats" && statSeasonLabel && (
+                <span className="ml-2 text-xs font-normal text-muted">
+                  Stats: {statSeasonLabel}
+                </span>
+              )}
+            </CardTitle>
             <Badge tone="amber">
               <Users className="h-3 w-3" /> {filtered.length}
             </Badge>
@@ -395,16 +475,27 @@ export function FreeAgencyPage() {
                     <HeaderCell label="B" keyId="bats" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                     <HeaderCell label="Role" keyId="role" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                     <HeaderCell label="OVR" keyId="overall" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
-                    {columns.map((c) => (
-                      <HeaderCell
-                        key={c.key}
-                        label={c.label}
-                        keyId={c.key}
-                        sortKey={sortKey}
-                        sortDir={sortDir}
-                        onClick={toggleSort}
-                      />
-                    ))}
+                    {view === "ratings"
+                      ? columns.map((c) => (
+                          <HeaderCell
+                            key={c.key}
+                            label={c.label}
+                            keyId={c.key}
+                            sortKey={sortKey}
+                            sortDir={sortDir}
+                            onClick={toggleSort}
+                          />
+                        ))
+                      : statColumns.map((c) => (
+                          <HeaderCell
+                            key={`stat:${c.key}`}
+                            label={c.label}
+                            keyId={`stat:${c.key}`}
+                            sortKey={sortKey}
+                            sortDir={sortDir}
+                            onClick={toggleSort}
+                          />
+                        ))}
                     <th className="px-4 py-2" />
                   </tr>
                 </thead>
@@ -465,18 +556,27 @@ export function FreeAgencyPage() {
                           starsText={fa.overall_stars_text ?? null}
                         />
                       </td>
-                      {columns.map((col) => (
-                        <td key={col.key} className="px-3 py-2 text-right tabular-nums">
-                          <RatingCell
-                            value={fa.ratings[col.key]}
-                            context={
-                              positionContext
-                                ? fa.ratings_context?.[col.key]
-                                : undefined
-                            }
-                          />
-                        </td>
-                      ))}
+                      {view === "ratings"
+                        ? columns.map((col) => (
+                            <td key={col.key} className="px-3 py-2 text-right tabular-nums">
+                              <RatingCell
+                                value={fa.ratings[col.key]}
+                                context={
+                                  positionContext
+                                    ? fa.ratings_context?.[col.key]
+                                    : undefined
+                                }
+                              />
+                            </td>
+                          ))
+                        : statColumns.map((col) => (
+                            <td
+                              key={`stat:${col.key}`}
+                              className="px-3 py-2 text-right tabular-nums"
+                            >
+                              {formatStat(fa.stats?.[col.key] as number | undefined, col.fmt)}
+                            </td>
+                          ))}
                       <td className="px-4 py-2 text-right">
                         <Button
                           variant="outline"
@@ -1056,6 +1156,10 @@ function sortValue(p: FreeAgent, key: SortKey): string | number | null {
     case "overall":
       return p.overall_display ?? p.overall_raw ?? null;
     default: {
+      if (key.startsWith("stat:")) {
+        const v = p.stats?.[key.slice(5)];
+        return typeof v === "number" ? v : null;
+      }
       const raw = p.ratings[key];
       if (raw == null) return null;
       const n = typeof raw === "number" ? raw : Number(raw);

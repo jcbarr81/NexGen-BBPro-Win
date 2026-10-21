@@ -2538,6 +2538,8 @@ export const api = {
         return_date?: string | null;
         /** Age on the league's calendar (8.2.1). */
         age?: number | null;
+        /** Most recent season's line (8.3.1): ``season`` is "current" or a year. */
+        stats?: ({ season: string } & Record<string, number | string>) | null;
       }>;
     }>(`/free-agents?limit=${limit}`),
   signFreeAgent: (

@@ -164,7 +164,67 @@ def _summarize(player: Any, league_scale: Any = "page") -> Dict[str, Any]:
         "return_date": str(getattr(player, "return_date", None) or "").strip() or None,
         # On the league's calendar, as every other page shows it (8.2.1).
         "age": _age(player),
+        # The most recent season's line, for the page's Stats view (8.3.1).
+        "stats": _latest_stats(player, is_pitcher=is_pitcher),
     }
+
+
+_HITTER_STAT_KEYS = ("g", "pa", "avg", "obp", "slg", "hr", "rbi", "sb", "bb_pct", "k_pct")
+_PITCHER_STAT_KEYS = ("g", "gs", "w", "l", "sv", "ip", "era", "whip", "k9", "bb9", "hr9")
+
+
+def _has_played(stats: Any) -> bool:
+    if not isinstance(stats, dict):
+        return False
+    for key in ("g", "pa", "outs", "bf"):
+        try:
+            if float(stats.get(key) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _latest_stats(player: Any, *, is_pitcher: bool) -> Optional[Dict[str, Any]]:
+    """The player's most recent season line for the Free Agency page's
+    Stats view (8.3.1): this season once he has played in it, else the
+    latest archived season (the career ledger). ``None`` when he has none.
+    Batting or pitching keys by role (a pitcher's batting keys collide)."""
+
+    season = getattr(player, "season_stats", None)
+    label: Optional[str] = None
+    line: Optional[Dict[str, Any]] = None
+    if _has_played(season):
+        line, label = dict(season), "current"
+    else:
+        history = getattr(player, "career_history", None) or {}
+        best: Optional[tuple] = None
+        if isinstance(history, dict):
+            for season_id, data in history.items():
+                if not _has_played(data):
+                    continue
+                try:
+                    year = int(str(season_id).rsplit("-", 1)[-1])
+                except ValueError:
+                    continue
+                if best is None or year > best[0]:
+                    best = (year, data)
+        if best is not None:
+            line, label = dict(best[1]), str(best[0])
+    if line is None:
+        return None
+    if is_pitcher and "ip" not in line and line.get("outs") is not None:
+        try:
+            line["ip"] = float(line["outs"]) / 3.0
+        except (TypeError, ValueError):
+            pass
+    keys = _PITCHER_STAT_KEYS if is_pitcher else _HITTER_STAT_KEYS
+    out: Dict[str, Any] = {"season": label}
+    for key in keys:
+        value = line.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            out[key] = round(float(value), 3) if isinstance(value, float) else value
+    return out
 
 
 def _age(player: Any) -> Optional[int]:
