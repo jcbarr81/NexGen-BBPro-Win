@@ -76,9 +76,21 @@ def load_contracts_payload(*, data_dir: Path | str | None = None) -> Dict[str, o
     path = _contracts_path(data_dir=data_dir)
     if not path.exists():
         return {"version": CONTRACTS_VERSION, "players": {}}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    payload = None
+    # 8.3.2: a read that meets a half-written file (a writer outside this
+    # module, or another process) tries again briefly instead of reading it
+    # as "no contracts" -- that read as a $0 payroll, and a save built on it
+    # would write the empty map back.
+    for attempt in range(3):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            break
+        except Exception:
+            if attempt < 2:
+                import time as _time
+
+                _time.sleep(0.05)
+    if payload is None:
         return {"version": CONTRACTS_VERSION, "players": {}}
     if not isinstance(payload, dict):
         return {"version": CONTRACTS_VERSION, "players": {}}
@@ -108,7 +120,11 @@ def save_contracts_payload(
         normalized["players"] = normalized_players
     path = _contracts_path(data_dir=data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(normalized, indent=2), encoding="utf-8")
+    # Atomic (8.3.2): readers never see a truncated file.
+    from utils.atomic_write import atomic_text_writer
+
+    with atomic_text_writer(path, encoding="utf-8") as handle:
+        handle.write(json.dumps(normalized, indent=2))
     return normalized
 
 

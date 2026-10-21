@@ -675,7 +675,7 @@ def _load_payload(path: Path | str | None = None) -> Dict[str, object]:
 def _write_payload(payload: MutableMapping[str, object], path: Path | str | None = None) -> None:
     settings_path = _settings_path(path)
     settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _write_json_if_changed(settings_path, payload)
 
 
 def _read_json_mapping(path: Path) -> Dict[str, object]:
@@ -834,7 +834,31 @@ def _ensure_team_financials_file(
         "teams": normalized_teams,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(normalized_payload, indent=2), encoding="utf-8")
+    _write_json_if_changed(path, normalized_payload)
+
+
+def _write_json_if_changed(path: Path, payload: object) -> None:
+    """Write ``payload`` as JSON only when it differs from the file, and
+    atomically (8.3.2).
+
+    The ``_ensure_*`` helpers run on read paths (every offer preview, every
+    payroll outlook): they used to rewrite contracts.json and
+    team_financials.json with ``write_text`` on EVERY call, truncate-then-
+    write, so a concurrent read (another keystroke's preview) caught an empty
+    file, read it as "no contracts" and showed a payroll of $0 -- and a
+    concurrent save that read it then could write the empty map back.
+    """
+
+    from utils.atomic_write import atomic_text_writer
+
+    text = json.dumps(payload, indent=2)
+    try:
+        if path.exists() and path.read_text(encoding="utf-8") == text:
+            return
+    except OSError:
+        pass
+    with atomic_text_writer(path, encoding="utf-8") as handle:
+        handle.write(text)
 
 
 def _ensure_contracts_file(path: Path, *, write_missing: bool = True) -> None:
@@ -850,7 +874,7 @@ def _ensure_contracts_file(path: Path, *, write_missing: bool = True) -> None:
         "players": players if isinstance(players, Mapping) else {},
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(normalized_payload, indent=2), encoding="utf-8")
+    _write_json_if_changed(path, normalized_payload)
 
 
 def _ensure_financial_transactions_file(path: Path) -> None:
