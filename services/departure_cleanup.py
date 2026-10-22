@@ -215,12 +215,16 @@ def _owner_news(team_id: str, data_dir: Path, result: Mapping[str, Any],
         players = _players_by_id(data_dir)
     swaps: Dict[tuple, List[str]] = {}
     rebuilt: List[str] = []
+    rebuilt_for: List[str] = []
     for hand, made in lineups.items():
         for m in made:
             if m["replacement"]:
                 swaps.setdefault((m["gone"], m["replacement"], m["position"]), []).append(hand.upper())
-            elif hand.upper() not in rebuilt:
+                continue
+            if hand.upper() not in rebuilt:
                 rebuilt.append(hand.upper())
+            if m["gone"] not in rebuilt_for:
+                rebuilt_for.append(m["gone"])
     parts = []
     for (gone, repl, pos), hands in swaps.items():
         sides = " and ".join(f"vs {h}" for h in hands)
@@ -228,9 +232,12 @@ def _owner_news(team_id: str, data_dir: Path, result: Mapping[str, Any],
             f"{_name(players, repl)} replaces {_name(players, gone)} at {pos} ({sides})"
         )
     if rebuilt:
+        # Nobody on the active roster could take the spot: name who left.
+        names = ", ".join(_name(players, pid) for pid in rebuilt_for)
         parts.append(
             "your lineup " + " and ".join(f"vs {h}" for h in rebuilt)
-            + " was rebuilt by auto-fill"
+            + f" was rebuilt by auto-fill without {names}, as no active "
+            "player could take the spot"
         )
     message = (
         f"{team_id}: lineups updated for players who left the club: "

@@ -89,7 +89,7 @@ def league(tmp_path, monkeypatch):
     _write_roster(root, "NYY", {"ACT": ["TRADED"]})
     for vs in ("lhp", "rhp"):
         _write_lineup(root, "BAL", vs, GOOD_LINEUP)
-    (root / "rosters" / "BAL_pitching.csv").write_text("SP1,SP1\nSP2,SP2\n", encoding="utf-8")
+    # No staff file: a club without one has no "open roles" to report.
 
     monkeypatch.setenv("NEXGEN_DATA_ROOT", str(root))
     monkeypatch.delenv("NEXGEN_ACTIVE_LEAGUE", raising=False)
@@ -199,7 +199,8 @@ def test_spotlight_item_before_opening_day(league, monkeypatch):
     item = _items()["lineup_stale"]
     assert item["title"] == "Update your lineups and pitching staff"
     assert item["href"] == "/lineup"
-    assert "Open staff roles: CL." in item["detail"]
+    # The inactive closer's role first, then the roles nobody holds.
+    assert "Open staff roles: CL, SP3," in item["detail"]
     assert item["count"] == 5
     assert {p["player_id"] for p in item["players"]} == {"GONE", "RET", "TRADED", "MINOR", "CLX"}
 
@@ -312,4 +313,4 @@ def test_rollover_notice_mentions_stale_lineups(league, monkeypatch):
     monkeypatch.setattr(roster_shortfall, "_notify_owner", lambda *a, **k: None)
     roster_shortfall.notify_owner_shortfalls()
     bal = [m for m in posted if m.startswith("BAL")]
-    assert bal and "Your lineups still name players who are not on your active roster" in bal[0]
+    assert bal and "Your lineups need attention (players not on your active roster" in bal[0]

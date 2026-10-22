@@ -214,7 +214,7 @@ def test_no_one_can_cover_the_slot_rebuilds_that_lineup(league, monkeypatch):
     assert [(t, vs) for t, vs, _ in calls] == [("BAL", "lhp"), ("BAL", "rhp")]
     assert calls[0][2] == root / "lineups"
     msg = league.news[0][0]
-    assert "your lineup vs LHP and vs RHP was rebuilt by auto-fill" in msg
+    assert "your lineup vs LHP and vs RHP was rebuilt by auto-fill without Pat C1, as no active player" in msg
 
 
 # --- retirement's roster scrub ----------------------------------------------------
