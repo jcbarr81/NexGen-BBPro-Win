@@ -2721,6 +2721,8 @@ two of its games plays serially under `PB_PARALLEL_GAMES`. Left open:
 
 ## Playoff stat totals (owner request via an alpha-test owner, 2026-10-16)
 
+> **Shipped in 8.4.0 (2026-10-22):** player-profile Postseason table, club Postseason history card, postseason League Leaders (services/postseason_stats.py). Still open from the want-list below: series-by-series player lines and a series MVP.
+
 An alpha-test owner (El_Jayel) won the championship from the wild-card round
 with an injury-hit roster and asked: "Is there any way to see the playoff stat
 totals?" Today there is no postseason stats view. What exists: every playoff
