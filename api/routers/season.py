@@ -3885,8 +3885,12 @@ def _lineup_check_action_items(team_id: str, phase: Optional[str]) -> List[Dict[
         return out
     batters = report["lineups"]
     staff = report["staff"]
-    if batters or staff:
-        if batters and staff:
+    open_roles = list(report.get("open_roles") or [])
+    if batters or staff or open_roles:
+        roles = [e["position"] for e in staff] + [
+            r for r in open_roles if r not in {e["position"] for e in staff}
+        ]
+        if batters and roles:
             title = "Update your lineups and pitching staff"
         elif batters:
             n = len(batters)
@@ -3895,17 +3899,16 @@ def _lineup_check_action_items(team_id: str, phase: Optional[str]) -> List[Dict[
                 "not on your active roster"
             )
         else:
-            n = len(staff)
+            n = len(roles)
             title = f"{n} pitching-staff role{'s' if n != 1 else ''} to fill"
         parts = []
         if batters:
             parts.append(
                 "Until you reset a lineup, each game rebuilds it for you."
             )
-        if staff:
-            roles = ", ".join(e["position"] for e in staff)
-            parts.append(f"Open staff roles: {roles}.")
-        parts.append("Set both before Opening Day on the Lineup page.")
+        if roles:
+            parts.append(f"Open staff roles: {', '.join(roles)}.")
+        parts.append("Set them before Opening Day on the Lineup page.")
         players = [
             {k: e[k] for k in ("player_id", "name", "position", "note")}
             for e in batters + staff
@@ -3916,6 +3919,7 @@ def _lineup_check_action_items(team_id: str, phase: Optional[str]) -> List[Dict[
                 "severity": "warning",
                 "title": title,
                 "detail": " ".join(parts),
+                # The card lists the players; open roles are in the detail.
                 "count": len(players),
                 "players": players[:5],
                 "href": "/lineup",

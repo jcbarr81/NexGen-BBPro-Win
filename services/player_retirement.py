@@ -354,6 +354,7 @@ def _scrub_rosters(rosters_dir: Path, retired_ids: Iterable[str]) -> None:
     targets = set(retired_ids)
     if not targets or not rosters_dir.exists():
         return
+    departed: dict[str, list] = {}
     for roster_file in rosters_dir.glob("*.csv"):
         try:
             with roster_file.open("r", encoding="utf-8", newline="") as fh:
@@ -370,6 +371,15 @@ def _scrub_rosters(rosters_dir: Path, retired_ids: Iterable[str]) -> None:
                     writer.writerow(row)
         except OSError:
             continue
+        if not roster_file.stem.endswith("_pitching"):
+            departed[roster_file.stem] = [
+                (row[0] or "").strip() for row in rows if (row[0] or "").strip() in targets
+            ]
+    # 8.4.1: off the club's lineups, depth chart and staff as well.
+    if departed:
+        from services.departure_cleanup import clear_departures
+
+        clear_departures(departed, data_dir=rosters_dir.parent)
 
 
 __all__ = [

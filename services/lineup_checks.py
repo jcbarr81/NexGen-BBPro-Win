@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -151,7 +152,9 @@ def stale_assignments(team_id: str) -> Dict[str, Any]:
 
     tid = str(team_id or "").strip().upper()
     root = _data_dir()
-    report: Dict[str, Any] = {"team_id": tid, "lineups": [], "staff": [], "depth_chart": []}
+    report: Dict[str, Any] = {
+        "team_id": tid, "lineups": [], "staff": [], "open_roles": [], "depth_chart": [],
+    }
     if not (root / "rosters" / f"{tid}.csv").exists():
         return report
     levels = load_team_levels(tid)
@@ -173,12 +176,27 @@ def stale_assignments(team_id: str) -> Dict[str, Any]:
             entry["sides"].append(vs.upper())
     report["lineups"] = list(batters.values())
 
-    for pid, role in _staff_rows(root, tid):
+    staff_rows = _staff_rows(root, tid)
+    for pid, role in staff_rows:
         note = where.note(pid)
         if note:
             report["staff"].append(
                 {"player_id": pid, "name": _name(players, pid), "position": role, "note": note}
             )
+    # Required roles nobody holds: a departed pitcher's row is removed when
+    # he leaves (services.departure_cleanup). A file-less club is skipped.
+    report["open_roles"] = []
+    if staff_rows:
+        from services.roster_validation import validate_pitching_staff
+
+        check = validate_pitching_staff(
+            staff=[{"player_id": pid, "role": role} for pid, role in staff_rows],
+            players=players,
+        )
+        for msg in check.errors:
+            hit = re.match(r"Role (\w+) is not assigned\.$", msg)
+            if hit:
+                report["open_roles"].append(hit.group(1))
 
     try:
         from utils.depth_chart import has_depth_chart, load_depth_chart
@@ -259,6 +277,8 @@ def stale_assignment_notes(team_id: str) -> List[str]:
             "Pitching staff roles held by inactive pitchers: "
             f"{_who(report['staff'], role_first=True)}."
         )
+    if report["open_roles"]:
+        notes.append(f"Open pitching-staff roles: {', '.join(report['open_roles'])}.")
     if report["depth_chart"]:
         notes.append(
             "Depth chart lists players who left the club: "
@@ -278,11 +298,12 @@ def stale_assignments_text(team_id: str) -> str:
     where = []
     if report["lineups"]:
         where.append("lineups")
-    if report["staff"]:
+    if report["staff"] or report["open_roles"]:
         where.append("pitching staff")
     if not where:
         return ""
     return (
-        f"Your {' and '.join(where)} still name players who are not on your "
-        "active roster; reset them on the Lineup page before Opening Day."
+        f"Your {' and '.join(where)} need attention (players not on your "
+        "active roster, or open roles); set them on the Lineup page before "
+        "Opening Day."
     )

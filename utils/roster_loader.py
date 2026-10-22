@@ -666,6 +666,7 @@ def _write_checked_rosters(
         for tid, _ in rosters:
             service.invalidate_roster(team_id=str(tid), roster_dir=raw_dir)
         raise
+    departed: dict[str, set] = {}
     for tid, roster in rosters:
         filepath = resolved_dir / f"{tid}.csv"
         try:
@@ -673,8 +674,27 @@ def _write_checked_rosters(
                 filepath.chmod(0o644)
         except Exception:
             pass
+        # Who leaves the organisation with this write (traded, released,
+        # contract expired): 8.4.1 takes them off its lineups, depth chart
+        # and staff below.
+        from services.departure_cleanup import org_player_ids
+
+        gone = org_player_ids(filepath) - set(roster_player_ids(roster))
         write_roster_csv(roster, filepath)
         service.update_roster(str(tid), raw_dir, roster)
+        if gone:
+            departed[str(tid)] = gone
+    if departed:
+        from services.departure_cleanup import clear_departed
+
+        by_team = {str(tid): r for tid, r in rosters}
+        for tid, gone in departed.items():
+            clear_departed(
+                tid,
+                gone,
+                data_dir=resolved_dir.parent,
+                active_ids=list(by_team[tid].act),
+            )
 
 
 def save_roster(team_id, roster: Roster, roster_dir: str | Path = "data/rosters"):
