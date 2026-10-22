@@ -2550,13 +2550,19 @@ These are 7.51 behaviours it ran into, not 8.0.0 changes:
   never fixes an owner's roster. OKL is in that state now, in the 2026
   playoffs.
 - **Saved lineups, staff and depth charts name departed players after the
-  rollover.** Surfaced in 8.4.1 (Spotlight items in the offseason and
-  preseason, readiness notes, a line in the rollover notice); still the
-  owner's to fix. Open: an owner club's *auto-generated* depth chart is
+  rollover.** Fixed in 8.4.1: every roster write that takes a player off a
+  club (`utils.roster_loader._write_checked_rosters`, and retirement's
+  `_scrub_rosters`) runs `services.departure_cleanup.clear_departed` for
+  that club -- his lineup slot goes to the best eligible active player
+  (the injured-list swap, `services.lineup_restore._plan_substitution`), or
+  the lineup is rebuilt when nobody can cover it; he leaves the depth chart;
+  his staff row is removed and the role left open. Owners get a news item.
+  `scripts/clear_departed_assignments.py` clears departures from before
+  8.4.1. Open: an owner club's *auto-generated* depth chart is
   never refreshed (`api.routers.season._ensure_depth_charts` refreshes CPU
-  clubs only), so it goes stale exactly like a hand-saved one. Refreshing
-  owner clubs' auto charts too would fix it without touching a chart an
-  owner saved; it needs a decision.
+  clubs only): departures now leave it, but arrivals (a signing, a trade,
+  a call-up) never join it. Refreshing owner clubs' auto charts too would
+  fix it without touching a chart an owner saved; it needs a decision.
 - **The Players browser lists retired players as free agents.** Fixed 8.1.2.
 - **Free-agent rows do not show injuries.** Fixed 8.1.2.
 - **The sign endpoint's default salary is countered** (a signing with no
