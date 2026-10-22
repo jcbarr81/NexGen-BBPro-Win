@@ -132,13 +132,19 @@ def _clear_lineups(
             # this side rather than leave him in it.
             from utils.lineup_autofill import auto_fill_lineup_for_team
 
-            auto_fill_lineup_for_team(
-                team_id,
-                vs=hand,
-                players_file=data_dir / "players.csv",
-                roster_dir=data_dir / "rosters",
-                lineup_dir=lineup_dir,
-            )
+            try:
+                auto_fill_lineup_for_team(
+                    team_id,
+                    vs=hand,
+                    players_file=data_dir / "players.csv",
+                    roster_dir=data_dir / "rosters",
+                    lineup_dir=lineup_dir,
+                )
+            except ValueError:
+                # The club can't field nine at all (a CPU club emptied by
+                # the rollover, before free agency refills it): drop his row
+                # and leave the short lineup to the game-day rebuild.
+                _write_lineup(path, [r for r in rows if r[1] not in gone])
             made = [{"gone": pid, "replacement": "", "position": ""} for pid in hits]
         changes[hand] = made
     return changes
@@ -280,22 +286,26 @@ def clear_departed(
         return result
     root = Path(data_dir)
     players: Dict[str, Any] = {}
+    if active_ids is None:
+        active_ids = _active_from_file(root / "rosters" / f"{tid}.csv")
     try:
-        if active_ids is None:
-            active_ids = _active_from_file(root / "rosters" / f"{tid}.csv")
+        chart = json.loads((root / "depth_charts" / f"{tid}.json").read_text(encoding="utf-8"))
+        chart = chart if isinstance(chart, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        chart = {}
+    # Lineups first: the depth chart (with him still on it, skipped as
+    # inactive) ranks who takes his slot. Each step stands alone, so a
+    # lineup that can't be fixed still lets the chart and staff be cleared.
+    steps = (
+        ("lineups", lambda: _clear_lineups(tid, gone, active_ids, root, chart, players)),
+        ("depth_chart", lambda: _clear_depth_chart(tid, gone, root)),
+        ("staff", lambda: _clear_staff(tid, gone, root)),
+    )
+    for key, step in steps:
         try:
-            chart = json.loads((root / "depth_charts" / f"{tid}.json").read_text(encoding="utf-8"))
-            chart = chart if isinstance(chart, dict) else {}
-        except (OSError, json.JSONDecodeError):
-            chart = {}
-        # Lineups first: the depth chart (with him still on it, skipped as
-        # inactive) ranks who takes his slot.
-        result["lineups"] = _clear_lineups(tid, gone, active_ids, root, chart, players)
-        result["depth_chart"] = _clear_depth_chart(tid, gone, root)
-        result["staff"] = _clear_staff(tid, gone, root)
-    except Exception:
-        _LOGGER.exception("departure cleanup: failed for %s", tid)
-        return result
+            result[key] = step()
+        except Exception:
+            _LOGGER.exception("departure cleanup: %s failed for %s", key, tid)
     if notify:
         _owner_news(tid, root, result, players)
     return result

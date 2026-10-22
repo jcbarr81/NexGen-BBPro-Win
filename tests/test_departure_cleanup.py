@@ -248,3 +248,19 @@ def test_open_roles_reach_the_spotlight_report(league, monkeypatch):
     report = stale_assignments("BAL")
     assert report["staff"] == []
     assert "CL" in report["open_roles"]
+
+
+def test_a_club_that_cannot_field_nine_still_loses_him(league, monkeypatch):
+    root = league.root
+
+    def no_nine(team_id, **kw):
+        raise ValueError(f"{team_id} cannot field nine position players")
+
+    monkeypatch.setattr("utils.lineup_autofill.auto_fill_lineup_for_team", no_nine)
+    _save(root, "BAL", _bal_without("C1", "C2"))
+    for vs in ("lhp", "rhp"):
+        ids = [pid for pid, _ in _read_lineup(root, "BAL", vs)]
+        assert "C1" not in ids and len(ids) == 8  # left to the game-day rebuild
+    # The lineup failure does not stop the depth chart from being cleared.
+    chart = json.loads((root / "depth_charts" / "BAL.json").read_text(encoding="utf-8"))
+    assert chart["C"] == []
