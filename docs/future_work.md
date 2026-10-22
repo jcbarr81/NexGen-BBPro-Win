@@ -2540,7 +2540,23 @@ These are 7.51 behaviours it ran into, not 8.0.0 changes:
   CPU fill, refilled their rosters. 8.1.2 tells each owner what to fill
   (#50); an open spot alone does not block the season.
 - **A single-owner league started its season without a catcher**
-  in the rehearsal. Not investigated.
+  in the rehearsal. Investigated 2026-10-22: stats-test's OKL carries one
+  catcher in its whole organization (Percy Scott), who went on the 15-day
+  list on 2026-09-04 and was still listed at Opening Day under 7.51 (no
+  offseason heal before 8.1.2). The game then plays a position player at C
+  (`utils.lineup_autofill.build_lineup` fallback). 8.4.1 tells the owner:
+  a "No healthy catcher" Spotlight item in every phase and a readiness-board
+  note (`services.lineup_checks.catcher_report`). It stays advisory; the CPU
+  never fixes an owner's roster. OKL is in that state now, in the 2026
+  playoffs.
+- **Saved lineups, staff and depth charts name departed players after the
+  rollover.** Surfaced in 8.4.1 (Spotlight items in the offseason and
+  preseason, readiness notes, a line in the rollover notice); still the
+  owner's to fix. Open: an owner club's *auto-generated* depth chart is
+  never refreshed (`api.routers.season._ensure_depth_charts` refreshes CPU
+  clubs only), so it goes stale exactly like a hand-saved one. Refreshing
+  owner clubs' auto charts too would fix it without touching a chart an
+  owner saved; it needs a decision.
 - **The Players browser lists retired players as free agents.** Fixed 8.1.2.
 - **Free-agent rows do not show injuries.** Fixed 8.1.2.
 - **The sign endpoint's default salary is countered** (a signing with no
