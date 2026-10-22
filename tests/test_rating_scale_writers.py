@@ -65,6 +65,7 @@ PLAYER_ROW_WRITERS = {
     # -- not player rows
     "api/routers/trades.py": OTHER_FILE + " (trades_pending.csv)",
     "services/player_retirement.py": OTHER_FILE + " (roster files)",
+    "services/departure_cleanup.py": OTHER_FILE + " (lineup and pitching-staff files)",
     "services/report_exporter.py": OTHER_FILE + " (report exports)",
     "services/transaction_log.py": OTHER_FILE + " (transactions.csv)",
     "utils/lineup_autofill.py": OTHER_FILE + " (lineup files)",
