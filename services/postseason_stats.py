@@ -143,10 +143,27 @@ def _year_of(season_id: str) -> Optional[int]:
         return None
 
 
+_CSV_CACHE: Dict[str, Tuple[Tuple[int, int], Dict[str, Dict[str, Any]]]] = {}
+
+
 def _players_csv(path: Path) -> Dict[str, Dict[str, Any]]:
     """``{player_id: {first_name, last_name, birthdate, is_pitcher,
-    primary_position}}`` from a players.csv."""
+    primary_position}}`` from a players.csv (a copy; the parse is cached on
+    the file's mtime and size)."""
 
+    try:
+        stat = path.stat()
+    except OSError:
+        return {}
+    token = (int(stat.st_mtime_ns), int(stat.st_size))
+    hit = _CSV_CACHE.get(str(path))
+    if hit is None or hit[0] != token:
+        hit = (token, _parse_players_csv(path))
+        _CSV_CACHE[str(path)] = hit
+    return dict(hit[1])
+
+
+def _parse_players_csv(path: Path) -> Dict[str, Dict[str, Any]]:
     out: Dict[str, Dict[str, Any]] = {}
     try:
         with path.open(encoding="utf-8", newline="") as fh:
