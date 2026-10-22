@@ -215,6 +215,10 @@ class PlayerProfileViewModel:
     # Rating label -> a sentence of help, for the ``overview_ratings``
     # labels that have one.
     rating_help: Dict[str, str] = None  # type: ignore[assignment]
+    # 8.4.0: one row per postseason he played in, oldest first, then
+    # "Career"; the same shape and columns as ``stats_rows``. Empty when he
+    # never played a postseason game.
+    postseason_rows: Tuple[Tuple[str, Dict[str, Any]], ...] = ()
 
 
 def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
@@ -307,6 +311,7 @@ def build_player_profile_view_model(player: Any) -> PlayerProfileViewModel:
         recent_training_entries=tuple(_recent_training_notes(player)),
         injury_history=tuple(_injury_notes(player)),
         stats_rows=tuple(stats_rows),
+        postseason_rows=tuple(_collect_postseason_rows(player, is_pitcher=is_pitcher)),
         stats_columns=stats_columns,
         overall_details=overall_details,
         contract_details=contract_details,
@@ -847,6 +852,37 @@ def _collect_stats_rows(
     for label, data in aggregated:
         data.setdefault("team", team_id)
     return aggregated
+
+
+def _collect_postseason_rows(
+    player: Any, *, is_pitcher: bool
+) -> List[Tuple[str, Dict[str, Any]]]:
+    """His postseason lines (services.postseason_stats), oldest first, each
+    with the club he played for in it and his age that season, then his
+    career postseason total. Empty when he never played a postseason."""
+
+    try:
+        from services.postseason_stats import player_postseason_lines
+
+        lines, career = player_postseason_lines(
+            str(getattr(player, "player_id", "") or ""),
+            birthdate=str(getattr(player, "birthdate", "") or ""),
+        )
+    except Exception:
+        return []
+    rows: List[Tuple[str, Dict[str, Any]]] = []
+    for entry in lines:
+        data = _stats_to_dict(entry["stats"], is_pitcher)
+        if not data:
+            continue
+        if entry.get("age") is not None:
+            data["age"] = entry["age"]
+        if entry.get("team"):
+            data["team"] = entry["team"]
+        rows.append((entry["label"], data))
+    if rows and career:
+        rows.append(("Career", _stats_to_dict(career, is_pitcher)))
+    return rows
 
 
 def _league_age(birthdate: Any, *, year: Optional[int] = None) -> Optional[int]:

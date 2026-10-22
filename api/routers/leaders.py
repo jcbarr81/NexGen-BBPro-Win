@@ -8,9 +8,9 @@ loader) so numbers match the PyQt build exactly.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 
 from utils.stat_helpers import top_players
 from utils.player_loader import load_players_from_csv
@@ -119,10 +119,152 @@ def _player_label(
     }
 
 
+@router.get("/leaders/postseasons")
+def postseason_years() -> Dict[str, Any]:
+    """The postseasons there are leaders for, newest first (8.4.0)."""
+
+    from services.postseason_stats import list_postseasons
+
+    try:
+        postseasons = list_postseasons()
+    except Exception:
+        postseasons = []
+    return {
+        "postseasons": postseasons,
+        "latest": postseasons[0]["year"] if postseasons else None,
+    }
+
+
+def _postseason_leaders(limit: int, season: Optional[str]) -> Dict[str, Any]:
+    """One postseason's leaders. Each player qualifies on the games HIS club
+    played in it (services.postseason_stats: 3.1 PA / 1.0 IP per game)."""
+
+    from services.postseason_stats import (
+        IP_PER_TEAM_GAME,
+        PA_PER_TEAM_GAME,
+        leader_inputs,
+        minimums_for_games,
+    )
+
+    data = leader_inputs(season)
+    if data is None:
+        if season not in (None, ""):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No postseason stats for {season}.",
+            )
+        data = {"players": [], "team_index": {}, "minimums": {}, "max_team_games": 0,
+                "year": None, "season_id": "", "current": False}
+    minimums = data["minimums"]
+    max_g = int(data["max_team_games"] or 0)
+    top_pa, top_ip = minimums_for_games(max_g) if max_g else (0, 0)
+    players = data["players"]
+    hitters = [p for p in players if not getattr(p, "is_pitcher", False)]
+    pitchers = [p for p in players if getattr(p, "is_pitcher", False)]
+    team_index = data["team_index"]
+
+    def min_pa(player: Any) -> int:
+        return minimums.get(player.player_id, (top_pa, top_ip))[0]
+
+    def min_ip(player: Any) -> int:
+        return minimums.get(player.player_id, (top_pa, top_ip))[1]
+
+    return {
+        "postseason": True,
+        "season": data["year"],
+        "season_id": data["season_id"],
+        "current": data["current"],
+        "qualifiers": {
+            # The champion's (most games) figures; each player's own club's
+            # games set his.
+            "min_pa": top_pa,
+            "min_ip": top_ip,
+            "max_team_games": max_g,
+            "pa_per_team_game": PA_PER_TEAM_GAME,
+            "ip_per_team_game": IP_PER_TEAM_GAME,
+            "per_club": True,
+        },
+        "batting": _boards(hitters, _BATTING, limit, team_index, min_pa, min_ip),
+        "pitching": _boards(pitchers, _PITCHING, limit, team_index, min_pa, min_ip),
+    }
+
+
+def _boards(
+    pool: List[Any],
+    categories: List[Tuple[str, str, bool, bool, int]],
+    limit: int,
+    team_index: Dict[str, str],
+    min_pa_for: Callable[[Any], int],
+    min_ip_for: Callable[[Any], int],
+) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for label, key, descending, pitcher_only, decimals in categories:
+        apply_qualifier = key != "sv"
+
+        def collect(p_list: List[Any]) -> List[Tuple[Any, Any]]:
+            if not p_list:
+                return []
+            ranked = top_players(
+                p_list,
+                key,
+                pitcher_only=pitcher_only,
+                descending=descending,
+                limit=len(p_list),
+            )
+            return [
+                (player, value)
+                for player, value in ranked
+                if _qualified(
+                    getattr(player, "season_stats", {}) or {},
+                    pitcher_only=pitcher_only,
+                    apply_qualifier=apply_qualifier,
+                    min_pa=min_pa_for(player),
+                    min_ip=min_ip_for(player),
+                )
+                and _has_sample(getattr(player, "season_stats", {}) or {}, key)
+            ]
+
+        picks = collect(pool)
+        picks.sort(
+            key=lambda item: (
+                float(item[1])
+                if isinstance(item[1], (int, float))
+                else 0.0
+            ),
+            reverse=descending,
+        )
+        out.append(
+            {
+                "label": label,
+                "key": key,
+                "decimals": decimals,
+                "descending": descending,
+                "leaders": [
+                    {
+                        "rank": i + 1,
+                        "player": _player_label(player, team_index),
+                        "value": float(value)
+                        if isinstance(value, (int, float))
+                        else value,
+                    }
+                    for i, (player, value) in enumerate(picks[:limit])
+                ],
+            }
+        )
+    return out
+
+
 @router.get("/leaders")
 def league_leaders(
     limit: int = Query(default=5, ge=1, le=25),
+    postseason: bool = Query(default=False),
+    season: Optional[str] = Query(
+        default=None,
+        description="Postseason year (or season id); defaults to the latest.",
+    ),
 ) -> Dict[str, Any]:
+    if postseason:
+        return _postseason_leaders(limit, season)
     try:
         season = _load_season_stats()
     except Exception:
@@ -154,85 +296,12 @@ def league_leaders(
     min_pa = max(1, int(round(max_g * 3.1))) if max_g else 0
     min_ip = max(1, int(round(max_g * 1.0))) if max_g else 0
 
-    def board(
-        pool: List[Any],
-        fallback: List[Any],
-        categories: List[Tuple[str, str, bool, bool, int]],
-    ) -> List[Dict[str, Any]]:
-        out: List[Dict[str, Any]] = []
-        for label, key, descending, pitcher_only, decimals in categories:
-            apply_qualifier = key != "sv"
-            primary_pool = (
-                fallback if (key == "sv" and pitcher_only) else pool
-            )
-
-            def collect(p_list: List[Any]) -> List[Tuple[Any, Any]]:
-                if not p_list:
-                    return []
-                ranked = top_players(
-                    p_list,
-                    key,
-                    pitcher_only=pitcher_only,
-                    descending=descending,
-                    limit=len(p_list),
-                )
-                return [
-                    (player, value)
-                    for player, value in ranked
-                    if _qualified(
-                        getattr(player, "season_stats", {}) or {},
-                        pitcher_only=pitcher_only,
-                        apply_qualifier=apply_qualifier,
-                        min_pa=min_pa,
-                        min_ip=min_ip,
-                    )
-                    and _has_sample(getattr(player, "season_stats", {}) or {}, key)
-                ]
-
-            picks = collect(primary_pool)
-            if len(picks) < limit:
-                seen = {
-                    getattr(p, "player_id", id(p)) for p, _ in picks
-                }
-                for player, value in collect(fallback):
-                    pid = getattr(player, "player_id", id(player))
-                    if pid in seen:
-                        continue
-                    picks.append((player, value))
-                    seen.add(pid)
-                    if len(picks) >= limit:
-                        break
-
-            picks.sort(
-                key=lambda item: (
-                    float(item[1])
-                    if isinstance(item[1], (int, float))
-                    else 0.0
-                ),
-                reverse=descending,
-            )
-            out.append(
-                {
-                    "label": label,
-                    "key": key,
-                    "decimals": decimals,
-                    "descending": descending,
-                    "leaders": [
-                        {
-                            "rank": i + 1,
-                            "player": _player_label(player, team_index),
-                            "value": float(value)
-                            if isinstance(value, (int, float))
-                            else value,
-                        }
-                        for i, (player, value) in enumerate(picks[:limit])
-                    ],
-                }
-            )
-        return out
-
     return {
         "qualifiers": {"min_pa": min_pa, "min_ip": min_ip, "max_team_games": max_g},
-        "batting": board(hitters, hitters, _BATTING),
-        "pitching": board(pitchers, pitchers, _PITCHING),
+        "batting": _boards(
+            hitters, _BATTING, limit, team_index, lambda _p: min_pa, lambda _p: min_ip
+        ),
+        "pitching": _boards(
+            pitchers, _PITCHING, limit, team_index, lambda _p: min_pa, lambda _p: min_ip
+        ),
     }
