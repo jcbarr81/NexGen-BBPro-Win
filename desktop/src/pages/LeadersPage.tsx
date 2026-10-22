@@ -6,6 +6,7 @@
  * profiles; team chips link to the team page.
  */
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { usePersistedState } from "@/lib/use-persisted-state";
@@ -40,46 +41,101 @@ import {
   TabsTrigger,
 } from "@/components/ui";
 
+const SEGMENT_ON =
+  "rounded-md bg-amber px-3 py-1 text-xs font-semibold uppercase tracking-wider text-espresso";
+const SEGMENT_OFF =
+  "rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted hover:bg-surface hover:text-ink";
+
 export function LeadersPage() {
   const [limit, setLimit] = usePersistedState("leaders:limit", 5);
   const [tab, setTab] = usePersistedState<"batting" | "pitching">(
     "leaders:tab",
     "batting",
   );
+  // 8.4.0: regular season or one postseason (its own totals).
+  const [scope, setScope] = usePersistedState<"regular" | "postseason">(
+    "leaders:scope",
+    "regular",
+  );
+  const [pickedYear, setPickedYear] = useState<number | null>(null);
+  const years = useQuery({
+    queryKey: ["postseason-years"],
+    queryFn: () => api.postseasonYears(),
+  });
+  const postseasons = years.data?.postseasons ?? [];
+  const hasPostseason = postseasons.length > 0;
+  const postseason = scope === "postseason" && hasPostseason;
+  const year =
+    pickedYear != null && postseasons.some((p) => p.year === pickedYear)
+      ? pickedYear
+      : years.data?.latest ?? null;
   const leaders = useQuery({
-    queryKey: ["league-leaders", limit],
-    queryFn: () => api.leaders(limit),
+    queryKey: ["league-leaders", limit, postseason ? year : "regular"],
+    queryFn: () =>
+      postseason ? api.leaders(limit, { season: year }) : api.leaders(limit),
+    enabled: scope === "regular" || years.isFetched,
   });
 
   useRegisterLayoutPage("leaders");
   const editingLayout = useLayoutEditStore((s) => s.editing);
 
+  const q = leaders.data?.qualifiers;
+  const subtitle = !leaders.data
+    ? "Top performers across the league"
+    : leaders.data.postseason
+      ? `${leaders.data.season ?? ""} postseason · Qualifier: ${q?.pa_per_team_game ?? 3.1} PA / ${q?.ip_per_team_game ?? 1} IP per game his club played`
+      : `Qualifier: ${q?.min_pa} PA / ${q?.min_ip} IP`;
+
   return (
-    <AppShell
-      title="League Leaders"
-      subtitle={
-        leaders.data
-          ? `Qualifier: ${leaders.data.qualifiers.min_pa} PA / ${leaders.data.qualifiers.min_ip} IP`
-          : "Top performers across the league"
-      }
-    >
+    <AppShell title="League Leaders" subtitle={subtitle}>
       <Tabs value={tab} onValueChange={(v) => setTab(v as "batting" | "pitching")}>
-        <div className="mb-4 flex items-center gap-3">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
           <TabsList>
             <TabsTrigger value="batting">Batting</TabsTrigger>
             <TabsTrigger value="pitching">Pitching</TabsTrigger>
           </TabsList>
+          {hasPostseason && (
+            <div className="flex items-center gap-2">
+              <div className="flex gap-1 rounded-lg border border-border bg-surfaceAlt p-1">
+                <button
+                  type="button"
+                  onClick={() => setScope("regular")}
+                  className={!postseason ? SEGMENT_ON : SEGMENT_OFF}
+                >
+                  Regular season
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScope("postseason")}
+                  className={postseason ? SEGMENT_ON : SEGMENT_OFF}
+                >
+                  Postseason
+                </button>
+              </div>
+              {postseason && (
+                <select
+                  aria-label="Postseason year"
+                  value={year ?? ""}
+                  onChange={(e) => setPickedYear(Number(e.target.value))}
+                  className="h-9 rounded-md border border-border bg-canvas/60 px-2 text-xs font-semibold uppercase tracking-wider text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                >
+                  {postseasons.map((p) => (
+                    <option key={p.year} value={p.year}>
+                      {p.label}
+                      {p.current ? " (this season)" : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
           <div className="flex gap-1 rounded-lg border border-border bg-surfaceAlt p-1">
             {[5, 10, 15].map((n) => (
               <button
                 key={n}
                 type="button"
                 onClick={() => setLimit(n)}
-                className={
-                  limit === n
-                    ? "rounded-md bg-amber px-3 py-1 text-xs font-semibold uppercase tracking-wider text-espresso"
-                    : "rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted hover:bg-surface hover:text-ink"
-                }
+                className={limit === n ? SEGMENT_ON : SEGMENT_OFF}
               >
                 Top {n}
               </button>
@@ -89,7 +145,7 @@ export function LeadersPage() {
 
         <TabsContent value="batting">
           <Body
-            isLoading={leaders.isLoading}
+            isLoading={leaders.isLoading || years.isLoading}
             isError={leaders.isError}
             error={leaders.error}
             boards={leaders.data?.batting ?? []}
@@ -99,7 +155,7 @@ export function LeadersPage() {
         </TabsContent>
         <TabsContent value="pitching">
           <Body
-            isLoading={leaders.isLoading}
+            isLoading={leaders.isLoading || years.isLoading}
             isError={leaders.isError}
             error={leaders.error}
             boards={leaders.data?.pitching ?? []}

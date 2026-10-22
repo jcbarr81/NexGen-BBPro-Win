@@ -24,6 +24,7 @@ import {
   Flame,
   Loader2,
   TrendingUp,
+  Trophy,
   Users as UsersIcon,
 } from "lucide-react";
 
@@ -31,8 +32,10 @@ import { usePersistedState } from "@/lib/use-persisted-state";
 
 import {
   api,
+  type ClubPostseason,
   type DivisionStanding,
   type DivisionStandings,
+  type PostseasonPlayerLine,
   type RosterLevel,
   type ScheduleGame,
   type Team,
@@ -277,8 +280,172 @@ function TeamDetailBody({
           />
         </div>
       </div>
+
+      <TeamPostseasonCard teamId={teamId} />
     </div>
   );
+}
+
+// 8.4.0: the club's postseason runs (their own totals, never added into the
+// regular season). Hidden when the club never reached one.
+function TeamPostseasonCard({ teamId }: { teamId: string }) {
+  const q = useQuery({
+    queryKey: ["team-postseason", teamId],
+    queryFn: () => api.teamPostseason(teamId),
+  });
+  const runs = q.data?.postseasons ?? [];
+  if (runs.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Trophy className="h-4 w-4 text-amber" /> Postseason history
+          </CardTitle>
+          <CardDescription>
+            Each playoff run: record, runs, how far it went and the club's best
+            hitters and pitchers in it.
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {runs.map((run) => (
+          <PostseasonRun key={`${run.season_id}-${run.year}`} run={run} />
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PostseasonRun({ run }: { run: ClubPostseason }) {
+  return (
+    <div className="space-y-3 border-b border-border/40 pb-5 last:border-b-0 last:pb-0">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-display text-lg font-semibold">{run.label}</span>
+        <Badge tone={run.champion ? "amber" : "neutral"}>
+          {run.champion && <Trophy className="h-3 w-3" />} {run.result || "Postseason"}
+        </Badge>
+        <span className="text-sm tabular-nums text-muted">
+          {run.w}-{run.l} · {run.r} R / {run.ra} RA
+          {run.seed != null ? ` · Seed ${run.seed}` : ""}
+        </span>
+      </div>
+      {run.series.length > 0 && (
+        <ul className="space-y-0.5 text-xs text-muted">
+          {run.series.map((s, i) => (
+            <li key={`${s.round}-${i}`}>
+              <span className="font-semibold text-ink">{s.round_title}</span> vs{" "}
+              <Link
+                to={`/team/${encodeURIComponent(s.opponent)}`}
+                className="hover:text-amber"
+              >
+                {s.opponent}
+              </Link>
+              {": "}
+              {s.outcome === "won" ? "won" : s.outcome === "lost" ? "lost" : "playing"}{" "}
+              <span className="tabular-nums">
+                {s.wins}-{s.losses}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <PostseasonPlayers
+          title="Top hitters"
+          rows={run.top_hitters}
+          columns={[
+            ["pa", "PA"],
+            ["avg", "AVG"],
+            ["hr", "HR"],
+            ["rbi", "RBI"],
+            ["ops", "OPS"],
+          ]}
+        />
+        <PostseasonPlayers
+          title="Top pitchers"
+          rows={run.top_pitchers}
+          columns={[
+            ["ip", "IP"],
+            ["era", "ERA"],
+            ["so", "K"],
+            ["w", "W"],
+            ["sv", "SV"],
+          ]}
+        />
+      </div>
+    </div>
+  );
+}
+
+function PostseasonPlayers({
+  title,
+  rows,
+  columns,
+}: {
+  title: string;
+  rows: PostseasonPlayerLine[];
+  columns: Array<[string, string]>;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
+            <th className="py-1.5 pr-2 text-left font-semibold">{title}</th>
+            {columns.map(([key, label]) => (
+              <th key={key} className="px-2 py-1.5 text-right font-semibold">
+                {label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => (
+            <tr
+              key={p.player_id}
+              className="border-b border-border/40 last:border-b-0"
+              title={
+                p.qualified
+                  ? undefined
+                  : "Below the postseason minimum for the club's games"
+              }
+            >
+              <td className="py-1.5 pr-2">
+                <Link
+                  to={`/player/${encodeURIComponent(p.player_id)}`}
+                  className={cn(
+                    "font-semibold hover:text-amber",
+                    !p.qualified && "text-muted",
+                  )}
+                >
+                  {p.last_name || p.player_id}
+                  {p.first_name ? `, ${p.first_name[0]}.` : ""}
+                </Link>
+              </td>
+              {columns.map(([key]) => (
+                <td key={key} className="px-2 py-1.5 text-right tabular-nums">
+                  {formatPostseasonStat(p[key], key)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function formatPostseasonStat(value: unknown, key: string): string {
+  if (typeof value !== "number") return "—";
+  if (key === "ip") {
+    const outs = Math.round(value * 3);
+    return `${Math.floor(outs / 3)}.${outs % 3}`;
+  }
+  if (key === "era" || key === "whip") return value.toFixed(2);
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(3).replace(/^0/, "");
 }
 
 

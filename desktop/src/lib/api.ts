@@ -1449,6 +1449,55 @@ export interface LeaderBoard {
   leaders: LeaderRow[];
 }
 
+// --- Postseason totals (8.4.0) ---
+
+export interface PostseasonListing {
+  season_id: string;
+  year: number;
+  label: string;
+  /** The season in progress (its playoffs under way or just finished). */
+  current: boolean;
+}
+
+export interface PostseasonSeries {
+  round: string;
+  /** The round's name spelled out, e.g. "AL Division Series". */
+  round_title: string;
+  opponent: string;
+  wins: number;
+  losses: number;
+  outcome: "won" | "lost" | "playing";
+}
+
+export interface PostseasonPlayerLine {
+  player_id: string;
+  first_name: string;
+  last_name: string;
+  /** Reached the postseason minimum for his club's games. */
+  qualified: boolean;
+  [stat: string]: string | number | boolean | null | undefined;
+}
+
+export interface ClubPostseason {
+  season_id: string;
+  year: number;
+  label: string;
+  current: boolean;
+  team_id: string;
+  seed: number | null;
+  g: number;
+  w: number;
+  l: number;
+  r: number;
+  ra: number;
+  champion: boolean;
+  /** "Won World Series", "Lost AL Division Series", "Playing ...". */
+  result: string;
+  series: PostseasonSeries[];
+  top_hitters: PostseasonPlayerLine[];
+  top_pitchers: PostseasonPlayerLine[];
+}
+
 // --- Team injuries ---
 
 export interface TeamInjuryEntry {
@@ -1509,6 +1558,9 @@ export interface PlayerProfile {
   recent_training_entries: PlayerProfileNote[];
   injury_history: PlayerProfileNote[];
   stats_rows: Array<[string, Record<string, unknown>]>;
+  /** One row per postseason he played in, oldest first, then "Career";
+   *  same columns as stats_rows. Empty when he never played one. */
+  postseason_rows?: Array<[string, Record<string, unknown>]>;
   stats_columns: string[];
   overall_details: Array<[string, string]>;
   contract_details: Array<[string, string]>;
@@ -2509,12 +2561,39 @@ export const api = {
         stats: Record<string, number | string | null>;
       }>;
     }>("/league/stats"),
-  leaders: (limit = 5) =>
+  /** Regular-season leaders, or one postseason's when `postseason` is set
+   *  (`season` = its year; omitted = the latest). */
+  leaders: (limit = 5, postseason?: { season?: number | null }) =>
     apiRequest<{
-      qualifiers: { min_pa: number; min_ip: number; max_team_games: number };
+      qualifiers: {
+        min_pa: number;
+        min_ip: number;
+        max_team_games: number;
+        /** Postseason only: each player's minimum is these per game his
+         *  club played in it. */
+        pa_per_team_game?: number;
+        ip_per_team_game?: number;
+        per_club?: boolean;
+      };
+      postseason?: boolean;
+      season?: number | null;
       batting: LeaderBoard[];
       pitching: LeaderBoard[];
-    }>(`/league/leaders?limit=${limit}`),
+    }>(
+      postseason
+        ? `/league/leaders?limit=${limit}&postseason=true${
+            postseason.season != null ? `&season=${postseason.season}` : ""
+          }`
+        : `/league/leaders?limit=${limit}`,
+    ),
+  postseasonYears: () =>
+    apiRequest<{ postseasons: PostseasonListing[]; latest: number | null }>(
+      "/league/leaders/postseasons",
+    ),
+  teamPostseason: (teamId: string) =>
+    apiRequest<{ team_id: string; postseasons: ClubPostseason[] }>(
+      `/teams/${encodeURIComponent(teamId)}/postseason`,
+    ),
   freeAgents: (limit = 1000) =>
     apiRequest<{
       count: number;

@@ -171,6 +171,7 @@ export function PlayerProfilePage() {
           <HeroCard profile={profile.data} />
           <RatingsRow profile={profile.data} />
           <StatsCard profile={profile.data} />
+          <StatsCard profile={profile.data} postseason />
           <CareerLedgerCard profile={profile.data} />
           {profile.data.training_focus && (
             <TrainingCard
@@ -810,15 +811,26 @@ function EmptyPanel({ message }: { message: string }) {
   );
 }
 
-function StatsCard({ profile }: { profile: PlayerProfile }) {
-  if (profile.stats_rows.length === 0) return null;
+function StatsCard({
+  profile,
+  postseason = false,
+}: {
+  profile: PlayerProfile;
+  /** The postseason table (8.4.0): same columns, one line per postseason. */
+  postseason?: boolean;
+}) {
+  const rows = postseason ? profile.postseason_rows ?? [] : profile.stats_rows;
+  if (rows.length === 0) return null;
+  const lines = profile.is_pitcher ? "Pitching lines" : "Batting lines";
   return (
     <Card>
       <CardHeader>
         <div>
-          <CardTitle>Statistics</CardTitle>
+          <CardTitle>{postseason ? "Postseason" : "Statistics"}</CardTitle>
           <CardDescription>
-            {profile.is_pitcher ? "Pitching lines" : "Batting lines"} by season
+            {postseason
+              ? `${lines} in the playoffs, kept apart from the regular season`
+              : `${lines} by season`}
           </CardDescription>
         </div>
       </CardHeader>
@@ -838,7 +850,7 @@ function StatsCard({ profile }: { profile: PlayerProfile }) {
             </tr>
           </thead>
           <tbody>
-            {profile.stats_rows.map(([label, row], i) => (
+            {rows.map(([label, row], i) => (
               <tr
                 key={`${label}-${i}`}
                 className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
