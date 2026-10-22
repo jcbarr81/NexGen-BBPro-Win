@@ -57,9 +57,10 @@ PINNED_SCALE_1 = {
 # served it (sha256 of its canonical JSON): no scale 2 step may reach it.
 # Re-pin only when a tutorial is edited on purpose (re-pinned for 8.2.0: the
 # Dashboard tutorial's new Spotlight step, the same for every scale; for
-# 8.3.0: the Player Avatars tutorial's "New club, new colors" step).
+# 8.3.0: the Player Avatars tutorial's "New club, new colors" step; for
+# 8.4.0: the League Hub tutorial's "Postseason stats" step).
 PINNED_SCALE_1_TUTORIALS = (
-    "73bb4d3091153c1fd09e2d32d8fb2a341f00abf4df3a3a046d8cf6d16c3cbb38"
+    "460df9df367d8c7822cf0c434542f884d0f7b4b95e398f8d9a8fc70b56c79689"
 )
 
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")

@@ -569,6 +569,10 @@ TUTORIALS: List[Tutorial] = [
                 "<p><b>League → Leaders</b> ranks the top N hitters/pitchers by every major stat using MLB qualifier rules. <b>League → Stats</b> shows the full league stats table with team totals.</p>",
             ),
             TutorialStep(
+                "Postseason stats",
+                "<p>Playoff games keep their own totals and never add into the regular season. On <b>League → Leaders</b>, switch to <b>Postseason</b> and pick a year; there a player qualifies with 3.1 plate appearances or 1 inning for each playoff game his club played. A player's profile shows a <b>Postseason</b> table under his regular stats (one line per postseason, then his career), and a club's page shows its <b>Postseason history</b>: record, runs, how far it went and its best hitters and pitchers.</p>",
+            ),
+            TutorialStep(
                 "History & records",
                 "<p><b>League → History</b> archives every completed season — champion, runner-up, MVP, Cy Young, and artifact paths. <b>League → Records</b> surfaces the record book and per-team milestones.</p>",
             ),
