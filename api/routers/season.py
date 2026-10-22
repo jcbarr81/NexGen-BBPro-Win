@@ -1008,17 +1008,28 @@ def _human_team_ids() -> List[str]:
 
 
 def _team_readiness_notes(team_id: str) -> List[str]:
-    """Non-blocking readiness notes for an owner's team (Release 3): today
-    only "fewer than two catchers" (owner decision 10). Never stops a sim."""
+    """Non-blocking readiness notes for an owner's team: "fewer than two
+    catchers" (Release 3, owner decision 10) and, 8.4.1, lineups / staff /
+    depth chart naming players the club can't use. Never stops a sim, and
+    never marks the club unready: the not-ready list also drives the
+    scheduled runs' CPU fill (``services.lineup_checks``)."""
+    notes: List[str] = []
     try:
         from api.routers.validation import load_players_map, load_team_levels
         from services.roster_validation import validate_catcher_depth
 
         levels = load_team_levels(team_id)
         result = validate_catcher_depth(levels.get("act", []), load_players_map())
+        notes += [f"{team_id}: {msg}" for msg in result.warnings]
     except Exception:
-        return []
-    return [f"{team_id}: {msg}" for msg in result.warnings]
+        pass
+    try:
+        from services.lineup_checks import stale_assignment_notes
+
+        notes += [f"{team_id}: {msg}" for msg in stale_assignment_notes(team_id)]
+    except Exception:
+        pass
+    return notes
 
 
 def _league_readiness(*, include_lineups: bool = True) -> Dict[str, Any]:
@@ -3811,7 +3822,126 @@ def team_action_items(team_id: str) -> List[Dict[str, Any]]:
     # owner activates by hand. Read-only: the automation never moves anyone
     # else on an owner's roster to make room.
     items.extend(_il_return_action_items(team_id))
+
+    # 6. Owner clubs only (8.4.1): no catcher, and -- before Opening Day --
+    # lineups, staff or depth chart naming players the club can't use.
+    # Advisory: never a readiness issue (see services.lineup_checks).
+    if str(team_id or "").strip().upper() in _human_team_ids():
+        items.extend(_lineup_check_action_items(team_id, phase))
     return items
+
+
+def _lineup_check_action_items(team_id: str, phase: Optional[str]) -> List[Dict[str, Any]]:
+    """Spotlight / Season-page items from ``services.lineup_checks``."""
+
+    out: List[Dict[str, Any]] = []
+    try:
+        from services.lineup_checks import catcher_report, stale_assignments
+    except Exception:  # pragma: no cover - defensive
+        return out
+
+    try:
+        catchers = catcher_report(team_id)
+    except Exception:
+        catchers = None
+    if catchers is not None and catchers["healthy_active"] == 0:
+        others = list(catchers["others"])
+        promotable = [o for o in others if o["note"] in ("in AAA", "in Low-A")]
+        # No free-agent advice in the playoffs.
+        playoffs = str(phase) == "PLAYOFFS"
+        if promotable:
+            fix = f"Promote {promotable[0]['name']} from the minors" + (
+                "." if playoffs else ", or sign a free agent."
+            )
+        else:
+            fix = (
+                "None of your other catchers can play yet"
+                if others
+                else "There is no other catcher in your organization"
+            ) + ("." if playoffs else "; sign a free agent.")
+        out.append(
+            {
+                "kind": "no_catcher",
+                # Games are being played (or about to be) with no catcher.
+                "severity": "warning" if str(phase) == "OFFSEASON" else "action",
+                "title": "No healthy catcher on your active roster",
+                "detail": (
+                    "Until one is active a position player catches, which costs "
+                    "you on steals, passed balls and wild pitches. " + fix
+                ),
+                "count": len(others),
+                "players": others[:5],
+                "href": "/roster",
+            }
+        )
+
+    if str(phase) not in ("OFFSEASON", "PRESEASON"):
+        # In season a game rebuilds a stale lineup and posts a news item;
+        # the item would only repeat it.
+        return out
+    try:
+        report = stale_assignments(team_id)
+    except Exception:
+        return out
+    batters = report["lineups"]
+    staff = report["staff"]
+    if batters or staff:
+        if batters and staff:
+            title = "Update your lineups and pitching staff"
+        elif batters:
+            n = len(batters)
+            title = (
+                f"Your lineups name {n} player{'s' if n != 1 else ''} "
+                "not on your active roster"
+            )
+        else:
+            n = len(staff)
+            title = f"{n} pitching-staff role{'s' if n != 1 else ''} to fill"
+        parts = []
+        if batters:
+            parts.append(
+                "Until you reset a lineup, each game rebuilds it for you."
+            )
+        if staff:
+            roles = ", ".join(e["position"] for e in staff)
+            parts.append(f"Open staff roles: {roles}.")
+        parts.append("Set both before Opening Day on the Lineup page.")
+        players = [
+            {k: e[k] for k in ("player_id", "name", "position", "note")}
+            for e in batters + staff
+        ]
+        out.append(
+            {
+                "kind": "lineup_stale",
+                "severity": "warning",
+                "title": title,
+                "detail": " ".join(parts),
+                "count": len(players),
+                "players": players[:5],
+                "href": "/lineup",
+            }
+        )
+    gone = report["depth_chart"]
+    if gone:
+        n = len(gone)
+        out.append(
+            {
+                "kind": "depth_chart_stale",
+                "severity": "info",
+                "title": (
+                    f"Your depth chart lists {n} player{'s' if n != 1 else ''} "
+                    "who left the club"
+                ),
+                "detail": (
+                    "Injury cover reads the depth chart first and skips them; "
+                    "replace them, or Auto-generate the chart."
+                ),
+                "count": n,
+                "players": gone[:5],
+                "href": "/depth-chart",
+            }
+        )
+    return out
 
 
 def _il_return_action_items(team_id: str) -> List[Dict[str, Any]]:

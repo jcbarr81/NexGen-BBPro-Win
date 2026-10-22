@@ -25,7 +25,10 @@ import {
   GraduationCap,
   Handshake,
   HeartPulse,
+  Layers,
+  ListOrdered,
   Loader2,
+  ShieldAlert,
   Snowflake,
   Sparkles,
   Stethoscope,
@@ -427,6 +430,9 @@ const SPOTLIGHT_ICON: Record<string, LucideIcon> = {
   trade_offer: ArrowLeftRight,
   il_return_needs_room: HeartPulse,
   il_return_ready: HeartPulse,
+  no_catcher: ShieldAlert,
+  lineup_stale: ListOrdered,
+  depth_chart_stale: Layers,
 };
 
 const SPOTLIGHT_BUTTON: Record<string, string> = {
@@ -441,6 +447,9 @@ const SPOTLIGHT_BUTTON: Record<string, string> = {
   trade_offer: "Trades",
   il_return_needs_room: "Roster",
   il_return_ready: "Injuries",
+  no_catcher: "Roster",
+  lineup_stale: "Lineup",
+  depth_chart_stale: "Depth chart",
 };
 
 /** Re-render every 30s so a deadline countdown stays current. */

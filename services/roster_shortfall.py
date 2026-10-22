@@ -221,6 +221,16 @@ def notify_owner_shortfalls(
                 message = f"{message} {left}"
         else:
             message = f"{tid}: left the club this offseason. {left}"
+        # 8.4.1: the saved lineups and staff still name them.
+        try:
+            from services.lineup_checks import stale_assignments_text
+
+            stale = stale_assignments_text(tid)
+        except Exception:
+            _LOGGER.exception("roster shortfall: could not check %s's lineups", tid)
+            stale = ""
+        if stale:
+            message = f"{message} {stale}"
         try:
             log_news_event(
                 message,

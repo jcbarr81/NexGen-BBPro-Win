@@ -79,6 +79,9 @@ def load_players_map() -> Dict[str, Dict[str, Any]]:
                 "primary_position": row.get("primary_position", ""),
                 "other_positions": row.get("other_positions", ""),
                 "is_pitcher": row.get("is_pitcher", ""),
+                # validate_catcher_depth / services.lineup_checks skip an
+                # injured catcher; without this every one read as healthy.
+                "injured": row.get("injured", ""),
                 "age": age,
                 "birthdate": row.get("birthdate", ""),
                 # Fields used by utils.pitching_autofill — without these the

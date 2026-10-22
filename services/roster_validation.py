@@ -997,7 +997,14 @@ def validate_catcher_depth(
         if str(player.get("injured", "") or "").strip().lower() in {"1", "true", "yes"}:
             continue
         count += 1
-    if count < want:
+    if count == 0 and want > 0:
+        # 8.4.1: a game puts a position player behind the plate.
+        result.warn(
+            "Active roster has no healthy catcher: a position player catches "
+            "until one is active, which costs the club on steals, passed balls "
+            "and wild pitches."
+        )
+    elif count < want:
         noun = "catcher" if count == 1 else "catchers"
         cost = (
             " Without a backup catcher he can't get days off: he catches every "
