@@ -52,9 +52,11 @@ def load_window(*, data_dir: Path | str | None = None) -> Optional[Dict[str, Any
 
 
 def _save_window(state: Dict[str, Any], *, data_dir: Path | str | None = None) -> None:
-    path = _path(data_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    from utils.atomic_write import atomic_text_writer
+
+    # Atomic: an offer read mid-write must not see a half-written window.
+    with atomic_text_writer(_path(data_dir), encoding="utf-8") as fh:
+        fh.write(json.dumps(state, indent=2))
 
 
 def _parse_date(value: str | None) -> Optional[date]:
@@ -149,7 +151,8 @@ def _make_sign_fn(data_dir: Path) -> Callable[..., bool]:
     return _sign
 
 
-def _seed_cpu_for_day(base: Path, start_iso: str, window_day: int, *, teams=None) -> int:
+def _seed_cpu_for_day(base: Path, start_iso: str, window_day: int, *, teams=None,
+                      rules: Optional[int] = None) -> int:
     """Seed CPU opening bids on the CURRENT unsigned pool for ``window_day``.
 
     Called on day 1 and again each day as players sign, so CPU teams re-target
@@ -175,6 +178,7 @@ def _seed_cpu_for_day(base: Path, start_iso: str, window_day: int, *, teams=None
         ai_level=_ai_level(data_dir=base),
         window_day=window_day,
         data_dir=base,
+        rules=rules,
     )
 
 
@@ -291,7 +295,8 @@ def open_window(
 
     deadline = start + timedelta(days=TOTAL_DAYS)
     players_by_id = _load_players_by_id(base)
-    seeded = _seed_cpu_for_day(base, start_iso, 1)
+    # The new window's own rules: its state is saved only below.
+    seeded = _seed_cpu_for_day(base, start_iso, 1, rules=fa_negotiations.OFFER_RULES)
 
     leaders = _open_leaders(players_by_id, data_dir=base)
     state = {

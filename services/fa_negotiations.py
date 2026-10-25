@@ -117,11 +117,16 @@ def current_offer_rules(*, data_dir: Path | str | None = None) -> int:
     window's own (1 for a window opened before 8.6.0), else the current."""
 
     try:
-        from services.fa_window import load_window
+        from services.fa_window import _path as _window_path, load_window
 
         window = load_window(data_dir=data_dir)
+        unreadable = window is None and _window_path(data_dir).exists()
     except Exception:
-        window = None
+        window, unreadable = None, True
+    if unreadable:
+        # Caught mid-write, or damaged: an open window may be on rules 1, and
+        # a negotiation must never open under the wrong rules.
+        return 1
     if window and window.get("status") == "open":
         return int(window.get("offer_rules", 1) or 1)
     return OFFER_RULES
@@ -138,13 +143,13 @@ def offer_rules_for(player_id: str, *, data_dir: Path | str | None = None) -> in
 
 def _new_negotiation(
     player_id: str, opened: str, *, opened_day: Optional[int] = None,
-    data_dir: Path | str | None = None,
+    data_dir: Path | str | None = None, rules: Optional[int] = None,
 ) -> Dict[str, Any]:
     opened_date = _parse_date(opened) or date.today()
     deadline = opened_date + timedelta(days=NEGOTIATION_WINDOW_DAYS)
     return {
         "player_id": player_id,
-        "rules": current_offer_rules(data_dir=data_dir),
+        "rules": int(rules) if rules else current_offer_rules(data_dir=data_dir),
         "opened_date": opened_date.isoformat(),
         "deadline_date": deadline.isoformat(),
         # The preseason window day this negotiation first opened on, so
@@ -599,9 +604,13 @@ def process_negotiations(
 
         early = False
         if not at_deadline:
-            leader = max(offers, key=_offer_value)
+            # The best offer he would take (a longer, bigger-total offer
+            # below his minimum must not hold an acceptable one up).
+            rules = int(neg.get("rules", 1) or 1)
+            acceptable = [o for o in offers if _player_accepts(o, player, rules)]
+            leader = max(acceptable, key=_offer_value) if acceptable else None
             fm = _fair_market_total(player)
-            if _player_accepts(leader, player, int(neg.get("rules", 1) or 1)) and fm > 0:
+            if leader is not None and fm > 0:
                 if in_window:
                     # Blow-away offers sign now; otherwise the player waits until
                     # their negotiation has been live long enough (measured from
@@ -645,6 +654,7 @@ def seed_cpu_negotiations(
     top_n: int = 60,
     window_day: int = 1,
     data_dir: Path | str | None = None,
+    rules: Optional[int] = None,
 ) -> int:
     """Open CPU-initiated negotiations so the market is alive from day 1.
 
@@ -655,6 +665,9 @@ def seed_cpu_negotiations(
     an opening offer (via the existing bid-book). Players no CPU team wants get no
     negotiation and fall through to the post-window "list unsigned players" sweep,
     which is exactly the "top-tier + fill needs, not everyone" behavior we want.
+
+    ``rules``: the offer rules new negotiations open under (a window being
+    opened passes its own, as its state is not saved yet).
 
     Returns the number of players that received at least one CPU opening offer.
     Idempotent: re-running won't lower a standing offer or duplicate a window.
@@ -675,7 +688,7 @@ def seed_cpu_negotiations(
         existed = isinstance(neg, dict) and neg.get("status") == "open"
         if not existed:
             neg = _new_negotiation(pid, sim_date, opened_day=window_day,
-                                   data_dir=data_dir)
+                                   data_dir=data_dir, rules=rules)
         added = _cpu_bid_round(
             neg, pid, player, teams, ai_level, sim_date, data_dir=data_dir
         )

@@ -79,3 +79,36 @@ def test_a_window_opened_before_rules_2_keeps_rules_1(league):
     assert neg.current_offer_rules(data_dir=league) == 2
     # The negotiation keeps the rules it opened under.
     assert neg.offer_rules_for("P800", data_dir=league) == 1
+
+
+def test_an_unreadable_window_file_reads_as_rules_1(league):
+    from services import fa_negotiations as neg
+
+    (league / "fa_window.json").write_text("{half-writ", encoding="utf-8")
+    assert neg.current_offer_rules(data_dir=league) == 1
+
+
+def test_early_signing_looks_at_the_best_acceptable_offer(league, monkeypatch):
+    from services import fa_negotiations as neg
+
+    player = _player(league, "P800")
+    terms = _terms(league, 2)
+    # The biggest total is a long offer below his minimum; a shorter one is
+    # acceptable. On his patience day the acceptable one signs.
+    neg.save_negotiations({"version": 1, "negotiations": {"P800": {
+        "player_id": "P800", "rules": 2, "status": "open", "opened_day": 1,
+        "opened_date": "2027-11-01", "deadline_date": "2027-11-15",
+        "offers": [
+            {"team_id": "CPU1", "years": 6, "is_cpu": False,
+             "annual_salary": int(terms["minimum"] * 0.7)},
+            {"team_id": "AAA", "years": 2, "is_cpu": False,
+             "annual_salary": int(terms["ask"])},
+        ]}}}, data_dir=league)
+    monkeypatch.setattr(neg, "_window_patience", lambda pid, total: 1)
+    signed = []
+    out = neg.process_negotiations(
+        "2027-11-03", data_dir=league, players_by_id={"P800": player}, teams=[],
+        sign_fn=lambda **kw: signed.append(kw["team_id"]) or True,
+        window_day=3, window_total=14,
+    )
+    assert signed == ["AAA"] and out["signed"][0]["signed_team"] == "AAA"
