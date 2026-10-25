@@ -1291,11 +1291,11 @@ These are 7.51 behaviours it ran into, not 8.0.0 changes:
   back-fill `scripts/backfill_service_time.py`). The walk-year refusal still
   falls back to age 27+ for a player with no service; with service tracked,
   it uses six years.
-- **CPU extensions run only in the season** (twice a month). An offseason
-  or preseason pass would let a CPU club extend a player entering his walk
-  year before Opening Day.
-- **The free-agent offer flow still uses `evaluate_extension_offer`**
-  (exact price, accept at 95%): free agency was out of scope.
+- **CPU extensions in the offseason.** Done in 8.6.0 (the FA window's first
+  day and the move into the preseason).
+- **Free-agent offers.** Done in 8.6.0 (offer rules 2: an ask above a hidden
+  minimum, `extension_talks.fa_terms`; a window opened before 8.6.0 keeps
+  rules 1 until it closes).
 
 ## Release 6b round 2: ball-flight follow-ups (2026-10-15, branch `r7-ballflight`)
 
