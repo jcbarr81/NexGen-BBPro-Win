@@ -1287,15 +1287,10 @@ These are 7.51 behaviours it ran into, not 8.0.0 changes:
 > at the free-agent market, and CPU clubs extending the walk-year players
 > they want within their budgets (`services/cpu_extensions.py`). Open:
 
-- **Service time never accrues.** Every contract in alpha-test (781) and
-  stats-test (1,099) reads `service_time_days` 0, though
-  `services/offseason_finance_flow.py` adds a season's days in the
-  offseason: that step has not run (or its result is not kept) in either
-  league. Everything that reads service time sees a rookie: the pricing
-  tiers (why 8.5.0 prices extensions at the free-agent market), the
-  arbitration tiers, the qualifying-offer eligibility, the walk-year
-  refusal (which uses age 27+ as a stand-in). Find why, then back-fill
-  from career seasons.
+- **Service time never accrued.** Fixed in 8.5.1 (`services/service_time.py`,
+  back-fill `scripts/backfill_service_time.py`). The walk-year refusal still
+  falls back to age 27+ for a player with no service; with service tracked,
+  it uses six years.
 - **CPU extensions run only in the season** (twice a month). An offseason
   or preseason pass would let a CPU club extend a player entering his walk
   year before Opening Day.
