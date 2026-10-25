@@ -505,7 +505,7 @@ TUTORIALS: List[Tutorial] = [
     Tutorial(
         tutorial_id="finance",
         title="Finance",
-        summary="Snapshot, payroll headroom, budgets, arbitration, contracts, signing bonuses, qualifying offers.",
+        summary="Snapshot, payroll headroom, budgets, extension talks, arbitration, contracts, signing bonuses, qualifying offers.",
         route="/finance",
         steps=[
             TutorialStep(
@@ -523,6 +523,11 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Track contracts league-wide",
                 "<p><b>My Team → Contracts</b> is the league-wide contract tracker: salary (with total commitment for multi-year deals), years left, FA year, and service time. Hover the status badges — <b>Expiring</b>, <b>Arb-eligible</b>, <b>options</b>, <b>Non-gtd</b> — for a plain-language explanation of what each means for your planning.</p>",
+            ),
+            TutorialStep(
+                "Extending your players",
+                "<p>Open a player's profile and click <b>Negotiate</b> on the Contract card. He names an <b>asking price</b> for the years you enter: what he'd get as a free agent, less a little for a long deal's security. His ask is <b>above what he'll really take</b>, so you can haggle. An offer at or above his hidden minimum signs him; below it he <b>comes down a little</b> and loses some <b>patience</b>, and a <b>lowball</b> (well under his minimum) costs twice as much and doesn't move him. The dialog shows his <b>mood</b> (open, impatient, about to walk away). Run out of patience and he <b>breaks off talks</b> for 7–30 days (during the offseason free-agency window, 1–5 window days); you get a news item and a notification. Each player has his own temperament, so some are easier than others.</p>"
+                "<p>In the season, a <b>veteran in the last year of his deal</b> may refuse to negotiate at all and plan to test free agency. An <b>overwhelming offer</b>, about one and a half times his value, is always accepted, even from a player who has refused or broken off talks. CPU clubs extend the walk-year players they want to keep, under the same rules and within their budgets.</p>",
             ),
             TutorialStep(
                 "Arbitration decisions",

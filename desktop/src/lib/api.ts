@@ -232,11 +232,44 @@ export interface ExtensionEligibility {
   cooldown_days_remaining: number | null;
 }
 
+/** What the owner sees before an extension offer (8.5.0): the player's ask,
+ *  never how he would answer a given figure. */
+export interface ExtensionTalksPreview {
+  player_id: string;
+  ask_salary: number;
+  preferred_years: number;
+  temperament: "easy" | "normal" | "hard";
+  mood: "open" | "impatient" | "about to walk away";
+  status: "open" | "shutdown" | "refuses";
+  shutdown_left: number | null;
+  shutdown_unit: string;
+  offers: number;
+  service_tier: "pre_arb" | "arbitration" | "free_agent";
+  current_annual_salary?: number;
+  current_years_left?: number;
+  service_time_days?: number;
+  eligibility?: ExtensionEligibility;
+  payroll_impact?: PayrollOutlook | null;
+}
+
+/** The player's answer to an extension offer (services.extension_talks). */
+export interface ExtensionTalksResponse {
+  decision: "accepted" | "countered" | "shutdown" | "refused" | "blocked";
+  reason: string;
+  ask_salary: number;
+  preferred_years: number;
+  counter_years: number | null;
+  mood: string;
+  shutdown_days: number | null;
+  shutdown_unit: string;
+  service_tier: string;
+}
+
 export interface ExtensionRejection {
-  code: "countered" | "rejected" | ExtensionEligibility["code"];
+  code: ExtensionTalksResponse["decision"] | ExtensionEligibility["code"];
   message: string;
   player_id: string;
-  negotiation?: ExtensionEvaluation;
+  negotiation?: ExtensionTalksResponse;
   eligibility?: ExtensionEligibility;
   current_annual_salary: number;
   current_years_left: number;
@@ -2687,7 +2720,7 @@ export const api = {
       player_id: string;
       extended_by: string;
       contract: ContractRecord;
-      negotiation: ExtensionEvaluation | null;
+      negotiation: ExtensionTalksResponse | null;
       forced: boolean;
     }>(
       `/contracts/${encodeURIComponent(playerId)}/extend`,
@@ -2713,7 +2746,7 @@ export const api = {
     playerId: string,
     payload: { years?: number; annual_salary?: number; team_id?: string },
   ) =>
-    apiRequest<ExtensionEvaluation>(
+    apiRequest<ExtensionTalksPreview>(
       `/contracts/${encodeURIComponent(playerId)}/evaluate-extension`,
       { method: "POST", body: payload },
     ),

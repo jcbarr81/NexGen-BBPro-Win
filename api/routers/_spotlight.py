@@ -532,13 +532,7 @@ def _expiring_item(
                 scores[pid] = float(player_overall_score(p) or 0.0)
     except Exception:
         scores = {}
-    try:
-        from .contracts import _last_rejected_iso
-
-        last_rejected = _last_rejected_iso
-    except Exception:  # pragma: no cover - defensive
-        last_rejected = lambda _pid: None  # noqa: E731
-    sim_day = _sim_date()
+    from services.extension_talks import talks_status
 
     rows: List[Dict[str, Any]] = []
     open_count = 0
@@ -549,17 +543,21 @@ def _expiring_item(
                 service_time_days=int(raw.get("service_time_days", 0) or 0),
                 current_years_left=int(raw.get("years_left", 0) or 0),
                 current_phase=phase,
-                last_rejected_iso=last_rejected(pid),
-                sim_date_iso=sim_day,
             )
         except Exception:
             ok = None
+        try:
+            talks = talks_status(pid, tid)
+        except Exception:
+            talks = {"status": "open"}
         salary = _money(raw.get("annual_salary"))
-        if ok is not None and ok.eligible:
+        if ok is not None and ok.eligible and talks["status"] == "refuses":
+            note = f"{salary}; won't negotiate in season"
+        elif ok is not None and ok.eligible and talks["status"] == "shutdown":
+            note = f"{salary}; broke off talks, {talks['left']} more {talks['unit']}"
+        elif ok is not None and ok.eligible:
             open_count += 1
             note = f"{salary}; can extend"
-        elif ok is not None and ok.code == "cooldown":
-            note = f"{salary}; turned down an offer, {ok.cooldown_days_remaining} more days"
         elif ok is not None and ok.code == "phase_blocked":
             note = f"{salary}; talks paused"
         else:

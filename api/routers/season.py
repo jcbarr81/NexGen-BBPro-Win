@@ -1707,6 +1707,17 @@ def _run_day_automations(
         except Exception as exc:  # pragma: no cover - defensive
             summary["callups_error"] = str(exc)
 
+        # 8.5.0: twice a month, CPU clubs extend the players they want to
+        # keep (services.cpu_extensions; idempotent per half-month).
+        try:
+            from services.cpu_extensions import run_cpu_extension_pass
+
+            summary["cpu_extensions"] = run_cpu_extension_pass(
+                played_date, phase=SeasonManager().phase.value
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            summary["cpu_extensions_error"] = str(exc)
+
         # FA negotiation windows (#12): advance each open negotiation one day
         # per played date -- CPU teams bid, blow-away offers win early,
         # deadlines resolve and sign the winner. Runs in the parent (post-day),

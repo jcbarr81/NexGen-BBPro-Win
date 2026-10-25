@@ -37,8 +37,8 @@ import {
   api,
   ApiError,
   type ExtensionEligibility,
-  type ExtensionEvaluation,
   type ExtensionRejection,
+  type ExtensionTalksResponse,
   type PlayerProfile,
   type PlayerProfileNote,
 } from "@/lib/api";
@@ -930,7 +930,7 @@ function ContractCard({
   const [years, setYears] = useState("1");
   const [salary, setSalary] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [response, setResponse] = useState<ExtensionEvaluation | null>(null);
+  const [response, setResponse] = useState<ExtensionTalksResponse | null>(null);
   const [ineligibility, setIneligibility] = useState<ExtensionEligibility | null>(
     null,
   );
@@ -1004,6 +1004,8 @@ function ContractCard({
           setResponse(detail.negotiation);
           setIneligibility(null);
           setError(null);
+          // His ask and mood moved: refresh what the dialog shows.
+          queryClient.invalidateQueries({ queryKey: ["extension-preview", playerId] });
           return;
         }
       }
@@ -1013,11 +1015,9 @@ function ContractCard({
     },
   });
 
-  function acceptCounter() {
+  function offerHisAsk() {
     if (!response) return;
-    if (response.counter_salary != null) {
-      setSalary(String(response.counter_salary));
-    }
+    setSalary(String(response.ask_salary));
     if (response.counter_years != null) {
       setYears(String(response.counter_years));
     }
@@ -1081,8 +1081,10 @@ function ContractCard({
               <div>
                 <CardTitle>Negotiate extension · {playerName}</CardTitle>
                 <CardDescription>
-                  Make the player an offer. They'll evaluate based on
-                  market value, age, and service time.
+                  He names an asking price above what he'll really take, so
+                  you can haggle. Each offer he turns down costs some of his
+                  patience (a lowball costs more); run out and he breaks off
+                  talks for a while.
                 </CardDescription>
               </div>
             </CardHeader>
@@ -1100,24 +1102,36 @@ function ContractCard({
                 </div>
               )}
 
-              {/* Fair-market hint — refreshes as user types. */}
+              {/* His position: refreshes as the years change. Never says
+                  how he would answer a figure (8.5.0). */}
               {previewQ.data && (
                 <div className="rounded-md border border-border bg-surfaceAlt/40 px-3 py-2 text-xs">
                   <div className="font-semibold text-muted uppercase tracking-wider">
-                    Market estimate
+                    His position
                   </div>
                   <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
-                    <span className="text-muted">Fair salary</span>
-                    <span className="text-right tabular-nums font-semibold">
-                      ${previewQ.data.fair_market_salary.toLocaleString()}/yr
+                    <span className="text-muted">
+                      Asking ({Number(years) || 1} more yr{(Number(years) || 1) === 1 ? "" : "s"})
                     </span>
-                    <span className="text-muted">Fair length</span>
                     <span className="text-right tabular-nums font-semibold">
-                      {previewQ.data.fair_market_years} yrs
+                      ${previewQ.data.ask_salary.toLocaleString()}/yr
                     </span>
-                    <span className="text-muted">Service tier</span>
-                    <span className="text-right text-xs uppercase">
-                      {previewQ.data.service_tier.replace("_", " ")}
+                    <span className="text-muted">Wants</span>
+                    <span className="text-right tabular-nums font-semibold">
+                      {previewQ.data.preferred_years} yrs
+                    </span>
+                    <span className="text-muted">Mood</span>
+                    <span
+                      className={cn(
+                        "text-right font-semibold capitalize",
+                        previewQ.data.mood === "open"
+                          ? "text-success"
+                          : previewQ.data.mood === "impatient"
+                            ? "text-amber-text"
+                            : "text-danger",
+                      )}
+                    >
+                      {previewQ.data.mood}
                     </span>
                     {previewQ.data.current_annual_salary != null && (
                       <>
@@ -1128,6 +1142,19 @@ function ContractCard({
                       </>
                     )}
                   </div>
+                  {previewQ.data.status === "shutdown" && (
+                    <div className="mt-2 text-danger">
+                      He has broken off talks for {previewQ.data.shutdown_left}{" "}
+                      more {previewQ.data.shutdown_unit}. Only an overwhelming
+                      offer gets through before then.
+                    </div>
+                  )}
+                  {previewQ.data.status === "refuses" && (
+                    <div className="mt-2 text-danger">
+                      He won't negotiate during the season: he plans to test
+                      free agency. Only an overwhelming offer changes his mind.
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1162,37 +1189,43 @@ function ContractCard({
                   onChange={(e) => setSalary(e.target.value)}
                   placeholder={
                     previewQ.data
-                      ? `Defaults to current ($${previewQ.data.current_annual_salary?.toLocaleString() ?? ""})`
+                      ? `Leave blank to offer his ask ($${previewQ.data.ask_salary.toLocaleString()})`
                       : "Annual salary $"
                   }
                   className="h-9 w-full rounded-md border border-border bg-canvas/60 px-2 text-sm"
                 />
               </label>
 
-              {/* Player's response on rejection / counter-offer */}
+              {/* The player's answer to the last offer. */}
               {response && (
                 <div
                   className={cn(
                     "rounded-md border px-3 py-2 text-xs",
-                    response.decision === "rejected"
-                      ? "border-danger/40 bg-danger/10 text-danger"
-                      : "border-amber/60 bg-amber/10 text-amber-text",
+                    response.decision === "countered"
+                      ? "border-amber/60 bg-amber/10 text-amber-text"
+                      : "border-danger/40 bg-danger/10 text-danger",
                   )}
                 >
                   <div className="font-semibold uppercase tracking-wider">
-                    {response.decision === "rejected"
-                      ? "Player rejected the offer"
-                      : "Player countered"}
+                    {response.decision === "countered"
+                      ? "He countered"
+                      : response.decision === "shutdown"
+                        ? "He broke off talks"
+                        : response.decision === "refused"
+                          ? "He won't negotiate this season"
+                          : "Talks are off for now"}
                   </div>
                   <div className="mt-1 leading-snug">{response.reason}</div>
-                  {response.decision === "countered" && response.counter_salary && (
+                  {response.decision === "countered" && (
                     <button
                       type="button"
-                      onClick={acceptCounter}
+                      onClick={offerHisAsk}
                       className="mt-2 inline-flex items-center gap-1 rounded border border-amber/60 bg-amber/20 px-2 py-1 text-xs font-semibold uppercase tracking-wider text-amber-text hover:bg-amber/30"
                     >
-                      Use ${response.counter_salary.toLocaleString()}/yr ×{" "}
-                      {response.counter_years} yrs
+                      Offer his ask: ${response.ask_salary.toLocaleString()}/yr
+                      {response.counter_years != null
+                        ? ` × ${response.counter_years} yrs`
+                        : ""}
                     </button>
                   )}
                 </div>

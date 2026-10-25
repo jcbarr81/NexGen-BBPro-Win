@@ -58,9 +58,10 @@ PINNED_SCALE_1 = {
 # Re-pin only when a tutorial is edited on purpose (re-pinned for 8.2.0: the
 # Dashboard tutorial's new Spotlight step, the same for every scale; for
 # 8.3.0: the Player Avatars tutorial's "New club, new colors" step; for
-# 8.4.0: the League Hub tutorial's "Postseason stats" step).
+# 8.4.0: the League Hub tutorial's "Postseason stats" step; for 8.5.0: the
+# Finance tutorial's "Extending your players" step).
 PINNED_SCALE_1_TUTORIALS = (
-    "460df9df367d8c7822cf0c434542f884d0f7b4b95e398f8d9a8fc70b56c79689"
+    "b9117bb165a67c6fccf3acf352b33f82a5063489cde511f159430545701020bd"
 )
 
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")

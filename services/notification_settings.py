@@ -203,6 +203,14 @@ RULE_CATEGORIES: List[Dict[str, Any]] = [
                 "default_notify": True,
                 "default_stop": False,
             },
+            {
+                # 8.5.0 (services.extension_talks): a player broke off
+                # extension talks, or won't negotiate during the season.
+                "id": "contract_talks",
+                "label": "A player broke off or refused contract talks",
+                "default_notify": True,
+                "default_stop": False,
+            },
         ],
     },
     {

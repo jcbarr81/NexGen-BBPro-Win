@@ -410,14 +410,18 @@ def test_final_year_players_best_first(league, monkeypatch):
         "utils.player_overall.player_overall_score",
         lambda p, **k: score.get(p.player_id, 0.0),
     )
-    (league / "extension_history.json").write_text(
-        json.dumps({"E1": {"last_rejected_at": "2026-06-26"}}), encoding="utf-8"
+    # 8.5.0: E1 broke off extension talks five sim days ago, for 30 days.
+    (league / "extension_talks.json").write_text(
+        json.dumps({"E1": {"team_id": "BAL", "season": "", "patience": 0,
+                           "ask_ratio": 1.0, "shutdown": {"kind": "sim",
+                           "start": "2026-06-26", "days": 30}}}),
+        encoding="utf-8",
     )
     item = kinds(spotlight())["expiring_contracts"]
     assert item["title"] == "2 players in the final year of their contracts"
     assert [p["player_id"] for p in item["players"]] == ["E2", "E1"]
     assert item["players"][0]["note"] == "$4.5M; can extend"
-    assert "turned down an offer, 25 more days" in item["players"][1]["note"]
+    assert "broke off talks, 25 more days" in item["players"][1]["note"]
     assert "until the end of the playoffs" in item["detail"]
     assert "1 of 2 can be offered an extension today." in item["detail"]
     assert item["href"] == "/contracts?mine=1&expiring=1"

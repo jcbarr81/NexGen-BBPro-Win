@@ -20,18 +20,12 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
-from services.contract_negotiator import (
-    ExtensionEvaluation,
-    REJECTION_COOLDOWN_DAYS,
-    check_extension_eligibility,
-    evaluate_extension_offer,
-    fair_market_salary,
-    fair_market_years,
-)
+from services.contract_negotiator import check_extension_eligibility
 from services.contracts_service import (
     extend_contract,
     load_contracts_payload,
 )
+from services.extension_talks import TalksResponse, respond_to_offer, talks_view
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.rating_display import display_scale_for
@@ -149,7 +143,8 @@ def _save_extension_history(history: Dict[str, Dict[str, Any]]) -> None:
 
 
 def _record_extension_outcome(player_id: str, decision: str) -> None:
-    """Persist the latest extension outcome so the cooldown rule has data."""
+    """Log the latest extension outcome (the talks state itself lives in
+    services.extension_talks)."""
 
     history = _load_extension_history()
     entry = history.get(player_id) or {}
@@ -160,13 +155,6 @@ def _record_extension_outcome(player_id: str, decision: str) -> None:
         entry["last_rejected_at"] = sim_date
     history[player_id] = entry
     _save_extension_history(history)
-
-
-def _last_rejected_iso(player_id: str) -> Optional[str]:
-    history = _load_extension_history()
-    entry = history.get(player_id) or {}
-    raw = entry.get("last_rejected_at")
-    return str(raw) if raw else None
 
 
 def _current_league_phase() -> Optional[str]:
@@ -203,12 +191,14 @@ def evaluate_extension(
     payload: Dict[str, Any] = Body(...),
     identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
-    """Preview how a player would respond to an extension offer.
+    """What the owner sees before making an extension offer.
 
-    Returns the same shape as the extend endpoint's evaluation block:
-    ``{decision, fair_market_salary, fair_market_years, counter_*, reason}``.
-    Does NOT mutate the contract — used by the Extend dialog to show a
-    fair-value hint and let the owner explore offers before submitting.
+    ``{eligibility, payroll_impact, ask_salary, preferred_years, mood,
+    status, shutdown_left, shutdown_unit, temperament, offers,
+    service_tier, current_*}`` (``services.extension_talks.talks_view``).
+    Since 8.5.0 it never says how the player would answer a given figure:
+    the ask is above what he will take, and only a real offer finds out.
+    Read-only.
     """
 
     pid = str(player_id or "").strip()
@@ -226,40 +216,44 @@ def evaluate_extension(
         )
 
     service_days, current_salary, current_years = _service_for(pid)
+    phase = _current_league_phase()
 
     # House-rule eligibility check first — short-circuit the simulation
     # of an offer for players who can't legally receive one right now.
+    # 8.5.0: the flat 30-day rejection cooldown is gone; a player's patience
+    # and shutdowns live in services.extension_talks.
     eligibility = check_extension_eligibility(
         service_time_days=service_days,
         current_years_left=current_years,
-        current_phase=_current_league_phase(),
-        last_rejected_iso=_last_rejected_iso(pid),
-        sim_date_iso=get_current_sim_date(),
+        current_phase=phase,
     )
 
     try:
         offered_years = max(1, int(payload.get("years", 1) or 1))
     except (TypeError, ValueError):
         offered_years = 1
+
+    # 8.5.0: the preview shows the player's ASK and his mood, never how he
+    # would answer a given figure (that let an owner find his exact price
+    # without risk). services.extension_talks has the negotiation.
+    talks = talks_view(
+        player,
+        pid,
+        team_id=_roster_team_index().get(pid, ""),
+        years=offered_years,
+        service_time_days=service_days,
+        current_annual_salary=current_salary,
+        current_years_left=current_years,
+        phase=phase,
+    )
     salary_raw = payload.get("annual_salary")
     if salary_raw in (None, ""):
-        offered_salary = current_salary or fair_market_salary(
-            player, service_time_days=service_days
-        )
+        offered_salary = int(talks["ask_salary"])
     else:
         try:
             offered_salary = int(salary_raw)
         except (TypeError, ValueError):
-            offered_salary = current_salary
-
-    evaluation = evaluate_extension_offer(
-        player,
-        offered_years=offered_years,
-        offered_annual_salary=offered_salary,
-        service_time_days=service_days,
-        current_annual_salary=current_salary,
-        current_years_left=current_years,
-    )
+            offered_salary = int(talks["ask_salary"])
 
     # Payroll impact of the RAISE this extension represents (the delta over the
     # player's current salary — they already count toward payroll) so the owner
@@ -288,7 +282,7 @@ def evaluate_extension(
         "service_time_days": service_days,
         "eligibility": eligibility.to_dict(),
         "payroll_impact": payroll_impact,
-        **evaluation.to_dict(),
+        **talks,
     }
 
 
@@ -308,10 +302,9 @@ def extend_player_contract(
 
     Without ``force``, the player evaluates the offer:
       - "accepted" → contract updated, returned with ``negotiation``
-      - "countered" → 409 with the player's counter-offer; owner can
-        re-submit with the counter terms or with ``force=true``
-      - "rejected" → 409 with reason; owner is locked out of further
-        offers for this player until they cool down (handled client-side)
+      - "countered" / "shutdown" / "refused" / "blocked" → 409 with the
+        player's answer in ``negotiation`` (``services.extension_talks``:
+        his new ask, his mood, how long a shutdown lasts)
     """
 
     pid = str(player_id or "").strip()
@@ -349,7 +342,7 @@ def extend_player_contract(
     # Negotiate unless force is set. Force is gated to admins so an
     # owner can't bypass their own player's counter-offer.
     role = str(identity.get("r", "")).lower()
-    evaluation: Optional[ExtensionEvaluation] = None
+    evaluation: Optional[TalksResponse] = None
     if not force or role != "admin":
         player = _resolve_player(pid)
         if player is None:
@@ -358,16 +351,16 @@ def extend_player_contract(
                 detail=f"Player {pid} not found.",
             )
         service_days, current_salary, current_years = _service_for(pid)
+        phase = _current_league_phase()
 
         # House-rule eligibility check first. Phase gating, FA-year
-        # lockout, years-remaining cap, and rejection cooldown all live
-        # here — admins with force=true can still bypass.
+        # lockout and the years-remaining cap live here — admins with
+        # force=true can still bypass. Patience, shutdowns and in-season
+        # refusals are the player's (services.extension_talks, 8.5.0).
         eligibility = check_extension_eligibility(
             service_time_days=service_days,
             current_years_left=current_years,
-            current_phase=_current_league_phase(),
-            last_rejected_iso=_last_rejected_iso(pid),
-            sim_date_iso=get_current_sim_date(),
+            current_phase=phase,
         )
         if not eligibility.eligible:
             raise HTTPException(
@@ -382,26 +375,28 @@ def extend_player_contract(
                 },
             )
 
-        # If salary not specified, use current salary as the offer.
-        offer_salary = salary if salary is not None else current_salary
-        if offer_salary <= 0:
-            offer_salary = fair_market_salary(
-                player, service_time_days=service_days
-            )
-        evaluation = evaluate_extension_offer(
+        team_id = _roster_team_index().get(pid, "")
+        if salary is None:
+            # No figure given: offer his current ask.
+            salary = int(talks_view(
+                player, pid, team_id=team_id, years=years,
+                service_time_days=service_days,
+                current_annual_salary=current_salary,
+                current_years_left=current_years, phase=phase,
+            )["ask_salary"])
+        evaluation = respond_to_offer(
             player,
-            offered_years=years,
-            offered_annual_salary=offer_salary,
+            pid,
+            team_id=team_id,
+            years=years,
+            salary=salary,
             service_time_days=service_days,
             current_annual_salary=current_salary,
             current_years_left=current_years,
+            phase=phase,
         )
         if evaluation.decision != "accepted":
-            # Record the rejection so the cooldown timer starts. We
-            # only persist for actual rejections — a counter-offer
-            # leaves the door open for the owner to come right back.
-            if evaluation.decision == "rejected":
-                _record_extension_outcome(pid, "rejected")
+            _record_extension_outcome(pid, evaluation.decision)
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
