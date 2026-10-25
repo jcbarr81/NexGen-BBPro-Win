@@ -134,12 +134,12 @@ def test_talks_reopen_after_the_shutdown(talks):
 
 def test_shutdown_in_the_window_counts_window_days(talks):
     pid = _pid("hard")  # patience 3, base 14 days
-    talks.clock["now"] = ("fa", "3")
+    talks.clock["now"] = ("window", "3")
     offer(talks, pid, 5_000_000)
     r = offer(talks, pid, 5_000_000)
     assert r.decision == "shutdown" and r.shutdown_unit == "free-agency days"
     assert r.shutdown_days == -(-min(30, 14 + 8 + 10) // 7)  # ceil(days / 7)
-    talks.clock["now"] = ("fa", "4")
+    talks.clock["now"] = ("window", "4")
     assert offer(talks, pid, 11_000_000).decision == "blocked"
     # The window closing (the clock changes kind) ends it.
     talks.clock["now"] = ("sim", "2028-04-01")

@@ -171,7 +171,7 @@ def season_key(base: Path) -> str:
 
 
 def talks_clock(base: Path) -> Tuple[str, str]:
-    """``(kind, value)``: ``("fa", "<day>")`` while the free-agency window is
+    """``(kind, value)``: ``("window", "<day>")`` while the free-agency window is
     open, ``("sim", "<date>")`` when the league has a sim date, else
     ``("none", "")``."""
 
@@ -180,7 +180,7 @@ def talks_clock(base: Path) -> Tuple[str, str]:
 
         if is_open(data_dir=base):
             state = load_window(data_dir=base) or {}
-            return ("fa", str(int(state.get("day") or 0)))
+            return ("window", str(int(state.get("day") or 0)))
     except Exception:
         pass
     try:
@@ -199,7 +199,7 @@ def _clock_elapsed(start: Tuple[str, str], now: Tuple[str, str]) -> Optional[int
 
     if start[0] != now[0]:
         return None
-    if start[0] == "fa":
+    if start[0] == "window":
         return int(now[1]) - int(start[1])
     if start[0] == "sim":
         from datetime import date
@@ -212,7 +212,7 @@ def _clock_elapsed(start: Tuple[str, str], now: Tuple[str, str]) -> Optional[int
 
 
 def _shutdown_length(days: int, kind: str) -> int:
-    if kind == "fa":
+    if kind == "window":
         return max(1, math.ceil(days / SIM_DAYS_PER_FA_DAY))
     return days
 
@@ -370,7 +370,7 @@ def talks_status(player_id: str, team_id: str, *,
     now = talks_clock(base)
     left = _shutdown_remaining(entry, now)
     if left is not None:
-        unit = "free-agency days" if now[0] == "fa" else "days"
+        unit = "free-agency days" if now[0] == "window" else "days"
         return {"status": "shutdown", "left": left, "unit": unit}
     return {"status": "open", "left": None, "unit": ""}
 
@@ -412,7 +412,7 @@ def talks_view(player: object, player_id: str, *, team_id: str, years: int,
         "mood": _mood(entry, player_id),
         "status": status,
         "shutdown_left": left,
-        "shutdown_unit": "free-agency days" if now[0] == "fa" else "days",
+        "shutdown_unit": "free-agency days" if now[0] == "window" else "days",
         "offers": int(entry.get("offers") or 0),
         "service_tier": _service_tier(service_time_days),
     }
@@ -492,12 +492,12 @@ def _respond(player: object, player_id: str, *, team_id: str, years: int,
 
     left = _shutdown_remaining(entry, now)
     if left is not None:
-        unit = "free-agency day" if now[0] == "fa" else "day"
+        unit = "free-agency day" if now[0] == "window" else "day"
         return done(TalksResponse(
             "blocked",
             f"{name} has broken off talks; try again in {left} {unit}{'s' if left != 1 else ''}.",
             ask(), preferred, shutdown_days=left,
-            shutdown_unit="free-agency days" if now[0] == "fa" else "days"))
+            shutdown_unit="free-agency days" if now[0] == "window" else "days"))
     if entry.get("shutdown"):
         # The shutdown has run its course: talks reopen, patience restored.
         entry["shutdown"] = None
@@ -530,7 +530,7 @@ def _respond(player: object, player_id: str, *, team_id: str, years: int,
         days = int(min(SHUTDOWN_MAX_DAYS, max(7, days)))
         entry["shutdown"] = {"kind": now[0], "start": now[1], "days": days}
         length = _shutdown_length(days, now[0])
-        unit = "free-agency days" if now[0] == "fa" else "days"
+        unit = "free-agency days" if now[0] == "window" else "days"
         response = TalksResponse(
             "shutdown",
             f"{name} has had enough and breaks off talks for {length} {unit}.",
