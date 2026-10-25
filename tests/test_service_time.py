@@ -113,3 +113,20 @@ def test_playing_time_share():
     assert round(st.playing_time_share({"g": 14, "gs": 7, "ip": 40}), 3) == round(7 / 28 + 7 / 55, 3)
     assert st.pre_league_days(22) == 0 and st.pre_league_days(30) == 8 * 172
     assert st.pre_league_days(45) == 15 * 172 and st.pre_league_days(None) == 0
+
+
+def test_a_season_without_daily_credits_adds_a_year_for_contracted_players(league):
+    # Played before 8.5.1: the arbitration step's rule.
+    st.close_season(league)
+    assert st.service_days("A", league) == 172 and st.service_days("E", league) == 172
+    assert st.service_days("C", league) == 0  # no contract
+
+
+def test_a_back_filled_season_is_not_counted_again(league):
+    st.save({"version": 1, "players": {"A": 500},
+             "season": {"dates": [], "credit": {}, "backfilled": True}}, league)
+    st.close_season(league)
+    assert st.service_days("A", league) == 500
+    # The next season is an ordinary one.
+    st.close_season(league)
+    assert st.service_days("A", league) == 672

@@ -90,7 +90,8 @@ except (OSError, KeyError, json.JSONDecodeError):
 if apply:
     ledger = st.load(data)
     ledger["players"] = {pid: int(d) for pid, d in sorted(days.items()) if d > 0}
-    ledger["season"] = {"dates": [], "credit": {}}
+    # The season in progress is credited here: its close must not add it again.
+    ledger["season"] = {"dates": [], "credit": {}, "backfilled": bool(current)}
     ledger["backfill"] = {"seasons": season_keys, "first_year": first_year}
     st.save(ledger, data)
     print("contracts updated:", st.sync_contracts(data, ledger))

@@ -71,6 +71,16 @@ def load(data_dir: Path | str | None = None) -> Dict[str, Any]:
     return data
 
 
+def _contracted_ids(base: Path) -> list:
+    try:
+        from services.contracts_service import load_contracts_payload
+
+        players = load_contracts_payload(data_dir=base).get("players") or {}
+    except Exception:
+        return []
+    return [str(pid) for pid, c in players.items() if isinstance(c, Mapping)]
+
+
 def _from_contracts(base: Path) -> Dict[str, int]:
     try:
         from services.contracts_service import load_contracts_payload
@@ -160,6 +170,14 @@ def close_season(data_dir: Path | str | None = None) -> Dict[str, Any]:
             if days > 0:
                 ledger["players"][pid] = int(ledger["players"].get(pid, 0)) + days
                 added += 1
+    elif not season.get("backfilled"):
+        # No daily credits for this season (it was played before 8.5.1, or
+        # the league never ran the daily step): the rule the arbitration
+        # step used, a full season for every player under contract. A
+        # season the back-fill already credited is marked and skipped.
+        for pid in _contracted_ids(base):
+            ledger["players"][pid] = int(ledger["players"].get(pid, 0)) + FULL_SEASON_DAYS
+            added += 1
     ledger["season"] = {"dates": [], "credit": {}}
     save(ledger, base)
     synced = sync_contracts(base, ledger)
@@ -245,8 +263,9 @@ def seed_new_league(data_dir: Path | str | None = None, *,
                 if days:
                     ledger["players"][pid] = days
                     n += 1
-    save(ledger, base)
-    sync_contracts(base, ledger)
+    if n:  # nobody to credit: leave the league without a ledger
+        save(ledger, base)
+        sync_contracts(base, ledger)
     return n
 
 
