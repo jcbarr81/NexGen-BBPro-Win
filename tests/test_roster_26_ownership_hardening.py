@@ -75,7 +75,7 @@ def test_resolution_reads_the_negotiations_own_league(tmp_path, isolated_root, m
     league = tmp_path / "league"
     league.mkdir()
     (league / "users.txt").write_text("own,pw,owner,BBB\n", encoding="utf-8")
-    monkeypatch.setattr(neg, "_player_accepts", lambda o, p: True)
+    monkeypatch.setattr(neg, "_player_accepts", lambda o, p, rules=1: True)
     neg.save_negotiations(_negotiation([
         {"team_id": "BBB", "is_cpu": True, "annual_salary": 9_000_000, "years": 1},
         {"team_id": "AAA", "is_cpu": True, "annual_salary": 5_000_000, "years": 1},
@@ -95,7 +95,7 @@ def test_a_deferred_negotiation_is_not_a_no_deal(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: None
     )
-    monkeypatch.setattr(neg, "_player_accepts", lambda o, p: True)
+    monkeypatch.setattr(neg, "_player_accepts", lambda o, p, rules=1: True)
     neg.save_negotiations(_negotiation([
         {"team_id": "AAA", "is_cpu": True, "annual_salary": 5_000_000, "years": 1},
     ]), data_dir=tmp_path)
@@ -116,7 +116,7 @@ def test_dropping_a_bogus_cpu_leader_keeps_an_owners_bid_alive(tmp_path, monkeyp
     monkeypatch.setattr(
         "services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: {"BBB"}
     )
-    monkeypatch.setattr(neg, "_player_accepts", lambda o, p: o["annual_salary"] >= 5_000_000)
+    monkeypatch.setattr(neg, "_player_accepts", lambda o, p, rules=1: o["annual_salary"] >= 5_000_000)
     monkeypatch.setattr(neg, "_fair_market_total", lambda p: 1)
     neg.save_negotiations(_negotiation([
         {"team_id": "BBB", "is_cpu": True, "annual_salary": 9_000_000, "years": 1},

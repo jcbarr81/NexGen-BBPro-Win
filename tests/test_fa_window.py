@@ -3,7 +3,16 @@ lifecycle that locks the 'list unsigned players' sweep until the window closes.
 """
 
 import services.fa_window as w
+import pytest
+
 from services import fa_negotiations as neg
+
+
+@pytest.fixture(autouse=True)
+def _offer_rules_1(monkeypatch):
+    """These tests drive the exact-price rule (``evaluate_extension_offer``);
+    8.6.0 keeps it as offer rules 1 (rules 2: tests/test_fa_offer_rules.py)."""
+    monkeypatch.setattr("services.fa_negotiations.OFFER_RULES", 1)
 
 
 class _Ev:

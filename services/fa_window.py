@@ -297,6 +297,8 @@ def open_window(
     state = {
         "version": 1,
         "status": "open",
+        # 8.6.0: the offer rules this window's negotiations are judged by.
+        "offer_rules": fa_negotiations.OFFER_RULES,
         "season_key": season_key,
         "start_date": start_iso,
         "deadline_date": deadline.isoformat(),
@@ -370,6 +372,15 @@ def advance_day(
     players_by_id = _load_players_by_id(base)
     teams = _load_teams()
     sign_fn = _make_sign_fn(base)
+
+    # 8.6.0: before the market moves, CPU clubs extend the walk-year players
+    # they want to keep (once per offseason; services.cpu_extensions).
+    try:
+        from services.cpu_extensions import run_cpu_extension_pass
+
+        run_cpu_extension_pass(day_date, phase="OFFSEASON", data_dir=base)
+    except Exception:  # pragma: no cover - defensive
+        pass
 
     summary = fa_negotiations.process_negotiations(
         day_date,

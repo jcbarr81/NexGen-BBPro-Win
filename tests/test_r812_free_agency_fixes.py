@@ -204,6 +204,9 @@ def _point_router_at(monkeypatch, league: Path):
 
 
 def test_sign_endpoint_without_a_salary_signs_at_the_asking_price(league, monkeypatch):
+    # Offer rules 1, the exact price (8.6.0 keeps them for windows opened
+    # before it); rules 2 are in tests/test_fa_offer_rules.py.
+    monkeypatch.setattr("services.fa_negotiations.OFFER_RULES", 1)
     from services.contract_negotiator import FA_SERVICE_DAYS, asking_salary, fair_market_years
 
     router, signed = _point_router_at(monkeypatch, league)
@@ -224,6 +227,9 @@ def test_sign_endpoint_without_a_salary_signs_at_the_asking_price(league, monkey
 
 
 def test_sign_endpoint_with_a_salary_still_negotiates(league, monkeypatch):
+    # Offer rules 1, the exact price (8.6.0 keeps them for windows opened
+    # before it); rules 2 are in tests/test_fa_offer_rules.py.
+    monkeypatch.setattr("services.fa_negotiations.OFFER_RULES", 1)
     from fastapi import HTTPException
 
     router, _ = _point_router_at(monkeypatch, league)
@@ -237,6 +243,9 @@ def test_sign_endpoint_with_a_salary_still_negotiates(league, monkeypatch):
 
 
 def test_evaluate_and_offer_default_to_the_asking_price(league, monkeypatch):
+    # Offer rules 1, the exact price (8.6.0 keeps them for windows opened
+    # before it); rules 2 are in tests/test_fa_offer_rules.py.
+    monkeypatch.setattr("services.fa_negotiations.OFFER_RULES", 1)
     from services.contract_negotiator import FA_SERVICE_DAYS, asking_salary
 
     router, _ = _point_router_at(monkeypatch, league)

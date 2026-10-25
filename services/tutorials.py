@@ -333,7 +333,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Sign a player",
-                "<p>Click <b>Sign</b> on a row, pick the destination level (ACT/AAA/LOW), set the salary/years, and optionally a <b>signing bonus</b> (which debits your cash now). The dialog previews the player's <b>fair-market value</b>, likely response, and the top <b>competing CPU bids</b> so you know who you're up against. Confirm — the signing is written to the transactions log. Signing into a full level isn't refused; send someone down before your next game, because the season check won't sim an over-limit roster.</p>",
+                "<p>Click <b>Sign</b> on a row, pick the destination level (ACT/AAA/LOW), set the salary/years, and optionally a <b>signing bonus</b> (which debits your cash now). The dialog shows the player's <b>asking price</b> for the years you enter and the length he wants, plus the top <b>competing CPU bids</b> so you know who you're up against. As with extensions, his ask is <b>above what he'll really take</b>: an offer at or above his hidden minimum is acceptable, the best acceptable offer wins, and the dialog won't tell you in advance whether a figure is enough. Confirm — the signing is written to the transactions log. Signing into a full level isn't refused; send someone down before your next game, because the season check won't sim an over-limit roster.</p>",
             ),
             TutorialStep(
                 "The offseason bidding window",

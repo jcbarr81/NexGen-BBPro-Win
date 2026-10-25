@@ -5,7 +5,9 @@ player went to free agency. Owner's call (2026-10-25): the CPU decides for
 itself whom to re-sign, with logic, and has a ceiling it will pay.
 
 Twice a month in the season (the first played date on or after the 1st and
-the 16th; idempotent, ``cpu_extensions_state.json``) each CPU club looks at
+the 16th), and since 8.6.0 once on the offseason free-agency window's first
+day and once on entering the preseason (idempotent per window,
+``cpu_extensions_state.json``), each CPU club looks at
 its players who may be extended (``contract_negotiator.
 check_extension_eligibility``) and are in the walk year
 (every expiring contract goes to free agency at the rollover), best first:
@@ -48,6 +50,9 @@ KEEP_THRESHOLD = {"contend": 53.0, "balanced": 55.0, "rebuild": 57.0}
 OPENING_SHARE = 0.90
 MAX_OFFERS = 5
 RUN_PHASES = {"REGULAR_SEASON", "PLAYOFFS"}
+# Once a season each: the first free-agency window day, and the move into
+# the preseason (8.6.0).
+OFF_PHASES = {"OFFSEASON", "PRESEASON"}
 
 
 def _money(value: float) -> int:
@@ -180,9 +185,15 @@ def _run(played_date: str, *, phase: Optional[str], data_dir: Path | str | None,
 
     base = Path(get_data_dir() if data_dir is None else data_dir)
     date = str(played_date or "")[:10]
-    if str(phase or "").upper() not in RUN_PHASES or len(date) < 10:
+    phase_u = str(phase or "").upper()
+    if phase_u in RUN_PHASES and len(date) == 10:
+        window = _window(date)
+    elif phase_u in OFF_PHASES:
+        from services.extension_talks import season_key
+
+        window = f"{season_key(base) or 'season'}-{phase_u.lower()}"
+    else:
         return {"applied": False, "reason": "phase"}
-    window = _window(date)
     state = _load_state(base)
     if not force and state.get("last_window") == window:
         return {"applied": False, "reason": "already_ran", "window": window}

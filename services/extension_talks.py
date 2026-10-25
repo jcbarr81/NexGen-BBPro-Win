@@ -376,6 +376,42 @@ def talks_status(player_id: str, team_id: str, *,
 
 
 # ---------------------------------------------------------------------------
+# Free agency (8.6.0): the same price, hidden minimum and temperament
+
+
+FA_SERVICE_DAYS = 6 * 172
+
+
+def fa_terms(player: object, player_id: str, *, years: int) -> Dict[str, Any]:
+    """A free agent's terms for ``years``: ``{ask, minimum, preferred_years,
+    too_long}``. His fair price is the free-agent market (:func:`fair_price`,
+    no current salary); his ask and his hidden minimum use his temperament,
+    as in extension talks. Only ``ask`` and ``preferred_years`` may be shown."""
+
+    from services.contract_negotiator import fair_market_years
+
+    kind = temperament(player_id)
+    years = max(1, int(years))
+    fair = fair_price(player, years=years, service_time_days=FA_SERVICE_DAYS,
+                      current_annual_salary=0, current_years_left=0)
+    preferred = fair_market_years(player, service_time_days=FA_SERVICE_DAYS)
+    return {
+        "ask": max(_round_money(fair * _opening_ratio(player_id, kind)), 800_000),
+        "minimum": fair * MINIMUM_RATIO[kind],
+        "preferred_years": preferred,
+        "too_long": _too_long(player, years, preferred),
+    }
+
+
+def fa_accepts(player: object, player_id: str, *, years: int, salary: int) -> bool:
+    """Would the free agent take ``salary`` a year for ``years``? At or above
+    his hidden minimum, and not too long for his age."""
+
+    terms = fa_terms(player, player_id, years=years)
+    return int(salary) >= terms["minimum"] and not terms["too_long"]
+
+
+# ---------------------------------------------------------------------------
 # The two entry points
 
 

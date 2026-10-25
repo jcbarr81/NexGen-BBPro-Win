@@ -34,6 +34,12 @@ EARLY_ACCEPT_MULTIPLE = 1.15
 # deadline) instead of all landing at once.
 WINDOW_BLOWAWAY_MULTIPLE = 1.30
 _FILENAME = "fa_negotiations.json"
+# Offer rules (8.6.0): 1 = the exact price (``evaluate_extension_offer``,
+# accepted at 95%); 2 = an asking price above a hidden minimum
+# (``extension_talks.fa_accepts``). Each negotiation keeps the rules it opened
+# under, and one opened in a bidding window that predates rules 2 uses 1, so
+# an auction under way never changes its rules (owner's call, 2026-10-25).
+OFFER_RULES = 2
 
 
 def _window_patience(player_id: str, total_days: int) -> int:
@@ -106,13 +112,39 @@ def _offer_value(offer: Dict[str, Any]) -> int:
     return salary * years + bonus
 
 
+def current_offer_rules(*, data_dir: Path | str | None = None) -> int:
+    """The rules a negotiation opened now is judged by: an open bidding
+    window's own (1 for a window opened before 8.6.0), else the current."""
+
+    try:
+        from services.fa_window import load_window
+
+        window = load_window(data_dir=data_dir)
+    except Exception:
+        window = None
+    if window and window.get("status") == "open":
+        return int(window.get("offer_rules", 1) or 1)
+    return OFFER_RULES
+
+
+def offer_rules_for(player_id: str, *, data_dir: Path | str | None = None) -> int:
+    """The rules an offer to ``player_id`` is judged by now."""
+
+    neg = get_negotiation(player_id, data_dir=data_dir)
+    if isinstance(neg, dict) and neg.get("status") == "open":
+        return int(neg.get("rules", 1) or 1)
+    return current_offer_rules(data_dir=data_dir)
+
+
 def _new_negotiation(
-    player_id: str, opened: str, *, opened_day: Optional[int] = None
+    player_id: str, opened: str, *, opened_day: Optional[int] = None,
+    data_dir: Path | str | None = None,
 ) -> Dict[str, Any]:
     opened_date = _parse_date(opened) or date.today()
     deadline = opened_date + timedelta(days=NEGOTIATION_WINDOW_DAYS)
     return {
         "player_id": player_id,
+        "rules": current_offer_rules(data_dir=data_dir),
         "opened_date": opened_date.isoformat(),
         "deadline_date": deadline.isoformat(),
         # The preseason window day this negotiation first opened on, so
@@ -166,7 +198,8 @@ def submit_offer(
     negs = payload["negotiations"]
     negotiation = negs.get(pid)
     if not isinstance(negotiation, dict) or negotiation.get("status") != "open":
-        negotiation = _new_negotiation(pid, sim_date, opened_day=window_day)
+        negotiation = _new_negotiation(pid, sim_date, opened_day=window_day,
+                                       data_dir=data_dir)
         negs[pid] = negotiation
     _upsert_offer(
         negotiation,
@@ -277,10 +310,21 @@ def _fair_market_total(player: Any) -> int:
         return 0
 
 
-def _player_accepts(offer: Dict[str, Any], player: Any) -> bool:
+def _player_accepts(offer: Dict[str, Any], player: Any, rules: int = 1) -> bool:
     """Would the player accept this offer's terms right now?"""
     if player is None:
         return True
+    if int(rules or 1) >= 2:
+        try:
+            from services.extension_talks import fa_accepts
+
+            return fa_accepts(
+                player, str(getattr(player, "player_id", "") or ""),
+                years=max(1, int(offer.get("years", 1))),
+                salary=max(0, int(offer.get("annual_salary", 0))),
+            )
+        except Exception:
+            return True
     try:
         from services.contract_negotiator import evaluate_extension_offer
 
@@ -405,7 +449,8 @@ def _resolve(
             # remaining bidders the rest of the negotiation to raise.
             return {"signed_team": None, "player_id": player_id, "pruned": True}
     offers = negotiation.get("offers", []) or []
-    acceptable = [o for o in offers if _player_accepts(o, player)]
+    rules = int(negotiation.get("rules", 1) or 1)
+    acceptable = [o for o in offers if _player_accepts(o, player, rules)]
     winner = max(acceptable, key=_offer_value) if acceptable else None
 
     if winner is None:
@@ -556,7 +601,7 @@ def process_negotiations(
         if not at_deadline:
             leader = max(offers, key=_offer_value)
             fm = _fair_market_total(player)
-            if _player_accepts(leader, player) and fm > 0:
+            if _player_accepts(leader, player, int(neg.get("rules", 1) or 1)) and fm > 0:
                 if in_window:
                     # Blow-away offers sign now; otherwise the player waits until
                     # their negotiation has been live long enough (measured from
@@ -629,7 +674,8 @@ def seed_cpu_negotiations(
         neg = negs.get(pid)
         existed = isinstance(neg, dict) and neg.get("status") == "open"
         if not existed:
-            neg = _new_negotiation(pid, sim_date, opened_day=window_day)
+            neg = _new_negotiation(pid, sim_date, opened_day=window_day,
+                                   data_dir=data_dir)
         added = _cpu_bid_round(
             neg, pid, player, teams, ai_level, sim_date, data_dir=data_dir
         )

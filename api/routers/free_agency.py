@@ -262,6 +262,29 @@ def _asking_salary(player: Any, years: int) -> int:
     return int(asking_salary(player, years=years, service_time_days=FA_SERVICE_DAYS))
 
 
+def _offer_rules(player_id: str) -> int:
+    """The offer rules a bid on ``player_id`` is judged by (8.6.0;
+    ``services.fa_negotiations.offer_rules_for``)."""
+
+    try:
+        from services.fa_negotiations import offer_rules_for
+
+        return offer_rules_for(player_id)
+    except Exception:  # pragma: no cover - defensive
+        return 1
+
+
+def _default_salary(player: Any, player_id: str, years: int) -> int:
+    """An offer with no figure: his asking price (under rules 2, the ask
+    above his hidden minimum)."""
+
+    if _offer_rules(player_id) >= 2:
+        from services.extension_talks import fa_terms
+
+        return int(fa_terms(player, player_id, years=years)["ask"])
+    return _asking_salary(player, years)
+
+
 def _find_player(player_id: str) -> Any:
     """Return the player record from players.csv, or None."""
 
@@ -407,19 +430,22 @@ def evaluate_fa_offer(
         offered_years = 1
     salary_raw = payload.get("annual_salary")
     if salary_raw in (None, ""):
-        offered_salary = _asking_salary(player, offered_years)
+        offered_salary = _default_salary(player, pid, offered_years)
     else:
         try:
             offered_salary = int(salary_raw)
         except (TypeError, ValueError):
-            offered_salary = _asking_salary(player, offered_years)
+            offered_salary = _default_salary(player, pid, offered_years)
 
-    evaluation = evaluate_extension_offer(
-        player,
-        offered_years=offered_years,
-        offered_annual_salary=offered_salary,
-        service_time_days=FA_SERVICE_DAYS,
-    )
+    rules = _offer_rules(pid)
+    evaluation = None
+    if rules < 2:
+        evaluation = evaluate_extension_offer(
+            player,
+            offered_years=offered_years,
+            offered_annual_salary=offered_salary,
+            service_time_days=FA_SERVICE_DAYS,
+        )
 
     # The caller's team drives payroll impact + excludes our own bid from the
     # competition list. A commissioner/super-admin has no bound identity["t"], so
@@ -450,8 +476,24 @@ def evaluate_fa_offer(
             payroll_impact = None
 
     phase_gate = _phase_gate_for_fa()
+    if evaluation is None:
+        # 8.6.0: his ask and the length he wants, never how he would answer
+        # a figure (his minimum is hidden, as in extension talks).
+        from services.extension_talks import fa_terms
+
+        terms = fa_terms(player, pid, years=offered_years)
+        return {
+            "player_id": pid,
+            "rules": rules,
+            "ask_salary": int(terms["ask"]),
+            "preferred_years": int(terms["preferred_years"]),
+            "competing_bids": competition,
+            "payroll_impact": payroll_impact,
+            "phase_gate": phase_gate,
+        }
     return {
         "player_id": pid,
+        "rules": rules,
         "fair_market_salary": evaluation.fair_market_salary,
         "fair_market_years": evaluation.fair_market_years,
         "decision": evaluation.decision,
@@ -624,13 +666,13 @@ def sign_free_agent(
         salary = (
             int(salary_override)
             if salary_override not in (None, "")
-            else _asking_salary(player_record, years)
+            else _default_salary(player_record, player_id, years)
             if player_record is not None
             else estimate_salary_for_player(player_record)
         )
     except (TypeError, ValueError):
         salary = (
-            _asking_salary(player_record, years)
+            _default_salary(player_record, player_id, years)
             if player_record is not None
             else estimate_salary_for_player(player_record)
         )
@@ -639,7 +681,40 @@ def sign_free_agent(
     # player evaluates the offer based on talent, age, and FA-tier
     # market expectations. Admin force bypasses.
     negotiation: Optional[Dict[str, Any]] = None
-    if not can_force and player_record is not None:
+    if not can_force and player_record is not None and _offer_rules(player_id) >= 2:
+        # 8.6.0: his hidden minimum decides; a short offer is answered with
+        # his ask (never the minimum).
+        from services.extension_talks import fa_accepts, fa_terms
+
+        if not fa_accepts(player_record, player_id, years=years, salary=salary):
+            terms = fa_terms(player_record, player_id, years=years)
+            counter_years = terms["preferred_years"] if terms["too_long"] else years
+            negotiation = {
+                "decision": "countered",
+                "reason": (
+                    f"He's asking ${int(terms['ask']):,}/yr"
+                    + (f" and {counter_years} years" if terms["too_long"] else "")
+                    + "."
+                ),
+                "ask_salary": int(terms["ask"]),
+                "counter_salary": int(terms["ask"]),
+                "counter_years": counter_years,
+                "service_tier": "free_agent",
+            }
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "countered",
+                    "message": negotiation["reason"],
+                    "player_id": player_id,
+                    "negotiation": negotiation,
+                    "competing_bids": _competing_bids(
+                        player_record, exclude_team_id=team_id
+                    ),
+                },
+            )
+        negotiation = {"decision": "accepted", "service_tier": "free_agent"}
+    elif not can_force and player_record is not None:
         evaluation = evaluate_extension_offer(
             player_record,
             offered_years=years,
@@ -843,12 +918,12 @@ def submit_fa_offer(
         years = 1
     salary_raw = payload.get("annual_salary")
     if salary_raw in (None, "") and player is not None:
-        salary = _asking_salary(player, years)
+        salary = _default_salary(player, pid, years)
     else:
         try:
             salary = int(salary_raw)
         except (TypeError, ValueError):
-            salary = _asking_salary(player, years) if player is not None else 0
+            salary = _default_salary(player, pid, years) if player is not None else 0
     try:
         bonus = max(0, int(payload.get("signing_bonus") or 0))
     except (TypeError, ValueError):

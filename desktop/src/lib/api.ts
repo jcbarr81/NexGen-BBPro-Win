@@ -301,13 +301,20 @@ export interface CompetingBid {
 
 export interface FreeAgentOfferEvaluation {
   player_id: string;
-  fair_market_salary: number;
-  fair_market_years: number;
-  decision: "accepted" | "countered" | "rejected";
-  counter_salary: number | null;
-  counter_years: number | null;
-  reason: string;
-  service_tier: "pre_arb" | "arbitration" | "free_agent";
+  /** 1: the exact price (a window opened before 8.6.0); 2: his ask above a
+   *  hidden minimum, with no answer previewed. */
+  rules?: number;
+  /** Rules 2. */
+  ask_salary?: number;
+  preferred_years?: number;
+  /** Rules 1 only. */
+  fair_market_salary?: number;
+  fair_market_years?: number;
+  decision?: "accepted" | "countered" | "rejected";
+  counter_salary?: number | null;
+  counter_years?: number | null;
+  reason?: string;
+  service_tier?: "pre_arb" | "arbitration" | "free_agent";
   competing_bids: CompetingBid[];
   /** Payroll/tax/solvency consequences of this offer for the caller's team.
    *  Null when the caller has no team or finance data is unavailable. */

@@ -15,6 +15,12 @@ from types import SimpleNamespace
 
 import pytest
 
+@pytest.fixture(autouse=True)
+def _offer_rules_1(monkeypatch):
+    """These tests drive the exact-price rule (``evaluate_extension_offer``);
+    8.6.0 keeps it as offer rules 1 (rules 2: tests/test_fa_offer_rules.py)."""
+    monkeypatch.setattr("services.fa_negotiations.OFFER_RULES", 1)
+
 from models.roster import Roster
 from utils.roster_rules import (
     AAA_CAP,
@@ -574,7 +580,7 @@ def test_a_stale_cpu_offer_for_an_owners_club_never_signs(monkeypatch):
     monkeypatch.setattr(
         "services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: {"BBB"}
     )
-    monkeypatch.setattr(neg, "_player_accepts", lambda o, p: True)
+    monkeypatch.setattr(neg, "_player_accepts", lambda o, p, rules=1: True)
     negotiation = {
         "offers": [
             {"team_id": "BBB", "is_cpu": True, "annual_salary": 9_000_000, "years": 1},

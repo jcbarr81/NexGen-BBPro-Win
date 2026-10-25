@@ -133,11 +133,11 @@ def test_the_club_extends_the_walk_year_player_it_wants(league):
     assert league.news and league.news[0][:2] == ("CPU", "KEEP")
 
 
-def test_twice_a_month_and_only_in_season(league):
+def test_twice_a_month_in_season(league):
     run(league)
     assert run(league, date="2027-05-09")["reason"] == "already_ran"
     assert run(league, date="2027-05-16")["window"] == "2027-05b"
-    assert run(league, phase="OFFSEASON")["reason"] == "phase"
+    assert run(league, phase="AMATEUR_DRAFT")["reason"] == "phase"
 
 
 def test_a_club_over_its_target_does_not_open_talks(league, monkeypatch):
@@ -154,3 +154,11 @@ def test_finance_ai_off_or_ownership_unknown_stands_down(league, monkeypatch):
                         lambda base=None: None)
     assert run(league)["reason"] == "ownership_unknown"
     assert league.extended == []
+
+
+def test_once_in_the_offseason_window_and_once_in_the_preseason(league):
+    out = run(league, date="2027-12-03", phase="OFFSEASON")
+    assert out["window"] == "lg-2027-offseason" and out["applied"]
+    assert run(league, date="2027-12-04", phase="OFFSEASON")["reason"] == "already_ran"
+    assert run(league, date="", phase="PRESEASON")["window"] == "lg-2027-preseason"
+    assert run(league, date="", phase="AMATEUR_DRAFT")["reason"] == "phase"

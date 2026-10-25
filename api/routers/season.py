@@ -2322,6 +2322,16 @@ def advance_phase(
         # on the way in from the offseason: returning here from the finished
         # draft must not reopen it.
         if previous_phase == SeasonPhase.OFFSEASON:
+            # 8.6.0: CPU clubs' last chance to extend their walk-year players
+            # before Opening Day (once per season; services.cpu_extensions).
+            try:
+                from services.cpu_extensions import run_cpu_extension_pass
+
+                extra["cpu_extensions"] = run_cpu_extension_pass(
+                    "", phase="PRESEASON"
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                extra["cpu_extensions_error"] = str(exc)
             try:
                 opened = _maybe_open_preseason_draft(manager)
             except Exception as exc:  # pragma: no cover - defensive

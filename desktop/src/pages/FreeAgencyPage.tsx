@@ -941,8 +941,9 @@ function SignDialog({
             {player?.first_name ? `, ${player.first_name}` : ""}
           </DialogTitle>
           <DialogDescription>
-            Make an offer. The player evaluates it against market value
-            and competing bids before deciding.
+            {previewQ.data?.ask_salary != null
+              ? "Make an offer. His ask is above what he'll really take; he signs with the best acceptable offer on his own day or at the deadline."
+              : "Make an offer. The player evaluates it against market value and competing bids before deciding."}
           </DialogDescription>
         </DialogHeader>
 
@@ -974,22 +975,37 @@ function SignDialog({
           {previewQ.data && !previewQ.data.phase_gate && (
             <div className="rounded-md border border-border bg-surfaceAlt/40 px-3 py-2 text-xs">
               <div className="font-semibold uppercase tracking-wider text-muted">
-                Market estimate
+                {previewQ.data.ask_salary != null ? "His position" : "Market estimate"}
               </div>
-              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
-                <span className="text-muted">Fair salary</span>
-                <span className="text-right tabular-nums font-semibold">
-                  ${previewQ.data.fair_market_salary.toLocaleString()}/yr
-                </span>
-                <span className="text-muted">Fair length</span>
-                <span className="text-right tabular-nums font-semibold">
-                  {previewQ.data.fair_market_years} yrs
-                </span>
-                <span className="text-muted">Service tier</span>
-                <span className="text-right text-xs uppercase">
-                  {previewQ.data.service_tier.replace("_", " ")}
-                </span>
-              </div>
+              {previewQ.data.ask_salary != null ? (
+                <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <span className="text-muted">
+                    Asking ({Number(years) || 1} yr{(Number(years) || 1) === 1 ? "" : "s"})
+                  </span>
+                  <span className="text-right tabular-nums font-semibold">
+                    ${previewQ.data.ask_salary.toLocaleString()}/yr
+                  </span>
+                  <span className="text-muted">Wants</span>
+                  <span className="text-right tabular-nums font-semibold">
+                    {previewQ.data.preferred_years} yrs
+                  </span>
+                </div>
+              ) : (
+                <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <span className="text-muted">Fair salary</span>
+                  <span className="text-right tabular-nums font-semibold">
+                    ${(previewQ.data.fair_market_salary ?? 0).toLocaleString()}/yr
+                  </span>
+                  <span className="text-muted">Fair length</span>
+                  <span className="text-right tabular-nums font-semibold">
+                    {previewQ.data.fair_market_years} yrs
+                  </span>
+                  <span className="text-muted">Service tier</span>
+                  <span className="text-right text-xs uppercase">
+                    {(previewQ.data.service_tier ?? "").replace("_", " ")}
+                  </span>
+                </div>
+              )}
               {previewQ.data.competing_bids.length > 0 && (
                 <div className="mt-2 border-t border-border/60 pt-2">
                   <div className="font-semibold uppercase tracking-wider text-muted">
@@ -1043,9 +1059,11 @@ function SignDialog({
                 value={salary}
                 onChange={(e) => setSalary(e.target.value)}
                 placeholder={
-                  previewQ.data
-                    ? `Defaults to fair market`
-                    : "$"
+                  previewQ.data?.ask_salary != null
+                    ? `Defaults to his ask`
+                    : previewQ.data
+                      ? `Defaults to fair market`
+                      : "$"
                 }
               />
             </div>
